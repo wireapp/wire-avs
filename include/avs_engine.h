@@ -1,0 +1,462 @@
+/*
+* Wire
+* Copyright (C) 2016 Wire Swiss GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <http://www.gnu.org/licenses/>.
+*/
+/* libavs -- simple sync engine
+ *
+ */
+
+#ifndef ZCLIENTCALL__ENGINE_H
+#define ZCLIENTCALL__ENGINE_H 1
+
+
+/************* Forward Declarations ****************************************/
+
+struct engine;
+struct engine_user;
+struct engine_conv;
+
+struct flowmgr; /* see avs_flowmgr.h  */
+struct store;   /* see avs_store.h  */
+
+
+/************* Useful Handlers *********************************************/
+
+/* Generic notification handler.
+ *
+ * A handler that only receives the argument passed upon registration but
+ * nothing else.
+ */
+typedef void (engine_ping_h)(void *arg);
+
+
+/* Generic status handler.
+ *
+ * This type is used when there really only ever is success or error to
+ * be reported.
+ */
+typedef void (engine_status_h)(int err, void *arg);
+
+
+/************* House Keeping ***********************************************/
+
+/* Initialize the engine module.
+ */
+int engine_init(const char *msys);
+
+/* Close the engine module.
+ */
+void engine_close(void);
+
+/* Create an engine and start log in.
+ *
+ * Pass the base URI for requests in *request_uri* and the full URI for
+ * establishing a websocket notification channel in *notification_uri*.
+ * The *email* and *password* arguments should contain the email and
+ * password for the account to log in as.
+ *
+ * If you pass in a pointer to a store in *store*, it will be used to store
+ * information for the logged in user. The user name used in the store will
+ * be a hash over *request_uri* and *email*. If *flush_store* is set to true,
+ * the user part of the store will be flushed out so that syncing starts from
+ * scratch.
+ *
+ * If you set *clear_cookies* to true, the engine will delete all existing
+ * login cookies before asking for a new one. Do this if you are logging
+ * in frequently.
+ *
+ * Optionally, you can pass in string for *user_agent* which wil be used
+ * as the User-Agent header field in HTTP request. If you don't, the engine
+ * will use its own string.
+ *
+ * You can pass in three handlers. The *readyh* will be called when the
+ * engine has finished its startup phase and is ready for use. If the engine
+ * needs to sync, *readyh* is called before sync is finished.
+ *
+ * Should the engine encounter a fatal error that makes it pointless to
+ * continue, it will call the *errorh* and initiate shutdown. Ie., you
+ * do not need to call engine_shutdown() in response to *errorh*, that will
+ * already have happend.
+ *
+ * Finally, *shuth* is called when orderly shutdown of the engine in
+ * response to engine_shutdown() or a fatal error has finished. You should
+ * not call re_cancel() before *shuth* has been called.
+ *
+ * The function returns 0 on success and a pointer to the newly created
+ * engine in *enginep*. Upon error, an appropriate errno is returned.
+ */
+int engine_alloc(struct engine **enginep, const char *request_uri,
+		 const char *notification_uri, const char *email,
+		 const char *password, struct store *store, bool flush_store,
+		 bool clear_cookies, const char *user_agent,
+		 engine_ping_h *readyh, engine_status_h *errorh,
+		 engine_ping_h *shuth, void *arg);
+int engine_restart(struct engine *eng);
+
+/* Request a full sync.
+ *
+ * You can only call this function on an active engine. It will then go
+ * off and check all its cached information against the backend.
+ */
+int engine_start_sync(struct engine *engine);
+
+/* Request engine shutdown.
+ *
+ * Once you have called the function, the engine is unusable. Calling
+ * functions is likely to result in EINVAL return values. Basically, you
+ * can't do anything anymore but wait for the shutdown handler to be
+ * called. Only then should you terminate the main loop and deref the
+ * engine.
+ */
+void engine_shutdown(struct engine *engine);
+
+
+/* Get the login token.
+ */
+const char *engine_get_login_token(struct engine *engine);
+
+/************* Users *******************************************************/
+
+enum engine_conn_status {
+	ENGINE_CONN_NONE      = 0,
+	ENGINE_CONN_ACCEPTED,
+	ENGINE_CONN_BLOCKED,
+	ENGINE_CONN_PENDING,
+	ENGINE_CONN_IGNORED,
+	ENGINE_CONN_SENT
+};
+
+const char *engine_conn_status_string(enum engine_conn_status status);
+
+
+struct engine_user {
+	struct engine *engine;
+	char *id;
+
+	bool collected;
+
+	char *email;
+	char *phone;
+	uint32_t accent_id;
+	char *name;
+	/* XXX picture asset.  */
+
+	char *display_name;
+
+	enum engine_conn_status conn_status;
+	char *conn_message;
+
+	struct engine_conv *conv;	/* One-on-one with this user.  */
+
+	/* User data. Will be derefed on shutdown.
+	 */
+	void *arg;
+};
+
+
+/* Get yourself
+ */
+struct engine_user *engine_get_self(struct engine *engine);
+bool engine_is_self(struct engine *engine, const char *id);
+
+/* Iterate over all known users.
+ */
+typedef bool (engine_user_apply_h)(struct engine_user *user, void *arg);
+struct engine_user *engine_apply_users(struct engine *engine,
+				       engine_user_apply_h *applyh,
+				       void *arg);
+
+/* User updates
+ */
+enum engine_user_changes {
+	ENGINE_USER_EMAIL      = 1<<0,
+	ENGINE_USER_PHONE      = 1<<1,
+	ENGINE_USER_ACCENT_ID  = 1<<2,
+	ENGINE_USER_NAME       = 1<<3,
+};
+
+
+/************* Connections *************************************************/
+
+/* Change connection status.
+ */
+int engine_update_conn(struct engine_user *user,
+		       enum engine_conn_status status,
+		       engine_status_h *statush, void *arg);
+
+
+/************* Search ******************************************************/
+
+struct engine_user_search {
+	int took;
+	int found;
+	int returned;
+	struct list userl;
+};
+
+struct engine_found_user {
+	struct le le;
+
+	char *email;
+	char *phone;
+	bool connected;
+	int weight;
+	bool blocker;
+	char *name;
+	char *id;
+	int accent_id;
+	bool blocked;
+	int level;
+};
+
+typedef void (engine_user_search_h)(int err, struct engine_user_search *sp,
+				    void *arg);
+
+int engine_search_contacts(struct engine *engine, const char *query,
+			   int size, bool d, int l,
+			   engine_user_search_h *h, void *arg);
+int engine_search_top(struct engine *engine, int size,
+		      engine_user_search_h *h, void *arg);
+int engine_search_suggestions(struct engine *engine, int size, int l,
+			      engine_user_search_h *h, void *arg);
+int engine_search_common(struct engine *engine, struct engine_user *user,
+			 engine_user_search_h *h, void *arg);
+
+
+/************* Conversations ***********************************************/
+
+/* Conversation type.
+ */
+enum engine_conv_type {
+	ENGINE_CONV_UNKNOWN = 0,
+	ENGINE_CONV_REGULAR,
+	ENGINE_CONV_SELF,
+	ENGINE_CONV_ONE,
+	ENGINE_CONV_CONNECT
+};
+
+
+struct engine_conv {
+	struct engine *engine;
+	char *id;
+	enum engine_conv_type type;
+	char *name;
+	struct list memberl;
+
+	bool active;
+	bool archived;
+	bool muted;
+
+	/* Call-related information
+	 */
+	int  others_in_call;
+	bool user_in_call;
+	bool device_in_call;
+
+	/* Event-related information
+	 */
+	char *last_event;
+	char *last_read;
+	bool unread;
+
+	/* User data. Will be derefed on shutdown.
+	 */
+	void *arg;
+};
+
+
+/* Conversation member.
+ *
+ * These are in struct engine_conv's memberl.
+ */
+struct engine_conv_member {
+	struct le le;
+	struct engine_user *user;	/* identifies the user  */
+	bool active;			/* currently a member?   */
+	bool in_call;			/* currently in a call here?  */
+	double quality;			/* connection quality  */
+};
+
+/* Get conversation from its ID.
+ */
+int engine_lookup_conv(struct engine_conv **convp, struct engine *engine,
+		       const char *id);
+
+/* Iterate over conversations
+ */
+typedef bool (engine_conv_apply_h)(struct engine_conv *conv, void *arg);
+struct engine_conv *engine_apply_convs(struct engine *engine,
+				       engine_conv_apply_h *applyh,
+				       void *arg);
+
+/* printf handler for a conversation's name
+ */
+int engine_print_conv_name(struct re_printf *pf, struct engine_conv *conv);
+
+/* Conversation updates
+ */
+enum engine_conv_changes {
+	ENGINE_CONV_TYPE = 1 << 0,
+	ENGINE_CONV_NAME = 1 << 1,
+	ENGINE_CONV_MEMBERS = 1 << 2,
+	ENGINE_CONV_ACTIVE = 1 << 3,
+	ENGINE_CONV_ARCHIVED = 1 << 4,
+	ENGINE_CONV_MUTED = 1 << 5,
+	ENGINE_CONV_LAST_EVENT = 1 << 6,
+	ENGINE_CONV_LAST_READ = 1 << 7
+};
+
+
+/************* Calls *******************************************************/
+
+struct flowmgr *engine_get_flowmgr(struct engine *engine);
+
+int engine_join_call(struct engine_conv *conv);
+int engine_leave_call(struct engine_conv *conv);
+
+int engine_get_audio_mute(struct engine *engine, bool *muted);
+int engine_set_audio_mute(struct engine *engine, bool mute);
+
+/************* Voice Messages *********************************************/
+
+int engine_voice_message_start_rec(struct engine *engine,
+				   const char fileNameUTF8[1024]);
+int engine_voice_message_stop_rec(struct engine *engine);
+int engine_voice_message_start_play(struct engine *engine,
+				    const char fileNameUTF8[1024]);
+int engine_voice_message_stop_play(struct engine *engine);
+
+/************* Messages ****************************************************
+ *
+ * The backend actually calls the things you see in a conversation "events",
+ * too. We shall call them "messages," even the things that aren't text
+ * messages, in the vain hope to produce less confusion.
+ *
+ */
+
+enum engine_msg_types {
+	ENGINE_MSG_UNKNOWN,
+	ENGINE_MSG_TEXT,
+	ENGINE_MSG_ASSET,
+	ENGINE_MSG_JOIN,
+	ENGINE_MSG_LEAVE,
+	ENGINE_MSG_RENAME,
+	ENGINE_MSG_VOICE_ACTIVE,
+	ENGINE_MSG_VOICE_DEACTIVE,
+	ENGINE_MSG_KNOCK,
+	ENGINE_MSG_HOT_KNOCK,
+	ENGINE_MSG_MEMBER_UPDATE,
+	ENGINE_MSG_CREATE,
+	ENGINE_MSG_CONNECT,
+	ENGINE_MSG_TYPING
+};
+
+struct engine_msg_text {
+	char *content;
+	char *nonce;
+};
+
+struct engine_msg {
+	struct le le;
+	struct engine_conv *conv;
+	struct engine_user *from;
+	char *id;
+	/* time_t time;  XXX Tricky to do, so we leave it out for now. */
+	enum engine_msg_types type;
+	union {
+		struct engine_msg_text text;
+		/* ...  */
+	} data;
+};
+
+/* Set last read message.
+ */
+int engine_set_last_read(struct engine_conv *conv, const char *msg_id);
+
+/* Iterate over all messages in a conversation.
+ */
+typedef bool (engine_msg_apply_h)(int err, struct engine_msg *msg, void *arg);
+int engine_apply_messages(struct engine_conv *conv, bool forward,
+			  const char *start, const char *end,
+			  engine_msg_apply_h *h, void *arg);
+
+int engine_send_text_message(struct engine_conv *conv, const char *msg);
+int engine_send_text_message_vf(struct engine_conv *conv, const char *msg,
+				va_list ap);
+int engine_send_text_message_f(struct engine_conv *conv, const char *msg,
+			       ...);
+int engine_send_data(struct engine_conv *conv, const char *ctype,
+		     uint8_t *data, size_t len);
+int engine_send_file(struct engine_conv *conv, const char *ctype,
+		     const char *path);
+int engine_fetch_asset(struct engine *engine,
+		       const char *cid, const char *aid, const char *path);
+
+
+/************* Listening to Events *****************************************/
+
+typedef void (engine_estab_h)(bool estab, void *arg);
+typedef void (engine_user_h)(struct engine_user *user,
+			     enum engine_user_changes changes,
+			     void *arg);
+typedef void (engine_conn_ev_h)(struct engine_user *user,
+				enum engine_conn_status old_status,
+				void *arg);
+typedef void (engine_conv_add_h)(struct engine_conv *conv, void *arg);
+typedef void (engine_conv_update_h)(struct engine_conv *conv,
+				    enum engine_conv_changes, void *arg);
+typedef void (engine_conv_call_h)(struct engine_conv *conv, void *arg);
+typedef void (engine_call_participant_h)(struct engine_conv *conv,
+					 struct engine_user *user,
+					 bool joined, void *arg);
+
+/* XXX Provisional message handler. This is going to change.
+ */
+typedef void (engine_add_msg_h)(struct engine_conv *conv,
+				struct engine_user *from,
+				const char *event_id,
+				const char *msg, void *arg);
+typedef void (engine_syncdone_h)(void *arg);
+
+
+struct engine_lsnr {
+	struct le le;
+	engine_estab_h *estabh;  /* Websocket is established */
+	engine_user_h *userh;
+	engine_conn_ev_h *connh;
+	engine_conv_add_h *addconvh;
+	engine_conv_update_h *convupdateh;
+	engine_conv_call_h *callh;
+	engine_call_participant_h *callparth;
+	engine_add_msg_h *addmsgh;
+	engine_syncdone_h *syncdoneh;       /* sync done */
+	void *arg;
+};
+
+int engine_lsnr_register(struct engine *engine,
+			 struct engine_lsnr *lsnr);
+void engine_lsnr_unregister(struct engine_lsnr *lsnr);
+
+
+struct rest_cli *engine_get_restcli(struct engine *engine);
+
+const char *engine_get_msys(void);
+int engine_set_trace(struct engine *engine,
+		      const char *path, bool use_stdout);
+struct trace *engine_get_trace(struct engine *engine);
+
+
+#endif  /* ZCLIENTCALL__ENGINE_H */

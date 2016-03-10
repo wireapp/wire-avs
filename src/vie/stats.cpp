@@ -1,0 +1,145 @@
+/*
+* Wire
+* Copyright (C) 2016 Wire Swiss GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <http://www.gnu.org/licenses/>.
+*/
+#include <stdio.h>
+#include <re.h>
+
+#include <avs.h>
+#include <avs_vie.h>
+
+#include "webrtc/common_types.h"
+#include "webrtc/common.h"
+#include "webrtc/system_wrappers/interface/trace.h"
+#include "vie_render_view.h"
+#include "vie.h"
+
+
+void stats_rtp_add_packet(struct transp_stats *stats,
+			  const uint8_t *data, size_t len)
+{
+	if (!stats)
+		return;
+
+	++stats->rtp.pkt;
+	stats->rtp.bytes += len;
+}
+
+
+int stats_rtcp_add_packet(struct transp_stats *stats,
+			  const uint8_t *data, size_t len)
+{
+	struct mbuf *mb;
+	int err = 0;
+
+	mb = mbuf_alloc(len);
+	if (!mb)
+		return ENOMEM;
+
+	mbuf_write_mem(mb, data, len);
+	mb->pos = 0;
+
+	while (mbuf_get_left(mb) > 8) {
+
+		struct rtcp_msg *msg = 0;
+
+		err = rtcp_decode(&msg, mb);
+		if (err) {
+			warning("could not decode RTCP packet "
+				"(%zu bytes) (%m)\n",
+				mbuf_get_left(mb), err);
+			break;
+		}
+
+		++stats->rtcp.pkt;
+
+		switch (msg->hdr.pt) {
+
+		case RTCP_SR:
+			++stats->rtcp.sr;
+			break;
+
+		case RTCP_RR:
+			++stats->rtcp.rr;
+			break;
+
+		case RTCP_SDES:
+			++stats->rtcp.sdes;
+			break;
+
+		case RTCP_RTPFB:
+			++stats->rtcp.rtpfb;
+			break;
+
+		case RTCP_PSFB:
+			++stats->rtcp.psfb;
+
+			if (msg->hdr.count == RTCP_PSFB_PLI) {
+				warning("** PLI **\n");
+			}
+			else if (msg->hdr.count == RTCP_PSFB_SLI) {
+				warning("** SLI **\n");
+			}
+			else if (msg->hdr.count == RTCP_PSFB_AFB) {
+				//info("** RTCP_PSFB_AFB (REMB) **\n");
+			}
+			else {
+				warning("** ??? (%d) ***\n", msg->hdr.count);
+			}
+
+			break;
+
+		default:
+			++stats->rtcp.unknown;
+			warning("*** RTCP: unknown PT (%s) ***\n",
+				rtcp_type_name((enum rtcp_type)msg->hdr.pt));
+			break;
+		}
+
+		mem_deref(msg);
+	}
+
+	mem_deref(mb);
+
+	return err;
+}
+
+
+int stats_print(struct re_printf *pf, const struct transp_stats *stats)
+{
+	int err;
+
+	if (!stats)
+		return 0;
+
+	err = re_hprintf(pf, "RTP={%zu,%zu}",
+			 stats->rtp.pkt,
+			 stats->rtp.bytes
+			 );
+
+	err |= re_hprintf(pf,
+			  " RTCP={SR=%-2zu RR=%-2zu SDES=%-2zu"
+			  " RTPFB=%-2zu PSFB=%-2zu UNK=%-2zu}",
+			  stats->rtcp.sr,
+			  stats->rtcp.rr,
+			  stats->rtcp.sdes,
+			  stats->rtcp.rtpfb,
+			  stats->rtcp.psfb,
+			  stats->rtcp.unknown
+			  );
+
+	return err;
+}
