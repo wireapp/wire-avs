@@ -39,7 +39,7 @@ struct vsz {
 void *vie_render_view_attach(void *renderer, void *parent_view);
 void vie_remove_renderer(void* renderer);
 
-void vie_resize_renderer_for_video(void* renderer, void *parent_view, 
+bool vie_resize_renderer_for_video(void* renderer, void *parent_view, 
 	webrtc::VideoRender *rtcRenderer, webrtc::VideoRenderCallback **cb, 
 	int width, int height, bool mirror);
 

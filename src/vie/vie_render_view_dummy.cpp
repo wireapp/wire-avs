@@ -35,10 +35,11 @@ void *vie_render_view_attach(void *renderer, void *parent_view)
 	return renderer;
 }
 
-void vie_resize_renderer_for_video(void* renderer, void *parent_view, 
+bool vie_resize_renderer_for_video(void* renderer, void *parent_view, 
 	webrtc::VideoRender *rtcRenderer, webrtc::VideoRenderCallback **cb, 
 	int width, int height, bool mirror)
 {
+	return true;
 }
 
 bool vie_should_mirror_preview(const char *dev_id)

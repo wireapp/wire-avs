@@ -133,9 +133,11 @@ void ViERenderer::RenderFrame(const webrtc::VideoFrame& video_frame, int time_to
 				info("%s: new video size %dx%d (old %dx%d)\n",
 					__FUNCTION__, nw, nh, _vWidth, _vHeight);
 
-				vie_resize_renderer_for_video(_platRenderer, _view, _rtcRenderer, &_cb, nw, nh, _mirror);
-				_vWidth = nw;
-				_vHeight = nh;
+				if (vie_resize_renderer_for_video(_platRenderer, _view, 
+					_rtcRenderer, &_cb, nw, nh, _mirror)) {
+					_vWidth = nw;
+					_vHeight = nh;
+				}
 
 				if(_use_timeout_image){
 					webrtc::VideoFrame timeout_frame;

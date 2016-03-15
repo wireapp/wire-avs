@@ -66,7 +66,7 @@ void *vie_render_view_attach(void *renderer, void *parent_view)
 	return (void *)rv;
 }
 
-void vie_resize_renderer_for_video(void* renderer, void *parent_view, 
+bool vie_resize_renderer_for_video(void* renderer, void *parent_view, 
 	webrtc::VideoRender *rtcRenderer, webrtc::VideoRenderCallback **cb, 
 	int width, int height, bool mirror)
 {
@@ -77,7 +77,7 @@ void vie_resize_renderer_for_video(void* renderer, void *parent_view,
 	(void)cb;
 
 	if (rv == nil || pv == nil) {
-		return;
+		return false;
 	}
 	debug("%s: renderer %p parent %p rtc %p sz %dx%d\n", __FUNCTION__,
 		renderer, parent_view, rtcRenderer, width, height);
@@ -110,6 +110,8 @@ void vie_resize_renderer_for_video(void* renderer, void *parent_view,
 		}
 	
 	});
+
+	return true;
 }
 
 bool vie_should_mirror_preview(const char *dev_id)

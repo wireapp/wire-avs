@@ -18,9 +18,8 @@ AND_JAVA_SRCS := \
 	org/webrtc/voiceengine/WebRtcAudioTrack.java \
         org/webrtc/voiceengine/WebRtcAudioManager.java \
         org/webrtc/voiceengine/WebRtcAudioUtils.java \
-    org/webrtc/voiceengine/BuildInfo.java \
+        org/webrtc/voiceengine/BuildInfo.java \
 	org/webrtc/videoengine/ViEAndroidGLES20.java \
-	org/webrtc/videoengine/ViERenderer.java \
 	org/webrtc/videoengine/ViESurfaceRenderer.java \
 	org/webrtc/videoengine/VideoCaptureAndroid.java \
 	org/webrtc/videoengine/VideoCaptureDeviceInfoAndroid.java \
