@@ -72,59 +72,6 @@ int consent_start(struct consent **conp, struct stun *stun,
 
 
 /*
- * TURN Connection
- */
-
-struct turn_conn;
-
-typedef void (turnconn_estab_h)(struct turn_conn *conn,
-				const struct sa *relay_addr,
-				const struct sa *mapped_addr, void *arg);
-typedef void (turnconn_error_h)(int err, void *arg);
-
-/* Defines one TURN-connection via UDP/TCP to one TURN-Server */
-struct turn_conn {
-	struct le le;
-
-	struct turnc *turnc;
-	struct tcp_conn *tc;
-	struct sa turn_srv;
-	struct tls_conn *tlsc;
-	struct tls *tls;
-	struct mbuf *mb;
-	struct udp_helper *uh_app;  /* for outgoing UDP->TCP redirect */
-	struct udp_sock *us_app;    // todo: remove?
-	struct udp_sock *us_turn;
-	struct stun_keepalive *ska;
-	char *username;
-	char *password;
-	int proto;
-	bool secure;
-	bool turn_allocated;
-	turnconn_estab_h *estabh;
-	turnconn_error_h *errorh;
-	void *arg;
-
-	uint64_t ts_turn_resp;
-	uint64_t ts_turn_req;
-};
-
-
-int turnconn_alloc(struct turn_conn **connp, struct list *connl,
-		   const struct sa *turn_srv, int proto, bool secure,
-		   const char *username, const char *password,
-		   struct udp_sock *sock,
-		   turnconn_estab_h *estabh,
-		   turnconn_error_h *errorh, void *arg
-		   );
-int turnconn_add_permission(struct turn_conn *conn, const struct sa *peer);
-struct turn_conn *turnconn_find_allocated(const struct list *turnconnl,
-					  int proto);
-const char *turnconn_proto_name(const struct turn_conn *conn);
-int turnconn_debug(struct re_printf *pf, const struct turn_conn *conn);
-
-
-/*
  * DTLS
  */
 

@@ -31,6 +31,7 @@ typedef void (netprobe_h)(int err, const struct netprobe_result *result,
 struct netprobe;
 
 int netprobe_alloc(struct netprobe **npb, const struct sa *turn_srv,
+		   int proto, bool secure,
 		   const char *turn_username, const char *turn_password,
 		   size_t pkt_count, uint32_t pkt_interval_ms,
 		   netprobe_h *h, void *arg);

@@ -31,4 +31,8 @@ public interface FlowManagerListener {
   public void releaseVideoPreview();
   public void createVideoView(String convId, String partId);
   public void releaseVideoView(String convId, String partId);
+  public void changeVideoState(int state, int reason);
+    
+  /* Audio callback(s) */
+  public void changeAudioState(int state);
 }

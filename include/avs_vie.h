@@ -26,19 +26,14 @@ extern "C" {
 int  vie_init(struct list *vidcodecl);
 void vie_close(void);
 
-int vie_get_video_capture_devices(struct list **device_list);
-
-int vie_set_preview(struct videnc_state* ves, void *view);
-
-int  vie_activate_video_preview(flowmgr_create_preview_h hndlr, void *arg);
-void vie_deactivate_video_preview(flowmgr_release_preview_h hndlr, void *arg);
-
-void vie_preview_background(enum media_bg_state state, flowmgr_create_preview_h cpvh,
-	flowmgr_release_preview_h rpvh, void *arg);
-
 typedef int (vie_getsize_h)(const void *view, int *w, int *h);
 
 void vie_set_getsize_handler(vie_getsize_h *getsizeh);
+
+void vie_capture_router_handle_frame(struct avs_vidframe *frame);
+
+void vie_set_video_handlers(flowmgr_video_state_change_h *state_change_h,
+	flowmgr_render_frame_h *render_frame_h, void *arg);
 
 #ifdef __cplusplus
 }

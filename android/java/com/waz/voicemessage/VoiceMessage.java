@@ -65,6 +65,18 @@ public class VoiceMessage {
     }
   }
 
+  public void vmApplyChorus(String fileNameIn, String fileNameOut){
+    if(_fm != null){
+        _fm.vmApplyChorus(fileNameIn, fileNameOut);
+    }
+  }
+
+  public void vmApplyReverb(String fileNameIn, String fileNameOut){
+    if(_fm != null){
+      _fm.vmApplyReverb(fileNameIn, fileNameOut);
+    }
+  }
+    
   public void vmRegisterHandler(VoiceMessageStatusHandler handler){
     if(_fm != null){
       _fm.vmRegisterHandler(handler);

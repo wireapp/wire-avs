@@ -24,9 +24,9 @@
 #include "avs_zapi.h"
 
 
-static int zapi_iceservers_encode(struct json_object *jobj,
-				  const struct zapi_ice_server *srvv,
-				  size_t srvc)
+int zapi_iceservers_encode(struct json_object *jobj,
+			   const struct zapi_ice_server *srvv,
+			   size_t srvc)
 {
 	struct json_object *jices;
 	size_t i;

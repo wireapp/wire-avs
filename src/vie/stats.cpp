@@ -24,7 +24,6 @@
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
 #include "webrtc/system_wrappers/interface/trace.h"
-#include "vie_render_view.h"
 #include "vie.h"
 
 
@@ -95,11 +94,40 @@ int stats_rtcp_add_packet(struct transp_stats *stats,
 			}
 			else if (msg->hdr.count == RTCP_PSFB_AFB) {
 				//info("** RTCP_PSFB_AFB (REMB) **\n");
+
+				// Parse bandwidth allocation from REMB info
+				struct mbuf* mb = msg->r.fb.fci.afb; 
+				if (mbuf_read_u8(mb) == 'R' && mbuf_read_u8(mb) == 'E' &&
+					mbuf_read_u8(mb) == 'M' && mbuf_read_u8(mb) == 'B') {
+				
+					uint8_t num_ssrcs = mbuf_read_u8(mb);
+					uint32_t b = mbuf_read_u8(mb) << 16 |
+						mbuf_read_u8(mb) <<  8 |
+						mbuf_read_u8(mb);
+
+					uint32_t bitrate = (b & 0x3FFFF) << ((b >> 18) & 3);
+
+					uint8_t s;
+					for (s = 0; s < num_ssrcs; s++) {
+						uint32_t ssrc = mbuf_read_u8(mb) << 24 |
+							mbuf_read_u8(mb) <<  16 |
+							mbuf_read_u8(mb) <<  8 |
+							mbuf_read_u8(mb);
+
+						if(ssrc == stats->rtcp.ssrc) {
+							stats->rtcp.bitrate_limit = bitrate;
+						}
+					}
+				}
 			}
 			else {
 				warning("** ??? (%d) ***\n", msg->hdr.count);
 			}
 
+			break;
+
+		case RTCP_BYE:
+			++stats->rtcp.bye;
 			break;
 
 		default:

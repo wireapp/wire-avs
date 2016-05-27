@@ -42,7 +42,6 @@ extern "C" {
 #include "avs_conf_pos.h"
 }
 
-#include "avs_voe.h"
 #include "voe.h"
 
 
@@ -63,8 +62,8 @@ static void aes_destructor(void *arg)
 
 int voe_enc_alloc(struct auenc_state **aesp,
 		  struct media_ctx **mctxp,
-		  const struct aucodec *ac, const char *fmtp, int pt,
-		  uint32_t srate, uint8_t ch,
+		  const struct aucodec *ac, const char *fmtp,
+		  struct aucodec_param *prm,
 		  auenc_rtp_h *rtph,
 		  auenc_rtcp_h *rtcph,
 		  auenc_packet_h *pkth,
@@ -78,7 +77,7 @@ int voe_enc_alloc(struct auenc_state **aesp,
 		return EINVAL;
 	}
 
-	info("voe: enc_alloc: allocating codec:%s(%d)\n", ac->name, pt);
+	info("voe: enc_alloc: allocating codec:%s(%d)\n", ac->name, prm->pt);
 
 	aes = (struct auenc_state *)mem_zalloc(sizeof(*aes), aes_destructor);
 	if (!aes)
@@ -88,7 +87,7 @@ int voe_enc_alloc(struct auenc_state **aesp,
 		aes->ve = (struct voe_channel *)mem_ref(*mctxp);
 	}
 	else {
-		err = voe_ve_alloc(&aes->ve, ac, srate, pt);
+		err = voe_ve_alloc(&aes->ve, ac, prm->srate, prm->pt);
 		if (err) {
 			goto out;
 		}
@@ -106,6 +105,10 @@ int voe_enc_alloc(struct auenc_state **aesp,
 	aes->errh = errh;
 	aes->arg = arg;
 
+	if(gvoe.rtp_rtcp){
+		gvoe.rtp_rtcp->SetLocalSSRC(aes->ve->ch, prm->local_ssrc);
+	}
+        
  out:
 	if (err) {
 		mem_deref(aes);
@@ -124,7 +127,12 @@ int voe_enc_start(struct auenc_state *aes)
 		return EINVAL;
 
 	info("voe: starting encoder -- StartSend ch %d \n", aes->ve->ch);
-	gvoe.base->StartSend(aes->ve->ch);
+
+	aes->started = true;
+
+	if (gvoe.base){
+		gvoe.base->StartSend(aes->ve->ch);
+	}
 
 	return 0;
 }
@@ -134,6 +142,8 @@ void voe_enc_stop(struct auenc_state *aes)
 {
 	if (!aes)
 		return;
+
+	aes->started = false;
 
 	if (gvoe.base){
 		info("voe: stopping encoder -- StopSend ch %d \n",

@@ -45,8 +45,6 @@ int engine_sync_register(struct engine *engine, const char *name,
 	if (!engine || !name || !synch)
 		return EINVAL;
 
-	//re_printf("sync: register name='%s' prio=%.1f\n", name, prio);
-
 	step = mem_zalloc(sizeof(*step), step_destructor);
 	if (!step)
 		return ENOMEM;

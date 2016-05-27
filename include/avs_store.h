@@ -96,4 +96,5 @@ int sobject_read_pl(struct pl *pl, struct sobject *so);
 
 /* Store remove */
 
+int store_mkdirf(mode_t mode, const char *fmt, ...);
 int store_remove_pathf(const char *fmt, ...);

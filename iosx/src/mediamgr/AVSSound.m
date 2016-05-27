@@ -33,6 +33,7 @@
 
 @implementation AVSSound
 
+@synthesize sound;
 
 - (float)volume
 {
@@ -93,28 +94,36 @@
 
 - (void)play
 {
-    [self.player setCurrentTime:0];
-    [self.player play];
+    dispatch_sync(dispatch_get_main_queue(),^{
+        [self.player setCurrentTime:0];
+        [self.player play];
+    });
     [self.delegate didStartPlayingMedia:self];
 }
 
 - (void)stop
 {
-    [self.player stop];
-    [self.player setCurrentTime:0];
+    dispatch_sync(dispatch_get_main_queue(),^{
+        [self.player stop];
+        [self.player setCurrentTime:0];
+    });
     [self.delegate didFinishPlayingMedia:self];
 }
 
 
 - (void)pause
 {
-    [self.player pause];
+    dispatch_sync(dispatch_get_main_queue(),^{
+        [self.player pause];
+    });
     [self.delegate didPausePlayingMedia:self];
 }
 
 - (void)resume
 {
-    [self.player play];
+    dispatch_sync(dispatch_get_main_queue(),^{
+        [self.player play];
+    });
     [self.delegate didResumePlayingMedia:self];
 }
 

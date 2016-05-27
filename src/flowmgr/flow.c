@@ -21,17 +21,13 @@
 #include <memory.h>
 #include <unistd.h>
 
-
 #include <re/re.h>
 
 #include "avs.h"
 
-#if USE_MEDIAENGINE
 #include "avs_voe.h"
-#if HAVE_VIDEO
+#include "avs_voe_stats.h"
 #include "avs_vie.h"
-#endif
-#endif
 
 #include "flowmgr.h"
 
@@ -57,7 +53,8 @@ void flow_delete(struct call *call, const char *flowid,
 	if (!call || !flowid)
 		return;
 	
-	debug("flow_delete: flow=%s err=%d\n", flowid, err);
+	info("flowmgr(%p): call(%p): flow(%s): delete: err=%d\n",
+	     call->fm, call, flowid, err);
 	
 	switch(err) {
 	case ETIMEDOUT:
@@ -110,7 +107,8 @@ static void flow_destructor(void *arg)
 	struct flow *flow = arg;
 	struct call *call = flow->call;
 
-	debug("flow_destructor: %p (call=%p)\n", flow, call);
+	info("flowmgr(%p): call(%p): flow(%p -- %s) destructor\n",
+	     call->fm, call, flow, flow->flowid);
 
 	flow->cp = mem_deref(flow->cp);
 	call_remove_conf_part(call, flow);
@@ -209,10 +207,11 @@ static void flow_estabh(struct flow *flow)
 
 	fm = call->fm;
 
-	flowmgr_append_log(fm, call, "ESTAB %s mcat:%s->%s",
-			   flow_estab_name(flow->est_st),
-			   flowmgr_mediacat_name(call_mcat(call)),
-			   flowmgr_mediacat_name(mcat));
+	info("flowmgr(%p): call(%p): flow(%p -- %s): est_st: %s mcat:%s->%s",
+	     fm, call, flow, flow->flowid,
+	     flow_estab_name(flow->est_st),
+	     flowmgr_mediacat_name(call_mcat(call)),
+	     flowmgr_mediacat_name(mcat));
 
 	/* To properly support multi party flows we should check that
 	 * all known flows are either in-active or have RTP
@@ -235,24 +234,28 @@ static void flow_estabh(struct flow *flow)
 
 void flow_mediaflow_estab(struct flow *flow,
 			  const char *crypto, const char *codec,
-			  const char *type, const struct sa *sa)
+			  const char *ltype, const char *rtype,
+			  const struct sa *sa)
 {
 	uint64_t now = tmr_jiffies();
-	
-	info("flowmgr: mediaflow established crypto=%s, codec=%s, ice=%s.%J\n",
-	     crypto, codec, type, sa);
+	struct call *call = flow->call;
+
+
+	info("flowmgr(%p): call(%p): flow(%p -- %s): mediaflow established "
+	     "est_st=%d crypto=%s codec=%s ice=%s-%s.%J\n",
+	     call ? call->fm : NULL, call, flow, flow->flowid,
+	     flow->est_st, crypto, codec, ltype, rtype, sa);
 
 	flow->estab = true;
 	flow->stats.sa = *sa;
 	flow->stats.estab_time = (int)(now - flow->startts);
-	str_ncpy(flow->stats.type, type, sizeof(flow->stats.type));
+	str_ncpy(flow->stats.ltype, ltype, sizeof(flow->stats.ltype));
+	str_ncpy(flow->stats.rtype, rtype, sizeof(flow->stats.rtype));
 	str_ncpy(flow->stats.crypto, crypto, sizeof(flow->stats.crypto));
 	str_ncpy(flow->stats.codec, codec, sizeof(flow->stats.codec));
 
 	flow->estabts = tmr_jiffies();
 	flow->est_st |= FLOWMGR_ESTAB_ICE;
-
-	debug("media_estab: estab state=%d\n", flow->est_st);
 
 	flow_estabh(flow);
 }
@@ -326,9 +329,9 @@ int flow_alloc(struct flow **flowp, struct call *call,
 	if (flow == NULL)
 		return ENOMEM;
 
-	debug("flowmgr: flow_alloc(%p): call=%p flowid=%s remoteid=%s "
-	      "creator=%d active=%d\n",
-	      flow, call, flowid, remoteid, creator, active);
+	info("flowmgr(%p): call(%p): flow(%p -- %s): alloc remoteid=%s "
+	     "creator=%d active=%d\n",
+	     call->fm, call, flow, flowid, remoteid, creator, active);
 	
 	flow->call = call;
 	flow->creator = creator;
@@ -436,12 +439,16 @@ bool flow_lookup_part_handler(char *key, void *val, void *arg)
 {
 	struct flow *flow = val;
 	const char *partid = arg;
-	
+
 	(void)key;
 
-	return streq(flow->remoteid, partid);
+	if (flow->remoteid && partid) {
+		return streq(flow->remoteid, partid);
+	}
+	else {
+		return false;
+	}
 }
-
 
 bool flow_best_handler(char *key, void *val, void *arg)
 {
@@ -627,9 +634,10 @@ void flow_error(struct flow *flow, int err)
 	is_active = flow_is_active(flow);
 	is_multiparty = call_is_multiparty(call);
 	
-	debug("flow_error: flow=%p "
-	      "has_good=%d multiparty=%d active=%d err=%d\n",
-	      flow, has_good, is_multiparty, is_active, flow->err);
+	info("flowmgr(%p): call(%p): flow(%p -- %s): error: "
+	     "has_good=%d multiparty=%d active=%d err=%d\n",
+	     fm, call, flow, flow->flowid,
+	     has_good, is_multiparty, is_active, flow->err);
 
 	delete_flow(flow);
 	
@@ -726,17 +734,14 @@ bool flow_stats_handler(char *key, void *val, void *arg)
 	
 	mtime = tmr_jiffies() - flow->estabts;
 
-	json_object_object_add(jobj, "success",
-			       json_object_new_boolean(true));
-
 	stats = &flow->stats;
 		
 	json_object_object_add(jobj, "estab_time",
 			       json_object_new_int(stats->estab_time));
 	json_object_object_add(jobj, "local_candidate",
-			       json_object_new_string(stats->type));
+			       json_object_new_string(stats->ltype));
 	json_object_object_add(jobj, "remote_candidate",
-			       json_object_new_string(stats->type));
+			       json_object_new_string(stats->rtype));
 	json_object_object_add(jobj, "media_time",
 			       json_object_new_int((int)mtime));
 	json_object_object_add(jobj, "codec",
@@ -793,9 +798,8 @@ void flow_vol_handler(struct flow *flow, bool using_voe)
 	if (!aes || !ads)
 		return;
 
-#if USE_MEDIAENGINE
 	if (using_voe) {
-		err = voe_invol(aes, &invol);;
+		err = voe_invol(aes, &invol);
 		err |= voe_outvol(ads, &outvol);
 		if (err) {
 			error("flowmgr: flow_vol_handler: volumes: (%m)\n",
@@ -806,12 +810,6 @@ void flow_vol_handler(struct flow *flow, bool using_voe)
 			flow->volh(flow, (float)invol, (float)outvol);
 		}
 	}
-#else
-	(void)using_voe;
-	(void)err;
-	(void)invol;
-	(void)outvol;
-#endif
 }
 
 
@@ -891,41 +889,28 @@ int flow_cand_handler(struct flow *flow, struct json_object *jobj)
 }
 
 
-bool flow_background_handler(char *key, void *val, void *arg)
-{
-	struct flow *flow = val;
-	enum media_bg_state bgst = (enum media_bg_state)arg;
-	struct mediaflow *mf;
-
-	(void)key;
-
-	mf = userflow_mediaflow(flow->userflow);
-	if (!mf)
-		goto out;
-
-	mediaflow_background(mf, bgst);
-
- out:
-	return false;
-}
-
-
 int flow_act_handler(struct flow *flow, struct json_object *jobj)
 {
 	bool active;
 	int err;
+	struct flowmgr *fm;
+	struct call *call;
 
 	if (!flow || !jobj) {
 		return EINVAL;
 	}
 
+	call = flow->call;
+	fm = call->fm;
+	
 	err = jzon_bool(&active, jobj, "active");
 	if (err) {
 		warning("flowmgr: flow_act_handler: no active flag\n");
 		return err;
 	}
 
-	debug("flow_act_handler: active=%d\n", active);
+	info("flowmgr(%p): call(%p): flow(%p -- %s): active=%d\n",
+	     fm, call, flow, flow->flowid, active);
 
 	err = flow_activate(flow, active);
 
@@ -1007,7 +992,7 @@ void flow_local_sdp_req(struct flow *flow, const char *type, const char *sdp)
 	}
 
  out:
-	json_object_put(jobj);
+	mem_deref(jobj);
 
 	/* if an error happened here, we must inform the application */
 	if (err) {
@@ -1093,58 +1078,6 @@ const char *flow_remoteid(struct flow *flow)
 	return flow ? flow->remoteid : NULL;
 }
 
-#if HAVE_VIDEO
-
-void flow_create_preview(struct flow *flow)
-{
-	if (flow->video.create_previewh) {
-		flow->video.create_previewh(flow->video.arg);
-	}
-}               
-        
-
-void flow_release_preview(struct flow *flow, void *view)
-{
-	if (flow->video.release_previewh) {
-		flow->video.release_previewh(view, flow->video.arg);
-	}
-}               
-        
-
-void flow_create_view(struct flow *flow)
-{
-	const char *convid;
-	const char *partid;
-
-	if (!flow)
-		return;
-
-	convid = (flow->call) ? flow->call->convid : NULL;
-	partid = flow->remoteid;	
-	
-	if (flow->video.create_viewh) {
-		flow->video.create_viewh(convid, partid, flow->video.arg);
-	}
-}               
-        
-
-void flow_release_view(struct flow *flow, void *view)
-{
-	const char *convid;
-	const char *partid;
-
-	if (!flow)
-		return;
-
-	convid = (flow->call) ? flow->call->convid : NULL;
-	partid = flow->remoteid;
-	
-	if (flow->video.release_viewh) {
-		flow->video.release_viewh(convid, partid,
-					  view, flow->video.arg);
-	}
-}
-
 bool flow_can_send_video(struct flow *flow)
 {
 	return mediaflow_has_video(userflow_mediaflow(flow->userflow));
@@ -1162,63 +1095,7 @@ void flow_set_video_send_active(struct flow *flow, bool video_active)
 					video_active);
 }
 
-
-void flow_set_video_preview(struct flow *flow, void *view)
+struct userflow *flow_get_userflow(struct flow *flow)
 {
-	mediaflow_set_video_preview(userflow_mediaflow(flow->userflow), view);
-}
-
-
-void flow_set_video_view(struct flow *flow, void *view)
-{
-	mediaflow_set_video_view(userflow_mediaflow(flow->userflow), view);
-}
-
-
-void flow_set_video_capture_device(struct flow *flow, const char *devid)
-{
-	mediaflow_set_video_capture_device(userflow_mediaflow(flow->userflow),
-					   devid);
-}
-
-
-void flow_set_video_handlers(struct flow *flow,
-				flowmgr_create_preview_h *create_previewh,
-				flowmgr_release_preview_h *release_previewh,
-				flowmgr_create_view_h *create_viewh,
-				flowmgr_release_view_h *release_viewh,
-				void *arg)
-{
-	flow->video.create_previewh = create_previewh;
-	flow->video.release_previewh = release_previewh;
-	flow->video.create_viewh = create_viewh;
-	flow->video.release_viewh = release_viewh;
-	flow->video.arg = arg;
-}
-
-#endif
-
-
-int flow_log_codec_stats(struct flow *flow)
-{
-	struct call *call;
-	struct mbuf *mb = NULL;
-	struct mediaflow *mf;
-	int err;
-
-	if (!flow)
-		return EINVAL;
-
-	mf = userflow_mediaflow(flow->userflow);
-	err = mediaflow_aucodec_stats(mf, &mb);
-	if (err)
-		return err;
-
-	call = flow->call;       	
-	if (call && mb)
-		flowmgr_append_logmb(call->fm, call, mb);
-		
-	mem_deref(mb);
-
-	return 0;
+	return flow ? flow->userflow : NULL;
 }

@@ -48,7 +48,7 @@ static void store_destructor(void *arg)
 }
 
 
-static int mkdirf(mode_t mode, const char *fmt, ...)
+int store_mkdirf(mode_t mode, const char *fmt, ...)
 {
 	char path[1024];
 	va_list ap;
@@ -79,19 +79,19 @@ int store_alloc(struct store **stp, const char *dir)
 	if (!st)
 		return ENOMEM;
 
-	err = mkdirf(0700, "%s", dir);
+	err = store_mkdirf(0700, "%s", dir);
 	if (err) {
 		error("Failed to create cache directory %s: %m\n",
 		      dir, err);
 		goto out;
 	}
-	err = mkdirf(0700, "%s/users", dir);
+	err = store_mkdirf(0700, "%s/users", dir);
 	if (err) {
 		error("Failed to create user cache directory %s/users: %m\n",
 		      dir, err);
 		goto out;
 	}
-	err = mkdirf(0700, "%s/global", dir);
+	err = store_mkdirf(0700, "%s/global", dir);
 	if (err) {
 		error("Failed to create global cache directory %s/global: "
 		      "%m\n",
@@ -121,7 +121,7 @@ int store_set_user(struct store *st, const char *user_id)
 	if (!st || !user_id || strchr(user_id, '/'))
 		return EINVAL;
 
-	err = mkdirf(0700, "%s/users/%s", st->dir, user_id);
+	err = store_mkdirf(0700, "%s/users/%s", st->dir, user_id);
 	if (err)
 		return err;
 
@@ -149,7 +149,7 @@ int store_flush_user(struct store *st)
 	if (err)
 		return err;
 
-	return mkdirf(0700, "%s/users/%s", st->dir, st->user);
+	return store_mkdirf(0700, "%s/users/%s", st->dir, st->user);
 }
 
 
@@ -209,7 +209,7 @@ int store_user_open(struct sobject **sop, struct store *st,
 	if (!sop || !st || !type || !id || !mode)
 		return EINVAL;
 
-	err = mkdirf(0700, "%s/users/%s/%s", st->dir, st->user, type);
+	err = store_mkdirf(0700, "%s/users/%s/%s", st->dir, st->user, type);
 	if (err)
 		return err;
 
@@ -229,7 +229,7 @@ int store_global_open(struct sobject **sop, struct store *st,
 	if (!sop || !st || !type || !id || !mode)
 		return EINVAL;
 
-	err = mkdirf(0700, "%s/global/%s", st->dir, type);
+	err = store_mkdirf(0700, "%s/global/%s", st->dir, type);
 	if (err)
 		return err;
 

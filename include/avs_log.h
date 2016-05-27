@@ -15,6 +15,10 @@
 * You should have received a copy of the GNU General Public License
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
+
+#ifndef AVS_LOG_H
+#define AVS_LOG_H    1
+
 /* libavs
  *
  * Log
@@ -46,3 +50,5 @@ void debug(const char *fmt, ...);
 void info(const char *fmt, ...);
 void warning(const char *fmt, ...);
 void error(const char *fmt, ...);
+
+#endif //#ifndef AVS_LOG_H

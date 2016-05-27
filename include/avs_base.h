@@ -16,16 +16,21 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#ifndef AVS_BASE_H
+#define AVS_BASE_H    1
 
 enum {
-	AVS_FLAG_EXPERIMENTAL   = 1<<0
+	AVS_FLAG_EXPERIMENTAL   = 1<<0,
+	AVS_FLAG_AUDIO_TEST     = 1<<1,
+	AVS_FLAG_VIDEO_TEST     = 1<<2
 };
 
 
-int  avs_init(int flags);
+int  avs_init(uint64_t flags);
 int  avs_start(const char *token);
 void avs_close(void);
-int  avs_get_flags(void);
+uint64_t  avs_get_flags(void);
 const char *avs_get_token(void);
 const char *avs_version_str(void);
 
+#endif //#ifndef AVS_BASE_H

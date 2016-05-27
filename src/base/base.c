@@ -35,7 +35,7 @@ static const char *software = AVS_PROJECT " " AVS_VERSION " (" ARCH "/" OS ")";
 
 static struct {
 	bool inited;
-	int flags;
+	uint64_t flags;
 
 	char *token;
 } base = {
@@ -76,14 +76,14 @@ static void debug_handler(int level, const char *p, size_t len, void *arg)
 }
 
 
-int avs_init(int flags)
+int avs_init(uint64_t flags)
 {
 	base.flags = flags;
 	base.inited = true;
 
 	dbg_handler_set(debug_handler, NULL);
 
-	info("AVS inited with flags=0x%x [%s]\n", flags, software);
+	info("AVS inited with flags=0x%llx [%s]\n", flags, software);
 
 	info("init: using async polling method '%s'\n",
 	     poll_method_name(poll_method_best()));
@@ -119,7 +119,7 @@ void avs_close(void)
 }
 
 
-int avs_get_flags(void)
+uint64_t avs_get_flags(void)
 {
 	return base.flags;
 }

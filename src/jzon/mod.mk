@@ -3,6 +3,6 @@
 #
 
 AVS_SRCS += \
+	jzon/jsonc.c \
 	jzon/jzon.c \
-	jzon/jsonc.c
-
+	jzon/pretty.c

@@ -26,9 +26,7 @@
 #include "avs_conf_pos.h"
 #include "avs_media.h"
 #include "avs_flowmgr.h"
-#if USE_MEDIAENGINE
 #include "avs_voe.h"
-#endif
 #include "flowmgr.h"
 
 
@@ -101,9 +99,8 @@ int flowmgr_auplay_changed(struct flowmgr *fm, enum flowmgr_auplay aplay)
 		return EINVAL;
 	}
 
-#if USE_MEDIAENGINE
 	err = voe_set_auplay(dev);
-#endif
+
 	return err;
 }
 
@@ -113,9 +110,7 @@ int flowmgr_set_mute(struct flowmgr *fm, bool mute)
 	int err = 0;
 	(void)fm;
 
-#if USE_MEDIAENGINE
 	err = voe_set_mute(mute);
-#endif
 
 	return err;
 }
@@ -126,9 +121,7 @@ int flowmgr_get_mute(struct flowmgr *fm, bool *muted)
 	int err = ENOSYS;
 	(void)fm;
 
-#if USE_MEDIAENGINE
 	err = voe_get_mute(muted);
-#endif
 
 	return err;
 }
@@ -138,9 +131,7 @@ int flowmgr_start_mic_file_playout(const char fileNameUTF8[1024], int fs)
 {
 	int err = 0;
 
-#if USE_MEDIAENGINE
 	err = voe_start_playing_PCM_file_as_microphone(fileNameUTF8, fs);
-#endif
 
 	return err;
 }
@@ -148,9 +139,7 @@ int flowmgr_start_mic_file_playout(const char fileNameUTF8[1024], int fs)
 
 void flowmgr_stop_mic_file_playout(void)
 {
-#if USE_MEDIAENGINE
 	voe_stop_playing_PCM_file_as_microphone();
-#endif
 }
 
 
@@ -158,9 +147,7 @@ int flowmgr_start_speak_file_record(const char fileNameUTF8[1024])
 {
 	int err = 0;
 
-#if USE_MEDIAENGINE
 	err = voe_start_recording_playout_PCM_file(fileNameUTF8);
-#endif
 
 	return err;
 }
@@ -168,9 +155,7 @@ int flowmgr_start_speak_file_record(const char fileNameUTF8[1024])
 
 void flowmgr_stop_speak_file_record(void)
 {
-#if USE_MEDIAENGINE
 	voe_stop_recording_playout_PCM_file();
-#endif
 }
 
 
@@ -178,9 +163,7 @@ int flowmgr_start_preproc_recording(const char fileNameUTF8[1024])
 {
 	int err = 0;
 
-#if USE_MEDIAENGINE
 	err = voe_start_preproc_recording(fileNameUTF8);
-#endif
 
 	return err;
 }
@@ -188,9 +171,7 @@ int flowmgr_start_preproc_recording(const char fileNameUTF8[1024])
 
 void flowmgr_stop_preproc_recording(void)
 {
-#if USE_MEDIAENGINE
 	voe_stop_preproc_recording();
-#endif
 }
 
 
@@ -198,9 +179,7 @@ int flowmgr_start_packet_recording(const char fileNameUTF8[1024])
 {
 	int err = 0;
 
-#if USE_MEDIAENGINE
 	err = voe_start_packet_recording(fileNameUTF8);
-#endif
 
 	return err;
 }
@@ -208,67 +187,54 @@ int flowmgr_start_packet_recording(const char fileNameUTF8[1024])
 
 void flowmgr_stop_packet_recording(void)
 {
-#if USE_MEDIAENGINE
 	voe_stop_packet_recording();
-#endif
 }
 
 
 void flowmgr_enable_fec(bool enable)
 {
-#if USE_MEDIAENGINE
 	voe_enable_fec(enable);
-#endif
 }
 
 
 void flowmgr_enable_aec(bool enable)
 {
-#if USE_MEDIAENGINE
 	voe_enable_aec(enable);
-#endif
 }
 
 
 void flowmgr_enable_rcv_ns(bool enable)
 {
-#if USE_MEDIAENGINE
-    voe_enable_rcv_ns(enable);
-#endif
+	voe_enable_rcv_ns(enable);
 }
+
 
 void flowmgr_set_bitrate(int rate_bps)
 {
-#if USE_MEDIAENGINE
 	voe_set_bitrate(rate_bps);
-#endif
 }
 
 
 void flowmgr_set_packet_size(int packet_size_ms)
 {
-#if USE_MEDIAENGINE
 	voe_set_packet_size(packet_size_ms);
-#endif
 }
+
 
 void flowmgr_silencing(bool silenced)
 {
 	if (!flowmgr_is_using_voe())
 		return;
 
-#if USE_MEDIAENGINE
 	if (silenced)
 		voe_start_silencing();
 	else
 		voe_stop_silencing();
-#endif
 }
 
 
 int flowmgr_update_conf_parts(struct list *partl)
 {
-#if USE_MEDIAENGINE
 	const struct audec_state **adsv;
 	struct le *le;
 	size_t i, adsc = list_count(partl);
@@ -292,7 +258,6 @@ int flowmgr_update_conf_parts(struct list *partl)
 	voe_update_conf_parts(adsv, adsc);
 
 	mem_deref(adsv);
-#endif
+
 	return 0;
 }
-

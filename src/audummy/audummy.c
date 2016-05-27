@@ -81,8 +81,8 @@ static void aes_destructor(void *arg)
 
 static int enc_alloc(struct auenc_state **aesp,
 		     struct media_ctx **mctxp,
-		     const struct aucodec *ac, const char *fmtp, int pt,
-		     uint32_t srate, uint8_t ch,
+		     const struct aucodec *ac, const char *fmtp,
+		     struct aucodec_param *prm,
 		     auenc_rtp_h *rtph,
 		     auenc_rtcp_h *rtcph,
 		     auenc_packet_h *pkth,
@@ -96,14 +96,14 @@ static int enc_alloc(struct auenc_state **aesp,
 		return EINVAL;
 	}
 
-	info("audummy: enc_alloc: allocating codec:%s(%d)\n", ac->name, pt);
+	info("audummy: enc_alloc: allocating codec:%s(%d)\n", ac->name, prm->pt);
 
 	aes = (struct auenc_state *)mem_zalloc(sizeof(*aes), aes_destructor);
 	if (!aes)
 		return ENOMEM;
 
 	aes->ac = ac;
-	aes->pt = pt;
+	aes->pt = prm->pt;
 	aes->rtph = rtph;
 	aes->rtcph = rtcph;
 	aes->pkth = pkth;
@@ -135,6 +135,7 @@ static void audummy_stop(struct auenc_state *aes)
 	if (!aes)
 		return;
 
+	info("audummy: encoder stopped\n");
 	tmr_cancel(&aes->tmr_tx);
 }
 
@@ -150,7 +151,8 @@ static void ads_destructor(void *arg)
 static int dec_alloc(struct audec_state **adsp,
 		     struct media_ctx **mctxp,
 		     const struct aucodec *ac,
-		     const char *fmtp, int pt, uint32_t srate, uint8_t ch,
+		     const char *fmtp,
+		     struct aucodec_param *prm,
 		     audec_recv_h *recvh,
 		     audec_err_h *errh,
 		     void *arg)
@@ -161,7 +163,7 @@ static int dec_alloc(struct audec_state **adsp,
 	if (!adsp || !ac || !mctxp)
 		return EINVAL;
 
-	info("audummy: dec_alloc: allocating codec:%s(%d)\n", ac->name, pt);
+	info("audummy: dec_alloc: allocating codec:%s(%d)\n", ac->name, prm->pt);
 
 	ads = mem_zalloc(sizeof(*ads), ads_destructor);
 	if (!ads)
@@ -181,6 +183,14 @@ static int dec_alloc(struct audec_state **adsp,
 }
 
 
+static int audec_rtp_handler(struct audec_state *ads,
+			     const uint8_t *pkt, size_t len)
+{
+	debug("audummy: decoder receive %zu bytes\n", len);
+	return 0;
+}
+
+
 static struct aucodec audummy_aucodecv[NUM_CODECS] = {
 	{
 		.name      = "opus",
@@ -195,11 +205,11 @@ static struct aucodec audummy_aucodecv[NUM_CODECS] = {
 		.enc_stop  = audummy_stop,
 
 		.dec_alloc = dec_alloc,
-		.dec_rtph  = NULL,
+		.dec_rtph  = audec_rtp_handler,
 		.dec_rtcph = NULL,
 		.dec_start = NULL,
-		.dec_stats = NULL,
 		.dec_stop  = NULL,
+		.get_stats = NULL,
 	}
 };
 

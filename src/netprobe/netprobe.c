@@ -22,6 +22,7 @@
 #include <re.h>
 
 #include "avs_log.h"
+#include "avs_turn.h"
 #include "avs_netprobe.h"
 #include "netprobe.h"
 
@@ -33,11 +34,11 @@ struct result {
 
 
 struct netprobe {
-	struct turnc *turnc;
+	struct turn_conn *turnc;
 	struct sa relay_addr;
 
 	struct udp_sock *us_tx;
-	struct udp_sock *us_rx;
+	struct udp_sock *us_rx;  /* receive socket, shared with TURN */
 
 	uint32_t secret;
 	uint32_t seq_ctr;
@@ -71,9 +72,9 @@ static uint64_t tmr_microseconds(void)
 }
 
 
-static void udp_recv(const struct sa *src, struct mbuf *mb, void *arg)
+static void receive_packet(struct netprobe *np,
+			   const struct sa *src, struct mbuf *mb)
 {
-	struct netprobe *np = arg;
 	struct packet pkt;
 	uint64_t ts_now = tmr_microseconds();
 	uint32_t rtt;
@@ -102,6 +103,14 @@ static void udp_recv(const struct sa *src, struct mbuf *mb, void *arg)
 
 	result->ok = true;
 	result->rtt_us = rtt;
+}
+
+
+static void udp_recv(const struct sa *src, struct mbuf *mb, void *arg)
+{
+	struct netprobe *np = arg;
+
+	receive_packet(np, src, mb);
 }
 
 
@@ -167,7 +176,7 @@ static void tmr_handler(void *arg)
 		send_one(np, np->seq_ctr++);
 	}
 	else {
-		tmr_start(&np->tmr_tx, 1000, tmr_completed_handler, np);
+		tmr_start(&np->tmr_tx, 100, tmr_completed_handler, np);
 	}
 }
 
@@ -181,17 +190,13 @@ static void turnc_perm_handler(void *arg)
 }
 
 
-static void turnc_handler(int err, uint16_t scode, const char *reason,
-			  const struct sa *relay_addr,
-			  const struct sa *mapped_addr,
-			  const struct stun_msg *msg,
-			  void *arg)
+static void turnconn_estab_handler(struct turn_conn *conn,
+				   const struct sa *relay_addr,
+				   const struct sa *mapped_addr,
+				   const struct stun_msg *msg, void *arg)
 {
 	struct netprobe *np = arg;
 	struct stun_attr *attr;
-
-	if (err || scode)
-		goto error;
 
 	np->relay_addr = *relay_addr;
 
@@ -207,11 +212,28 @@ static void turnc_handler(int err, uint16_t scode, const char *reason,
 	}
 
 	/* we must add a permission to our own NAT box */
-	turnc_add_perm(np->turnc, mapped_addr, turnc_perm_handler, np);
-	return;
+	turnc_add_perm(np->turnc->turnc, mapped_addr, turnc_perm_handler, np);
+}
 
- error:
-	np->h(err ? err : EPROTO, NULL, np->arg);
+
+static void turnconn_data_handler(struct turn_conn *conn, const struct sa *src,
+				  struct mbuf *mb, void *arg)
+{
+	struct netprobe *np = arg;
+	(void)np;
+
+	receive_packet(np, src, mb);
+}
+
+
+static void turnconn_error_handler(int err, void *arg)
+{
+	struct netprobe *np = arg;
+
+	warning("netprobe: turn error (%m)\n", err);
+
+	if (np->h)
+		np->h(err ? err : EPROTO, NULL, np->arg);
 }
 
 
@@ -231,6 +253,7 @@ static void destructor(void *arg)
  * @param pkt_interval_ms  Packet interval in [milliseconds]
  */
 int netprobe_alloc(struct netprobe **npb, const struct sa *turn_srv,
+		   int proto, bool secure,
 		   const char *turn_username, const char *turn_password,
 		   size_t pkt_count, uint32_t pkt_interval_ms,
 		   netprobe_h *h, void *arg)
@@ -253,14 +276,23 @@ int netprobe_alloc(struct netprobe **npb, const struct sa *turn_srv,
 	sa_init(&laddr, AF_INET);
 
 	err  = udp_listen(&np->us_tx, &laddr, NULL, NULL);
-	err |= udp_listen(&np->us_rx, &laddr, udp_recv, np);
 	if (err)
 		goto out;
 
-	err = turnc_alloc(&np->turnc, NULL, IPPROTO_UDP,
-			  np->us_rx, 0, turn_srv,
-			  turn_username, turn_password,
-			  TURN_DEFAULT_LIFETIME, turnc_handler, np);
+	if (proto == IPPROTO_UDP) {
+		err = udp_listen(&np->us_rx, &laddr, udp_recv, np);
+		if (err)
+			goto out;
+	}
+
+	err = turnconn_alloc(&np->turnc, NULL,
+			     turn_srv, proto, secure,
+			     turn_username, turn_password,
+			     np->us_rx,
+			     0, 0,
+			     turnconn_estab_handler, turnconn_data_handler,
+			     turnconn_error_handler, np);
+
 	if (err)
 		goto out;
 

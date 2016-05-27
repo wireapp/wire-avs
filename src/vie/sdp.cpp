@@ -25,7 +25,6 @@
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
 #include "webrtc/system_wrappers/interface/trace.h"
-#include "vie_render_view.h"
 #include "vie.h"
 
 
@@ -40,11 +39,16 @@ int vie_fmtp_enc(struct mbuf *mb, const struct sdp_format *fmt,
 	err |= mbuf_printf(mb, "a=rtcp-fb:%s nack\r\n", fmt->id);
 	err |= mbuf_printf(mb, "a=rtcp-fb:%s nack pli\r\n", fmt->id);
 
-#if 0
+#if USE_REMB
 	/* NOTE: REMB is not necessary */
 	err |= mbuf_printf(mb, "a=rtcp-fb:%s goog-remb\r\n", fmt->id);
+
 #endif
 
+#if USE_RTP_ROTATION
+	err |= mbuf_printf(mb, "a=extmap:4 urn:3gpp:video-orientation\r\n");
+
+#endif
 	return err;
 }
 

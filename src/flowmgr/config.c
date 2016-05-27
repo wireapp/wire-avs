@@ -22,7 +22,7 @@
 
 
 
-#define DEFAULT_EXPIRY  21600  /* 6 hours */
+#define DEFAULT_EXPIRY  7200  /* 2 hours */
 
 
 static int do_request(struct flowmgr *fm);

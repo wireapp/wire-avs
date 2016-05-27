@@ -156,8 +156,8 @@ int zapi_conversation_put_self(struct rest_cli *cli, const char *conv,
 	mem_deref(jstr);
 	if (err)
 		mem_deref(data);
-	if (jobj)
-		json_object_put(jobj);
+	mem_deref(jobj);
+
 	return err;
 }
 

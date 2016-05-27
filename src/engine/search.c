@@ -55,7 +55,7 @@ static int load_found_user(struct engine_found_user **fuserp,
 	err = jzon_strdup_opt(&fuser->email, jobj, "email", NULL);
 	if (err)
 		goto out;
-	
+
 	err = jzon_strdup_opt(&fuser->phone, jobj, "phone", NULL);
 	if (err)
 		goto out;
@@ -89,7 +89,7 @@ static int load_found_user(struct engine_found_user **fuserp,
  out:
 	if (err)
 		mem_deref(fuser);
-	
+
 	return err;
 }
 

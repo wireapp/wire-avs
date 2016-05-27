@@ -15,8 +15,23 @@
 * You should have received a copy of the GNU General Public License
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
+
+#ifndef AVS_STRING_H
+#define AVS_STRING_H    1
+
 #include <string.h>
 
 #define streq(a, b) ((*(a) == *(b)) && (strcmp(a, b) == 0))
 #define strcaseeq(a, b) ((*(a) == *(b)) && (str_casecmp(a, b) == 0))
+
+
+struct str_wordexp {
+	size_t wordc;
+	char **wordv;
+};
+
+int  str_wordexp(struct str_wordexp *we, const char *str);
+void str_wordfree(struct str_wordexp *we);
+
+#endif //#ifndef AVS_STRING_H
 

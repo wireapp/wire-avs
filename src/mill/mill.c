@@ -349,7 +349,7 @@ static int clear_cookies_login(struct mill *mill)
 		goto out;
 
  out:
-	json_object_put(jobj);
+	mem_deref(jobj);
 	return err;
 }
 

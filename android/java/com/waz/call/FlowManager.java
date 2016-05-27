@@ -27,6 +27,9 @@ import android.os.Looper;
 import android.util.Log;
 
 import com.waz.avs.AVSystem;
+import com.waz.avs.VideoCapturer;
+import com.waz.avs.VideoCapturerCallback;
+import com.waz.avs.VideoCapturerInfo;
 import com.waz.call.FlowSource;
 import com.waz.call.RequestHandler;
 import com.waz.voicemessage.VoiceMessageStatusHandler;
@@ -53,8 +56,11 @@ import org.json.JSONObject;
 import org.json.JSONException;
 
 
+import android.view.TextureView;
 
-public class FlowManager implements MediaManagerListener {
+public class FlowManager
+	implements VideoCapturerCallback,
+		   MediaManagerListener {
 
   static {
 	  AVSystem.load();
@@ -85,6 +91,15 @@ public class FlowManager implements MediaManagerListener {
   public final static int VIDEO_PREVIEW   = 1;
   public final static int VIDEO_SEND      = 2;
 
+  public final static int VIDEO_STATE_STOPPED = 0;
+  public final static int VIDEO_STATE_STARTED = 1;
+
+  public final static int VIDEO_REASON_NORMAL = 0;
+  public final static int VIDEO_REASON_BAD_CONNECTION = 1;
+
+  public final static int AUDIO_INTERRUPTION_STOPPED = 0;
+  public final static int AUDIO_INTERRUPTION_STARTED = 1;
+               
   public final static int LOG_LEVEL_DEBUG = 0;
   public final static int LOG_LEVEL_INFO  = 1;
   public final static int LOG_LEVEL_WARN  = 2;
@@ -119,23 +134,32 @@ public class FlowManager implements MediaManagerListener {
     return MediaManager.getInstance();
   }
 
-
   public FlowManager ( final Context context, RequestHandler handler ) {
-    this.context = context;
-    this.handler = handler;
-    this.vmHandler = null;
-    this.getMediaManager().addListener(this);
-
-    sharedFm = this;
-
-    attach(context);
+	  this(context, handler, 0);
   }
 
+  // AVS Flags is used as a bitfield to enable AVS settings.
+  // Current settings are:
+  // AVS_FLAG_EXPERIMENTAL   = 1<<0. Should be enabled for internal builds.
+  // AVS_FLAG_AUDIO_TEST     = 1<<1. Audio Test mode for autmatic testing by QA.
+  // AVS_FLAG_VIDEO_TEST     = 1<<2. Video Test mode for autmatic testing by QA.
+  public FlowManager (final Context context, RequestHandler handler,
+		      long flags ) {
+      this.context = context;
+      this.handler = handler;
+      this.vmHandler = null;
+      this.getMediaManager().addListener(this);
+                   
+      sharedFm = this;
+                   
+      attach(context, flags);
+  }
+               
+	
   public static FlowManager getInstance() {
-    return sharedFm;
+	  return sharedFm;
   }
 	
-
   protected void finalize ( ) throws Throwable  {
     detach();
 
@@ -162,7 +186,7 @@ public class FlowManager implements MediaManagerListener {
   public native int mediaCategoryChanged ( String convId, int mCat );
 
 
-  private native void attach ( Context context );
+  private native void attach ( Context context, long avs_flags );
   private native void detach ( );
 
 
@@ -249,17 +273,36 @@ public class FlowManager implements MediaManagerListener {
      }
   }
 
-     private void releaseVideoView (String convId, String partId) {
+  private void changeVideoState(int state, int reason) {
+    Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
+      while ( iterator.hasNext() ) {
+        FlowManagerListener listener = iterator.next();
 
-     Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
+        listener.changeVideoState(state, reason);
+      }
+  }
+	
 
-     while ( iterator.hasNext() ) {
-	     FlowManagerListener listener = iterator.next();
+  private void releaseVideoView (String convId, String partId) {
 
-	     listener.releaseVideoView(convId, partId);
-     }
+    Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
+
+    while ( iterator.hasNext() ) {
+      FlowManagerListener listener = iterator.next();
+
+      listener.releaseVideoView(convId, partId);
+    }
   }
 
+  private void changeAudioState(int state) {
+    Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
+      while ( iterator.hasNext() ) {
+        FlowManagerListener listener = iterator.next();
+        
+        listener.changeAudioState(state);
+    }
+  }
+               
   private void volumeChanged ( String convId, String partId, float volume ) {
     Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
 
@@ -297,7 +340,14 @@ public class FlowManager implements MediaManagerListener {
   public native boolean event(String ctype, byte[] content);
   
   public native boolean acquireFlows(String convId, String sessionId);
-  public native void releaseFlows(String convId);
+  public native void releaseFlowsNative(String convId);
+
+  public void releaseFlows(String convId) {
+	  releaseCapturer();
+
+	  releaseFlowsNative(convId);
+  }
+	  
   public native void setActive(String convId, boolean active);
   public native void addUser(String convId, String userId, String name);
 
@@ -325,18 +375,106 @@ public class FlowManager implements MediaManagerListener {
   }
 
   public native boolean canSendVideo(String convId);
-  public native void setVideoSendState(String convId, int state);
-  public native void setVideoPreview(String convId, View view);
+
+  private VideoCapturer videoCapturer = null;
+  private TextureView previewView = null;
+  private int defaultFacing = VideoCapturerInfo.FACING_FRONT;
+	
+  public void setVideoSendState(String convId, int state) {
+	  switch (state) {
+	  case VIDEO_SEND_NONE:
+		  setVideoSendStateNative(convId, state);	  
+		  break;
+		  
+	  case VIDEO_PREVIEW:
+	  case VIDEO_SEND:
+		  if (this.videoCapturer == null) {
+			  createCapturer();
+		  }
+		  if (state == VIDEO_SEND) {
+			  setVideoSendStateNative(convId, state);	  
+		  }
+		  break;
+
+	  default:
+		  break;
+	  }
+  }
+  public native void setVideoSendStateNative(String convId, int state);
+
+
+  private static String TAG = "FlowManager";
+      
+  public void setVideoPreview(String convId, View view) {
+	  final TextureView tv = (TextureView)view;
+	  
+	  Log.d(TAG, "setVideoPreview: " + view + " vcap=" + videoCapturer); 
+
+	  this.previewView = tv;
+	  if (videoCapturer == null) {
+		  createCapturer();
+	  }
+	  else {
+		  videoCapturer.startCapture(tv);
+	  }
+  }
+
+	
+  public native void setVideoPreviewNative(String convId, View view);
   public native void setVideoView(String convId, String partId, View view);
-  public native void setVideoCaptureDevice(String convId, String dev);
-  public native CaptureDevice[] getVideoCaptureDevices();
-  public native void setBackground(boolean backgrounded);
+
+  public void setVideoCaptureDevice(String convId, String dev) {
+	  int facing = VideoCapturerInfo.FACING_UNKNOWN;
+	  if (dev.equals("front")) {
+		  facing = VideoCapturerInfo.FACING_FRONT;
+	  }
+	  else if (dev.equals("back")) {
+		  facing = VideoCapturerInfo.FACING_BACK;
+	  }
+
+	  if (facing == defaultFacing)
+		  return;
+
+	  defaultFacing = facing;
+	  createCapturer();
+  }
+	
+  public CaptureDevice[] getVideoCaptureDevices() {
+	  VideoCapturerInfo[] cs = VideoCapturer.getCapturers();
+	  
+	  int n = cs.length;
+
+	  Log.d(TAG, "getVideoCaptureDevices: " + n);
+	  CaptureDevice[] devs = new CaptureDevice[cs.length];
+
+	  int i = 0;
+	  for (VideoCapturerInfo c: cs) {
+		  switch (c.facing) {			  
+		  case VideoCapturerInfo.FACING_FRONT:
+			  devs[i] = new CaptureDevice("front", "front");
+			  break;
+
+		  case VideoCapturerInfo.FACING_BACK:
+			  devs[i] = new CaptureDevice("back", "back");
+			  break;
+
+		  default:
+			  devs[i] = new CaptureDevice("unknown", "unknown");
+			  break;
+		  }
+		  ++i;
+	  }
+
+	  return devs;
+  }
     
   public native void vmStartRecord(String fileName);
   public native void vmStopRecord();
   public native int vmGetLength(String fileName);
   public native void vmStartPlay(String fileName, int startpos);
   public native void vmStopPlay();
+  public native void vmApplyChorus(String fileNameIn, String fileNameOut);
+  public native void vmApplyReverb(String fileNameIn, String fileNameOut);
   public void vmRegisterHandler(VoiceMessageStatusHandler handler)
   {
       this.vmHandler = handler;
@@ -358,4 +496,43 @@ public class FlowManager implements MediaManagerListener {
   private void DoLog(String msg) {
      Log.d(logTag, msg);
   }
+
+  public void setBackground(boolean bg) {
+	  Log.d(TAG, "NOOP setBackground");
+  }
+
+	// VideoCapturerCallback
+	@Override
+	public void onSurfaceDestroyed(VideoCapturer cap) {
+		Log.d(TAG, "onSurfaceDestroyed: cap=" + cap);
+		//this.videoCapturer = null;
+		//this.previewView = null;
+	}
+
+	private void createCapturer() {
+
+		releaseCapturer();
+		
+		Log.d(TAG, "createCapturer: creating preview="
+		      + this.previewView);
+		
+		this.videoCapturer = new VideoCapturer(defaultFacing,
+						       640, 480, 15);
+		this.videoCapturer.setCallback(this);
+
+		if (this.previewView == null)
+			createVideoPreview();
+		else
+			this.videoCapturer.startCapture(this.previewView);
+		
+		Log.d(TAG, "createCapturer: created");
+	}
+
+	private void releaseCapturer() {
+		if (videoCapturer != null) {
+			videoCapturer.destroy();
+			videoCapturer = null;
+		}
+		previewView = null;
+	}
 }

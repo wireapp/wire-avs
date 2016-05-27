@@ -59,6 +59,7 @@ struct engine {
 	char *notification_uri;
 	char *email;
 	char *password;         /* will be NULL once login started.  */
+	char *user_agent;
 
 	/* Services we use.
 	 */

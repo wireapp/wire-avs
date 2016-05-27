@@ -1,3 +1,7 @@
+#
+# Android.mk
+#
+
 LOCAL_PATH:= $(call my-dir)
 
 include $(CLEAR_VARS)
@@ -8,11 +12,11 @@ BUILDDEBUG	:= 1
 LOCAL_MODULE    := avs
 LOCAL_CFLAGS    := -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
 		   -DWEBRTC_ANDROID -DDEBUG=$(BUILDDEBUG) \
-		   -DHAVE_VIDEO=1 -pthread
+		   -pthread
 LOCAL_CXXFLAGS   := -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
 		   -x c++ -std=c++11 -stdlib=libc++ \
 		   -DWEBRTC_ANDROID -DDEBUG=$(BUILDDEBUG) \
-		   -DHAVE_VIDEO=1 -pthread
+		   -pthread
 
 LOCAL_C_INCLUDES := ../build/android-armv7/include \
 		    ../build/android-armv7/include/re \
@@ -22,7 +26,8 @@ LOCAL_C_INCLUDES := ../build/android-armv7/include \
 LOCAL_SRC_FILES := \
 		flow_manager.cc \
 		media_manager.cc \
-		sound_link.cc
+		sound_link.cc \
+		video_renderer.cc
 
 LOCAL_LDLIBS    := \
 		-L../build/android-armv7/lib \
@@ -43,7 +48,6 @@ LOCAL_C_INCLUDES += \
 LOCAL_LDLIBS    += \
 		-L../../build/android-armv7/lib \
 		-lmediaengine \
-		-ljsoncpp \
 		-lvpx \
 		-lcpufeatures \
 		-lopus \

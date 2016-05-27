@@ -49,6 +49,37 @@ static struct mediamgr *_mm = NULL;
 {
 	[_lock lock];
 	[_playingDict setObject:media forKey:media.name];
+
+	struct sound *snd = NULL;
+	AVAudioSessionCategoryOptions options =
+		AVAudioSessionCategoryOptionAllowBluetooth;
+
+	if ([media respondsToSelector:@selector(sound)]) {
+		snd = (struct sound*)[media sound];
+	}
+
+	NSString *cat = [AVAudioSession sharedInstance].category;
+	if (snd) {
+		if (snd->is_call_media) {
+			cat = AVAudioSessionCategoryPlayAndRecord;
+		}
+		else if (snd->mixing) {
+			if (cat != AVAudioSessionCategoryPlayback) {
+				cat = AVAudioSessionCategoryAmbient;
+				options |= AVAudioSessionCategoryOptionMixWithOthers;
+			}
+		}
+		else {
+			if (cat != AVAudioSessionCategoryPlayback) {
+				cat = AVAudioSessionCategorySoloAmbient;
+			}
+		}
+	}
+	else {
+		cat = AVAudioSessionCategoryPlayback;
+	}
+
+	[[AVAudioSession sharedInstance] setCategory: cat withOptions: options error:nil];
 	[_lock unlock];
 }
 
@@ -69,7 +100,22 @@ static struct mediamgr *_mm = NULL;
 - (void)didFinishPlayingMedia:(id<AVSMedia>)media
 {
 	[_lock lock];
+
+	BOOL playing = ([_playingDict objectForKey:media.name] != nil);
+	if (!playing) {
+		[_lock unlock];
+		return;
+	}
 	[_playingDict removeObjectForKey:media.name];
+
+	AVAudioSessionCategoryOptions options =
+		AVAudioSessionCategoryOptionAllowBluetooth |
+		AVAudioSessionCategoryOptionMixWithOthers;
+
+	if (!in_call && [_playingDict count] == 0) {
+		[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryAmbient
+			withOptions:options error:nil];
+	}
 	[_lock unlock];
 }
 
@@ -101,17 +147,56 @@ int mm_platform_init(struct mediamgr *mm, struct dict *sounds)
 		NSInteger routeChangeReason = [[interuptionDict valueForKey:AVAudioSessionRouteChangeReasonKey] integerValue];
 
 		switch (routeChangeReason) {
-				case AVAudioSessionRouteChangeReasonNewDeviceAvailable:
+			case AVAudioSessionRouteChangeReasonUnknown:
+				info("mediamgr: AVAudioSessionRouteChangeReasonUnknown\n");
+				break;
+                
+			case AVAudioSessionRouteChangeReasonNewDeviceAvailable:
+				info("mediamgr: AVAudioSessionRouteChangeReasonNewDeviceAvailable\n");
 				mediamgr_headset_connected(_mm, true);
 				break;
 
 			case AVAudioSessionRouteChangeReasonOldDeviceUnavailable:
+				info("mediamgr: AVAudioSessionRouteChangeReasonOldDeviceUnavailable\n");
 				mediamgr_headset_connected(_mm, false);
 				break;
 
+            case AVAudioSessionRouteChangeReasonCategoryChange:
+                info("mediamgr: AVAudioSessionRouteChangeReasonCategoryChange\n");
+                break;
+                
+			case AVAudioSessionRouteChangeReasonOverride:
+				info("mediamgr: AVAudioSessionRouteChangeReasonOverride\n");
+				break;
+                
+			case AVAudioSessionRouteChangeReasonWakeFromSleep:
+				info("mediamgr: AVAudioSessionRouteChangeReasonWakeFromSleep\n");
+				break;
+                
+            case AVAudioSessionRouteChangeReasonNoSuitableRouteForCategory:
+                info("mediamgr: AVAudioSessionRouteChangeReasonNoSuitableRouteForCategory\n");
+                break;
+                
+			case AVAudioSessionRouteChangeReasonRouteConfigurationChange:
+				info("mediamgr: AVAudioSessionRouteChangeReasonRouteConfigurationChange\n");
+				break;
+                
 			default:
+                warning("mediamgr: unknown routechange reason \n");
 				break;
 		}
+        
+		enum mediamgr_auplay route = mm_platform_get_route();
+		info("mediamgr: route = %s \n", MMroute2Str(route));
+        
+		AVAudioSession* session = [AVAudioSession sharedInstance];
+		debug("mediamgr: sample rate: %f \n", session.sampleRate);
+		debug("mediamgr: IO buffer duration: %f \n ", session.IOBufferDuration);
+		debug("mediamgr: output channels: %ld \n", session.outputNumberOfChannels);
+		debug("mediamgr: input channels: %ld \n",session.inputNumberOfChannels);
+		debug("mediamgr: output latency: %f \n", session.outputLatency);
+		debug("mediamgr: input latency: %f \n", session.inputLatency);
+        
 		}];
     
     
@@ -138,60 +223,29 @@ int mm_platform_free(struct mediamgr *mm)
 void mm_platform_play_sound(struct sound *snd)
 {
 	id<AVSMedia> media = snd->arg;
-	NSString *cat;
-	AVAudioSessionCategoryOptions options =
-		AVAudioSessionCategoryOptionAllowBluetooth;
-
 	info("%s: %s %s\n", __FUNCTION__, snd->path, snd->is_call_media ? "(call)" : "");
-	if (snd->is_call_media) {
-		cat = AVAudioSessionCategoryPlayAndRecord;
-	}
-	else if (snd->mixing) {
-		cat = AVAudioSessionCategoryAmbient;
-		options |= AVAudioSessionCategoryOptionMixWithOthers;
-	}
-	else {
-		cat = AVAudioSessionCategorySoloAmbient;
-	}
-
-	[[AVAudioSession sharedInstance] setCategory: cat withOptions: options error:nil];
-	dispatch_sync(dispatch_get_main_queue(),^{
-		[media play];
-	});
+	[media play];
 }
 
 void mm_platform_pause_sound(struct sound *snd)
 {
 	id<AVSMedia> media = snd->arg;
 	info("%s: %s %s\n", __FUNCTION__, snd->path, snd->is_call_media ? "(call)" : "");
-	dispatch_sync(dispatch_get_main_queue(),^{
-		[media pause];
-	});
+	[media pause];
 }
 
 void mm_platform_resume_sound(struct sound *snd)
 {
 	id<AVSMedia> media = snd->arg;
 	info("%s: %s %s\n", __FUNCTION__, snd->path, snd->is_call_media ? "(call)" : "");
-	dispatch_sync(dispatch_get_main_queue(),^{
-		[media play];
-	});
+	[media resume];
 }
 
 void mm_platform_stop_sound(struct sound *snd)
 {
 	id<AVSMedia> media = snd->arg;
-	AVAudioSessionCategoryOptions options =
-		AVAudioSessionCategoryOptionAllowBluetooth |
-		AVAudioSessionCategoryOptionMixWithOthers;
-
 	info("%s: %s %s\n", __FUNCTION__, snd->path, snd->is_call_media ? "(call)" : "");
-	dispatch_sync(dispatch_get_main_queue(),^{
-		[media stop];
-	});
-	if (!in_call) {
-		[[AVAudioSession sharedInstance] setCategory: AVAudioSessionCategoryAmbient withOptions:options error:nil];
-	}
+	[media stop];
 }
 
 bool mm_platform_is_sound_playing(struct sound *snd)
@@ -204,18 +258,22 @@ bool mm_platform_is_sound_playing(struct sound *snd)
 int mm_platform_enable_speaker(void)
 {
 #if TARGET_OS_IPHONE
-	AVAudioSession* session = [AVAudioSession sharedInstance];
-	NSString* category = session.category;
-	AVAudioSessionCategoryOptions options = session.categoryOptions;
-
-	if ([category isEqualToString:AVAudioSessionCategoryPlayAndRecord]) {
-		options |= AVAudioSessionCategoryOptionDefaultToSpeaker;
-	} else {
-		options = AVAudioSessionCategoryOptionDefaultToSpeaker;
-	}
-	[session setCategory:AVAudioSessionCategoryPlayAndRecord
-					withOptions:options
-					error:nil];
+    if ([[AVAudioSession sharedInstance] category] != AVAudioSessionCategoryPlayAndRecord) {
+        [[AVAudioSession sharedInstance] overrideOutputAudioPort:AVAudioSessionPortOverrideSpeaker error:nil];
+    } else {
+        AVAudioSession* session = [AVAudioSession sharedInstance];
+        NSString* category = session.category;
+        AVAudioSessionCategoryOptions options = session.categoryOptions;
+        
+        if ([category isEqualToString:AVAudioSessionCategoryPlayAndRecord]) {
+            options |= AVAudioSessionCategoryOptionDefaultToSpeaker;
+        } else {
+            options = AVAudioSessionCategoryOptionDefaultToSpeaker;
+        }
+        [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                 withOptions:options
+                       error:nil];
+    }
 #else
 	current_route = MEDIAMGR_AUPLAY_SPEAKER;
 #endif
@@ -225,18 +283,22 @@ int mm_platform_enable_speaker(void)
 int mm_platform_enable_bt_sco(void)
 {
 #if TARGET_OS_IPHONE
-	AVAudioSession* session = [AVAudioSession sharedInstance];
-	NSString* category = session.category;
-	AVAudioSessionCategoryOptions options = session.categoryOptions;
-    
-	if ([category isEqualToString:AVAudioSessionCategoryPlayAndRecord]) {
-		options &= ~AVAudioSessionCategoryOptionDefaultToSpeaker;
-	} else {
-		options = AVAudioSessionCategoryOptionDefaultToSpeaker;
-	}
-	[session setCategory:AVAudioSessionCategoryPlayAndRecord
-					withOptions:options
-					error:nil];
+    if ([[AVAudioSession sharedInstance] category] != AVAudioSessionCategoryPlayAndRecord) {
+        [[AVAudioSession sharedInstance] overrideOutputAudioPort:AVAudioSessionPortOverrideNone error:nil];
+    } else {
+        AVAudioSession* session = [AVAudioSession sharedInstance];
+        NSString* category = session.category;
+        AVAudioSessionCategoryOptions options = session.categoryOptions;
+        
+        if ([category isEqualToString:AVAudioSessionCategoryPlayAndRecord]) {
+            options &= ~AVAudioSessionCategoryOptionDefaultToSpeaker;
+        } else {
+            options = AVAudioSessionCategoryOptionDefaultToSpeaker;
+        }
+        [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                 withOptions:options
+                       error:nil];
+    }
 #else
 	current_route = MEDIAMGR_AUPLAY_BT;
 #endif
@@ -246,18 +308,22 @@ int mm_platform_enable_bt_sco(void)
 int mm_platform_enable_earpiece(void)
 {
 #if TARGET_OS_IPHONE
-	AVAudioSession* session = [AVAudioSession sharedInstance];
-	NSString* category = session.category;
-	AVAudioSessionCategoryOptions options = session.categoryOptions;
-    
-	if ([category isEqualToString:AVAudioSessionCategoryPlayAndRecord]) {
-		options &= ~AVAudioSessionCategoryOptionDefaultToSpeaker;
-	} else {
-		options = AVAudioSessionCategoryOptionDefaultToSpeaker;
-	}
-	[session setCategory:AVAudioSessionCategoryPlayAndRecord
-					withOptions:options
-					error:nil];
+    if ([[AVAudioSession sharedInstance] category] != AVAudioSessionCategoryPlayAndRecord) {
+        [[AVAudioSession sharedInstance] overrideOutputAudioPort:AVAudioSessionPortOverrideNone error:nil];
+    } else {
+        AVAudioSession* session = [AVAudioSession sharedInstance];
+        NSString* category = session.category;
+        AVAudioSessionCategoryOptions options = session.categoryOptions;
+        
+        if ([category isEqualToString:AVAudioSessionCategoryPlayAndRecord]) {
+            options &= ~AVAudioSessionCategoryOptionDefaultToSpeaker;
+        } else {
+            options = AVAudioSessionCategoryOptionDefaultToSpeaker;
+        }
+        [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                 withOptions:options
+                       error:nil];
+    }
 #else
 	current_route = MEDIAMGR_AUPLAY_EARPIECE;
 #endif
@@ -267,18 +333,22 @@ int mm_platform_enable_earpiece(void)
 int mm_platform_enable_headset(void)
 {
 #if TARGET_OS_IPHONE
-	AVAudioSession* session = [AVAudioSession sharedInstance];
-	NSString* category = session.category;
-	AVAudioSessionCategoryOptions options = session.categoryOptions;
-    
-	if ([category isEqualToString:AVAudioSessionCategoryPlayAndRecord]) {
-		options &= ~AVAudioSessionCategoryOptionDefaultToSpeaker;
-	} else {
-		options = AVAudioSessionCategoryOptionDefaultToSpeaker;
-	}
-	[session setCategory:AVAudioSessionCategoryPlayAndRecord
-					withOptions:options
-					error:nil];
+    if ([[AVAudioSession sharedInstance] category] != AVAudioSessionCategoryPlayAndRecord) {
+        [[AVAudioSession sharedInstance] overrideOutputAudioPort:AVAudioSessionPortOverrideNone error:nil];
+    } else {
+        AVAudioSession* session = [AVAudioSession sharedInstance];
+        NSString* category = session.category;
+        AVAudioSessionCategoryOptions options = session.categoryOptions;
+        
+        if ([category isEqualToString:AVAudioSessionCategoryPlayAndRecord]) {
+            options &= ~AVAudioSessionCategoryOptionDefaultToSpeaker;
+        } else {
+            options = AVAudioSessionCategoryOptionDefaultToSpeaker;
+        }
+        [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                 withOptions:options
+                       error:nil];
+    }
 #else
 	current_route = MEDIAMGR_AUPLAY_HEADSET;
 #endif
@@ -288,43 +358,58 @@ int mm_platform_enable_headset(void)
 enum mediamgr_auplay mm_platform_get_route(void)
 {
 #if TARGET_OS_IPHONE
+	enum mediamgr_auplay route = MEDIAMGR_AUPLAY_EARPIECE;
 	AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+	NSArray *outputs = nil;
+	AVAudioSessionRouteDescription *currentRoute = nil;
 	if ( ![audioSession isKindOfClass:[AVAudioSession class]] ) {
 		// AVSError(@"Audio Session Object Is Invalid: %@, %@", audioSession, audioSession.class);
-		return MEDIAMGR_AUPLAY_EARPIECE;
+		route = MEDIAMGR_AUPLAY_EARPIECE;
+		goto out;
 	}
 
-	AVAudioSessionRouteDescription *currentRoute = [audioSession currentRoute];
+	currentRoute = [[audioSession currentRoute] retain];
 	if ( ![currentRoute isKindOfClass:[AVAudioSessionRouteDescription class]] ) {
 		// AVSError(@"Current Route Object Is Invalid: %@, %@", currentRoute, currentRoute.class);
-		return MEDIAMGR_AUPLAY_EARPIECE;
+		route = MEDIAMGR_AUPLAY_EARPIECE;
+		goto out;
 	}
 
-	NSArray *outputs = [currentRoute outputs];
+	outputs = [[currentRoute outputs] retain];
 	if ( ![outputs isKindOfClass:[NSArray class]] ) {
 		// AVSError(@"Outputs Object Is Invalid: %@, %@", outputs, outputs.class);
-		return MEDIAMGR_AUPLAY_EARPIECE;
+		route = MEDIAMGR_AUPLAY_EARPIECE;
+		goto out;
 	}
 	
 	for ( AVAudioSessionPortDescription *output in outputs ) {
-	NSString *portType = output.portType;
-	if (portType == nil)
-		continue;
+		if (output.portType == nil) {
+			continue;
+		}
+
+		NSString *portType = [NSString stringWithString:output.portType];
 
 		if ( [portType isEqualToString:AVAudioSessionPortBuiltInReceiver] ) {
-			return MEDIAMGR_AUPLAY_EARPIECE;
+			route = MEDIAMGR_AUPLAY_EARPIECE;
+			goto out;
 		}
 		
 		if ( [portType isEqualToString:AVAudioSessionPortHeadphones] ) {
-			return MEDIAMGR_AUPLAY_HEADSET;
+			route = MEDIAMGR_AUPLAY_HEADSET;
+			goto out;
 		}
 		
 		if ( [portType isEqualToString:AVAudioSessionPortBuiltInSpeaker] ) {
-			return MEDIAMGR_AUPLAY_SPEAKER;
+			route = MEDIAMGR_AUPLAY_SPEAKER;
+			goto out;
 		}
 	}
+
+out:
+	[outputs release];
+	[currentRoute release];
 	
-	return MEDIAMGR_AUPLAY_EARPIECE;
+	return route;
 
 #elif TARGET_OS_MAC
 	return current_route;
@@ -338,6 +423,7 @@ void mm_platform_enter_call(void){
 	info("mm_platform_enter_call() \n");
 
 	if ([[AVAudioSession sharedInstance] category] != AVAudioSessionCategoryPlayAndRecord) {
+		options &= ~AVAudioSessionCategoryOptionDefaultToSpeaker;
 		[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayAndRecord
 			withOptions:options error:nil];
 	}
@@ -351,7 +437,8 @@ void mm_platform_exit_call(void){
 
 	info("mm_platform_exit_call() \n");
 
-	if ([[AVAudioSession sharedInstance] category] != AVAudioSessionCategoryAmbient) {
+	if ([[AVAudioSession sharedInstance] category] != AVAudioSessionCategoryAmbient &&
+		[[AVAudioSession sharedInstance] category] != AVAudioSessionCategoryPlayback) {
 		[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryAmbient
 			withOptions:options error:nil];
 	}
@@ -387,6 +474,10 @@ void mm_platform_registerMedia(struct dict *sounds,
 	id<AVSMedia> avs_media = mediaObj;
 
 	avs_media.delegate = _playingTracker;
+
+	if ([avs_media respondsToSelector:@selector(setSound:)]) {
+		[avs_media setSound:snd];
+	}
 }
 
 void mm_platform_unregisterMedia(struct dict *sounds, const char *name){

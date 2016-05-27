@@ -199,8 +199,7 @@ int zapi_connection_update(struct rest_cli *cli, int pri, const char *id,
 		goto out;
 	
  out:
-	if (jobj)
-		json_object_put(jobj);
+	mem_deref(jobj);
 	if (err)
 		mem_deref(data);
 	return err;

@@ -15,28 +15,22 @@
 * You should have received a copy of the GNU General Public License
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
-//
-//  FlowManager.h
-//  zcall-ios
-//
-
 
 #import <Foundation/Foundation.h>
+#import <TargetConditionals.h>
 
 #if TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
 #else
 #import <Cocoa/Cocoa.h>
-@compatibility_alias UIView NSView;
+typedef NSView UIView;
 #endif
 
 #define FlowManagerSelfUserParticipantIdentifier @"self"
 #define FlowManagerOtherUserParticipantIdentifier @"other"
 
-#define FlowManagerCreatePreviewNotification @"AVSFlowManagerCreatePreviewNotification"
-#define FlowManagerReleasePreviewNotification @"AVSFlowManagerReleasePreviewNotification"
-#define FlowManagerCreateViewNotification @"AVSFlowManagerCreateViewNotification"
-#define FlowManagerReleaseViewNotification @"AVSFlowManagerReleaseViewNotification"
+#define FlowManagerVideoReceiveStateNotification @"AVSFlowManagerVideoReceiveStateNotification"
+#define FlowManagerAudioReceiveStateNotification @"AVSFlowManagerAudioReceiveStateNotification"
 
 #import "AVSMediaManager.h"
 
@@ -83,13 +77,36 @@ typedef NS_ENUM(int, AVSFlowActivityState) {
 
 typedef NS_ENUM(int, AVSFlowManagerVideoSendState) {
 	FLOWMANAGER_VIDEO_SEND_NONE = 0,
-	FLOWMANAGER_VIDEO_PREVIEW   = 1,
-	FLOWMANAGER_VIDEO_SEND      = 2
+	FLOWMANAGER_VIDEO_SEND
 };
+
+typedef NS_ENUM(int, AVSFlowManagerVideoReceiveState) {
+	FLOWMANAGER_VIDEO_RECEIVE_STOPPED = 0,
+	FLOWMANAGER_VIDEO_RECEIVE_STARTED
+};
+
+typedef NS_ENUM(int, AVSFlowManagerVideoReason) {
+	FLOWMANAGER_VIDEO_NORMAL = 0,
+	FLOWMANAGER_VIDEO_BAD_CONNECTION
+};
+
+typedef NS_ENUM(int, AVSFlowManagerAudioReceiveState) {
+	FLOWMANAGER_AUDIO_INTERRUPTION_STOPPED = 0,
+	FLOWMANAGER_AUDIO_INTERRUPTION_STARTED
+};
+
+@interface AVSVideoStateChangeInfo : NSObject
+@property (readonly) AVSFlowManagerVideoReceiveState state;
+@property (readonly) AVSFlowManagerVideoReason reason;
+@end
 
 @interface AVSVideoCaptureDevice : NSObject
 @property (readonly) NSString *deviceId;
 @property (readonly) NSString *deviceName;
+@end
+
+@interface AVSAudioStateChangeInfo : NSObject
+@property (readonly) AVSFlowManagerAudioReceiveState state;
 @end
 
 @protocol AVSFlowManagerDelegate<NSObject>
@@ -128,8 +145,15 @@ struct flowmgr;
 + (void)setLogLevel:(AVSFlowManagerLogLevel)logLevel;
 + (NSComparator)conferenceComparator;
 
-- (instancetype)init;
-- (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate mediaManager:(id)mediaManager;
+// AVS Flags is used as a bitfield to enable AVS settings. Current settings are:
+// AVS_FLAG_EXPERIMENTAL   = 1<<0. Should be enabled for internal builds.
+// AVS_FLAG_AUDIO_TEST     = 1<<1. Audio Test mode for autmatic testing by QA.
+// AVS_FLAG_VIDEO_TEST     = 1<<2. Video Test mode for autmatic testing by QA.
+- (instancetype)init:(uint64_t)avs_flags;
+- (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate
+	mediaManager:(id)mediaManager;
+- (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate
+	mediaManager:(id)mediaManager flags:(uint64_t)avs_flags;
 - (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate flowManager:(struct flowmgr *)flowManager mediaManager:(id)mediaManager;
 - (BOOL)isReady;
 
@@ -195,8 +219,11 @@ struct flowmgr;
 - (BOOL)isSendingVideoInConversation:(NSString *)convId
                       forParticipant:(NSString *)partId;
 - (void)setVideoSendState:(AVSFlowManagerVideoSendState)state forConversation:(NSString *)convId;
-- (void)setVideoPreview:(UIView *)view forConversation:(NSString *)convId;
-- (void)setVideoView:(UIView *)view forConversation:(NSString *)convId forParticipant:(NSString *)partId;
+- (void)attachVideoPreview:(UIView *)view;
+- (void)detachVideoPreview:(UIView *)view;
+
+- (void)attachVideoView:(UIView *)view;
+- (void)detachVideoView:(UIView *)view;
 
 - (NSArray*)getVideoCaptureDevices;
 - (void)setVideoCaptureDevice:(NSString *)deviceId forConversation:(NSString *)convId;

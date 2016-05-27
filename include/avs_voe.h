@@ -16,26 +16,24 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#ifndef AVS_VOE_H
+#define AVS_VOE_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-
+      
+#include "avs_flowmgr.h"
+#include "avs_audio_effect.h"
+    
 /*
  * VoE -- Voice Engine
  */
-
+    
 struct voe_stats {
-	int avg_bitrate;
 	int avg_currentBufferSize;
 	int num_measurements;
-	
-	uint16_t max_bitrate;
-	uint16_t min_bitrate;
-	float std_bitrate;
-    
-	uint16_t packet_size[3];
+	    
 	uint16_t max_currentBufferSize;
 	uint16_t min_currentBufferSize;
 	float std_currentBufferSize;
@@ -75,17 +73,27 @@ struct voe_stats {
 	uint32_t min_Jitter;
 	float std_Jitter;
     
-    int avg_UplinkPacketLossRate;
-    uint16_t max_UplinkPacketLossRate;
-    uint16_t min_UplinkPacketLossRate;
-    float std_UplinkPacketLossRate;
+	int avg_UplinkPacketLossRate;
+	uint16_t max_UplinkPacketLossRate;
+	uint16_t min_UplinkPacketLossRate;
+	float std_UplinkPacketLossRate;
     
-    uint32_t avg_UplinkJitter;
-    uint32_t max_UplinkJitter;
-    uint32_t min_UplinkJitter;
-    float std_UplinkJitter;
+	uint32_t avg_UplinkJitter;
+	uint32_t max_UplinkJitter;
+	uint32_t min_UplinkJitter;
+	float std_UplinkJitter;
 
-    float avg_jitterPeaksFound;
+	uint16_t avg_InVol;
+	uint16_t max_InVol;
+	uint16_t min_InVol;
+	float std_InVol;
+    
+	uint16_t avg_OutVol;
+	uint16_t max_OutVol;
+	uint16_t min_OutVol;
+	float std_OutVol;
+    
+	float avg_jitterPeaksFound;
 };
 
 void voe_stats_init(struct voe_stats *vst);
@@ -126,6 +134,9 @@ int voe_enable_rcv_ns(bool enable);
 int voe_set_bitrate(int rate_bps);
 int voe_set_packet_size(int packet_size_ms);
 
+void voe_register_adm(void* adm);
+void voe_deregister_adm();
+    
 int voe_debug(struct re_printf *pf, void *unused);
 
 void voe_update_conf_parts(const struct audec_state *adsv[], size_t adsc);
@@ -142,11 +153,17 @@ int voe_vm_start_play(const char fileNameUTF8[1024],
                       void *arg);
 int voe_vm_stop_play();
     
-#if TARGET_OS_IPHONE
-const char* voe_iosfilepath(void);
-#endif
+int voe_vm_apply_effect(const char inFileNameUTF8[1024],
+                        const char outFileNameUTF8[1024],
+                        audio_effect effect);
+    
+void voe_set_audio_state_handler(
+    flowmgr_audio_state_change_h *state_change_h,
+    void *arg
+);
     
 #ifdef __cplusplus
 }
 #endif
 
+#endif // AVS_VOE_H

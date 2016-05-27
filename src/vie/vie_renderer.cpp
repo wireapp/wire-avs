@@ -19,140 +19,90 @@
 #include <re.h>
 #include <avs.h>
 #include <avs_vie.h>
+#include "vie.h"
 #include "vie_renderer.h"
-#include "vie_render_view.h"
 #include "webrtc/common_video/libyuv/include/scaler.h"
-#include "vie_timeout_image_data.h"
 
-static void generate_timeout_image(webrtc::VideoFrame& timeout_frame)
+extern "C" {
+void frame_timeout_timer(void *arg)
 {
-    timeout_frame.CreateEmptyFrame(TIMEOUT_FULL_IMAGE_W, TIMEOUT_FULL_IMAGE_H,
-                                   TIMEOUT_FULL_IMAGE_W,
-                                   TIMEOUT_FULL_IMAGE_W/2,
-                                   TIMEOUT_FULL_IMAGE_W/2);
-    
-	int w = timeout_frame.width();
-	int h = timeout_frame.height();
-    
-	memset(timeout_frame.buffer(webrtc::kYPlane), vie_timeout_image_Y[0], w * h);
-	memset(timeout_frame.buffer(webrtc::kUPlane), vie_timeout_image_U[0],
-			((w + 1) / 2) * ((h + 1) / 2));
-	memset(timeout_frame.buffer(webrtc::kVPlane), vie_timeout_image_V[0],
-			((w + 1) / 2) * ((h + 1) / 2));
-    
-	if(TIMEOUT_IMAGE_W > w || TIMEOUT_IMAGE_H > h){
-		error("TimeOutImage too large !! \n");
-	} else {
-		int d_w = (w-TIMEOUT_IMAGE_W) >> 1;
-		int d_h = (h-TIMEOUT_IMAGE_H) >> 1;
-        
-		uint8_t *ptr1 = timeout_frame.buffer(webrtc::kYPlane);
-		const uint8_t *ptr2 = vie_timeout_image_Y;
-		ptr1 += (d_w + d_h*w);
-		for(int i = 0; i < TIMEOUT_IMAGE_H; i++){
-			memcpy(ptr1, ptr2, TIMEOUT_IMAGE_W*sizeof(uint8_t));
-			ptr1 += w;
-			ptr2 += TIMEOUT_IMAGE_W;
-		}
-        
-        ptr1 = timeout_frame.buffer(webrtc::kUPlane);
-        ptr2 = vie_timeout_image_U;
-        ptr1 += (d_w/2 + d_h/2*w/2);
-        for(int i = 0; i < TIMEOUT_IMAGE_H/2; i++){
-            memcpy(ptr1, ptr2, TIMEOUT_IMAGE_W/2*sizeof(uint8_t));
-            ptr1 += w/2;
-            ptr2 += TIMEOUT_IMAGE_W/2;
-        }
+	ViERenderer *renderer = (ViERenderer*)arg;
 
-        ptr1 = timeout_frame.buffer(webrtc::kVPlane);
-        ptr2 = vie_timeout_image_V;
-        ptr1 += (d_w/2 + d_h/2*w/2);
-        for(int i = 0; i < TIMEOUT_IMAGE_H/2; i++){
-            memcpy(ptr1, ptr2, TIMEOUT_IMAGE_W/2*sizeof(uint8_t));
-            ptr1 += w/2;
-            ptr2 += TIMEOUT_IMAGE_W/2;
-        }
+	if (renderer) {
+		renderer->ReportTimeout();
 	}
 }
+};
 
 ViERenderer::ViERenderer()
-	: _cb(NULL), _platRenderer(NULL), _rtcRenderer(NULL), _view(NULL),
-	_vWidth(0), _vHeight(0), _mirror(false), _max_dim(10000), _running(false), _use_timeout_image(true)
+	: _state(VIE_RENDERER_STATE_STOPPED)
 {
 	lock_alloc(&_lock);
+	tmr_init(&_timer);
 }
 
 ViERenderer::~ViERenderer()
 {
-	lock_write_get(_lock);
-	_running = false;
-	if(_rtcRenderer) {
-		_rtcRenderer->StopRender(0);
-		_cb = NULL;
-		delete _rtcRenderer;
+	tmr_cancel(&_timer);
+	if (_state == VIE_RENDERER_STATE_RUNNING) {
+		if (vid_eng.state_change_h) {
+			vid_eng.state_change_h(FLOWMGR_VIDEO_RECEIVE_STOPPED,
+				FLOWMGR_VIDEO_NORMAL, vid_eng.cb_arg);
+		}
 	}
-
-	if(_platRenderer) {
-		vie_remove_renderer(_platRenderer);
-	}
-	lock_rel(_lock);
-
 	mem_deref(_lock);
 }
 
 void ViERenderer::RenderFrame(const webrtc::VideoFrame& video_frame, int time_to_render_ms)
 {
-	webrtc::VideoFrame resampled_frame;
-	webrtc::VideoFrame* video_frame_ptr = (webrtc::VideoFrame*)&video_frame;
-
-	if( video_frame.width() > _max_dim || video_frame.height() > _max_dim){
-		int N;
-		webrtc::Scaler scaler;
-        
-		//N = std::max(video_frame.width()/_max_dim, video_frame.height()/_max_dim);
-		N = 2;
-        
-		scaler.Set(video_frame.width(), video_frame.height(),
-					video_frame.width()/N, video_frame.height()/N,
-					webrtc::kI420, webrtc::kI420,
-					webrtc::kScaleBox);
-        
-		scaler.Scale(video_frame, &resampled_frame);
-        
-		video_frame_ptr = &resampled_frame;
-	}
-    
-	int nw = video_frame_ptr->width();
-	int nh = video_frame_ptr->height();
-
 	lock_write_get(_lock);
-
-	if (_running) {
-		if (nw > 0 && nh > 0 && (nw != _vWidth || nh != _vHeight)) {
-			if (_platRenderer != NULL && _view != NULL && _cb != NULL) {
-				info("%s: new video size %dx%d (old %dx%d)\n",
-					__FUNCTION__, nw, nh, _vWidth, _vHeight);
-
-				if (vie_resize_renderer_for_video(_platRenderer, _view, 
-					_rtcRenderer, &_cb, nw, nh, _mirror)) {
-					_vWidth = nw;
-					_vHeight = nh;
-				}
-
-				if(_use_timeout_image){
-					webrtc::VideoFrame timeout_frame;
-					generate_timeout_image(timeout_frame);
-		    
-					info("Setting render timeout image to 10 seconds \n");
-					_rtcRenderer->SetTimeoutImage(0, timeout_frame, 10000);
-				}
-			}
+	if (_state != VIE_RENDERER_STATE_RUNNING) {
+		if (vid_eng.state_change_h) {
+			vid_eng.state_change_h(FLOWMGR_VIDEO_RECEIVE_STARTED,
+				FLOWMGR_VIDEO_NORMAL, vid_eng.cb_arg);
 		}
-		if (_cb) {
-			_cb->RenderFrame(0, *video_frame_ptr);
-		}
+		_state = VIE_RENDERER_STATE_RUNNING;
 	}
+
+	tmr_cancel(&_timer);
+	tmr_start(&_timer, VIE_RENDERER_TIMEOUT_LIMIT, frame_timeout_timer, this);
 	lock_rel(_lock);
+
+	if (vid_eng.render_frame_h) {
+		struct avs_vidframe avs_frame;
+		memset(&avs_frame, 0, sizeof(avs_frame));
+
+		avs_frame.type = AVS_VIDFRAME_I420;
+		avs_frame.y  = (uint8_t*)video_frame.buffer(webrtc::kYPlane);
+		avs_frame.u  = (uint8_t*)video_frame.buffer(webrtc::kUPlane);
+		avs_frame.v  = (uint8_t*)video_frame.buffer(webrtc::kVPlane);
+		avs_frame.ys = video_frame.stride(webrtc::kYPlane);
+		avs_frame.us = video_frame.stride(webrtc::kUPlane);
+		avs_frame.vs = video_frame.stride(webrtc::kVPlane);
+		avs_frame.w = video_frame.width();
+		avs_frame.h = video_frame.height();
+		avs_frame.ts = video_frame.timestamp();
+
+		switch(video_frame.rotation()) {
+			case webrtc::kVideoRotation_0:
+				avs_frame.rotation = 0;
+				break;
+
+			case webrtc::kVideoRotation_90:
+				avs_frame.rotation = 90;
+				break;
+
+			case webrtc::kVideoRotation_180:
+				avs_frame.rotation = 180;
+				break;
+
+			case webrtc::kVideoRotation_270:
+				avs_frame.rotation = 270;
+				break;
+		}
+
+		vid_eng.render_frame_h(&avs_frame);
+	}
 }
 
 bool ViERenderer::IsTextureSupported() const
@@ -160,116 +110,19 @@ bool ViERenderer::IsTextureSupported() const
 	return false;
 }
 
-void ViERenderer::setMirrored(bool mirror)
+void ViERenderer::ReportTimeout()
 {
-	_mirror = mirror;
-	// Force recalc
-	_vWidth = _vHeight = 0;
-}
+	lock_read_get(_lock);
 
-void ViERenderer::setMaxdim(int max_dim)
-{
-	_max_dim = max_dim;
-}
-
-void ViERenderer::setUseTimeoutImage(bool use_timeout_image)
-{
-	_use_timeout_image = use_timeout_image;
-}
-
-int ViERenderer::AttachToView(void *view)
-{
-	int err = 0;
-
-	lock_write_get(_lock);
-	if (_rtcRenderer) {
-		_rtcRenderer->StopRender(0);
-		_rtcRenderer->DeleteIncomingRenderStream(0);
-		delete _rtcRenderer;
-		_rtcRenderer = NULL;
-		_cb = NULL;
-	}
-		
-	if (_platRenderer) {
-		vie_remove_renderer(_platRenderer);
-		_platRenderer = NULL;
-	}
-	_platRenderer = vie_render_view_attach(_platRenderer, view);
-	if (!_platRenderer) {
-		error("%s: _platRenderer NULL\n", __FUNCTION__);
-		err = ENODEV;
-		goto out;
-	}
-	_view = view;
-	_vWidth = _vHeight = 0;
-	
-	if (!_rtcRenderer) {
-		_rtcRenderer =  webrtc::VideoRender::CreateVideoRender(0, _platRenderer, false);
-		_cb = _rtcRenderer->AddIncomingRenderStream(0, 0, 0.0, 0.0, 1.0, 1.0);
-
-		if (!_rtcRenderer) {
-			error("%s: _rtcRenderer NULL\n", __FUNCTION__);
-			err = ENODEV;
-			goto out;
+	if (_state == VIE_RENDERER_STATE_RUNNING)
+	{
+		if (vid_eng.state_change_h) {
+			vid_eng.state_change_h(FLOWMGR_VIDEO_RECEIVE_STOPPED,
+				FLOWMGR_VIDEO_BAD_CONNECTION, vid_eng.cb_arg);
 		}
-		if (!_cb) {
-			error("%s: _cb NULL\n", __FUNCTION__);
-			err = ENODEV;
-			goto out;
-		}
-	}
-out:
-	if(err != 0) {
-		vie_remove_renderer(_platRenderer);
-		delete _rtcRenderer;
-		_cb = NULL;
+		_state = VIE_RENDERER_STATE_TIMEDOUT;
 	}
 
 	lock_rel(_lock);
-	return err;
-}
-
-void ViERenderer::DetachFromView()
-{
-	lock_write_get(_lock);
-	if(_platRenderer) {
-		vie_remove_renderer(_platRenderer);
-		_view = NULL;
-	}
-	lock_rel(_lock);
-}
-
-int ViERenderer::Start()
-{
-	int err = 0;
-	if (!_rtcRenderer) {
-		return 0;
-	}
-	lock_write_get(_lock);
-	err = _rtcRenderer->StartRender(0);
-	_running = (err == 0) ? true : false;
-	lock_rel(_lock);
-	return err;
-}
-
-int ViERenderer::Stop()
-{
-	int err = 0;
-	_vWidth = _vHeight = 0;
-	_mirror = false;
-
-	if (!_rtcRenderer) {
-		return 0;
-	}
-	lock_write_get(_lock);
-	err = _rtcRenderer->StopRender(0);
-	_running = false;
-	lock_rel(_lock);
-	return err;
-}
-
-void *ViERenderer::View() const
-{
-	return _view;
 }
 

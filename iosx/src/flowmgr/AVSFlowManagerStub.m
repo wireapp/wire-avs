@@ -15,9 +15,6 @@
 * You should have received a copy of the GNU General Public License
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
-//
-// FlowManagerStub.m
-//
 
 #import "AVSMediaProtocols.h"
 #import "AVSFlowManager.h"
@@ -40,23 +37,31 @@
 	return nil;
 }
 
-- (instancetype)init
+- (instancetype)init:(uint64_t)avs_flags
 {
 	return self;
 }
 
 
-- (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate mediaManager:(id)mediaManager
+- (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate
+	mediaManager:(id)mediaManager
 {
 	return self;
 }
 
 
-- (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate flowManager:(struct flowmgr *)flowManager mediaManager:(id)mediaManager
+- (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate
+	flowManager:(struct flowmgr *)flowManager mediaManager:(id)mediaManager
 {
 	return self;
 }
 
+
+- (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate
+	mediaManager:(id)mediaManager flags:(uint64_t)avs_flags
+{
+	return self;
+}
 
 - (void)dealloc
 {
@@ -258,13 +263,19 @@
 {
 }
 
-
-- (void)setVideoPreview:(UIView *)view forConversation:(NSString *)convId
+- (void)attachVideoPreview:(UIView *)view
 {
 }
 
+- (void)detachVideoPreview:(UIView *)view
+{
+}
 
-- (void)setVideoView:(UIView *)view forConversation:(NSString *)convId forParticipant:(NSString *)partId
+- (void)attachVideoView:(UIView *)view
+{
+}
+
+- (void)detachVideoView:(UIView *)view
 {
 }
 

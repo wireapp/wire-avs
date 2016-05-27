@@ -25,20 +25,16 @@
 #include "avs_media.h"
 #include "avs_flowmgr.h"
 #include "avs_rest.h"
-#if USE_MEDIAENGINE
 #include "avs_voe.h"
-#endif
 #include "flowmgr.h"
 
 
 int flowmgr_vm_start_record(struct flowmgr *fm, const char fileNameUTF8[1024])
 {
 	int err = 0;
-    (void)fm;
+	(void)fm;
 
-#if USE_MEDIAENGINE
-    voe_vm_start_record(fileNameUTF8);
-#endif
+	voe_vm_start_record(fileNameUTF8);
     
 	return err;
 }
@@ -49,57 +45,47 @@ int flowmgr_vm_stop_record(struct flowmgr *fm)
 	int err = 0;
 	(void)fm;
 
-#if USE_MEDIAENGINE
 	voe_vm_stop_record();
-#endif
+
 	return err;
 }
 
 
-int flowmgr_vm_get_length(
-    struct flowmgr *fm,
-    const char fileNameUTF8[1024],
-    int* length_ms
-    )
+int flowmgr_vm_get_length(struct flowmgr *fm,
+			  const char fileNameUTF8[1024],
+			  int* length_ms)
 {
-    int err = 0;
-    (void)fm;
+	int err = 0;
+	(void)fm;
     
-#if USE_MEDIAENGINE
-    voe_vm_get_length(fileNameUTF8, length_ms);
-#endif
+	voe_vm_get_length(fileNameUTF8, length_ms);
     
-    return err;
+	return err;
 }
 
-int flowmgr_vm_start_play(
-    struct flowmgr *fm,
-    const char fileNameUTF8[1024],
-    int start_time_ms,
-    flowmgr_vm_play_status_h *handler,
-    void *arg
-)
+
+int flowmgr_vm_start_play(struct flowmgr *fm,
+			  const char fileNameUTF8[1024],
+			  int start_time_ms,
+			  flowmgr_vm_play_status_h *handler,
+			  void *arg)
 {
 	int err = 0;
 	(void)fm;
 
-#if USE_MEDIAENGINE
-    voe_vm_start_play(fileNameUTF8, start_time_ms, (vm_play_status_h*)handler, arg);
-#endif
+	voe_vm_start_play(fileNameUTF8, start_time_ms,
+			  (vm_play_status_h*)handler, arg);
     
 	return err;
 }
 
+
 int flowmgr_vm_stop_play(struct flowmgr *fm)
 {
-    int err = 0;
-    (void)fm;
+	int err = 0;
+	(void)fm;
     
-#if USE_MEDIAENGINE
-    voe_vm_stop_play();
-#endif
+	voe_vm_stop_play();
     
-    return err;
+	return err;
 }
-
-

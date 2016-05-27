@@ -17,8 +17,32 @@
 */
 /* Internal interface for VOE module */
 
+#ifdef __APPLE__
+#       include "TargetConditionals.h"
+#endif
+
 #include <ogg/ogg.h>
 #include <pthread.h>
+
+#include "webrtc/common_types.h"
+#include "webrtc/common.h"
+#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/voice_engine/include/voe_base.h"
+#include "webrtc/voice_engine/include/voe_network.h"
+#include "webrtc/voice_engine/include/voe_codec.h"
+#include "webrtc/voice_engine/include/voe_file.h"
+#include "webrtc/voice_engine/include/voe_audio_processing.h"
+#include "webrtc/voice_engine/include/voe_volume_control.h"
+#include "webrtc/voice_engine/include/voe_rtp_rtcp.h"
+#include "webrtc/voice_engine/include/voe_neteq_stats.h"
+#include "webrtc/voice_engine/include/voe_errors.h"
+#include "webrtc/voice_engine/include/voe_hardware.h"
+#include "webrtc/voice_engine/include/voe_conf_control.h"
+
+#include "avs.h"
+#include "avs_ztime.h"
+#include "avs_audio_io.h"
+#include "avs_flowmgr.h"
 
 /* common */
 
@@ -40,6 +64,7 @@ struct auenc_state {
 
 	struct voe_channel *ve;
 	struct le le;
+	bool started;
 	auenc_rtp_h *rtph;
 	auenc_rtcp_h *rtcph;
 	auenc_packet_h *pkth;
@@ -48,14 +73,14 @@ struct auenc_state {
 };
 
 int voe_enc_alloc(struct auenc_state **aesp,
-                  struct media_ctx **mctxp,
-                  const struct aucodec *ac, const char *fmtp, int pt,
-                  uint32_t srate, uint8_t ch,
-                  auenc_rtp_h *rtph,
-                  auenc_rtcp_h *rtcph,
-                  auenc_packet_h *pkth,
-                  auenc_err_h *errh,
-                  void *arg);
+			struct media_ctx **mctxp,
+			const struct aucodec *ac, const char *fmtp,
+			struct aucodec_param *prm,
+			auenc_rtp_h *rtph,
+			auenc_rtcp_h *rtcph,
+			auenc_packet_h *pkth,
+			auenc_err_h *errh,
+			void *arg);
 
 int  voe_enc_start(struct auenc_state *aes);
 void voe_enc_stop(struct auenc_state *aes);
@@ -66,6 +91,8 @@ struct znw_stats{
     unsigned int jitter_smpls;
     uint16_t uplink_loss_q8;
     unsigned int uplink_jitter_smpls;
+    uint16_t in_vol;
+    uint16_t out_vol;
 };
 
 #define NUM_STATS 32
@@ -74,6 +101,8 @@ struct nw_stats {
     struct znw_stats nw_stats[NUM_STATS];
     int idx_;
     int channel_number_;
+    float out_vol_smth_;
+    int n;
 };
 
 /* decoder */
@@ -86,22 +115,27 @@ struct audec_state {
 
 	audec_recv_h *recvh;
 	audec_err_h *errh;
+    
+	struct tmr tmr_rtp_timeout;
+    
 	void *arg;
 };
 
 int  voe_dec_alloc(struct audec_state **adsp,
-		   struct media_ctx **mctxp,
-		   const struct aucodec *ac,
-		   const char *fmtp, int pt, uint32_t srate, uint8_t ch,
-		   audec_recv_h *recvh,
-		   audec_err_h *errh,
-		   void *arg);
+			struct media_ctx **mctxp,
+			const struct aucodec *ac,
+			const char *fmtp,
+			struct aucodec_param *prm,
+			audec_recv_h *recvh,
+			audec_err_h *errh,
+			void *arg);
 
 int  voe_dec_start(struct audec_state *ads);
-int  voe_dec_stats(struct audec_state *ads, struct mbuf **mbp);
+int  voe_get_stats(struct audec_state *ads, struct aucodec_stats *new_stats);
 void voe_dec_stop(struct audec_state *ads);
 void voe_calculate_stats(int ch);
 void voe_set_channel_load(struct voe *voe);
+
 
 /* Voice Messaging */
 class VmTransport;
@@ -132,6 +166,19 @@ struct vm_state {
 
 void voe_vm_init(struct vm_state *vm);
 
+/* Audio Testing */
+struct audio_test_state {
+    std::string file_out;
+    std::string file_in;
+    int test_score;
+    bool is_running;
+    webrtc::fake_audiodevice *fad;
+};
+
+void voe_init_audio_test(struct audio_test_state *autest);
+void voe_start_audio_test(struct voe *voe);
+void voe_stop_audio_test(struct voe *voe);
+
 /* shared state */
 
 enum {
@@ -160,6 +207,9 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 		 uint32_t srate, int pt);
 void voe_transportl_flush(void);
 
+#if TARGET_OS_IPHONE
+const char* voe_iosfilepath(void);
+#endif
 
 /* global data */
 
@@ -170,6 +220,7 @@ struct channel_settings {
 	bool using_dtx_;
 	int  last_rtcp_rtt;
 	int  last_rtcp_ploss;
+	bool interrupted_;
 };
 
 struct voe {
@@ -214,10 +265,23 @@ struct voe {
 	struct list transportl;
     
 	std::string playout_device;
+  
+	float in_vol_smth;
+	uint16_t in_vol_max;
+	uint16_t out_vol_max;
     
-    std::vector<nw_stats> nws;
+	std::vector<nw_stats> nws;
+      
+	struct vm_state vm;
     
-    struct vm_state vm;
+	struct audio_test_state autest;
+    
+	webrtc::AudioDeviceModule* adm;
+
+	struct {
+		flowmgr_audio_state_change_h *chgh;
+		void *arg;
+	} state;
 };
 
 extern struct voe gvoe;

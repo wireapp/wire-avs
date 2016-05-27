@@ -140,7 +140,7 @@ struct zapi_ice_server {
 	char credential[128];  /* optional */
 };
 
-#define MAX_ICESERVERS 2
+#define MAX_ICESERVERS 4
 struct zapi_flow {
 	bool active;
 	char id[UUID_SZ];
@@ -166,6 +166,9 @@ int zapi_flowadd_encode(struct json_object *jobj,
 			const char *convid,
 			const struct zapi_flow *flowv, size_t flowc);
 
+int zapi_iceservers_encode(struct json_object *jobj,
+			   const struct zapi_ice_server *srvv,
+			   size_t srvc);
 int zapi_iceservers_decode(struct json_object *jobj,
 			   struct zapi_ice_server *srvv, size_t *srvc);
 
@@ -274,3 +277,13 @@ int zapi_call_state_event_decode(struct zapi_call_state_event *cs,
 /************* Notification stream ******************************************/
 
 
+/* Prekeys */
+#define ZAPI_PREKEY_MAX 128
+struct zapi_prekey {
+	uint8_t key[ZAPI_PREKEY_MAX];
+	size_t key_len;
+	uint16_t id;
+};
+
+int zapi_prekey_encode(struct json_object *jobj, const struct zapi_prekey *pk);
+int zapi_prekey_decode(struct zapi_prekey *pk, struct json_object *jobj);

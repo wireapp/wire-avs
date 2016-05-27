@@ -1,5 +1,6 @@
 AVS_SRCS += \
 	engine/call.c \
+	engine/client.c \
 	engine/conn.c \
 	engine/conv.c \
 	engine/engine.c \
@@ -9,5 +10,4 @@ AVS_SRCS += \
 	engine/search.c \
 	engine/sync.c \
 	engine/user.c \
-	engine/vm.c \
 	engine/utils.c

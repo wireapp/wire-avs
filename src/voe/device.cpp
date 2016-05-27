@@ -42,7 +42,6 @@ extern "C" {
 #include "avs_conf_pos.h"
 }
 
-#include "avs_voe.h"
 #include "voe.h"
 
 
@@ -200,7 +199,6 @@ void voe_stop_packet_recording()
 
 int voe_enable_fec(bool enable)
 {
-#if USE_MEDIAENGINE
 	int err;
 
 	if (gvoe.codec && !gvoe.active_channel_settings.empty()) {
@@ -218,9 +216,7 @@ int voe_enable_fec(bool enable)
 
 		debug("voe_enable_fec: enable=%d\n", enable);
 	}
-#else
-	warning("voe_enable_fec: Not supported by this WebRTC version \n");
-#endif
+
 	return 0;
 }
 

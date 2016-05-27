@@ -32,15 +32,13 @@
 #include "avs_string.h"
 #include "avs_trace.h"
 #include "avs_engine.h"
+#include "avs_cert.h"
 #include "module.h"
 #include "engine.h"
 #include "event.h"
 #include "user.h"
 #include "conv.h"
 #include "call.h"
-
-
-#define LOG_URL "https://z-call-logs.s3-eu-west-1.amazonaws.com"
 
 
 struct engine_call_data {
@@ -52,8 +50,7 @@ struct engine_ctx {
 	struct engine *engine;
 	struct rr_resp *ctx;
 };
-		
-	
+
 
 /*** engine_get_flowmgr
  */
@@ -101,7 +98,7 @@ static bool update_call_state(struct engine_conv *conv,
 		return true;
 	}
 	if (streq(state, "joined") && !conv->device_in_call) {
-		conv->device_in_call = true;		
+		conv->device_in_call = true;
 		return true;
 	}
 
@@ -294,7 +291,9 @@ struct engine_event_lsnr call_state_lsnr = {
 /*** set device state
  */
 
-static int set_device_state(struct engine_conv *conv, bool in_call,
+static int set_device_state(struct engine_conv *conv,
+			    bool in_call,
+			    bool video_enabled,
 			    const char *state, double quality,
 			    rest_resp_h *resph, void *arg)
 {
@@ -325,7 +324,7 @@ static int set_device_state(struct engine_conv *conv, bool in_call,
 	}
 	json_object_object_add(self, "quality", inner);
 	if (streq(state, "joined")) {
-		inner = json_object_new_boolean(true);
+		inner = json_object_new_boolean(video_enabled);
 		json_object_object_add(self, "videod", inner);
 	}
 
@@ -344,9 +343,8 @@ static int set_device_state(struct engine_conv *conv, bool in_call,
 		goto out;
 
  out:
-	if (jobj) {
-		json_object_put(jobj);
-	}
+	mem_deref(jobj);
+
 	return err;
 }
 
@@ -378,7 +376,6 @@ static void join_call_state_handler(int err, const struct http_msg *msg,
 		}
 	}
 
-	
 	LIST_FOREACH(&conv->memberl, le) {
 		struct engine_conv_member *mbr = le->data;
 
@@ -390,7 +387,7 @@ static void join_call_state_handler(int err, const struct http_msg *msg,
 				 mbr->user->id,
 				 mbr->user->display_name);
 	}
-	
+
 	flowmgr_acquire_flows(conv->engine->call->flowmgr, conv->id,
 			      NULL, NULL, NULL);
 
@@ -398,7 +395,7 @@ static void join_call_state_handler(int err, const struct http_msg *msg,
 }
 
 
-int engine_join_call(struct engine_conv *conv)
+int engine_join_call(struct engine_conv *conv, bool video_enabled)
 {
 	int err;
 
@@ -410,7 +407,7 @@ int engine_join_call(struct engine_conv *conv)
 		return 0;
 	}
 
-	err = set_device_state(conv, true, "joined", .5,
+	err = set_device_state(conv, true, video_enabled, "joined", .5,
 			       join_call_state_handler, conv);
 	if (err)
 		goto out;
@@ -445,20 +442,19 @@ static void leave_call_state_handler(int err, const struct http_msg *msg,
 int engine_leave_call(struct engine_conv *conv)
 {
 	int err;
-	
+
 	if (!conv)
 		return EINVAL;
 
 	if (!conv->device_in_call)
 		return ENOENT;
-	
-	err = set_device_state(conv, false, "idle", .5,
+
+	err = set_device_state(conv, false, false, "idle", .5,
 			       leave_call_state_handler, conv);
 
 	flowmgr_release_flows(conv->engine->call->flowmgr, conv->id);
-	
+
 	return err;
-	
 }
 
 
@@ -553,10 +549,10 @@ static void flow_response_handler(int err, const struct http_msg *msg,
 			goto out;
 	}
 	jstr = jobj ? x : "[]";
-	
+
 	trace_write(engine_get_trace(etx->engine), "RESP(%p) %d %s -- %s\n",
 		    rr, status, reason, jstr);
-	
+
 	if (jobj == NULL) {
 		err = flowmgr_resp(fm, status, "", NULL, NULL, 0, rr);
 	}
@@ -584,7 +580,7 @@ static int flow_request_handler(struct rr_resp *ctx,
 
 	trace_write(engine_get_trace(engine), "REQ(%p) %s %s %b\n",
 		    ctx, method, path, content, clen);
-	
+
 	(void) ctype; /* XXX This should probably be checked.  */
 
 	if (ctx) {
@@ -592,7 +588,7 @@ static int flow_request_handler(struct rr_resp *ctx,
 		etx->engine = engine;
 		etx->ctx = ctx;
 	}
-	
+
 #if 0
 	re_printf("   @@@ REQ @@@ %s %s [%s %zu bytes]\n",
 		  method, path, ctype, clen);
@@ -657,9 +653,13 @@ static int init_handler(void)
 {
 	int err;
 
-	err = flowmgr_init(engine_get_msys(), LOG_URL);
-	if (err)
-		return err;
+	if (str_isset(engine_get_msys())) {
+
+		err = flowmgr_init(engine_get_msys(), NULL,
+				   CERT_TYPE_ECDSA);
+		if (err)
+			return err;
+	}
 
 	engine_event_register(&call_state_lsnr);
 	engine_event_register(&flowmgr_event_lsnr);
@@ -688,8 +688,6 @@ static const char *username_handler(const char *userid, void *arg)
 	err = engine_lookup_user(&user, engine, userid, true);
 
 	return err ? NULL : user->display_name;
-	
-	
 }
 
 
@@ -708,7 +706,7 @@ static int alloc_handler(struct engine *engine,
 	if (err)
 		goto out;
 
-	flowmgr_enable_logging(data->flowmgr, true);
+	flowmgr_enable_metrics(data->flowmgr, true);
 
 	engine->call = data;
 	list_append(&engine->modulel, &state->le, state);

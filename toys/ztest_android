@@ -1,0 +1,7 @@
+#!/bin/sh -ex
+#
+# run ztest on an Android-device or Emulator
+#
+
+make AVS_OS=android test
+make AVS_OS=android android_install

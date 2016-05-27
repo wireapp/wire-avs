@@ -7,5 +7,6 @@ AVS_SRCS += \
 	zapi/conn.c \
 	zapi/conv.c \
 	zapi/generic.c \
+	zapi/prekey.c \
 	zapi/user.c
 

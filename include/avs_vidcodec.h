@@ -29,10 +29,12 @@ struct videnc_param {
 	uint32_t max_fs;
 };
 
-struct videnc_capture_device {
-	struct le list_elem;
-	char dev_id[128];
-	char dev_name[128];
+struct vidcodec_param {
+	uint32_t local_ssrcv[2];
+	size_t local_ssrcc;
+
+	uint32_t remote_ssrcv[4];
+	size_t remote_ssrcc;
 };
 
 struct media_ctx;
@@ -46,18 +48,14 @@ typedef void (videnc_err_h)(int err, const char *msg, void *arg);
 typedef int  (videnc_rtp_h)(const uint8_t *pkt, size_t len, void *arg);
 typedef int  (videnc_rtcp_h)(const uint8_t *pkt, size_t len, void *arg);
 
-typedef void (videnc_create_preview_h)(void *arg);
-typedef void (videnc_release_preview_h)(void *view, void *arg);
-
 typedef int (videnc_alloc_h)(struct videnc_state **vesp,
 			     struct media_ctx **mctxp,
 			     const struct vidcodec *vc,
 			     const char *fmtp, int pt,
 			     struct sdp_media *sdpm,
+			     struct vidcodec_param *prm,
 			     videnc_rtp_h *rtph,
 			     videnc_rtcp_h *rtcph,
-			     videnc_create_preview_h *cpvh,
-			     videnc_release_preview_h *rpvh,
 			     videnc_err_h *errh,
 			     void *arg);
 
@@ -72,16 +70,6 @@ typedef int  (videnc_start_h)(struct videnc_state *ves);
 typedef void (videnc_stop_h)(struct videnc_state *ves);
 typedef void (videnc_hold_h)(struct videnc_state *ves, bool hold);
 
-typedef int  (videnc_set_preview_h)(struct videnc_state *ves,
-				    void *view);
-typedef int  (videnc_set_capture_device_h)(struct videnc_state *ves,
-					   const char *dev_id);
-typedef void (videnc_bg_h)(struct videnc_state *ves,
-			   enum media_bg_state state);
-
-
-typedef void (viddec_create_view_h)(void *arg);
-typedef void (viddec_release_view_h)(void *view, void *arg);
 
 typedef void (viddec_err_h)(int err, const char *msg, void *arg);
 
@@ -90,8 +78,7 @@ typedef int (viddec_alloc_h)(struct viddec_state **vdsp,
 			     const struct vidcodec *vc,
 			     const char *fmtp, int pt,
 			     struct sdp_media *sdpm,
-			     viddec_create_view_h *cvh,
-			     viddec_release_view_h *rvh,
+			     struct vidcodec_param *prm,
 			     viddec_err_h *errh,
 			     void *arg);
 
@@ -108,11 +95,6 @@ typedef void (viddec_hold_h)(struct viddec_state *vds, bool hold);
 typedef int  (viddec_debug_h)(struct re_printf *pf,
 			      const struct viddec_state *vds);
 
-typedef int  (viddec_set_view_h)(struct viddec_state *vds,
-				 void *view);
-
-typedef void (viddec_bg_h)(struct viddec_state *vds,
-			   enum media_bg_state state);
 
 struct vidcodec {
 	struct le le;
@@ -127,9 +109,6 @@ struct vidcodec {
 	videnc_start_h *enc_starth;
 	videnc_stop_h *enc_stoph;
 	videnc_hold_h *enc_holdh;
-	videnc_set_preview_h *enc_previewh;
-	videnc_set_capture_device_h *enc_deviceh;
-	videnc_bg_h *enc_bgh;
 
 	viddec_alloc_h *dec_alloch;
 	viddec_decode_h *dech;
@@ -139,8 +118,6 @@ struct vidcodec {
 	viddec_rtp_h *dec_rtph;
 	viddec_rtcp_h *dec_rtcph;
 	viddec_debug_h *dec_debugh;
-	viddec_set_view_h *dec_viewh;
-	viddec_bg_h *dec_bgh;
 
 	sdp_fmtp_enc_h *fmtp_ench;
 	sdp_fmtp_cmp_h *fmtp_cmph;

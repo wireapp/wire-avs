@@ -47,7 +47,8 @@ enum flowmgr_estab {
 struct mflow_stats {
 	int estab_time;
 	int time;
-	char type[8];
+	char ltype[8];
+	char rtype[8];
 	struct sa sa;
 	char codec[8];
 	char crypto[16];
@@ -67,8 +68,6 @@ enum userflow_signal_state {
 	USERFLOW_SIGNAL_STATE_HAVE_REMOTE_OFFER,
 	USERFLOW_SIGNAL_STATE_UNKNOWN,
 };
-
-
 
 struct userflow {
 	struct call *call;  /* pointer to parent */
@@ -91,6 +90,8 @@ struct userflow {
 		bool async_answer;
 		bool async_offer;
 	} sdp;
+
+	unsigned num_if;
 };
 
 
@@ -104,12 +105,8 @@ struct call {
 	bool catchg_pending;
 	unsigned ix_ctr;
 
-	struct netprobe *npb;
-	struct tmr npb_tmr;
-
 	struct flowmgr *fm;  /* owner */
 
-	struct list logl;
 	struct list rrl;
 	struct list ghostl;
 
@@ -118,9 +115,6 @@ struct call {
 	bool rtp_started;
 	bool is_mestab;
 	bool active;
-
-	flowmgr_netq_h *qh;
-	void *arg;
 
 	struct le post_le;
 };
@@ -154,10 +148,8 @@ struct flow {
 	mflow_volume_h *volh;          // XXX: remove this
 
 	struct {
-		flowmgr_create_preview_h *create_previewh;
-		flowmgr_release_preview_h *release_previewh;
-		flowmgr_create_view_h *create_viewh;
-		flowmgr_release_view_h *release_viewh;
+		flowmgr_video_state_change_h *state_change_h;
+		flowmgr_render_frame_h *render_frame_h;
 		void *arg;
 	} video;
 
@@ -165,15 +157,6 @@ struct flow {
 
 	struct userflow *userflow;	
 };
-
-
-struct log_elem {
-	uint64_t ts;
-	struct mbuf *mb;
-	struct le le;
-};
-
-int log_elem_alloc(struct log_elem **logelp);
 
 
 struct flow_elem {
@@ -233,22 +216,14 @@ struct flowmgr {
 	
 	int trace;
 
-	/* Video preview/view handlers */
+	/* Video handlers */
 	struct {
-		flowmgr_create_preview_h *create_previewh;
-		flowmgr_release_preview_h *release_previewh;
-		flowmgr_create_view_h *create_viewh;
-		flowmgr_release_view_h *release_viewh;
+		flowmgr_video_state_change_h *state_change_h;
+		flowmgr_render_frame_h *render_frame_h;
 		void *arg;
 	} video;
 
 	bool use_metrics;
-	bool use_logging;
-
-	struct list logl;
-
-	struct http_cli *httpc;
-	struct list logreql;     /* struct log_req */
 
 	struct list eventq;
 
@@ -297,18 +272,13 @@ int flowmgr_send_request(struct flowmgr *fm, struct call *call,
 		         struct rr_resp *rr,
 		         const char *path, const char *method,
 		         const char *ctype, struct json_object *jobj);
-int flowmgr_append_logmb(struct flowmgr *fm, struct call *call,
-			 struct mbuf *mb);
-int flowmgr_append_log(struct flowmgr *fm, struct call *call,
-		       const char *fmt, ...);
 void flowmgr_silencing(bool silenced);
 int  flowmgr_update_conf_parts(struct list *decl);
 
 
 
 /* call */
-int  call_alloc(struct call **callp, struct flowmgr *fm,
-		const char *convid, flowmgr_netq_h *qh, void *arg);
+int  call_alloc(struct call **callp, struct flowmgr *fm, const char *convid);
 int  call_lookup_alloc(struct call **callp, bool *allocated,
 		       struct flowmgr *fm, const char *convid);
 int call_userflow_lookup_alloc(struct userflow **ufp,
@@ -327,9 +297,6 @@ int call_postponed_flows(struct call *call);
 struct list *call_conf_parts(struct call *call);
 struct json_object *call_userflow_sdp(struct call *call);
 
-int  call_start_netprobe(struct call *call, const char *url,
-			 const char *username, const char *credential);
-
 int  call_mcat_change(struct call *call, enum flowmgr_mcat mcat);
 int  call_mcat_changed(struct call *call, enum flowmgr_mcat mcat);
 bool call_update_media(struct call *call);
@@ -342,7 +309,6 @@ void call_purge_users(struct call *call);
 
 struct flowmgr *call_flowmgr(struct call *call);
 const char *call_convid(const struct call *call);
-struct list *call_logl(struct call *call);
 int call_set_sessid(struct call *call, const char *sessid);
 bool call_has_good_flow(const struct call *call);
 bool call_is_multiparty(const struct call *call);
@@ -366,26 +332,15 @@ bool call_restart_handler(char *key, void *val, void *arg);
 int  call_add_conf_part(struct call *call, struct flow *flow);
 void call_remove_conf_part(struct call *call, struct flow *flow);
 void call_mestab(struct call *call, bool mestab);
-struct mediaflow *call_mediaflow_find(struct call *call, const char *userid);
-int call_log_codec_stats(struct call *call);
 
 
-
-#if HAVE_VIDEO
 bool call_can_send_video(struct call *call);
 void call_video_rcvd(struct call *call, bool rcvd);
 void call_set_video_send_active(struct call *call, bool video_active);
 bool call_is_sending_video(struct call *call, const char *partid);
-void call_set_video_preview(struct call *call, void *view);
-void call_set_video_view(struct call *call, const char *partid, void *view);
-void call_set_video_capture_device(struct call *call, const char *dev_id);
-#endif
 
 struct flow *call_find_remote_user(const struct call *call,
 				   const char *remote_user);
-
-bool call_background_handler(char *key, void *val, void *arg);
-
 
 
 /* flow */
@@ -394,7 +349,8 @@ int flow_alloc(struct flow **flowp, struct call *call,
 	       bool creator, bool active);
 void flow_mediaflow_estab(struct flow *flow,
 			  const char *crypto, const char *codec,
-			  const char *type, const struct sa *sa);
+			  const char *ltype, const char *rtype,
+			  const struct sa *sa);
 void flow_update_media(struct flow *flow);
 int  flow_activate(struct flow *flow, bool active);
 bool flow_is_active(const struct flow *flow);
@@ -421,33 +377,17 @@ bool flow_lookup_part_handler(char *key, void *val, void *arg);
 void flow_ice_resp(int status, struct rr_resp *rr,
 		   struct json_object *jobj, void *arg);
 void flow_rtp_start(struct flow *flow, bool started, bool video_started);
-int  flow_log_codec_stats(struct flow *flow);
 
-
-#if HAVE_VIDEO
 void flow_set_video_handlers(struct flow *flow,
-				flowmgr_create_preview_h *create_previewh,
-				flowmgr_release_preview_h *release_previewh,
-				flowmgr_create_view_h *create_viewh,
-				flowmgr_release_view_h *release_viewh,
+				flowmgr_video_state_change_h *state_change_h,
+				flowmgr_render_frame_h *render_frame_h,
 				void *arg);
 bool flow_can_send_video(struct flow *flow);
 bool flow_is_sending_video(struct flow *flow);
 void flow_set_video_send_active(struct flow *flow, bool video_active);
-void flow_set_video_preview(struct flow *flow, void *view);
-void flow_set_video_view(struct flow *flow, void *view);
-void flow_set_video_capture_device(struct flow *flow, const char *dev_id);
-
-void flow_create_preview(struct flow *flow);
-void flow_release_preview(struct flow *flow, void *view);
-void flow_create_view(struct flow *flow);
-void flow_release_view(struct flow *flow, void *view);
-#endif
 
 int  flow_debug(struct re_printf *pf, const struct flow *flow);
 bool flow_debug_handler(char *key, void *val, void *arg);
-
-bool flow_background_handler(char *key, void *val, void *arg);
 
 
 /* Protocol event handlers */
@@ -464,6 +404,7 @@ int  rr_alloc(struct rr_resp **rrp, struct flowmgr *fm, struct call *call,
 	      rr_resp_h *resph, void *arg);
 void rr_cancel(struct rr_resp *rr);
 void rr_response(struct rr_resp *rr);
+bool rr_isvalid(const struct rr_resp *rr);
 
 
 void msystem_start_volume(void);
@@ -472,7 +413,8 @@ struct tls *msystem_dtls(void);
 struct list *msystem_aucodecl(void);
 struct list *msystem_vidcodecl(void);
 struct list *msystem_flows(void);
-bool msystem_get_dualstack(void);
+bool msystem_get_loopback(void);
+bool msystem_get_privacy(void);
 const char *msystem_get_interface(void);
 
 int  marshal_init(void);

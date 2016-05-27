@@ -31,6 +31,7 @@ struct engine_conv;
 
 struct flowmgr; /* see avs_flowmgr.h  */
 struct store;   /* see avs_store.h  */
+struct ztime;
 
 
 /************* Useful Handlers *********************************************/
@@ -136,7 +137,8 @@ enum engine_conn_status {
 	ENGINE_CONN_BLOCKED,
 	ENGINE_CONN_PENDING,
 	ENGINE_CONN_IGNORED,
-	ENGINE_CONN_SENT
+	ENGINE_CONN_SENT,
+	ENGINE_CONN_CANCELLED
 };
 
 const char *engine_conn_status_string(enum engine_conn_status status);
@@ -254,7 +256,7 @@ struct engine_conv {
 	char *id;
 	enum engine_conv_type type;
 	char *name;
-	struct list memberl;
+	struct list memberl;         /* struct engine_conv_member */
 
 	bool active;
 	bool archived;
@@ -324,20 +326,12 @@ enum engine_conv_changes {
 
 struct flowmgr *engine_get_flowmgr(struct engine *engine);
 
-int engine_join_call(struct engine_conv *conv);
+int engine_join_call(struct engine_conv *conv, bool video_enabled);
 int engine_leave_call(struct engine_conv *conv);
 
 int engine_get_audio_mute(struct engine *engine, bool *muted);
 int engine_set_audio_mute(struct engine *engine, bool mute);
 
-/************* Voice Messages *********************************************/
-
-int engine_voice_message_start_rec(struct engine *engine,
-				   const char fileNameUTF8[1024]);
-int engine_voice_message_stop_rec(struct engine *engine);
-int engine_voice_message_start_play(struct engine *engine,
-				    const char fileNameUTF8[1024]);
-int engine_voice_message_stop_play(struct engine *engine);
 
 /************* Messages ****************************************************
  *
@@ -398,6 +392,14 @@ int engine_send_text_message_vf(struct engine_conv *conv, const char *msg,
 				va_list ap);
 int engine_send_text_message_f(struct engine_conv *conv, const char *msg,
 			       ...);
+int engine_send_otr_message(struct engine_conv *conv,
+			    const char *sender_clientid
+			    ,
+			    const char *recipient_userid,
+			    const char *recipient_clientid,
+			    const uint8_t *cipher, size_t cipher_len,
+			    bool transient,
+			    engine_status_h *resph, void *arg);
 int engine_send_data(struct engine_conv *conv, const char *ctype,
 		     uint8_t *data, size_t len);
 int engine_send_file(struct engine_conv *conv, const char *ctype,
@@ -429,6 +431,12 @@ typedef void (engine_add_msg_h)(struct engine_conv *conv,
 				struct engine_user *from,
 				const char *event_id,
 				const char *msg, void *arg);
+typedef void (engine_otr_add_msg_h)(struct engine_conv *conv,
+				    struct engine_user *from,
+				    const struct ztime *timestamp,
+				    const uint8_t *cipher, size_t cipher_len,
+				    const char *sender, const char *recipient,
+				    void *arg);
 typedef void (engine_syncdone_h)(void *arg);
 
 
@@ -442,6 +450,7 @@ struct engine_lsnr {
 	engine_conv_call_h *callh;
 	engine_call_participant_h *callparth;
 	engine_add_msg_h *addmsgh;
+	engine_otr_add_msg_h *otraddmsgh;
 	engine_syncdone_h *syncdoneh;       /* sync done */
 	void *arg;
 };
@@ -457,6 +466,47 @@ const char *engine_get_msys(void);
 int engine_set_trace(struct engine *engine,
 		      const char *path, bool use_stdout);
 struct trace *engine_get_trace(struct engine *engine);
+
+
+/************* Clients ******************************************************/
+
+struct zapi_prekey;
+
+typedef void (engine_prekey_h)(const char *userid,
+			       const uint8_t *key, size_t key_len,
+			       uint16_t id, const char *clientid, void *arg);
+
+struct prekey_handler {
+	engine_prekey_h *prekeyh;
+	void *arg;
+};
+
+typedef void (engine_client_reg_h)(int err, const char *clientid, void *arg);
+typedef void (engine_client_h)(const char *clientid, const char *model,
+			       void *arg);
+typedef void (engine_get_client_h)(int err, void *arg);
+
+struct client_handler {
+	engine_client_reg_h *clientregh;
+	engine_client_h *clienth;
+	engine_get_client_h *getclih;
+	void *arg;
+};
+
+typedef void (engine_user_clients_h)(int err, const char *clientidv[],
+				     size_t clientidc, void *arg);
+
+int engine_get_clients(struct engine *eng,
+		       const struct client_handler *clih);
+int engine_get_prekeys(struct engine *eng, const char *userid,
+		       const struct prekey_handler *pkh);
+int engine_get_user_clients(struct engine *eng, const char *userid,
+			    engine_user_clients_h *uch, void *arg);
+int engine_register_client(struct engine *eng,
+			   const struct zapi_prekey *lastkey,
+			   const struct zapi_prekey *prekeyv, size_t prekeyc,
+			   const struct client_handler *clih);
+int engine_delete_client(struct engine *eng, const char *clientid);
 
 
 #endif  /* ZCLIENTCALL__ENGINE_H */

@@ -15,11 +15,6 @@
 * You should have received a copy of the GNU General Public License
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
-//
-//  FlowManager.m
-//  zcall-ios
-//
-
 #include <pthread.h>
 
 #include "TargetConditionals.h"
@@ -29,6 +24,8 @@
 #import <CoreServices/CoreServices.h>
 #endif
 
+#import <Foundation/Foundation.h>
+
 #include <dispatch/dispatch.h>
 
 #include <re/re.h>
@@ -37,7 +34,13 @@
 #import "AVSMediaManager.h"
 
 #import "AVSFlowManager.h"
+#import "AVSCapturer.h"
 
+#if TARGET_OS_IPHONE
+#import "AVSVideoView.h"
+#else
+typedef NSView AVSVideoView;
+#endif
 
 #define DISPATCH_Q \
 	dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)
@@ -47,11 +50,13 @@ static struct {
 	pthread_t tid;
 	enum log_level log_level;
 	int err;
+    uint64_t avs_flags;
 } fmw = {
 	.initialized = false,
 	.tid = NULL,
-	.log_level = LOG_LEVEL_DEBUG,
+	.log_level = LOG_LEVEL_INFO,
 	.err = 0,
+    .avs_flags = 0
 };
 
 static NSComparisonResult (^conferenceComparator)(id, id) =
@@ -69,7 +74,12 @@ static NSComparisonResult (^conferenceComparator)(id, id) =
 			return (NSComparisonResult)NSOrderedSame;	
         };
 
-#if HAVE_VIDEO
+static void video_state_change_h(enum flowmgr_video_receive_state state,
+	enum flowmgr_video_reason reason, void *arg);
+
+static void render_frame_h(struct avs_vidframe *frame);
+
+static void audio_state_change_h(enum flowmgr_audio_receive_state state, void *arg);
 
 @implementation AVSVideoCaptureDevice
 
@@ -87,15 +97,41 @@ static NSComparisonResult (^conferenceComparator)(id, id) =
 }
 @end
 
-static void create_preview_handler(void *arg);
-static void release_preview_handler(void *view, void *arg);
-static void create_view_handler(const char *convid, const char* partid,
-				void *arg);
-static void release_view_handler(const char *convid, const char *partid,
-				 void *view, void *arg);
-#endif
+@implementation AVSVideoStateChangeInfo 
+
+@synthesize state = _state;
+@synthesize reason = _reason;
+
+- (id) initWithState:(AVSFlowManagerVideoReceiveState)state reason:(AVSFlowManagerVideoReason)reason
+{
+	self = [super init];
+	if (self) {
+		self->_state = state;
+		self->_reason = reason;
+	}
+	return self;
+}
+@end
+
+@implementation AVSAudioStateChangeInfo
+
+@synthesize state = _state;
+
+- (id) initWithState:(AVSFlowManagerAudioReceiveState)state
+{
+	self = [super init];
+	if (self) {
+		self->_state = state;
+	}
+	return self;
+}
+@end
 
 @interface AVSFlowManager() <AVSMediaManagerObserver>
+{
+	AVSCapturer *_capturer;
+	AVSVideoView *_videoView;
+}
 
 - (void)mediaCategoryChanged:(NSString *)convId category:(enum AVSFlowManagerCategory)mcat;
 
@@ -154,13 +190,20 @@ static NSString *mime2uti(const char *ctype)
 
 
 static void log_handler(uint32_t lve, const char *msg)
-{	
-	NSLog(@"%s", msg);
+{
 
-	if (g_Fm != nil && g_Fm.delegate != nil) {
-		if ([g_Fm.delegate respondsToSelector:@selector(logMessage:)])
-			[g_Fm.delegate logMessage:avsString(msg)];
-	}
+#ifdef AVS_LOG_DEBUG
+	NSLog(@"%s", msg);
+#endif
+
+	if (fmw.log_level > lve)
+		return;
+	
+	NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+	
+	[nc postNotificationName:@"AVSLogMessageNotification"
+			  object:nil
+			userInfo:@{@"message": avsString(msg)}];
 }
 
 
@@ -172,7 +215,8 @@ static struct log log_def = {
 static void *avs_thread(void *arg)
 {
 	int err;
-
+    uint64_t* avs_flags = (uint64_t*)arg;
+    
 	info("avs_thread: starting...\n");
 
 	err = libre_init();
@@ -182,28 +226,24 @@ static void *avs_thread(void *arg)
 	}
 
 	log_enable_stderr(false);
-	log_set_min_level(fmw.log_level);
+	log_set_min_level(LOG_LEVEL_DEBUG);
 	log_register_handler(&log_def);
 
 	NSLog(@"Calling avs_init");
 	
-	err = avs_init(0);
+	err = avs_init(*avs_flags);
 	if (err) {
 		warning("flowmgr_thread: avs_init failed (%m)\n", err);
 		return NULL;
 	}
 
-#define LOG_URL "https://z-call-logs.s3-eu-west-1.amazonaws.com"
-	err = flowmgr_init("voe", LOG_URL);
+	err = flowmgr_init("voe", NULL, CERT_TYPE_ECDSA);
 	fmw.initialized = err == 0;
 	fmw.err = err;
 	if (err) {
 		error("avs_thread: failed to init flowmgr\n");
 		goto out;
 	}
-
-	info("avs_thread: enable ICE dualstack\n");
-	flowmgr_enable_dualstack(true);
 
 	re_main(NULL);
 
@@ -383,6 +423,7 @@ static void vm_play_status_handler(bool is_playing, unsigned int cur_time_ms, un
     }
 }
 
+#if 0
 static inline enum log_level convert_logl(AVSFlowManagerLogLevel logLevel)
 {
 	switch(logLevel) {
@@ -402,6 +443,7 @@ static inline enum log_level convert_logl(AVSFlowManagerLogLevel logLevel)
 		return LOG_LEVEL_ERROR;
 	}
 }
+#endif
 
 
 static inline enum flowmgr_ausrc convert_ausrc(AVSFlowManagerAudioSource ausrc)
@@ -457,9 +499,9 @@ static inline enum flowmgr_auplay convert_auplay(AVSFlowManagerAudioPlay auplay)
 
 + (void)setLogLevel:(AVSFlowManagerLogLevel)logLevel
 {
+#if 0 // Don't set log level, use default
 	fmw.log_level = convert_logl(logLevel);
-	if (fmw.initialized)
-		log_set_min_level(fmw.log_level);
+#endif
 }
 
 
@@ -495,7 +537,7 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
     return _AVSFlowManagerInstance;
 }
 
-- (instancetype)init
+- (instancetype)init:(uint64_t)avs_flags
 {
 	struct flowmgr *fm;
 	int err;
@@ -503,7 +545,8 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 	debug("AVSFlowManager::init");
 	
 	if (fmw.tid == NULL) {
-		err = pthread_create(&fmw.tid, NULL, avs_thread, NULL);
+        fmw.avs_flags = avs_flags;
+		err = pthread_create(&fmw.tid, NULL, avs_thread, &fmw.avs_flags);
 		if (err)
 			return nil;
 
@@ -532,15 +575,16 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 
 	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_conf_pos_handler, fm,
 			     conf_pos_handler, (__bridge void *)(self));
-#if HAVE_VIDEO
+    
 	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_video_handlers, fm,
-			     create_preview_handler,
-			     release_preview_handler,
-			     create_view_handler,
-			     release_view_handler,
+			     video_state_change_h,
+			     render_frame_h,
 			     (__bridge void *)(self));
-#endif
 
+	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_audio_state_handler, fm,
+			     audio_state_change_h,
+			     (__bridge void *)(self));
+    
 	self = [super init];
 
 	if ( self ) {
@@ -564,10 +608,30 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 		g_Fm = self;
 	}
 
+	_capturer = [[AVSCapturer alloc] init];
 	
 	return self;
 }
 
+- (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate flowManager:(struct flowmgr *)flowManager mediaManager:(id)mediaManager avs_flags:(uint64_t)flags
+{
+    debug("AVSFlowManager::initWithDelegate:%p fm=%p mm=%p\n",
+          delegate, flowManager, mediaManager);
+    
+    self = [super init];
+    if (self) {
+        self.flowManager = flowManager;
+        self.delegate = delegate;
+        g_Fm = self;
+        _AVSFlowManagerInstance = self;
+
+	_videoView = nil;
+        
+        FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_start);
+    }
+    
+    return self;
+}
 
 - (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate flowManager:(struct flowmgr *)flowManager mediaManager:(id)mediaManager
 {
@@ -580,6 +644,7 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 		self.delegate = delegate;
 		g_Fm = self;
 		_AVSFlowManagerInstance = self;
+		_videoView = nil;
 
 		FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_start);
 	}
@@ -588,22 +653,29 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 }
 
 
-- (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate mediaManager:(id)mediaManager
+- (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate
+	mediaManager:(id)mediaManager
+{
+	return [self initWithDelegate:delegate mediaManager:mediaManager flags:0];
+}
+
+- (instancetype)initWithDelegate:(id<AVSFlowManagerDelegate>)delegate
+	mediaManager:(id)mediaManager flags:(uint64_t)avs_flags
 {
 	debug("AVSFlowManager::initWithDelegate:%p mm=%p\n",
 	      delegate, mediaManager);
 	
-	self = [self init];
+	self = [self init:avs_flags];
     
 	if ( self ) {
 		self.delegate = delegate;
 		_AVSFlowManagerInstance = self;
+		_videoView = nil;
 		FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_start);
 	}
 
 	return self;
 }
-
 
 - (void)dealloc
 {
@@ -1032,21 +1104,12 @@ out:
 
 - (void)applicationWillResignActive:(NSNotification *)notification
 {
-	dispatch_async(DISPATCH_Q, ^{
-		FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_background, self.flowManager,
-			MEDIA_BG_STATE_ENTER);
-	});
 }
 
 - (void)applicationDidBecomeActive:(NSNotification *)notification;
 {
-	dispatch_async(DISPATCH_Q, ^{
-		FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_background, self.flowManager,
-			MEDIA_BG_STATE_EXIT);
-	});
 }
 
-#if HAVE_VIDEO
 
 - (BOOL)canSendVideoForConversation:(NSString *)convId
 {
@@ -1079,7 +1142,8 @@ out:
 	dispatch_async(DISPATCH_Q, ^{
 		const char *cid = convId ? [convId UTF8String] : NULL;
 		enum flowmgr_video_send_state fmstate =
-			(enum flowmgr_video_send_state)state;
+			state == FLOWMANAGER_VIDEO_SEND_NONE ? FLOWMGR_VIDEO_SEND_NONE :
+			FLOWMGR_VIDEO_SEND;
 
 		debug("%s: conv=%s state=%d\n", __FUNCTION__, cid ? cid : "NULL", state);
 		FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_video_send_state, self.flowManager,
@@ -1087,34 +1151,40 @@ out:
 	});
 }
 
-
-- (void)setVideoPreview:(UIView *)view forConversation:(NSString *)convId
+- (void)attachVideoPreview:(UIView *)view
 {
-	dispatch_async(DISPATCH_Q, ^{
-		const char *cid = convId ? [convId UTF8String] : NULL;
-		void *v = (__bridge_retained void*)view;
-
-		FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_video_preview, 
-			self.flowManager, cid, v);
-	});
+	[_capturer attachPreview: view];
 }
 
-
-- (void)setVideoView:(UIView *)view forConversation:(NSString *)convId forParticipant:(NSString *)partId
+- (void)detachVideoPreview:(UIView *)view
 {
-	dispatch_async(DISPATCH_Q, ^{
-		void *v = (__bridge_retained void*)view;
-		const char *cid = convId ? [convId UTF8String] : NULL;
-		const char *pid = partId ? [partId UTF8String] : NULL;
-
-		FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_video_view, self.flowManager,
-			cid, pid, v);
-	});
+	[_capturer detachPreview: view];
 }
 
+- (void)attachVideoView:(UIView *)view
+{
+	_videoView = (AVSVideoView*)view;
+}
+
+- (void)detachVideoView:(UIView *)view
+{
+	if (view == _videoView) {
+		_videoView = nil;
+	}
+}
+
+- (void)renderFrame:(struct avs_vidframe *)frame
+{
+#if TARGET_OS_IPHONE
+	if (_videoView) {
+		[_videoView handleFrame:frame];
+	}
+#endif
+}
 
 - (NSArray*)getVideoCaptureDevices
 {
+#if 0
 	struct list *device_list = NULL;
 	struct le *le;
 
@@ -1133,29 +1203,19 @@ out:
 		mem_deref(device_list);
 	}
 	return devArray;
+#else
+	return nil;
+#endif
 }
 
 
 - (void)setVideoCaptureDevice:(NSString *)deviceId forConversation:(NSString *)convId
 {
-	dispatch_async(DISPATCH_Q, ^{
-		const char *cid = convId ? [convId UTF8String] : NULL;
-		const char *devid = deviceId ? [deviceId UTF8String] : NULL;
-
-		FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_video_capture_device,
-			self.flowManager, cid, devid);
-	});
+	if (_capturer) {
+		[_capturer setCaptureDevice:deviceId];
+	}
 }
 
-#else
-- (BOOL)canSendVideoForConversation:(NSString *)convId { return NO; }
-- (void)setVideoSendActive:(BOOL)active forConversation:(NSString *)convId{}
-- (void)setVideoPreview:(void *)view forConversation:(NSString *)convId {}
-- (void)setVideoView:(void *)view forConversation:(NSString *)convId forParticipant:(NSString *)participantId {}
-- (NSArray*)getVideoCaptureDevices { return nil;}
-- (void)setVideoCaptureDevice:(NSString *)deviceId forConversation:(NSString *)convId {}
-
-#endif
 
 - (void)vmStartRecord:(NSString *)fileName
 {
@@ -1199,7 +1259,6 @@ out:
 @end
 
 
-#if HAVE_VIDEO
 static void avs_flow_manager_send_notification(NSString *name, id object)
 {
 	dispatch_async(dispatch_get_main_queue(),^{
@@ -1212,42 +1271,63 @@ static void avs_flow_manager_send_notification(NSString *name, id object)
 	});
 }
 
-static void create_preview_handler(void *arg)
+static void video_state_change_h(enum flowmgr_video_receive_state state,
+	enum flowmgr_video_reason reason, void *arg)
 {
 	(void)arg;
 
-	avs_flow_manager_send_notification(FlowManagerCreatePreviewNotification, nil);
+	AVSFlowManagerVideoReceiveState st;
+	AVSFlowManagerVideoReason re;
+
+	switch(state) {
+		case FLOWMGR_VIDEO_RECEIVE_STARTED:
+			st = FLOWMANAGER_VIDEO_RECEIVE_STARTED;
+			break;
+
+		case FLOWMGR_VIDEO_RECEIVE_STOPPED:
+			st = FLOWMANAGER_VIDEO_RECEIVE_STOPPED;
+			break;
+	}
+
+	switch(reason) {
+		case FLOWMGR_VIDEO_NORMAL:
+			re = FLOWMANAGER_VIDEO_NORMAL;
+			break;
+
+		case FLOWMGR_VIDEO_BAD_CONNECTION:
+			re = FLOWMANAGER_VIDEO_BAD_CONNECTION;
+			break;
+	}
+
+	AVSVideoStateChangeInfo *info = [[AVSVideoStateChangeInfo alloc]
+		initWithState:st reason:re];
+	avs_flow_manager_send_notification(FlowManagerVideoReceiveStateNotification, info);
 }
 
-static void release_preview_handler(void *view, void *arg)
+static void audio_state_change_h(enum flowmgr_audio_receive_state state,
+                                 void *arg)
 {
 	(void)arg;
-	id viewobj = view ? (__bridge_transfer id)(view) : nil;
-
-	avs_flow_manager_send_notification(FlowManagerReleasePreviewNotification, viewobj);
+    
+	AVSFlowManagerAudioReceiveState st;
+    
+	switch(state) {
+		case FLOWMGR_AUDIO_INTERRUPTION_STOPPED:
+			st = FLOWMANAGER_AUDIO_INTERRUPTION_STOPPED;
+			break;
+            
+		case FLOWMGR_AUDIO_INTERRUPTION_STARTED:
+			st = FLOWMANAGER_AUDIO_INTERRUPTION_STARTED;
+			break;
+	}
+    
+	AVSAudioStateChangeInfo *info = [[AVSAudioStateChangeInfo alloc]
+										initWithState:st];
+	avs_flow_manager_send_notification(FlowManagerAudioReceiveStateNotification, info);
 }
 
-static void create_view_handler(const char *convid, const char *partid,
-				void *arg)
+static void render_frame_h(struct avs_vidframe *frame)
 {
-	NSString *partStr = partid ? [NSString stringWithUTF8String:partid] : nil;
-
-	(void)arg;
-	(void)convid;
-	
-	avs_flow_manager_send_notification(FlowManagerCreateViewNotification, partStr);
+	[[AVSFlowManager getInstance] renderFrame:frame];
 }
-
-static void release_view_handler(const char *convid, const char *partid,
-				 void *view, void *arg)
-{
-	id viewobj = view ? (__bridge_transfer id)(view) : nil;
-
-	(void)convid;
-	(void)partid;
-	(void)arg;
-
-	avs_flow_manager_send_notification(FlowManagerReleaseViewNotification, viewobj);
-}
-#endif
 

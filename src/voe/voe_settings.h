@@ -44,12 +44,12 @@
     #define ZETA_USE_AGC_EARPIECE            true
     #define ZETA_USE_AGC_SPEAKER             true
     #define ZETA_USE_AGC_HEADSET             true
-    #define ZETA_AGC_MODE_EARPIECE           webrtc::kAgcFixedDigital
+    #define ZETA_AGC_MODE_EARPIECE           webrtc::kAgcAdaptiveDigital
     #define ZETA_AGC_MODE_EARPIECE_CONF      webrtc::kAgcAdaptiveDigital
 /* In Speaker mode we dont use Adaptive AGC - risk of adapting to background noise / speakers */
     #define ZETA_AGC_MODE_SPEAKER            webrtc::kAgcFixedDigital
     #define ZETA_AGC_MODE_SPEAKER_CONF       webrtc::kAgcFixedDigital
-    #define ZETA_AGC_MODE_HEADSET            webrtc::kAgcFixedDigital
+    #define ZETA_AGC_MODE_HEADSET            webrtc::kAgcAdaptiveDigital
     #define ZETA_AGC_MODE_HEADSET_CONF       webrtc::kAgcAdaptiveDigital
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_EARPIECE          9
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_EARPIECE_CONF     9
@@ -61,12 +61,12 @@
     #define ZETA_USE_AGC_EARPIECE            true
     #define ZETA_USE_AGC_SPEAKER             true
     #define ZETA_USE_AGC_HEADSET             true
-    #define ZETA_AGC_MODE_EARPIECE           webrtc::kAgcFixedDigital
+    #define ZETA_AGC_MODE_EARPIECE           webrtc::kAgcAdaptiveDigital
     #define ZETA_AGC_MODE_EARPIECE_CONF      webrtc::kAgcAdaptiveDigital
 /* In Speaker mode we dont use Adaptive AGC - risk of adapting to background noise / speakers */
     #define ZETA_AGC_MODE_SPEAKER            webrtc::kAgcFixedDigital
     #define ZETA_AGC_MODE_SPEAKER_CONF       webrtc::kAgcFixedDigital
-    #define ZETA_AGC_MODE_HEADSET            webrtc::kAgcFixedDigital
+    #define ZETA_AGC_MODE_HEADSET            webrtc::kAgcAdaptiveDigital
     #define ZETA_AGC_MODE_HEADSET_CONF       webrtc::kAgcAdaptiveDigital
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_EARPIECE          9
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_EARPIECE_CONF     9
@@ -105,6 +105,7 @@
     // AEC(M) defines has to be set but is not in use
     #define ZETA_AEC_MODE                    webrtc::kEcAec
     #define ZETA_AEC_DELAY_CORRECTION        false
+    #define ZETA_AEC_DELAY_AGNOSTIC          false
     #define ZETA_AECM_CNG                    false
     #define ZETA_AECM_MODE_EARPIECE          webrtc::kAecmLoudEarpiece
     #define ZETA_AECM_MODE_SPEAKER           webrtc::kAecmLoudSpeakerphone
@@ -115,6 +116,7 @@
     #define ZETA_USE_AEC_HEADSET             true
     #define ZETA_AEC_MODE                    webrtc::kEcAecm
     #define ZETA_AEC_DELAY_CORRECTION        false
+    #define ZETA_AEC_DELAY_AGNOSTIC          false
     #define ZETA_AECM_CNG                    false
     #define ZETA_AECM_MODE_EARPIECE          webrtc::kAecmLoudEarpiece
     #define ZETA_AECM_MODE_SPEAKER           webrtc::kAecmLoudSpeakerphone
@@ -125,6 +127,7 @@
     #define ZETA_USE_AEC_HEADSET             true
     #define ZETA_AEC_MODE                    webrtc::kEcConference
     #define ZETA_AEC_DELAY_CORRECTION        true
+    #define ZETA_AEC_DELAY_AGNOSTIC          false
     // AECM defines has to be set but is not in use
     #define ZETA_AECM_CNG                    false
     #define ZETA_AECM_MODE_EARPIECE          webrtc::kAecmLoudEarpiece

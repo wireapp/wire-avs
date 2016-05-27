@@ -48,7 +48,8 @@ extern "C" {
 #include "avs_conf_pos.h"
 }
 
-#include "avs_voe.h"
+#include "avs_audio_effect.h"
+
 #include "voe.h"
 
 #define RTP_HEADER_IN_BYTES 12
@@ -410,6 +411,67 @@ static void comment_pad(char **comments, int* length, int amount)
     }
 }
 
+static void init_ogg_stream(ogg_packet* op, ogg_stream_state* os, FILE **fpp)
+{
+    /* Initialize Ogg stream struct */
+    int serialno = 12345;
+    if(ogg_stream_init(os, serialno)==-1){
+        info("Ogg stream init failed\n");
+    }
+    
+    /* Write headers */
+    int ret;
+    ogg_page og;
+    OpusHeader header;
+    header.version = 0;
+    header.channels = 2;
+    header.preskip = 120;
+    header.input_sample_rate = 48000;
+    header.gain = 0;
+    header.channel_mapping = 0;
+    unsigned char header_data[100];
+    op->bytes  = opus_header_to_packet(&header, header_data, 100);
+    op->packet = header_data;
+    op->b_o_s = 1;
+    op->e_o_s = 0;
+    op->granulepos = 0;
+    op->packetno = 0;
+    ogg_stream_packetin(os, op);
+    while((ret=ogg_stream_flush(os, &og))){
+        if(!ret)break;
+        ret=oe_write_page(&og, *fpp);
+        if(ret!=og.header_len+og.body_len){
+            info("Ogg failed writing header to output stream\n");
+        }
+    }
+    
+    /* Vendor string should just be the encoder library, the ENCODER comment specifies the tool used.*/
+    char *comments;
+    int comments_length;
+    comment_init(&comments, &comments_length, opus_get_version_string());
+    const char *tag = "ENCODER";
+    const char *vendor = "Wire";
+    comment_add(&comments, &comments_length, tag, vendor);
+    comment_pad(&comments, &comments_length, 0);
+    op->packet = (unsigned char *)comments;
+    op->bytes = comments_length;
+    op->b_o_s = 0;
+    op->e_o_s = 0;
+    op->granulepos = 0;
+    op->packetno = 1;
+    ogg_stream_packetin(os, op);
+    while((ret=ogg_stream_flush(os, &og))){
+        if(!ret)break;
+        ret=oe_write_page(&og, *fpp);
+        if(ret!=og.header_len + og.body_len){
+            info("Ogg failed writing header to output stream\n");
+        }
+    }
+    free(comments);
+    
+    op->bytes = 0;
+}
+
 class VmTransport : public webrtc::Transport {
 public:
     VmTransport(FILE **fpp, pthread_mutex_t* mutex){
@@ -418,64 +480,8 @@ public:
         
         if(!fpp || !mutex)
         return;
-        
-        /* Initialize Ogg stream struct */
-        int serialno = 12345;
-        if(ogg_stream_init(&_os, serialno)==-1){
-            info("Ogg stream init failed\n");
-        }
-        
-        /* Write headers */
-        int ret;
-        ogg_page og;
-        OpusHeader header;
-        header.version = 0;
-        header.channels = 2;
-        header.preskip = 120;
-        header.input_sample_rate = 48000;
-        header.gain = 0;
-        header.channel_mapping = 0;
-        unsigned char header_data[100];
-        _op.bytes  = opus_header_to_packet(&header, header_data, 100);
-        _op.packet = header_data;
-        _op.b_o_s = 1;
-        _op.e_o_s = 0;
-        _op.granulepos = 0;
-        _op.packetno = 0;
-        ogg_stream_packetin(&_os, &_op);
-        while((ret=ogg_stream_flush(&_os, &og))){
-            if(!ret)break;
-            ret=oe_write_page(&og, *fpp);
-            if(ret!=og.header_len+og.body_len){
-                info("Ogg failed writing header to output stream\n");
-            }
-        }
-        
-        /* Vendor string should just be the encoder library, the ENCODER comment specifies the tool used.*/
-        char *comments;
-        int comments_length;
-        comment_init(&comments, &comments_length, opus_get_version_string());
-        const char *tag = "ENCODER";
-        const char *vendor = "Wire";
-        comment_add(&comments, &comments_length, tag, vendor);
-        comment_pad(&comments, &comments_length, 0);
-        _op.packet = (unsigned char *)comments;
-        _op.bytes = comments_length;
-        _op.b_o_s = 0;
-        _op.e_o_s = 0;
-        _op.granulepos = 0;
-        _op.packetno = 1;
-        ogg_stream_packetin(&_os, &_op);
-        while((ret=ogg_stream_flush(&_os, &og))){
-            if(!ret)break;
-            ret=oe_write_page(&og, *fpp);
-            if(ret!=og.header_len + og.body_len){
-                info("Ogg failed writing header to output stream\n");
-            }
-        }
-        free(comments);
-        
-        _op.bytes = 0;
+     
+        init_ogg_stream(&_op, &_os, fpp);
     };
     
     virtual ~VmTransport() {
@@ -641,17 +647,17 @@ int voe_vm_stop_record()
     return err;
 }
 
-int voe_me_init_stream(uint64_t target_pos) {
+int voe_me_init_stream(struct vm_state *vm, uint64_t target_pos) {
     FILE *fp;
-    fp = gvoe.vm.fp;
+    fp = vm->fp;
     if(!fp){
         info("File pointer is null: exit voe_me_init_stream \n");
         return -1;
     }
     rewind(fp);
     
-    gvoe.vm.stream_init = 0;
-    ogg_sync_init(&gvoe.vm.oy);
+    vm->stream_init = 0;
+    ogg_sync_init(&vm->oy);
     
     /* Decode first two packets (=header and tags) */
     int packet_count = 0;
@@ -661,34 +667,32 @@ int voe_me_init_stream(uint64_t target_pos) {
         char *data;
         int i, nb_read;
         /* Get the ogg buffer for writing */
-        data = ogg_sync_buffer(&gvoe.vm.oy, 200);
+        data = ogg_sync_buffer(&vm->oy, 200);
         /* Read bitstream from input file */
         nb_read = fread(data, sizeof(char), 200, fp);
-        ogg_sync_wrote(&gvoe.vm.oy, nb_read);
+        ogg_sync_wrote(&vm->oy, nb_read);
         /* Loop for all complete pages we got (most likely only one) */
-        while (ogg_sync_pageout(&gvoe.vm.oy, &gvoe.vm.og)==1 && packet_count < 2)
+        while (ogg_sync_pageout(&vm->oy, &vm->og)==1 && packet_count < 2)
         {
-            if (gvoe.vm.stream_init == 0) {
-                ogg_stream_init(&gvoe.vm.os, ogg_page_serialno(&gvoe.vm.og));
-                gvoe.vm.stream_init = 1;
+            if (vm->stream_init == 0) {
+                ogg_stream_init(&vm->os, ogg_page_serialno(&vm->og));
+                vm->stream_init = 1;
             }
             /* Add page to the bitstream */
-            ogg_stream_pagein(&gvoe.vm.os, &gvoe.vm.og);
+            ogg_stream_pagein(&vm->os, &vm->og);
             /* Extract all available packets */
-            while (ogg_stream_packetout(&gvoe.vm.os, &op) == 1 && packet_count < 2)
+            while (ogg_stream_packetout(&vm->os, &op) == 1 && packet_count < 2)
             {
                 /* If first packet in a logical stream, process the Opus header */
                 if (packet_count==0)
                 {
                     if(!op.b_o_s) {
                         info("First Ogg packet not beginning of stream\n");
-                        voe_vm_stop_play();
                         return -1;
                     }
                     OpusHeader header;
                     if (opus_header_parse(op.packet, op.bytes, &header)==0) {
                         info("Invalid Ogg/Opus header\n");
-                        voe_vm_stop_play();
                         return -1;
                     }
                 }
@@ -698,12 +702,11 @@ int voe_me_init_stream(uint64_t target_pos) {
     } while (packet_count < 2 && nb_read > 0);
     
     if (packet_count < 2 || op.e_o_s) {
-        voe_vm_stop_play();
         return -1;
     }
     
     /* At this point we're at the start of the codec bitstream */
-    gvoe.vm.samplepos = 0;
+    vm->samplepos = 0;
     
     if (target_pos == 0) {
         /* No seeking necessary */
@@ -714,34 +717,34 @@ int voe_me_init_stream(uint64_t target_pos) {
     nb_read = 1;
     while(nb_read) {
         /* Extract all available packets */
-        while (ogg_stream_packetout(&gvoe.vm.os, &op) == 1) {
+        while (ogg_stream_packetout(&vm->os, &op) == 1) {
             int nSamples = packet_get_samples_per_frame(op.packet, 48000) * packet_get_nb_frames(op.packet, op.bytes);
             gvoe.vm.samplepos += nSamples;
             if (op.e_o_s) {
-                gvoe.vm.samplestot = gvoe.vm.samplepos;
+                vm->samplestot = vm->samplepos;
                 return 0;
             }
-            if (gvoe.vm.samplepos >= target_pos) {
+            if (vm->samplepos >= target_pos) {
                 return 0;
             }
         }
         
         /* Extract page */
-        if(ogg_sync_pageout(&gvoe.vm.oy, &gvoe.vm.og)==1)
+        if(ogg_sync_pageout(&vm->oy, &vm->og)==1)
         {
             /* Add page to the bitstream */
-            ogg_stream_pagein(&gvoe.vm.os, &gvoe.vm.og);
+            ogg_stream_pagein(&vm->os, &vm->og);
         } else {
             /* Read more data */
             char *data;
             /*Get the ogg buffer for writing*/
-            data = ogg_sync_buffer(&gvoe.vm.oy, 1000);
+            data = ogg_sync_buffer(&vm->oy, 1000);
             /* Read bitstream from input file */
             nb_read = fread(data, sizeof(char), 1000, fp);
-            ogg_sync_wrote(&gvoe.vm.oy, nb_read);
+            ogg_sync_wrote(&vm->oy, nb_read);
         }
     }
-    gvoe.vm.samplestot = gvoe.vm.samplepos;
+    vm->samplestot = vm->samplepos;
     return 0;
 }
 
@@ -762,7 +765,10 @@ void tmr_vm_player_handler(void *arg)
     
     if(gvoe.vm.start_time_ms >= 0) {
         /* Rewind to start of file, and scan through Ogg stream until the desired start time */
-        if (voe_me_init_stream(gvoe.vm.start_time_ms * 48)) return;
+        if (voe_me_init_stream(&gvoe.vm, gvoe.vm.start_time_ms * 48)){
+            voe_vm_stop_play();
+            return;
+        }
         gvoe.vm.start_time_ms = -1;
     }
     
@@ -811,10 +817,16 @@ void tmr_vm_player_handler(void *arg)
     if (gvoe.vm.samplepos >= gvoe.vm.samplestot && op.e_o_s == 0 && nb_read > 0) {
         /* Rescan file */
         uint64_t pos = gvoe.vm.samplepos;
-        if(voe_me_init_stream(UINT32_MAX)) return;
+        if(voe_me_init_stream(&gvoe.vm, UINT32_MAX)){
+            voe_vm_stop_play();
+            return;
+        }
         gvoe.vm.file_length_ms = (int)((gvoe.vm.samplestot + 24) / 48);
         info("new voice message length: %d ms\n", gvoe.vm.file_length_ms);
-        if(voe_me_init_stream(pos)) return;
+        if(voe_me_init_stream(&gvoe.vm, pos)){
+            voe_vm_stop_play();
+            return;
+        }
     }
     
     // Callback with curent playout position
@@ -848,19 +860,21 @@ int voe_vm_get_length(const char fileNameUTF8[1024],
                       int* length_ms)
 {
     int err = 0;
-    vm_state vm;
+    struct vm_state vm;
+    memset(&vm, 0, sizeof(struct vm_state));
+    
     vm.fp = fopen(fileNameUTF8,"rb");
-    if (gvoe.vm.fp == NULL) {
+    if (vm.fp == NULL) {
         error("voe_vm_start_play: Could not open file: %s\n", fileNameUTF8);
         return -1;
     }
     /* Measure length of Ogg file */
-    gvoe.vm.samplestot = 0;
-    if(voe_me_init_stream(UINT32_MAX)) {
+    vm.samplestot = 0;
+    if(voe_me_init_stream(&vm, UINT32_MAX)) {
         *length_ms = 0;
         err = 1;
     } else {
-        *length_ms = gvoe.vm.samplestot / 48;
+        *length_ms = vm.samplestot / 48;
     }
     fclose(vm.fp);
     return err;
@@ -924,7 +938,8 @@ int voe_vm_start_play(const char fileNameUTF8[1024],
     
     /* Measure length of Ogg file */
     gvoe.vm.samplestot = 0;
-    if(voe_me_init_stream(UINT32_MAX)) {
+    if(voe_me_init_stream(&gvoe.vm, UINT32_MAX)) {
+        voe_vm_stop_play();
         return -1;
     }
     gvoe.vm.file_length_ms = gvoe.vm.samplestot / 48;
@@ -972,3 +987,136 @@ int voe_vm_stop_play()
     
     return err;
 }
+
+#define BUF_SIZE  60*48
+#define DATA_SIZE 200
+
+int voe_vm_apply_effect(const char inFileNameUTF8[1024], const char outFileNameUTF8[1024], audio_effect effect)
+{
+    struct aueffect *aue;
+    
+    OpusEncoder *enc=NULL;
+    OpusDecoder *dec=NULL;
+    int err;
+    struct vm_state vm;
+    memset(&vm, 0, sizeof(struct vm_state));
+    
+    vm.fp = fopen(inFileNameUTF8,"rb");
+    if (vm.fp == NULL) {
+        error("voe_vm_start_play: Could not open file: %s\n", inFileNameUTF8);
+        return -1;
+    }
+    
+    if (voe_me_init_stream(&vm, 0)){
+        return -1;
+    }
+    
+    // Create Opus encoder and decoder
+    dec = opus_decoder_create(24000, 1, &err);
+    enc = opus_encoder_create(24000, 1, OPUS_APPLICATION_AUDIO, &err);
+    if (err != OPUS_OK)
+    {
+        error("Cannot create opus encoder: %s\n", opus_strerror(err));
+        return -1;
+    }
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(32000));
+    
+    FILE* out_file = fopen(outFileNameUTF8,"wb");
+    
+    aueffect_alloc(&aue, effect, 24000);
+    if(err){
+        error("aueffect_alloc failed \n");
+        fclose(out_file);
+        return -1;
+    }
+    
+    /* Initialize packet writing */
+    ogg_packet op_enc;
+    ogg_stream_state os;
+    
+    init_ogg_stream(&op_enc, &os, &out_file);
+    
+    /* Extract payload from Ogg stream */
+    int nSamples = 0;
+    ogg_packet op_dec;
+    int nb_read = 1;
+    int16_t buf[BUF_SIZE];
+    uint8_t data[DATA_SIZE];
+    int output_samples, len;
+    while(1){
+        while (nb_read > 0) {
+            /* Extract all available packets */
+            if (ogg_stream_packetout(&vm.os, &op_dec) == 1)
+            {
+                if(op_enc.bytes){
+                    op_enc.packet = data;
+                    op_enc.packetno++;
+                    op_enc.granulepos += output_samples;
+                    ogg_stream_packetin(&os, &op_enc);
+                    ogg_page og;
+                    ogg_stream_flush_fill(&os, &og, 255*255);
+                    int ret=oe_write_page(&og, out_file);
+                    if(ret!=og.header_len+og.body_len){
+                        info("Ogg failed writing data to output stream\n");
+                    }
+                    op_enc.bytes = 0;
+                }
+                
+                output_samples = opus_decode(dec, op_dec.packet, op_dec.bytes * sizeof(uint8_t), buf, BUF_SIZE, 0);
+                
+                aueffect_process(aue, (const int16_t*)buf, buf, output_samples);
+                
+                len = opus_encode(enc, buf, output_samples, data, DATA_SIZE);
+                op_enc.bytes = len;
+                
+                break;
+            }
+        
+            /* Loop for all complete pages we got (most likely only one) */
+            if(ogg_sync_pageout(&vm.oy, &vm.og)==1)
+            {
+                /* Add page to the bitstream */
+                ogg_stream_pagein(&vm.os, &vm.og);
+            } else {
+                /* Read more data */
+                char *data;
+                /* Get the ogg buffer for writing */
+                data = ogg_sync_buffer(&vm.oy, 1000);
+                /* Read bitstream from input file */
+                nb_read = fread(data, sizeof(char), 1000, vm.fp);
+                ogg_sync_wrote(&vm.oy, nb_read);
+            }
+        }
+    
+        if (op_dec.e_o_s || nb_read == 0) {
+            info("End of voice message: end of %s \n", op_dec.e_o_s ? "stream" : "file");
+            break;
+        }
+    }
+
+    op_enc.b_o_s=0;
+    /* Set end-of-stream flag */
+    op_enc.e_o_s=1;
+    if(op_enc.bytes){
+        op_enc.packet = data;
+        op_enc.packetno++;
+        op_enc.granulepos += PACKET_SIZE_MS * 24;
+        ogg_stream_packetin(&os, &op_enc);
+        ogg_page og;
+        ogg_stream_flush_fill(&os, &og, 255*255);
+        int ret=oe_write_page(&og, out_file);
+        if(ret!=og.header_len+og.body_len){
+            info("Ogg failed writing data to output stream\n");
+        }
+        op_enc.bytes = 0;
+    }
+    ogg_stream_clear(&os);
+    
+    mem_deref(aue);
+    
+    fclose(out_file);
+    
+    return 0;
+}
+
+

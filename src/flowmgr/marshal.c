@@ -59,21 +59,15 @@ enum marshal_id {
 	MARSHAL_ENABLE_LOGGING,
 	MARSHAL_SET_SESSID,
 	MARSHAL_INTERRUPTION,
-	MARSHAL_BACKGROUND,
-    MARSHAL_VM_START_RECORD,
-    MARSHAL_VM_STOP_RECORD,
-    MARSHAL_VM_START_PLAY,
-    MARSHAL_VM_STOP_PLAY,
-#if HAVE_VIDEO
-	MARSHAL_SET_VIDEO_PREVIEW,
-	MARSHAL_SET_VIDEO_VIEW,
-	MARSHAL_GET_VIDEO_CAPTURE_DEVICES,
-	MARSHAL_SET_VIDEO_CAPTURE_DEVICE,
+	MARSHAL_VM_START_RECORD,
+	MARSHAL_VM_STOP_RECORD,
+	MARSHAL_VM_START_PLAY,
+	MARSHAL_VM_STOP_PLAY,
 	MARSHAL_CAN_SEND_VIDEO,
 	MARSHAL_IS_SENDING_VIDEO,
 	MARSHAL_SET_VIDEO_SEND_STATE,
 	MARSHAL_SET_VIDEO_HANDLERS,
-#endif
+	MARSHAL_SET_AUDIO_STATE_HANDLER,
 };
 
 struct marshal_elem {
@@ -225,12 +219,6 @@ struct marshal_interruption_elem {
 	bool interrupted;
 };
 
-struct marshal_background_elem {
-	struct marshal_elem a;
-
-	enum media_bg_state bgst;
-};
-
 struct marshal_useradd_elem {
 	struct marshal_elem a;
 
@@ -276,33 +264,10 @@ struct marshal_vm_stop_play_elem {
     struct marshal_elem a;
 };
 
-#if HAVE_VIDEO
-struct marshal_video_preview_elem {
-	struct marshal_elem a;
-
-	const char *convid;
-	void *view;
-};
-
-struct marshal_video_view_elem {
-	struct marshal_elem a;
-
-	const char *convid;
-	const char *partid;
-	void *view;
-};
-
 struct marshal_video_capture_list_elem {
 	struct marshal_elem a;
 
 	struct list **devlist;
-};
-
-struct marshal_video_capture_device_elem {
-	struct marshal_elem a;
-
-	const char *convid;
-	const char *devid;
 };
 
 struct marshal_video_state_elem {
@@ -329,14 +294,17 @@ struct marshal_video_is_sending_elem {
 struct marshal_video_handlers_elem {
 	struct marshal_elem a;
 
-	flowmgr_create_preview_h *create_preview_handler;
-	flowmgr_release_preview_h *release_preview_handler;
-	flowmgr_create_view_h *create_view_handler;
-	flowmgr_release_view_h *release_view_handler;
+	flowmgr_video_state_change_h *video_state_change_handler;
+	flowmgr_render_frame_h *render_frame_handler;
 	void *arg;
 };
 
-#endif
+struct marshal_audio_state_handler_elem {
+	struct marshal_elem a;
+    
+	flowmgr_audio_state_change_h *audio_state_change_handler;
+	void *arg;
+};
 
 static void mqueue_handler(int id, void *data, void *arg)
 {
@@ -546,13 +514,6 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 	}
 
-	case MARSHAL_BACKGROUND: {
-		struct marshal_background_elem *mbe = data;
-
-		flowmgr_background(me->fm, mbe->bgst);
-		break;
-	}
-		
 	case MARSHAL_VM_START_RECORD: {
 		struct marshal_vm_start_record_elem *mie = data;
 
@@ -581,35 +542,6 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 	}
 
-#if HAVE_VIDEO
-	case MARSHAL_SET_VIDEO_PREVIEW: {
-		struct marshal_video_preview_elem *mse = data;
-
-		flowmgr_set_video_preview(me->fm, mse->convid, mse->view);
-		break;
-	}
-
-	case MARSHAL_SET_VIDEO_VIEW: {
-		struct marshal_video_view_elem *mse = data;
-
-		flowmgr_set_video_view(me->fm, mse->convid, mse->partid, mse->view);
-		break;
-	}
-
-	case MARSHAL_GET_VIDEO_CAPTURE_DEVICES: {
-		struct marshal_video_capture_list_elem *mse = data;
-
-		flowmgr_get_video_capture_devices(me->fm, mse->devlist);
-		break;
-	}
-
-	case MARSHAL_SET_VIDEO_CAPTURE_DEVICE: {
-		struct marshal_video_capture_device_elem *mse = data;
-
-		flowmgr_set_video_capture_device(me->fm, mse->convid, mse->devid);
-		break;
-	}
-
 	case MARSHAL_SET_VIDEO_SEND_STATE: {
 		struct marshal_video_state_elem *mse = data;
 
@@ -632,19 +564,25 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 	}
 		
-
 	case MARSHAL_SET_VIDEO_HANDLERS: {
 		struct marshal_video_handlers_elem *mse = data;
 
 		flowmgr_set_video_handlers(me->fm, 
-			mse->create_preview_handler,
-			mse->release_preview_handler,
-			mse->create_view_handler,
-			mse->release_view_handler,
+			mse->video_state_change_handler,
+			mse->render_frame_handler,
 			mse->arg);
 		break;
 	}
-#endif
+            
+	case MARSHAL_SET_AUDIO_STATE_HANDLER: {
+		struct marshal_audio_state_handler_elem *mse = data;
+            
+		flowmgr_set_audio_state_handler(me->fm,
+			mse->audio_state_change_handler,
+			mse->arg);
+		break;
+	}
+            
 	}
 
 	me->handled = true;
@@ -1113,19 +1051,6 @@ int marshal_flowmgr_interruption(struct flowmgr *fm, const char *convid,
 }
 
 
-void marshal_flowmgr_background(struct flowmgr *fm, enum media_bg_state bgst)
-{
-	struct marshal_background_elem me;
-
-	me.a.id = MARSHAL_BACKGROUND;
-	me.a.fm = fm;
-
-	me.bgst = bgst;
-
-	marshal_send(&me);
-}
-
-
 int marshal_flowmgr_vm_start_record(struct flowmgr *fm, const char fileNameUTF8[1024])
 {
     struct marshal_vm_start_record_elem me;
@@ -1192,63 +1117,6 @@ void marshal_flowmgr_network_changed(struct flowmgr *fm)
 	marshal_send(&me);
 }
 
-
-#if HAVE_VIDEO
-
-void marshal_flowmgr_set_video_preview(struct flowmgr *fm, const char *convid, void *view)
-{
-	struct marshal_video_preview_elem me;
-
-	me.a.id = MARSHAL_SET_VIDEO_PREVIEW;
-	me.a.fm = fm;
-
-	me.convid = convid;
-	me.view = view;
-
-	marshal_send(&me);
-}
-
-void marshal_flowmgr_set_video_view(struct flowmgr *fm, const char *convid, const char *partid, void *view)
-{
-	struct marshal_video_view_elem me;
-
-	me.a.id = MARSHAL_SET_VIDEO_VIEW;
-	me.a.fm = fm;
-
-	me.convid = convid;
-	me.partid = partid;
-	me.view = view;
-
-	marshal_send(&me);
-}
-
-
-void marshal_flowmgr_get_video_capture_devices(struct flowmgr *fm, struct list **device_list)
-{
-	struct marshal_video_capture_list_elem me;
-
-	me.a.id = MARSHAL_GET_VIDEO_CAPTURE_DEVICES;
-	me.a.fm = fm;
-
-	me.devlist = device_list;
-
-	marshal_send(&me);
-}
-
-
-void marshal_flowmgr_set_video_capture_device(struct flowmgr *fm, const char *convid, const char *devid)
-{
-	struct marshal_video_capture_device_elem me;
-
-	me.a.id = MARSHAL_SET_VIDEO_CAPTURE_DEVICE;
-	me.a.fm = fm;
-
-	me.convid = convid;
-	me.devid = devid;
-
-	marshal_send(&me);
-}
-
 void marshal_flowmgr_set_video_send_state(struct flowmgr *fm, const char *convid, enum flowmgr_video_send_state state)
 {
 	struct marshal_video_state_elem me;
@@ -1292,27 +1160,33 @@ int marshal_flowmgr_is_sending_video(struct flowmgr *fm,
 	return me.a.ret;
 }
 
-
 void marshal_flowmgr_set_video_handlers(struct flowmgr *fm, 
-					flowmgr_create_preview_h *create_preview_handler,
-					flowmgr_release_preview_h *release_preview_handler,
-					flowmgr_create_view_h *create_view_handler,
-					flowmgr_release_view_h *release_view_handler,
-					void *arg)
+	flowmgr_video_state_change_h *video_state_change_handler,
+	flowmgr_render_frame_h *render_frame_handler, void *arg)
 {
 	struct marshal_video_handlers_elem me;
 
 	me.a.id = MARSHAL_SET_VIDEO_HANDLERS;
 	me.a.fm = fm;
 
-	me.create_preview_handler = create_preview_handler;
-	me.release_preview_handler = release_preview_handler;
-	me.create_view_handler = create_view_handler;
-	me.release_view_handler = release_view_handler;
+	me.video_state_change_handler = video_state_change_handler;
+	me.render_frame_handler = render_frame_handler;
 	me.arg = arg;
 
 	marshal_send(&me);
 }
 
-#endif
-
+void marshal_flowmgr_set_audio_state_handler(struct flowmgr *fm,
+	flowmgr_audio_state_change_h *audio_state_change_handler,
+	void *arg)
+{
+	struct marshal_audio_state_handler_elem me;
+    
+	me.a.id = MARSHAL_SET_AUDIO_STATE_HANDLER;
+	me.a.fm = fm;
+    
+	me.audio_state_change_handler = audio_state_change_handler;
+	me.arg = arg;
+    
+	marshal_send(&me);
+}

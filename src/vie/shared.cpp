@@ -21,6 +21,7 @@
 
 #include <avs.h>
 #include <avs_vie.h>
+#include <avs_voe.h>
 
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
@@ -29,18 +30,24 @@
 #include "webrtc/modules/video_capture/include/video_capture.h"
 #include "webrtc/modules/video_capture/include/video_capture_factory.h"
 #include "webrtc/video_encoder.h"
-#include "vie_render_view.h"
 #include "vie.h"
+#include "webrtc/modules/utility/interface/rtp_dump.h"
 
 class ViETransport : public webrtc::newapi::Transport
 {
 public:
 	ViETransport(struct vie *vie_) : vie(vie_), active(true)
 	{
+#if FORCE_VIDEO_RECORDING
+		rtpDump = webrtc::RtpDump::CreateRtpDump();
+#endif
 	}
 
 	virtual ~ViETransport()
 	{
+#if FORCE_VIDEO_RECORDING
+		webrtc::RtpDump::DestroyRtpDump(rtpDump);
+#endif
 		active = false;
 	}
 
@@ -55,7 +62,7 @@ public:
 			warning("cannot send RTP\n");
 			return -1;
 		}
-
+        
 		stats_rtp_add_packet(&vie->stats_tx, packet, length);
 
 		if (ves->rtph) {
@@ -64,6 +71,41 @@ public:
 				warning("vie: rtp send failed (%m)\n", err);
 				return -1;
 			}
+            
+#if FORCE_VIDEO_RECORDING
+			if(!rtpDump->IsActive()){
+				char  buf[80];
+				time_t     now = time(0);
+				struct tm  tstruct;
+                
+#if TARGET_OS_IPHONE
+				std::string prefix = voe_iosfilepath();
+				prefix.insert(prefix.size(),"/Ios_");
+#elif defined(ANDROID)
+				std::string prefix = "/sdcard/Android_";
+#else
+				std::string prefix = "Osx_";
+#endif
+                
+				tstruct = *localtime(&now);
+				strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
+                
+				std::string name = prefix + "VidOut";
+				name.insert(name.size(),buf);
+				name.insert(name.size(),".rtp");
+                
+				rtpDump->Start(name.c_str());
+			}
+			// Only Save RTP header and length;
+			int32_t len32 = (int32_t)length;
+			uint8_t buf[12 + sizeof(int32_t)]; // RTP header is 12 bytes
+            
+			memcpy(buf, &len32, sizeof(int32_t));
+			memcpy(&buf[sizeof(int32_t)], packet, 12*sizeof(uint8_t));
+            
+			rtpDump->DumpPacket(buf, sizeof(buf));
+#endif
+            
 			return length;
 		}
 
@@ -97,6 +139,30 @@ public:
 private:
 	struct vie *vie;
 	bool active;
+	webrtc::RtpDump* rtpDump;
+};
+
+class ViELoadObserver : public webrtc::LoadObserver
+{
+	public:
+    
+	ViELoadObserver(){};
+    
+	~ViELoadObserver(){}
+    
+	void OnLoadUpdate(Load load){
+		switch(load){
+			case webrtc::LoadObserver::kOveruse:
+				error("CPU is overused !!\n");
+				break;
+            
+			case webrtc::LoadObserver::kUnderuse:
+				debug("CPU is underused !!\n");
+				break;
+		}
+	}
+    
+	private:
 };
 
 static void print_summary(struct vie *vie, int ch)
@@ -146,8 +212,8 @@ static void print_summary(struct vie *vie, int ch)
 
 	re_printf("Tx: %H\n", stats_print, &vie->stats_tx);
 	re_printf("Rx: %H\n", stats_print, &vie->stats_rx);
-#endif
 	re_printf("~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n");
+#endif
 }
 
 
@@ -169,6 +235,9 @@ static void vie_destructor(void *arg)
 
 	if (vie->transport)
 		delete vie->transport;
+    
+	if(vie->load_observer)
+		delete  vie->load_observer;
     
 	if(vie->call)
 		delete vie->call;
@@ -198,8 +267,10 @@ int vie_alloc(struct vie **viep, const struct vidcodec *vc, int pt)
 	vie->ch = -1;
 
 	vie->transport = new ViETransport(vie);
+	vie->load_observer = new ViELoadObserver();
 	webrtc::Call::Config config(vie->transport);
 
+	config.overuse_callback = vie->load_observer;
 /* TODO: set bitrate limits */
 /*
 all_config.bitrate_config.min_bitrate_bps =
@@ -244,7 +315,3 @@ void vie_update_ssrc_array( uint32_t array[], size_t *count, uint32_t val)
 	}
 }
 
-void vie_background(enum media_bg_state state)
-{
-	vie_capture_background(NULL, state);
-}

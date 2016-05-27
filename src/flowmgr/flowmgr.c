@@ -27,13 +27,8 @@
 #include <re/re.h>
 
 #include "avs.h"
-
-#if USE_MEDIAENGINE
-#include "avs_voe.h"
-#if HAVE_VIDEO
+//#include "avs_voe.h"
 #include "avs_vie.h"
-#endif
-#endif
 
 #include "flowmgr.h"
 
@@ -65,8 +60,8 @@ static struct {
 	struct tmr vol_tmr;
 	char *name;
 	bool using_voe;
-	char *log_url;
-	bool dualstack;
+	bool loopback;
+	bool privacy;
 	char ifname[256];
 
 	struct list flowmgrl;
@@ -92,31 +87,6 @@ static int process_event(bool *hp, struct flowmgr *fm,
 			 bool replayed);
 
 
-static int dns_init(struct dnsc **dnscp)
-{
-        struct sa nsv[16];
-        uint32_t nsn;
-        int err;
-
-        nsn = ARRAY_SIZE(nsv);
-
-        err = dns_srv_get(NULL, 0, nsv, &nsn);
-        if (err) {
-                error("dns srv get: %m\n", err);
-                goto out;
-        }
-
-        err = dnsc_alloc(dnscp, NULL, nsv, nsn);
-        if (err) {
-                error("dnsc alloc: %m\n", err);
-                goto out;
-        }
-
- out:
-        return err;
-}
-
-
 const char *flowmgr_mediacat_name(enum flowmgr_mcat mcat)
 {
 	switch (mcat) {
@@ -127,82 +97,6 @@ const char *flowmgr_mediacat_name(enum flowmgr_mcat mcat)
 	case FLOWMGR_MCAT_CALL:   return "Call";
 	default: return "???";
 	}
-}
-
-int flowmgr_append_logmb(struct flowmgr *fm, struct call *call,
-			 struct mbuf *mb)
-{
-	struct log_elem *logel;
-	int err;
-
-	if (!mb)
-		return EINVAL;
-
-	if (fm->log.appendh) {
-		char *msg;
-
-		err = mbuf_strdup(mb, &msg, mb->end);
-		if (err)
-			return err;
-
-		fm->log.appendh(msg, fm->log.arg);
-		mem_deref(msg);
-
-		return 0;
-	}
-
-	err = log_elem_alloc(&logel);
-	if (err)
-		return err;
-
-	logel->ts = tmr_jiffies();
-	logel->mb = mem_ref(mb);
-
-	if (call)
-		list_append(call_logl(call), &logel->le, logel);
-	else
-		list_append(&fm->logl, &logel->le, logel);
-
-	return 0;
-}
-
-
-int flowmgr_append_log(struct flowmgr *fm, struct call *call,
-		       const char *fmt, ...)
-{
-	va_list ap;
-	struct mbuf *mb;
-
-	if (!fm->use_logging) 
-		return 0;
-
-	if (fm->log.appendh) {
-		char *msg;
-
-		va_start(ap, fmt);
-		re_vsdprintf(&msg, fmt, ap);
-		va_end(ap);
-
-		fm->log.appendh(msg, fm->log.arg);
-		mem_deref(msg);
-
-		return 0;
-	}
-
-	mb = mbuf_alloc(1024);
-	if (!mb)
-		return ENOMEM;
-	
-	va_start(ap, fmt);
-
-	mbuf_printf(mb, "%v", fmt, &ap);
-
-	va_end(ap);
-
-	flowmgr_append_logmb(fm, call, mb);
-	mem_deref(mb);
-
-	return 0;
 }
 
 
@@ -216,160 +110,7 @@ int flowmgr_append_convlog(struct flowmgr *fm, const char *convid,
 	info("flowmgr(%p): append_convlog: convid=%s(%p) msg=%s\n",
 	     fm, convid, call, msg);
 
-	return flowmgr_append_log(fm, call, "%s", msg);
-}
-
-
-static const char *time_str(char *str, size_t slen, uint64_t ts)
-{
-	struct timeval tv;
-	struct tm tm;
-	char tstr[64];
-	time_t t;
-
-	tv.tv_sec = ts / 1000;
-	tv.tv_usec = (suseconds_t)(ts - 
-				   ((uint64_t)tv.tv_sec * (uint64_t)1000));
-
-	t = (time_t)tv.tv_sec;
-	gmtime_r(&t, &tm);
-
-	strftime(tstr, sizeof(tstr), "%Y/%m/%d %H:%M:%S", &tm);
-
-	re_snprintf(str, slen, "%s.%03d", tstr, tv.tv_usec);
-
-	return str;
-}
-
-
-static void format_logl(struct list *logl, struct mbuf *mb)
-{
-	struct le *le = logl->head;
-	char tstr[128];
-
-	if (!mb)
-		return;
-
-	while(le) {
-		struct log_elem *logel = le->data;
-
-		le = le->next;
-
-		mbuf_printf(mb, "%s %b\n",
-			    time_str(tstr, sizeof(tstr), logel->ts),
-			    logel->mb->buf, logel->mb->end);
-	}
-}
-
-
-struct log_req {
-	struct le le;
-	struct http_req *http;
-};
-
-
-static void log_req_destructor(void *arg)
-{
-	struct log_req *req = arg;
-
-	list_unlink(&req->le);
-	mem_deref(req->http);
-}
-
-
-static void http_resp_handler(int err, const struct http_msg *msg, void *arg)
-{
-	struct log_req *req = arg;
-
-	if (err) {
-		warning("flowmgr: http_resp_handler: err=%d(%m) status=%d\n",
-			err, err, msg ? msg->scode : 999);
-	}
-	else {
-		info("flowmgr: http_resp_handler: log sent successfully\n");
-	}
-
-	mem_deref(req);
-}
-
-
-static void send_log(struct flowmgr *fm, struct call *call)
-{
-	struct mbuf *mb;
-	char url[256];
-	char dt[16];
-	char mt[16];
-	struct tm tm;
-	struct log_req *req;
-	time_t t;
-	int err;
-
-	if (!fm)
-		return;
-
-	if (fm->log.uploadh) {
-		fm->log.uploadh(fm->log.arg);
-		return;
-	}
-	
-	if (!fm->httpc)
-		return;
-
-	if (!msys.log_url) {
-		warning("send_log: no log_url set -- cannot log.\n");
-		return;
-	}
-
-	mb = mbuf_alloc(1024);
-	if (!mb)
-		return;
-
-	if (call) {
-		struct list *logl = call_logl(call);
-
-		format_logl(logl, mb);
-		list_flush(logl);
-	}
-
-	if (fm) {
-		format_logl(&fm->logl, mb);
-		list_flush(&fm->logl);
-	}
-
-	time(&t);
-	gmtime_r(&t, &tm);
-
-	strftime(dt, sizeof(dt), "%d%m%Y", &tm);
-	strftime(mt, sizeof(mt), "%H%M%S", &tm);
-	re_snprintf(url, sizeof(url), "%s/%s/%s-%s.log",
-		    msys.log_url, dt, flowmgr_call_sessid(call), mt);
-
-	debug("flowmgr(%p): sending log to: %s len=%d\n",
-	      fm, url, (int)mb->end);
-
-	req = mem_zalloc(sizeof(*req), log_req_destructor);
-	if (!req)
-		goto out;
-
-	list_append(&fm->logreql, &req->le, req);
-
-	err = http_request(&req->http, fm->httpc, HTTP_PUT, url,
-			   http_resp_handler, NULL, req,
-			   "x-amz-acl: bucket-owner-full-control\r\n"
-			   "Content-Type: application/x-octet-stream\r\n"
-			   "Content-Length: %zu\r\n"
-			   "\r\n"
-			   "%b",
-			   mb->end, mb->buf, mb->end);
-	if (err) {
-		warning("flowmgr(%p): send_log: http_request failed: %m\n",
-			fm, err);
-		goto out;
-	}
-
-
- out:
-	mem_deref(mb);
+	return 0;
 }
 
 
@@ -426,8 +167,6 @@ static void color_trace(enum trace_type type,
 #undef WIDTH
 }
 
-static struct dnsc *dnsc = NULL;
-
 
 /* This is just a dummy handler fo waking up re_main() */
 static void wakeup_handler(int id, void *data, void *arg)
@@ -439,7 +178,8 @@ static void wakeup_handler(int id, void *data, void *arg)
 
 
 static int msystem_init(const char *msysname,
-			const char *cert, size_t cert_len)
+			const char *cert, size_t cert_len,
+			enum cert_type cert_type)
 {
 	int err;
 
@@ -459,6 +199,10 @@ static int msystem_init(const char *msysname,
 		return err;
 	}
 
+	err = tls_set_ciphers(msys.dtls);
+	if (err)
+		return err;
+
 	if (cert && cert_len) {
 		info("flowmgr: set certificate (%zu bytes)\n", cert_len);
 
@@ -470,14 +214,45 @@ static int msystem_init(const char *msysname,
 		}
 	}
 	else {
-		info("flowmgr: generating selfsigned certificate..\n");
+		uint64_t t1, t2;
 
-		err = tls_set_selfsigned(msys.dtls, "dtls@avs");
-		if (err) {
-			warning("flowmgr: failed to self-sign certificate"
-				" (%m)\n", err);
-			return err;
+		t1 = tmr_jiffies();
+
+		switch (cert_type) {
+
+		case CERT_TYPE_RSA:
+			info("flowmgr: generating selfsigned certificate\n");
+		
+			err = tls_set_selfsigned(msys.dtls, "dtls@avs");
+			if (err) {
+				warning("flowmgr: failed to self-sign"
+					" certificate"
+					" (%m)\n", err);
+				return err;
+			}
+			break;
+
+		case CERT_TYPE_ECDSA:
+			info("flowmgr: generating ECDSA certificate\n");
+			err = cert_tls_set_selfsigned_ecdsa(msys.dtls,
+							    "prime256v1");
+			if (err) {
+				warning("flowmgr: failed to generate ECDSA"
+					" certificate"
+					" (%m)\n", err);
+				return err;
+			}
+			break;
+
+		default:
+			warning("flowmgr: invalid cert type\n");
+			return ENOTSUP;
 		}
+
+		t2 = tmr_jiffies();
+
+		info("flowmgr: generate certificate took %d ms\n",
+		     (int)(t2-t1));
 	}
 
 	tls_set_verify_client(msys.dtls);
@@ -494,24 +269,21 @@ static int msystem_init(const char *msysname,
 	err = str_dup(&msys.name, msysname);
 	if (streq(msys.name, "audummy"))
 		err = audummy_init(&aucodecl);
-#if USE_MEDIAENGINE
 	else if (streq(msys.name, "voe")) {
 		err = voe_init(&aucodecl);
 		if (err) {
 			warning("flowmgr: voe init failed (%m)\n", err);
 			return err;
 		}
-#if HAVE_VIDEO
+
 		err = vie_init(&vidcodecl);
 		if (err) {
 			warning("flowmgr: vie init failed (%m)\n", err);
 			return err;
 		}
-#endif
 
 		msys.using_voe = true;
 	}
-#endif
 	else {
 		warning("flowmgr: media-system not available (%s)\n",
 			msys.name);
@@ -558,9 +330,15 @@ struct list *msystem_flows(void)
 }
 
 
-bool msystem_get_dualstack(void)
+bool msystem_get_loopback(void)
 {
-	return msys.dualstack;
+	return msys.loopback;
+}
+
+
+bool msystem_get_privacy(void)
+{
+	return msys.privacy;
 }
 
 
@@ -570,7 +348,6 @@ const char *msystem_get_interface(void)
 }
 
 
-#if USE_MEDIAENGINE
 static void vol_tmr_handler(void *arg)
 {
 	struct le *le;
@@ -590,59 +367,13 @@ static void vol_tmr_handler(void *arg)
 	}
 }
 
-#if HAVE_VIDEO
-static void flow_create_preview_handler(void *arg)
-{
-	struct flowmgr *fm = arg;
-
-	if (fm->video.create_previewh) {
-		fm->video.create_previewh(fm->video.arg);
-	}
-}
-
-
-static void flow_release_preview_handler(void *view, void *arg)
-{
-	struct flowmgr *fm = arg;
-
-	if (fm->video.release_previewh) {
-		fm->video.release_previewh(view, fm->video.arg);
-	}
-}
-
-
-static void flow_create_view_handler(const char *convid, const char *partid,
-				     void *arg)
-{
-	struct flowmgr *fm = arg;
-
-	if (fm->video.create_viewh) {
-		fm->video.create_viewh(convid, partid, fm->video.arg);
-	}
-}
-
-
-static void flow_release_view_handler(const char *convid, const char *partid,
-				      void *view, void *arg)
-{
-	struct flowmgr *fm = arg;
-
-	if (fm->video.release_viewh) {
-		fm->video.release_viewh(convid, partid, view, fm->video.arg);
-	}
-}
-#endif
-#endif
-
 
 void msystem_start_volume(void)
 {
-#if USE_MEDIAENGINE
 	if (!tmr_isrunning(&msys.vol_tmr)) {
 		tmr_start(&msys.vol_tmr, VOLUME_TIMEOUT,
 			  vol_tmr_handler, NULL);
 	}
-#endif
 }
 
 
@@ -653,14 +384,10 @@ static void msystem_free(void)
 
 	if (streq(msys.name, "audummy"))
 		audummy_close();
-#if USE_MEDIAENGINE
 	else if (streq(msys.name, "voe")) {
-#if HAVE_VIDEO
 		vie_close();
-#endif
 		voe_close();
 	}
-#endif
 
 	list_clear(&msys.flows);
 	tmr_cancel(&msys.vol_tmr);
@@ -673,7 +400,8 @@ static void msystem_free(void)
 }
 
 
-int flowmgr_init(const char *msysname, const char *log_url)
+int flowmgr_init(const char *msysname, const char *log_url,
+		 int cert_type)
 {
 	int err;
 
@@ -686,18 +414,15 @@ int flowmgr_init(const char *msysname, const char *log_url)
 		return err;
 	}
 
-	err = msystem_init(msysname, msys.cert, msys.cert_len);
+	err = msystem_init(msysname, msys.cert, msys.cert_len, cert_type);
 	if (err)
 		goto out;
 
-	info("flow-manager initialized -- %s [machine %H]\n",
+	info("flowmgr: initialized -- %s [machine %H]\n",
 	     software, sys_build_get, 0);
 
-	msys.log_url = mem_deref(msys.log_url);
 	if (log_url) {
-		err = str_dup(&msys.log_url, log_url);
-		if (err)
-			return err;
+		warning("flowmgr: init: log_url is deprecated\n");
 	}
 
  out:
@@ -756,9 +481,16 @@ int flowmgr_start(void)
 }
 
 
-void flowmgr_enable_dualstack(bool enable)
+void flowmgr_enable_loopback(bool enable)
 {
-	msys.dualstack = enable;
+	msys.loopback = enable;
+}
+
+
+void flowmgr_enable_privacy(bool enable)
+{
+	info("flowmgr: mediaflow privacy %sabled\n", enable ? "En" : "Dis");
+	msys.privacy = enable;
 }
 
 
@@ -791,8 +523,6 @@ void flowmgr_close(void)
 	flowmgr_wakeup();
 	marshal_close();
 	msystem_free();
-	dnsc = mem_deref(dnsc);
-	msys.log_url = mem_deref(msys.log_url);
 }
 
 
@@ -813,7 +543,7 @@ void flowmgr_mcat_changed(struct flowmgr *fm, const char *convid,
 {
 	struct call *call;
 
-	debug("flowmgr(%p): mcat_changed: convid=%s mcat=%d\n",
+	info("flowmgr(%p): mcat_changed: convid=%s mcat=%d\n",
 	      fm, convid, mcat);
 
 	call = dict_lookup(fm->calls, convid);
@@ -868,22 +598,19 @@ int flowmgr_send_request(struct flowmgr *fm, struct call *call,
 		}
 	}
 
-	debug("flowmgr(%p): send_request: %s %s content=%s\n",
-	      fm, method, path, json);
-
 	if (rr) {
 		re_snprintf(rr->debug, sizeof(rr->debug),
 			    "%s %s", method, path);
 	}
 
-	flowmgr_append_log(fm, call,
-		"HTTP(%p) %s %s %s", rr, method, path, json);
-
+	info("flowmgr(%p) http_req(%p) %s %s %s\n",
+	     fm, rr, method, path, json);
+	
 	err = fm->reqh(rr, path, method,
 		       ctype, json, str_len(json), fm->sarg);
 	if (err) {
 		warning("flowmgr: send_req: fm->reqh failed"
-			" [%s %s %s %zu] (%m)",
+			" [%s %s %s %zu] (%m)\n",
 			method, path, ctype, str_len(json), err
 			);
 	}
@@ -903,10 +630,6 @@ int flowmgr_resp(struct flowmgr *fm, int status, const char *reason,
 		warning("flowmgr_resp(%p): rr=%p status=%d content=%b\n",
 			fm, rr, status, content, clen);
 	}
-	else {
-		debug("flowmgr_resp(%p): rr=%p status=%d content=%b\n",
-		      fm, rr, status, content, clen);
-	}
 
 	if (!fm)
 		return EINVAL;
@@ -917,32 +640,29 @@ int flowmgr_resp(struct flowmgr *fm, int status, const char *reason,
 				fm, rr);
 			
 		if (content && clen) {
-			flowmgr_append_log(fm, NULL,
-					   "HTTP(NORR) RESP %d %s %b",
-					   status, reason, content, clen);
+			info("flowmgr(%p): http_resp(norr): %d %s %b\n",
+			     fm, status, reason, content, clen);
 		}
 		else {
-			flowmgr_append_log(fm, NULL,
-					   "HTTP(NORR) RESP %d %s",
-					   status, reason);
+			info("flowmgr(%p): http_resp(norr): %d %s\n",
+			     fm, status, reason);
 		}
 
 		return rr ? ENOENT : EINVAL;
 	}
 
 	if (content && clen) {
-		flowmgr_append_log(fm, rr->call,
-				   "HTTP(%p) RESP %d %s %b",
-				   rr, status, reason, content, clen);
+		info("flowmgr(%p): http_resp(%p): %d %s %b\n",
+		     fm, rr, status, reason, content, clen);
 	}
 	else {
-		flowmgr_append_log(fm, rr->call,
-				   "HTTP(%p) RESP %d %s",
-				   rr, status, reason);
+		info("flowmgr(%p): http_resp(%p): %d %s\n",
+		     fm, rr, status, reason);
 	}
 
 	if (ctype && !streq(ctype, CTYPE_JSON)) {
-		warning("flowmgr(%p): rest_resp: invalid content type: %s\n",
+		warning("avs: flowmgr(%p): rest_resp: "
+			"invalid content type: %s\n",
 			fm, ctype);
 		err = EPROTO;
 		goto out;
@@ -980,10 +700,7 @@ int flowmgr_resp(struct flowmgr *fm, int status, const char *reason,
 	}
 
  out:
-	if (jobj) {
-		json_object_put(jobj);
-	}
-
+	mem_deref(jobj);
 	mem_deref(rr);
 
 	return err;
@@ -1034,16 +751,6 @@ static int flow_add(struct call *call, const char *flowid,
 
 	flow_act_handler(flow, jflow);
 
-#if USE_MEDIAENGINE && HAVE_VIDEO
-	flow_set_video_handlers(
-		flow,
-		flow_create_preview_handler,
-		flow_release_preview_handler,
-		flow_create_view_handler,
-		flow_release_view_handler,
-		call_flowmgr(call));
-#endif
-
  out:
 	if (err)
 		flow = mem_deref(flow);
@@ -1070,7 +777,8 @@ static void event_replay(struct flowmgr *fm)
 
 	max_num = list_count(&fm->eventq);
 
-	info("flowmgr: event replay (count=%u)\n", list_count(&fm->eventq));
+	info("flowmgr(%p): event replay (count=%u)\n",
+	     fm, list_count(&fm->eventq));
 
 	le = fm->eventq.head;
 	while (le && max_num) {
@@ -1080,7 +788,7 @@ static void event_replay(struct flowmgr *fm)
 
 		--max_num;
 
-		debug("flowmgr: eventq pop: ctype=%s\n", ev->ctype);
+		info("flowmgr(%p): eventq pop: ctype=%s\n", fm, ev->ctype);
 		process_event(NULL, fm, ev->ctype,
 			      (char*)ev->content->buf,
 			      ev->content->end, true);
@@ -1242,8 +950,8 @@ static int add_flows(struct json_object *jobj, struct call *call,
 				list_append(&addl, &flel->le, flel);
 			}
 			else {
-				info("flowmgr(%p): ghost-flow with idx=%u"
-				     " and sdp_step=%s -- deleting\n",
+				info("flowmgr(%p): ghost-flow "
+				     "with idx=%u and sdp_step=%s deleting\n",
 				     call_flowmgr(call), i, sdp_step);
 				list_append(&call->ghostl, &flel->le, flel);
 			}
@@ -1284,7 +992,8 @@ static void post_flows_resp(int status, struct rr_resp *rr,
 		warning("flowmgr(%p): add_flows() failed (%m)\n", fm, err);
 	}
 
-	info("flowmgr: post flows -- %u flows\n", dict_count(call->flows));
+	info("flowmgr(%p): post flows -- %u flows\n",
+	     fm, dict_count(call->flows));
 
 	call_purge_users(call);
 	
@@ -1298,15 +1007,17 @@ static void post_flows_resp(int status, struct rr_resp *rr,
 
 static int flows_add_handler(struct call *call, struct json_object *jobj)
 {
+	struct flowmgr *fm = call_flowmgr(call);
 	int err;
 
 	err = add_flows(jobj, call, false);
 	if (err)
 		return err;
 
-	info("flowmgr: add flows -- %u flows\n", dict_count(call->flows));
+	info("flowmgr(%p): add flows -- %u flows\n",
+	     fm, dict_count(call->flows));
 
-	event_replay(call_flowmgr(call));
+	event_replay(fm);
 
 	return err;
 }
@@ -1346,10 +1057,9 @@ int flowmgr_post_flows(struct call *call)
 	}
 
  out:
-	if (jsdp)
-		json_object_put(jsdp);
+	mem_deref(jsdp);
 	
-	if (err)
+	if (err && rr_isvalid(rr))
 		mem_deref(rr);
 
 	return err;
@@ -1367,7 +1077,8 @@ int flowmgr_acquire_flows(struct flowmgr *fm, const char *convid,
 	if (!fm || !convid)
 		return EINVAL;
 
-	debug("flowmgr(%p): acquire_flows: convid=%s\n", fm, convid);
+	info("flowmgr(%p): acquire_flows: convid=%s sessid=%s\n",
+	     fm, convid, sessid);
 
 	err = call_lookup_alloc(&call, &callocated, fm, convid);
 	if (err)
@@ -1375,17 +1086,13 @@ int flowmgr_acquire_flows(struct flowmgr *fm, const char *convid,
 
 	call->start_ts = tmr_jiffies();
 
-	flowmgr_append_log(fm, call,
-			   "acquire_flows: convid=%s sessid=%s",
-			   convid, sessid);
-
 	if (sessid)
 		call_set_sessid(call, sessid);
 
 	call_set_active(call, true);
 
 	if (fm->config.pending) {
-		info("flowmgr(%p): %s: config pending wait with POST...\n",
+		info("flowmgr(%p): %s: config pending wait with POST\n",
 		     fm, __func__);
 		list_append(&fm->postl, &call->post_le, call);
 		err = 0;
@@ -1478,8 +1185,8 @@ void flowmgr_set_active(struct flowmgr *fm, const char *convid, bool active)
 	call = dict_lookup(fm->calls, convid);
 
 	if (call == NULL) {
-		info("flowmgr(%p): flowmgr_set_active: no call on:"
-		     " %s\n", fm, convid);
+		info("flowmgr(%p): flowmgr_set_active: no call on: %s\n",
+		     fm, convid);
 		return;
 	}
 
@@ -1495,34 +1202,24 @@ void flowmgr_release_flows(struct flowmgr *fm, const char *convid)
 	if (!fm)
 		return;
 
-	debug("flowmgr(%p): release_flows: convid=%s\n", fm, convid);
-
 	call = dict_lookup(fm->calls, convid);
 
-	flowmgr_append_log(fm, call,
-			   "release_flows: convid=%s", convid);
+	info("flowmgr(%p): release_flows: convid=%s call=%p\n",
+	     fm, convid, call);
 
 	if (call == NULL) {
 		info("flowmgr(%p): flowmgr_release_flows: no call on:"
-		     " %s\n", fm, convid);
+			" %s\n", fm, convid);
 		return;
 	}
 
 	call_set_active(call, false);
 	
-	debug("flowmgr_release_flows(%p): metrics=%d logging=%d call=%p\n",
-	      fm, fm->use_metrics, fm->use_logging, call);
-
 	if (fm->use_metrics)
 		flowmgr_send_metrics(fm, convid, "complete");
 
-	call_log_codec_stats(call);
-
 	call_cancel(call);
 
-	if (fm->use_logging)
-		send_log(fm, call);
-	
 	dict_remove(fm->calls, call_convid(call));
 }
 
@@ -1568,7 +1265,7 @@ static void fm_destructor(void *arg)
 {
 	struct flowmgr *fm = arg;
 
-	debug("fm_destructor(%p)\n", fm);
+	info("flowmgr(%p): destructor\n", fm);
 
 	flowmgr_config_stop(fm);
 
@@ -1579,9 +1276,6 @@ static void fm_destructor(void *arg)
 
 	mem_deref(fm->calls);
 
-	list_flush(&fm->logl);
-	mem_deref(fm->httpc);
-	list_flush(&fm->logreql);
 	list_flush(&fm->eventq);
 	list_flush(&fm->postl);
 
@@ -1599,12 +1293,12 @@ int flowmgr_alloc(struct flowmgr **fmp, flowmgr_req_h *reqh,
 		return EINVAL;
 	}
 
-	info("flowmgr: alloc (%s)\n", avs_version_str());
-
 	fm = mem_zalloc(sizeof(*fm), fm_destructor);
 	if (!fm)
 		return ENOMEM;
 
+	info("flowmgr(%p): alloc: (%s)\n", fm, avs_version_str());	
+	
 	err = dict_alloc(&fm->calls);
 	if (err) {
 		goto out;
@@ -1615,8 +1309,7 @@ int flowmgr_alloc(struct flowmgr **fmp, flowmgr_req_h *reqh,
 	fm->sarg = arg;
 
 	/* Set these elsewhere, for more control... */
-	flowmgr_enable_metrics(fm, true);
-	flowmgr_enable_logging(fm, false);
+	flowmgr_enable_metrics(fm, false);
 
 	list_append(&msys.flowmgrl, &fm->le, fm);
 	if (msys.started) {
@@ -1700,17 +1393,11 @@ void flowmgr_set_conf_pos_handler(struct flowmgr *fm,
 
 
 void flowmgr_set_video_handlers(struct flowmgr *fm, 
-				flowmgr_create_preview_h *create_previewh,
-				flowmgr_release_preview_h *release_previewh,
-				flowmgr_create_view_h *create_viewh,
-				flowmgr_release_view_h *release_viewh,
+				flowmgr_video_state_change_h *state_change_h,
+				flowmgr_render_frame_h *render_frame_h,
 				void *arg)
 {
-	fm->video.create_previewh = create_previewh;
-	fm->video.release_previewh = release_previewh;
-	fm->video.create_viewh = create_viewh;
-	fm->video.release_viewh = release_viewh;
-	fm->video.arg = arg;
+	vie_set_video_handlers(state_change_h, render_frame_h, arg);
 }
 
 
@@ -1724,23 +1411,19 @@ void flowmgr_set_sessid(struct flowmgr *fm,
 	if (!fm || !convid)
 		return;
 
-	debug("flowmgr(%p): set_sessid: convid=%s sessid=%s\n",
+	info("flowmgr(%p): set_sessid: convid=%s sessid=%s\n",
 	     fm, convid, sessid);
     
 	call = dict_lookup(fm->calls, convid);
 	if (!call) {
 		if (!call) {
-			err = call_alloc(&call, fm, convid, NULL, NULL);
+			err = call_alloc(&call, fm, convid);
 			if (err)
 				goto out;
 
 			created = true;
 		}
 	}
-
-	flowmgr_append_log(fm, call,
-			   "set_sessid: convid=%s sessid=%s",
-			   convid, sessid);
 
 	err = call_set_sessid(call, sessid);
     
@@ -1770,16 +1453,6 @@ int  flowmgr_interruption(struct flowmgr *fm, const char *convid,
 }
 
 
-void flowmgr_background(struct flowmgr *fm, enum media_bg_state bgst)
-{
-	dict_apply(fm->calls, call_background_handler, (void *)bgst);
-
-	// Also needed to handle the preview
-	vie_preview_background(bgst, fm->video.create_previewh, fm->video.release_previewh,
-		fm->video.arg);
-}
-
-
 void flowmgr_enable_trace(struct flowmgr *fm, int trace)
 {
 	if (!fm)
@@ -1803,30 +1476,7 @@ void flowmgr_enable_logging(struct flowmgr *fm, bool logging)
 	if (!fm)
 		return;
 
-	fm->use_logging = logging;
-	if (logging && !fm->httpc) {
-		int err;
-
-		if (!dnsc) {
-			err = dns_init(&dnsc);
-			if (err) {
-				warning("flowmgr(%p): dns_init failed (%m)\n",
-					fm, err);
-				goto out;
-			}
-		}
-		err = http_client_alloc(&fm->httpc, dnsc);
-		if (err) {
-			error("flowmgr_enable_logging: "
-			      "HTTP client failed: %m\n");
-			goto out;
-		}
-	}
-	fm->use_logging = logging;
-	return;
-
- out:
-	fm->use_logging = false;
+	warning("flowmgr: enable_logging is deprecated\n");
 }
 
 
@@ -1892,8 +1542,6 @@ static int process_event(bool *hp, struct flowmgr *fm,
 		return EPROTO;
 	}
 
-	debug("flowmgr(%p): process_event: content=%b\n", fm, content, clen);
-
 	err = jzon_decode(&jobj, content, clen);
 	if (err) {
 		warning("flowmgr(%p): process_event: JSON parse error"
@@ -1914,8 +1562,7 @@ static int process_event(bool *hp, struct flowmgr *fm,
 	/* check if we have a call for this conversation */
 	call = dict_lookup(fm->calls, convid);
 
-	flowmgr_append_log(fm, call, "EVENT(%zu bytes) %b",
-			   clen, content, clen);
+	info("flowmgr(%p): event(%zu bytes) %b\n", fm, clen, content, clen);
 
 	if (streq(ev, events[FLOWMGR_EVENT_FLOW_ADD]))
 		event = FLOWMGR_EVENT_FLOW_ADD;
@@ -1939,13 +1586,14 @@ static int process_event(bool *hp, struct flowmgr *fm,
 
 		if (!flow) {
 			if (event == FLOWMGR_EVENT_FLOW_DEL) {
-				info("flowmgr(%p): process_event: flow '%s'"
-				     " already deleted\n", fm, flowid);
+				info("flowmgr(%p): process_event: "
+				     "flow '%s' already deleted\n",
+				     fm, flowid);
 			}
 			else {
 				info("flowmgr(%p): process_event(%s): "
 				     "cannot find flow '%s'"
-				     " in [%u entries] -- queing..\n",
+				     " in [%u entries] -- queuing..\n",
 				     fm, ev, flowid,
 				     call_count_flows(call));
 
@@ -1979,7 +1627,7 @@ static int process_event(bool *hp, struct flowmgr *fm,
 
 	case FLOWMGR_EVENT_FLOW_ADD:
 		if (!call) {
-			err = call_alloc(&call, fm, convid, NULL, NULL);
+			err = call_alloc(&call, fm, convid);
 			if (err)
 				goto out;
 			
@@ -1989,6 +1637,16 @@ static int process_event(bool *hp, struct flowmgr *fm,
 		break;
 
 	case FLOWMGR_EVENT_FLOW_DEL:
+		/* If we are here it means we have deleted a flow,
+		 * if the flow is active we need to make sure we collect 
+		 * the stats in order to avoid successfull calls to be
+		 * marked as failed.
+		 */
+		if (call && dict_count(call->flows) == 1) {
+			if (fm->use_metrics)
+				flowmgr_send_metrics(fm, convid, "complete");
+		}
+		
 		err = flow_del_handler(flow);
 		if (call && dict_count(call->flows) == 0)
 			dict_remove(fm->calls, convid);	
@@ -2008,14 +1666,12 @@ static int process_event(bool *hp, struct flowmgr *fm,
 		break;
 
 	default:
-		info("event ignored (%s)\n", ev);
+		info("flowmgr(%p): event (%s) ignored\n", fm, ev);
 		break;
 	}
 
  out:
-	if (jobj) {
-		json_object_put(jobj);
-	}
+	mem_deref(jobj);
 
 	if (err) {
 		if (created)
@@ -2096,6 +1752,9 @@ int flowmgr_send_metrics(struct flowmgr *fm, const char *convid,
 	call = dict_lookup(fm->calls, convid);
 	if (!call)
 		return ENOENT;
+    
+    if(dict_count(call->flows) == 0)
+        return 0;
 
 	jobj = json_object_new_object();
 	if (!jobj)
@@ -2104,6 +1763,8 @@ int flowmgr_send_metrics(struct flowmgr *fm, const char *convid,
 	json_object_object_add(jobj, "version",
 			       json_object_new_string(software));	
 	handled = call_stats_prepare(call, jobj);
+	json_object_object_add(jobj, "success",
+			       json_object_new_boolean(handled));
 
 #if 0
 	jzon_dump(jobj);
@@ -2124,7 +1785,7 @@ int flowmgr_send_metrics(struct flowmgr *fm, const char *convid,
 	}
 
  out:
-	json_object_put(jobj);
+	mem_deref(jobj);
 
 	return err;
 }
@@ -2172,7 +1833,6 @@ int flowmgr_wakeup(void)
 	return mqueue_push(msys.mq, 0, NULL);
 }
 
-#if HAVE_VIDEO
 
 bool flowmgr_can_send_video(struct flowmgr *fm, const char *convid)
 {
@@ -2201,37 +1861,20 @@ void flowmgr_set_video_send_state(struct flowmgr *fm, const char *convid, enum f
 	if (!fm)
 		return;
 	
-	switch (state) {
-		case FLOWMGR_VIDEO_PREVIEW:
-			vie_activate_video_preview(fm->video.create_previewh, fm->video.arg);
-			break;
-
-		case FLOWMGR_VIDEO_SEND_NONE:
-			vie_deactivate_video_preview(fm->video.release_previewh, fm->video.arg);
-			break;
-
-		case FLOWMGR_VIDEO_SEND:
-			call = convid ?
-				dict_lookup(fm->calls, convid) :
-				dict_apply(fm->calls, call_active_handler, NULL);
-
-			if (call) {
-				call_set_video_send_active(call, true);
-			}
-			break;
+	if (convid) {
+		call = dict_lookup(fm->calls, convid);
 	}
-
-	if (state != FLOWMGR_VIDEO_SEND) {
-		// If UI call set_state preview or none, stop sending on active conv
-		// since that is not always the convid given
+	else {
 		call = dict_apply(fm->calls, call_active_handler, NULL);
-		if (convid && !call) {
-			call = dict_lookup(fm->calls, convid);
-		}
-		if (call) {
-			call_set_video_send_active(call, false);
-		}
 	}
+
+	if (!call) {
+		warning("flowmgr(%p): set_video_send_state: conv %s not found\n",
+			fm, convid ? convid : "NULL");
+		return;
+	}
+
+	call_set_video_send_active(call, state == FLOWMGR_VIDEO_SEND);
 }
 
 
@@ -2260,72 +1903,12 @@ bool flowmgr_is_sending_video(struct flowmgr *fm,
 }
 
 
-void flowmgr_set_video_preview(struct flowmgr *fm, const char *convid, void *view)
+void flowmgr_handle_frame(struct avs_vidframe *frame)
 {
-	struct call *call;
-
-	if (convid) {
-		call = dict_lookup(fm->calls, convid);
+	if (frame) {
+		vie_capture_router_handle_frame(frame);
 	}
-	else {
-		call = dict_apply(fm->calls, call_active_handler, NULL);
-	}
-
-	if (!call || call_has_media(call) == false) {
-		vie_set_preview(NULL, view);
-		return;
-	}
-
-	call_set_video_preview(call, view);
 }
-
-void flowmgr_set_video_view(struct flowmgr *fm, const char *convid, const char *partid, void *view)
-{
-	struct call *call;
-
-	if (convid) {
-		call = dict_lookup(fm->calls, convid);
-	}
-	else {
-		call = dict_apply(fm->calls, call_active_handler, NULL);
-	}
-
-	if (!call) {
-		warning("flowmgr(%p): set_video_view: conv %s not found\n",
-			fm, convid);
-		return;
-	}
-
-	call_set_video_view(call, partid, view);
-}
-
-void flowmgr_get_video_capture_devices(struct flowmgr *fm, struct list **device_list)
-{
-#if USE_MEDIAENGINE
-	vie_get_video_capture_devices(device_list);
-#endif
-}
-void flowmgr_set_video_capture_device(struct flowmgr *fm, const char *convid, const char *devid)
-{
-	struct call *call;
-
-	if (convid) {
-		call = dict_lookup(fm->calls, convid);
-	}
-	else {
-		call = dict_apply(fm->calls, call_active_handler, NULL);
-	}
-
-	if (!call) {
-		warning("flowmgr(%p): set_video_capture_device: "
-			"conv %s not found\n", fm, convid);
-		return;
-	}
-
-	call_set_video_capture_device(call, devid);
-}
-
-#endif
 
 
 bool flowmgr_is_using_voe(void)
@@ -2388,8 +1971,7 @@ void flowmgr_refresh_access_token(struct flowmgr *fm,
 	if (!fm)
 		return;
 
-	info("flowmgr(%p): access_token: %s %s\n",
-	     fm, token, type);
+	info("flowmgr(%p): access_token: %s %s\n", fm, token, type);
 
 	str_ncpy(fm->rest.token.access_token, token,
 		 sizeof(fm->rest.token.access_token));
@@ -2402,4 +1984,11 @@ void flowmgr_refresh_access_token(struct flowmgr *fm,
 
 	fm->config.pending = true;
 	flowmgr_config_starth(fm, config_handler, fm);
+}
+
+void flowmgr_set_audio_state_handler(struct flowmgr *fm,
+			flowmgr_audio_state_change_h *state_change_h,
+			void *arg)
+{
+	voe_set_audio_state_handler(state_change_h, arg);
 }

@@ -137,8 +137,7 @@ static void websock_recv_handler(const struct websock_hdr *hdr,
 	send_to_listeners(ne, jpayload);
 
  out:
-	if (jobj)
-		json_object_put(jobj);
+	mem_deref(jobj);
 }
 
 

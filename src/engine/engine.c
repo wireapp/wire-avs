@@ -76,7 +76,7 @@ int engine_set_trace(struct engine *engine, const char *path, bool use_stdout)
 {
 	if (!engine)
 		return EINVAL;
-	
+
 	return trace_alloc(&engine->trace, path, use_stdout);
 }
 
@@ -119,6 +119,7 @@ static void engine_destructor(void *arg)
 	mem_deref(engine->request_uri);
 	mem_deref(engine->notification_uri);
 	mem_deref(engine->email);
+	mem_deref(engine->user_agent);
 	mem_deref(engine->password);
 	mem_deref(engine->store);
 	mem_deref(engine->dnsc);
@@ -178,7 +179,7 @@ static int dns_restart(struct dnsc *dnsc)
 	}
 
 	info("dns_restart: %u DNS servers\n", nsn);
-	for(i = 0; i < nsn; ++i) {
+	for (i = 0; i < nsn; ++i) {
 		info("dns_restart: DNS[%u]=%j\n", i, &nsv[i]);
 	}
 
@@ -315,7 +316,10 @@ static int start_login(struct engine *engine)
 		warning("Login request failed: %m.\n", err);
 	}
 
+#if 0
+	/* keep the password around, needed for registration of client */
 	engine->password = mem_deref(engine->password);
+#endif
 
 	return err;
 }
@@ -352,7 +356,7 @@ static int clear_login(struct engine *engine)
 	jobj = json_object_new_object();
 	if (!jobj)
 		return ENOMEM;
-		
+
 	inner = json_object_new_string(engine->email);
 	if (!inner) {
 		err = ENOMEM;
@@ -381,7 +385,7 @@ static int clear_login(struct engine *engine)
 		goto out;
 
  out:
-	json_object_put(jobj);
+	mem_deref(jobj);
 	return err;
 }
 
@@ -425,6 +429,12 @@ int engine_alloc(struct engine **enginep, const char *request_uri,
 	err = str_dup(&engine->password, password);
 	if (err)
 		goto out;
+
+	if (user_agent) {
+		err = str_dup(&engine->user_agent, user_agent);
+		if (err)
+			goto out;
+	}
 
 	if (store) {
 		engine->store = mem_ref(store);

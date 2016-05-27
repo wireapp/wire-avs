@@ -1,0 +1,4 @@
+#!/bin/bash -ex
+
+valgrind --leak-check=yes --error-exitcode=42 \
+    ./ztest $@

@@ -27,7 +27,6 @@
 #include "webrtc/system_wrappers/interface/trace.h"
 #include "webrtc/modules/video_capture/include/video_capture_factory.h"
 #include "webrtc/modules/video_coding/main/interface/video_coding.h"
-#include "vie_render_view.h"
 #include "vie.h"
 
 
@@ -63,9 +62,6 @@ static struct vidcodec vie_vidcodecv[NUM_CODECS] = {
 		.enc_starth   = vie_capture_start,
 		.enc_stoph    = vie_capture_stop,
 		.enc_holdh    = vie_capture_hold,
-		.enc_deviceh  = vie_set_capture_device,
-		.enc_previewh = vie_set_preview,
-		.enc_bgh      = vie_capture_background,
 
 		.dec_alloch   = vie_dec_alloc,
 		.dec_starth   = vie_render_start,
@@ -73,8 +69,6 @@ static struct vidcodec vie_vidcodecv[NUM_CODECS] = {
 		.dec_holdh    = vie_render_hold,
 		.dec_rtph     = vie_dec_rtp_handler,
 		.dec_rtcph    = vie_dec_rtcp_handler,
-		.dec_viewh    = vie_set_view,
-		.dec_bgh      = vie_render_background,
 
 		.fmtp_ench    = vie_fmtp_enc,
 	},
@@ -89,17 +83,12 @@ static struct vidcodec vie_vidcodecv[NUM_CODECS] = {
 		.enc_alloch   = NULL,
 		.enc_starth   = NULL,
 		.enc_stoph    = NULL,
-		.enc_deviceh  = NULL,
-		.enc_previewh = NULL,
-		.enc_bgh      = NULL,
 
 		.dec_alloch   = NULL,
 		.dec_starth   = NULL,
 		.dec_stoph    = NULL,
 		.dec_rtph     = vie_dec_rtp_handler,
 		.dec_rtcph    = vie_dec_rtcp_handler,
-		.dec_viewh    = NULL,
-		.dec_bgh      = NULL,
 
 		.fmtp_ench    = vie_rtx_fmtp_enc,
 	}
@@ -113,14 +102,13 @@ void vie_close(void)
 	info("%s:\n", __FUNCTION__);
 
 	list_flush(&vid_eng.chl);
-
-	delete vid_eng.devinfo;
 	
 	for (int i = 0; i < NUM_CODECS; ++i) {
 		struct vidcodec *vc = &vie_vidcodecv[i];
 
 		vidcodec_unregister(vc);
 	}
+	vie_capture_router_deinit();
 }
 
 
@@ -161,12 +149,6 @@ int vie_init(struct list *vidcodecl)
 	vid_eng.renderer_reset = false;
 	vid_eng.capture_reset = false;
 	
-	vid_eng.devinfo = webrtc::VideoCaptureFactory::CreateDeviceInfo(0);
-	if (!vid_eng.devinfo) {
-		err = ENODEV;
-		goto out;
-	}
-
 	/* list all supported codecs */
 
 	vid_eng.ncodecs = 1;
@@ -203,6 +185,7 @@ int vie_init(struct list *vidcodecl)
 
 	list_init(&vid_eng.chl);
 
+	vie_capture_router_init();
 	//char version[1024];
 	//vid_eng.base->GetVersion(version);
 	//info("vie version: %s\n", version);
@@ -212,5 +195,13 @@ int vie_init(struct list *vidcodecl)
 		vie_close();
 
 	return err;
+}
+
+void vie_set_video_handlers(flowmgr_video_state_change_h *state_change_h,
+	flowmgr_render_frame_h *render_frame_h, void *arg)
+{
+	vid_eng.state_change_h = state_change_h;
+	vid_eng.render_frame_h = render_frame_h;
+	vid_eng.cb_arg = arg;
 }
 

@@ -40,9 +40,9 @@ extern "C" {
 #include "avs_string.h"
 #include "avs_aucodec.h"
 #include "avs_conf_pos.h"
+#include "avs_base.h"
 }
 
-#include "avs_voe.h"
 #include "voe.h"
 
 
@@ -96,6 +96,10 @@ public:
 		}
 
 		aes = ve->aes;
+
+		if (!aes->started)
+			return len;
+
 		if (aes->rtcph) {
 			err = aes->rtcph((const uint8_t *)data, len, aes->arg);
 			if (err) {
@@ -146,48 +150,24 @@ static void voe_setup_opus(bool use_stereo, int32_t rate_bps,
 	}
 }
 
-
-static void print_rtcp_info(const struct voe_channel *ve)
-{
-	webrtc::CallStatistics stats;
-
-	if (!gvoe.rtp_rtcp)
-		return;
-
-	if (0 == gvoe.rtp_rtcp->GetRTCPStatistics(ve->ch, stats)) {
-		info("voe: rttMs         = %d\n", stats.rttMs);
-		info("voe: fraction lost = %d\n", stats.fractionLost);
-	}
-
-	unsigned int averageJitterMs;
-	unsigned int maxJitterMs;
-	unsigned int discardedPackets;
-
-	if (0 == gvoe.rtp_rtcp->GetRTPStatistics(ve->ch,
-						averageJitterMs,
-						maxJitterMs,
-						discardedPackets)) {
-
-		info("voe: averageJitterMs:   %d ms\n", averageJitterMs);
-		info("     maxJitterMs:       %d ms\n", maxJitterMs);
-		info("     discardedPackets:  %d\n", discardedPackets);
-	}
-}
-
-
 static void ve_destructor(void *arg)
 {
 	struct voe_channel *ve = (struct voe_channel *)arg;
 
 	debug("ve_destructor: %p voe.nch = %d \n", ve, gvoe.nch);
 
-	print_rtcp_info(ve);
+	if (ve->transport)
+		ve->transport->deregister();
 
-	ve->transport->deregister();
-	gvoe.nw->DeRegisterExternalTransport(ve->ch);
+	if (gvoe.nw)
+		gvoe.nw->DeRegisterExternalTransport(ve->ch);
 
-	gvoe.base->DeleteChannel(ve->ch);
+	if (gvoe.base)
+		gvoe.base->DeleteChannel(ve->ch);
 
+	if (gvoe.nch == 1)
+		// This means we are ending a call. But voe_set_mute dosnt work when nch == 0
+		voe_set_mute(false);
 	if (gvoe.nch > 0)
 		--gvoe.nch;
 	if (gvoe.nch == 0) {
@@ -197,7 +177,15 @@ static void ve_destructor(void *arg)
 
 		voe_stop_silencing();
 
+		voe_stop_audio_test(&gvoe);
+        
 		gvoe.base->Terminate();
+        
+		if(gvoe.autest.fad){
+			info("voe: Deleting fake audio device \n");
+			voe_deregister_adm();
+			delete gvoe.autest.fad;
+		}
 	}
 }
 
@@ -208,6 +196,8 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 	struct voe_channel *ve;
 	webrtc::CodecInst c;
 	int err = 0;
+	int bitrate_bps;
+	int packet_size_ms;
 
 	ve = (struct voe_channel *)mem_zalloc(sizeof(*ve), ve_destructor);
 	if (!ve)
@@ -222,8 +212,21 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
     
 	++gvoe.nch;
 	if (gvoe.nch == 1) {
+		if (avs_get_flags() & AVS_FLAG_AUDIO_TEST){
+			info("voe: Using fake audio device \n");
+			gvoe.autest.fad = new webrtc::fake_audiodevice(true);
+			voe_register_adm((void*)gvoe.autest.fad);
+		}
+        
 		info("voe: First Channel created call voe.base->Init() \n");
-		gvoe.base->Init();
+
+		if (!gvoe.base) {
+			warning("voe: no gvoe base!\n");
+			err = ENOSYS;
+			goto out;
+		}
+
+		gvoe.base->Init(gvoe.adm);
 
 		voe_start_audio_proc(&gvoe);
 
@@ -232,10 +235,18 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 		voe_start_silencing();
         
 		gvoe.packet_size_ms = 20;
+        
+		gvoe.in_vol_smth = 0.0f;
+		gvoe.in_vol_max = 0;
+		gvoe.out_vol_max = 0;
 	}
 
-	int bitrate_bps = gvoe.manual_bitrate_bps ? gvoe.manual_bitrate_bps : gvoe.bitrate_bps;
-	int packet_size_ms = gvoe.manual_packet_size_ms ? gvoe.manual_packet_size_ms :
+	if (avs_get_flags() & AVS_FLAG_AUDIO_TEST){
+		voe_start_audio_test(&gvoe);
+	}
+    
+	bitrate_bps = gvoe.manual_bitrate_bps ? gvoe.manual_bitrate_bps : gvoe.bitrate_bps;
+	packet_size_ms = gvoe.manual_packet_size_ms ? gvoe.manual_packet_size_ms :
         std::max( gvoe.packet_size_ms, gvoe.min_packet_size_ms );
     
 	ve->ch = gvoe.base->CreateChannel();
@@ -258,9 +269,7 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 	gvoe.codec->SetSendCodec(ve->ch, c);
 	gvoe.codec->SetRecPayloadType(ve->ch, c);
 
-#if USE_MEDIAENGINE
 	gvoe.codec->SetFECStatus( ve->ch, ZETA_USE_INBAND_FEC );
-#endif
     
 	gvoe.codec->SetOpusDtx( ve->ch, ZETA_USE_DTX );
     

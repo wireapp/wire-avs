@@ -36,12 +36,11 @@
 #include <time.h>
 
 extern "C" {
-#include "avs_log.h"
-#include "avs_string.h"
-#include "avs_aucodec.h"
+	#include "avs_log.h"
+	#include "avs_string.h"
+	#include "avs_aucodec.h"
 }
 
-#include "avs_voe.h"
 #include "voe.h"
 
 #define NUM_CODECS 1
@@ -140,8 +139,6 @@ public:
 			error("%b\n", message, sz);
 		else if (lvl & webrtc::kTraceWarning)
 			warning("%b\n", message, sz);
-		else if (lvl & (webrtc::kTraceStateInfo | webrtc::kTraceInfo))
-			info("%b\n", message, sz);
 		else if (lvl & (webrtc::kTracePersist))
 			info("%b\n", message, sz);
 		else
@@ -205,11 +202,15 @@ static void tmr_neteq_stats_handler(void *arg)
     struct znw_stats nwstat;
     struct voe *voe = (struct voe *)arg;
     
-    if(voe->nws.size() > 0 && voe->nch > 0){
+    if(voe->nws.size() > 0 && voe->nch > 0 && !voe->isSilenced){
+#if NETEQ_LOGGING
         info("------ %d active channels ------- \n", voe->nws.size());
-        for ( auto it = voe->nws.begin();
-                 it < voe->nws.end(); it++) {
+#endif
+        for ( auto it = voe->nws.begin(); it < voe->nws.end(); it++) {
 
+            nwstat.in_vol = 20 * log10(voe->in_vol_smth + 1.0f);
+            nwstat.out_vol = 20 * log10(it->out_vol_smth_ + 1.0f);
+            
             int ch_id = it->channel_number_;
             voe->neteq_stats->GetNetworkStatistics(ch_id, nwstat.neteq_nw_stats);
             
@@ -230,13 +231,14 @@ static void tmr_neteq_stats_handler(void *arg)
             if(it->idx_ >= NUM_STATS){
                it->idx_ = 0;
             }
+            it->n++;
 #if NETEQ_LOGGING
             float pl_rate = ((float)nwstat.neteq_nw_stats.currentPacketLossRate)/163.84f; // convert Q14 -> float and fraction to percent
+            float fec_rate = ((float)nwstat.neteq_nw_stats.currentSecondaryDecodedRate)/163.84f; // convert Q14 -> float and fraction to percent
             float exp_rate = ((float)nwstat.neteq_nw_stats.currentExpandRate)/163.84f;
             float acc_rate = ((float)nwstat.neteq_nw_stats.currentAccelerateRate)/163.84f;
             float dec_rate = ((float)nwstat.neteq_nw_stats.currentPreemptiveRate)/163.84f;
-            info("ch# %d BufferSize = %d ms PacketLossRate = %.2f ExpandRate = %.2f AccelerateRate = %.2f DecelerateRate = %.2f \n", ch_id, nwstat.neteq_nw_stats.currentBufferSize, pl_rate, exp_rate, acc_rate, dec_rate);
-            info("packet size = %d ms recived bitrate = %d kbps \n", nwstat.neteq_nw_stats.packetSizeMs, nwstat.neteq_nw_stats.rcvBitRateKbps);
+            info("ch# %d BufferSize = %d ms PacketLossRate = %.2f ExpandRate = %.2f fec_rate = %.2f AccelerateRate = %.2f DecelerateRate = %.2f \n", ch_id, nwstat.neteq_nw_stats.currentBufferSize, pl_rate, exp_rate, fec_rate, acc_rate, dec_rate);
 #endif
         }
     }
@@ -336,7 +338,12 @@ void voe_start_audio_proc(struct voe *voe)
 			config.Set<webrtc::ExtendedFilter>(new webrtc::ExtendedFilter(ZETA_AEC_DELAY_CORRECTION));
 			voe->base->audio_processing()->SetExtraOptions(config); // Not Supported by real API but can be found by going through base API
 		}
-		
+		if(ZETA_AEC_DELAY_AGNOSTIC){
+			webrtc::Config config;
+			config.Set<webrtc::DelayAgnostic>(new webrtc::DelayAgnostic(ZETA_AEC_DELAY_AGNOSTIC));
+			voe->base->audio_processing()->SetExtraOptions(config); // Not Supported by real API but can be found by going through base API
+		}
+        
 		// If AECM used set agressivness and use of comfort noise
 		ret = proc->GetEcStatus(enabled, ECmode);
 		if ( enabled && ECmode == webrtc::kEcAecm) {
@@ -383,9 +390,9 @@ void voe_start_audio_proc(struct voe *voe)
 	info(" ---------------------- \n");
 
 	char strNameUTF8[128];
-	voe->hw->GetPlayoutDeviceName(0, strNameUTF8,NULL);
-    
-	voe_set_auplay(strNameUTF8);
+	if(!voe->hw->GetPlayoutDeviceName(0, strNameUTF8, NULL)){
+		voe_set_auplay(strNameUTF8);
+    }
     
 	/* Enable stereo conferencing if the device supports stereo playback */
 	bool stereoAvailable;
@@ -469,6 +476,54 @@ void voe_update_conf_parts(const struct audec_state *adsv[], size_t adsc)
 		gvoe.conferencing->UpdateConference(confl);
 }
 
+static bool all_interrupted()
+{
+	int ch_interrupted = 0;
+	int nch = 0;
+	for( auto it = gvoe.active_channel_settings.begin();
+		it < gvoe.active_channel_settings.end(); it++) {
+        
+		nch++;
+		if(it->interrupted_){
+			ch_interrupted++;
+		}
+	}
+	return(ch_interrupted == nch);
+}
+
+static void set_interrupted(int ch, bool interrupted)
+{
+	if(!interrupted && all_interrupted()){
+		info("Interruption stopped \n");
+		if(gvoe.state.chgh){
+			gvoe.state.chgh(FLOWMGR_AUDIO_INTERRUPTION_STOPPED,
+					gvoe.state.arg);
+		}
+	}
+    
+	for( auto it = gvoe.active_channel_settings.begin();
+		it < gvoe.active_channel_settings.end(); it++) {
+        
+		if( it->channel_number_ == ch ) {
+			it->interrupted_ = interrupted;
+			break;
+		}
+	}
+}
+
+static void tmr_rtp_timeout_handler(void *arg)
+{
+	struct audec_state *ads = (struct audec_state *)arg;
+    
+	set_interrupted(ads->ve->ch, true);
+	if(all_interrupted()){
+		info("Interruption started \n");
+		if(gvoe.state.chgh){
+			gvoe.state.chgh(FLOWMGR_AUDIO_INTERRUPTION_STARTED,
+					gvoe.state.arg);
+		}
+	}
+}
 
 static int rtp_handler(struct audec_state *ads,
 		       const uint8_t *pkt, size_t len)
@@ -480,10 +535,15 @@ static int rtp_handler(struct audec_state *ads,
 		// Voiceengine is not initialized
 		return 0;
 	}
-	
-	if (gvoe.nw)
+	    
+	if (gvoe.nw){
+		set_interrupted(ads->ve->ch, false);
+		tmr_cancel(&ads->tmr_rtp_timeout);
+		tmr_start(&ads->tmr_rtp_timeout, 2*MILLISECONDS_PER_SECOND,tmr_rtp_timeout_handler, ads);
+        
 		gvoe.nw->ReceivedRTPPacket(ads->ve->ch, pkt, len);
-
+	}
+        
 	return 0;
 }
 
@@ -549,7 +609,7 @@ static struct aucodec voe_aucodecv[NUM_CODECS] = {
 		.name      = "opus",
 		.srate     = 48000,
 		.ch        = 2,
-		.fmtp      = "stereo=0;sprop-stereo=0",
+		.fmtp      = "stereo=0;sprop-stereo=0;useinbandfec=1",
 		.has_rtp   = true,
 
 		.enc_alloc = voe_enc_alloc,
@@ -561,8 +621,8 @@ static struct aucodec voe_aucodecv[NUM_CODECS] = {
 		.dec_rtph  = rtp_handler,
 		.dec_rtcph = rtcp_handler,
 		.dec_start = voe_dec_start,
-		.dec_stats = voe_dec_stats,
 		.dec_stop  = voe_dec_stop,
+		.get_stats = voe_get_stats,
 	}
 };
 
@@ -784,9 +844,9 @@ int voe_init(struct list *aucodecl)
 	gvoe.packet_size_ms = 20;
 	gvoe.min_packet_size_ms = 20;
 	gvoe.manual_packet_size_ms = 0;
-    gvoe.bitrate_bps = ZETA_OPUS_BITRATE_HI_BPS;
-    gvoe.manual_bitrate_bps = 0;
-    
+	gvoe.bitrate_bps = ZETA_OPUS_BITRATE_HI_BPS;
+	gvoe.manual_bitrate_bps = 0;
+        
 	gvoe.is_playing = false;
 	gvoe.is_recording = false;
 	gvoe.is_rtp_recording = false;
@@ -794,12 +854,17 @@ int voe_init(struct list *aucodecl)
 	gvoe.isMuted = false;
 	gvoe.isSilenced = false;
     
+	gvoe.adm = NULL;
+    
+	gvoe.state.chgh = NULL;
+	gvoe.state.arg = NULL;
+    
 	gvoe.base->RegisterVoiceEngineObserver(my_observer);
     
 #if TARGET_OS_IPHONE
     gvoe.path_to_files = voe_iosfilepath();
 #elif defined(ANDROID)
-    gvoe.path_to_files = "/sdcard";
+    gvoe.path_to_files = "/data/local/tmp";
 #else
     gvoe.path_to_files = "";
 #endif
@@ -810,6 +875,7 @@ int voe_init(struct list *aucodecl)
     
     voe_vm_init(&gvoe.vm);
     
+    voe_init_audio_test(&gvoe.autest);
  out:
 	if (err)
 		voe_close();
@@ -817,17 +883,31 @@ int voe_init(struct list *aucodecl)
 	return err;
 }
 
+void voe_register_adm(void* adm)
+{
+	gvoe.adm = (webrtc::AudioDeviceModule*)adm;
+}
+
+void voe_deregister_adm()
+{
+	gvoe.adm = NULL;
+}
 
 int voe_set_auplay(const char *dev)
 {
 	bool enabled;
 	webrtc::EcModes ECmode;
 	webrtc::AgcModes AGCmode;
-
+    bool should_reset = false;
+    
 	auto voeProc = gvoe.processing;
     
-	info("voe: Playout device switched from %s to %s \n",
-	      gvoe.playout_device.c_str(), dev);
+	if((streq(gvoe.playout_device.c_str(), "headset") || streq(dev, "headset")) && !streq(gvoe.playout_device.c_str(), dev)) {
+		should_reset = true;
+	}
+
+    info("voe: Playout device switched from %s to %s \n",
+        gvoe.playout_device.c_str(), dev);
     
     gvoe.playout_device = dev;
     
@@ -835,8 +915,11 @@ int voe_set_auplay(const char *dev)
 		return 0;
 	}
     
-    gvoe.hw->ResetAudioDevice();
-    
+	if(should_reset){
+		info("voe: Reset Audio Device\n");
+		gvoe.hw->ResetAudioDevice();
+	}
+        
     /* Setup AEC based on the routing */
     voe_update_aec_settings(&gvoe);
 
@@ -967,6 +1050,12 @@ int voe_invol(struct auenc_state *aes, double *invol)
 	gvoe.volume->GetSpeechInputLevelFullRange(level);
 	*invol = (double)(level >> 5)/1024.0;
 	
+	gvoe.in_vol_smth += ((float)level - gvoe.in_vol_smth) * 0.05f;
+    
+	if(level > gvoe.in_vol_max){
+		gvoe.in_vol_max = level;
+	}
+    
 	return 0;
 }
 
@@ -981,6 +1070,23 @@ int voe_outvol(struct audec_state *ads, double *outvol)
 	gvoe.volume->GetSpeechOutputLevelFullRange(ads->ve->ch, level);
 	*outvol = (double)(level >> 5)/1024.0;
 	
+	for ( auto it = gvoe.nws.begin(); it != gvoe.nws.end(); it++) {
+		if ( it->channel_number_ == ads->ve->ch) {
+			if(it->out_vol_smth_ == -1.0f){
+				it->out_vol_smth_ = (float)level;
+			} else {
+				float tmp = it->out_vol_smth_;
+				tmp = ((float)level - tmp) * 0.05f;
+				it->out_vol_smth_ = tmp;
+			}
+			break;
+		}
+	}
+    
+	if(level > gvoe.out_vol_max){
+		gvoe.out_vol_max = level;
+	}
+    
 	return 0;
 }
 
@@ -989,18 +1095,18 @@ int voe_update_mute(struct voe *voe)
 {
 	int err;
 
-	info("voe: ## update_mute: isMuted=%d, isSilenced=%d\n", 
+	info("voe: update_mute: isMuted=%d, isSilenced=%d\n",
 	     voe->isMuted,
 	     voe->isSilenced);
 
-    if (!voe->volume){
+	if (!voe->volume) {
 		return ENOSYS;
-    }
+	}
     
-    if(voe->nch == 0){
-        /* We cannot set the mute state in VE as it is not created */
-        return 0;
-    }
+	if (voe->nch == 0) {
+		/* We cannot set the mute state in VE as it is not created */
+		return 0;
+	}
     
 	err = voe->volume->SetInputMute(-1, voe->isMuted, voe->isSilenced);
 	if (err) {
@@ -1170,4 +1276,11 @@ void voe_multi_party_packet_rate_control(struct voe *voe)
 	}
 
 	voe->min_packet_size_ms = min_packet_size_ms;
+}
+
+void voe_set_audio_state_handler(flowmgr_audio_state_change_h *state_chgh,
+				 void *arg)
+{
+	gvoe.state.chgh = state_chgh;
+	gvoe.state.arg = arg;
 }

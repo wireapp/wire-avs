@@ -1,6 +1,11 @@
 
 AND_JAVA_SRCS := \
 	com/waz/avs/AVSystem.java \
+	com/waz/avs/VideoCapturer.java \
+	com/waz/avs/VideoRenderer.java \
+	com/waz/avs/VideoCapturerCallback.java \
+	com/waz/avs/VideoCapturerInfo.java \
+	com/waz/avs/VideoPreview.java \
 	com/waz/call/CaptureDevice.java \
 	com/waz/call/FlowManager.java \
 	com/waz/call/FlowManagerListener.java \
@@ -18,11 +23,7 @@ AND_JAVA_SRCS := \
 	org/webrtc/voiceengine/WebRtcAudioTrack.java \
         org/webrtc/voiceengine/WebRtcAudioManager.java \
         org/webrtc/voiceengine/WebRtcAudioUtils.java \
-        org/webrtc/voiceengine/BuildInfo.java \
-	org/webrtc/videoengine/ViEAndroidGLES20.java \
-	org/webrtc/videoengine/ViESurfaceRenderer.java \
-	org/webrtc/videoengine/VideoCaptureAndroid.java \
-	org/webrtc/videoengine/VideoCaptureDeviceInfoAndroid.java \
+	org/webrtc/voiceengine/BuildInfo.java \
         com/waz/media/manager/MediaManager.java \
         com/waz/media/manager/MediaManagerListener.java \
         com/waz/media/manager/config/Configuration.java \

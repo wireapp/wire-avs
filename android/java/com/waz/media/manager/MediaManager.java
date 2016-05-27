@@ -89,6 +89,8 @@ public class MediaManager implements OnAudioFocusChangeListener {
     
     public long mmPointer;
     
+    private Configuration config;
+    
     public MediaManager ( ) {
         ctx = null;
 
@@ -171,7 +173,7 @@ public class MediaManager implements OnAudioFocusChangeListener {
         Context context = this.getContext();
         String namespace = context.getPackageName();
         
-        Configuration config = new Configuration(configuration);
+        config = new Configuration(configuration);
         HashMap<String, MediaConfiguration> soundMap = config.getSoundMap();
         
         Set<String> keys = soundMap.keySet();
@@ -181,38 +183,62 @@ public class MediaManager implements OnAudioFocusChangeListener {
             
             String name = value.getName();
             String path = value.getPath();
-            String frmt = value.getFormat();
             
             int id = context.getResources().getIdentifier(path, "raw", namespace);
             Uri uri = Uri.parse("android.resource://" + namespace + "/" + id);
             
-            int stream = android.media.AudioManager.USE_DEFAULT_STREAM_TYPE;
-            
-            if ( value.getIncall() ) {
-                stream = android.media.AudioManager.STREAM_VOICE_CALL;
-            }
-            else {
-                stream = android.media.AudioManager.STREAM_NOTIFICATION;
-            }
-            
-            // HACK ARE ADDED HERE
-            if ( name.equals("ringing_from_me") ) {
-                stream = android.media.AudioManager.STREAM_VOICE_CALL;
-            }
-            if ( name.equals("ringing_from_them") ) {
-                stream = android.media.AudioManager.STREAM_RING;
-            }
-            // END OF HACKS
-            
-            SoundSource source = new SoundSource(name, context, uri, stream);
-            
-            //source.setShouldLoop(value.getLooping());
-            
-            DoLog("register " + name + " " + uri + " " + stream);
-            
-            this.registerMedia(name, value, source);
+            this.registerMediaFileUrl(name, uri);
         }
     }
+
+    public int registerMediaFileUrl ( String Name, Uri file_uri ) {
+        unregisterMedia(Name);
+        
+        Context context = this.getContext();
+        
+        if(config == null){
+            DoLogErr("Configuration is null ");
+            return -1;
+        }
+        
+        HashMap<String, MediaConfiguration> soundMap = config.getSoundMap();
+        
+        MediaConfiguration value = soundMap.get(Name);
+        
+        if(value == null){
+            DoLogErr("No configuration for " + Name);
+            return -1;
+        }
+        
+        int stream = android.media.AudioManager.USE_DEFAULT_STREAM_TYPE;
+        
+        if ( value.getIncall() ) {
+            stream = android.media.AudioManager.STREAM_VOICE_CALL;
+        }
+        else {
+            stream = android.media.AudioManager.STREAM_NOTIFICATION;
+        }
+        
+        // HACK ARE ADDED HERE
+        if ( Name.equals("ringing_from_me") ) {
+            stream = android.media.AudioManager.STREAM_VOICE_CALL;
+        }
+        if ( Name.equals("ringing_from_them") ) {
+            stream = android.media.AudioManager.STREAM_RING;
+        }
+        // END OF HACKS
+        
+        SoundSource source = new SoundSource(Name, context, file_uri, stream);
+        
+        //source.setShouldLoop(value.getLooping());
+        
+        DoLog("register " + Name + " " + file_uri + " " + stream);
+        
+        this.registerMedia(Name, value, source);
+        
+        return 0;
+    }
+    
     
     public void registerMedia ( String media, JSONObject options, MediaSource source ) {
         if ( media != null && options != null && source != null ) {
@@ -380,6 +406,10 @@ public class MediaManager implements OnAudioFocusChangeListener {
         if(DEBUG){
             Log.d(logTag, msg);
         }
+    }
+
+    private void DoLogErr(String msg) {
+        Log.e(logTag, msg);
     }
     
     private native void attach ( Context context );

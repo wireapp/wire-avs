@@ -413,7 +413,7 @@ static int update_member(struct engine_conv *conv, struct json_object *jobj,
 		mbr->active = b;
 		*changes |= ENGINE_CONV_MEMBERS;
 	}
-	
+
 	return err;
 }
 
@@ -515,7 +515,7 @@ static int update_conv(struct engine_conv *conv, struct json_object *jconv,
 
 	if (conv->type == ENGINE_CONV_ONE) {
 		if (conv->memberl.head) {
-			struct engine_conv_member *mbr = 
+			struct engine_conv_member *mbr =
 				conv->memberl.head->data;
 			mbr->user->conv = conv;
 		}
@@ -559,7 +559,7 @@ int engine_lookup_conv(struct engine_conv **convp, struct engine *engine,
 		*convp = conv;
 		return 0;
 	}
-	else 
+	else
 		return ENOENT;
 }
 
@@ -658,7 +658,7 @@ static void get_asset_handler(int err, const struct http_msg *msg,
 	struct asset_elem *elem = arg;
 	FILE *fp;
 	size_t n;
-	
+
 	debug("get_asset_handler: len=%zu err=%d status=%d\n",
 	      mb->end, err, msg ? msg->scode : 0);
 
@@ -677,14 +677,13 @@ static void get_asset_handler(int err, const struct http_msg *msg,
 
 	n = fwrite(mb->buf, 1, mb->end, fp);
 	fclose(fp);
-	
+
 	info("%zu bytes of asset: %s written to %s\n",
 	     n, elem->aid, elem->path);
 
  out:
 	mem_deref(elem);
 }
-
 
 
 static void asset_loc_handler(int err, const struct http_msg *msg,
@@ -711,7 +710,7 @@ static void asset_loc_handler(int err, const struct http_msg *msg,
 		info("fetching asset has no location\n");
 		goto out;
 	}
-		
+
 	err = pl_strdup(&location, &hdr->val);
 	if (err) {
 		info("fetching asset cannot parse location\n");
@@ -725,12 +724,12 @@ static void asset_loc_handler(int err, const struct http_msg *msg,
 	err |= rest_req_start(NULL, rr, elem->engine->rest, 0);
 
 	mem_deref(location);
-	
+
 	if (err) {
 		warning("asset_loc_handler: rest_get failed\n");
 		goto out;
 	}
-	
+
 	return;
 
  out:
@@ -750,7 +749,7 @@ int engine_fetch_asset(struct engine *engine,
 	elem->engine = engine;
 	str_dup(&elem->aid, aid);
 	str_dup(&elem->path, path);
-	
+
 	return rest_get(NULL, engine->rest, 0, asset_loc_handler,
 			elem, "/conversations/%s/assets/%s", cid, aid);
 }
@@ -804,7 +803,7 @@ static int print_name_regular(struct re_printf *pf, struct engine_conv *conv)
 		err = re_hprintf(pf, "%s", mbr->user->display_name);
 		if (err)
 			return err;
-		
+
 		if (le->next) {
 			err = re_hprintf(pf, ", ");
 			if (err)
@@ -853,12 +852,12 @@ int engine_print_conv_name(struct re_printf *pf, struct engine_conv *conv)
 	if (!pf || !conv)
 		return EINVAL;
 
-
 	if (conv->name) {
 		return re_hprintf(pf, "%s", conv->name);
 	}
 	else {
-		switch(conv->type) {
+		switch (conv->type) {
+
 		case ENGINE_CONV_REGULAR:
 			return print_name_regular(pf, conv);
 		case ENGINE_CONV_SELF:

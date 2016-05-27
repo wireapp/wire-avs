@@ -47,6 +47,18 @@ extern "C" {
 #define com_waz_call_FlowManager_VIDEO_PREVIEW 1L
 #undef com_waz_call_FlowManager_VIDEO_SEND
 #define com_waz_call_FlowManager_VIDEO_SEND 2L
+#undef com_waz_call_FlowManager_VIDEO_STATE_STOPPED
+#define com_waz_call_FlowManager_VIDEO_STATE_STOPPED 0L
+#undef com_waz_call_FlowManager_VIDEO_STATE_STARTED
+#define com_waz_call_FlowManager_VIDEO_STATE_STARTED 1L
+#undef com_waz_call_FlowManager_VIDEO_REASON_NORMAL
+#define com_waz_call_FlowManager_VIDEO_REASON_NORMAL 0L
+#undef com_waz_call_FlowManager_VIDEO_REASON_BAD_CONNECTION
+#define com_waz_call_FlowManager_VIDEO_REASON_BAD_CONNECTION 1L
+#undef com_waz_call_FlowManager_AUDIO_INTERRUPTION_STOPPED
+#define com_waz_call_FlowManager_AUDIO_INTERRUPTION_STOPPED 0L
+#undef com_waz_call_FlowManager_AUDIO_INTERRUPTION_STARTED
+#define com_waz_call_FlowManager_AUDIO_INTERRUPTION_STARTED 1L
 #undef com_waz_call_FlowManager_LOG_LEVEL_DEBUG
 #define com_waz_call_FlowManager_LOG_LEVEL_DEBUG 0L
 #undef com_waz_call_FlowManager_LOG_LEVEL_INFO
@@ -82,10 +94,10 @@ JNIEXPORT jint JNICALL Java_com_waz_call_FlowManager_mediaCategoryChanged
 /*
  * Class:     com_waz_call_FlowManager
  * Method:    attach
- * Signature: (Landroid/content/Context;)V
+ * Signature: (Landroid/content/Context;J)V
  */
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_attach
-  (JNIEnv *, jobject, jobject);
+  (JNIEnv *, jobject, jobject, jlong);
 
 /*
  * Class:     com_waz_call_FlowManager
@@ -137,10 +149,10 @@ JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_acquireFlows
 
 /*
  * Class:     com_waz_call_FlowManager
- * Method:    releaseFlows
+ * Method:    releaseFlowsNative
  * Signature: (Ljava/lang/String;)V
  */
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_releaseFlows
+JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_releaseFlowsNative
   (JNIEnv *, jobject, jstring);
 
 /*
@@ -249,18 +261,18 @@ JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_canSendVideo
 
 /*
  * Class:     com_waz_call_FlowManager
- * Method:    setVideoSendState
+ * Method:    setVideoSendStateNative
  * Signature: (Ljava/lang/String;I)V
  */
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoSendState
+JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoSendStateNative
   (JNIEnv *, jobject, jstring, jint);
 
 /*
  * Class:     com_waz_call_FlowManager
- * Method:    setVideoPreview
+ * Method:    setVideoPreviewNative
  * Signature: (Ljava/lang/String;Landroid/view/View;)V
  */
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoPreview
+JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoPreviewNative
   (JNIEnv *, jobject, jstring, jobject);
 
 /*
@@ -270,30 +282,6 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoPreview
  */
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoView
   (JNIEnv *, jobject, jstring, jstring, jobject);
-
-/*
- * Class:     com_waz_call_FlowManager
- * Method:    setVideoCaptureDevice
- * Signature: (Ljava/lang/String;Ljava/lang/String;)V
- */
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoCaptureDevice
-  (JNIEnv *, jobject, jstring, jstring);
-
-/*
- * Class:     com_waz_call_FlowManager
- * Method:    getVideoCaptureDevices
- * Signature: ()[Lcom/waz/call/CaptureDevice;
- */
-JNIEXPORT jobjectArray JNICALL Java_com_waz_call_FlowManager_getVideoCaptureDevices
-  (JNIEnv *, jobject);
-
-/*
- * Class:     com_waz_call_FlowManager
- * Method:    setBackground
- * Signature: (Z)V
- */
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setBackground
-  (JNIEnv *, jobject, jboolean);
 
 /*
  * Class:     com_waz_call_FlowManager
@@ -334,6 +322,22 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmStartPlay
  */
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmStopPlay
   (JNIEnv *, jobject);
+
+/*
+ * Class:     com_waz_call_FlowManager
+ * Method:    vmApplyChorus
+ * Signature: (Ljava/lang/String;Ljava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmApplyChorus
+  (JNIEnv *, jobject, jstring, jstring);
+
+/*
+ * Class:     com_waz_call_FlowManager
+ * Method:    vmApplyReverb
+ * Signature: (Ljava/lang/String;Ljava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmApplyReverb
+  (JNIEnv *, jobject, jstring, jstring);
 
 #ifdef __cplusplus
 }

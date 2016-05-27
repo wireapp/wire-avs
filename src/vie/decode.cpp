@@ -22,11 +22,11 @@
 
 #include <avs.h>
 #include <avs_vie.h>
+#include <avs_voe.h>
 
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
 #include "webrtc/video_decoder.h"
-#include "vie_render_view.h"
 #include "vie.h"
 
 
@@ -46,8 +46,7 @@ int vie_dec_alloc(struct viddec_state **vdsp,
 		  const struct vidcodec *vc,
 		  const char *fmtp, int pt,
 		  struct sdp_media *sdpm,
-		  viddec_create_view_h *cvh,
-		  viddec_release_view_h *rvh,
+		  struct vidcodec_param *prm,
 		  viddec_err_h *errh,
 		  void *arg)
 {
@@ -80,10 +79,9 @@ int vie_dec_alloc(struct viddec_state **vdsp,
 
 	vds->vc = vc;
 	vds->pt = pt;
-	vds->cvh = cvh;
-	vds->rvh = rvh;	
 	vds->errh = errh;
 	vds->arg = arg;
+	vds->prm = *prm;
 
  out:
 	if (err) {
@@ -96,34 +94,19 @@ int vie_dec_alloc(struct viddec_state **vdsp,
 	return err;
 }
 
-static bool lssrc_handler(const char *name, const char *value, void *arg)
-{
-	struct viddec_state *vds = (struct viddec_state*)arg;
-	struct pl pl;
-	int err;
-
-	if (vds->lssrc_count >= MAX_SSRCS)
+static bool check_remb_attr(const char *name, const char *value, void *arg){
+	if (0 == re_regex(value, strlen(value), "goog-remb")){
 		return true;
-
-	err = re_regex(value, strlen(value), "[0-9]+", &pl);
-	if (!err) {
-		vie_update_ssrc_array(vds->lssrc_array, &vds->lssrc_count, pl_u32(&pl));
+		} else{
+		return false;
 	}
-
-	return false;
 }
 
-static bool rssrc_handler(const char *name, const char *value, void *arg)
-{
-	struct viddec_state *vds = (struct viddec_state*)arg;
+static bool sdp_has_remb(struct viddec_state *vds){
+	const char *goog_remb;
+	goog_remb = sdp_media_rattr_apply(vds->sdpm, "rtcp-fb", check_remb_attr, NULL);
 
-	if (vds->rssrc_count < MAX_SSRCS) {
-		uint32_t val;
-		if (sscanf(value, "%u", &val) > 0) {
-			vie_update_ssrc_array(vds->rssrc_array, &vds->rssrc_count, val);
-		}
-	}
-	return false;
+	return goog_remb ? true : false;
 }
 
 int vie_render_start(struct viddec_state *vds)
@@ -139,23 +122,20 @@ int vie_render_start(struct viddec_state *vds)
 	if (!vie || !vie->call)
 		return EINVAL;
 
-	vds->lssrc_count = 0;
-	sdp_media_lattr_apply(vds->sdpm, "ssrc", lssrc_handler, vds);
-	vds->rssrc_count = 0;
-	sdp_media_rattr_apply(vds->sdpm, "ssrc", rssrc_handler, vds);
-
-	if (vds->lssrc_count < 1 || vds->rssrc_count < 1) {
+	if (vds->prm.local_ssrcc < 1 || vds->prm.remote_ssrcc < 1) {
 		error("%s: No SSRCS to use for video local:%u remote %u\n",
-			__FUNCTION__, vds->lssrc_count, vds->rssrc_count);
+			__FUNCTION__,
+		      vds->prm.local_ssrcc, vds->prm.remote_ssrcc);
 		return EINVAL;
 	}
 
-	receive_config.rtp.local_ssrc = vds->lssrc_array[0];
-	receive_config.rtp.remote_ssrc = vds->rssrc_array[0];
-	
 	receive_config.rtp.nack.rtp_history_ms = 0;    
+	receive_config.rtp.local_ssrc = vds->prm.local_ssrcv[0];
+	receive_config.rtp.remote_ssrc = vds->prm.remote_ssrcv[0];
+    
 #if USE_RTX
-	if (vds->rssrc_count > 1) {
+	if (vds->prm.remote_ssrcc > 1) {
+
 		sdp_format *rtx;
 
 		rtx = sdp_media_format(vds->sdpm, false, NULL,
@@ -166,10 +146,12 @@ int vie_render_start(struct viddec_state *vds)
 		}
 		else {
 			debug("vie: %s: rtx ssrc=%u pt=%d\n",
-			      __func__, vds->rssrc_array[1], rtx->pt);
+			      __func__, vds->prm.remote_ssrcv[1], rtx->pt);
 
 			receive_config.rtp.nack.rtp_history_ms = 1000;
-			receive_config.rtp.rtx[vds->pt].ssrc = vds->rssrc_array[1];
+
+			receive_config.rtp.rtx[vds->pt].ssrc =
+				vds->prm.remote_ssrcv[1];
 			receive_config.rtp.rtx[vds->pt].payload_type =
 				rtx->pt;
 		}
@@ -177,7 +159,7 @@ int vie_render_start(struct viddec_state *vds)
 #endif
 
 #if USE_REMB
-	receive_config.rtp.remb = true;
+	receive_config.rtp.remb = sdp_has_remb(vds);
 #else
 	receive_config.rtp.remb = false;
 #endif
@@ -188,7 +170,10 @@ int vie_render_start(struct viddec_state *vds)
 
 	receive_config.rtp.extensions.push_back(
 		webrtc::RtpExtension(webrtc::RtpExtension::kAbsSendTime,
-				     kAbsSendTimeExtensionId));
+		kAbsSendTimeExtensionId));
+	receive_config.rtp.extensions.push_back(
+		webrtc::RtpExtension(webrtc::RtpExtension::kVideoRotation,
+		kVideoRotationRtpExtensionId));
 	vie->receive_renderer = new ViERenderer();
 	receive_config.renderer = vie->receive_renderer;
 
@@ -198,6 +183,8 @@ int vie_render_start(struct viddec_state *vds)
 	decoder.decoder = vie->decoder;
 	receive_config.decoders.push_back(decoder);
 
+	receive_config.enable_vqi = (avs_get_flags() & AVS_FLAG_EXPERIMENTAL);
+    
 	vie->receive_stream = vie->call->CreateVideoReceiveStream(receive_config);
 
 	vie->receive_stream->Start();
@@ -229,11 +216,6 @@ void vie_render_stop(struct viddec_state *vds)
 
 
 	if (vie->receive_renderer) {
-		vie->receive_renderer->Stop();
-		vie->receive_renderer->DetachFromView();
-		if (vds->rvh) {
-			vds->rvh(vie->receive_renderer->View(), vds->arg);
-		}
 		delete vie->receive_renderer;
 		vie->receive_renderer = NULL;
 	}
@@ -286,31 +268,41 @@ void vie_dec_rtp_handler(struct viddec_state *vds,
 	if (!vds->packet_received) {
 		debug("vie: %s: first RTP packet received\n", __func__);
 		vds->packet_received = true;
-		if (vds->cvh) {
-			vds->cvh(vds->arg);
-		}		
 	}
 	
 	stats_rtp_add_packet(&vie->stats_rx, pkt, len);
 
 #if FORCE_VIDEO_RECORDING
-    if(!vie->rtpDump->IsActive()){
-        char  buf[80];
-        time_t     now = time(0);
-        struct tm  tstruct;
+	if(!vie->rtpDump->IsActive()){
+		char  buf[80];
+		time_t     now = time(0);
+		struct tm  tstruct;
         
-        tstruct = *localtime(&now);
-        strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
+#if TARGET_OS_IPHONE
+		std::string prefix = voe_iosfilepath();
+		prefix.insert(prefix.size(),"/Ios_");
+#elif defined(ANDROID)
+		std::string prefix = "/sdcard/Android_";
+#else
+		std::string prefix = "Osx_";
+#endif
+		tstruct = *localtime(&now);
+		strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
         
-        std::string name = "VidIn";
-        name.insert(name.size(),buf);
-        name.insert(name.size(),".rtp");
+		std::string name = prefix + "VidIn";
+		name.insert(name.size(),buf);
+		name.insert(name.size(),".rtp");
         
-        printf("opening file %s \n", name.c_str());
-        
-        vie->rtpDump->Start(name.c_str());
-    }
-    vie->rtpDump->DumpPacket(pkt, len);
+		vie->rtpDump->Start(name.c_str());
+	}
+	// Only Save RTP header and length;
+	int32_t len32 = (int32_t)len;
+	uint8_t buf[12 + sizeof(int32_t)]; // RTP header is 12 bytes
+    
+	memcpy(buf, &len32, sizeof(int32_t));
+	memcpy(&buf[sizeof(int32_t)], pkt, 12*sizeof(uint8_t));
+
+	vie->rtpDump->DumpPacket(buf, sizeof(buf));
 #endif
     
 	delstat = vie->call->Receiver()->DeliverPacket(webrtc::MediaType::VIDEO, pkt, len);
@@ -328,68 +320,14 @@ void vie_dec_rtcp_handler(struct viddec_state *vds,
 
 	if (!vds->started)
 		return;
+
+	uint32_t old_limit = vie->stats_rx.rtcp.bitrate_limit;
 	stats_rtcp_add_packet(&vds->vie->stats_rx, pkt, len);
+
+	if (old_limit != vie->stats_rx.rtcp.bitrate_limit) {
+		vie_bandwidth_allocation_changed(vie, vie->stats_rx.rtcp.ssrc,
+			vie->stats_rx.rtcp.bitrate_limit);
+	}
 
 	delstat = vie->call->Receiver()->DeliverPacket(webrtc::MediaType::VIDEO, pkt, len);
 }
-
-
-int vie_set_view(struct viddec_state *vds, void *view)
-{
-	webrtc::VideoRender *render;
-	struct vie *vie = vds ? vds->vie : NULL;
-	int ret;
-
-	if (!vds)
-		return EINVAL;
-
-	debug("%s: vds=%p view=%p\n", __FUNCTION__, vds, view);
-
-	if (!vie) {
-		warning("%s: something not inited vie: %p\n",
-			__FUNCTION__, vie);
-		return EINVAL;
-	}
-
-	if (!vds->started) {
-		warning("%s: decoder not started\n", __FUNCTION__);
-		return 0;
-	}
-
-	if (!view) {
-		debug("%s: called with NULL view\n", __FUNCTION__);
-		return 0;
-	}
-
-	if (vie->receive_renderer) {
-		vie->receive_renderer->AttachToView(view);
-		if (!vds->backgrounded) {
-			vie->receive_renderer->Start();
-		}
-	}
-
-	return 0;
-}
-
-void vie_render_background(struct viddec_state *vds, enum media_bg_state state)
-{
-	struct vie *vie = vds ? vds->vie : NULL;
-
-	debug("%s: %s vds %p vie %p recr %p\n", __FUNCTION__,
-		state == MEDIA_BG_STATE_ENTER ? "enter" : "exit",
-		vds, vie, vie ? vie->receive_renderer : NULL);
-	if (vds && vds->started && vie && vie->receive_renderer) {
-		switch (state) {
-			case MEDIA_BG_STATE_ENTER:
-				vds->backgrounded = true;
-				vie->receive_renderer->Stop();
-				break;
-
-			case MEDIA_BG_STATE_EXIT:
-				vds->backgrounded = false;
-				vie->receive_renderer->Start();
-				break;
-		}
-	}
-}
-

@@ -1,12 +1,29 @@
+/*
+* Wire
+* Copyright (C) 2016 Wire Swiss GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #include <jni.h>
 #ifdef ANDROID
 #include <android/log.h>
+#endif
+
 #include "webrtc/voice_engine/include/voe_base.h"
-#if HAVE_VIDEO
 #include "webrtc/modules/video_capture/video_capture_internal.h"
 #include "webrtc/modules/video_render/video_render_internal.h"
-#endif
-#endif
 
 #include <unistd.h>
 #include <pthread.h>
@@ -24,13 +41,21 @@
 #include "breakpad/dumpcall.h"
 #endif
 
+/* JNI interface */
 #include "com_waz_call_FlowManager.h"
+#include "com_waz_avs_VideoCapturer.h"
+#include "com_waz_avs_VideoRenderer.h"
+
+#include "video_renderer.h"
 
 #define THREAD_NAME "re_main"
+
+struct jfm;
 
 static struct {
 	bool initialized;
 	bool video_inited;
+	struct jfm *jfm;
 	int err;
 	JavaVM *vm;
 	jfieldID fmfid;
@@ -42,12 +67,24 @@ static struct {
         jmethodID uvmid;
 	jmethodID nqmid;
 	jmethodID vmpsh;
-#if HAVE_VIDEO
-        jmethodID cpvmid;
-        jmethodID rpvmid;
-        jmethodID cvmid;
-        jmethodID rvmid;
-#endif
+
+	/* video: */
+	jmethodID cpvmid;
+	jmethodID rpvmid;
+	jmethodID cvmid;
+	jmethodID csmid;
+	jmethodID rvmid;
+	jmethodID acsmid;
+    
+	struct {
+		struct {			
+			jmethodID enter;
+			jmethodID exit;
+		} mid;
+
+		struct video_renderer *renderer;
+		bool request_view;
+	} video;
 
 	pthread_t tid;
 	
@@ -55,9 +92,11 @@ static struct {
 
 	jobject context;
 
+	uint64_t avs_flags;
 } java = {
 	.initialized = false,
 	.err = 0,
+	.jfm = NULL,
 	.vm = NULL,
 	.fmfid = NULL,
 	.reqmid = NULL,
@@ -65,18 +104,28 @@ static struct {
 	.confposmid = NULL,
 	.nqmid = NULL,
 	.vmpsh = NULL,
-#if HAVE_VIDEO
-        .cpvmid = NULL,
-        .rpvmid = NULL,
-        .cvmid = NULL,
-        .rvmid = NULL,
-#endif
-#if 0
-	.log_level = LOG_LEVEL_DEBUG,
-#else
-	.log_level = LOG_LEVEL_WARN,
-#endif
+
+	/* video */
+	.cpvmid = NULL,
+	.rpvmid = NULL,
+	.cvmid = NULL,
+	.rvmid = NULL,
+
+	.video = {
+		.renderer = NULL,
+		.request_view = false,
+		.mid = {
+			.enter = NULL,
+			.exit = NULL,
+		},
+	},
+
+	.acsmid = NULL,
+    
+	.log_level = LOG_LEVEL_INFO,
+
 	.context = NULL,
+	.avs_flags = 0,
 };
 
 struct jni_env {
@@ -146,28 +195,50 @@ static void jni_log_handler(uint32_t lve, const char *msg)
 		alp = ANDROID_LOG_ERROR;
 		break;
 	}
+
+#ifdef AVS_LOG_DEBUG
 	__android_log_write(alp, "avs", msg);
+#endif
+#endif
+
+	if (java.log_level > lve)
+		return;
+
+	// XXX Call some SE function to log??
+#ifdef ANDROID
+	{
+		#define LOG_MAX 1024
+                #define min(a, b) ((a) < (b) ? (a) : (b))
+
+		size_t slen = strlen(msg) + 1;
+		if (slen > LOG_MAX) {
+			char *split = (char *)mem_alloc(LOG_MAX+1, NULL);
+			size_t nbytes;
+			size_t pos = 0;
+			
+			do {
+				nbytes = min(slen, LOG_MAX);
+				memcpy(split, msg + pos, nbytes);
+				split[nbytes] = '\n';
+				__android_log_write(alp, "avs", split);
+				slen -= nbytes;
+				pos += nbytes;
+			}
+			while (slen > 0);
+
+			mem_deref(split);
+		}
+		else {
+			__android_log_write(alp, "avs", msg);
+		}
+	}
 #endif
 }
 
+ 
 static struct log log = {
 	.h = jni_log_handler 
 };
-
-static void init_video(JNIEnv *env)
-{
-	if (!java.video_inited) {
-#if HAVE_VIDEO
-#ifdef ANDROID		
-		webrtc::SetCaptureAndroidVM(java.vm, java.context);
-		webrtc::SetRenderAndroidVM(java.vm, env, java.context);
-#endif
-#endif
-		java.video_inited = true;
-
-		vie_set_getsize_handler(vie_jni_get_view_size_handler);
-	}
-}
 
 
 static int jni_attach(struct jni_env *je)
@@ -249,13 +320,13 @@ static void log_upload_handler(void *arg)
 	}
 	
         jni_re_leave();
-	je.env->CallVoidMethod(jfm->self, jfm->log.uploadmid);		       
+	je.env->CallVoidMethod(jfm->self, jfm->log.uploadmid);
         jni_re_enter();
 
 	jni_detach(&je);
 }
 
-#if HAVE_VIDEO
+
 static void create_preview_handler_r(void *arg)
 {
 	struct jfm *jfm = (struct jfm *)arg;
@@ -264,7 +335,7 @@ static void create_preview_handler_r(void *arg)
 
 	err = jni_attach(&je);
 	if (err) {
-		warning("%s: cannot attach JNI: %m\n", __FUNCTION__, err);
+		warning("%s: cannot attach JNI: %m\n", __func__, err);
 		goto out;
 	}
 
@@ -294,7 +365,7 @@ static void release_preview_handler(void *view, void *arg)
 
 	err = jni_attach(&je);
 	if (err) {
-		warning("%s: cannot attach JNI: %m\n", __FUNCTION__, err);
+		warning("%s: cannot attach JNI: %m\n", __func__, err);
 		goto out;
 	}
 
@@ -360,7 +431,7 @@ static void create_view_handler_r(const char *convid, const char *partid,
 
 	err = jni_attach(&je);
 	if (err) {
-		warning("%s: cannot attach JNI: %m\n", __FUNCTION__, err);
+		warning("%s: cannot attach JNI: %m\n", __func__, err);
 		goto out;
 	}
 
@@ -377,6 +448,77 @@ static void create_view_handler_r(const char *convid, const char *partid,
 	jni_detach(&je);
 }
 
+static void audio_change_state_handler(enum flowmgr_audio_receive_state state)
+{
+	struct jfm *jfm = java.jfm;
+	struct jni_env je;
+	jint jstate = 0;
+	int err = 0;
+    
+	err = jni_attach(&je);
+	if (err) {
+		warning("%s: cannot attach JNI: %m\n", __func__, err);
+		goto out;
+	}
+    
+	switch(state) {
+		case FLOWMGR_AUDIO_INTERRUPTION_STARTED:
+			jstate = com_waz_call_FlowManager_AUDIO_INTERRUPTION_STARTED;
+			break;
+            
+		case FLOWMGR_AUDIO_INTERRUPTION_STOPPED:
+			jstate = com_waz_call_FlowManager_AUDIO_INTERRUPTION_STOPPED;
+			break;
+	}
+    
+	debug("change_state_handler: state=%d \n", jstate);
+	je.env->CallVoidMethod(jfm->self, java.acsmid, jstate);
+    
+out:
+	jni_detach(&je);
+}
+
+static void change_state_handler(enum flowmgr_video_receive_state state,
+				 enum flowmgr_video_reason reason)
+{
+	struct jfm *jfm = java.jfm;
+	struct jni_env je;
+	jint jstate = 0;
+	jint jreason = 0;
+	int err = 0;
+
+	err = jni_attach(&je);
+	if (err) {
+		warning("%s: cannot attach JNI: %m\n", __func__, err);
+		goto out;
+	}
+
+	switch(state) {
+	case FLOWMGR_VIDEO_RECEIVE_STOPPED:
+		jstate = com_waz_call_FlowManager_VIDEO_STATE_STOPPED;
+		break;
+
+	case FLOWMGR_VIDEO_RECEIVE_STARTED:
+		jstate = com_waz_call_FlowManager_VIDEO_STATE_STARTED;
+		break;
+	}
+
+	switch(reason) {
+	case FLOWMGR_VIDEO_NORMAL:
+		jreason = com_waz_call_FlowManager_VIDEO_REASON_NORMAL;
+		break;
+
+	case FLOWMGR_VIDEO_BAD_CONNECTION:
+		jreason = com_waz_call_FlowManager_VIDEO_REASON_BAD_CONNECTION;
+		break;
+	}
+
+	debug("change_state_handler: state=%d reason=%d\n", jstate, jreason);
+	je.env->CallVoidMethod(jfm->self, java.csmid, jstate, jreason);
+
+ out:
+	jni_detach(&je);	
+}
 
 static void tt_handler(void *arg)
 {
@@ -419,7 +561,7 @@ static void release_view_handler(const char *convid, const char *partid,
 
 	err = jni_attach(&je);
 	if (err) {
-		warning("%s: cannot attach JNI: %m\n", __FUNCTION__, err);
+		warning("%s: cannot attach JNI: %m\n", __func__, err);
 		goto out;
 	}
 
@@ -435,14 +577,12 @@ static void release_view_handler(const char *convid, const char *partid,
 	jni_detach(&je);
 #endif
 }
-#endif
+
 
 void *flowmgr_thread(void *arg)
 {
 	int err;
-
-	(void)arg;
-	
+    
 #ifdef ANDROID
 	pthread_setname_np(pthread_self(), THREAD_NAME);
 #else
@@ -455,19 +595,17 @@ void *flowmgr_thread(void *arg)
 		goto out;
 	}
 
-	err = avs_init(0);
+	debug("flowmgr_thread: using avs_flags=%llu", java.avs_flags);
+	err = avs_init(java.avs_flags);
 	if (err) {
 		warning("flowmgr_thread: avs_init failed (%m)\n", err);
 		goto out;
 	}
 
-	flowmgr_enable_dualstack(true);
-
-#define LOG_URL "https://z-call-logs.s3-eu-west-1.amazonaws.com"
 #ifdef ANDROID
-	err = flowmgr_init("voe", LOG_URL);
+	err = flowmgr_init("voe", NULL, CERT_TYPE_ECDSA);
 #else
-	err = flowmgr_init("audummy", LOG_URL);
+	err = flowmgr_init("audummy", NULL, CERT_TYPE_ECDSA);
 #endif
 	if (err) {
 		warning("flowmgr_thread: flowmgr_init failed (%m)\n", err);
@@ -538,13 +676,14 @@ static int setup_breakpad(JNIEnv *env, jobject ctx)
 #endif
 
 
-static int init(JNIEnv *env, jobject jobj, jobject ctx)
+static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 {
 	jint res;
 	jclass cls;
+	jclass videoRendererCls;
 	int err = 0;
 
-	log_set_min_level(java.log_level);
+	log_set_min_level(LOG_LEVEL_DEBUG);
 	log_register_handler(&log);
 
 	info("jni: init\n");
@@ -599,7 +738,8 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx)
 	java.nqmid = env->GetMethodID(cls, "networkQuality",
 				      "ILjava/lang/String;F)V");
 #endif
-#if HAVE_VIDEO
+
+	/* Video: */
 	java.cpvmid = env->GetMethodID(cls, "createVideoPreview",
 					  "()V");
 
@@ -610,12 +750,31 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx)
 				      "createVideoView",
 				      "(Ljava/lang/String;"
 				      "Ljava/lang/String;)V");
-
+	java.csmid = env->GetMethodID(cls,
+				      "changeVideoState",
+				      "(II)V");
 	java.rvmid = env->GetMethodID(cls,
 				      "releaseVideoView",
 				      "(Ljava/lang/String;"
 				      "Ljava/lang/String;)V");
-#endif
+
+	videoRendererCls = env->FindClass("com/waz/avs/VideoRenderer");
+	if (videoRendererCls == NULL) {
+		warning("%s: cannot get VideoRenderer\n", __func__);
+	}
+	else {
+		java.video.mid.enter = env->GetMethodID(videoRendererCls,
+							"enter",
+							"()Z");
+		java.video.mid.exit = env->GetMethodID(videoRendererCls,
+						      "exit",
+						      "()V");
+	}
+
+	java.acsmid = env->GetMethodID(cls,
+									"changeAudioState",
+									"(I)V");
+    
 #ifdef ANDROID
 	info("Calling SetAndroidObjects\n");
 	webrtc::VoiceEngine::SetAndroidObjects(java.vm, ctx);
@@ -624,7 +783,8 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx)
     	
 	//setup_breakpad(env, ctx);
 #endif
-
+	java.avs_flags = avs_flags;
+    
 	err = pthread_create(&java.tid, NULL, flowmgr_thread, NULL);
 	if (err) {
 		error("jni: init: cannot create flomgr_thread (%m)\n", err);
@@ -717,8 +877,8 @@ static void media_estab_handler(const char *convid, bool estab, void *arg)
 
 	jconvid = je.env->NewStringUTF(convid);
 
-debug("media_estab_handler: convid=%s estab=%d\n", convid, estab);
-//jni_re_leave();
+	debug("media_estab_handler: convid=%s estab=%d\n", convid, estab);
+	//jni_re_leave();
 	je.env->CallVoidMethod(jfm->self, java.mestabmid, jconvid);
 	//	jni_re_enter();
 
@@ -915,14 +1075,84 @@ out:
 }
 
 
+static void video_state_handler(enum flowmgr_video_receive_state state,
+				enum flowmgr_video_reason reason,
+				void *arg)
+{
+	debug("video_state_change_handler: state=%d reason=%d\n",
+	      state, reason);
+
+	change_state_handler(state, reason);
+	
+	switch(state) {
+	case FLOWMGR_VIDEO_RECEIVE_STARTED:
+		java.video.request_view = true;
+		break;
+
+	case FLOWMGR_VIDEO_RECEIVE_STOPPED:
+		break;
+
+	default:
+		break;
+	}
+}
+
+
+static void render_frame_handler(struct avs_vidframe *vf)
+{
+	struct video_renderer *vr = java.video.renderer;
+	struct jni_env je;
+	jobject jself;
+	jboolean entered;
+	int err;
+
+#if 0
+	debug("render_frame_handler: renderer=%p y/u/v=%p/%p/%p\n",
+	      java.video.renderer, vf->y, vf->u, vf->v);
+#endif
+	
+	if (!java.video.renderer) {
+		if (java.video.request_view) {
+			create_view_handler("", "", java.jfm);
+			java.video.request_view = false;
+		}
+		return;
+	}
+
+	err = jni_attach(&je);
+	if (err) {
+		warning("jni: fm_request: cannot attach to JNI\n");
+		return;
+	}
+	
+	jself = (jobject)video_renderer_arg(vr);
+	if (!jself)
+		goto out;
+	
+	entered = je.env->CallBooleanMethod(jself, java.video.mid.enter);
+	if (entered) {
+		video_renderer_handle_frame(vr, vf);
+		je.env->CallVoidMethod(jself, java.video.mid.exit);
+	}
+ out:
+	jni_detach(&je);
+}
+
+static void audio_state_handler(enum flowmgr_audio_receive_state state,
+								void *arg)
+{
+	audio_change_state_handler(state);
+}
+
+
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_attach
-(JNIEnv *env, jobject self, jobject ctx)
+(JNIEnv *env, jobject self, jobject ctx, jlong avs_flags)
 {
 	struct jfm *jfm;
 	int err;
 
 	if (!java.initialized) {
-		init(env, self, ctx);
+		init(env, self, ctx, (uint64_t)avs_flags);
 	}
 
 	jfm = (struct jfm *)mem_zalloc(sizeof(*jfm), NULL);
@@ -949,18 +1179,19 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_attach
 	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_conf_pos_handler,
 			     jfm->fm, conf_pos_handler, jfm);
 
-
-#if HAVE_VIDEO
 	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_video_handlers, jfm->fm,
-			     create_preview_handler,
-			     release_preview_handler,
-			     create_view_handler,
-			     release_view_handler,
+			     video_state_handler,
+			     render_frame_handler,
 			     jfm);
-#endif
+
+	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_audio_state_handler,
+			     jfm->fm, audio_state_handler, jfm);
+    
 	env->SetLongField(self, java.fmfid, (jlong)((void *)jfm));
 
 	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_start);
+
+	java.jfm = jfm;
 	
  out:
 	if (err) {
@@ -1019,7 +1250,7 @@ JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_acquireFlows
 }
 
 
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_releaseFlows
+JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_releaseFlowsNative
 (JNIEnv *env, jobject self, jstring jconvid)
 {
 	struct jfm *jfm = self2fm(env, self);
@@ -1405,8 +1636,6 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setLogLevel
 (JNIEnv *env, jclass cls, jint jlevel)
 {
 	java.log_level = (enum log_level)jlevel;
-	if (java.initialized)
-		log_set_min_level(java.log_level);
 }
 
 
@@ -1473,8 +1702,8 @@ out:
 		return jsorted_arr;
 }
 
-#if HAVE_VIDEO
 
+#ifdef ANDROID
 JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_canSendVideo
 (JNIEnv *env, jobject self, jstring jconvid)
 {
@@ -1485,8 +1714,6 @@ JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_canSendVideo
 
 	debug("canSendVideo: convid-%s\n", convid);
 
-	init_video(env);
-	
 	FLOWMGR_MARSHAL_RET(java.tid, canSend, flowmgr_can_send_video,
 			     jfm->fm, convid);
 	debug("canSendVideo: convid=%s %d\n", convid, canSend);
@@ -1497,62 +1724,37 @@ JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_canSendVideo
 	return canSend ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoSendState
-(JNIEnv *env, jobject self, jstring jconvid, jint state)
+JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoSendStateNative
+(JNIEnv *env, jobject self, jstring jconvid, jint jstate)
 {
 	struct jfm *jfm = self2fm(env, self);
 	const char *convid =
 		jconvid ? env->GetStringUTFChars(jconvid, 0) : NULL;
+	enum flowmgr_video_send_state state = FLOWMGR_VIDEO_SEND_NONE;
 	
-	debug("setVideoSendState: convid=%s state=%d\n", convid, state);
+	debug("setVideoSendStateNative: convid=%s state=%d\n", convid, state);
 
-	init_video(env);
+	switch (jstate) {
+	case com_waz_call_FlowManager_VIDEO_SEND_NONE:
+		state = FLOWMGR_VIDEO_SEND_NONE;
+		break;
 
-	jfm->video_state = (enum flowmgr_video_send_state)state;
+	case com_waz_call_FlowManager_VIDEO_PREVIEW:
+		return;
 
-#if 0 /* Experimental HW rendering */
-	if (state == FLOWMGR_VIDEO_PREVIEW) {
-		create_preview(convid, (void *)jfm);
+	case com_waz_call_FlowManager_VIDEO_SEND:
+		state = FLOWMGR_VIDEO_SEND;
+		break;
+
+	defult:
+		warning("setVideoSendState: unknown state: %d\n", jstate);
+		return;
 	}
-	else {
-		FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_video_send_state,
-				     jfm->fm, convid,
-				     (enum flowmgr_video_send_state)state);
-	}
-#else
+
+	jfm->video_state = state;
+
 	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_video_send_state,
-			     jfm->fm, convid,
-			     (enum flowmgr_video_send_state)state);
-#endif
-
-	if (convid)
-		env->ReleaseStringUTFChars(jconvid, convid);
-}
-
-
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoPreview
-(JNIEnv *env, jobject self, jstring jconvid, jobject jview)
-{
-	struct jfm *jfm = self2fm(env, self);
-	const char *convid =
-		jconvid ? env->GetStringUTFChars(jconvid, 0) : NULL;
-	jobject view = env->NewGlobalRef(jview);
-
-	debug("setVideoPreview: jview=%p view=%p convid=%s\n",
-	      jview, view, convid);
-
-	init_video(env);
-
-#if 0 /* Experimental for HW rendering */
-	if (jfm->video_state == FLOWMGR_VIDEO_PREVIEW) {
-		FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_video_send_state,
-				     jfm->fm, convid,
-				     FLOWMGR_VIDEO_PREVIEW);
-	}
-#else
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_video_preview,
-			     jfm->fm, convid, (void *)view);
-#endif
+			     jfm->fm, convid, state);
 
 	if (convid)
 		env->ReleaseStringUTFChars(jconvid, convid);
@@ -1568,13 +1770,14 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoView
 		jconvid ? env->GetStringUTFChars(jconvid, 0) : NULL;
 	const char *partid =
 		jpartid ? env->GetStringUTFChars(jpartid, 0) : NULL;
-
+	jmethodID getNativeRenderer;
+	jclass cls;
+	jlong jobj;
+	
 	debug("setVideoView:jview=%p view=%p convid=%s partid=%s\n",
 	      jview, view, convid, partid);
 
-	init_video(env);
-
-#if 1
+#if 0
 	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_video_view,
 			     jfm->fm, convid, partid, (void *)view);
 #endif
@@ -1588,20 +1791,7 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoView
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setBackground
 (JNIEnv *env, jobject self, jboolean jbg)
 {
-	struct jfm *jfm = self2fm(env, self);
-
-	debug("setBackground: backgrounded=%d\n", jbg);
-
-	if (jbg) {
-		FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_background,
-				     jfm->fm,
-				     MEDIA_BG_STATE_ENTER);
-	}
-	else {
-		FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_background,
-				     jfm->fm,
-				     MEDIA_BG_STATE_EXIT);
-	}
+	debug("NOOP setBackground: backgrounded=%d\n", jbg);
 }
 
 
@@ -1615,55 +1805,14 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoCaptureDevice
 	debug("setVideoCaptureDevice: convid=%s devid=%s\n",
 	      convid, devid);
 
-	init_video(env);
-	
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_video_capture_device,
-			     jfm->fm, convid, devid);
-
-
 	if (convid)
 		env->ReleaseStringUTFChars(jconvid, convid);
 	if (devid)
 		env->ReleaseStringUTFChars(jdevid, devid);
+
+	return;	
 }
 
-
-JNIEXPORT jobjectArray JNICALL Java_com_waz_call_FlowManager_getVideoCaptureDevices
-(JNIEnv *env, jobject self)
-{
-	struct jfm *jfm = self2fm(env, self);
-	struct list *device_list = NULL;
-	jobjectArray jdevs = NULL;
-	struct le *le;
-	int i = 0;
-
-	debug("getVideoCaptureDevices(%p)\n", jfm);
-
-	init_video(env);
-	
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_get_video_capture_devices, jfm->fm, &device_list);
-
-	jdevs = env->NewObjectArray(list_count(device_list),
-				    env->FindClass("com/waz/call/CaptureDevice"),
-				    NULL);
-	LIST_FOREACH(device_list, le) {
-		struct videnc_capture_device *dev = (struct videnc_capture_device*)le->data;
-
-		jclass cls = env->FindClass("com/waz/call/CaptureDevice");
-		jmethodID methodID = env->GetMethodID(cls, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V");
-
-		debug("capdev[%d]: name=%s id=%s\n", i, dev->dev_id, dev->dev_name);
-		
-		jstring jid = env->NewStringUTF(dev->dev_id);
-		jstring jname = env->NewStringUTF(dev->dev_name);
-		jobject jdev = env->NewObject(cls, methodID, jid, jname);
-		env->SetObjectArrayElement(jdevs, i, jdev);
-		++i;				      
-	}
-	mem_deref(device_list);
-	
-	return jdevs;
-}
 
 #else
 
@@ -1677,13 +1826,13 @@ JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_canSendVideo
 	return JNI_FALSE;
 }
 
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoSendState
+JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoSendStateNative
 (JNIEnv *env, jobject self, jstring jconvid, jint state)
 {
 	(void)env;
 	(void)self;
 	(void)jconvid;
-	(void)active;
+	(void)state;
 }
 
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoPreview
@@ -1727,7 +1876,6 @@ JNIEXPORT jobjectArray JNICALL Java_com_waz_call_FlowManager_getVideoCaptureDevi
 }
 
 #endif
-
 
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmStartRecord
 (JNIEnv *env, jobject self, jstring jfile_name)
@@ -1793,6 +1941,33 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmStopPlay
                          jfm->fm);
 }
 
+JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmApplyChorus
+(JNIEnv *env, jobject self, jstring jfile_name_in,  jstring jfile_name_out)
+{
+    const char *file_name_in = env->GetStringUTFChars(jfile_name_in, 0);
+    const char *file_name_out = env->GetStringUTFChars(jfile_name_out, 0);
+    
+    int err =  voe_vm_apply_effect(file_name_in, file_name_out, AUDIO_EFFECT_CHORUS);
+    
+    if (file_name_in)
+        env->ReleaseStringUTFChars(jfile_name_in, file_name_in);
+    if (file_name_out)
+        env->ReleaseStringUTFChars(jfile_name_out, file_name_out);
+}
+
+JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmApplyReverb
+(JNIEnv *env, jobject self, jstring jfile_name_in,  jstring jfile_name_out)
+{
+    const char *file_name_in = env->GetStringUTFChars(jfile_name_in, 0);
+    const char *file_name_out = env->GetStringUTFChars(jfile_name_out, 0);
+    
+    int err =  voe_vm_apply_effect(file_name_in, file_name_out, AUDIO_EFFECT_REVERB);
+    
+    if (file_name_in)
+        env->ReleaseStringUTFChars(jfile_name_in, file_name_in);
+    if (file_name_out)
+        env->ReleaseStringUTFChars(jfile_name_out, file_name_out);
+}
 
 static int vie_jni_get_view_size_handler(const void *view, int *w, int *h)
 {
@@ -1852,4 +2027,73 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM *vm, void *reserved)
 	close();
 
 	info("JNI unloaded\n");
+}
+
+
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoCapturer_handleCameraFrame
+  (JNIEnv *env, jclass cls, jint w, jint h,
+   jbyteArray jframe, jint degrees, jlong jts)
+{
+
+	struct avs_vidframe vf;
+	jboolean iscpy = JNI_FALSE;	
+	size_t len = (size_t)env->GetArrayLength(jframe);
+	uint8_t *y = (uint8_t *)env->GetByteArrayElements(jframe, &iscpy);
+	size_t ystride = (w + 16) & 0xfffffff0;
+	size_t cstride = (ystride/2 + 16) & 0xfffffff0;
+	size_t uoff = ystride*h;
+	size_t voff = ystride*h + cstride*(h/2);
+
+	/* Android is providing frames in NV21 */
+	vf.type = AVS_VIDFRAME_NV21;
+	vf.y = y;
+	vf.u = y + uoff;
+	vf.v = y + voff;
+	vf.ys = ystride;
+	vf.us = cstride;
+	vf.vs = cstride;
+	vf.w = w;
+	vf.h = h;
+	vf.rotation = (int)(360 - degrees);
+	vf.ts = (uint32_t)jts;
+	
+	flowmgr_handle_frame(&vf);
+
+ out:
+	if (y) 
+		env->ReleaseByteArrayElements(jframe, (jbyte*)y, JNI_ABORT);
+}
+
+
+/* Video renderer */
+JNIEXPORT jlong JNICALL Java_com_waz_avs_VideoRenderer_createNative
+(JNIEnv *env, jobject jself, jint w, jint h, jboolean rounded)
+{
+	struct video_renderer **vrp = &java.video.renderer;
+	int err;
+	jobject self = env->NewGlobalRef(jself);
+
+	if (*vrp)
+		*vrp = (struct video_renderer *)mem_deref((void *)(*vrp));
+		
+	err = video_renderer_alloc(vrp, w, h, rounded, (void *)self);
+	if (err)
+		return 0;
+
+	return (jlong)((void *)(*vrp));
+}
+
+
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_destroyNative
+(JNIEnv *env, jobject jself, jlong obj)
+{
+	struct video_renderer *vr = (struct video_renderer *)((void *)obj);
+	jobject self = (jobject)video_renderer_arg(vr);
+
+	env->DeleteGlobalRef(self);
+	
+	if (java.video.renderer == vr)
+		java.video.renderer = NULL;
+	
+	mem_deref(vr);
 }

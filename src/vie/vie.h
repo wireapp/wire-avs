@@ -24,19 +24,21 @@
 #include "vie_renderer.h"
 #include "webrtc/modules/utility/interface/rtp_dump.h"
 
+#include "capture_router.h"
+
 #define USE_RTX  1
 #define USE_REMB 1
+#define USE_RTP_ROTATION 1
 
 #define FORCE_VIDEO_RECORDING 0
 
+static const int kVideoRotationRtpExtensionId = 4;
 static const int kAbsSendTimeExtensionId = 7;
-
-static const uint8_t kRtxVideoPayloadType = 101;
-static const uint8_t kVideoPayloadType = 100;
 
 class ViETransport;
 class ViERenderer;
 class ViECaptureRouter;
+class ViELoadObserver;
 
 /* rtcp stats */
 
@@ -54,7 +56,10 @@ struct transp_stats {
 		size_t sdes;
 		size_t rtpfb;
 		size_t psfb;
+		size_t bye;
 		size_t unknown;
+		uint32_t ssrc;
+		uint32_t bitrate_limit;
 	} rtcp;
 };
 
@@ -68,8 +73,6 @@ int  stats_print(struct re_printf *pf, const struct transp_stats *stats);
 
 /* encode */
 
-#define MAX_SSRCS 16
-
 struct videnc_state {
 	const struct vidcodec *vc;  /* base class (inheritance) */
 
@@ -78,19 +81,16 @@ struct videnc_state {
 
 	int pt;
 	
-	uint32_t capture_width;
-	uint32_t capture_height;
-	uint32_t capture_fps;
+	size_t res_idx;
+	bool rtp_rotation;
+	size_t max_bandwidth;
 
 	videnc_rtp_h *rtph;
 	videnc_rtcp_h *rtcph;
-	videnc_create_preview_h *cpvh;
-	videnc_release_preview_h *rpvh;
 	videnc_err_h *errh;
 	void *arg;
 
-	uint32_t ssrc_array[MAX_SSRCS];
-	size_t ssrc_count;
+	struct vidcodec_param prm;
 };
 
 int  vie_enc_alloc(struct videnc_state **vesp,
@@ -98,18 +98,16 @@ int  vie_enc_alloc(struct videnc_state **vesp,
 		   const struct vidcodec *vc,
 		   const char *fmtp, int pt,
 		   struct sdp_media *sdpm,
+		   struct vidcodec_param *prm,
 		   videnc_rtp_h *rtph,
 		   videnc_rtcp_h *rtcph,
-		   videnc_create_preview_h *cpvh,
-		   videnc_release_preview_h *rpvh,
 		   videnc_err_h *errh,
 		   void *arg);
 int  vie_capture_start(struct videnc_state *ves);
 void vie_capture_stop(struct videnc_state *ves);
 void vie_capture_hold(struct videnc_state *ves, bool hold);
-void vie_capture_background(struct videnc_state *ves, enum media_bg_state state);
 
-int vie_set_capture_device(struct videnc_state *ves, const char *dev_id);
+void vie_frame_handler(webrtc::VideoFrame *frame, void *arg);
 
 /* decode */
 
@@ -121,19 +119,13 @@ struct viddec_state {
 
 	bool started;
 	bool packet_received;
-	bool backgrounded;
 
 	int pt;
 	
-	viddec_create_view_h *cvh;
-	viddec_release_view_h *rvh;
 	viddec_err_h *errh;
 	void *arg;
 
-	uint32_t lssrc_array[MAX_SSRCS];
-	size_t lssrc_count;
-	uint32_t rssrc_array[MAX_SSRCS];
-	size_t rssrc_count;
+	struct vidcodec_param prm;
 };
 
 int  vie_dec_alloc(struct viddec_state **vdsp,
@@ -141,20 +133,16 @@ int  vie_dec_alloc(struct viddec_state **vdsp,
 		   const struct vidcodec *vc,
 		   const char *fmtp, int pt,
 		   struct sdp_media *sdpm,
-		   viddec_create_view_h *cvh,
-		   viddec_release_view_h *rvh,
+		   struct vidcodec_param *prm,
 		   viddec_err_h *errh,
 		   void *arg);
 int  vie_render_start(struct viddec_state *vds);
 void vie_render_stop(struct viddec_state *vds);
 void vie_render_hold(struct viddec_state *vds, bool hold);
-void vie_render_background(struct viddec_state *vds, enum media_bg_state state);
 void vie_dec_rtp_handler(struct viddec_state *vds,
 			 const uint8_t *pkt, size_t len);
 void vie_dec_rtcp_handler(struct viddec_state *vds,
 			  const uint8_t *pkt, size_t len);
-
-int vie_set_view(viddec_state* vds, void *view);
 
 void vie_update_ssrc_array( uint32_t array[], size_t *count, uint32_t val);
 
@@ -166,7 +154,8 @@ struct vie {
 	const webrtc::VideoCodec *codec;
 	webrtc::Call *call;
 	ViETransport *transport;
-
+	ViELoadObserver *load_observer;
+    
 	/* Sender side */
 	webrtc::VideoEncoder* encoder;
 	webrtc::VideoSendStream *send_stream;
@@ -182,11 +171,12 @@ struct vie {
 	struct transp_stats stats_tx;
 	struct transp_stats stats_rx;
     
+
     webrtc::RtpDump* rtpDump;
 };
 
 int vie_alloc(struct vie **viep, const struct vidcodec *vc, int pt);
-
+void vie_bandwidth_allocation_changed(struct vie *vie, uint32_t ssrc, uint32_t allocation);
 
 /* global */
 
@@ -210,8 +200,6 @@ public:
 };
 
 struct vid_eng {
-	webrtc::VideoCaptureModule::DeviceInfo* devinfo;
-
 	ViELogCallback log_handler;
 
 	size_t ncodecs;
@@ -221,6 +209,10 @@ struct vid_eng {
 
 	bool renderer_reset;
 	bool capture_reset;
+
+	flowmgr_video_state_change_h *state_change_h;
+	flowmgr_render_frame_h *render_frame_h;
+	void *cb_arg;
 };
 
 extern struct vid_eng vid_eng;

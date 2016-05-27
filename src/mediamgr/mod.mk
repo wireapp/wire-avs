@@ -22,9 +22,6 @@ else ifeq ($(AVS_OS),android)
 AVS_SRCS += \
     mediamgr/mm_platform_android.c
 
-# AVS_SRCS += \
-#	vie/vie_render_view_android.cpp
-
 else
 
 AVS_SRCS += \

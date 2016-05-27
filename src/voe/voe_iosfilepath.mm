@@ -17,8 +17,6 @@
 */
 #import <UIKit/UIKit.h>
 
-#include "avs_voe.h"
-
 const char* voe_iosfilepath(void)
 {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);

@@ -16,6 +16,8 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#ifndef AVS_CONF_POS_H
+#define AVS_CONF_POS_H    1
 
 struct conf_part {
 	char *uid;
@@ -43,3 +45,5 @@ void conf_pos_sort(struct list *partl);
 
 
 int conf_pos_print(struct re_printf *pf, const struct list *partl);
+
+#endif // #ifndef AVS_CONF_POS_H

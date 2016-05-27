@@ -46,6 +46,8 @@ static void rr_destructor(void *arg)
 {
 	struct rr_resp *rr = arg;
 
+	rr->magic = 0;
+
 	list_unlink(&rr->le);
 	if (rr->call)
 		list_unlink(&rr->call_le);
@@ -96,6 +98,11 @@ void rr_cancel(struct rr_resp *rr)
 	if (!rr)
 		return;
 
+	if (rr->magic != RR_MAGIC) {
+		warning("flowmgr: rr_cancel: rr invalid magic\n");
+		return;
+	}
+
 	if (rr->call)
 		list_unlink(&rr->call_le);
 	list_unlink(&rr->le);
@@ -138,4 +145,13 @@ void rr_response(struct rr_resp *rr)
 	     fmstats.rr_acc / (double)fmstats.rr_total,
 	     (int)fmstats.rr_max,
 	     rr->debug);
+}
+
+
+bool rr_isvalid(const struct rr_resp *rr)
+{
+	if (!rr)
+		return false;
+
+	return RR_MAGIC == rr->magic;
 }

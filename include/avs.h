@@ -25,6 +25,7 @@ extern "C" {
 
 
 #include "avs_base.h"
+#include "avs_cert.h"
 #include "avs_conf_pos.h"
 #include "avs_dict.h"
 #include "avs_jzon.h"
@@ -33,13 +34,14 @@ extern "C" {
 #include "avs_media.h"
 #include "avs_nevent.h"
 #include "avs_packetqueue.h"
-#include "avs_rtpext.h"
 #include "avs_store.h"
 #include "avs_string.h"
 #include "avs_trace.h"
+#include "avs_turn.h"
 #include "avs_vidcodec.h"
 #include "avs_uuid.h"
 #include "avs_zapi.h"
+#include "avs_ztime.h"
 
 #include "avs_rest.h"
 #include "avs_flowmgr.h"
@@ -50,13 +52,13 @@ extern "C" {
 
 #include "avs_mediamgr.h"
 
+#include "avs_voe.h"    
+    
+#include "avs_audio_effect.h"
+    
 #ifdef __cplusplus
 }
 #endif
-
-
-/* VOE is C++ code */
-//#include "avs_voe.h"
 
 
 #endif

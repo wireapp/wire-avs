@@ -118,6 +118,19 @@ struct mediamgr {
 /* prototypes */
 static void *mediamgr_thread(void *arg);
 
+const char *MMroute2Str(enum mediamgr_auplay route)
+{
+    switch (route) {
+            
+        case MEDIAMGR_AUPLAY_EARPIECE:		return "Earpiece";
+        case MEDIAMGR_AUPLAY_SPEAKER:		return "Speakerphone";
+        case MEDIAMGR_AUPLAY_HEADSET:		return "Headset";
+        case MEDIAMGR_AUPLAY_BT:			return "Bluetooth";
+        case MEDIAMGR_AUPLAY_LINEOUT:		return "LINE";
+        case MEDIAMGR_AUPLAY_SPDIF:			return "SPDIF";
+        default: return "Unknown";
+    }
+}
 
 static void mm_destructor(void *arg)
 {
@@ -208,7 +221,7 @@ static bool stop_playing_during_call(char *key, void *val, void *arg)
 
 static void update_route(struct mediamgr *mm, mm_route_update_event event)
 {
-	int ret;
+	int ret = 0;
 
 	enum mediamgr_auplay cur_route = mm_platform_get_route();
 	enum mediamgr_auplay wanted_route = cur_route;
@@ -242,8 +255,12 @@ static void update_route(struct mediamgr *mm, mm_route_update_event event)
 		break;
 
 	case MM_BT_DEVICE_CONNECTED:
-		/* Always switch to BT when plugged in */
-		wanted_route = MEDIAMGR_AUPLAY_BT;
+		if (mm->call_state == MEDIAMGR_STATE_INCALL ||
+			mm->call_state == MEDIAMGR_STATE_INVIDEOCALL){
+            
+			/* Always switch to BT when plugged in */
+			wanted_route = MEDIAMGR_AUPLAY_BT;
+		}
 		mm->router.bt_device_is_connected = true;
 		break;
 
@@ -286,10 +303,12 @@ static void update_route(struct mediamgr *mm, mm_route_update_event event)
 		else if (mm->router.bt_device_is_connected) {
 			wanted_route = MEDIAMGR_AUPLAY_BT;
 		}
+		else if (mm->router.prefer_loudspeaker) {
+			wanted_route = MEDIAMGR_AUPLAY_SPEAKER;
+		}
 		else {
 			wanted_route = MEDIAMGR_AUPLAY_EARPIECE;
 		}
-		mm->router.prefer_loudspeaker = false;
 		break;
 
 	case MM_VIDEO_CALL_START:
@@ -304,21 +323,19 @@ static void update_route(struct mediamgr *mm, mm_route_update_event event)
 			wanted_route = MEDIAMGR_AUPLAY_SPEAKER;
 		}
 		mm->router.prefer_loudspeaker = true;
+		mm->router.prefer_loudspeaker = false;
 		break;
             
 	case MM_CALL_STOP:
 	case MM_VIDEO_CALL_STOP:
-            
-		// SSJ Is this really what we want ??
-		wanted_route = mm->router.route_before_call;
+		mm->router.prefer_loudspeaker = false;
+		wanted_route = MEDIAMGR_AUPLAY_EARPIECE;
 		break;
 	}
 
-	if (mm->call_state != MEDIAMGR_STATE_INCALL &&
-		mm->call_state != MEDIAMGR_STATE_INVIDEOCALL) {
-		return;
-	}
-
+    info("mm: wanted_route = %s cur_route = %s \n",
+         MMroute2Str(wanted_route), MMroute2Str(cur_route));
+    
 	if (wanted_route != cur_route) {
 
 		switch (wanted_route) {
@@ -348,12 +365,16 @@ static void update_route(struct mediamgr *mm, mm_route_update_event event)
 	/* Check that we got what we asked for */
 	cur_route = mm_platform_get_route();
 	if (wanted_route != cur_route && ret >= 0) {
-		error("Route Change didnt happen ?? \n");
-
+		if (mm->call_state != MEDIAMGR_STATE_INCALL &&
+			mm->call_state != MEDIAMGR_STATE_INVIDEOCALL) {
+            
+			cur_route = wanted_route;
+		} else {
+			error("mediamgr: Route Change didnt happen (wanted=%d, current=%d) (ret=%d)\n", wanted_route, cur_route, ret);
+		}
 		// SSJ waybe wait 100 ms and try again ??
 		//     Android and BT dosnt change immidiatly
 	}
-
 	if (mm->route_changed_h) {
 		mm->route_changed_h(cur_route, mm->route_changed_arg);
 	}
@@ -689,6 +710,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 					&& (mm->call_state != MEDIAMGR_STATE_INCALL &&
 						mm->call_state != MEDIAMGR_STATE_INVIDEOCALL)) {
 					mm_platform_enter_call();
+					update_route(mm, MM_CALL_START);
 				}
 				mm_platform_play_sound(curr_sound);
 			}
@@ -723,6 +745,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 				&& (mm->call_state != MEDIAMGR_STATE_INCALL &&
 					mm->call_state != MEDIAMGR_STATE_INVIDEOCALL)) {
 				mm_platform_exit_call();
+				update_route(mm, MM_CALL_STOP);
 			}
 		}
 	}

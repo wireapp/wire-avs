@@ -26,30 +26,9 @@
 
 #include "flowmgr.h"
 
-#if USE_MEDIAENGINE
-#if HAVE_VIDEO
 #include "avs_vie.h"
-#endif
-#endif
-
-
-#define NETPROBE_PKT_CNT 20
-#define NETPROBE_PKT_INT 20
-#define NETPROBE_TMO 600
-
-
-static int url2sa(struct sa *addr, const char *url)
-{
-	struct pl host, port;
-	int err;
-
-	if (re_regex(url, strlen(url),"turn:[^:]+:[0-9]+", &host, &port))
-		return EPROTO;
-
-	err = sa_set(addr, &host, pl_u32(&port));
-
-	return err;
-}
+#include "avs_voe_stats.h"
+#include "../media/rtp_stats.h"
 
 
 static void call_destructor(void *arg)
@@ -57,12 +36,10 @@ static void call_destructor(void *arg)
 	struct call *call = arg;
 	struct le *le;
 
-	debug("call_dtor: %p\n", call);
-
-	tmr_cancel(&call->npb_tmr);
+	info("flowmgr(%p): call(%p): dtor\n", call->fm, call);
 
 	le = call->rrl.head;
-	while(le) {
+	while (le) {
 		struct rr_resp *rr = le->data;
 
 		le = le->next;
@@ -76,7 +53,8 @@ static void call_destructor(void *arg)
 	dict_flush(call->users);
 	mem_deref(call->users);
 
-	dict_remove(call->fm->calls, call->convid);
+	if (call->fm)
+		dict_remove(call->fm->calls, call->convid);
 
 	if (call->flows) {
 		struct dict *flows = call->flows;
@@ -88,16 +66,13 @@ static void call_destructor(void *arg)
 	mem_deref(call->convid);
 	mem_deref(call->sessid);
 
-	list_flush(&call->logl);
-
 	call->fm = NULL;
 
 	list_unlink(&call->post_le);
 }
 
 
-int call_alloc(struct call **callp, struct flowmgr *fm, const char *convid,
-	       flowmgr_netq_h *qh, void *arg)
+int call_alloc(struct call **callp, struct flowmgr *fm, const char *convid)
 {
 	struct call *call;
 	int err;
@@ -110,7 +85,9 @@ int call_alloc(struct call **callp, struct flowmgr *fm, const char *convid,
 		return ENOMEM;
 	}
 
-	debug("call_alloc: %p\n", call);
+	info("flowmgr(%p): call(%p) alloc\n", fm, call);
+
+	call->fm = fm;
 
 	err = dict_add(fm->calls, convid, call);
 	if (err) {
@@ -135,15 +112,8 @@ int call_alloc(struct call **callp, struct flowmgr *fm, const char *convid,
 
 	list_init(&call->conf_parts);
 
-	tmr_init(&call->npb_tmr);
-
-	list_init(&call->logl);
 	list_init(&call->rrl);
 	list_init(&call->ghostl);
-
-	call->fm = fm;
-	call->qh = qh;
-	call->arg = arg;
 
 	/* Call is now owned by the dictionary */
 	mem_deref(call);
@@ -157,91 +127,6 @@ int call_alloc(struct call **callp, struct flowmgr *fm, const char *convid,
 	}
 	else if (callp) {
 		*callp = call;
-	}
-
-	return err;
-}
-
-
-struct list *call_logl(struct call *call)
-{
-	return call ? &call->logl : NULL;
-}
-
-
-static float calc_netq(const struct netprobe_result *npr)
-{
-	if (npr->n_pkt_sent == npr->n_pkt_recv)
-		return 1.00f;
-	else if (npr->n_pkt_recv == npr->n_pkt_sent - 1)
-		return 0.75f;
-	else if (npr->n_pkt_recv == npr->n_pkt_sent - 2)
-		return 0.50f;
-	else if (npr->n_pkt_recv == npr->n_pkt_sent - 3)
-		return 0.25f;
-	else
-		return 0.00f;
-}
-
-
-static void netprobe_handler(int err, const struct netprobe_result *result,
-			     void *arg)
-{
-	struct call *call = arg;
-	float quality = calc_netq(result);
-
-	if (call->qh) {
-		call->qh(err, call->convid, quality, call->arg); 
-	}
-
-	call->npb = mem_deref(call->npb);
-}
-
-
-static void netprobe_timeout(void *arg)
-{
-	struct call *call = arg;
-
-	netprobe_handler(ETIMEDOUT, NULL, call);
-}
-
-
-int call_start_netprobe(struct call *call, const char *url,
-			const char *username, const char *credential)
-{
-	struct sa addr;
-	int err;
-
-	if (!call || !url)
-		return EINVAL;
-
-	if (call->npb)
-		return EALREADY;
-
-	if (!call->qh)
-		return ENOSYS;
-
-	err = url2sa(&addr, url);
-	if (err) {
-		warning("flowmgr: start_netprobe: cannot get"
-			" address from URL:%s\n",
-			url);
-		goto out;
-	}
-
-	err = netprobe_alloc(&call->npb, &addr,
-			     username, credential,
-			     NETPROBE_PKT_CNT,
-			     NETPROBE_PKT_INT,
-			     netprobe_handler, call);
-
- out:
-	if (err) {
-		call->qh(err, call->convid, 0.0f, call->arg);
-	}
-	else {
-		tmr_start(&call->npb_tmr, NETPROBE_TMO,
-			  netprobe_timeout, call);
 	}
 
 	return err;
@@ -262,16 +147,17 @@ bool call_has_good_flow(const struct call *call)
 static bool flow_active_rtp_handler(char *key, void *val, void *arg)
 {
 	struct flow *flow = val;
-	uint32_t *n = arg; 
+	uint32_t *n = arg;
 
 	if (flow->est_st & FLOWMGR_ESTAB_ACTIVE){
 		info("flow_active_rtp(%d): flowid %s has RTP = %d \n",
 		     *n, flow->flowid,
-		     (bool)(flow->est_st & FLOWMGR_ESTAB_RTP));		
+		     (bool)(flow->est_st & FLOWMGR_ESTAB_RTP));
 		*n = (*n) - 1;
-		
+
 		return !(flow->est_st & FLOWMGR_ESTAB_RTP);
-	} else {
+	}
+	else {
 		return false;
 	}
 }
@@ -308,11 +194,11 @@ void call_mestab_check(struct call *call)
 
 	if (n == 0)
 		return;
-	
+
 	flow = dict_apply(call->flows, flow_active_rtp_handler, &n);
 	if (flow != NULL || n > 0)
 		return;
-	
+
 	info("call_mestab_check(%p): mestab=%d media on all active flows\n",
 	     call, call->is_mestab);
 	if (!call->is_mestab) {
@@ -494,7 +380,7 @@ static bool flow_activate_handler(char *key, void *val, void *arg)
 {
 	struct flow *flow = val;
 	struct call *call = arg;
-	
+
 	(void)key;
 
 	flow_activate(flow, call->active);
@@ -512,9 +398,9 @@ int call_set_active(struct call *call, bool active)
 	call->active = active;
 
 /* CALLING2.0 don't activate all flows, with eager flows
- * we will end up activating non-active flows, leading to 
+ * we will end up activating non-active flows, leading to
  * never unsilencing.
- */		
+ */
 #if CALLING2_0
 	dict_apply(call->flows, flow_activate_handler, call);
 #endif
@@ -526,14 +412,15 @@ int call_set_active(struct call *call, bool active)
 static bool userflow_reset_state_handler(char *key, void *val, void *arg)
 {
 	struct userflow *uf = val;
-	
+
 	(void)arg;
 	(void)key;
 
 	userflow_set_state(uf, USERFLOW_STATE_IDLE);
-	
+
 	return false;
 }
+
 
 static bool userflow_post_state_handler(char *key, void *val, void *arg)
 {
@@ -545,7 +432,8 @@ static bool userflow_post_state_handler(char *key, void *val, void *arg)
 
 	ss = userflow_signal_state(uf);
 
-	switch(ss) {
+	switch (ss) {
+
 	case USERFLOW_SIGNAL_STATE_STABLE:
 		userflow_set_state(uf, USERFLOW_STATE_POST);
 		break;
@@ -556,6 +444,7 @@ static bool userflow_post_state_handler(char *key, void *val, void *arg)
 
 	return false;
 }
+
 
 static bool userflow_post_handler(char *key, void *val, void *arg)
 {
@@ -576,8 +465,7 @@ static bool userflow_post_handler(char *key, void *val, void *arg)
 		return false;
 	}
 
-
-	switch(ss) {
+	switch (ss) {
 
 	case USERFLOW_SIGNAL_STATE_STABLE:
 		userflow_set_state(uf, USERFLOW_STATE_POST);
@@ -641,13 +529,13 @@ static bool userflow_sdp_handler(char *key, void *val, void *arg)
 
 	if (*jop == NULL)
 		*jop = json_object_new_object();
-	
+
 	jpart = json_object_new_object();
 	json_object_object_add(jpart, "type",
 			       json_object_new_string(uf->sdp.type));
-        json_object_object_add(jpart, "sdp",
+	json_object_object_add(jpart, "sdp",
 			       json_object_new_string(uf->sdp.sdp));
-        json_object_object_add(*jop, uf->userid, jpart);
+	json_object_object_add(*jop, uf->userid, jpart);
 
 	return false;
 }
@@ -657,17 +545,17 @@ struct json_object *call_userflow_sdp(struct call *call)
 {
 	struct json_object *jobj = NULL;
 	struct json_object *jsdp = NULL;
-	
+
 	if (!call)
 		return NULL;
 
 	dict_apply(call->users, userflow_sdp_handler, &jsdp);
 
 	if (jsdp) {
-		jobj = json_object_new_object();	
+		jobj = json_object_new_object();
 		json_object_object_add(jobj, "sdp", jsdp);
 	}
-	
+
 	return jobj;
 }
 
@@ -677,24 +565,25 @@ int call_lookup_alloc(struct call **callp, bool *allocated,
 {
 	struct call *call;
 	int err = 0;
-	
+
 	call = dict_lookup(fm->calls, convid);
 	if (call) {
 		*callp = call;
 		*allocated = false;
-		
+
 		return 0;
 	}
-	
-	err = call_alloc(&call, fm, convid, NULL, NULL);
+
+	err = call_alloc(&call, fm, convid);
 	if (err)
 		return err;
 
 	*callp = call;
 	*allocated = true;
-	
+
 	return 0;
 }
+
 
 static bool userflow_update_handler(char *key, void *val, void *arg)
 {
@@ -702,9 +591,9 @@ static bool userflow_update_handler(char *key, void *val, void *arg)
 
 	(void)key;
 	(void)arg;
-	
+
 	userflow_update_config(uf);
-	
+
 	return false;
 }
 
@@ -754,7 +643,7 @@ int call_userflow_lookup_alloc(struct userflow **ufp,
 	if (uf) {
 		if (allocated)
 			*allocated = false;
-	}		
+	}
 	else {
 		err = userflow_alloc(&uf, call, userid, username);
 		if (err) {
@@ -765,7 +654,6 @@ int call_userflow_lookup_alloc(struct userflow **ufp,
 		if (allocated)
 			*allocated = true;
 	}
-
 
  out:
 	if (err == 0)
@@ -812,10 +700,11 @@ int call_mcat_changed(struct call *call, enum flowmgr_mcat mcat)
 	if (!call)
 		return EINVAL;
 
-	flowmgr_append_log(call->fm, call, "MCAT_CHGD %s->%s",
-			   flowmgr_mediacat_name(call->mcat),
-			   flowmgr_mediacat_name(mcat));
-	
+	info("flowmgr(%p): mcat_changed: %s -> %s\n",
+	     call->fm,
+	     flowmgr_mediacat_name(call->mcat),
+	     flowmgr_mediacat_name(mcat));
+
 	call->mcat = mcat;
 	call->catchg_pending = false;
 
@@ -849,22 +738,10 @@ int call_interruption(struct call *call, bool interrupted)
 {
 	if (!call)
 		return EINVAL;
-	
+
 	dict_apply(call->flows, interrupt_media_handler, &interrupted);
 
 	return 0;
-}
-
-
-bool call_background_handler(char *key, void *val, void *arg)
-{
-	struct call *call = val;
-	
-	(void)key;
-
-	dict_apply(call->flows, flow_background_handler, arg);
-
-	return false;
 }
 
 
@@ -928,12 +805,11 @@ bool call_has_flow(struct call *call, struct flow *flow)
 }
 
 
-
 void call_remove_flow(struct call *call, const char *flowid)
 {
 	if (!call)
 		return;
-	
+
 	dict_remove(call->flows, flowid);
 
 	call_mestab_check(call);
@@ -957,7 +833,7 @@ void call_restart(struct call *call)
 {
 	if (!call)
 		return;
-	
+
 	dict_apply(call->flows, flow_restart_handler, NULL);
 }
 
@@ -1001,17 +877,17 @@ int call_deestablish_media(struct call *call)
 void call_rtp_started(struct call *call, bool started)
 {
 	struct flowmgr *fm;
-	
+
 	if (!call)
 		return;
 
-	debug("call_rtp_started: started=%d->%d\n",
-	      call->rtp_started, started);
+	fm = call->fm;
+
+	debug("flowmgr(%p): call(%p): rtp_started: started=%d->%d\n",
+	      fm, call, call->rtp_started, started);
 
 	if (call->rtp_started == started)
 		return;
-	
-	fm = call->fm;
 
 	call->rtp_started = started;
 	if (started && call->rtp_start_ts == 0) {
@@ -1020,8 +896,9 @@ void call_rtp_started(struct call *call, bool started)
 		call->rtp_start_ts = tmr_jiffies();
 
 		t = call->rtp_start_ts - call->start_ts;
-		info("flowmgr: RTP started -- total setup time is %llu ms\n",
-		     t);
+		info("flowmgr(%p): call(%p): rtp_started "
+		     "total setup time is %llu ms\n",
+		     fm, call, t);
 	}
 }
 
@@ -1029,13 +906,13 @@ void call_rtp_started(struct call *call, bool started)
 bool call_has_media(struct call *call)
 {
 	bool has_media;
-	
+
 	if (!call)
 		return false;
 
 	has_media = (call->mcat == FLOWMGR_MCAT_CALL) && call->rtp_started;
-	debug("flowmgr: call_has_media: %d\n", has_media);
-	
+	debug("flowmgr(%p): call_has_media: %d\n", call->fm, has_media);
+
 	return has_media;
 }
 
@@ -1044,15 +921,18 @@ bool call_stats_prepare(struct call *call, struct json_object *jobj)
 {
 	struct flow *flow;
 
-	debug("flowmgr: call_stats_prepare\n");
+	debug("flowmgr(%p): call_stats_prepare\n", call->fm);
 
 	flow = dict_apply(call->flows, flow_stats_handler, jobj);
 
 	if (flow != NULL) {
+		struct mediaflow *mf;
+		const struct mediaflow_stats *mf_stats;
 		uint64_t t = call->rtp_start_ts - call->start_ts;
 		int32_t n = dict_count(call->flows);
 		bool ice = false;
 		bool dtls = false;
+		int err = 0;
 
 		if (flow->userflow) {
 			dtls = mediaflow_dtls_ready(
@@ -1081,9 +961,73 @@ bool call_stats_prepare(struct call *call, struct json_object *jobj)
 				    json_object_new_boolean(dtls));
 		json_object_object_add(jobj, "ice",
 				    json_object_new_boolean(ice));
+
+		struct aucodec_stats *voe_stats = mediaflow_codec_stats(userflow_mediaflow(flow->userflow));
+		if (voe_stats) {
+			err |= jzon_add_int(jobj, "mic_vol(dB)", voe_stats->in_vol.avg);
+			err |= jzon_add_int(jobj, "spk_vol(dB)", voe_stats->out_vol.avg);
+			err |= jzon_add_int(jobj, "avg_loss_d", voe_stats->loss_d.avg);
+			err |= jzon_add_int(jobj, "max_loss_d", voe_stats->loss_d.max);
+			err |= jzon_add_int(jobj, "avg_loss_u", voe_stats->loss_u.avg);
+			err |= jzon_add_int(jobj, "max_loss_u", voe_stats->loss_u.max);
+			err |= jzon_add_int(jobj, "avg_rtt", voe_stats->rtt.avg);
+			err |= jzon_add_int(jobj, "max_rtt", voe_stats->rtt.max);
+		}
+		struct rtp_stats* rtps = mediaflow_rcv_audio_rtp_stats(userflow_mediaflow(flow->userflow));
+		if (rtps) {
+			err |= jzon_add_int(jobj, "avg_rate_d", (int)rtps->bit_rate_stats.avg);
+			err |= jzon_add_int(jobj, "min_rate_d", (int)rtps->bit_rate_stats.min);
+			err |= jzon_add_int(jobj, "avg_pkt_rate_d", (int)rtps->pkt_rate_stats.avg);
+			err |= jzon_add_int(jobj, "min_pkt_rate_d", (int)rtps->pkt_rate_stats.min);
+			err |= jzon_add_int(jobj, "a_dropouts", rtps->dropouts);
+		}
+		rtps = mediaflow_snd_audio_rtp_stats(userflow_mediaflow(flow->userflow));
+		if (rtps) {
+			err |= jzon_add_int(jobj, "avg_rate_u", (int)rtps->bit_rate_stats.avg);
+			err |= jzon_add_int(jobj, "min_rate_u", (int)rtps->bit_rate_stats.min);
+			err |= jzon_add_int(jobj, "avg_pkt_rate_u", (int)rtps->pkt_rate_stats.avg);
+			err |= jzon_add_int(jobj, "min_pkt_rate_u", (int)rtps->pkt_rate_stats.min);
+		}
+		err |= jzon_add_int(jobj, "test_score", voe_stats->test_score);
+		if (mediaflow_has_video(userflow_mediaflow(flow->userflow))) {
+			rtps = mediaflow_rcv_video_rtp_stats(userflow_mediaflow(flow->userflow));
+			if (rtps) {
+				err |= jzon_add_int(jobj, "v_avg_rate_d", (int)rtps->bit_rate_stats.avg);
+				err |= jzon_add_int(jobj, "v_min_rate_d", (int)rtps->bit_rate_stats.min);
+				err |= jzon_add_int(jobj, "v_max_rate_d", (int)rtps->bit_rate_stats.max);
+				err |= jzon_add_int(jobj, "v_avg_frame_rate_d", (int)rtps->frame_rate_stats.avg);
+				err |= jzon_add_int(jobj, "v_min_frame_rate_d", (int)rtps->frame_rate_stats.min);
+				err |= jzon_add_int(jobj, "v_max_frame_rate_d", (int)rtps->frame_rate_stats.max);
+				err |= jzon_add_int(jobj, "v_dropouts", rtps->dropouts);
+			}
+			rtps = mediaflow_snd_video_rtp_stats(userflow_mediaflow(flow->userflow));
+			if (rtps) {
+				err |= jzon_add_int(jobj, "v_avg_rate_u", (int)rtps->bit_rate_stats.avg);
+				err |= jzon_add_int(jobj, "v_min_rate_u", (int)rtps->bit_rate_stats.min);
+				err |= jzon_add_int(jobj, "v_max_rate_u", (int)rtps->bit_rate_stats.max);
+				err |= jzon_add_int(jobj, "v_avg_frame_rate_u", (int)rtps->frame_rate_stats.avg);
+				err |= jzon_add_int(jobj, "v_min_frame_rate_u", (int)rtps->frame_rate_stats.min);
+				err |= jzon_add_int(jobj, "v_max_frame_rate_u", (int)rtps->frame_rate_stats.max);
+			}
+		}
+		if (err)
+			return NULL;
+
+		mf = userflow_mediaflow(flow->userflow);
+		mf_stats = mediaflow_stats_get(mf);
+		if (mf_stats) {
+			err |= jzon_add_int(jobj, "turn_alloc",
+					    mf_stats->turn_alloc);
+			err |= jzon_add_int(jobj, "nat_estab",
+					    mf_stats->nat_estab);
+			err |= jzon_add_int(jobj, "dtls_estab",
+					    mf_stats->dtls_estab);
+			if (err)
+				return NULL;
+		}
 	}
 
-	json_object_object_add(jobj, "success",
+	json_object_object_add(jobj, "media_established",
 			  json_object_new_boolean(call->is_mestab));
 
 	return flow != NULL;
@@ -1092,7 +1036,8 @@ bool call_stats_prepare(struct call *call, struct json_object *jobj)
 
 void call_cancel(struct call *call)
 {
-	tmr_cancel(&call->npb_tmr);
+	if (!call)
+		return;
 
 	call_deestablish_media(call);
 }
@@ -1112,7 +1057,6 @@ void call_ghost_flow_handler(int status, struct rr_resp *rr,
 	mem_deref(flel);
 }
 
-#if HAVE_VIDEO
 
 bool call_can_send_video(struct call *call)
 {
@@ -1120,12 +1064,13 @@ bool call_can_send_video(struct call *call)
 
 	active = dict_apply(call->flows, flow_active_handler, call);
 	if (!active) {
-		warning("call_list_video_capture_devices: active flow not found\n");
+		info("call_can_send_video: active flow not found\n");
 		return false;
 	}
 
 	return flow_can_send_video(active);
 }
+
 
 void call_set_video_send_active(struct call *call, bool video_active)
 {
@@ -1133,37 +1078,38 @@ void call_set_video_send_active(struct call *call, bool video_active)
 
 	active = dict_apply(call->flows, flow_active_handler, call);
 	if (!active) {
-		warning("call_list_video_capture_devices: active flow not found\n");
+		info("call_set_video_send_active: active flow not found\n");
 		return;
 	}
 
 	if (video_active && call->mcat == FLOWMGR_MCAT_CALL) {
 		struct flowmgr *fm = call->fm;
-		
+
 		if (fm && fm->cath) {
 			fm->cath(call->convid, FLOWMGR_MCAT_CALL_VIDEO,
 				 fm->marg);
 		}
 	}
-	
-	flow_set_video_send_active(active, video_active);
 
+	flow_set_video_send_active(active, video_active);
 }
+
 
 void call_video_rcvd(struct call *call, bool rcvd)
 {
 	if (!call)
 		return;
-	
+
 	if (rcvd && call->mcat == FLOWMGR_MCAT_CALL) {
 		struct flowmgr *fm = call->fm;
-		
+
 		if (fm && fm->cath) {
 			fm->cath(call->convid, FLOWMGR_MCAT_CALL_VIDEO,
 				 fm->marg);
 		}
 	}
 }
+
 
 bool call_is_sending_video(struct call *call, const char *partid)
 {
@@ -1179,46 +1125,6 @@ bool call_is_sending_video(struct call *call, const char *partid)
 
 	return flow_is_sending_video(flow);
 }
-
-
-void call_set_video_preview(struct call *call, void *view)
-{
-	struct flow *active;
-
-	active = dict_apply(call->flows, flow_active_handler, call);
-	if (!active) {
-		warning("call_list_video_capture_devices: active flow not found\n");
-		return;
-	}
-
-	flow_set_video_preview(active, view);
-}
-
-void call_set_video_view(struct call *call, const char *partid, void *view)
-{
-	struct flow *active;
-
-	active = dict_apply(call->flows, flow_active_handler, call);
-	if (!active) {
-		warning("call_list_video_capture_devices: active flow not found\n");
-		return;
-	}
-	flow_set_video_view(active, view);
-}
-
-void call_set_video_capture_device(struct call *call, const char *devid)
-{
-	struct flow *active;
-
-	active = dict_apply(call->flows, flow_active_handler, call);
-	if (!active) {
-		warning("call_list_video_capture_devices: active flow not found\n");
-		return;
-	}
-	flow_set_video_capture_device(active, devid);
-}
-
-#endif
 
 
 static bool remote_user_handler(char *key, void *val, void *arg)
@@ -1266,7 +1172,7 @@ void call_flush_users(struct call *call)
 static bool purge_handler(char *key, void *val, void *arg)
 {
 	struct userflow *uf = val;
-	
+
 	(void)key;
 	(void)arg;
 
@@ -1277,7 +1183,7 @@ static bool purge_handler(char *key, void *val, void *arg)
 void call_purge_users(struct call *call)
 {
 	struct userflow *uf;
-	
+
 	if (!call)
 		return;
 
@@ -1289,25 +1195,5 @@ void call_purge_users(struct call *call)
 			dict_remove(call->users, uf->userid);
 		}
 	}
-	while(uf != NULL);
-}
-
-static bool codec_stats_handler(char *key, void *val, void *arg)
-{
-	struct flow *flow = val;
-
-	(void)key;
-	(void)arg;
-	
-	flow_log_codec_stats(flow);
-
-	return false;
-}
-
-
-int call_log_codec_stats(struct call *call)
-{
-	dict_apply(call->flows, codec_stats_handler, call);
-
-	return 0;
+	while (uf != NULL);
 }

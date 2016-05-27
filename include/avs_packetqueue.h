@@ -21,7 +21,6 @@
 
 #include <stdlib.h>
 #include <stdbool.h>
-#include "re.h"
 
 typedef struct locked_queue_t packet_queue_t;
 

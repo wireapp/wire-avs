@@ -22,6 +22,18 @@
 #include "priv_jzon.h"
 
 
+struct json_object *jzon_alloc_object(void)
+{
+	return jzon_container_alloc(ODICT_OBJECT);
+}
+
+
+struct json_object *jzon_alloc_array(void)
+{
+	return jzon_container_alloc(ODICT_ARRAY);
+}
+
+
 const char *jzon_str(struct json_object *obj, const char *key)
 {
 	struct json_object *value;
@@ -314,7 +326,8 @@ int jzon_vcreatf(struct json_object **jobjp, const char *format, va_list ap)
 
  out:
 	if (err)
-		json_object_put(jobj);
+		mem_deref(jobj);
+
 	return err;
 }
 
@@ -428,6 +441,59 @@ int jzon_add_str(struct json_object *jobj, const char *key, const char *val)
 }
 
 
+int jzon_add_int(struct json_object *jobj, const char *key, int32_t val)
+{
+	if (!jobj || !key)
+		return EINVAL;
+
+	json_object_object_add(jobj, key, json_object_new_int(val));
+
+	return 0;
+}
+
+
+int jzon_add_bool(struct json_object *jobj, const char *key, bool val)
+{
+	if (!jobj || !key)
+		return EINVAL;
+
+	json_object_object_add(jobj, key, json_object_new_boolean(val));
+
+	return 0;
+}
+
+
+int jzon_add_base64(struct json_object *jobj, const char *key,
+		   const uint8_t *buf, size_t len)
+{
+	char *b64;
+	size_t b64_len;
+	int err;
+
+	if (!jobj || !key || !buf)
+		return EINVAL;
+
+	b64_len = 4 * ((len + 2)/3);
+	b64     = mem_zalloc(b64_len + 1, NULL);
+	if (!b64)
+		return ENOMEM;
+
+	err = base64_encode(buf, len, b64, &b64_len);
+	if (err)
+		goto out;
+	b64[b64_len] = '\0';
+
+	err  = jzon_add_str(jobj, key, b64);
+	if (err)
+		goto out;
+
+ out:
+	mem_deref(b64);
+
+	return err;
+}
+
+
 void jzon_dump(struct json_object *jobj)
 {
 	bool cont;
@@ -447,4 +513,13 @@ void jzon_dump(struct json_object *jobj)
 		re_fprintf(stderr, "%H\n", odict_entry_debug, &jobj->entry);
 	}
 	re_fprintf(stderr, "\n");
+}
+
+
+struct odict *jzon_get_odict(struct json_object *jobj)
+{
+	if (!jobj)
+		return NULL;
+
+	return jobj->entry.u.odict;
 }

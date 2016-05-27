@@ -19,10 +19,18 @@
 #ifndef VIE_RENDERER_H
 #define VIE_RENDERER_H
 
+#define VIE_RENDERER_TIMEOUT_LIMIT 10000
+
 #include "webrtc/video_renderer.h"
 #include "webrtc/modules/video_render/include/video_render.h"
 #include <re.h>
 
+enum ViERendererState {
+	VIE_RENDERER_STATE_STOPPED = 0,
+	VIE_RENDERER_STATE_RUNNING,
+	VIE_RENDERER_STATE_TIMEDOUT
+};
+	
 class ViERenderer : public webrtc::VideoRenderer
 {
 public:
@@ -32,37 +40,13 @@ public:
 	void RenderFrame(const webrtc::VideoFrame& video_frame, int time_to_render_ms);
 
 	bool IsTextureSupported() const;
-
-	int AttachToView(void *view);
-	void DetachFromView();
-
-	void setMirrored(bool mirror);
-
-	void setMaxdim(int max_dim);
-    
-	void setUseTimeoutImage(bool use_timeout_image);
-    
-	int Start();
-	int Stop();
 	
-	void *View() const;
+	void ReportTimeout();
+
 private:
-	void *_platRenderer;
-	void *_view;
-	webrtc::VideoRender *_rtcRenderer;
-	webrtc::VideoRenderCallback *_cb;
-
-	int _vWidth;
-	int _vHeight;
-	bool _mirror;
-    
-	int _max_dim;
-
-	bool _use_timeout_image;
-    
-	struct lock *_lock;
-
-	bool _running;
+	enum ViERendererState _state;
+	lock *_lock;
+	struct tmr _timer;
 };
 
 #endif

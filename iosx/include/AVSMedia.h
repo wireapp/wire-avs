@@ -49,4 +49,7 @@
 @property (nonatomic, assign) BOOL playbackMuted;
 @property (nonatomic, assign) BOOL recordingMuted;
 
+@optional
+@property (nonatomic, assign) void* sound;
+
 @end

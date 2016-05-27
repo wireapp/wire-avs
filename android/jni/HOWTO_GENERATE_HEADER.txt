@@ -1,0 +1,8 @@
+To generate the flow manager header file run:
+
+javah -classpath ../../build/android-armv7/classes/ -bootclasspath /Developer/Platforms/Android.platform/android-sdk-macosx/platforms/android-17/android.jar com.waz.call.FlowManager
+
+or if ANDROID_SDK_ROOT exists
+
+javah -classpath ../../build/android-armv7/classes/ -bootclasspath $ANDROID_SDK_ROOT/platforms/android-17/android.jar com.waz.call.FlowManager
+

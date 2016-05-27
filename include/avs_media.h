@@ -23,6 +23,8 @@
 
 struct mediaflow;
 struct zapi_candidate;
+struct aucodec_stats;
+struct rtp_stats;
 
 enum media_pt {
 	MEDIA_PT_DYNAMIC_START =  96,
@@ -40,6 +42,7 @@ enum mediaflow_nat {
 	MEDIAFLOW_NAT_NONE = 0,
 	MEDIAFLOW_TRICKLEICE_DUALSTACK,
 	MEDIAFLOW_ICELITE,
+	MEDIAFLOW_TURN,
 };
 
 enum media_crypto {
@@ -51,8 +54,21 @@ enum media_crypto {
 enum media_type {
 	MEDIA_AUDIO = 0,
 	MEDIA_VIDEO = 1,
+	MEDIA_VIDEO_RTX = 2,
 	/* sep */
-	MEDIA_NUM = 2,
+	MEDIA_NUM = 3,
+};
+
+/*
+ * Mediaflow statistics in [ms]
+ *
+ * -2  error
+ * -1  init
+ */
+struct mediaflow_stats {
+	int32_t turn_alloc;
+	int32_t nat_estab;
+	int32_t dtls_estab;
 };
 
 
@@ -72,11 +88,6 @@ typedef void (mediaflow_close_h)(int err, void *arg);
 
 typedef void (mediaflow_rtp_state_h)(bool started, bool video_started,
 				     void *arg);
-
-typedef void (mediaflow_create_preview_h)(void *arg);
-typedef void (mediaflow_release_preview_h)(void *view, void *arg);
-typedef void (mediaflow_create_view_h)(void *arg);
-typedef void (mediaflow_release_view_h)(void *view, void *arg);
 
 typedef void (mediaflow_gather_h)(void *arg);
 
@@ -99,16 +110,9 @@ void mediaflow_set_rtp_handler(struct mediaflow *mf,
 int mediaflow_add_video(struct mediaflow *mf, struct list *vidcodecl);
 void mediaflow_set_gather_handler(struct mediaflow *mf,
 				  mediaflow_gather_h *gatherh);
-void mediaflow_set_video_handlers(struct mediaflow *mf,
-				mediaflow_create_preview_h *cpvh,
-				mediaflow_release_preview_h *rpvh,
-				mediaflow_create_view_h *cvh,
-				mediaflow_release_view_h *rvh,
-				void *arg);
 
 int mediaflow_start_ice(struct mediaflow *mf);
 
-int mediaflow_aucodec_stats(struct mediaflow *mf, struct mbuf **mbp);
 int mediaflow_start_media(struct mediaflow *mf);
 void mediaflow_stop_media(struct mediaflow *mf);
 
@@ -148,6 +152,7 @@ int mediaflow_gather_turn_tcp(struct mediaflow *mf, const struct sa *turn_srv,
 uint16_t mediaflow_lport(const struct mediaflow *mf);
 size_t mediaflow_remote_cand_count(const struct mediaflow *mf);
 int mediaflow_summary(struct re_printf *pf, const struct mediaflow *mf);
+int mediaflow_rtp_summary(struct re_printf *pf, const struct mediaflow *mf);
 enum media_crypto mediaflow_crypto(const struct mediaflow *mf);
 
 struct auenc_state *mediaflow_encoder(const struct mediaflow *mf);
@@ -170,13 +175,6 @@ const struct tls_conn *mediaflow_dtls_connection(const struct mediaflow *mf);
 
 bool mediaflow_is_started(const struct mediaflow *mf);
 
-void mediaflow_set_video_preview(struct mediaflow *mf,
-				 void *view);
-void mediaflow_set_video_view(struct mediaflow *mf,
-				 void *view);
-void mediaflow_set_video_capture_device(struct mediaflow *mf,
-					const char *devid);
-
 bool mediaflow_got_sdp(const struct mediaflow *mf);
 bool mediaflow_sdp_is_complete(const struct mediaflow *mf);
 bool mediaflow_is_gathered(const struct mediaflow *mf);
@@ -189,11 +187,22 @@ bool mediaflow_dtls_ready(struct mediaflow *mf);
 bool mediaflow_ice_ready(struct mediaflow *mf);
 bool mediaflow_is_rtpstarted(const struct mediaflow *mf);
 int  mediaflow_cryptos_print(struct re_printf *pf, enum media_crypto cryptos);
+const char *mediaflow_nat_name(enum mediaflow_nat nat);
+enum mediaflow_nat mediaflow_nat_resolve(const char *name);
 
-enum media_bg_state {
-	MEDIA_BG_STATE_ENTER = 0,
-	MEDIA_BG_STATE_EXIT
-};
-void mediaflow_background(struct mediaflow *mf, enum media_bg_state bgst);
+struct rtp_stats* mediaflow_rcv_audio_rtp_stats(struct mediaflow *mf);
+struct rtp_stats* mediaflow_snd_audio_rtp_stats(struct mediaflow *mf);
+struct rtp_stats* mediaflow_rcv_video_rtp_stats(struct mediaflow *mf);
+struct rtp_stats* mediaflow_snd_video_rtp_stats(struct mediaflow *mf);
+struct aucodec_stats* mediaflow_codec_stats(struct mediaflow *mf);
+
 int mediaflow_hold_media(struct mediaflow *mf, bool hold);
 
+const struct mediaflow_stats *mediaflow_stats_get(const struct mediaflow *mf);
+
+void mediaflow_set_local_eoc(struct mediaflow *mf);
+bool mediaflow_have_eoc(const struct mediaflow *mf);
+void mediaflow_enable_privacy(struct mediaflow *mf, bool enabled);
+
+const char *mediaflow_lcand_name(const struct mediaflow *mf);
+const char *mediaflow_rcand_name(const struct mediaflow *mf);

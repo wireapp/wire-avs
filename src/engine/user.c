@@ -588,7 +588,6 @@ static void sync_self_handler(struct engine_sync_step *step)
 	err = rest_get(NULL, step->engine->rest, 1, get_self_handler, step,
 		       "/self");
 
-	
 	if (err) {
 		error("sync error: couldn't get self (%m).\n", err);
 		engine_sync_next(step);
@@ -642,7 +641,7 @@ static int alloc_handler(struct engine *engine,
 	err = dict_alloc(&mod->userd);
 	if (err)
 		goto out;
-	
+
 	engine->user = mod;
 
 	err |= engine_sync_register(engine, "fetching self",

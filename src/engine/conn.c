@@ -58,8 +58,12 @@ static int import_conn_status(enum engine_conn_status *dst,
 		*dst = ENGINE_CONN_IGNORED;
 	else if (streq(status, "sent"))
 		*dst = ENGINE_CONN_SENT;
-	else
+	else if (streq(status, "cancelled"))
+		*dst = ENGINE_CONN_CANCELLED;
+	else {
+		info("engine: unknown connection status `%s'\n", status);
 		return EPROTO;
+	}
 
 	return 0;
 }
@@ -131,7 +135,7 @@ static int import_conn(struct engine_user *user, struct json_object *jconn)
 
 	return 0;
 }
-	
+
 
 /*** engine_update_conn
  */
@@ -388,4 +392,3 @@ struct engine_module engine_conn_module = {
 	.alloch = alloc_handler,
 	.closeh = close_handler
 };
-

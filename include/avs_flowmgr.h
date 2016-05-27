@@ -18,16 +18,20 @@
 #ifndef AVS_FLOWMGR_H
 #define AVS_FLOWMGR_H    1
 
+#include "avs_vidframe.h"
+
 struct flowmgr;
 struct rr_resp;
 
 
 void flowmgr_set_cert(const char *cert, size_t cert_len);
-int  flowmgr_init(const char *msysname, const char *log_url);
+int  flowmgr_init(const char *msysname, const char *log_url, int cert_type);
 int  flowmgr_start(void);
 void flowmgr_close(void);
 int  flowmgr_is_ready(struct flowmgr *fm, bool *is_ready);
 void flowmgr_enable_dualstack(bool enable);
+void flowmgr_enable_loopback(bool enable);
+void flowmgr_enable_privacy(bool enable);
 void flowmgr_bind_interface(const char *ifname);
 
 struct mqueue *flowmgr_mqueue(void);
@@ -93,6 +97,33 @@ enum flowmgr_mcat {
 
 
 /**
+ * Video states for sending and receiving.
+ * Send state is set by the user, receive state is a notification to the user.
+ */
+enum flowmgr_video_send_state {
+	FLOWMGR_VIDEO_SEND_NONE = 0,
+	FLOWMGR_VIDEO_SEND
+};
+
+enum flowmgr_video_receive_state {
+	FLOWMGR_VIDEO_RECEIVE_STOPPED = 0,
+	FLOWMGR_VIDEO_RECEIVE_STARTED
+};
+
+/**
+ * Reasons for video stopping.
+ */
+enum flowmgr_video_reason {
+	FLOWMGR_VIDEO_NORMAL = 0,
+	FLOWMGR_VIDEO_BAD_CONNECTION
+};
+
+enum flowmgr_audio_receive_state {
+	FLOWMGR_AUDIO_INTERRUPTION_STOPPED = 0,
+	FLOWMGR_AUDIO_INTERRUPTION_STARTED
+};
+
+/**
  * Defines the audio category handler. This function is called when the
  * flow managers needs the audio category to change for a conversation.
  *
@@ -120,21 +151,47 @@ typedef void (flowmgr_conf_pos_h)(const char *convid,
 
 
 /**
- * Callbacks used to inform user that we need views for video rendering.
+ * Callback used to inform user that received audio is interrupted
  *
  * This is not part of the public flow manager interface. Native bindings
  * need to provide this handler and forward a notification to the application.
  *
- * @param view     View to be released.
- * @param partid   Participant id for the view (in future multiparty video).
+ * @param state    New audio state interruption start/stopped
  * @param arg      The handler argument passed to flowmgr_alloc().
  */
-typedef void (flowmgr_create_preview_h)(void *arg);
-typedef void (flowmgr_release_preview_h)(void *view, void *arg);
-typedef void (flowmgr_create_view_h)(const char *convid, const char *partid,
-				     void *arg);
-typedef void (flowmgr_release_view_h)(const char *convid, const char *partid,
-				      void *view, void *arg);
+typedef void (flowmgr_audio_state_change_h)(
+			enum flowmgr_audio_receive_state state,
+			void *arg);
+
+
+/**
+ * Callback used to inform user that received video has started or stopped
+ *
+ * This is not part of the public flow manager interface. Native bindings
+ * need to provide this handler and forward a notification to the application.
+ *
+ * @param state    New video state start/stopped
+ * @param reason   Reason (when stopping), normal/low bandwidth etc.
+ * @param arg      The handler argument passed to flowmgr_alloc().
+ */
+typedef void (flowmgr_video_state_change_h)(
+			enum flowmgr_video_receive_state state,
+			enum flowmgr_video_reason reason,
+			void *arg);
+
+/**
+ * Callback used to render frames
+ *
+ * This is not part of the public flow manager interface. Native bindings
+ * need to render the frame. Note the vidframe stuct and its contents are valid
+ * only until the function returns. You need to copy to texture or normal RAM before
+ * returning.
+ *
+ * @param frame    Pointer to the frame object to render
+ * @param partid   Participant id for the participant whose video has started/stopped
+ * @param arg      The handler argument passed to flowmgr_alloc().
+ */
+typedef void (flowmgr_render_frame_h)(struct avs_vidframe *frame);
 
 /**
  * Create a flow manager.
@@ -157,8 +214,8 @@ int flowmgr_alloc(struct flowmgr **fmp, flowmgr_req_h *reqh,
  * Set media handlers
  *
  */
-void flowmgr_set_media_handlers(struct flowmgr *fm, flowmgr_mcat_chg_h *cath,  
-			        flowmgr_volume_h *volh, void *arg);
+void flowmgr_set_media_handlers(struct flowmgr *fm, flowmgr_mcat_chg_h *cath,
+				     flowmgr_volume_h *volh, void *arg);
 
 void flowmgr_set_log_handlers(struct flowmgr *fm,
 			      flowmgr_log_append_h *appendh,
@@ -177,10 +234,12 @@ void flowmgr_set_username_handler(struct flowmgr *fm,
 				  flowmgr_username_h *usernameh, void *arg);
 
 void flowmgr_set_video_handlers(struct flowmgr *fm, 
-				flowmgr_create_preview_h *create_previewh,
-				flowmgr_release_preview_h *release_previewh,
-				flowmgr_create_view_h *create_viewh,
-				flowmgr_release_view_h *release_viewh,
+				flowmgr_video_state_change_h *state_change_h,
+				flowmgr_render_frame_h *render_frame_h,
+				void *arg);
+
+void flowmgr_set_audio_state_handler(struct flowmgr *fm,
+				flowmgr_audio_state_change_h *state_change_h,
 				void *arg);
 
 void flowmgr_set_sessid(struct flowmgr *fm, const char *convid,
@@ -190,13 +249,14 @@ int  flowmgr_interruption(struct flowmgr *fm, const char *convid,
 			  bool interrupted);
 
 
-void flowmgr_background(struct flowmgr *fm, enum media_bg_state bgst);
-
 struct call *flowmgr_call(struct flowmgr *fm, const char *convid);
 
 int  call_count_flows(struct call *call);
 uint32_t flowmgr_call_count_active_flows(const struct call *call);
 const char *flowmgr_call_sessid(const struct call *call);
+struct flow *call_best_flow(const struct call *call);
+struct userflow *flow_get_userflow(struct flow *flow);
+struct mediaflow *userflow_mediaflow(struct userflow *uf);
 
 
 /**
@@ -396,24 +456,15 @@ void flowmgr_enable_logging(struct flowmgr *fm, bool logging);
 int flowmgr_send_metrics(struct flowmgr *fm, const char *convid,
 			 const char *path);
 
-#if HAVE_VIDEO
-
-enum flowmgr_video_send_state {
-	FLOWMGR_VIDEO_SEND_NONE = 0,
-	FLOWMGR_VIDEO_PREVIEW,
-	FLOWMGR_VIDEO_SEND
-};
-
 bool flowmgr_can_send_video(struct flowmgr *fm, const char *convid);
 bool flowmgr_is_sending_video(struct flowmgr *fm,
 			      const char *convid, const char *partid);
 void flowmgr_set_video_send_state(struct flowmgr *fm, const char *convid, enum flowmgr_video_send_state state);
 
-void flowmgr_set_video_preview(struct flowmgr *fm, const char *convid, void *view);
 void flowmgr_set_video_view(struct flowmgr *fm, const char *convid, const char *partid, void *view);
-void flowmgr_get_video_capture_devices(struct flowmgr *fm, struct list **device_list);
-void flowmgr_set_video_capture_device(struct flowmgr *fm, const char *convid, const char *devid);
-#endif
+
+struct avs_vidframe;
+void flowmgr_handle_frame(struct avs_vidframe *frame);
 
 /* Marshalled functions */
 int  marshal_flowmgr_alloc(struct flowmgr **fmp, flowmgr_req_h *reqh,
@@ -422,8 +473,8 @@ int  marshal_flowmgr_start(void);
 
 void marshal_flowmgr_free(struct flowmgr *fm);
 void marshal_flowmgr_set_media_handlers(struct flowmgr *fm,
-					flowmgr_mcat_chg_h *cath,  
-					flowmgr_volume_h *volh, void *arg);
+					     flowmgr_mcat_chg_h *cath,
+					     flowmgr_volume_h *volh, void *arg);
 void marshal_flowmgr_set_media_estab_handler(struct flowmgr *fm,
 					     flowmgr_media_estab_h *mestabh,
 					     void *arg);
@@ -464,7 +515,6 @@ void marshal_flowmgr_set_sessid(struct flowmgr *fm, const char *convid,
 				const char *sessid);
 int  marshal_flowmgr_interruption(struct flowmgr *fm, const char *convid,
 				  bool interrupted);
-void marshal_flowmgr_background(struct flowmgr *fm, enum media_bg_state bgst);
 void marshal_flowmgr_user_add(struct flowmgr *fm, const char *convid,
 			      const char *userid, const char *name);
 void marshal_flowmgr_set_self_userid(struct flowmgr *fm,
@@ -480,14 +530,13 @@ int marshal_flowmgr_vm_start_play(struct flowmgr *fm, const char fileNameUTF8[10
 int marshal_flowmgr_vm_stop_play(struct flowmgr *fm);
 
 
-
-#if HAVE_VIDEO
-
 void marshal_flowmgr_set_video_handlers(struct flowmgr *fm, 
-			flowmgr_create_preview_h *create_preview_handler,
-			flowmgr_release_preview_h *release_preview_handler,
-			flowmgr_create_view_h *create_view_handler,
-			flowmgr_release_view_h *release_view_handler,
+			flowmgr_video_state_change_h *state_change_h,
+			flowmgr_render_frame_h *render_frame_h,
+			void *arg);
+
+void marshal_flowmgr_set_audio_state_handler(struct flowmgr *fm,
+			flowmgr_audio_state_change_h *audio_state_change_handler,
 			void *arg);
 
 int marshal_flowmgr_can_send_video(struct flowmgr *fm, const char *convid);
@@ -495,11 +544,6 @@ int marshal_flowmgr_is_sending_video(struct flowmgr *fm,
 				     const char *convid, const char *partid);
 void marshal_flowmgr_set_video_send_state(struct flowmgr *fm, const char *convid, enum flowmgr_video_send_state state);
 
-void marshal_flowmgr_set_video_preview(struct flowmgr *fm, const char *convid, void *view);
-void marshal_flowmgr_set_video_view(struct flowmgr *fm, const char *convid, const char *partid, void *view);
-void marshal_flowmgr_get_video_capture_devices(struct flowmgr *fm, struct list **device_list);
-void marshal_flowmgr_set_video_capture_device(struct flowmgr *fm, const char *convid, const char *devid);
-#endif
 
 /* Wrap flow manager calls into these macros if you want to call them
  * from outside the re thread.

@@ -27,6 +27,9 @@ struct json_object;
 typedef bool (jzon_apply_h)(const char *key, struct json_object *jobj,
 			    void *arg);
 
+struct json_object *jzon_alloc_object(void);
+struct json_object *jzon_alloc_array(void);
+
 const char *jzon_str(struct json_object *obj, const char *key);
 
 int jzon_strdup(char **dst, struct json_object *obj, const char *key);
@@ -55,14 +58,20 @@ int jzon_vcreatf(struct json_object **jobjp, const char *format, va_list ap);
 
 
 int jzon_print(struct re_printf *pf, struct json_object *jobj);
+int jzon_encode_odict_pretty(struct re_printf *pf, const struct odict *o);
 int jzon_encode(char **strp, struct json_object *jobj);
 int jzon_decode(struct json_object **jobjp, const char *buf, size_t len);
 struct json_object *jzon_apply(struct json_object *jobj,
 			       jzon_apply_h *ah, void *arg);
 
 int jzon_add_str(struct json_object *jobj, const char *key, const char *val);
+int jzon_add_int(struct json_object *jobj, const char *key, int32_t val);
+int jzon_add_bool(struct json_object *jobj, const char *key, bool val);
+int jzon_add_base64(struct json_object *jobj, const char *key,
+		    const uint8_t *buf, size_t len);
 
 void jzon_dump(struct json_object *jobj);
+struct odict *jzon_get_odict(struct json_object *jobj);
 
 
 /*
@@ -90,5 +99,5 @@ int32_t      json_object_get_int(struct json_object *obj);
 double       json_object_get_double(struct json_object *obj);
 bool         json_object_get_boolean(struct json_object *obj);
 
-struct json_object *json_object_get(struct json_object *obj);
-int  json_object_put(struct json_object *obj);
+//struct json_object *json_object_get(struct json_object *obj);
+//int  json_object_put(struct json_object *obj);

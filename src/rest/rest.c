@@ -245,8 +245,7 @@ static void response(struct rest_req *req, const struct http_msg *msg,
 	req_close(req, 0, msg, mb, jobj);
 
  out:
-	if (jobj)
-		json_object_put(jobj);
+	mem_deref(jobj);
 }
 
 
@@ -352,6 +351,14 @@ static void http_resp_handler(int err, const struct http_msg *msg, void *arg)
 	req->json =
 		(0 == pl_strcasecmp(&msg->ctyp.type, "application")) &&
 		(0 == pl_strcasecmp(&msg->ctyp.subtype, "json"));
+
+#if 1
+	if (req->json && msg && msg->scode >= 300) {
+
+		info("rest: http error response: \n%b\n",
+		     mbuf_buf(msg->mb), mbuf_get_left(msg->mb));
+	}
+#endif
 
 	chunked = http_msg_hdr_has_value(msg, HTTP_HDR_TRANSFER_ENCODING,
 					 "chunked");
@@ -623,7 +630,7 @@ int rest_req_add_json_v(struct rest_req *rr, const char *format, va_list ap)
 		goto out;
 
  out:
-	json_object_put(jobj);
+	mem_deref(jobj);
 	return err;
 }
 
@@ -843,8 +850,7 @@ int rest_request_json(struct rest_req **rrp, struct rest_cli *rest_cli,
 		goto out;
 
  out:
-	if (json)
-		json_object_put(json);
+	mem_deref(json);
 
 	return err;
 }

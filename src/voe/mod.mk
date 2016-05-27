@@ -8,7 +8,9 @@ AVS_SRCS += \
 	voe/encode.cpp \
 	voe/shared.cpp \
 	voe/voice_message.cpp \
-	voe/voe.cpp
+	voe/voe.cpp \
+	voe/audio_test.cpp \
+	voe/stats.cpp
 
 ifeq ($(AVS_OS),ios)
 AVS_SRCS += \

@@ -29,6 +29,7 @@
 #include "avs_uuid.h"
 #include "avs_string.h"
 #include "avs_zapi.h"
+#include "avs_ztime.h"
 #include "avs_engine.h"
 #include "module.h"
 #include "engine.h"
@@ -58,11 +59,13 @@ static void engine_msg_destructor(void *arg)
 
 	list_unlink(&msg->le);
 	mem_deref(msg->id);
-	
+
 	switch (msg->type) {
+
 	case ENGINE_MSG_TEXT:
 		engine_msg_text_destructor(&msg->data.text);
 		break;
+
 	default:
 		break;
 	}
@@ -99,7 +102,7 @@ static int import_msg(struct engine_msg **msgp, struct engine *engine,
 	const char *convid;
 	const char *fromid;
 	int err;
-	
+
 	msg = mem_zalloc(sizeof(*msg), engine_msg_destructor);
 	if (!msg)
 		return ENOMEM;
@@ -337,17 +340,47 @@ int engine_set_last_read(struct engine_conv *conv, const char *msg_id)
 /*** engine_send_text_message
  */
 
+
+static void message_resp_handler(int err, const struct http_msg *msg,
+				 struct mbuf *mb, struct json_object *jobj,
+				 void *arg)
+{
+	if (err) {
+		warning("message send failed (%m)\n", err);
+		return;
+	}
+
+	if (msg && msg->scode >= 300) {
+		info("message send failed: %u %r.\n",
+		     msg->scode, &msg->reason);
+		return;
+	}
+
+	// TODO: the response body contains a JSON
+	//       should we use it ?
+
+#if 0
+	//re_printf("%H\n", http_msg_print, msg);
+	re_printf("--- response: ---\n");
+	re_printf("%H\n", jzon_print, jobj);
+	re_printf("\n");
+#endif
+
+	re_printf("msg: OK\n");
+}
+
+
 int engine_send_text_message(struct engine_conv *conv, const char *msg)
 {
 	char *uuid = NULL;
 	struct rest_req *rr = NULL;
 	int err;
-	
+
 	err = uuid_v4(&uuid);
 	if (err)
 		return err;
 
-	err = rest_req_alloc(&rr, NULL, NULL, "POST",
+	err = rest_req_alloc(&rr, message_resp_handler, NULL, "POST",
 			     "/conversations/%s/messages", conv->id);
 	if (err)
 		goto out;
@@ -394,6 +427,115 @@ int engine_send_text_message_f(struct engine_conv *conv, const char *msg,
 	return err;
 }
 
+
+/*** engine_send_text_message
+ */
+
+struct otr_context {
+	engine_status_h *resph;
+	void *arg;
+};
+
+static void otr_resp_handler(int err, const struct http_msg *msg,
+			     struct mbuf *mb, struct json_object *jobj,
+			     void *arg)
+{
+	struct otr_context *ctx = arg;
+
+	if (err) {
+		warning("engine: otr message failed (%m)\n", err);
+		goto out;
+	}
+
+	if (msg->scode >= 300) {
+		warning("engine: otr message failed (%u %r)\n",
+			msg->scode, &msg->reason);
+		err = EPROTO;
+		goto out;
+	}
+
+	re_printf("OTR message: %u %r\n", msg->scode, &msg->reason);
+
+#if 0
+	re_printf("%H\n", http_msg_print, msg);
+	re_printf("%b\n", mbuf_buf(msg->mb), mbuf_get_left(msg->mb));
+	re_printf("%H\n", jzon_encode_odict_pretty, jzon_get_odict(jobj));
+#endif
+
+ out:
+	if (ctx->resph)
+		ctx->resph(err, ctx->arg);
+
+	mem_deref(ctx);
+}
+
+
+// XXX: API under construction
+int engine_send_otr_message(struct engine_conv *conv,
+			    const char *sender_clientid
+			    ,
+			    const char *recipient_userid,
+			    const char *recipient_clientid,
+			    const uint8_t *cipher, size_t cipher_len,
+			    bool transient,
+			    engine_status_h *resph, void *arg)
+{
+	struct json_object *jobj, *recipients, *map;
+	struct otr_context *ctx;
+	int priority = 0;
+	int err;
+
+	if (!conv || !sender_clientid || !recipient_userid)
+		return EINVAL;
+	if (!cipher || !cipher_len)
+		return EINVAL;
+
+	ctx = mem_zalloc(sizeof(*ctx), NULL);
+	ctx->resph = resph;
+	ctx->arg = arg;
+
+	jobj       = json_object_new_object();
+	recipients = json_object_new_object();
+	map        = json_object_new_object();
+
+	/* Build the recipients entry first */
+	err = jzon_add_base64(map, recipient_clientid, cipher, cipher_len);
+	if (err)
+		goto out;
+
+	json_object_object_add(recipients, recipient_userid, map);
+
+	/* Build the outer object */
+	err = jzon_add_str(jobj, "sender", sender_clientid);
+	if (err)
+		goto out;
+
+	json_object_object_add(jobj, "recipients", recipients);
+
+	err = jzon_add_bool(jobj, "transient", transient);
+	if (err)
+		goto out;
+
+#if 0
+	re_printf("sending OTR message:\n");
+	re_printf("%H\n", jzon_encode_odict_pretty, jzon_get_odict(jobj));
+#endif
+
+	err = rest_request_jobj(NULL, conv->engine->rest, priority,
+				"POST", otr_resp_handler, ctx, jobj,
+				"/conversations/%s/otr/messages", conv->id);
+	if (err)
+		goto out;
+
+ out:
+	if (err)
+		mem_deref(ctx);
+	mem_deref(jobj);
+
+	return err;
+}
+
+
 /*** engine_send_data
  */
 
@@ -410,7 +552,7 @@ int engine_send_data(struct engine_conv *conv, const char *ctype,
 
 	if (!conv || !ctype || !data || !len)
 		return EINVAL;
-	
+
 	err = uuid_v4(&uuid);
 	if (err)
 		return err;
@@ -423,7 +565,7 @@ int engine_send_data(struct engine_conv *conv, const char *ctype,
 	base64_encode(dgst, sizeof(dgst), dgst64, &dgst64_len);
 	re_snprintf(disp, sizeof(disp), "zasset;conv_id=%s;md5=%b",
 		    conv->id, dgst64, dgst64_len);
-	
+
 	err = rest_req_add_header(rr, "Content-Disposition: %s\r\n", disp);
 	err = rest_req_add_body_raw(rr, ctype, data, len);
 	if (err)
@@ -453,11 +595,11 @@ int engine_send_file(struct engine_conv *conv, const char *ctype,
 
 	if (stat(path, &st) < 0)
 		return errno;
-	
+
 	fp = fopen(path, "rb");
 	if (!fp)
 		return errno;
-	
+
 	buf = mem_alloc(st.st_size*sizeof(*buf), NULL);
 	if (!buf)
 		return ENOMEM;
@@ -467,7 +609,7 @@ int engine_send_file(struct engine_conv *conv, const char *ctype,
 		err = errno;
 		goto out;
 	}
-	
+
 	engine_send_data(conv, ctype, buf, len);
 
  out:
@@ -538,6 +680,123 @@ struct engine_event_lsnr conv_message_add_lsnr = {
 };
 
 
+/*** conversation.otr-message-add events
+ */
+
+static void conv_otr_message_add_handler(struct engine *engine,
+					 const char *type,
+					 struct json_object *jobj,
+					 bool catchup)
+{
+	const char *conv_id;
+	struct engine_conv *conv;
+	const char *from_id, *time;
+	struct engine_user *from;
+	struct json_object *jdata;
+	const char *text, *sender, *recipient;
+	struct le *le;
+	uint8_t *buf = NULL;
+	size_t buf_len;
+	struct ztime zt;
+	int err;
+
+#if 0
+	re_printf("receive OTR message:\n");
+	re_printf("%H\n", jzon_encode_odict_pretty, jzon_get_odict(jobj));
+#endif
+
+	conv_id = jzon_str(jobj, "conversation");
+	if (!conv_id) {
+		warning("engine: otr-message: entry \"conversation\""
+			" is missing\n");
+		return;
+	}
+
+	err = engine_lookup_conv(&conv, engine, conv_id);
+	if (err) {
+		warning("engine: otr-message in unknown conversation"
+			" '%s'.\n", conv_id);
+		return;
+	}
+
+	from_id = jzon_str(jobj, "from");
+	if (!from_id) {
+		warning("engine: otr-message: entry \"from\""
+			" is missing\n");
+		return;
+	}
+
+	err = engine_lookup_user(&from, engine, from_id, true);
+	if (err) {
+		warning("engine: otr-message from unknown user"
+			" '%s'.\n", from_id);
+		return;
+	}
+
+	err = jzon_object(&jdata, jobj, "data");
+	if (err) {
+		warning("engine: otr-message: entry \"data\""
+			" is missing\n");
+		return;
+	}
+
+	time = jzon_str(jobj, "time");
+	if (!time) {
+		warning("engine: otr-message: entry \"time\""
+			" is missing\n");
+		return;
+	}
+
+	err = ztime_decode(&zt, time);
+	if (err) {
+		warning("engine: otr-message: could not decode timestamp"
+			" (%s)\n", time);
+		goto out;
+	}
+
+	text      = jzon_str(jdata, "text");
+	sender    = jzon_str(jdata, "sender");
+	recipient = jzon_str(jdata, "recipient");
+	if (!text || !sender || !recipient) {
+		warning("engine: otr-message: entry \"text\""
+			" or \"sender\" or \"recipient\" is missing\n");
+		return;
+	}
+
+	buf_len = str_len(text) * 3 / 4;
+	buf = mem_alloc(buf_len, NULL);
+	if (!buf)
+		return;
+
+	err = base64_decode(text, str_len(text), buf, &buf_len);
+	if (err) {
+		warning("engine: otr-message: base64_decode failed "
+			" (%zu bytes) (%m)\n", str_len(text), err);
+		goto out;
+	}
+
+	/*
+	 * relay the incoming message to all interrested parties
+	 */
+	LIST_FOREACH(&engine->lsnrl, le) {
+		struct engine_lsnr *lsnr = le->data;
+
+		if (lsnr->otraddmsgh) {
+			lsnr->otraddmsgh(conv, from, &zt, buf, buf_len,
+					 sender, recipient, lsnr->arg);
+		}
+	}
+
+ out:
+	mem_deref(buf);
+}
+
+static struct engine_event_lsnr conv_otr_message_add_lsnr = {
+	.type = "conversation.otr-message-add",
+	.eventh = conv_otr_message_add_handler
+};
+
+
 /*** Handle all events for updating last event.
  */
 
@@ -583,6 +842,7 @@ struct engine_event_lsnr any_event_lsnr = {
 static int init_handler(void)
 {
 	engine_event_register(&conv_message_add_lsnr);
+	engine_event_register(&conv_otr_message_add_lsnr);
 	engine_event_register(&any_event_lsnr);
 	return 0;
 }

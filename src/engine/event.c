@@ -117,7 +117,7 @@ static int load_last_id(char **idp, struct engine *engine)
 		return err;
 
 	err = sobject_read_lenstr(idp, so);
-	
+
 	mem_deref(so);
 	return err;
 }
@@ -228,7 +228,7 @@ static void recv_handler(struct json_object *jobj, void *arg)
 
 	trace_write(engine_get_trace(engine),
 		    "EVENT: %H\n", jzon_print, jobj);
-	
+
 	id = jzon_str(jobj, "id");
 	if (!id) {
 		info("Notification without 'id' field.\n");
@@ -253,7 +253,7 @@ static void event_handler(const char *type, struct json_object *jobj,
 			  void *arg)
 {
 	struct engine *engine = arg;
-	
+
 	dispatch_event(engine, type, jobj, false);
 }
 

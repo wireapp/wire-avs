@@ -44,7 +44,10 @@ static void mediaflow_estab_handler(const char *crypto, const char *codec,
 	if (!uf || !uf->flow)
 		return;
 
-	flow_mediaflow_estab(uf->flow, crypto, codec, type, sa);
+	flow_mediaflow_estab(uf->flow, crypto, codec,
+			     mediaflow_lcand_name(uf->mediaflow),
+			     mediaflow_rcand_name(uf->mediaflow),
+			     sa);
 }
 
 
@@ -63,10 +66,23 @@ static void mediaflow_close_handler(int err, void *arg)
 {
 	struct userflow *uf = arg;
 
-	info("flowmgr: mediaflow closed (%m)\n", err);
+	info("userflow(%p): mediaflow closed (%m)\n", uf, err);
+
+	uf->mediaflow = mem_deref(uf->mediaflow);
 
 	if (!uf->flow) {
+		struct call *call;
+		struct flowmgr *fm;
+
 		warning("flowmgr: err_handler: no flow\n");
+
+		call = uf->call;
+		fm = call_flowmgr(call);
+
+		if (fm->errh)
+			fm->errh(err, call_convid(call), fm->sarg);
+
+
 		return;
 	}
 	
@@ -77,6 +93,7 @@ static void mediaflow_close_handler(int err, void *arg)
 }
 
 
+#if 0
 static void mediaflow_localcand_handler(const struct zapi_candidate *candv,
 					size_t candc, void *arg)
 {
@@ -142,14 +159,14 @@ static void mediaflow_localcand_handler(const struct zapi_candidate *candv,
 	}
 
  out:
-	if (jobj)
-		json_object_put(jobj);
+	mem_deref(jobj);
 
 	if (err) {
 		warning("flowmgr: localcand_handler error (%m)\n", err);
 		flow_error(uf->flow, err);
 	}
 }
+#endif
 
 
 static bool interface_handler(const char *ifname, const struct sa *sa,
@@ -175,7 +192,10 @@ static bool interface_handler(const char *ifname, const struct sa *sa,
 	if (err) {
 		warning("flowmgr: userflow: failed to add local host candidate"
 			" %s:%j (%m)\n", ifname, sa, err);
+		return false;
 	}
+
+	++uf->num_if;
 
 	return false;
 }
@@ -250,103 +270,69 @@ static void mediaflow_gather_handler(void *arg)
 	return;
 }
 
-#if HAVE_VIDEO
-
-static void mediaflow_create_preview_handler(void *arg)
-{
-	struct userflow *userflow = arg;
-
-	printf("%s: fl: %p \n", __FUNCTION__, userflow->flow);
-	if (userflow->flow) {
-		flow_create_preview(userflow->flow);
-	}
-}
-
-static void mediaflow_release_preview_handler(void *view, void *arg)
-{
-	struct userflow *userflow = arg;
-
-	printf("%s: fl: %p \n", __FUNCTION__, userflow->flow);
-	if (userflow->flow) {
-		flow_release_preview(userflow->flow, view);
-	}
-}
-
-static void mediaflow_create_view_handler(void *arg)
-{
-	struct userflow *userflow = arg;
-
-	printf("%s: fl: %p \n", __FUNCTION__, userflow->flow);
-	if (userflow->flow) {
-		flow_create_view(userflow->flow);
-	}
-}
-
-static void mediaflow_release_view_handler(void *view, void *arg)
-{
-	struct userflow *userflow = arg;
-
-	printf("%s: fl: %p \n", __FUNCTION__, userflow->flow);
-	if (userflow->flow) {
-		flow_release_view(userflow->flow, view);
-	}
-}
-#endif
 
 static int userflow_add_iceserver(struct userflow *uf,
 				  const char *uristr,
 				  const char *username, const char *password)
 {
-	struct uri uri;
-	struct pl pl_uri;
+	struct stun_uri stun_uri;
 	int err;
 
 	if (!uf || !uristr)
 		return EINVAL;
 
-	pl_set_str(&pl_uri, uristr);
-
-	err = uri_decode(&uri, &pl_uri);
+	err = stun_uri_decode(&stun_uri, uristr);
 	if (err) {
 		warning("flowmgr: add_iceserver: cannot decode URI (%s)\n",
 			uristr);
 		return err;
 	}
 
-	if (0 == pl_strcasecmp(&uri.scheme, "turn")) {
+	switch (stun_uri.scheme) {
 
-		struct sa addr;
+	case STUN_SCHEME_STUN:
+		err = mediaflow_gather_stun(uf->mediaflow, &stun_uri.addr);
+		if (err)
+			return err;
+		break;
 
+	case STUN_SCHEME_TURN:
 		if (!username || !password) {
 			warning("flowmgr: add_iceserver: username/password"
 				" is required for TURN uri\n");
 			return EINVAL;
 		}
 
-		err = sa_set(&addr, &uri.host, uri.port);
-		if (err)
-			return err;
+		switch (stun_uri.proto) {
 
-		err = mediaflow_gather_turn(uf->mediaflow, &addr,
-					    username, password);
-		if (err)
-			return err;
-	}
-	else if (0 == pl_strcasecmp(&uri.scheme, "stun")) {
+		case IPPROTO_UDP:
+			err = mediaflow_gather_turn(uf->mediaflow,
+						    &stun_uri.addr,
+						    username, password);
+			if (err)
+				return err;
+			break;
 
-		struct sa addr;
+		case IPPROTO_TCP:
+			err = mediaflow_gather_turn_tcp(uf->mediaflow,
+							&stun_uri.addr,
+							username, password,
+							stun_uri.secure);
+			if (err)
+				return err;
+			break;
 
-		err = sa_set(&addr, &uri.host, uri.port);
-		if (err)
-			return err;
+		default:
+			warning("flowmgr: add_iceserver: "
+				" protocol %d not supported\n", stun_uri.proto);
+			return ENOTSUP;
+		}
 
-		err = mediaflow_gather_stun(uf->mediaflow, &addr);
-		if (err)
-			return err;
-	}
-	else {
-		warning("flowmgr: add_iceserver: unknown uri scheme (%r)\n",
-			&uri.scheme);
+		break;
+
+	default:
+		warning("flowmgr: add_iceserver: unknown uri scheme (%s)\n",
+			uristr);
 		return EINVAL;
 	}
 
@@ -364,13 +350,22 @@ int userflow_update_config(struct userflow *uf)
 	if (call_config && call_config->iceserverc) {
 
 		struct zapi_ice_server *srv;
+		size_t i;
 
-		srv = &call_config->iceserverv[0];
+		for (i=0; i<call_config->iceserverc; i++) {
 
-		err = userflow_add_iceserver(uf, srv->url,
-					     srv->username, srv->credential);
-		if (err)
-			return err;
+			srv = &call_config->iceserverv[i];
+
+			err = userflow_add_iceserver(uf, srv->url,
+						     srv->username,
+						     srv->credential);
+			if (err) {
+				warning("flowmgr: failed to add iceserver"
+					" (%m)\n", err);
+				/* ignore error, keep going */
+			}
+		}
+
 	}
 	else {
 		info("flowmgr: userflow_alloc_mediaflow: no iceservers\n");
@@ -388,34 +383,30 @@ int userflow_alloc_mediaflow(struct userflow *uf)
 
 	debug("userflow_alloc_mediaflow: uf=%p\n", uf);
 	
-	if (msystem_get_dualstack()) {
+	/*
+	 * NOTE: v4 has presedence over v6 for now
+	 */
+	if (0 == net_default_source_addr_get(AF_INET, &laddr)) {
+		info("flowmgr: local IPv4 addr %j\n", &laddr);
+	}
+	else if (0 == net_default_source_addr_get(AF_INET6, &laddr)) {
+		info("flowmgr: local IPv6 addr %j\n", &laddr);
+	}
+	else if (msystem_get_loopback()) {
 
-		/*
-		 * NOTE: v4 has presedence over v6 for now
-		 */
-		if (0 == net_default_source_addr_get(AF_INET, &laddr)) {
-			info("flowmgr: local IPv4 addr %j\n", &laddr);
-		}
-		else if (0 == net_default_source_addr_get(AF_INET6, &laddr)) {
-			info("flowmgr: local IPv6 addr %j\n", &laddr);
-		}
-		else {
-			warning("flowmgr: no local addresses\n");
-			err = EAFNOSUPPORT;
-			goto out;
-		}
+		sa_set_str(&laddr, "127.0.0.1", 0);
 	}
 	else {
-		warning("flowmgr: Dualstack MUST be enabled now.\n");
-		return ENOTSUP;
+		warning("flowmgr: no local addresses\n");
+		err = EAFNOSUPPORT;
+		goto out;
 	}
 
 	err = mediaflow_alloc(&uf->mediaflow,
 			      msystem_dtls(),
 			      msystem_aucodecl(),
 			      &laddr, nat, CRYPTO_DTLS_SRTP, true,
-			      msystem_get_dualstack() ? NULL :
-			          mediaflow_localcand_handler,
+			      NULL,
 			      mediaflow_estab_handler, 
 			      mediaflow_close_handler, uf);
 	if (err) {
@@ -423,32 +414,53 @@ int userflow_alloc_mediaflow(struct userflow *uf)
 		goto out;
 	}
 
-	if (msystem_get_dualstack()) {
-		mediaflow_set_gather_handler(uf->mediaflow,
-					     mediaflow_gather_handler);
+#if 1
+	if (msystem_get_privacy()) {
+		info("flowmgr: enable mediaflow privacy\n");
+		mediaflow_enable_privacy(uf->mediaflow, true);
 	}
+#endif
+
+	mediaflow_set_gather_handler(uf->mediaflow,
+				     mediaflow_gather_handler);
 
 	mediaflow_set_rtpstate_handler(uf->mediaflow, rtp_start_handler);
 
-#if HAVE_VIDEO
 	info("flowmgr: adding video\n");
 
-	mediaflow_set_video_handlers(uf->mediaflow,
-				     mediaflow_create_preview_handler,
-				     mediaflow_release_preview_handler,
-				     mediaflow_create_view_handler,
-				     mediaflow_release_view_handler,
-				     uf);
 	// TODO: add a run-time option for video-call or not ?
 	err = mediaflow_add_video(uf->mediaflow, msystem_vidcodecl());
 	if (err) {
 		warning("flowmgr: mediaflow add video failed (%m)\n", err);
 		goto out;
 	}
-#endif
 
 	/* populate all network interfaces */
+	uf->num_if = 0;
 	net_if_apply(interface_handler, uf);
+
+	info("flowmgr: num interfaces added: %u\n", uf->num_if);
+
+	if (uf->num_if == 0) {
+
+		if (msystem_get_loopback()) {
+
+			struct sa lo;
+
+			sa_set_str(&lo, "127.0.0.1", 0);
+
+			err = mediaflow_add_local_host_candidate(uf->mediaflow,
+								 "lo0", &lo);
+			if (err) {
+				warning("flowmgr: userflow: failed "
+					"to add local host candidate"
+					" lo0:%j (%m)\n", &lo, err);
+			}
+		}
+		else {
+			warning("flowmgr: No interfaces added!\n");
+		}
+	}
 
 	err = userflow_update_config(uf);
 	if (err) {
