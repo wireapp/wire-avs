@@ -18,7 +18,7 @@
 #include <re.h>
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/include/voe_network.h"
 #include "webrtc/voice_engine/include/voe_codec.h"
@@ -29,9 +29,9 @@
 #include "webrtc/voice_engine/include/voe_neteq_stats.h"
 #include "webrtc/voice_engine/include/voe_errors.h"
 #include "webrtc/voice_engine/include/voe_hardware.h"
-#include "webrtc/voice_engine/include/voe_conf_control.h"
 #include "voe_settings.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
+#include "webrtc/base/logging.h"
 #include <vector>
 #include <time.h>
 
@@ -139,8 +139,6 @@ public:
 			error("%b\n", message, sz);
 		else if (lvl & webrtc::kTraceWarning)
 			warning("%b\n", message, sz);
-		else if (lvl & (webrtc::kTracePersist))
-			info("%b\n", message, sz);
 		else
 			debug("%b\n", message, sz);
 	};
@@ -199,46 +197,48 @@ static MyObserver my_observer;
 
 static void tmr_neteq_stats_handler(void *arg)
 {
-    struct znw_stats nwstat;
+    struct channel_stats chstat;
     struct voe *voe = (struct voe *)arg;
     
-    if(voe->nws.size() > 0 && voe->nch > 0 && !voe->isSilenced){
+    if(list_count(&voe->channel_data_list) > 0 && voe->nch > 0 && !voe->isSilenced){
 #if NETEQ_LOGGING
-        info("------ %d active channels ------- \n", voe->nws.size());
+        info("------ %d active channels ------- \n", list_count(&voe->channel_data_list));
 #endif
-        for ( auto it = voe->nws.begin(); it < voe->nws.end(); it++) {
-
-            nwstat.in_vol = 20 * log10(voe->in_vol_smth + 1.0f);
-            nwstat.out_vol = 20 * log10(it->out_vol_smth_ + 1.0f);
+        struct le *le;
+        for(le = voe->channel_data_list.head; le; le = le->next){
+            struct channel_data *cd = (struct channel_data *)le->data;
             
-            int ch_id = it->channel_number_;
-            voe->neteq_stats->GetNetworkStatistics(ch_id, nwstat.neteq_nw_stats);
+            chstat.in_vol = 20 * log10(voe->in_vol_smth + 1.0f);
+            chstat.out_vol = 20 * log10(cd->out_vol_smth + 1.0f);
+            
+            int ch_id = cd->channel_number;
+            voe->neteq_stats->GetNetworkStatistics(ch_id, chstat.neteq_nw_stats);
             
             webrtc::CallStatistics stats;
             voe->rtp_rtcp->GetRTCPStatistics(ch_id, stats);
-            nwstat.Rtt_ms = stats.rttMs;
-            nwstat.jitter_smpls = stats.jitterSamples;
+            chstat.Rtt_ms = stats.rttMs;
+            chstat.jitter_smpls = stats.jitterSamples;
             
             unsigned int NTPHigh = 0, NTPLow = 0, timestamp = 0, playoutTimestamp = 0, jitter = 0;
             unsigned short fractionLostUp_Q8 = 0; // Uplink packet loss as reported by remote side
             voe->rtp_rtcp->GetRemoteRTCPData( ch_id, NTPHigh, NTPLow, timestamp, playoutTimestamp, &jitter, &fractionLostUp_Q8);
             
-            nwstat.uplink_loss_q8 = fractionLostUp_Q8;
-            nwstat.uplink_jitter_smpls = jitter;
+            chstat.uplink_loss_q8 = fractionLostUp_Q8;
+            chstat.uplink_jitter_smpls = jitter;
             
-            memcpy(&it->nw_stats[it->idx_], &nwstat, sizeof(nwstat));
-            it->idx_++;
-            if(it->idx_ >= NUM_STATS){
-               it->idx_ = 0;
+            memcpy(&cd->ch_stats[cd->stats_idx], &chstat, sizeof(chstat));
+            cd->stats_idx++;
+            if(cd->stats_idx >= NUM_STATS){
+               cd->stats_idx = 0;
             }
-            it->n++;
+            cd->stats_cnt++;
 #if NETEQ_LOGGING
-            float pl_rate = ((float)nwstat.neteq_nw_stats.currentPacketLossRate)/163.84f; // convert Q14 -> float and fraction to percent
-            float fec_rate = ((float)nwstat.neteq_nw_stats.currentSecondaryDecodedRate)/163.84f; // convert Q14 -> float and fraction to percent
-            float exp_rate = ((float)nwstat.neteq_nw_stats.currentExpandRate)/163.84f;
-            float acc_rate = ((float)nwstat.neteq_nw_stats.currentAccelerateRate)/163.84f;
-            float dec_rate = ((float)nwstat.neteq_nw_stats.currentPreemptiveRate)/163.84f;
-            info("ch# %d BufferSize = %d ms PacketLossRate = %.2f ExpandRate = %.2f fec_rate = %.2f AccelerateRate = %.2f DecelerateRate = %.2f \n", ch_id, nwstat.neteq_nw_stats.currentBufferSize, pl_rate, exp_rate, fec_rate, acc_rate, dec_rate);
+            float pl_rate = ((float)chstat.neteq_nw_stats.currentPacketLossRate)/163.84f; // convert Q14 -> float and fraction to percent
+            float fec_rate = ((float)chstat.neteq_nw_stats.currentSecondaryDecodedRate)/163.84f; // convert Q14 -> float and fraction to percent
+            float exp_rate = ((float)chstat.neteq_nw_stats.currentExpandRate)/163.84f;
+            float acc_rate = ((float)chstat.neteq_nw_stats.currentAccelerateRate)/163.84f;
+            float dec_rate = ((float)chstat.neteq_nw_stats.currentPreemptiveRate)/163.84f;
+            info("ch# %d BufferSize = %d ms PacketLossRate = %.2f ExpandRate = %.2f fec_rate = %.2f AccelerateRate = %.2f DecelerateRate = %.2f \n", ch_id, chstat.neteq_nw_stats.currentBufferSize, pl_rate, exp_rate, fec_rate, acc_rate, dec_rate);
 #endif
         }
     }
@@ -394,19 +394,7 @@ void voe_start_audio_proc(struct voe *voe)
 		voe_set_auplay(strNameUTF8);
     }
     
-	/* Enable stereo conferencing if the device supports stereo playback */
-	bool stereoAvailable;
-	voe->conferencing->SupportsStereo(stereoAvailable);
-	if (stereoAvailable){
-		info("voe: stereo playout available \n");
-	}
-	else {
-		info("voe: stereo playout not available \n");
-	}
-
-	voe->conferencing->SetUseStereoConf(stereoAvailable);
-
-#if FORCE_RECORDING
+#if FORCE_AUDIO_PREPROC_RECORDING
         if( voe->path_to_files ){
 #if TARGET_OS_IPHONE
 		std::string prefix = "/Ios_";
@@ -471,23 +459,23 @@ void voe_update_conf_parts(const struct audec_state *adsv[], size_t adsc)
 		if (ads && ads->ve)
 			confl.push_back(ads->ve->ch);
 	}
-
-	if (gvoe.conferencing)
-		gvoe.conferencing->UpdateConference(confl);
 }
 
 static bool all_interrupted()
 {
 	int ch_interrupted = 0;
 	int nch = 0;
-	for( auto it = gvoe.active_channel_settings.begin();
-		it < gvoe.active_channel_settings.end(); it++) {
+
+	struct le *le;
+	for (le = gvoe.channel_data_list.head; le; le = le->next) {
+		struct channel_data *cd = (struct channel_data *)le->data;
         
 		nch++;
-		if(it->interrupted_){
+		if(cd->interrupted){
 			ch_interrupted++;
 		}
 	}
+    
 	return(ch_interrupted == nch);
 }
 
@@ -501,13 +489,9 @@ static void set_interrupted(int ch, bool interrupted)
 		}
 	}
     
-	for( auto it = gvoe.active_channel_settings.begin();
-		it < gvoe.active_channel_settings.end(); it++) {
-        
-		if( it->channel_number_ == ch ) {
-			it->interrupted_ = interrupted;
-			break;
-		}
+	struct channel_data *cd = find_channel_data(&gvoe.channel_data_list, ch);
+	if(cd){
+		cd->interrupted = interrupted;
 	}
 }
 
@@ -542,6 +526,12 @@ static int rtp_handler(struct audec_state *ads,
 		tmr_start(&ads->tmr_rtp_timeout, 2*MILLISECONDS_PER_SECOND,tmr_rtp_timeout_handler, ads);
         
 		gvoe.nw->ReceivedRTPPacket(ads->ve->ch, pkt, len);
+
+#if FORCE_AUDIO_RTP_RECORDING
+		if(ads->ve->rtp_dump_in){
+			ads->ve->rtp_dump_in->DumpPacket(pkt, len);
+		}
+#endif
 	}
         
 	return 0;
@@ -575,23 +565,24 @@ static int rtcp_handler(struct audec_state *ads,
 		unsigned short fractionLostUp_Q8 = 0; // Uplink packet loss as reported by remote side
 		gvoe.rtp_rtcp->GetRemoteRTCPData( ads->ve->ch, NTPHigh, NTPLow, timestamp, playoutTimestamp, &jitter, &fractionLostUp_Q8);
 		debug("voe: Channel %d RTCP:  RTT = %d ms; uplink packet loss perc = %d downlink packet loss perc = %d\n", ads->ve->ch, stats.rttMs, (int)(fractionLostUp_Q8/2.55f+0.5f), (int)(stats.fractionLost/2.55f+0.5f));
-        for( auto it = gvoe.active_channel_settings.begin();
-             it < gvoe.active_channel_settings.end(); it++) {
-            
-            if( it->channel_number_ == ads->ve->ch ) {
-                it->last_rtcp_rtt = stats.rttMs;
-                it->last_rtcp_ploss = fractionLostUp_Q8;
-            }
-            rtt_ms = std::max(rtt_ms, it->last_rtcp_rtt);
-            frac_lost_Q8 = std::max(frac_lost_Q8, it->last_rtcp_ploss);
-        }
-        int packet_size_ms = gvoe.packet_size_ms;
-        if( rtt_ms < SWITCH_TO_SHORTER_PACKETS_RTT_MS && frac_lost_Q8 < (int)(0.03 * 255) ) {
-            packet_size_ms -= 20;
-        } else
-        if( rtt_ms > SWITCH_TO_LONGER_PACKETS_RTT_MS || frac_lost_Q8 > (int)(0.10 * 255) ) {
-            packet_size_ms += 20;
-        }
+        
+		struct le *le;
+		for (le = gvoe.channel_data_list.head; le; le = le->next) {
+			struct channel_data *cd = (struct channel_data *)le->data;
+			if( cd->channel_number == ads->ve->ch ) {
+				cd->last_rtcp_rtt = stats.rttMs;
+				cd->last_rtcp_ploss = fractionLostUp_Q8;
+			}
+			rtt_ms = std::max(rtt_ms, cd->last_rtcp_rtt);
+			frac_lost_Q8 = std::max(frac_lost_Q8, cd->last_rtcp_ploss);
+		}
+		int packet_size_ms = gvoe.packet_size_ms;
+		if( rtt_ms < SWITCH_TO_SHORTER_PACKETS_RTT_MS && frac_lost_Q8 < (int)(0.03 * 255) ) {
+			packet_size_ms -= 20;
+		} else
+		if( rtt_ms > SWITCH_TO_LONGER_PACKETS_RTT_MS || frac_lost_Q8 > (int)(0.10 * 255) ) {
+			packet_size_ms += 20;
+		}
         packet_size_ms = std::max( packet_size_ms, gvoe.min_packet_size_ms );
         packet_size_ms = std::min( packet_size_ms, 40 );
         if( packet_size_ms != gvoe.packet_size_ms ) {
@@ -678,10 +669,6 @@ void voe_close(void)
 		gvoe.hw->Release();
 		gvoe.hw = NULL;
 	}
-	if (gvoe.conferencing) {
-		gvoe.conferencing->Release();
-		gvoe.conferencing = NULL;
-	}
     
 	for (int i = 0; i < NUM_CODECS; ++i) {
 		struct aucodec *ac = &voe_aucodecv[i];
@@ -709,6 +696,8 @@ void voe_close(void)
 	tmr_cancel(&gvoe.tmr_neteq_stats);
     
 	gvoe.mq = (struct mqueue *)mem_deref(gvoe.mq);
+    
+	list_flush(&gvoe.channel_data_list);
 
 	info("voe: module unloaded\n");
 
@@ -724,9 +713,13 @@ int voe_init(struct list *aucodecl)
 	info("voe: module_init \n");
 
 #if 1
+	rtc::LogMessage::SetLogToStderr(false);
+#endif
+
+#if 1
 	webrtc::Trace::CreateTrace();
 	webrtc::Trace::SetTraceCallback(&logCb);
-	webrtc::Trace::set_level_filter(webrtc::kTraceWarning | webrtc::kTraceError | webrtc::kTraceCritical | webrtc::kTracePersist);
+	webrtc::Trace::set_level_filter(webrtc::kTraceWarning | webrtc::kTraceError | webrtc::kTraceCritical);
 #endif
     
 	memset(&gvoe, 0, sizeof(gvoe));
@@ -791,12 +784,6 @@ int voe_init(struct list *aucodecl)
 		goto out;
 	}
 
-	gvoe.conferencing = webrtc::VoEConfControl::GetInterface(gvoe.ve);
-	if (!gvoe.conferencing) {
-		err = ENOENT;
-		goto out;
-	}
-
 	list_init(&gvoe.transportl);
 
 	err = mqueue_alloc(&gvoe.mq, mq_callback, NULL);
@@ -840,7 +827,7 @@ int voe_init(struct list *aucodecl)
 	}
 
 	gvoe.nch = 0;
-	gvoe.active_channel_settings.clear();
+	list_init(&gvoe.channel_data_list);
 	gvoe.packet_size_ms = 20;
 	gvoe.min_packet_size_ms = 20;
 	gvoe.manual_packet_size_ms = 0;
@@ -898,14 +885,9 @@ int voe_set_auplay(const char *dev)
 	bool enabled;
 	webrtc::EcModes ECmode;
 	webrtc::AgcModes AGCmode;
-    bool should_reset = false;
     
 	auto voeProc = gvoe.processing;
     
-	if((streq(gvoe.playout_device.c_str(), "headset") || streq(dev, "headset")) && !streq(gvoe.playout_device.c_str(), dev)) {
-		should_reset = true;
-	}
-
     info("voe: Playout device switched from %s to %s \n",
         gvoe.playout_device.c_str(), dev);
     
@@ -915,24 +897,11 @@ int voe_set_auplay(const char *dev)
 		return 0;
 	}
     
-	if(should_reset){
-		info("voe: Reset Audio Device\n");
-		gvoe.hw->ResetAudioDevice();
-	}
-        
     /* Setup AEC based on the routing */
     voe_update_aec_settings(&gvoe);
 
     /* Setup AGC based on the routing and if in a conference or not */
     voe_update_agc_settings(&gvoe);
-    
-	/* Enable stereo conferencing if the device supports stereo playback */
-	bool stereoAvailable;
-	gvoe.conferencing->SupportsStereo(stereoAvailable);
-    info("voe: stereoAvailable = %d \n", stereoAvailable);
-	if( stereoAvailable ) {
-		gvoe.conferencing->SetUseStereoConf(true);
-	}
     
 	return 0;
 }
@@ -990,7 +959,7 @@ void voe_update_agc_settings(struct voe *voe)
     
     if (streq(voe->playout_device.c_str(), "speaker")) {
         use_agc = ZETA_USE_AGC_SPEAKER;
-        if(voe->active_channel_settings.size() > 1){ /* In a conference we have more than one active channel */
+        if(list_count(&voe->channel_data_list) > 1){ /* In a conference we have more than one active channel */
             info("voe: Setup agc settings for speakerphone + conference call \n");
             wantedAGCmode = ZETA_AGC_MODE_SPEAKER_CONF;
             wanted_digCompresGaindB = ZETA_AGC_DIG_COMPRESS_GAIN_DB_SPEAKER_CONF;
@@ -1002,7 +971,7 @@ void voe_update_agc_settings(struct voe *voe)
     }
     else if (streq(voe->playout_device.c_str(), "earpiece") || streq(voe->playout_device.c_str(), "bt")) {
         use_agc = ZETA_USE_AGC_EARPIECE;
-        if(voe->active_channel_settings.size() > 1){
+        if(list_count(&voe->channel_data_list) > 1){
             info("voe: Setup agc settings for earpiece + conference call \n");
             wantedAGCmode = ZETA_AGC_MODE_EARPIECE_CONF;
             wanted_digCompresGaindB = ZETA_AGC_DIG_COMPRESS_GAIN_DB_EARPIECE_CONF;
@@ -1014,7 +983,7 @@ void voe_update_agc_settings(struct voe *voe)
     }
     else if (streq(voe->playout_device.c_str(), "headset")) {
         use_agc = ZETA_USE_AGC_HEADSET;
-        if(voe->active_channel_settings.size() > 1){
+        if(list_count(&voe->channel_data_list) > 1){
             info("voe: Setup agc settings for headset + conference call \n");
             wantedAGCmode = ZETA_AGC_MODE_HEADSET_CONF;
             wanted_digCompresGaindB = ZETA_AGC_DIG_COMPRESS_GAIN_DB_HEADSET_CONF;
@@ -1070,18 +1039,16 @@ int voe_outvol(struct audec_state *ads, double *outvol)
 	gvoe.volume->GetSpeechOutputLevelFullRange(ads->ve->ch, level);
 	*outvol = (double)(level >> 5)/1024.0;
 	
-	for ( auto it = gvoe.nws.begin(); it != gvoe.nws.end(); it++) {
-		if ( it->channel_number_ == ads->ve->ch) {
-			if(it->out_vol_smth_ == -1.0f){
-				it->out_vol_smth_ = (float)level;
-			} else {
-				float tmp = it->out_vol_smth_;
-				tmp = ((float)level - tmp) * 0.05f;
-				it->out_vol_smth_ = tmp;
-			}
-			break;
-		}
-	}
+    struct channel_data *cd = find_channel_data(&gvoe.channel_data_list, ads->ve->ch);
+    if(cd){
+        if(cd->out_vol_smth == -1.0f){
+            cd->out_vol_smth = (float)level;
+        } else {
+            float tmp = cd->out_vol_smth;
+            tmp = ((float)level - tmp) * 0.05f;
+            cd->out_vol_smth = tmp;
+        }
+    }
     
 	if(level > gvoe.out_vol_max){
 		gvoe.out_vol_max = level;
@@ -1108,15 +1075,9 @@ int voe_update_mute(struct voe *voe)
 		return 0;
 	}
     
-	err = voe->volume->SetInputMute(-1, voe->isMuted, voe->isSilenced);
+	err = voe->volume->SetInputMute(-1, voe->isMuted);
 	if (err) {
 		warning("voe_start_silencing: SetInputMute failed\n");
-		return ENOSYS;
-	}
-
-	err = voe->volume->SetOutputMute(voe->isSilenced);
-	if (err) {
-		warning("voe_start_silencing: SetOutputMute failed\n");
 		return ENOSYS;
 	}
 
@@ -1150,33 +1111,30 @@ int voe_enable_rcv_ns(bool enable)
 	bool enabled;
 	int err;
     
-	if (gvoe.processing && !gvoe.active_channel_settings.empty()) {
-		for( auto it = gvoe.active_channel_settings.begin();
-		     it < gvoe.active_channel_settings.end(); it++) {
+	if (gvoe.processing && list_count(&gvoe.channel_data_list) > 0) {
+        struct le *le;
+        for( le = gvoe.channel_data_list.head; le; le = le->next){
+            struct channel_data *cd = (struct channel_data *)le->data;
             
-			err = gvoe.processing->GetRxNsStatus
-				(it->channel_number_, enabled, NSmode);
-			if (err) {
-				warning("voe_enable_rcv_ns:"
-					" voeProc->GetEcStatus failed\n");
-				return ENOSYS;
-			}
-			if ( enable == enabled){
-				warning("voe_enable_rcv_ns: rcv_ns"
-					" enabled already %d \n", enable);
-			}
-			else {
-				err = gvoe.processing->SetRxNsStatus
-					(it->channel_number_, enable, NSmode);
-				if (err) {
-					warning("voe_enable_rcv_ns:"
-						" voeProc->SetRxNsStatus failed\n");
-					return ENOSYS;
-				}
-			}
-		}
-	}
-	else {
+            err = gvoe.processing->GetRxNsStatus(cd->channel_number, enabled, NSmode);
+            if (err) {
+                warning("voe_enable_rcv_ns:"
+                        " voeProc->GetEcStatus failed\n");
+                return ENOSYS;
+            }
+            if ( enable == enabled){
+                warning("voe_enable_rcv_ns: rcv_ns"
+                        " enabled already %d \n", enable);
+            }else {
+                err = gvoe.processing->SetRxNsStatus(cd->channel_number, enable, NSmode);
+                if (err) {
+                    warning("voe_enable_rcv_ns:"
+                            " voeProc->SetRxNsStatus failed\n");
+                    return ENOSYS;
+                }
+            }
+        }
+    }else {
 		warning("voe_enable_rcv_ns: no active call"
 			" cannot change NS status \n");
 	}
@@ -1191,14 +1149,14 @@ int voe_debug(struct re_printf *pf, void *unused)
 	int err = 0;
 
 	err |= re_hprintf(pf, " voe.nch:         %d\n", gvoe.nch);
-	err |= re_hprintf(pf, " voe.active_chs:  %d\n", gvoe.active_channel_settings.size());
+	err |= re_hprintf(pf, " voe.active_chs:  %d\n", list_count(&gvoe.channel_data_list));
 
-    for( auto it = gvoe.active_channel_settings.begin();
-        it < gvoe.active_channel_settings.end(); it++){
-            
-		int ch = it->channel_number_;
-
-		err |= re_hprintf(pf, " ...channel=%d\n", ch);
+    for (le = gvoe.channel_data_list.head; le; le = le->next) {
+        struct channel_data *cd = (struct channel_data *)le->data;
+        
+        int ch = cd->channel_number;
+        
+        err |= re_hprintf(pf, " ...channel=%d\n", ch);
     }
 	err |= re_hprintf(pf, "\n");
 
@@ -1232,15 +1190,16 @@ void voe_set_channel_load(struct voe *voe)
 	int packet_size_ms = voe->manual_packet_size_ms ? voe->manual_packet_size_ms :
 		std::max( voe->packet_size_ms, voe->min_packet_size_ms );
     
-	for( auto it = voe->active_channel_settings.begin();
-        it < voe->active_channel_settings.end(); it++) {
+	struct le *le;
+	for (le = gvoe.channel_data_list.head; le; le = le->next) {
+		struct channel_data *cd = (struct channel_data *)le->data;
 		
-        gvoe.codec->GetSendCodec(it->channel_number_, c);
+		gvoe.codec->GetSendCodec(cd->channel_number, c);
 		c.pacsize = (c.plfreq * packet_size_ms) / 1000;
 		c.rate = bitrate_bps;
-		gvoe.codec->SetSendCodec(it->channel_number_, c);
+		gvoe.codec->SetSendCodec(cd->channel_number, c);
 
-		info("voe: Changing codec settings parameters for channel %d\n", it->channel_number_);
+		info("voe: Changing codec settings parameters for channel %d\n", cd->channel_number);
 		info("voe: pltype = %d \n", c.pltype);
 		info("voe: plname = %s \n", c.plname);
 		info("voe: plfreq = %d \n", c.plfreq);
@@ -1259,7 +1218,7 @@ void voe_multi_party_packet_rate_control(struct voe *voe)
 	webrtc::CodecInst c;
     
 	/* Change Packet size based on amount of flows in use */
-	int active_flows = voe->active_channel_settings.size();
+	int active_flows = list_count(&voe->channel_data_list);
 	int min_packet_size_ms = 20;
 
 	if ( active_flows >= ACTIVE_FLOWS_FOR_60MS_PACKETS ) {
@@ -1283,4 +1242,11 @@ void voe_set_audio_state_handler(flowmgr_audio_state_change_h *state_chgh,
 {
 	gvoe.state.chgh = state_chgh;
 	gvoe.state.arg = arg;
+}
+
+void voe_set_file_path(const char pathUTF8[1024])
+{
+    info("avs: setting path_to_files to %s \n", pathUTF8);
+    gvoe.path_to_files.clear();
+    gvoe.path_to_files = pathUTF8;
 }

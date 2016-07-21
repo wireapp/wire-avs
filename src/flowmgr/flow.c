@@ -1006,6 +1006,8 @@ int flow_sdp_handler(struct flow *flow, struct json_object *jobj, bool replayed)
 	struct mediaflow *mf;
 	const char *sdp;
 	const char *state;
+	bool strm_chg = false;
+	bool isoffer;
 	int err = 0;
 
 	if (!flow || !jobj) {
@@ -1014,23 +1016,40 @@ int flow_sdp_handler(struct flow *flow, struct json_object *jobj, bool replayed)
 
 	sdp   = jzon_str(jobj, "sdp");
 	state = jzon_str(jobj, "state");
+	isoffer = streq(state, "offer");
 
 	
 	mf = userflow_mediaflow(flow->userflow);
 	debug("flow_sdp_handler(%p): state=%s uf=%p mf=%p\n",
 	      flow, state, flow->userflow, mf);
-	
+
 	if (mf && mediaflow_sdp_is_complete(mf)) {
 		if (replayed)
 			return 0;
-		
-		info("flow_sdp_handler: SDP re-offer detected. "
-		     "Peer is roaming\n");
-		flow_restart(flow);
+
+		strm_chg = strstr(sdp, "x-streamchange") != NULL;
+
+		if (strm_chg) {
+			info("flow_sdp_handler: x-streamchange\n");
+			mediaflow_stop_media(mf);
+			mediaflow_sdpstate_reset(mf);
+			mediaflow_reset_media(mf);
+		}
+		else if (isoffer) {
+			info("flow_sdp_handler: SDP re-offer detected.\n");
+			flow_restart(flow);
+		}
+		else {
+			warning("flow_sdp_handler: SDP already complete");
+			return 0;
+		}
 	}
-	
-	if (streq(state, "offer")) {
+
+	if (isoffer) {
 		err = userflow_accept(flow->userflow, sdp);
+		if (strm_chg) {
+			mediaflow_start_media(mf);
+		}
 	}
 	else if (streq(state, "answer")) {
 		err = userflow_update(flow->userflow, sdp);

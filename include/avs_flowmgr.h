@@ -24,7 +24,6 @@ struct flowmgr;
 struct rr_resp;
 
 
-void flowmgr_set_cert(const char *cert, size_t cert_len);
 int  flowmgr_init(const char *msysname, const char *log_url, int cert_type);
 int  flowmgr_start(void);
 void flowmgr_close(void);
@@ -179,6 +178,14 @@ typedef void (flowmgr_video_state_change_h)(
 			enum flowmgr_video_reason reason,
 			void *arg);
 
+
+/**
+ * Callback used to inform user that received video frame has
+ * changed size.
+ */
+typedef void (flowmgr_video_size_h)(int w, int h, void *arg);
+	
+
 /**
  * Callback used to render frames
  *
@@ -191,7 +198,7 @@ typedef void (flowmgr_video_state_change_h)(
  * @param partid   Participant id for the participant whose video has started/stopped
  * @param arg      The handler argument passed to flowmgr_alloc().
  */
-typedef void (flowmgr_render_frame_h)(struct avs_vidframe *frame);
+typedef int (flowmgr_render_frame_h)(struct avs_vidframe *frame, void *arg);
 
 /**
  * Create a flow manager.
@@ -236,6 +243,7 @@ void flowmgr_set_username_handler(struct flowmgr *fm,
 void flowmgr_set_video_handlers(struct flowmgr *fm, 
 				flowmgr_video_state_change_h *state_change_h,
 				flowmgr_render_frame_h *render_frame_h,
+				flowmgr_video_size_h *size_h,
 				void *arg);
 
 void flowmgr_set_audio_state_handler(struct flowmgr *fm,
@@ -327,6 +335,8 @@ int flowmgr_resp(struct flowmgr *fm, int status, const char *reason,
 struct call_config {
 	struct zapi_ice_server iceserverv[4];
 	size_t iceserverc;
+
+	bool early_dtls;
 };
 
 typedef void (call_config_h)(struct call_config *cfg, void *arg);
@@ -417,12 +427,6 @@ void flowmgr_stop_mic_file_playout(void);
 
 int  flowmgr_start_speak_file_record(const char fileNameUTF8[1024]);
 void flowmgr_stop_speak_file_record(void);
-
-int flowmgr_start_preproc_recording(const char fileNameUTF8[1024]);
-void flowmgr_stop_preproc_recording(void);
-
-int flowmgr_start_packet_recording(const char fileNameUTF8[1024]);
-void flowmgr_stop_packet_recording(void);
 
 void flowmgr_enable_fec(bool enable);
 void flowmgr_enable_aec(bool enable);
@@ -533,6 +537,7 @@ int marshal_flowmgr_vm_stop_play(struct flowmgr *fm);
 void marshal_flowmgr_set_video_handlers(struct flowmgr *fm, 
 			flowmgr_video_state_change_h *state_change_h,
 			flowmgr_render_frame_h *render_frame_h,
+			flowmgr_video_size_h *sizeh,
 			void *arg);
 
 void marshal_flowmgr_set_audio_state_handler(struct flowmgr *fm,

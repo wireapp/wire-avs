@@ -1,4 +1,4 @@
 APP_STL	:= c++_static
-NDK_TOOLCHAIN := arm-linux-androideabi-clang3.4
+NDK_TOOLCHAIN_VERSION := clang
 APP_ABI := armeabi-v7a
 

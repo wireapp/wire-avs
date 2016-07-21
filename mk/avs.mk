@@ -55,12 +55,14 @@ AVS_MODULES += string
 AVS_MODULES += trace
 AVS_MODULES += turn
 AVS_MODULES += uuid
+AVS_MODULES += version
 AVS_MODULES += vidcodec
 AVS_MODULES += voe
 AVS_MODULES += vie
 AVS_MODULES += audio_io
 AVS_MODULES += audio_effect
 AVS_MODULES += audummy
+AVS_MODULES += rtpdump
 AVS_MODULES += zapi
 AVS_MODULES += ztime
 

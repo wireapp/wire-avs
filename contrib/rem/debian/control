@@ -1,0 +1,22 @@
+Source: librem
+Section: comm
+Priority: optional
+Maintainer: Alfred E. Heggestad <aeh@db.org>
+Standards-Version: 3.9.5
+Build-Depends: debhelper (>= 9.20120311), libre-dev (>= 0.4.5)
+Homepage: http://www.creytiv.com/
+
+Package: librem
+Architecture: any
+Section: libs
+Depends: libre (>= 0.4.5), ${shlibs:Depends}, ${misc:Depends}
+Description: Audio and video processing media library
+ Audio mixer, resampler, tone generator, G.711 codec
+ Video mixer, pixel converter
+
+Package: librem-dev
+Architecture: any
+Section: libdevel
+Depends: librem (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Description: Audio and video processing media library (development files)
+ Development package for librem

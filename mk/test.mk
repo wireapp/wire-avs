@@ -29,6 +29,9 @@ TEST_DEPS += $(CONTRIB_CRYPTOBOX_TARGET)
 TEST_LIBS += $(CONTRIB_CRYPTOBOX_LIBS)
 endif
 
+ifeq ($(AVS_OS),android)
+    LFLAGS += -fPIE -pie
+endif
 
 -include $(TEST_OBJS:.o=.d)
 

@@ -144,6 +144,10 @@ static AVSMediaManager *_defaultMediaManager;
 {
 }
 
+- (void)registerUrl:(NSURL*)url forMedia:(NSString*)name
+{
+}
+
 - (void)unregisterAllMedia
 {
 }

@@ -22,6 +22,8 @@
 #       include "TargetConditionals.h"
 #endif
 
+#define FORCE_AUDIO_RTP_RECORDING 0
+
 /* ---  Opus settings --- */
 #define ZETA_USE_INBAND_FEC              true
 
@@ -41,6 +43,7 @@
 
 /* --- Automatic Gain Control settings --- */
 #if TARGET_OS_IPHONE
+    #define ZETA_USE_EXTERNAL_AUDIO_DEVICE      1
     #define ZETA_USE_AGC_EARPIECE            true
     #define ZETA_USE_AGC_SPEAKER             true
     #define ZETA_USE_AGC_HEADSET             true
@@ -58,6 +61,7 @@
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_HEADSET           18
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_HEADSET_CONF      18
 #elif defined(ANDROID)
+    #define ZETA_USE_EXTERNAL_AUDIO_DEVICE      0
     #define ZETA_USE_AGC_EARPIECE            true
     #define ZETA_USE_AGC_SPEAKER             true
     #define ZETA_USE_AGC_HEADSET             true
@@ -75,6 +79,7 @@
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_HEADSET           9
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_HEADSET_CONF      9
 #else // Desktop
+    #define ZETA_USE_EXTERNAL_AUDIO_DEVICE      0
     #define ZETA_USE_AGC_EARPIECE            true
     #define ZETA_USE_AGC_SPEAKER             true
     #define ZETA_USE_AGC_HEADSET             true

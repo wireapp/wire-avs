@@ -19,7 +19,7 @@
 
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/include/voe_network.h"
 #include "webrtc/voice_engine/include/voe_codec.h"
@@ -30,7 +30,6 @@
 #include "webrtc/voice_engine/include/voe_neteq_stats.h"
 #include "webrtc/voice_engine/include/voe_errors.h"
 #include "webrtc/voice_engine/include/voe_hardware.h"
-#include "webrtc/voice_engine/include/voe_conf_control.h"
 #include "voe_settings.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
 #include <vector>
@@ -62,7 +61,8 @@ public:
 		list_unlink(&le);
 	};
 
-	virtual int SendPacket(int channel, const void *data, size_t len) {
+    virtual bool SendRtp(const uint8_t* packet, size_t length, const webrtc::PacketOptions& options)
+	{
 		int err = 0;
 		struct auenc_state *aes = NULL;
 		if (!active) {
@@ -72,18 +72,22 @@ public:
 		
 		aes = ve->aes;
 		if (aes->rtph) {
-			err = aes->rtph((const uint8_t *)data, len, aes->arg);
+			err = aes->rtph(packet, length, aes->arg);
 			if (err) {
 				warning("voe: rtp send failed (%m)\n", err);
-				return -1;
+				return false;
 			}
+#if FORCE_AUDIO_RTP_RECORDING
+			ve->rtp_dump_out->DumpPacket(packet, length);
+#endif
 		}
 
 	out:
-		return err ? -1 : len;
+		return err ? false : true;
 	};
 
-	virtual int SendRTCPPacket(int channel, const void *data, size_t len)
+    
+	virtual bool SendRtcp(const uint8_t* packet, size_t length)
 	{
 		int err = 0;
 		struct auenc_state *aes = NULL;
@@ -98,18 +102,18 @@ public:
 		aes = ve->aes;
 
 		if (!aes->started)
-			return len;
+			return true;
 
 		if (aes->rtcph) {
-			err = aes->rtcph((const uint8_t *)data, len, aes->arg);
+			err = aes->rtcph(packet, length, aes->arg);
 			if (err) {
 				warning("voe: rtcp send failed (%m)\n", err);
-				return -1;
+				return false;
 			}
 		}
 
 	out:
-		return err ? -1 : len;
+		return err ? false : true;
 	};
 
 	void deregister()
@@ -135,6 +139,42 @@ static void tmr_transport_handler(void *arg)
 	delete tp;
 }
 
+
+static void setup_external_audio_device()
+{
+	if(gvoe.adm){
+		return;
+	}
+#if ZETA_USE_EXTERNAL_AUDIO_DEVICE
+ #if TARGET_OS_IPHONE
+	webrtc::audio_io_ios* ap = new webrtc::audio_io_ios();
+	voe_register_adm((void*)ap);
+ #elif defined(ANDROID)
+	// Not Supported yet
+ #else // Desktop
+	webrtc::audio_io_osx* ap = new webrtc::audio_io_ios();
+	voe_register_adm((void*)ap);
+#endif
+#endif
+}
+
+static void clean_external_audio_device()
+{
+	if(!gvoe.adm){
+		return;
+	}
+#if USING_EXTERNAL_AUDIO_DEVICE
+ #if TARGET_OS_IPHONE
+	webrtc::audio_io_ios* ap = (webrtc::audio_io_ios*)gvoe.adm;
+	delete ap;
+ #elif defined(ANDROID)
+	// Not Supported yet
+ #else // Desktop
+	webrtc::audio_io_osx* ap = (webrtc::audio_io_osx*)gvoe.adm;
+	delete ap
+ #endif
+#endif
+}
 
 static void voe_setup_opus(bool use_stereo, int32_t rate_bps,
 			   webrtc::CodecInst *codec_params)
@@ -186,9 +226,68 @@ static void ve_destructor(void *arg)
 			voe_deregister_adm();
 			delete gvoe.autest.fad;
 		}
+		clean_external_audio_device();
+	}
+    
+#if FORCE_AUDIO_RTP_RECORDING
+	if(ve->rtp_dump_in){
+		ve->rtp_dump_in->Stop();
+	}
+	if(ve->rtp_dump_out){
+		ve->rtp_dump_out->Stop();
+    }
+#endif
+	if(ve->rtp_dump_in){
+		delete ve->rtp_dump_in;
+	}
+	if(ve->rtp_dump_out){
+		delete ve->rtp_dump_out;
 	}
 }
 
+static void voe_start_rtp_dump(struct voe_channel *ve)
+{
+	if ( gvoe.path_to_files.length() ) {
+#if TARGET_OS_IPHONE
+		std::string prefix = "/Ios_";
+#elif defined(ANDROID)
+		std::string prefix = "/Android_";
+#else
+		std::string prefix = "Osx_";
+#endif
+		std::string file_in, file_out;
+        
+		file_in.insert(0, gvoe.path_to_files);
+		file_in.insert(file_in.size(),prefix);
+		file_in.insert(file_in.size(),"packets_in_");
+		file_out.insert(0, gvoe.path_to_files);
+		file_out.insert(file_out.size(),prefix);
+		file_out.insert(file_out.size(),"packets_out_");
+        
+		char  buf[80];
+		sprintf(buf,"ch%d_", ve->ch);
+		file_in.insert(file_in.size(),buf);
+		file_out.insert(file_out.size(),buf);
+        
+		time_t     now = time(0);
+		struct tm  tstruct;
+        
+		tstruct = *localtime(&now);
+		strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
+        
+		file_in.insert(file_in.size(),buf);
+		file_in.insert(file_in.size(),".rtpdump");
+		file_out.insert(file_out.size(),buf);
+		file_out.insert(file_out.size(),".rtpdump");
+        
+		if(ve->rtp_dump_in){
+			ve->rtp_dump_in->Start(file_in.c_str());
+		}
+		if(ve->rtp_dump_out){
+			ve->rtp_dump_out->Start(file_out.c_str());
+		}
+	}
+}
 
 int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
                  uint32_t srate, int pt)
@@ -216,7 +315,8 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 			info("voe: Using fake audio device \n");
 			gvoe.autest.fad = new webrtc::fake_audiodevice(true);
 			voe_register_adm((void*)gvoe.autest.fad);
-		}
+		}        
+		setup_external_audio_device();
         
 		info("voe: First Channel created call voe.base->Init() \n");
 
@@ -273,6 +373,13 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
     
 	gvoe.codec->SetOpusDtx( ve->ch, ZETA_USE_DTX );
     
+	ve->rtp_dump_in = new wire_avs::RtpDump();
+	ve->rtp_dump_out = new wire_avs::RtpDump();
+    
+#if FORCE_AUDIO_RTP_RECORDING
+	voe_start_rtp_dump(ve);
+#endif
+        
  out:
 	if (err) {
 		mem_deref(ve);

@@ -23,8 +23,8 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/modules/audio_coding/include/audio_coding_module.h"
+#include "webrtc/system_wrappers/include/trace.h"
 
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/include/voe_network.h"
@@ -87,7 +87,6 @@ public:
     VoETransport(std::string name, struct loop_back_state *loop_back){
         _fp = fopen(name.c_str(),"wb");
         gettimeofday(&_startTime, NULL);
-        _channel = -1;
         _first_packet_time_ms = -1;
         _last_packet_time_ms = -1;
         _tot_bytes = 0;
@@ -100,46 +99,45 @@ public:
     virtual ~VoETransport() {
         fclose(_fp);
         float avgBitRate = (float)_tot_bytes * 8.0f / (float)( _last_packet_time_ms - _first_packet_time_ms);
-        printf("channel %d average bitrate(incl RTP header) = %.2f kbps \n", _channel, avgBitRate);
+        printf("channel ? average bitrate(incl RTP header) = %.2f kbps \n", avgBitRate);
     };
-    
-    virtual int SendPacket(int channel, const void *data, size_t len) {
+	
+	virtual bool SendRtp(const uint8_t* packet, size_t length, const webrtc::PacketOptions& options) {
         struct timeval now, res;
         gettimeofday(&now, NULL);
         timersub(&now, &_startTime, &res);
         int32_t ms = (int32_t)res.tv_sec*1000 + (int32_t)res.tv_usec/1000;
 		
-        _tot_bytes += len;
+        _tot_bytes += length;
         if(_first_packet_time_ms == -1){
             _first_packet_time_ms = ms;
         }
         _last_packet_time_ms = ms;
-        _channel = channel;
 		
         float ploss = _loss_rate / 100.0f;
         if( ( !_xtra_prev_lost  && ((float)rand()/RAND_MAX) < ploss / (1.0f - ploss) / _avg_burst_length ) ||
             (  _xtra_prev_lost  && ((float)rand()/RAND_MAX) < 1.0f - 1.0f / _avg_burst_length ) ) {
             _xtra_prev_lost = true;
-            return (int)len;
+            return true;
         }
         _xtra_prev_lost = false;
 		
         fwrite( &ms, sizeof(int32_t), 1, _fp);
-        fwrite( &len, sizeof(size_t), 1, _fp);
-        fwrite( data, sizeof(uint8_t), len, _fp);
+        fwrite( &length, sizeof(size_t), 1, _fp);
+        fwrite( packet, sizeof(uint8_t), length, _fp);
 		
         if(_loop_back_state){
             pthread_mutex_lock(&_loop_back_state->mutex_);
-            if(len < sizeof(_loop_back_state->rtp_packet_)){
-                memcpy(_loop_back_state->rtp_packet_,data, len);
-                _loop_back_state->rtp_bytes_ = len;
+            if(length < sizeof(_loop_back_state->rtp_packet_)){
+                memcpy(_loop_back_state->rtp_packet_,packet, length);
+                _loop_back_state->rtp_bytes_ = length;
 			}
 			pthread_mutex_unlock(&_loop_back_state->mutex_);
         }
-        return (int)len;
+        return true;
     };
-    
-    virtual int SendRTCPPacket(int channel, const void *data, size_t len){
+	
+	virtual bool SendRtcp(const uint8_t* packet, size_t length) {
         struct timeval now, res;
         gettimeofday(&now, NULL);
         timersub(&now, &_startTime, &res);
@@ -147,13 +145,13 @@ public:
 		
         if(_loop_back_state){
             pthread_mutex_lock(&_loop_back_state->mutex_);
-            if(len < sizeof(_loop_back_state->rtcp_packet_)){
-                memcpy(_loop_back_state->rtcp_packet_,data, len);
-                _loop_back_state->rtcp_bytes_ = len;
+            if(length < sizeof(_loop_back_state->rtcp_packet_)){
+                memcpy(_loop_back_state->rtcp_packet_, packet, length);
+                _loop_back_state->rtcp_bytes_ = length;
 			}
 			pthread_mutex_unlock(&_loop_back_state->mutex_);
         }
-        return (int)len;
+        return true;
     };
 	
     void SetLoopBackState(struct loop_back_state *loop_back){
@@ -175,7 +173,6 @@ private:
     int32_t _first_packet_time_ms;
     int32_t _last_packet_time_ms;
     int32_t _tot_bytes;
-    int _channel;
     int _loss_rate;
     float _avg_burst_length;
     bool _xtra_prev_lost;
@@ -298,7 +295,8 @@ void *loop_back_thread(void *arg){
 	bool is_rtcp;
 	
 	NwSimulator *nws = new NwSimulator();
-	nws->Init(0, 0, 1.0f, NW_type_clean, "../../../../../../test/audio_test/files/");
+	//nws->Init(0, 0, 1.0f, NW_type_clean, "../../../../../../test/audio_test/files/");
+	nws->Init(0, 0, 1.0f, NW_type_clean, "../../files/");
 	
     while(state->loop_back_state_.is_running_){
         timespec t;
@@ -342,8 +340,6 @@ void *loop_back_thread(void *arg){
 	
 	return NULL;
 }
-
-using rtc::scoped_ptr;
 
 #if TARGET_OS_IPHONE
 int voe_conf_test(int argc, char *argv[], const char *path)
@@ -392,8 +388,12 @@ int main(int argc, char *argv[])
     ctrl_file_name.insert(ctrl_file_name.length(),"/conf_test_control.txt");
     FILE *ctrlFile = fopen(ctrl_file_name.c_str(),"rt");
 #else
-    FILE *ctrlFile = fopen("../../../../../../test/audio_test/files/conf_test_control.txt","rt");
+    //FILE *ctrlFile = fopen("../../../../../../test/audio_test/files/conf_test_control.txt","rt");
+	FILE *ctrlFile = fopen("../../files/conf_test_control.txt","rt");
 #endif
+	if(!ctrlFile){
+		printf("Cannot open conferencing test configuration file ! \n");
+	}
 	
     char str[80];
     int numChannels;
@@ -414,7 +414,8 @@ int main(int argc, char *argv[])
                                        true, false,
                                        webrtc::kFileFormatPcm32kHzFile, 1.0);
 #else
-    file->StartPlayingFileAsMicrophone(-1, "../../../../../../test/audio_test/files/far32.pcm",
+    //file->StartPlayingFileAsMicrophone(-1, "../../../../../../test/audio_test/files/far32.pcm",
+	file->StartPlayingFileAsMicrophone(-1, "../../files/far32.pcm",
                                           true, false,
                                           webrtc::kFileFormatPcm32kHzFile, 1.0);
 #endif
@@ -639,7 +640,7 @@ int main(int argc, char *argv[])
         FILE* out_file = fopen(outFile.c_str(),"wb");
         FILE* rtp_stats_file = fopen(rtpStatFile.c_str(),"wt");
         
-        scoped_ptr<webrtc::AudioCodingModule> acm(webrtc::AudioCodingModule::Create(0));
+		std::unique_ptr<webrtc::AudioCodingModule> acm(webrtc::AudioCodingModule::Create(0));
 		
         c.pltype = it->pltype;
         ret = acm->RegisterReceiveCodec(c);

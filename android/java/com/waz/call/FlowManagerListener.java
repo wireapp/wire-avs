@@ -32,7 +32,11 @@ public interface FlowManagerListener {
   public void createVideoView(String convId, String partId);
   public void releaseVideoView(String convId, String partId);
   public void changeVideoState(int state, int reason);
+  public void changeVideoSize(int width, int height);
     
   /* Audio callback(s) */
   public void changeAudioState(int state);
+
+  /* Camera callback(s) */
+  public void cameraFailed();
 }

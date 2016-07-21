@@ -77,9 +77,12 @@ static NSComparisonResult (^conferenceComparator)(id, id) =
 static void video_state_change_h(enum flowmgr_video_receive_state state,
 	enum flowmgr_video_reason reason, void *arg);
 
-static void render_frame_h(struct avs_vidframe *frame);
+static int render_frame_h(struct avs_vidframe *frame, void *arg);
 
 static void audio_state_change_h(enum flowmgr_audio_receive_state state, void *arg);
+
+static void video_size_h(int width, int height, void *arg);
+
 
 @implementation AVSVideoCaptureDevice
 
@@ -579,6 +582,7 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_video_handlers, fm,
 			     video_state_change_h,
 			     render_frame_h,
+			     video_size_h,
 			     (__bridge void *)(self));
 
 	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_audio_state_handler, fm,
@@ -1173,13 +1177,18 @@ out:
 	}
 }
 
-- (void)renderFrame:(struct avs_vidframe *)frame
+- (BOOL)renderFrame:(struct avs_vidframe *)frame
 {
+	BOOL sizeChanged = NO;
+	
 #if TARGET_OS_IPHONE
+	
 	if (_videoView) {
-		[_videoView handleFrame:frame];
+		sizeChanged = [_videoView handleFrame:frame];
 	}
 #endif
+
+	return sizeChanged;
 }
 
 - (NSArray*)getVideoCaptureDevices
@@ -1326,8 +1335,18 @@ static void audio_state_change_h(enum flowmgr_audio_receive_state state,
 	avs_flow_manager_send_notification(FlowManagerAudioReceiveStateNotification, info);
 }
 
-static void render_frame_h(struct avs_vidframe *frame)
+static void video_size_h(int width, int height, void *arg)
 {
-	[[AVSFlowManager getInstance] renderFrame:frame];
+	/* Send notification about video size change here ... */
+}
+
+
+static int render_frame_h(struct avs_vidframe *frame, void *arg)
+{
+	BOOL sizeChanged;
+
+	sizeChanged = [[AVSFlowManager getInstance] renderFrame:frame];
+
+	return sizeChanged ? ERANGE : 0;
 }
 

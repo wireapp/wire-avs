@@ -31,6 +31,5 @@ int  avs_start(const char *token);
 void avs_close(void);
 uint64_t  avs_get_flags(void);
 const char *avs_get_token(void);
-const char *avs_version_str(void);
 
 #endif //#ifndef AVS_BASE_H

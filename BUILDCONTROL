@@ -1,0 +1,18 @@
+# Build control file
+#
+
+# Major version of this library. The minor version is the Jenkins
+# build number.
+#
+[config]
+component: avs
+major_version: 1
+
+
+# Libraries used for building.
+#
+[libraries]
+
+# Library paths
+#
+[paths]

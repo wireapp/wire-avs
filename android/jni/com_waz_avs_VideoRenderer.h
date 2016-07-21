@@ -167,6 +167,14 @@ JNIEXPORT jlong JNICALL Java_com_waz_avs_VideoRenderer_createNative
 JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_destroyNative
   (JNIEnv *, jobject, jlong);
 
+/*
+ * Class:     com_waz_avs_VideoRenderer
+ * Method:    setShouldFill
+ * Signature: (JZ)V
+ */
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_setShouldFill
+  (JNIEnv *, jobject, jlong, jboolean);
+
 #ifdef __cplusplus
 }
 #endif

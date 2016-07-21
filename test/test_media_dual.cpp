@@ -28,7 +28,7 @@
  */
 
 
-#define IS_TRICKLE(nat) ((nat)==MEDIAFLOW_TRICKLEICE_DUALSTACK)
+#define IS_TRICKLE(nat) (nat)==MEDIAFLOW_TRICKLEICE_DUALSTACK
 
 #define NAT_IS_ACTIVE(nat) (nat) != MEDIAFLOW_ICELITE
 
@@ -173,6 +173,8 @@ static void mediaflow_estab_handler(const char *crypto, const char *codec,
 #endif
 
 	ASSERT_TRUE(mediaflow_is_ready(ag->mf));
+
+	ASSERT_TRUE(mediaflow_dtls_peer_isset(ag->mf));
 
 	if (agents_are_established(ag)) {
 

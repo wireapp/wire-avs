@@ -53,8 +53,11 @@ ViERenderer::~ViERenderer()
 	mem_deref(_lock);
 }
 
-void ViERenderer::RenderFrame(const webrtc::VideoFrame& video_frame, int time_to_render_ms)
+void ViERenderer::OnFrame(const webrtc::VideoFrame& video_frame)
 {
+	struct avs_vidframe avs_frame;
+	int err;
+	
 	lock_write_get(_lock);
 	if (_state != VIE_RENDERER_STATE_RUNNING) {
 		if (vid_eng.state_change_h) {
@@ -68,46 +71,45 @@ void ViERenderer::RenderFrame(const webrtc::VideoFrame& video_frame, int time_to
 	tmr_start(&_timer, VIE_RENDERER_TIMEOUT_LIMIT, frame_timeout_timer, this);
 	lock_rel(_lock);
 
-	if (vid_eng.render_frame_h) {
-		struct avs_vidframe avs_frame;
-		memset(&avs_frame, 0, sizeof(avs_frame));
 
-		avs_frame.type = AVS_VIDFRAME_I420;
-		avs_frame.y  = (uint8_t*)video_frame.buffer(webrtc::kYPlane);
-		avs_frame.u  = (uint8_t*)video_frame.buffer(webrtc::kUPlane);
-		avs_frame.v  = (uint8_t*)video_frame.buffer(webrtc::kVPlane);
-		avs_frame.ys = video_frame.stride(webrtc::kYPlane);
-		avs_frame.us = video_frame.stride(webrtc::kUPlane);
-		avs_frame.vs = video_frame.stride(webrtc::kVPlane);
-		avs_frame.w = video_frame.width();
-		avs_frame.h = video_frame.height();
-		avs_frame.ts = video_frame.timestamp();
+	if (!vid_eng.render_frame_h)
+		return;
+	
+	memset(&avs_frame, 0, sizeof(avs_frame));
 
-		switch(video_frame.rotation()) {
-			case webrtc::kVideoRotation_0:
-				avs_frame.rotation = 0;
-				break;
+	avs_frame.type = AVS_VIDFRAME_I420;
+	avs_frame.y  = (uint8_t*)video_frame.video_frame_buffer()->DataY();
+	avs_frame.u  = (uint8_t*)video_frame.video_frame_buffer()->DataU();
+	avs_frame.v  = (uint8_t*)video_frame.video_frame_buffer()->DataV();
+	avs_frame.ys = video_frame.video_frame_buffer()->StrideY();
+	avs_frame.us = video_frame.video_frame_buffer()->StrideU();
+	avs_frame.vs = video_frame.video_frame_buffer()->StrideV();
+	avs_frame.w = video_frame.width();
+	avs_frame.h = video_frame.height();
+	avs_frame.ts = video_frame.timestamp();
 
-			case webrtc::kVideoRotation_90:
-				avs_frame.rotation = 90;
-				break;
+	switch(video_frame.rotation()) {
+	case webrtc::kVideoRotation_0:
+		avs_frame.rotation = 0;
+		break;
 
-			case webrtc::kVideoRotation_180:
-				avs_frame.rotation = 180;
-				break;
+	case webrtc::kVideoRotation_90:
+		avs_frame.rotation = 90;
+		break;
 
-			case webrtc::kVideoRotation_270:
-				avs_frame.rotation = 270;
-				break;
-		}
+	case webrtc::kVideoRotation_180:
+		avs_frame.rotation = 180;
+		break;
 
-		vid_eng.render_frame_h(&avs_frame);
+	case webrtc::kVideoRotation_270:
+		avs_frame.rotation = 270;
+		break;
 	}
-}
 
-bool ViERenderer::IsTextureSupported() const
-{
-	return false;
+	err = vid_eng.render_frame_h(&avs_frame, vid_eng.cb_arg);
+	if (err == ERANGE && vid_eng.size_h)
+		vid_eng.size_h(avs_frame.w, avs_frame.h, vid_eng.cb_arg);
+		
 }
 
 void ViERenderer::ReportTimeout()

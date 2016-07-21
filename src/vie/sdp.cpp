@@ -24,7 +24,7 @@
 
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "vie.h"
 
 
@@ -45,10 +45,14 @@ int vie_fmtp_enc(struct mbuf *mb, const struct sdp_format *fmt,
 
 #endif
 
+	err |= mbuf_printf(mb, "a=extmap:3 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\n");
+	
 #if USE_RTP_ROTATION
 	err |= mbuf_printf(mb, "a=extmap:4 urn:3gpp:video-orientation\r\n");
 
 #endif
+
+
 	return err;
 }
 

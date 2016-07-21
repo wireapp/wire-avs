@@ -21,6 +21,7 @@
 #endif
 #include <sys/time.h>
 #include "webrtc/common_audio/resampler/include/push_resampler.h"
+#include <stdlib.h>
 
 #define MAX_SAMPLE_RATE 48000
 

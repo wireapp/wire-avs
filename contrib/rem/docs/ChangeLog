@@ -1,0 +1,97 @@
+2014-05-18 Alfred E. Heggestad <aeh@db.org>
+
+	* Version 0.4.6
+
+	* debian: update package
+
+	* include: use quotes to include header files
+
+	* vidmix: use full picture for 2 participants
+
+	
+2014-01-06 Alfred E. Heggestad <aeh@db.org>
+
+	* Version 0.4.5
+
+	* debian: fix dependency to libre (patch from Juha)
+
+	* auresamp: improved audio resampler
+		    better low-pass FIR-filter coefficients
+
+	* fir: improved channels-agnostic FIR-filter
+
+	* vid: vidframe_draw_point() make API take RGB-values
+	       handle VID_FMT_ARGB format in all vid-functions
+	       vidframe_fill() fix swapped RGB/BGR values
+	
+	
+2013-10-03 Alfred E. Heggestad <aeh@db.org>
+
+	* Version 0.4.4
+
+	* debian: fix dependency to libre (patch from Juha)
+
+	* vid: change type of width/height to 'unsigned'
+
+	* vidframe: added basic drawing functions
+
+
+2013-05-05 Alfred E. Heggestad <aeh@db.org>
+
+	* Version 0.4.3
+
+	* aubuf: added API for 16-bit samples
+
+	* vidconv: added support for NV21 to YUV420P
+
+	* vidmix: various improvements
+
+
+2012-09-09 Alfred E. Heggestad <aeh@db.org>
+
+	* Version 0.4.2
+
+	* aubuf: fix bug in aubuf_append()
+
+	* aumix: change sample type to int16_t
+
+	* auresamp: change sample API to array of int16_t
+
+	* vid: change signature of vidframe_size()
+
+	* vidconv: fix pixel alignment bug
+
+	* vidmix: enhance API
+	
+	
+2012-04-21 Alfred E. Heggestad <aeh@db.org>
+
+	* Version 0.4.1
+
+	* updated doxygen comments
+	
+	* aufile: new module for audio file reading/writing
+
+	* aumix: various improvements, add aumix_playfile()
+		 add function to enable/disable sources
+		 added aumix_source_flush()
+	
+	* vidconv: add support for YUV420P to RGB555
+		   fix warning of casting to unaligned access
+
+	* vidmix: various improvements
+		  add function to enable/disable sources
+
+
+2011-12-25 Alfred E. Heggestad <aeh@db.org>
+
+	* Version 0.4.0
+
+	* vidconv: add support for YUV420P to RGB565
+
+
+2011-09-07 Alfred E. Heggestad <aeh@db.org>
+
+	* Version 0.3.0
+
+	* Initial Release

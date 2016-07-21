@@ -1,20 +1,32 @@
 /*
-* Wire
-* Copyright (C) 2016 Wire Swiss GmbH
-*
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 3 of the License, or
-* (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+ * Wire
+ * Copyright (C) 2016 Wire Swiss GmbH
+ *
+ * The Wire Software is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License,
+ * or (at your option) any later version.
+ *
+ * The Wire Software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with the Wire Software. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * This module of the Wire Software uses software code from
+ * WebRTC (https://chromium.googlesource.com/external/webrtc)
+ *
+ * *  Copyright (c) 2015 The WebRTC project authors. All Rights Reserved.
+ * *
+ * *  Use of the WebRTC source code on a stand-alone basis is governed by a
+ * *  BSD-style license that can be found in the LICENSE file in the root of
+ * *  the source tree.
+ * *  An additional intellectual property rights grant can be found
+ * *  in the file PATENTS.  All contributing project authors to Web RTC may
+ * *  be found in the AUTHORS file in the root of the source tree.
+ */
 
 #include <re/re.h>
 #include <avs.h>
@@ -289,19 +301,23 @@ const char indices[] = {0, 1, 2, 3};
 	_texHeight = height;
 }
 
-- (void) handleFrame:(struct avs_vidframe*) frame
+- (BOOL) handleFrame:(struct avs_vidframe*) frame
 {
+	BOOL sizeChanged = NO;
+	
 	[_lock lock];
 	[_context makeCurrentContext];
 
 	if (_texWidth != (GLsizei)frame->ys || _texHeight != frame->h) {
 		[self setupTextures:frame];
 		_forceRecalc = YES;
+		sizeChanged = YES;
 	}
 
 	if (_rotation != frame->rotation) {
 		_rotation = frame->rotation;
 		_forceRecalc = YES;
+		sizeChanged = YES;
 	}
 
 	glActiveTexture(GL_TEXTURE0);
@@ -326,6 +342,8 @@ const char indices[] = {0, 1, 2, 3};
 	[self setNeedsDisplay:YES];
 	_newFrame = YES;
 	[_lock unlock];
+
+	return sizeChanged;
 }
 
 - (void) setShouldFill:(BOOL)fill

@@ -32,7 +32,7 @@
 // step 1 get a back non-crypto case working
 
 
-#define CALL_DURATION 250
+#define CALL_DURATION 150
 
 
 struct test {
@@ -237,11 +237,15 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 }
 
 
-static void test_b2b(enum cert_type a_cert,
-		     enum cert_type b_cert,
-		     enum media_crypto a_cryptos,
-		     enum media_crypto b_cryptos,
-		     enum media_crypto mode_expect)
+static void test_b2b_base(enum cert_type a_cert,
+			  enum cert_type b_cert,
+			  enum media_crypto a_cryptos,
+			  enum media_crypto b_cryptos,
+			  enum media_crypto mode_expect,
+			  enum media_setup a_setup,
+			  enum media_setup b_setup,
+			  enum media_setup a_setup_expect,
+			  enum media_setup b_setup_expect)
 {
 	struct test test;
 	struct agent *a = NULL, *b = NULL;
@@ -265,11 +269,21 @@ static void test_b2b(enum cert_type a_cert,
 	a->other = b;
 	b->other = a;
 
+	err = mediaflow_set_setup(a->mf, a_setup);
+	ASSERT_EQ(0, err);
+	err = mediaflow_set_setup(b->mf, b_setup);
+	ASSERT_EQ(0, err);
+
 	/* no async stuff now, can exchange SDPs ASAP */
 	sdp_exchange(a, b);
 
 	ASSERT_EQ(mode_expect, mediaflow_crypto(a->mf));
 	ASSERT_EQ(mode_expect, mediaflow_crypto(b->mf));
+
+	if (mode_expect == CRYPTO_DTLS_SRTP) {
+		ASSERT_EQ(a_setup_expect, mediaflow_local_setup(a->mf));
+		ASSERT_EQ(b_setup_expect, mediaflow_local_setup(b->mf));
+	}
 
 	/* Start ICE after SDP has been exchanged */
 	err = mediaflow_start_ice(a->mf);
@@ -302,6 +316,29 @@ static void test_b2b(enum cert_type a_cert,
 
 	tmr_cancel(&test.tmr);
 	audummy_close();
+}
+
+
+static void test_b2b(enum cert_type a_cert,
+		     enum cert_type b_cert,
+		     enum media_crypto a_cryptos,
+		     enum media_crypto b_cryptos,
+		     enum media_crypto mode_expect)
+{
+	test_b2b_base(a_cert, b_cert, a_cryptos, b_cryptos, mode_expect,
+		      SETUP_ACTPASS, SETUP_ACTPASS,
+		      SETUP_PASSIVE, SETUP_ACTIVE);
+}
+
+
+static void test_setup(enum media_setup a_setup,
+		       enum media_setup b_setup,
+		       enum media_setup a_setup_expect,
+		       enum media_setup b_setup_expect)
+{
+	test_b2b_base(CERT_TYPE_ECDSA, CERT_TYPE_ECDSA,
+		      CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP,
+		      a_setup, b_setup, a_setup_expect, b_setup_expect);
 }
 
 
@@ -353,4 +390,51 @@ TEST(media_crypto, mix_ecdsa_ecdsa_dtlssrtp_and_dtlssrtp)
 {
 	test_b2b(CERT_TYPE_ECDSA, CERT_TYPE_ECDSA,
 		 CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP);
+}
+
+
+/*
+ * Test-cases for DTLS-SRTP setup direction
+ */
+
+
+TEST(media_crypto, setup_actpass_actpass)
+{
+	test_setup(SETUP_ACTPASS, SETUP_ACTPASS, SETUP_PASSIVE, SETUP_ACTIVE);
+}
+
+
+TEST(media_crypto, setup_actpass_active)
+{
+	test_setup(SETUP_ACTPASS, SETUP_ACTIVE, SETUP_PASSIVE, SETUP_ACTIVE);
+}
+
+
+TEST(media_crypto, setup_actpass_passive)
+{
+	test_setup(SETUP_ACTPASS, SETUP_PASSIVE, SETUP_ACTIVE, SETUP_PASSIVE);
+}
+
+
+TEST(media_crypto, setup_passive_actpass)
+{
+	test_setup(SETUP_PASSIVE, SETUP_ACTPASS, SETUP_PASSIVE, SETUP_ACTIVE);
+}
+
+
+TEST(media_crypto, setup_passive_active)
+{
+	test_setup(SETUP_PASSIVE, SETUP_ACTIVE, SETUP_PASSIVE, SETUP_ACTIVE);
+}
+
+
+TEST(media_crypto, setup_active_actpass)
+{
+	test_setup(SETUP_ACTIVE, SETUP_ACTPASS, SETUP_ACTIVE, SETUP_PASSIVE);
+}
+
+
+TEST(media_crypto, setup_active_passive)
+{
+	test_setup(SETUP_ACTIVE, SETUP_PASSIVE, SETUP_ACTIVE, SETUP_PASSIVE);
 }

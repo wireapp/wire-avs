@@ -1,20 +1,32 @@
 /*
-* Wire
-* Copyright (C) 2016 Wire Swiss GmbH
-*
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 3 of the License, or
-* (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+ * Wire
+ * Copyright (C) 2016 Wire Swiss GmbH
+ *
+ * The Wire Software is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License,
+ * or (at your option) any later version.
+ *
+ * The Wire Software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with the Wire Software. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * This module of the Wire Software uses software code from
+ * WebRTC (https://chromium.googlesource.com/external/webrtc)
+ *
+ * *  Copyright (c) 2015 The WebRTC project authors. All Rights Reserved.
+ * *
+ * *  Use of the WebRTC source code on a stand-alone basis is governed by a
+ * *  BSD-style license that can be found in the LICENSE file in the root of
+ * *  the source tree.
+ * *  An additional intellectual property rights grant can be found
+ * *  in the file PATENTS.  All contributing project authors to Web RTC may
+ * *  be found in the AUTHORS file in the root of the source tree.
+ */
 
 #include <re.h>
 #include "audio_io_osx.h"
@@ -119,17 +131,11 @@ namespace webrtc {
             
             pthread_cond_init(&cond_, NULL);
             
-            //_captureWorkerThread->SetPriority(kRealtimePriority);
-            
             is_running_ = true;
         } else {
             warning("Thread already created \n");
         }
         
-        // Setting RunLoop to NULL here instructs HAL to manage its own thread for
-        // notifications. This was the default behaviour on OS X 10.5 and earlier,
-        // but now must be explicitly specified. HAL would otherwise try to use the
-        // main thread to issue notifications.
         AudioObjectPropertyAddress propertyAddress = {
             kAudioHardwarePropertyRunLoop,
             kAudioObjectPropertyScopeGlobal,
@@ -566,23 +572,18 @@ namespace webrtc {
                     
                     if (AGC()){
                         if (newMicLevel != 0){
-                            // The VQE will only deliver non-zero microphone levels when
-                            // a change is needed.
-                            // Set this new mic level (received from the observer as return
-                            // value in the callback).
                             debug("audio_io_osx: AGC change of volume: old=%u => new=%u \n", currentMicLevel, newMicLevel);
                             if (mixer_manager_.set_microphone_volume(newMicLevel) == -1) {
                                 warning("audio_io_osx: the required modification of the microphone volume failed \n");
                             }
                         }
                     }
-                    // Make buffer available
                     rec_seq_[lowestSeqBufPos] = 0;
                     rec_buffer_total_size_ -= rec_length_[lowestSeqBufPos];
                     rec_length_[lowestSeqBufPos] = 0;
-                }  // if (foundBuf)
-            }  // while (foundBuf)
-		} // while(1)
+                }
+            }
+		}
 		return NULL;
 	}
     
@@ -592,26 +593,6 @@ namespace webrtc {
         
         init_play_audio_unit();
         
-#if 0
-        _useSoundLink = false;
-        if( _adbRecordSampFreq > 44000 &&
-           _adbPlaySampFreq > 44000) {
-            int soundLinkMode = 0;
-            int ret;
-            if( (ret = Init_SoundLink( _soundLink, soundLinkMode, _adbPlaySampFreq, _adbRecordSampFreq, NULL)) ) {
-                WEBRTC_TRACE(kTraceWarning, kTraceAudioDevice, _id,
-                             "  Error SoundLink returned %d", ret);
-                return 0;
-            }
-            // Register sound link callback
-            if( (ret = RegisterDetectionCallback( _soundLink, this )) ) {
-                WEBRTC_TRACE(kTraceWarning, kTraceAudioDevice, _id,
-                             "  Error SoundLink Callback not registered, returned %d", ret);
-                return 0;
-            }
-            _useSoundLink = true;
-        }
-#endif
         return 0;
     }
     
@@ -640,10 +621,6 @@ namespace webrtc {
             }
             au_play_ = NULL;
         }
-#if 0
-        // Unregister soundlink callback
-        UnregisterDetectionCallback( _soundLink );
-#endif
         return 0;
     }
     
@@ -1112,20 +1089,9 @@ namespace webrtc {
         }
         prev_rec_latency_ms_ = tmp_rec_latency_ms;
         
-        //{
-            /* _capture_latency is accessed in the capture worker thread so we have to protect it */
-            //CriticalSectionScoped lock(&_critSectCaptureLatency);
-            
-            rec_latency_ms_ = tmp_rec_latency_ms;
-        //}
+        rec_latency_ms_ = tmp_rec_latency_ms;
         
         if (is_recording_) {
-            // SoundLink Processing
-#if 0
-            if(_useSoundLink){
-                SoundLinkRecord( _soundLink, dataTmp, inNumberFrames );
-            }
-#endif
             const unsigned int noSamp10ms = rec_fs_hz_ / 100;
             unsigned int dataPos = 0;
             uint16_t bufPos = 0;
@@ -1133,23 +1099,17 @@ namespace webrtc {
             unsigned int nCopy = 0;  // Number of samples to copy
             
             while (dataPos < inNumberFrames) {
-                // Loop over all recording buffers or
-                // until we find the partially full buffer
-                // First choice is to insert into partially full buffer,
-                // second choice is to insert into empty buffer
+                // Loop over all recording buffers
                 bufPos = 0;
                 insertPos = -1;
                 nCopy = 0;
                 while (bufPos < REC_BUFFERS) {
                     if ((rec_length_[bufPos] > 0)
                         && (rec_length_[bufPos] < noSamp10ms)) {
-                        // Found the partially full buffer
                         insertPos = static_cast<int16_t>(bufPos);
-                        // Don't need to search more, quit loop
                         bufPos = REC_BUFFERS;
                     } else if ((-1 == insertPos)
                                && (0 == rec_length_[bufPos])) {
-                        // Found an empty buffer
                         insertPos = static_cast<int16_t>(bufPos);
                     }
                     ++bufPos;
@@ -1157,7 +1117,6 @@ namespace webrtc {
                 
                 // Insert data into buffer
                 if (insertPos > -1) {
-                    // We found a non-full buffer, copy data to it
                     unsigned int dataToCopy = inNumberFrames - dataPos;
                     unsigned int currentRecLen = rec_length_[insertPos];
                     unsigned int roomInBuffer = noSamp10ms - currentRecLen;
@@ -1172,12 +1131,9 @@ namespace webrtc {
                         
                     }
                     rec_buffer_total_size_ += nCopy;
-                    // Has to be done last to avoid interrupt problems
-                    // between threads
                     rec_length_[insertPos] += nCopy;
                     dataPos += nCopy;
                 } else {
-                    // Didn't find a non-full buffer
                     error("audio_io_osx: Could not insert into recording buffer. Buffer is full \n");
                     dataPos = inNumberFrames;  // Don't try to insert more
                 }
@@ -1217,11 +1173,7 @@ namespace webrtc {
         
         prev_play_latency_ms_ = tmp_play_latency_ms;
         
-        //{
-        //    CriticalSectionScoped lock(&_critSectRenderLatency);
-            
-            play_latency_ms_ = tmp_play_latency_ms;
-        //}
+        play_latency_ms_ = tmp_play_latency_ms;
         
         int16_t* data;
         unsigned int dataSizeBytes;
@@ -1306,24 +1258,6 @@ namespace webrtc {
                 // samples we shall quit loop anyway
                 dataPos += noSamp10ms;
             }
-#if 0
-            if(_useSoundLink){
-                int16_t dataTmpSL[dataSize];
-                
-                SoundLinkPlay( _soundLink, dataTmpSL, dataSize );
-                if( is_stereo){
-                    /* Mix into left channel */
-                    for( unsigned int i = 0 ; i < dataSize; i++){
-                        data[2*i] += dataTmpSL[i];
-                    }
-                }else{
-                    /* Mix with output */
-                    for(unsigned int i = 0 ; i < dataSize; i++){
-                        data[i] += dataTmpSL[i];
-                    }
-                }
-            }
-#endif
         }
         //_numRenderCalls+=1;
         
@@ -1388,7 +1322,6 @@ namespace webrtc {
         
         uint32_t tmp_play_latency_ms;
         {
-            //CriticalSectionScoped lock(&_critSectRenderLatency);
             
             tmp_play_latency_ms = play_latency_ms_;
         }
@@ -1452,8 +1385,6 @@ namespace webrtc {
         
         uint32_t tmp_rec_latency_ms;
         {
-            //CriticalSectionScoped lock(&_critSectCaptureLatency);
-            
             tmp_rec_latency_ms = rec_latency_ms_;
         }
         
@@ -1467,13 +1398,4 @@ namespace webrtc {
         }
     }
     
-    void audio_io_osx::DetectedSoundLink(const std::vector<uint8_t> &msg,
-                                                const struct tm timeLastDetected,
-                                                const int     deviceRoundTripLatencyMs)
-    {
-        if(deviceRoundTripLatencyMs > SOUNDLINK_LATENCY_FOR_RESET_MS){
-            warning(" High Device Round trip Latency = %d ms", deviceRoundTripLatencyMs);
-            rec_delay_warning_ = 1;
-        }
-    }
 }

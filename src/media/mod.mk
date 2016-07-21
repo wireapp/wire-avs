@@ -7,4 +7,5 @@ AVS_SRCS += \
 	media/dtls.c \
 	media/icelite.c \
 	media/mediaflow.c \
+	media/packet.c \
 	media/rtp_stats.c

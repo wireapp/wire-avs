@@ -43,6 +43,8 @@ namespace webrtc {
 		audioCallback_ = NULL;
 		is_recording_ = false;
 		is_playing_ = false;
+		rec_is_initialized_ = false;
+		play_is_initialized_ = false;
 		rec_tid_ = 0;
 		play_tid_ = 0;
 		realtime_ = realtime;
@@ -66,19 +68,21 @@ namespace webrtc {
 	}
     
 	int32_t fake_audiodevice::InitPlayout() {
+		play_is_initialized_ = true;
 		return 0;
 	}
     
 	bool fake_audiodevice::PlayoutIsInitialized() const {
-		return true;
+		return play_is_initialized_;
 	}
     
 	int32_t fake_audiodevice::InitRecording() {
+		rec_is_initialized_ = true;
 		return 0;
 	}
     
 	bool fake_audiodevice::RecordingIsInitialized() const {
-		return true;
+		return rec_is_initialized_;
 	}
     
 	int32_t fake_audiodevice::StartPlayout() {
@@ -112,6 +116,7 @@ namespace webrtc {
 			pthread_join(rec_tid_, &thread_ret);
 			rec_tid_ = 0;
 		}
+		rec_is_initialized_ = false;
 		return 0;
 	}
     
@@ -122,6 +127,7 @@ namespace webrtc {
 			pthread_join(play_tid_, &thread_ret);
 			play_tid_ = 0;
 		}
+		play_is_initialized_ = false;
 		return 0;
 	}
     
@@ -177,7 +183,7 @@ namespace webrtc {
     
 	void* fake_audiodevice::playout_thread(){
 		int16_t audio_buf[FRAME_LEN] = {0};
-		uint32_t nSamplesOut;
+		size_t nSamplesOut;
 		int64_t elapsed_time_ms, ntp_time_ms;
 		struct timeval now, next_io_time, delta, sleep_time;
         

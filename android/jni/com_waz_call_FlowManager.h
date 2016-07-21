@@ -285,6 +285,14 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setVideoView
 
 /*
  * Class:     com_waz_call_FlowManager
+ * Method:    setFilePath
+ * Signature: (Ljava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setFilePath
+  (JNIEnv *, jobject, jstring);
+
+/*
+ * Class:     com_waz_call_FlowManager
  * Method:    vmStartRecord
  * Signature: (Ljava/lang/String;)V
  */

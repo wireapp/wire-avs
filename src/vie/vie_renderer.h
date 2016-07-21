@@ -21,8 +21,8 @@
 
 #define VIE_RENDERER_TIMEOUT_LIMIT 10000
 
-#include "webrtc/video_renderer.h"
-#include "webrtc/modules/video_render/include/video_render.h"
+#include "webrtc/media/base/videosinkinterface.h"
+//#include "webrtc/modules/video_render/include/video_render.h"
 #include <re.h>
 
 enum ViERendererState {
@@ -31,16 +31,14 @@ enum ViERendererState {
 	VIE_RENDERER_STATE_TIMEDOUT
 };
 	
-class ViERenderer : public webrtc::VideoRenderer
+class ViERenderer : public rtc::VideoSinkInterface<webrtc::VideoFrame>
 {
 public:
 	ViERenderer();
 	virtual ~ViERenderer();
     
-	void RenderFrame(const webrtc::VideoFrame& video_frame, int time_to_render_ms);
+	void OnFrame(const webrtc::VideoFrame& video_frame);
 
-	bool IsTextureSupported() const;
-	
 	void ReportTimeout();
 
 private:

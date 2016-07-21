@@ -1,0 +1,27 @@
+[submodule "mediaengine/webrtc"]
+	path = mediaengine/webrtc
+	url = https://chromium.googlesource.com/external/webrtc/trunk/webrtc.git
+[submodule "contrib/generic-message-proto"]
+	path = contrib/generic-message-proto
+	url = git@github.com:wearezeta/generic-message-proto.git
+[submodule "contrib/cryptobox-c"]
+	path = contrib/cryptobox-c
+	url = git@github.com:wireapp/cryptobox-c.git
+[submodule "contrib/opus"]
+	path = contrib/opus
+	url = https://git.xiph.org/opus.git
+[submodule "contrib/ogg"]
+	path = contrib/ogg
+	url = https://git.xiph.org/ogg.git
+[submodule "contrib/libvpx"]
+	path = contrib/libvpx
+	url = https://chromium.googlesource.com/webm/libvpx
+[submodule "contrib/googletest"]
+	path = contrib/googletest
+	url = https://github.com/google/googletest.git
+[submodule "mediaengine/libyuv"]
+	path = mediaengine/libyuv
+	url = https://chromium.googlesource.com/libyuv/libyuv
+[submodule "contrib/openssl"]
+	path = contrib/openssl
+	url = https://github.com/openssl/openssl

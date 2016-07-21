@@ -45,23 +45,35 @@ static struct vie_capture_router {
 	.buffer_rotate = false,
 };
 
-void vie_capture_router_init(void)
+
+int vie_capture_router_init(void)
 {
+	int err;
+
 	router.stream_input = NULL;
 	router.buffer_rotate = false;
-	lock_alloc(&router.lock);
+
+	err = lock_alloc(&router.lock);
+	if (err)
+		return err;
 
 #if PRINT_PERIODIC_FRAME_STATS
 	ftime(&router.fps_time);
 	router.fps_count = 0;
 #endif
+
+	return 0;
 }
+
 
 void vie_capture_router_deinit(void)
 {
 	router.stream_input = NULL;
+
 	mem_deref(router.lock);
+	router.lock = NULL;
 }
+
 
 void vie_capture_router_attach_stream(webrtc::VideoCaptureInput *stream_input,
 	bool needs_buffer_rotation)
@@ -175,6 +187,7 @@ void vie_capture_router_handle_frame(struct avs_vidframe *frame)
 
 	//if (needs_convert) {
 	if (true) { // For now we will always convert
+		int err = 0;
 		size_t dys = dw;
 		size_t duvs = (dys + 1) / 2;
 		webrtc::VideoRotation frot; /* Frame rotation */
@@ -185,12 +198,7 @@ void vie_capture_router_handle_frame(struct avs_vidframe *frame)
 		crot = router.buffer_rotate ? rtc_rotation
 			: webrtc::kVideoRotation_0;
 		
-		int err = rtc_frame.CreateEmptyFrame(dw, dh, dys, duvs, duvs);
-		if (err < 0) {
-			error("%s: failed to create video frame (err=%d)\n",
-			      __FUNCTION__, err);
-			goto out;
-		}
+		rtc_frame.CreateEmptyFrame(dw, dh, dys, duvs, duvs);
 		rtc_frame.set_rotation(frot);
 		
 		debug("%s: convert src %dx%d str %zu/%zu dst %dx%d "

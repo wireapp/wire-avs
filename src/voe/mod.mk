@@ -10,7 +10,8 @@ AVS_SRCS += \
 	voe/voice_message.cpp \
 	voe/voe.cpp \
 	voe/audio_test.cpp \
-	voe/stats.cpp
+	voe/stats.cpp \
+	voe/channel_settings.cpp
 
 ifeq ($(AVS_OS),ios)
 AVS_SRCS += \

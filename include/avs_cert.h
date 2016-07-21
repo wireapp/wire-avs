@@ -24,3 +24,4 @@ enum cert_type {
 
 
 int cert_tls_set_selfsigned_ecdsa(struct tls *tls, const char *curve_name);
+int cert_enable_ecdh(struct tls *tls);

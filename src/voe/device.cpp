@@ -19,7 +19,7 @@
 
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/include/voe_network.h"
 #include "webrtc/voice_engine/include/voe_codec.h"
@@ -30,7 +30,6 @@
 #include "webrtc/voice_engine/include/voe_neteq_stats.h"
 #include "webrtc/voice_engine/include/voe_errors.h"
 #include "webrtc/voice_engine/include/voe_hardware.h"
-#include "webrtc/voice_engine/include/voe_conf_control.h"
 #include "voe_settings.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
 #include <vector>
@@ -145,75 +144,22 @@ void voe_stop_recording_playout_PCM_file()
 	}
 }
 
-
-int voe_start_packet_recording(const char fileNameUTF8[1024])
-{
-	auto voeRtpRtcp = gvoe.rtp_rtcp;
-
-	if (gvoe.active_channel_settings.empty()) {
-		warning("Cannot start packet recording no active channels \n");
-		return EINVAL;
-	}
-
-	if (voeRtpRtcp) {
-		for ( auto it = gvoe.active_channel_settings.begin();
-		      it < gvoe.active_channel_settings.end(); it++) {
-
-			// ToDo append channel number to file name
-			voeRtpRtcp->StartRTPDump(it->channel_number_,
-						 fileNameUTF8,
-						 webrtc::kRtpIncoming);
-		}
-
-		gvoe.is_rtp_recording = true;
-	}
-
-	return 0;
-}
-
-
-void voe_stop_packet_recording()
-{
-	auto voeRtpRtcp = gvoe.rtp_rtcp;
-
-	if (!gvoe.is_rtp_recording) {
-		return;
-	}
-
-	if (gvoe.active_channel_settings.empty()) {
-		info("voe: Cannot stop packet recording no active channels\n");
-		return;
-	}
-
-	if (voeRtpRtcp){
-		for ( auto it = gvoe.active_channel_settings.begin();
-		      it < gvoe.active_channel_settings.end(); it++) {
-            
-			voeRtpRtcp->StopRTPDump(it->channel_number_,
-						webrtc::kRtpIncoming);
-		}
-		gvoe.is_rtp_recording = false;
-	}
-}
-
-
 int voe_enable_fec(bool enable)
 {
 	int err;
 
-	if (gvoe.codec && !gvoe.active_channel_settings.empty()) {
-		for ( auto it = gvoe.active_channel_settings.begin();
-		      it < gvoe.active_channel_settings.end(); it++) {
-
-			err = gvoe.codec->SetFECStatus(it->channel_number_,
-						      enable );
+	if (gvoe.codec && list_count(&gvoe.channel_data_list) > 0) {
+		struct le *le;
+		for (le = gvoe.channel_data_list.head; le; le = le->next) {
+			struct channel_data *cd = (struct channel_data *)le->data;
+            
+			err = gvoe.codec->SetFECStatus(cd->channel_number, enable );
 			if (err) {
 				warning("voe_enable_fec:"
-					" SetCodecFEC failed\n");
+						" SetCodecFEC failed\n");
 				return ENOSYS;
 			}
 		}
-
 		debug("voe_enable_fec: enable=%d\n", enable);
 	}
 
@@ -227,7 +173,7 @@ int voe_enable_aec(bool enable)
 	bool enabled;
 	int err;
 
-	if (gvoe.processing && !gvoe.active_channel_settings.empty()) {
+	if (gvoe.processing && list_count(&gvoe.channel_data_list) > 0) {
 		err = gvoe.processing->GetEcStatus(enabled, ECmode);
 		if (err) {
 			warning("voe_enable_aec: voeProc->GetEcStatus"
@@ -270,29 +216,4 @@ int voe_set_packet_size(int packet_size_ms)
 	gvoe.manual_packet_size_ms = packet_size_ms;
 	voe_set_channel_load(&gvoe);
 	return 0;
-}
-
-
-int voe_start_preproc_recording(const char fileNameUTF8[1024])
-{
-	auto voeProc = gvoe.processing;
-    
-	if (voeProc)
-		voeProc->StartDebugRecording(fileNameUTF8);
-
-	return 0;
-}
-
-
-void voe_stop_preproc_recording()
-{
-	auto voeProc = gvoe.processing;
-
-	if (gvoe.active_channel_settings.empty()) {
-		return;
-	}
-
-
-	if (voeProc)
-		voeProc->StopDebugRecording();
 }

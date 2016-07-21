@@ -13,7 +13,7 @@ CXXFLAGS	:= -std=c++11 -fvisibility=hidden \
 		   -isysroot $(SYSROOT) -I$(MEDIAENGINE_PATH)
 
 LD		:= $(CXX)
-LDFLAGS		:= -L$(LIB_PATH) -lavsobjc -framework CoreFoundation -framework ApplicationServices
+LDFLAGS		:= -L$(LIB_PATH) -lavsobjc -framework CoreFoundation -framework ApplicationServices -framework Foundation
 
 SOURCES = \
 	../../src/acm_test.cpp \

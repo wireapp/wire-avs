@@ -25,7 +25,6 @@
 
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
-#include "webrtc/modules/video_render/include/video_render.h"
 #include "webrtc/video_encoder.h"
 #include "vie_renderer.h"
 #include "vie.h"
@@ -201,7 +200,8 @@ int vie_enc_alloc(struct videnc_state **vesp,
 	ves->rtcph = rtcph;
 	ves->errh = errh;
 	ves->arg = arg;
-	ves->prm = *prm;
+	if (prm)
+		ves->prm = *prm;
 
  out:
 	if (err) {
@@ -214,12 +214,23 @@ int vie_enc_alloc(struct videnc_state **vesp,
 	return err;
 }
 
+static bool rtx_format_handler(struct sdp_format *fmt, void *arg)
+{
+	struct videnc_state *ves = (struct videnc_state *)arg;
+	int apt;
+
+	sscanf(fmt->params, "apt=%d", &apt);
+
+	return apt == ves->pt;
+}
+
+
 static int vie_capture_start_int(struct videnc_state *ves)
 {
 	struct vie *vie = ves ? ves->vie: NULL;
 	int err = 0;
 
-	if (!ves)
+	if (!ves || !vie)
 		return EINVAL;
 
 #if USE_RTP_ROTATION
@@ -233,26 +244,22 @@ static int vie_capture_start_int(struct videnc_state *ves)
 
 	info("%s: remote side %s support rotation\n", __FUNCTION__,
 		ves->rtp_rotation ? "does" : "does not");
-	webrtc::VideoSendStream::Config send_config;
+	webrtc::VideoSendStream::Config send_config(vie->transport);
 	webrtc::VideoEncoderConfig encoder_config(CreateEncoderConfig(
 		ves->res_idx, ves->rtp_rotation, ves->max_bandwidth));
 
-#if 0
-	if (ves->ssrc_count < 1) {
-		error("%s: No local SSRCS to use for video\n", __FUNCTION__);
-		return EINVAL;
-	}
-#endif
-
 	send_config.rtp.ssrcs.push_back(ves->prm.local_ssrcv[0]);
 	send_config.rtp.nack.rtp_history_ms = 0;
+
+	send_config.rtp.fec.red_payload_type = -1;	
+	send_config.rtp.fec.red_rtx_payload_type = -1;	
 
 #if USE_RTX
 	if (ves->prm.local_ssrcc > 1) {
 		sdp_format *rtx;
 		
-		rtx = sdp_media_format(ves->sdpm, true, NULL, -1, "rtx",
-				       -1, -1);
+		rtx = sdp_media_format_apply(ves->sdpm, false, NULL, -1, "rtx",
+					     -1, -1, rtx_format_handler, ves);
 
 		if (!rtx) {
 			warning("vie: %s: rtx_fmt not found\n", __func__);
@@ -286,7 +293,7 @@ static int vie_capture_start_int(struct videnc_state *ves)
 	send_config.encoder_settings.encoder = vie->encoder;
 	send_config.encoder_settings.payload_name = ves->vc->name;
 	send_config.encoder_settings.payload_type = ves->pt;
-	send_config.suspend_below_min_bitrate = true;
+	send_config.suspend_below_min_bitrate = false;
 
 	vie->send_stream = vie->call->CreateVideoSendStream(send_config,
 							    encoder_config);
@@ -342,6 +349,9 @@ static void vie_capture_stop_int(struct videnc_state *ves)
 
 	vie->call->DestroyVideoSendStream(vie->send_stream);
 	vie->send_stream = NULL;
+    if(vie->encoder){
+        delete vie->encoder;
+    }
 	vie->encoder = NULL;
 }
 
@@ -400,7 +410,7 @@ void vie_bandwidth_allocation_changed(struct vie *vie, uint32_t ssrc, uint32_t a
 	struct videnc_state *ves = vie ? vie->ves : NULL;
 	int r = 0;
 
-	if (!vie || !ves) {
+	if (!vie || !ves || !vie->send_stream) {
 		return;
 	}
 

@@ -25,122 +25,82 @@
 
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
-#include "webrtc/system_wrappers/interface/trace.h"
-#include "webrtc/transport.h"
-#include "webrtc/modules/video_capture/include/video_capture.h"
-#include "webrtc/modules/video_capture/include/video_capture_factory.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/video_encoder.h"
 #include "vie.h"
-#include "webrtc/modules/utility/interface/rtp_dump.h"
 
-class ViETransport : public webrtc::newapi::Transport
+ViETransport::ViETransport(struct vie *vie_) : vie(vie_), active(true)
 {
-public:
-	ViETransport(struct vie *vie_) : vie(vie_), active(true)
-	{
-#if FORCE_VIDEO_RECORDING
-		rtpDump = webrtc::RtpDump::CreateRtpDump();
-#endif
+}
+
+ViETransport::~ViETransport()
+{
+	active = false;
+}
+
+bool ViETransport::SendRtp(const uint8_t* packet, size_t length,
+	const webrtc::PacketOptions& options)
+{
+	struct videnc_state *ves = vie->ves;
+	int err = 0;
+
+	// TODO: use options maybe?
+	
+	//debug("vie: rtp[%d bytes]\n", (int)length);
+
+	if (!active || !ves) {
+		warning("cannot send RTP\n");
+		return false;
 	}
+    
+	stats_rtp_add_packet(&vie->stats_tx, packet, length);
 
-	virtual ~ViETransport()
-	{
-#if FORCE_VIDEO_RECORDING
-		webrtc::RtpDump::DestroyRtpDump(rtpDump);
-#endif
-		active = false;
-	}
-
-	bool SendRtp(const uint8_t* packet, size_t length)
-	{
-		struct videnc_state *ves = vie->ves;
-		int err = 0;
-		
-		//debug("vie: rtp[%d bytes]\n", (int)length);
-
-		if (!active || !ves) {
-			warning("cannot send RTP\n");
+	if (ves->rtph) {
+		err = ves->rtph(packet, length, ves->arg);
+		if (err) {
+			warning("vie: rtp send failed (%m)\n", err);
 			return -1;
 		}
+    
+#if FORCE_VIDEO_RTP_RECORDING
+		// Only Save RTP header and length;
+		uint32_t len32 = (uint32_t)length;
+		uint8_t buf[VIDEO_RTP_RECORDING_LENGTH + sizeof(uint32_t)]; // RTP header is 12 bytes
         
-		stats_rtp_add_packet(&vie->stats_tx, packet, length);
-
-		if (ves->rtph) {
-			err = ves->rtph(packet, length, ves->arg);
-			if (err) {
-				warning("vie: rtp send failed (%m)\n", err);
-				return -1;
-			}
-            
-#if FORCE_VIDEO_RECORDING
-			if(!rtpDump->IsActive()){
-				char  buf[80];
-				time_t     now = time(0);
-				struct tm  tstruct;
-                
-#if TARGET_OS_IPHONE
-				std::string prefix = voe_iosfilepath();
-				prefix.insert(prefix.size(),"/Ios_");
-#elif defined(ANDROID)
-				std::string prefix = "/sdcard/Android_";
-#else
-				std::string prefix = "Osx_";
+		memcpy(buf, &len32, sizeof(uint32_t));
+		memcpy(&buf[sizeof(int32_t)], packet, VIDEO_RTP_RECORDING_LENGTH*sizeof(uint8_t));
+        
+		vie->rtp_dump_out->DumpPacket(buf, sizeof(buf));
 #endif
-                
-				tstruct = *localtime(&now);
-				strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
-                
-				std::string name = prefix + "VidOut";
-				name.insert(name.size(),buf);
-				name.insert(name.size(),".rtp");
-                
-				rtpDump->Start(name.c_str());
-			}
-			// Only Save RTP header and length;
-			int32_t len32 = (int32_t)length;
-			uint8_t buf[12 + sizeof(int32_t)]; // RTP header is 12 bytes
-            
-			memcpy(buf, &len32, sizeof(int32_t));
-			memcpy(&buf[sizeof(int32_t)], packet, 12*sizeof(uint8_t));
-            
-			rtpDump->DumpPacket(buf, sizeof(buf));
-#endif
-            
-			return length;
-		}
-
-		return -1;
+		return true;
 	}
 
-	bool SendRtcp(const uint8_t* packet, size_t length)
-	{
-		struct videnc_state *ves = vie->ves;
-		int err = 0;
+	return false;
+}
 
-		//debug("vie: rtcp[%d bytes]\n", (int)length);
+bool ViETransport::SendRtcp(const uint8_t* packet, size_t length)
+{
+	struct videnc_state *ves = vie->ves;
+	int err = 0;
 
-		if (!active || !ves)
+	//debug("vie: rtcp[%d bytes]\n", (int)length);
+
+	if (!active || !ves)
+		return -1;
+
+	stats_rtcp_add_packet(&vie->stats_tx, packet, length);
+
+	if (ves->rtcph) {
+		err = ves->rtcph(packet, length, ves->arg);
+		if (err) {
+			warning("vie: rtcp send failed (%m)\n", err);
 			return -1;
-
-		stats_rtcp_add_packet(&vie->stats_tx, packet, length);
-
-		if (ves->rtcph) {
-			err = ves->rtcph(packet, length, ves->arg);
-			if (err) {
-				warning("vie: rtcp send failed (%m)\n", err);
-				return -1;
-			}			
-			return length;
-		}
-
-		return -1;
+		}			
+		return length;
 	}
 
-private:
-	struct vie *vie;
-	bool active;
-	webrtc::RtpDump* rtpDump;
-};
+	return -1;
+}
 
 class ViELoadObserver : public webrtc::LoadObserver
 {
@@ -242,12 +202,45 @@ static void vie_destructor(void *arg)
 	if(vie->call)
 		delete vie->call;
     
-#if FORCE_VIDEO_RECORDING
-    if(vie->rtpDump->IsActive()){
-        vie->rtpDump->Stop();
-    }
-    webrtc::RtpDump::DestroyRtpDump(vie->rtpDump);
+#if FORCE_VIDEO_RTP_RECORDING
+	if(vie->rtp_dump_in){
+		vie->rtp_dump_in->Stop();
+	}
+	if(vie->rtp_dump_out){
+		vie->rtp_dump_out->Stop();
+	}
 #endif
+	delete vie->rtp_dump_in;
+	delete vie->rtp_dump_out;
+}
+
+static void vie_start_rtp_dump(struct vie *vie)
+{
+	char  buf[80];
+	time_t     now = time(0);
+	struct tm  tstruct;
+    
+#if TARGET_OS_IPHONE
+	std::string prefix = voe_iosfilepath();
+	prefix.insert(prefix.size(),"/Ios_");
+#elif defined(ANDROID)
+	std::string prefix = "/data/local/tmp/Android_";
+#else
+	std::string prefix = "Osx_";
+#endif
+    
+	tstruct = *localtime(&now);
+	strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
+
+	std::string name_in = prefix + "VidIn";
+	std::string name_out = prefix + "VidOut";
+	name_in.insert(name_in.size(),buf);
+	name_in.insert(name_in.size(),".rtp");
+	name_out.insert(name_out.size(),buf);
+	name_out.insert(name_out.size(),".rtp");
+    
+	vie->rtp_dump_in->Start(name_in.c_str());
+	vie->rtp_dump_out->Start(name_out.c_str());
 }
 
 int vie_alloc(struct vie **viep, const struct vidcodec *vc, int pt)
@@ -268,9 +261,10 @@ int vie_alloc(struct vie **viep, const struct vidcodec *vc, int pt)
 
 	vie->transport = new ViETransport(vie);
 	vie->load_observer = new ViELoadObserver();
-	webrtc::Call::Config config(vie->transport);
+	webrtc::Call::Config config;
 
-	config.overuse_callback = vie->load_observer;
+	// TODO: find how to set overuse callback
+	// config.overuse_callback = vie->load_observer;
 /* TODO: set bitrate limits */
 /*
 all_config.bitrate_config.min_bitrate_bps =
@@ -288,8 +282,11 @@ all_config.bitrate_config.max_bitrate_bps =
 		return ENOSYS;
 	}
 
-#if FORCE_VIDEO_RECORDING
-	vie->rtpDump = webrtc::RtpDump::CreateRtpDump();
+	vie->rtp_dump_in = new wire_avs::RtpDump();
+	vie->rtp_dump_out = new wire_avs::RtpDump();
+    
+#if FORCE_VIDEO_RTP_RECORDING
+	vie_start_rtp_dump(vie);
 #endif
 
 out:

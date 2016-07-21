@@ -24,9 +24,8 @@
 
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
-#include "webrtc/system_wrappers/interface/trace.h"
-#include "webrtc/modules/video_capture/include/video_capture_factory.h"
-#include "webrtc/modules/video_coding/main/interface/video_coding.h"
+#include "webrtc/system_wrappers/include/trace.h"
+#include "webrtc/modules/video_coding/include/video_coding.h"
 #include "vie.h"
 
 
@@ -109,6 +108,11 @@ void vie_close(void)
 		vidcodec_unregister(vc);
 	}
 	vie_capture_router_deinit();
+
+	if (vid_eng.codecs) {
+		delete [] vid_eng.codecs;
+		vid_eng.codecs = NULL;
+	}
 }
 
 
@@ -185,10 +189,9 @@ int vie_init(struct list *vidcodecl)
 
 	list_init(&vid_eng.chl);
 
-	vie_capture_router_init();
-	//char version[1024];
-	//vid_eng.base->GetVersion(version);
-	//info("vie version: %s\n", version);
+	err = vie_capture_router_init();
+	if (err)
+		goto out;
 
  out:
 	if (err)
@@ -198,10 +201,13 @@ int vie_init(struct list *vidcodecl)
 }
 
 void vie_set_video_handlers(flowmgr_video_state_change_h *state_change_h,
-	flowmgr_render_frame_h *render_frame_h, void *arg)
+	flowmgr_render_frame_h *render_frame_h,
+	flowmgr_video_size_h *size_h,
+	void *arg)
 {
 	vid_eng.state_change_h = state_change_h;
 	vid_eng.render_frame_h = render_frame_h;
+	vid_eng.size_h = size_h;
 	vid_eng.cb_arg = arg;
 }
 

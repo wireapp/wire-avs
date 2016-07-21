@@ -22,6 +22,7 @@
 #include <re.h>
 #include <rew.h>
 #include "avs_log.h"
+#include "avs_version.h"
 #include "avs_aucodec.h"
 #include "avs_uuid.h"
 #include "avs_zapi.h"
@@ -47,7 +48,6 @@
 
 
 enum {
-	DTLS_MAX_TRIES = 3,
 	RTP_TIMEOUT_MS = 20000,
 	DTLS_MTU       = 1480,
 };
@@ -55,12 +55,6 @@ enum {
 enum {
 	AUDIO_BANDWIDTH = 50,   /* kilobits/second */
 	VIDEO_BANDWIDTH = 800,  /* kilobits/second */
-};
-
-enum setup {
-	ACTPASS,
-	ACTIVE,
-	PASSIVE
 };
 
 
@@ -166,12 +160,19 @@ struct mediaflow {
 	struct srtp *srtp_rx;
 	struct tls *dtls;
 	struct dtls_sock *dtls_sock;
+	struct udp_helper *dtls_uh;   /* for outgoing DTLS-packet */
 	struct tls_conn *tls_conn;
-	enum setup setup;
+	struct {
+		size_t headroom;
+		struct sa addr;
+	} dtls_peer;
+	enum media_setup setup_local;
+	enum media_setup setup_remote;
 	bool crypto_ready;
 	bool crypto_verified;
 	uint64_t ts_dtls;
-	unsigned dtls_n_tries;
+	bool early_dtls_local;
+	bool early_dtls_remote;
 
 	/* Codec handling */
 	struct media_ctx *mctx;
@@ -249,7 +250,20 @@ struct mediaflow {
 #endif
 
 
-const char *avs_software = AVS_PROJECT " " AVS_VERSION " (" ARCH "/" OS ")";
+/* 0.0.0.0 port 0 */
+static const struct sa dummy_dtls_peer = {
+
+	.u = {
+		.in = {
+			 .sin_family = AF_INET,
+			 .sin_port = 0,
+			 .sin_addr = {0}
+		 }
+	},
+
+	.len = sizeof(struct sockaddr_in)
+
+};
 
 
 /* prototypes */
@@ -283,122 +297,6 @@ static void mf_log(const struct mediaflow *mf, enum log_level level,
 
 	vloglv(level, fmt, ap);
 	va_end(ap);
-}
-
-
-/*
- * See RFC 5764 figure 3:
- *
- *                  +----------------+
- *                  | 127 < B < 192 -+--> forward to RTP
- *                  |                |
- *      packet -->  |  19 < B < 64  -+--> forward to DTLS
- *                  |                |
- *                  |       B < 2   -+--> forward to STUN
- *                  +----------------+
- *
- */
-static bool is_rtp_or_rtcp(const struct mbuf *mb)
-{
-	uint8_t b;
-
-	if (mbuf_get_left(mb) < 1)
-		return false;
-
-	b = mbuf_buf(mb)[0];
-
-	return 127 < b && b < 192;
-}
-
-
-static inline bool is_rtcp_packet(const struct mbuf *mb)
-{
-	uint8_t pt;
-
-	if (mbuf_get_left(mb) < 2)
-		return false;
-
-	pt = mbuf_buf(mb)[1] & 0x7f;
-
-	return 64 <= pt && pt <= 95;
-}
-
-
-static bool is_dtls_packet(const struct mbuf *mb)
-{
-	uint8_t b;
-
-	if (mbuf_get_left(mb) < 1)
-		return false;
-
-	b = mb->buf[mb->pos];
-
-	if (b >= 20 && b <= 63) {
-		return true;
-	}
-
-	return false;
-}
-
-
-static const char *classify_packet(const struct mbuf *mb)
-{
-	uint16_t *p, type;
-	uint8_t b;
-
-	b = mb->buf[mb->pos];
-	p = (void *)&mb->buf[mb->pos];
-	type = ntohs(*p);
-
-	if (is_rtp_or_rtcp(mb)) {
-		if (is_rtcp_packet(mb))
-			return "RTCP";
-		else
-			return "RTP";
-	}
-	else if (b >= 20 && b <= 63) {
-		return "DTLS";
-	}
-	else if ( ! ( type & 0xc000 )) {
-		return "STUN";
-	}
-	else
-		return "???";
-}
-
-
-enum packet {
-	PACKET_UNKNOWN = 0,
-	PACKET_RTP,
-	PACKET_RTCP,
-	PACKET_DTLS,
-	PACKET_STUN,
-};
-
-
-static enum packet classify_packet_type(const struct mbuf *mb)
-{
-	uint16_t *p, type;
-	uint8_t b;
-
-	b = mb->buf[mb->pos];
-	p = (void *)&mb->buf[mb->pos];
-	type = ntohs(*p);
-
-	if (is_rtp_or_rtcp(mb)) {
-		if (is_rtcp_packet(mb))
-			return PACKET_RTCP;
-		else
-			return PACKET_RTP;
-	}
-	else if (b >= 20 && b <= 63) {
-		return PACKET_DTLS;
-	}
-	else if ( ! ( type & 0xc000 )) {
-		return PACKET_STUN;
-	}
-	else
-		return PACKET_UNKNOWN;
 }
 
 
@@ -460,25 +358,54 @@ int mediaflow_cryptos_print(struct re_printf *pf, enum media_crypto cryptos)
 }
 
 
-static const char *setup_name(enum setup setup)
+static const char *setup_name(enum media_setup setup)
 {
 	switch (setup) {
 
-	case ACTPASS: return "actpass";
-	case ACTIVE:  return "active";
-	case PASSIVE: return "passive";
+	case SETUP_ACTPASS: return "actpass";
+	case SETUP_ACTIVE:  return "active";
+	case SETUP_PASSIVE: return "passive";
 	default: return "?";
 	}
 }
 
 
-static enum setup setup_resolve(const char *name)
+static enum media_setup setup_resolve(const char *name)
 {
-	if (0 == str_casecmp(name, "actpass")) return ACTPASS;
-	if (0 == str_casecmp(name, "active")) return ACTIVE;
-	if (0 == str_casecmp(name, "passive")) return PASSIVE;
+	if (0 == str_casecmp(name, "actpass")) return SETUP_ACTPASS;
+	if (0 == str_casecmp(name, "active")) return SETUP_ACTIVE;
+	if (0 == str_casecmp(name, "passive")) return SETUP_PASSIVE;
 
-	return (enum setup)-1;
+	return (enum media_setup)-1;
+}
+
+
+static const char *sock_prefix(size_t headroom)
+{
+	if (headroom >= 36) return "TURN-Ind";
+	if (headroom >= 4) return "TURN-Chan";
+
+	return "Socket";
+}
+
+
+bool mediaflow_dtls_peer_isset(const struct mediaflow *mf)
+{
+	if (!mf)
+		return false;
+
+	return sa_isset(&mf->dtls_peer.addr, SA_ALL);
+}
+
+
+static int dtls_peer_print(struct re_printf *pf, const struct mediaflow *mf)
+{
+	if (!mf)
+		return 0;
+
+	return re_hprintf(pf, "%s|%J",
+			  sock_prefix(mf->dtls_peer.headroom),
+			  &mf->dtls_peer.addr);
 }
 
 
@@ -670,6 +597,9 @@ static void rtp_recv_handler(const struct sa *src,
 	int lost;
 	int err;
 
+	
+
+	
 	lost = lostcalc(mf, hdr->seq);
 	if (lost > 0) {
 		info("mediaflow[%u]: %d rtp packets lost\n",
@@ -943,9 +873,7 @@ static int videnc_rtp_handler(const uint8_t *pkt, size_t len, void *arg)
 static int videnc_rtcp_handler(const uint8_t *pkt, size_t len, void *arg)
 {
 	struct mediaflow *mf = arg;
-#if 0
-	debug("mediaflow: videnc: RTCP send (%zu bytes)\n", len);
-#endif
+
 	return mediaflow_send_raw_rtcp(mf, pkt, len);
 }
 
@@ -1154,9 +1082,9 @@ static bool udp_helper_send_handler_srtp(int *err, struct sa *dst,
 	struct mediaflow *mf = arg;
 	(void)dst;
 
-	if (is_rtp_or_rtcp(mb) && mf->srtp_tx) {
+	if (packet_is_rtp_or_rtcp(mb) && mf->srtp_tx) {
 
-		if (is_rtcp_packet(mb)) {
+		if (packet_is_rtcp_packet(mb)) {
 
 			/* drop short RTCP packets */
 			if (mbuf_get_left(mb) <= 8)
@@ -1182,27 +1110,206 @@ static bool udp_helper_send_handler_srtp(int *err, struct sa *dst,
 }
 
 
+bool mediaflow_early_dtls_supported(const struct mediaflow *mf)
+{
+	if (!mf)
+		return false;
+
+	return mf->early_dtls_local && mf->early_dtls_remote;
+}
+
+
+static int send_packet(struct mediaflow *mf, size_t headroom,
+		       const struct sa *raddr, struct mbuf *mb_pkt,
+		       enum packet pkt)
+{
+	struct mbuf *mb = NULL;
+	size_t len = mbuf_get_left(mb_pkt);
+	int err = 0;
+
+	if (!mf)
+		return EINVAL;
+
+	info("mediaflow: <%s> send_packet `%s' (%zu bytes) via %s to %J\n",
+	     mediaflow_nat_name(mf->nat),
+	     packet_classify_name(pkt),
+	     mbuf_get_left(mb_pkt),
+	     sock_prefix(headroom), raddr);
+
+	mb = mbuf_alloc(headroom + len);
+	if (!mb)
+		return ENOMEM;
+
+	mb->pos = headroom;
+	mbuf_write_mem(mb, mbuf_buf(mb_pkt), len);
+	mb->pos = headroom;
+
+	/* now invalid */
+	mb_pkt = NULL;
+
+	switch (mf->nat) {
+
+	case MEDIAFLOW_NAT_NONE:
+		err = udp_send(rtp_sock(mf->rtp), raddr, mb);
+		break;
+
+	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
+
+		if (mf->ice_ready && mf->sel_lcand) {
+
+			void *sock;
+
+			sock = trice_lcand_sock(mf->trice, mf->sel_lcand);
+			if (!sock) {
+				warning("send: selected lcand %p"
+					" has no sock [%H]\n",
+					mf->sel_lcand,
+					trice_cand_print, mf->sel_lcand);
+				err = ENOTCONN;
+				goto out;
+			}
+
+			err = udp_send(sock, raddr, mb);
+			if (err) {
+				warning("mediaflow: send helper error (%m)\n",
+					err);
+			}
+		}
+		else if (pkt == PACKET_DTLS && mediaflow_dtls_peer_isset(mf)) {
+
+			/* This can happen if the remote ICE is ready but
+			 * the local ICE is not ready, and the remote peer
+			 * is starting the DTLS connection.
+			 *
+			 * Be flexible and accept the DTLS packets on the
+			 * same socket/addr as the remote peer.
+			 */
+
+			info("mediaflow: send_packet, fallback"
+			     " to dtls-peer (%H)\n",
+			     dtls_peer_print, mf);
+
+			err = udp_send_helper(rtp_sock(mf->rtp), raddr,
+					      mb, mf->trice_uh);
+		}
+		else {
+			warning("mediaflow: send_packet: "
+				"drop %zu bytes (ICE not ready)\n",
+				len);
+		}
+		break;
+
+
+	case MEDIAFLOW_ICELITE:
+		err = udp_send(rtp_sock(mf->rtp), raddr, mb);
+		break;
+
+	case MEDIAFLOW_TURN:
+		err = udp_send(rtp_sock(mf->rtp), raddr, mb);
+		break;
+
+	default:
+		err = ENOTSUP;
+		break;
+	}
+
+ out:
+	mem_deref(mb);
+
+	return err;
+}
+
+
+/* ONLY for outgoing DTLS packets! */
+static bool send_dtls_handler(int *err, struct sa *dst_unused,
+			      struct mbuf *mb_pkt, void *arg)
+{
+	struct mediaflow *mf = arg;
+	const enum packet pkt = packet_classify_packet_type(mb_pkt);
+	const size_t len = mbuf_get_left(mb_pkt);
+
+	if (pkt != PACKET_DTLS) {
+		warning("mediaflow: send_dtls: not a DTLS packet?\n");
+		return false;
+	}
+
+	++mf->mf_stats.dtls_pkt_sent;
+
+	info("mediaflow: dtls_helper: send DTLS packet #%u (%zu bytes)"
+	     " \n",
+	     mf->mf_stats.dtls_pkt_sent,
+	     mbuf_get_left(mb_pkt));
+
+	/*
+	 * Early DTLS
+	 */
+	if (mf->early_dtls_local) {
+
+		struct turn_conn *conn;
+		size_t headroom = 36;
+
+		conn = turnconn_find_allocated(&mf->turnconnl, IPPROTO_UDP);
+		if (conn) {
+
+			const struct sa *raddr = sdp_media_raddr(mf->sdpm);
+			struct mbuf *mb = 0;
+
+			mb = mbuf_alloc(headroom + len);
+			mb->pos = headroom;
+			mbuf_write_mem(mb, mbuf_buf(mb_pkt), len);
+			mb->pos = headroom;
+
+			mb_pkt = NULL;
+
+			/* NOTE: do not check for "early_dtls" here as the
+			 *       receiving of the SDP can be slow ..
+			 */
+
+			info("mediaflow: early_dtls:"
+			     " send %zu:%zu bytes to %J\n",
+			     mb->pos, mbuf_get_left(mb), raddr);
+
+			*err = turnc_send(conn->turnc, raddr, mb);
+			if (*err) {
+				warning("mediaflow: turnc_send failed"
+					" (%zu bytes to %J) (%m)\n",
+					mbuf_get_left(mb), raddr, *err);
+			}
+
+			mem_deref(mb);
+
+			goto out;  /* handled */
+		}
+	}
+
+	*err = send_packet(mf, mf->dtls_peer.headroom,
+			   &mf->dtls_peer.addr, mb_pkt, pkt);
+
+ out:
+
+	return true;
+}
+
+
 /* For Dual-stack only */
 static bool udp_helper_send_handler_trice(int *err, struct sa *dst,
 					 struct mbuf *mb, void *arg)
 {
 	struct mediaflow *mf = arg;
+	enum packet pkt;
 	int lerr;
 	(void)dst;
+
+	pkt = packet_classify_packet_type(mb);
+	if (pkt == PACKET_DTLS) {
+		warning("mediaflow: dont use this to send DTLS packets\n");
+	}
 
 	if (mf->ice_ready && mf->sel_lcand) {
 
 		void *sock;
 
 		sock = trice_lcand_sock(mf->trice, mf->sel_lcand);
-
-#if 0
-		re_printf("TX: redir %zu bytes from %J to %s.%J\n",
-			  mbuf_get_left(mb),
-			  dst,
-			  ice_cand_type2name(mf->rcand.type), &mf->rcand.addr);
-#endif
-
 		if (!sock) {
 			warning("send: selected lcand %p has no sock [%H]\n",
 				mf->sel_lcand,
@@ -1215,20 +1322,11 @@ static bool udp_helper_send_handler_trice(int *err, struct sa *dst,
 				lerr);
 		}
 	}
-#if 1
-	else if (is_dtls_packet(mb) &&
-		 sa_af(dst) == sa_af(rtp_local(mf->rtp))) {
-
-		info("mediaflow: DTLS pass-through native socket"
-		      " (%zu bytes to %J)\n", mbuf_get_left(mb), dst);
-		return false;  /* packet contiue */
-	}
-#endif
 	else {
 		warning("mediaflow: helper: cannot send"
 			" %zu bytes to %J, ICE not ready! (packet=%s)\n",
 			mbuf_get_left(mb), dst,
-			classify_packet(mb));
+			packet_classify_name(pkt));
 		*err = ENOTCONN;
 	}
 
@@ -1356,7 +1454,7 @@ static void dtls_estab_handler(void *arg)
 
 	mf->srtp_tx = mem_deref(mf->srtp_tx);
 	err = srtp_alloc(&mf->srtp_tx, suite,
-			 mf->setup == ACTIVE ? cli_key : srv_key,
+			 mf->setup_local == SETUP_ACTIVE ? cli_key : srv_key,
 			 sizeof(cli_key), 0);
 	if (err) {
 		warning("mediaflow: failed to allocate SRTP for TX (%m)\n",
@@ -1365,7 +1463,7 @@ static void dtls_estab_handler(void *arg)
 	}
 
 	err = srtp_alloc(&mf->srtp_rx, suite,
-			 mf->setup == ACTIVE ? srv_key : cli_key,
+			 mf->setup_local == SETUP_ACTIVE ? srv_key : cli_key,
 			 sizeof(srv_key), 0);
 	if (err) {
 		warning("mediaflow: failed to allocate SRTP for RX (%m)\n",
@@ -1391,33 +1489,14 @@ static void dtls_close_handler(int err, void *arg)
 {
 	struct mediaflow *mf = arg;
 
+	MAGIC_CHECK(mf);
+
 	info("mediaflow: dtls-connection closed (%m)\n", err);
 
 	mf->tls_conn = mem_deref(mf->tls_conn);
 	mf->err = err;
 
 	if (!mf->crypto_ready) {
-
-		++mf->dtls_n_tries;
-
-		if (mf->dtls_n_tries < DTLS_MAX_TRIES) {
-
-			if (mf->setup == ACTIVE) {
-
-				err = dtls_connect(&mf->tls_conn, mf->dtls,
-						   mf->dtls_sock,
-						   &mf->rcand.addr,
-						   dtls_estab_handler, NULL,
-						   dtls_close_handler, mf);
-				if (err) {
-					warning("mediaflow: dtls_connect()"
-						" failed (%m)\n", err);
-					return;
-				}
-			}
-
-			return;
-		}
 
 		if (mf->closeh)
 			mf->closeh(err, mf->arg);
@@ -1430,24 +1509,18 @@ static void dtls_close_handler(int err, void *arg)
  *
  * this function is only called when the ICE-layer is established
  */
-static void dtls_conn_handler(const struct sa *peer, void *arg)
+static void dtls_conn_handler(const struct sa *unused_peer, void *arg)
 {
 	struct mediaflow *mf = arg;
-	bool okay;
 	int err;
 
-	info("mediaflow: incoming DTLS connect from %J\n", peer);
+	info("mediaflow: incoming DTLS connect from %s|%J\n",
+	     sock_prefix(mf->dtls_peer.headroom), &mf->dtls_peer.addr);
 
-	if (mf->ice_ready || sa_af(peer) == sa_af(rtp_local(mf->rtp))) {
-		okay = 1;
-	}
-	else {
-		okay = 0;
-	}
-
-	if (!okay) {
-		info("mediaflow: ICE is not ready, cannot accept DTLS\n");
-		return;
+	/* peer is a dummy address, must not be set/used */
+	if (sa_in(unused_peer) || sa_port(unused_peer)) {
+		warning("mediaflow: internal error, unused peer (%J)\n",
+			unused_peer);
 	}
 
 	mf->ts_dtls = tmr_jiffies();
@@ -1461,23 +1534,34 @@ static void dtls_conn_handler(const struct sa *peer, void *arg)
 
 	info("mediaflow: dtls accepted\n");
 
-#if 0
-	/* must be done after dtls_accept() */
-	if (sa_isset(&mf->dtls_peer, SA_ALL) &&
-	    !sa_cmp(&mf->dtls_peer, peer, SA_ALL)) {
-
-		info("mediaflow: update DTLS peer: %J -> %J\n",
-		     &mf->dtls_peer, peer );
-
-		mf->dtls_peer = *peer;
-		dtls_update_peer(mf->dtls_sock, peer);
-	}
-#endif
-
 	return;
 
  error:
 	crypto_error(mf, err);
+}
+
+
+static void set_dtls_peer(struct mediaflow *mf, size_t headroom,
+			  const struct sa *peer)
+{
+       if (!mf || !peer)
+               return;
+
+       if (!mediaflow_dtls_peer_isset(mf)) {
+	       info("mediaflow: dtls_peer: setting to %s|%J\n",
+			 sock_prefix(headroom), peer);
+       }
+       else if (mf->dtls_peer.headroom != headroom ||
+		!sa_cmp(&mf->dtls_peer.addr, peer, SA_ALL)) {
+
+	       info("mediaflow: dtls peer: change from %s|%J --> %s|%J\n",
+		    sock_prefix(mf->dtls_peer.headroom),
+		    &mf->dtls_peer.addr,
+		    sock_prefix(headroom), peer);
+       }
+
+       mf->dtls_peer.headroom = headroom;
+       mf->dtls_peer.addr = *peer;
 }
 
 
@@ -1498,7 +1582,9 @@ static int start_crypto(struct mediaflow *mf, const struct sa *peer)
 
 	case CRYPTO_DTLS_SRTP:
 
-		if (mf->setup == ACTIVE) {
+		if (mf->setup_local == SETUP_ACTIVE) {
+
+			size_t headroom = 0;
 
 			if (mf->tls_conn) {
 				info("mediaflow: dtls_connect,"
@@ -1506,25 +1592,20 @@ static int start_crypto(struct mediaflow *mf, const struct sa *peer)
 				goto out;
 			}
 
-			info("mediaflow: dtls connect to peer %J\n", peer);
+			/* NOTE: must be done before dtls_connect() */
+			if (mf->trice) {
+				headroom = get_headroom(mf);
+			}
+
+			info("mediaflow: dtls connect via %s to peer %J\n",
+			     sock_prefix(headroom), peer);
 
 			mf->ts_dtls = tmr_jiffies();
 
-			/* NOTE: must be done before dtls_connect() */
-			if (mf->trice) {
-				size_t headroom;
-
-				headroom = get_headroom(mf);
-
-				debug("mediaflow: connect: "
-				      "DTLS headroom %zu\n",
-				      headroom);
-
-				dtls_set_headroom(mf->dtls_sock, headroom);
-			}
+			set_dtls_peer(mf, headroom, peer);
 
 			err = dtls_connect(&mf->tls_conn, mf->dtls,
-					   mf->dtls_sock, peer,
+					   mf->dtls_sock, &dummy_dtls_peer,
 					   dtls_estab_handler, NULL,
 					   dtls_close_handler, mf);
 			if (err) {
@@ -1677,14 +1758,34 @@ static int handle_sdes_srtp_rx(struct mediaflow *mf)
 }
 
 
+static void handle_dtls_packet(struct mediaflow *mf, const struct sa *src,
+			       struct mbuf *mb)
+{
+	++mf->mf_stats.dtls_pkt_recv;
+
+	info("dtls: recv %zu bytes from %s|%J\n",
+	     mbuf_get_left(mb), sock_prefix(mb->pos), src);
+
+	set_dtls_peer(mf, mb->pos, src);
+
+	dtls_recv_packet(mf->dtls_sock, &dummy_dtls_peer, mb);
+}
+
+
 static bool udp_helper_recv_handler_srtp(struct sa *src, struct mbuf *mb,
 					 void *arg)
 {
 	struct mediaflow *mf = arg;
 	size_t len = mbuf_get_left(mb);
+	const enum packet pkt = packet_classify_packet_type(mb);
 	int err;
 
-	if (is_rtp_or_rtcp(mb)) {
+	if (pkt == PACKET_DTLS) {
+		handle_dtls_packet(mf, src, mb);
+		return true;
+	}
+
+	if (packet_is_rtp_or_rtcp(mb)) {
 
 		/* the SRTP is not ready yet .. */
 		if (!mf->srtp_rx) {
@@ -1692,7 +1793,7 @@ static bool udp_helper_recv_handler_srtp(struct sa *src, struct mbuf *mb,
 			goto next;
 		}
 
-		if (is_rtcp_packet(mb)) {
+		if (packet_is_rtcp_packet(mb)) {
 
 			err = srtcp_decrypt(mf->srtp_rx, mb);
 			if (err) {
@@ -1719,7 +1820,7 @@ static bool udp_helper_recv_handler_srtp(struct sa *src, struct mbuf *mb,
 	}
 
  next:
-	if (is_rtp_or_rtcp(mb)) {
+	if (packet_is_rtp_or_rtcp(mb)) {
 
 		/* If external RTP is enabled, forward RTP/RTCP packets
 		 * to the relevant au/vid-codec.
@@ -1762,15 +1863,12 @@ static void external_rtp_recv(struct mediaflow *mf,
 	ac = audec_get(mf->ads);
 	vc = viddec_get(mf->video.vds);
 
-	if (!is_rtcp_packet(mb)) {
+	if (!packet_is_rtcp_packet(mb)) {
 		update_rx_stats(mf, mbuf_get_left(mb));
 	}
 	else {
 		/* RTCP is sent to both audio+video */
-#if 0
-		debug("mediaflow(%p): recv RTCP packet (%zu bytes)\n",
-		      mf, mbuf_get_left(mb));
-#endif
+
 		if (ac && ac->dec_rtcph) {
 			mb->pos = start;
 			ac->dec_rtcph(mf->ads,
@@ -1797,11 +1895,6 @@ static void external_rtp_recv(struct mediaflow *mf,
 		warning("mediaflow: rtp header decode (%m)\n", err);
 		goto out;
 	}
-
-#if 0
-	debug("mediaflow(%p): RTP packet received (%zu bytes)\n",
-	      mf, mbuf_get_left(mb));
-#endif
 
 	fmt = sdp_media_lformat(mf->sdpm, hdr.pt);
 	if (fmt) {
@@ -1865,7 +1958,6 @@ static int print_errno(struct re_printf *pf, int err)
 }
 
 
-#if 1
 static int print_candidates(struct re_printf *pf, const struct mediaflow *mf)
 {
 	int err = 0;
@@ -1882,7 +1974,6 @@ static int print_candidates(struct re_printf *pf, const struct mediaflow *mf)
 
 	return err;
 }
-#endif
 
 
 int mediaflow_summary(struct re_printf *pf, const struct mediaflow *mf)
@@ -1912,9 +2003,7 @@ int mediaflow_summary(struct re_printf *pf, const struct mediaflow *mf)
 			  mediaflow_nat_name(mf->nat), mf->ice_ready);
 	err |= re_hprintf(pf, "remote candidates:\n");
 
-#if 1
 	err |= print_candidates(pf, mf);
-#endif
 
 	if (mf->sel_lcand) {
 		err |= re_hprintf(pf, "selected local candidate:   %H\n",
@@ -1940,13 +2029,22 @@ int mediaflow_summary(struct re_printf *pf, const struct mediaflow *mf)
 
 	if (mf->crypto == CRYPTO_DTLS_SRTP) {
 		err |= re_hprintf(pf,
+				  "        peer = %H\n",
+				  dtls_peer_print, mf);
+		err |= re_hprintf(pf,
 				  "        verified=%d\n"
 				  "        setup_local=%s\n"
+				  "        setup_remote=%s\n"
 				  "",
 				  mf->crypto_verified,
-				  setup_name(mf->setup));
+				  setup_name(mf->setup_local),
+				  setup_name(mf->setup_remote)
+				  );
 		err |= re_hprintf(pf, "        setup_time=%d ms\n",
 				  mf->mf_stats.dtls_estab);
+		err |= re_hprintf(pf, "        packets sent=%u, recv=%u\n",
+				  mf->mf_stats.dtls_pkt_sent,
+				  mf->mf_stats.dtls_pkt_recv);
 	}
 	err |= re_hprintf(pf, "\n");
 
@@ -2159,6 +2257,8 @@ static void destructor(void *arg)
 	mf->video.ves = mem_deref(mf->video.ves);
 	mf->video.vds = mem_deref(mf->video.vds);
 
+	mem_deref(mf->tls_conn);
+
 	list_flush(&mf->interfacel);
 	mf->ice_lite = mem_deref(mf->ice_lite);
 
@@ -2169,7 +2269,7 @@ static void destructor(void *arg)
 	mem_deref(mf->us_turn);
 	list_flush(&mf->turnconnl);
 
-	mem_deref(mf->tls_conn);
+	//mem_deref(mf->tls_conn);
 	mem_deref(mf->dtls_sock);
 
 	mem_deref(mf->uh_srtp);
@@ -2322,7 +2422,8 @@ int mediaflow_alloc(struct mediaflow **mfp,
 	mf->pseq   = -1;
 	mf->nat    = nat;
 	mf->rtcp_mux = true;  /* MANDATORY in Zeta-world */
-	mf->setup    = ACTPASS;
+	mf->setup_local    = SETUP_ACTPASS;
+	mf->setup_remote   = SETUP_ACTPASS;
 	mf->external_rtp = external_rtp;
 	mf->cryptos_local = cryptos;
 
@@ -2363,7 +2464,7 @@ int mediaflow_alloc(struct mediaflow **mfp,
 	if (err)
 		goto out;
 
-	(void)sdp_session_set_lattr(mf->sdp, true, "tool", avs_software);
+	(void)sdp_session_set_lattr(mf->sdp, true, "tool", avs_version_str());
 
 	err = sdp_media_add(&mf->sdpm, mf->sdp, "audio",
 			    sa_port(rtp_local(mf->rtp)),
@@ -2395,21 +2496,6 @@ int mediaflow_alloc(struct mediaflow **mfp,
 
 	err = sdp_media_set_lattr(mf->sdpm, false, "ssrc", "%u cname:%s",
 				  mf->lssrcv[MEDIA_AUDIO], mf->cname);
-
-#if 0 /* Following bundles the media streams */
-	err |= sdp_media_set_lattr(mf->sdpm, false,
-				   "ssrc", "%u msid:%s %s",
-				   mf->lssrcv[MEDIA_AUDIO],
-				   mf->msid, mf->label);
-	err |= sdp_media_set_lattr(mf->sdpm, false,
-				   "ssrc", "%u mslabel:%s",
-				   mf->lssrcv[MEDIA_AUDIO],
-				   mf->msid);
-	err |= sdp_media_set_lattr(mf->sdpm, false,
-				   "ssrc", "%u label:%s",
-				   mf->lssrcv[MEDIA_AUDIO],
-				   mf->label);
-#endif
 	if (err)
 		goto out;
 
@@ -2439,7 +2525,7 @@ int mediaflow_alloc(struct mediaflow **mfp,
 			goto out;
 		}
 
-		err = trice_set_software(mf->trice, avs_software);
+		err = trice_set_software(mf->trice, avs_version_str());
 		if (err)
 			goto out;
 
@@ -2573,24 +2659,33 @@ int mediaflow_alloc(struct mediaflow **mfp,
 	   might change later though, depending on the SDP answer */
 
 	if (cryptos & CRYPTO_DTLS_SRTP) {
+
+		struct sa laddr_dtls;
+
+		sa_set_str(&laddr_dtls, "0.0.0.0", 0);
+
 		if (!mf->dtls) {
 			warning("mediaflow: dtls context is missing\n");
 		}
-		err = dtls_listen(&mf->dtls_sock, NULL,
-				  rtp_sock(mf->rtp), 2, LAYER_DTLS,
+
+		err = dtls_listen(&mf->dtls_sock, &laddr_dtls,
+				  NULL, 2, LAYER_DTLS,
 				  dtls_conn_handler, mf);
 		if (err) {
 			warning("mediaflow: dtls_listen failed (%m)\n", err);
 			goto out;
 		}
 
-		dtls_set_mtu(mf->dtls_sock, DTLS_MTU);
+		/* Virtual socket for re-directing outgoing DTLS-packet */
+		err = udp_register_helper(&mf->dtls_uh,
+					  dtls_udp_sock(mf->dtls_sock),
+					  LAYER_DTLS_TRANSPORT,
+					  send_dtls_handler,
+					  NULL, mf);
+		if (err)
+			goto out;
 
-		/* Enable support for max 1 peer on the DTLS-session.
-		 * this is needed to support incoming datagrams coming
-		 * from different IP-addresses.
-		 */
-		dtls_set_one_peer(mf->dtls_sock);
+		dtls_set_mtu(mf->dtls_sock, DTLS_MTU);
 
 		err = sdp_media_set_lattr(mf->sdpm, true,
 					  "fingerprint", "sha-256 %H",
@@ -2599,7 +2694,8 @@ int mediaflow_alloc(struct mediaflow **mfp,
 		if (err)
 			goto out;
 
-		err = sdp_media_set_lattr(mf->sdpm, true, "setup", "actpass");
+		err = sdp_media_set_lattr(mf->sdpm, true, "setup",
+					  setup_name(mf->setup_local));
 		if (err)
 			goto out;
 	}
@@ -2635,6 +2731,71 @@ int mediaflow_alloc(struct mediaflow **mfp,
 		*mfp = mf;
 
 	return err;
+}
+
+
+int mediaflow_set_setup(struct mediaflow *mf, enum media_setup setup)
+{
+	int err;
+
+	if (!mf)
+		return EINVAL;
+
+	info("mediaflow: local_setup: `%s' --> `%s'\n",
+	     setup_name(mf->setup_local), setup_name(setup));
+
+	if (setup != mf->setup_local) {
+
+		if (mf->setup_local == SETUP_ACTPASS) {
+
+			mf->setup_local = setup;
+		}
+		else {
+			warning("mediaflow: set_setup: Illegal transition"
+				" from `%s' to `%s'\n",
+				setup_name(mf->setup_local), setup_name(setup));
+			return EPROTO;
+		}
+	}
+
+	err = sdp_media_set_lattr(mf->sdpm, true, "setup",
+				  setup_name(mf->setup_local));
+	if (err)
+		return err;
+
+	if (mf->video.sdpm) {
+		err = sdp_media_set_lattr(mf->video.sdpm, true,
+					  "setup", setup_name(mf->setup_local));
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
+
+enum media_setup mediaflow_local_setup(const struct mediaflow *mf)
+{
+	if (!mf)
+		return (enum media_setup)-1;
+
+	return mf->setup_local;
+}
+
+
+void mediaflow_set_earlydtls(struct mediaflow *mf, bool enabled)
+{
+	if (!mf)
+		return;
+
+	mf->early_dtls_local = enabled;
+
+	if (enabled) {
+		sdp_media_set_lattr(mf->sdpm, true, "x-earlydtls", NULL);
+	}
+	else {
+		sdp_media_del_lattr(mf->sdpm, "x-earlydtls");
+	}
 }
 
 
@@ -2717,7 +2878,7 @@ int mediaflow_add_video(struct mediaflow *mf, struct list *vidcodecl)
 			goto out;
 
 		err = sdp_media_set_lattr(mf->video.sdpm, true,
-					  "setup", "actpass");
+					  "setup", setup_name(mf->setup_local));
 		if (err)
 			goto out;
 	}
@@ -2749,7 +2910,8 @@ int mediaflow_add_video(struct mediaflow *mf, struct list *vidcodecl)
 			strcat(ssrc_fid, ssrc_group);
 			++i;
 		}
-		ssrc_fid[strlen(ssrc_fid) - 1] = '\0';
+		if (strlen(ssrc_fid))
+			ssrc_fid[strlen(ssrc_fid) - 1] = '\0';
 
 		err = sdp_media_set_lattr(mf->video.sdpm, false, "ssrc-group",
 					  "FID %s", ssrc_fid);
@@ -2794,13 +2956,95 @@ void mediaflow_set_tag(struct mediaflow *mf, const char *tag)
 }
 
 
+/* We need both SDP and a TURN-allocation */
+static void start_early_dtls(struct mediaflow *mf)
+{
+	bool got_turn;
+
+	got_turn = NULL != turnconn_find_allocated(&mf->turnconnl,
+						   IPPROTO_UDP);
+
+	info("mediaflow: start Early DTLS:  sdp=%d, turn=%d\n",
+	     mf->got_sdp, got_turn);
+
+	if (mf->got_sdp && got_turn) {
+
+		const struct sa *raddr;
+
+		raddr = sdp_media_raddr(mf->sdpm);
+
+		start_crypto(mf, raddr);
+	}
+}
+
+
+static int handle_setup(struct mediaflow *mf)
+{
+	const char *rsetup;
+	enum media_setup setup_local;
+	int err;
+
+	rsetup = sdp_media_session_rattr(mf->sdpm, mf->sdp, "setup");
+
+	info("mediaflow: remote_setup=%s\n", rsetup);
+
+	mf->setup_remote = setup_resolve(rsetup);
+
+	switch (mf->setup_remote) {
+
+	case SETUP_ACTPASS:
+		/* RFC 5763 setup:active is RECOMMENDED */
+		if (mf->setup_local == SETUP_ACTPASS)
+			setup_local = SETUP_ACTIVE;
+		else
+			setup_local = mf->setup_local;
+		break;
+
+	case SETUP_ACTIVE:
+		setup_local = SETUP_PASSIVE;
+		break;
+
+	case SETUP_PASSIVE:
+		setup_local = SETUP_ACTIVE;
+		break;
+
+	default:
+		warning("mediaflow: illegal setup '%s' from remote\n", rsetup);
+		return EPROTO;
+	}
+
+	info("mediaflow: local_setup=%s\n",
+	     setup_name(mf->setup_local));
+
+	mediaflow_set_setup(mf, setup_local);
+
+	err = sdp_media_set_lattr(mf->sdpm, true, "setup",
+				  setup_name(mf->setup_local));
+	if (err)
+		return err;
+
+	if (mf->video.sdpm) {
+		err = sdp_media_set_lattr(mf->video.sdpm, true,
+					  "setup", setup_name(mf->setup_local));
+		if (err)
+			return err;
+	}
+
+
+	return 0;
+}
+
+
 static int handle_dtls_srtp(struct mediaflow *mf)
 {
 	const char *fingerprint;
-	const char *rsetup;
 	struct pl fp_name;
-	enum setup setup_remote;
 	int err;
+
+	if (sdp_media_rattr(mf->sdpm, "x-earlydtls")) {
+		info("mediaflow: remote supports earlydtls\n");
+		mf->early_dtls_remote = true;
+	}
 
 	fingerprint = sdp_media_session_rattr(mf->sdpm, mf->sdp,
 					      "fingerprint");
@@ -2832,45 +3076,15 @@ static int handle_dtls_srtp(struct mediaflow *mf)
 	if (err)
 		return err;
 
-	err = sdp_media_set_lattr(mf->sdpm, true, "setup", "active");
-	if (err)
+
+	err = handle_setup(mf);
+	if (err) {
+		warning("mediaflow: handle_setup failed (%m)\n", err);
 		return err;
-
-	if (mf->video.sdpm) {
-		err = sdp_media_set_lattr(mf->video.sdpm, true,
-					  "setup", "active");
-		if (err)
-			return err;
 	}
-
-	rsetup = sdp_media_session_rattr(mf->sdpm, mf->sdp, "setup");
-
-	setup_remote = setup_resolve(rsetup);
-
-	switch (setup_remote) {
-
-	case ACTPASS:
-		mf->setup = ACTIVE;  /* RFC 5763 setup:active is RECOMMENDED */
-		break;
-
-	case ACTIVE:
-		mf->setup = PASSIVE;
-		break;
-
-	case PASSIVE:
-		mf->setup = ACTIVE;
-		break;
-
-	default:
-		warning("mediaflow: illegal setup '%s' from remote\n", rsetup);
-		return EPROTO;
-	}
-
 
 	debug("mediaflow: incoming SDP offer has DTLS fingerprint = '%s'\n",
 	      fingerprint);
-	debug("mediaflow: remote_setup=%s, local_setup=%s\n",
-	      rsetup, setup_name(mf->setup));
 
 	/* DTLS has already been established, before SDP o/a */
 	if (mf->crypto_ready && mf->tls_conn && !mf->crypto_verified) {
@@ -2886,16 +3100,12 @@ static int handle_dtls_srtp(struct mediaflow *mf)
 		mf->crypto_verified = true;
 	}
 
+	if (mediaflow_early_dtls_supported(mf)) {
+
+		start_early_dtls(mf);
+	}
+
 	return 0;
-}
-
-
-static const char *sock_prefix(const struct mbuf *mb)
-{
-	if (mb->pos >= 36) return "TURN-Ind";
-	if (mb->pos >= 4) return "TURN-Chan";
-
-	return "Socket";
 }
 
 
@@ -2905,7 +3115,7 @@ static void demux_packet(struct mediaflow *mf, const struct sa *src,
 	enum packet pkt;
 	bool hdld;
 
-	pkt = classify_packet_type(mb);
+	pkt = packet_classify_packet_type(mb);
 
 	switch (pkt) {
 
@@ -2917,9 +3127,7 @@ static void demux_packet(struct mediaflow *mf, const struct sa *src,
 		break;
 
 	case PACKET_DTLS:
-		debug("mediaflow: dtls: receive %zu bytes from %s|%J\n",
-		      mbuf_get_left(mb), sock_prefix(mb), src);
-		dtls_recv_packet(mf->dtls_sock, src, mb);
+		handle_dtls_packet(mf, src, mb);
 		break;
 
 	case PACKET_STUN:
@@ -2983,7 +3191,8 @@ int mediaflow_add_local_host_candidate(struct mediaflow *mf,
 			return ENOMEM;
 
 		if (!mf->privacy_mode) {
-			err = trice_lcand_add(&lcand, mf->trice, ICE_COMPID_RTP,
+			err = trice_lcand_add(&lcand, mf->trice,
+					      ICE_COMPID_RTP,
 					      IPPROTO_UDP, prio, addr, NULL,
 					      ICE_CAND_TYPE_HOST, NULL,
 					      0,     /* tcptype */
@@ -3023,7 +3232,6 @@ int mediaflow_add_local_host_candidate(struct mediaflow *mf,
 		ifc->is_default = sa_cmp(addr, &mf->laddr_default, SA_ADDR);
 		ifc->mf = mf;
 	}
-#if 1
 	else if (mf->nat == MEDIAFLOW_ICELITE) {
 		struct ice_cand_attr cand = {
 			.foundation = "1",
@@ -3048,7 +3256,6 @@ int mediaflow_add_local_host_candidate(struct mediaflow *mf,
 			mf->nat);
 		return ENOTSUP;
 	}
-#endif
 
 	return err;
 }
@@ -3106,11 +3313,9 @@ int mediaflow_generate_offer(struct mediaflow *mf, char *sdp, size_t sz)
 		goto out;
 	}
 
-#if 1
 	debug("---------- generate SDP offer ---------\n");
 	debug("%s", sdp);
 	debug("---------------------------------------\n");
-#endif
 
 	mf->sent_sdp = true;
 
@@ -3152,11 +3357,9 @@ int mediaflow_generate_answer(struct mediaflow *mf, char *sdp, size_t sz)
 		goto out;
 	}
 
-#if 1
 	debug("---------- generate SDP answer ---------\n");
 	debug("%s", sdp);
 	debug("----------------------------------------\n");
-#endif
 
 	mf->sent_sdp = true;
 
@@ -3355,11 +3558,9 @@ int mediaflow_handle_offer(struct mediaflow *mf, const char *sdp)
 
 	mbo->pos = 0;
 
-#if 1
 	debug("---------- recv SDP offer ----------\n");
 	debug("%s", sdp);
 	debug("------------------------------------\n");
-#endif
 
 	err = sdp_decode(mf->sdp, mbo, true);
 	if (err) {
@@ -3425,11 +3626,9 @@ int mediaflow_handle_answer(struct mediaflow *mf, const char *sdp)
 
 	mb->pos = 0;
 
-#if 1
 	debug("---------- recv SDP answer ----------\n");
 	debug("%s", sdp);
 	debug("------------------------------------\n");
-#endif
 
 	err = sdp_decode(mf->sdp, mb, offer);
 	if (err) {
@@ -3783,11 +3982,21 @@ static bool rcandidate_ds_handler(const char *name, const char *val, void *arg)
 }
 
 
+static void turnc_chan_handler(void *arg)
+{
+	struct mediaflow *mf = arg;
+	(void)mf;
+
+	info("mediaflow: TURN channel added.\n");
+}
+
+
 static void trice_estab_handler(struct ice_candpair *pair,
 				const struct stun_msg *msg, void *arg)
 {
 	struct mediaflow *mf = arg;
 	void *sock;
+	int err;
 
 	info("mediaflow: ice pair established  %H\n",
 	     trice_candpair_debug, pair);
@@ -3803,6 +4012,7 @@ static void trice_estab_handler(struct ice_candpair *pair,
 	/* We use the first pair that is working */
 	if (!mf->ice_ready) {
 		struct stun_attr *attr;
+		struct turn_conn *conn;
 
 		mem_deref(mf->sel_lcand);
 		mf->sel_lcand = mem_ref(pair->lcand);
@@ -3822,6 +4032,21 @@ static void trice_estab_handler(struct ice_candpair *pair,
 		// TODO: extra for PRFLX
 		udp_handler_set(pair->lcand->us, trice_udp_recv_handler, mf);
 #endif
+
+		conn = turnconn_find_allocated(&mf->turnconnl,
+					       IPPROTO_UDP);
+		if (conn) {
+			info("mediaflow: adding TURN channel to %J\n",
+			     &pair->rcand->attr.addr);
+
+			err = turnc_add_chan(conn->turnc,
+					     &pair->rcand->attr.addr,
+					     turnc_chan_handler, mf);
+			if (err) {
+				warning("mediaflow: could not add TURN"
+					" channel (%m)\n", err);
+			}
+		}
 
 		ice_established_handler(mf, &pair->rcand->attr.addr);
 	}
@@ -4251,6 +4476,20 @@ void mediaflow_stop_media(struct mediaflow *mf)
 	mf->got_rtp = false;
 }
 
+void mediaflow_reset_media(struct mediaflow *mf)
+{
+	if (!mf)
+		return;
+
+	mf->ads = mem_deref(mf->ads);
+	mf->aes = mem_deref(mf->aes);
+	mf->mctx = NULL;
+
+	mf->video.ves = mem_deref(mf->video.ves);
+	mf->video.vds = mem_deref(mf->video.vds);
+	mf->video.mctx = NULL;
+}
+
 
 static uint32_t calc_prio(enum ice_cand_type type, int af,
 			  int turn_proto, bool turn_secure)
@@ -4375,7 +4614,6 @@ static void submit_local_candidate(struct mediaflow *mf,
 		}
 
 	}
-#if 1
 	else {
 		if (rel_addr)
 			attr.rel_addr = *rel_addr;
@@ -4383,7 +4621,6 @@ static void submit_local_candidate(struct mediaflow *mf,
 		re_snprintf(cand, sizeof(cand), "a=candidate:%H",
 			    ice_cand_attr_encode, &attr);
 	}
-#endif
 
 	if (mf->lcandh)
 		mf->lcandh(candv, candc, mf->arg);
@@ -4618,11 +4855,6 @@ static bool turntcp_send_handler(int *err, struct sa *dst,
 {
 	struct turn_conn *tc = arg;
 
-#if 0
-	re_printf("   ~~~~ turntcp: SEND [presz=%zu] (%zu bytes to %J)\n",
-		  mb->pos, mbuf_get_left(mb), dst);
-#endif
-
 	*err = turnc_send(tc->turnc, dst, mb);
 	if (*err) {
 		re_printf("mediaflow: turnc_send failed (%zu bytes to %J)\n",
@@ -4710,6 +4942,9 @@ static void turnconn_estab_handler(struct turn_conn *conn,
 	if (mf->gatherh)
 		mf->gatherh(mf->arg);
 
+	if (mediaflow_early_dtls_supported(mf))
+		start_early_dtls(mf);
+
 	return;
 
  error:
@@ -4727,7 +4962,7 @@ static void turnconn_data_handler(struct turn_conn *conn, const struct sa *src,
 	struct ice_lcand *lcand;
 	enum packet pkt;
 
-	pkt = classify_packet_type(mb);
+	pkt = packet_classify_packet_type(mb);
 
 	if (pkt == PACKET_STUN) {
 
@@ -5081,7 +5316,6 @@ static bool is_one_turnconn_allocated(const struct mediaflow *mf)
 
 	return false;
 }
-
 
 
 bool mediaflow_is_gathered(const struct mediaflow *mf)

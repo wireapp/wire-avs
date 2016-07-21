@@ -41,7 +41,7 @@ int aueffect_alloc(struct aueffect **auep,
                    int fs_hz)
 {
     struct aueffect *aue;
-    int err = 0;
+    int err = 0, strength = 0;
     
     if (!auep) {
         return EINVAL;
@@ -54,22 +54,86 @@ int aueffect_alloc(struct aueffect **auep,
         return ENOMEM;
     
     switch ((audio_effect)effect_type) {
+
+        case AUDIO_EFFECT_CHORUS_MAX:
+            strength++;
+        case AUDIO_EFFECT_CHORUS_MIN:
         case AUDIO_EFFECT_CHORUS:
+        case AUDIO_EFFECT_REVERSE:
             aue->e_create_h = create_chorus;
             aue->e_free_h = free_chorus;
             aue->e_proc_h = chorus_process;
             break;
+        case AUDIO_EFFECT_REVERB_MAX:
+            strength++;
+        case AUDIO_EFFECT_REVERB_MID:
+            strength++;
+        case AUDIO_EFFECT_REVERB_MIN:
         case AUDIO_EFFECT_REVERB:
             aue->e_create_h = create_reverb;
             aue->e_free_h = free_reverb;
             aue->e_proc_h = reverb_process;
+            break;
+        case AUDIO_EFFECT_PITCH_UP_SHIFT_INSANE:
+            strength++;
+        case AUDIO_EFFECT_PITCH_UP_SHIFT_MAX:
+            strength++;
+        case AUDIO_EFFECT_PITCH_UP_SHIFT_MED:
+            strength++;
+        case AUDIO_EFFECT_PITCH_UP_SHIFT_MIN:
+        case AUDIO_EFFECT_PITCH_UP_SHIFT:
+            aue->e_create_h = create_pitch_up_shift;
+            aue->e_free_h = free_pitch_shift;
+            aue->e_proc_h = pitch_shift_process;
+            break;
+        case AUDIO_EFFECT_PITCH_DOWN_SHIFT_INSANE:
+            strength++;
+        case AUDIO_EFFECT_PITCH_DOWN_SHIFT_MAX:
+            strength++;
+        case AUDIO_EFFECT_PITCH_DOWN_SHIFT_MED:
+            strength++;
+        case AUDIO_EFFECT_PITCH_DOWN_SHIFT_MIN:
+        case AUDIO_EFFECT_PITCH_DOWN_SHIFT:
+            aue->e_create_h = create_pitch_down_shift;
+            aue->e_free_h = free_pitch_shift;
+            aue->e_proc_h = pitch_shift_process;
+            break;
+        case AUDIO_EFFECT_PACE_DOWN_SHIFT_MAX:
+            strength++;
+        case AUDIO_EFFECT_PACE_DOWN_SHIFT_MED:
+            strength++;
+        case AUDIO_EFFECT_PACE_DOWN_SHIFT_MIN:
+            aue->e_create_h = create_pace_down_shift;
+            aue->e_free_h = free_pace_shift;
+            aue->e_proc_h = pace_shift_process;
+            aue->e_length_h = pace_shift_length_factor;
+            break;
+        case AUDIO_EFFECT_PACE_UP_SHIFT_MAX:
+            strength++;
+        case AUDIO_EFFECT_PACE_UP_SHIFT_MED:
+            strength++;
+        case AUDIO_EFFECT_PACE_UP_SHIFT_MIN:
+            aue->e_create_h = create_pace_up_shift;
+            aue->e_free_h = free_pace_shift;
+            aue->e_proc_h = pace_shift_process;
+            aue->e_length_h = pace_shift_length_factor;
+            break;
+        case AUDIO_EFFECT_VOCODER_MED:
+            aue->e_create_h = create_vocoder;
+            aue->e_free_h = free_vocoder;
+            aue->e_proc_h = vocoder_process;
+            break;
+        case AUDIO_EFFECT_NONE:
+            aue->e_create_h = create_pass_through;
+            aue->e_free_h = free_pass_through;
+            aue->e_proc_h = pass_through_process;
             break;
         default:
             error("voe: no valid audio effect \n");
             err = -1;
             goto out;
     }
-    aue->effect = aue->e_create_h(fs_hz);
+    aue->effect = aue->e_create_h(fs_hz, strength);
     if(!aue->effect){
         err = -1;
     }
@@ -85,14 +149,25 @@ out:
     return err;
 }
 
-int aueffect_process(struct aueffect *aue, const int16_t *sampin, int16_t *sampout, size_t sampc)
+int aueffect_process(struct aueffect *aue, const int16_t *sampin, int16_t *sampout, size_t n_sampin, size_t *n_sampout)
 {
     if(!aue->effect || !aue->e_proc_h){
         error("Effect not allocated ! \n");
         return -1;
     }
     
-    aue->e_proc_h(aue->effect, (int16_t*)sampin, sampout, sampc);
+    aue->e_proc_h(aue->effect, (int16_t*)sampin, sampout, n_sampin, n_sampout);
     
+    return 0;
+}
+
+int aueffect_length_modification(struct aueffect *aue, int *length_modification_q10)
+{
+    if(aue->e_length_h){
+        aue->e_length_h(aue->effect, length_modification_q10);
+    } else {
+        *length_modification_q10 = 1024;
+    }
+ 
     return 0;
 }

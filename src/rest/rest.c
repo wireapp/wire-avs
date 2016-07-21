@@ -18,6 +18,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <re.h>
+#include "avs_version.h"
 #include "avs_jzon.h"
 #include "avs_log.h"
 #include "avs_store.h"
@@ -135,7 +136,7 @@ int rest_client_alloc(struct rest_cli **restp, struct http_cli *http_cli,
 	if (user_agent)
 		err = str_dup(&rest->user_agent, user_agent);
 	else
-		err = str_dup(&rest->user_agent, AVS_PROJECT "/" AVS_VERSION);
+		err = str_dup(&rest->user_agent, avs_version_str());
 	if (err)
 		goto out;
 

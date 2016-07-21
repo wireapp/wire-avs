@@ -23,8 +23,8 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/modules/audio_coding/include/audio_coding_module.h"
+#include "webrtc/system_wrappers/include/trace.h"
 
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/include/voe_network.h"
@@ -97,7 +97,6 @@ static bool is_running;
 class VoETransport : public webrtc::Transport {
 public:
     VoETransport(struct loop_back_state *loop_back){
-        _channel = -1;
         _first_packet_time_ms = -1;
         _last_packet_time_ms = -1;
         _tot_bytes = 0;
@@ -109,52 +108,51 @@ public:
 	
     virtual ~VoETransport() {
         float avgBitRate = (float)_tot_bytes * 8.0f / (float)( _last_packet_time_ms - _first_packet_time_ms);
-        LOG("channel %d average bitrate(incl RTP header) = %.2f kbps \n", _channel, avgBitRate);
+        LOG("channel ? average bitrate(incl RTP header) = %.2f kbps \n", avgBitRate);
     };
-    
-    virtual int SendPacket(int channel, const void *data, size_t len) {
+	
+	virtual bool SendRtp(const uint8_t* packet, size_t length, const webrtc::PacketOptions& options) {
         struct timeval now, res;
         gettimeofday(&now, NULL);
         timersub(&now, &gStartTime, &res);
         int32_t ms = (int32_t)res.tv_sec*1000 + (int32_t)res.tv_usec/1000;
 		
-        _tot_bytes += len;
+        _tot_bytes += length;
         if(_first_packet_time_ms == -1){
 			LOG("First packet sent at %d ms \n", ms);
             _first_packet_time_ms = ms;
         }
         _last_packet_time_ms = ms;
-        _channel = channel;
 		
         float ploss = _loss_rate / 100.0f;
         if( ( !_xtra_prev_lost  && ((float)rand()/RAND_MAX) < ploss / (1.0f - ploss) / _avg_burst_length ) ||
             (  _xtra_prev_lost  && ((float)rand()/RAND_MAX) < 1.0f - 1.0f / _avg_burst_length ) ) {
             _xtra_prev_lost = true;
-            return (int)len;
+			return true;
         }
         _xtra_prev_lost = false;
 		
         if(_loop_back_state){
             pthread_mutex_lock(&_loop_back_state->mutex_);
-            if(len < sizeof(_loop_back_state->rtp_packet_)){
-                memcpy(_loop_back_state->rtp_packet_,data, len);
-                _loop_back_state->rtp_bytes_ = len;
+            if(length < sizeof(_loop_back_state->rtp_packet_)){
+                memcpy(_loop_back_state->rtp_packet_, packet, length);
+                _loop_back_state->rtp_bytes_ = length;
 			}
 			pthread_mutex_unlock(&_loop_back_state->mutex_);
         }
-        return (int)len;
+        return true;
     };
     
-    virtual int SendRTCPPacket(int channel, const void *data, size_t len){
+    virtual bool SendRtcp(const uint8_t* packet, size_t length) {
         if(_loop_back_state){
             pthread_mutex_lock(&_loop_back_state->mutex_);
-            if(len < sizeof(_loop_back_state->rtcp_packet_)){
-                memcpy(_loop_back_state->rtcp_packet_,data, len);
-                _loop_back_state->rtcp_bytes_ = len;
+            if(length < sizeof(_loop_back_state->rtcp_packet_)){
+                memcpy(_loop_back_state->rtcp_packet_, packet, length);
+                _loop_back_state->rtcp_bytes_ = length;
 			}
 			pthread_mutex_unlock(&_loop_back_state->mutex_);
         }
-        return (int)len;
+        return true;
     };
 	
     void SetLoopBackState(struct loop_back_state *loop_back){
@@ -174,7 +172,6 @@ private:
     int32_t _first_packet_time_ms;
     int32_t _last_packet_time_ms;
     int32_t _tot_bytes;
-    int _channel;
     int _loss_rate;
     float _avg_burst_length;
     bool _xtra_prev_lost;
@@ -235,8 +232,6 @@ static void *loop_back_thread(void *arg){
 	}
 	return NULL;
 }
-
-using rtc::scoped_ptr;
 
 #define VOE_THREAD_LOAD_PCT 100
 #define MAIN_THREAD_LOAD_PCT 100

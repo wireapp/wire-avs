@@ -25,6 +25,7 @@ import android.view.View;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import java.io.File;
 
 import com.waz.avs.AVSystem;
 import com.waz.avs.VideoCapturer;
@@ -151,13 +152,23 @@ public class FlowManager
       this.getMediaManager().addListener(this);
                    
       sharedFm = this;
-                   
+      
       attach(context, flags);
+
+      File fileDir = context.getFilesDir();      
+      setFilePath(fileDir.getAbsolutePath());
   }
                
 	
   public static FlowManager getInstance() {
 	  return sharedFm;
+  }
+
+  public static void cameraFailed() {
+	  if (sharedFm == null)
+		  return;
+
+	  sharedFm.onCameraFailed();
   }
 	
   protected void finalize ( ) throws Throwable  {
@@ -218,7 +229,15 @@ public class FlowManager
     }	  
   }
 
-	
+  private void onCameraFailed() {
+    Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
+
+    while ( iterator.hasNext() ) {
+      FlowManagerListener listener = iterator.next();
+
+      listener.cameraFailed();
+    }
+  }
 	
   private void handleError ( String convId, int error ) {
     Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
@@ -241,38 +260,6 @@ public class FlowManager
      }
   }
 
-  private void createVideoPreview () {
-
-     Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
-
-     while ( iterator.hasNext() ) {
-	     FlowManagerListener listener = iterator.next();
-
-	     listener.createVideoPreview();
-     }
-  }
-
-  private void releaseVideoPreview () {
-
-     Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
-
-     while ( iterator.hasNext() ) {
-	     FlowManagerListener listener = iterator.next();
-
-	     listener.releaseVideoPreview();
-     }
-  }
-
-  private void createVideoView ( String convId, String partId ) {
-     Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
-
-     while ( iterator.hasNext() ) {
-	     FlowManagerListener listener = iterator.next();
-
-	     listener.createVideoView(convId, partId);
-     }
-  }
-
   private void changeVideoState(int state, int reason) {
     Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
       while ( iterator.hasNext() ) {
@@ -281,8 +268,16 @@ public class FlowManager
         listener.changeVideoState(state, reason);
       }
   }
-	
 
+  private void changeVideoSize(int width, int height) {
+    Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
+      while ( iterator.hasNext() ) {
+        FlowManagerListener listener = iterator.next();
+
+        listener.changeVideoSize(width, height);
+      }
+  }
+	
   private void releaseVideoView (String convId, String partId) {
 
     Iterator<FlowManagerListener> iterator = this.getListenerSet().iterator();
@@ -411,7 +406,13 @@ public class FlowManager
 	  Log.d(TAG, "setVideoPreview: " + view + " vcap=" + videoCapturer); 
 
 	  this.previewView = tv;
-	  if (videoCapturer == null) {
+	  if (view == null) {
+		  if (videoCapturer != null) {
+			  releaseCapturer();
+		  }
+	  }
+	  else if (videoCapturer == null) {
+		  // Create and start the capturer
 		  createCapturer();
 	  }
 	  else {
@@ -467,7 +468,8 @@ public class FlowManager
 
 	  return devs;
   }
-    
+
+  private native void setFilePath(String path);
   public native void vmStartRecord(String fileName);
   public native void vmStopRecord();
   public native int vmGetLength(String fileName);
@@ -520,9 +522,7 @@ public class FlowManager
 						       640, 480, 15);
 		this.videoCapturer.setCallback(this);
 
-		if (this.previewView == null)
-			createVideoPreview();
-		else
+		if (this.previewView != null)
 			this.videoCapturer.startCapture(this.previewView);
 		
 		Log.d(TAG, "createCapturer: created");
@@ -533,6 +533,5 @@ public class FlowManager
 			videoCapturer.destroy();
 			videoCapturer = null;
 		}
-		previewView = null;
 	}
 }

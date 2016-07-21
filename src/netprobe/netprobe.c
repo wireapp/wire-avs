@@ -202,13 +202,13 @@ static void turnconn_estab_handler(struct turn_conn *conn,
 
 	attr = stun_msg_attr(msg, STUN_ATTR_SOFTWARE);
 	if (attr) {
-		re_printf("netprobe: turn server is %s\n",
-			  attr->v.software);
+		info("netprobe: turn server is %s\n",
+		     attr->v.software);
 	}
 	attr = stun_msg_attr(msg, STUN_ATTR_LIFETIME);
 	if (attr) {
-		re_printf("netprobe: turn lifetime is %u seconds\n",
-			  attr->v.lifetime);
+		info("netprobe: turn lifetime is %u seconds\n",
+		     attr->v.lifetime);
 	}
 
 	/* we must add a permission to our own NAT box */

@@ -31,10 +31,10 @@ extern "C" {
 
 #define PI 3.1415926536
 
-void* create_chorus(int fs_hz)
+static void* create_chorus_org(int fs_hz, int strength)
 {
     int period_len;
-    struct chorus_effect* cho = (struct chorus_effect*)calloc(sizeof(struct chorus_effect),1);
+    struct chorus_org_effect* cho = (struct chorus_org_effect*)calloc(sizeof(struct chorus_org_effect),1);
     
     cho->resampler = new webrtc::PushResampler<int16_t>;
     cho->resampler->InitializeIfNeeded(fs_hz, fs_hz*UP_FAC, 1);
@@ -73,9 +73,9 @@ void* create_chorus(int fs_hz)
     return (void*)cho;
 }
 
-void free_chorus(void *st)
+static void free_chorus_org(void *st)
 {
-    struct chorus_effect *cho = (struct chorus_effect*)st;
+    struct chorus_org_effect *cho = (struct chorus_org_effect*)st;
     
     delete cho->resampler;
     free(cho);
@@ -112,16 +112,25 @@ static int16_t update_sine_chorus_elem(struct sine_chorus_elem *s_elem, int16_t 
     return ret;
 }
 
-void chorus_process(void *st, int16_t in[], int16_t out[], int L)
+static float compress(float x)
 {
-    struct chorus_effect *cho = (struct chorus_effect*)st;
+    float y = 1/(exp(-3*x)+1.0f);
+    y = y - 0.5f;
+    
+    return y;
+}
+
+static void chorus_process_org(void *st, int16_t in[], int16_t out[], size_t L)
+{
+    struct chorus_org_effect *cho = (struct chorus_org_effect*)st;
     
     int32_t tmp = 0;
     int16_t *ptr;
     int hist_size = (MAX_D_MS * cho->fs_khz) * UP_FAC;
+    float y, sc1 = 1.0f/(32768.0f*2.0f), sc2 = (32768.0f*2.0f);
     
     int L10 = (cho->fs_khz * 10);
-    int N = L / L10;
+    int N = (int)L / L10;
     if( N * L10 != L || L > (cho->fs_khz * MAX_L_MS)){
         error("chorus_process needs 10 ms chunks max %d ms \n", MAX_L_MS);
     }
@@ -131,7 +140,7 @@ void chorus_process(void *st, int16_t in[], int16_t out[], int L)
     }
             
     ptr = &cho->buf[hist_size];
-    for(int i = 0; i < L; i++){
+    for(size_t i = 0; i < L; i++){
         tmp = ptr[i * UP_FAC];
 
 #if NUM_RAND_ELEM
@@ -146,15 +155,89 @@ void chorus_process(void *st, int16_t in[], int16_t out[], int L)
         }
 #endif
         
-        if(tmp > 32767){ // todo make better saturation
-            tmp = 32767;
-        }
-        if(tmp < -32767){
-            tmp = -32767;
-        }
+        y = (float)tmp * sc1;
+        y = compress(y);
+        y = y * sc2;
         
-        out[i] = (int16_t)tmp;
+        out[i] = (int16_t)y;
     }
     
     memmove(cho->buf, &cho->buf[L * UP_FAC], hist_size*sizeof(int16_t)); // todo make circular
+}
+
+static void* create_chorus_alt(int fs_hz, int strength)
+{
+    struct chorus_alt_effect* cho = (struct chorus_alt_effect*)calloc(sizeof(struct chorus_alt_effect),1);
+    
+    cho->pse1 = create_pitch_up_shift(fs_hz, 0);
+    cho->pse2 = create_pitch_down_shift(fs_hz, 0);
+    
+    return (void*)cho;
+}
+
+static void free_chorus_alt(void *st)
+{
+    struct chorus_alt_effect *cho = (struct chorus_alt_effect*)st;
+    
+    free_pitch_shift(cho->pse1);
+    free_pitch_shift(cho->pse2);
+    free(cho);
+}
+
+static void chorus_process_alt(void *st, int16_t in[], int16_t out[], size_t L)
+{
+    struct chorus_alt_effect *cho = (struct chorus_alt_effect*)st;
+    int16_t out1[L], out2[L];
+    int32_t tmp;
+    float y, sc1 = 1.0f/(32768.0f*2.0f), sc2 = (32768.0f*2.0f);
+    
+    size_t L_out;
+    pitch_shift_process(cho->pse1, in, out1, L, &L_out);
+    pitch_shift_process(cho->pse2, in, out2, L, &L_out);
+    
+    for(int i = 0; i < L; i++){
+        tmp = in[i] + out1[i] + out2[i];
+        y = (float)tmp * sc1;
+        y = compress(y);
+        y = y * sc2;
+        out[i] = (int16_t)y;
+    }
+}
+
+void* create_chorus(int fs_hz, int strength)
+{
+    struct chorus_effect* cho = (struct chorus_effect*)calloc(sizeof(struct chorus_effect),1);
+
+    cho->strength = strength;
+    if(strength > 0){
+        cho->st = create_chorus_org(fs_hz, 0);
+    } else {
+        cho->st = create_chorus_alt(fs_hz, 0);
+    }
+    return (void*)cho;
+}
+
+void free_chorus(void *st)
+{
+    struct chorus_effect *cho = (struct chorus_effect*)st;
+
+    if(cho->strength > 0){
+        free_chorus_org(cho->st);
+    } else {
+        free_chorus_alt(cho->st);
+    }
+    free(cho);
+}
+
+
+void chorus_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t *L_out)
+{
+    struct chorus_effect *cho = (struct chorus_effect*)st;
+    
+    if(cho->strength > 0){
+        chorus_process_org(cho->st, in, out, L_in);
+    } else {
+        chorus_process_alt(cho->st, in, out, L_in);
+    }
+    *L_out = L_in;
 }

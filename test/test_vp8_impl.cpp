@@ -27,12 +27,11 @@
 
 #include <stdio.h>
 
-#include "webrtc/base/scoped_ptr.h"
+#include "webrtc/base/checks.h"
+#include "webrtc/base/timeutils.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
 #include "webrtc/modules/video_coding/codecs/vp8/include/vp8.h"
-#include "webrtc/system_wrappers/interface/tick_util.h"
 #include "webrtc/test/testsupport/fileutils.h"
-#include "webrtc/test/testsupport/gtest_disable.h"
 
 #include "gtest/gtest.h"
 
@@ -59,7 +58,7 @@ class Vp8UnitTestEncodeCompleteCallback : public webrtc::EncodedImageCallback {
 
  private:
   EncodedImage* const encoded_frame_;
-  rtc::scoped_ptr<uint8_t[]> frame_buffer_;
+  std::unique_ptr<uint8_t[]> frame_buffer_;
   bool encode_complete_;
 };
 
@@ -172,8 +171,8 @@ class vp8 : public ::testing::Test {
   }
 
   size_t WaitForEncodedFrame() const {
-    int64_t startTime = TickTime::MillisecondTimestamp();
-    while (TickTime::MillisecondTimestamp() - startTime < kMaxWaitEncTimeMs) {
+    int64_t startTime = rtc::TimeMillis();
+    while (rtc::TimeMillis() - startTime < kMaxWaitEncTimeMs) {
       if (encode_complete_callback_->EncodeComplete()) {
         return encoded_frame_._length;
       }
@@ -181,27 +180,27 @@ class vp8 : public ::testing::Test {
     return 0;
   }
 
-  size_t WaitForDecodedFrame() const {
-    int64_t startTime = TickTime::MillisecondTimestamp();
-    while (TickTime::MillisecondTimestamp() - startTime < kMaxWaitDecTimeMs) {
-      if (decode_complete_callback_->DecodeComplete()) {
-        return CalcBufferSize(kI420, decoded_frame_.width(),
-                              decoded_frame_.height());
-      }
+    size_t WaitForDecodedFrame() const {
+        int64_t startTime = rtc::TimeMillis();
+        while (rtc::TimeMillis() - startTime < kMaxWaitDecTimeMs) {
+            if (decode_complete_callback_->DecodeComplete()) {
+                return CalcBufferSize(kI420, decoded_frame_.width(),
+                                      decoded_frame_.height());
+            }
+        }
+        return 0;
     }
-    return 0;
-  }
 
   const int kWidth = 176;
   const int kHeight = 144;
 
-  rtc::scoped_ptr<Vp8UnitTestEncodeCompleteCallback> encode_complete_callback_;
-  rtc::scoped_ptr<Vp8UnitTestDecodeCompleteCallback> decode_complete_callback_;
-  rtc::scoped_ptr<uint8_t[]> source_buffer_;
+  std::unique_ptr<Vp8UnitTestEncodeCompleteCallback> encode_complete_callback_;
+  std::unique_ptr<Vp8UnitTestDecodeCompleteCallback> decode_complete_callback_;
+  std::unique_ptr<uint8_t[]> source_buffer_;
   FILE* source_file_;
   VideoFrame input_frame_;
-  rtc::scoped_ptr<VideoEncoder> encoder_;
-  rtc::scoped_ptr<VideoDecoder> decoder_;
+  std::unique_ptr<VideoEncoder> encoder_;
+  std::unique_ptr<VideoDecoder> decoder_;
   EncodedImage encoded_frame_;
   VideoFrame decoded_frame_;
   size_t length_source_frame_;
@@ -234,12 +233,17 @@ TEST_F(vp8, encoder_parameter_test) {
   EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, decoder_->InitDecode(&codec_inst_, 1));
 }
 
-TEST_F(vp8, DISABLED_ON_ANDROID(aligned_stride_encode_decode)) {
+#if defined(WEBRTC_ANDROID)
+#define MAYBE_AlignedStrideEncodeDecode DISABLED_AlignedStrideEncodeDecode
+#else
+#define MAYBE_AlignedStrideEncodeDecode AlignedStrideEncodeDecode
+#endif
+TEST_F(vp8, MAYBE_AlignedStrideEncodeDecode) {
   SetUpEncodeDecode();
   encoder_->Encode(input_frame_, NULL, NULL);
   EXPECT_GT(WaitForEncodedFrame(), 0u);
   // First frame should be a key frame.
-  encoded_frame_._frameType = kKeyFrame;
+  encoded_frame_._frameType = kVideoFrameKey;
   encoded_frame_.ntp_time_ms_ = kTestNtpTimeMs;
   EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
             decoder_->Decode(encoded_frame_, false, NULL));
@@ -250,7 +254,12 @@ TEST_F(vp8, DISABLED_ON_ANDROID(aligned_stride_encode_decode)) {
   EXPECT_EQ(kTestNtpTimeMs, decoded_frame_.ntp_time_ms());
 }
 
-TEST_F(vp8, DISABLED_ON_ANDROID(decode_with_a_complete_key_frame)) {
+#if defined(WEBRTC_ANDROID)
+#define MAYBE_DecodeWithACompleteKeyFrame DISABLED_DecodeWithACompleteKeyFrame
+#else
+#define MAYBE_DecodeWithACompleteKeyFrame DecodeWithACompleteKeyFrame
+#endif
+TEST_F(vp8, MAYBE_DecodeWithACompleteKeyFrame) {
   SetUpEncodeDecode();
   encoder_->Encode(input_frame_, NULL, NULL);
   EXPECT_GT(WaitForEncodedFrame(), 0u);
@@ -259,33 +268,15 @@ TEST_F(vp8, DISABLED_ON_ANDROID(decode_with_a_complete_key_frame)) {
   EXPECT_EQ(WEBRTC_VIDEO_CODEC_ERROR,
             decoder_->Decode(encoded_frame_, false, NULL));
   // Setting complete back to true. Forcing a delta frame.
-  encoded_frame_._frameType = kDeltaFrame;
+  encoded_frame_._frameType = kVideoFrameDelta;
   encoded_frame_._completeFrame = true;
   EXPECT_EQ(WEBRTC_VIDEO_CODEC_ERROR,
             decoder_->Decode(encoded_frame_, false, NULL));
   // Now setting a key frame.
-  encoded_frame_._frameType = kKeyFrame;
+  encoded_frame_._frameType = kVideoFrameKey;
   EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
             decoder_->Decode(encoded_frame_, false, NULL));
   EXPECT_GT(I420PSNR(&input_frame_, &decoded_frame_), 36);
-}
-
-TEST_F(vp8, test_reset) {
-  SetUpEncodeDecode();
-  EXPECT_EQ(0, encoder_->Encode(input_frame_, NULL, NULL));
-  EXPECT_EQ(0, decoder_->Decode(encoded_frame_, false, NULL));
-  size_t length = CalcBufferSize(kI420, kWidth, kHeight);
-  rtc::scoped_ptr<uint8_t[]> first_frame_buffer(new uint8_t[length]);
-  ExtractBuffer(decoded_frame_, length, first_frame_buffer.get());
-
-  EXPECT_EQ(0, decoder_->Reset());
-
-  EXPECT_EQ(0, decoder_->Decode(encoded_frame_, false, NULL));
-  rtc::scoped_ptr<uint8_t[]> second_frame_buffer(new uint8_t[length]);
-  ExtractBuffer(decoded_frame_, length, second_frame_buffer.get());
-
-  EXPECT_EQ(
-      0, memcmp(second_frame_buffer.get(), first_frame_buffer.get(), length));
 }
 
 }  // namespace webrtc

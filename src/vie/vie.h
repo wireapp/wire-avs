@@ -19,26 +19,42 @@
 #ifndef VIE_H
 #define VIE_H
 
-#include "webrtc/modules/video_capture/include/video_capture.h"
 #include "webrtc/call.h"
 #include "vie_renderer.h"
-#include "webrtc/modules/utility/interface/rtp_dump.h"
-
+#include "webrtc/transport.h"
 #include "capture_router.h"
+
+#include "avs_rtpdump.h"
 
 #define USE_RTX  1
 #define USE_REMB 1
 #define USE_RTP_ROTATION 1
 
-#define FORCE_VIDEO_RECORDING 0
+#define FORCE_VIDEO_RTP_RECORDING 0
+#define VIDEO_RTP_RECORDING_LENGTH 30
 
 static const int kVideoRotationRtpExtensionId = 4;
-static const int kAbsSendTimeExtensionId = 7;
+static const int kAbsSendTimeExtensionId = 3;
 
-class ViETransport;
 class ViERenderer;
 class ViECaptureRouter;
 class ViELoadObserver;
+
+class ViETransport : public webrtc::Transport
+{
+public:
+	ViETransport(struct vie *vie_);
+	virtual ~ViETransport();
+
+	bool SendRtp(const uint8_t* packet, size_t length,
+		const webrtc::PacketOptions& options);
+
+	bool SendRtcp(const uint8_t* packet, size_t length);
+
+private:
+	struct vie *vie;
+	bool active;
+};
 
 /* rtcp stats */
 
@@ -171,8 +187,8 @@ struct vie {
 	struct transp_stats stats_tx;
 	struct transp_stats stats_rx;
     
-
-    webrtc::RtpDump* rtpDump;
+    wire_avs::RtpDump* rtp_dump_in;
+    wire_avs::RtpDump* rtp_dump_out;
 };
 
 int vie_alloc(struct vie **viep, const struct vidcodec *vc, int pt);
@@ -212,6 +228,7 @@ struct vid_eng {
 
 	flowmgr_video_state_change_h *state_change_h;
 	flowmgr_render_frame_h *render_frame_h;
+	flowmgr_video_size_h *size_h;
 	void *cb_arg;
 };
 

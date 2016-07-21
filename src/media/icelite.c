@@ -18,6 +18,7 @@
 
 #include <string.h>
 #include <re.h>
+#include "avs_version.h"
 #include "avs_log.h"
 #include "avs_media.h"
 #include "priv_mediaflow.h"
@@ -208,7 +209,7 @@ static bool udp_helper_recv_handler(struct sa *src, struct mbuf *mb,
 				 str_len(ice->pwd),
 				 true, 2,
 				 STUN_ATTR_XOR_MAPPED_ADDR, src,
-				 STUN_ATTR_SOFTWARE, avs_software);
+				 STUN_ATTR_SOFTWARE, avs_version_str());
 		if (err) {
 			warning("mediaflow: stun_reply error: %m\n",
 				err);

@@ -1,3 +1,33 @@
+/*
+ * Wire
+ * Copyright (C) 2016 Wire Swiss GmbH
+ *
+ * The Wire Software is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License,
+ * or (at your option) any later version.
+ *
+ * The Wire Software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with the Wire Software. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * This module of the Wire Software uses software code from
+ * WebRTC (https://chromium.googlesource.com/external/webrtc)
+ *
+ * *  Copyright (c) 2015 The WebRTC project authors. All Rights Reserved.
+ * *
+ * *  Use of the WebRTC source code on a stand-alone basis is governed by a
+ * *  BSD-style license that can be found in the LICENSE file in the root of
+ * *  the source tree.
+ * *  An additional intellectual property rights grant can be found
+ * *  in the file PATENTS.  All contributing project authors to Web RTC may
+ * *  be found in the AUTHORS file in the root of the source tree.
+ */
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -101,6 +131,8 @@ struct {
 struct video_renderer {
 	bool inited;
 	bool rounded;
+	bool should_fill;
+	bool needs_recalc;
 	bool use_mask;
 	int w;
 	int h;
@@ -270,16 +302,15 @@ static int setup_vertices(struct video_renderer *vr, int rotation)
 		fa = 1.0f / fa;
 	}
 	
-
-	if (fa > va) {
-		xscale = fa/va;
+	if (vr->should_fill == (va > fa)) {
+		yscale *= va / fa;
 	}
 	else {
-		yscale = va/fa;
+		xscale *= fa / va;
 	}
 
-	debug("setup_vertices: view(%fx%f)%f frame(%fx%f)%f scale=(%fx%f)\n",
-	      vw, vh, va, fw, fh, fa, xscale, yscale);
+	info("setup_vertices: view(%fx%f)%f frame(%fx%f)%f scale(%fx%f) fill %s\n",
+	      vw, vh, va, fw, fh, fa, xscale, yscale, vr->should_fill ? "YES" : "NO");
 
 
 	switch (rotation) {
@@ -426,6 +457,8 @@ int video_renderer_alloc(struct video_renderer **vrp,  int w, int h,
 	vr->tex.h = -1;
 
 	vr->rounded = rounded;
+	vr->should_fill = true;
+	vr->needs_recalc = false;
 	vr->inited = false;
 	vr->w = w;
 	vr->h = h;
@@ -647,10 +680,15 @@ int video_renderer_handle_frame(struct video_renderer *vr,
 
 	if (!vr->inited)
 		renderer_init(vr);
-	
+
+	glClearColor(0.0, 0.0, 0.0, 1.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+
 	if (vr->tex.w != vf->w
 	    || vr->tex.h != vf->h
-	    || vr->tex.rotation != vf->rotation){
+	    || vr->tex.rotation != vf->rotation
+	    || vr->needs_recalc){
+		vr->needs_recalc = false;
 		setup_textures(vr, vf);
 	}
 	
@@ -669,6 +707,15 @@ int video_renderer_handle_frame(struct video_renderer *vr,
 		glDisable(GL_BLEND);
 
 	return 0;
+}
+
+void video_renderer_set_should_fill(struct video_renderer *vr,
+				    bool should_fill)
+{
+	if (vr) {
+		vr->should_fill = should_fill;
+		vr->needs_recalc = true;
+	}
 }
 
 #else
@@ -707,5 +754,9 @@ void *video_renderer_arg(struct video_renderer *vr)
 	return vr ? vr->arg : NULL;
 }
 
+void video_renderer_set_should_fill(struct video_renderer *vr,
+				    bool should_fill)
+{
+}
 
 #endif

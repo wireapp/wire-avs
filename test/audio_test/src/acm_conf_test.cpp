@@ -22,11 +22,11 @@
 
 #include <sys/time.h>
 
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
-#include "webrtc/system_wrappers/interface/scoped_ptr.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/modules/audio_coding/include/audio_coding_module.h"
+//#include "webrtc/system_wrappers/interface/scoped_ptr.h"
+#include "webrtc/system_wrappers/include/trace.h"
 
-#include "NetworkQueue.h"
+#include "NwSimulator.h"
 
 #if TARGET_OS_IPHONE
 #include "AudioTest.h"
@@ -164,7 +164,7 @@ namespace webrtc {
 
 using webrtc::AudioFrame;
 using webrtc::AudioCodingModule;
-using webrtc::scoped_ptr;
+//using webrtc::scoped_ptr;
 
 /**********************************/
 /* Main Testing part              */
@@ -189,8 +189,8 @@ int main(int argc, char *argv[])
     
   timerclear(&totTime);
 
-  scoped_ptr<AudioCodingModule> acm1(AudioCodingModule::Create(0));
-  scoped_ptr<AudioCodingModule> acm2(AudioCodingModule::Create(2));
+  std::unique_ptr<AudioCodingModule> acm1(AudioCodingModule::Create(0));
+  std::unique_ptr<AudioCodingModule> acm2(AudioCodingModule::Create(2));
     
   printf("\n--- Running ACM test: --- \n");
   printf("Fs                          : %d Hz \n", sample_rate_hz);

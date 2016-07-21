@@ -37,6 +37,7 @@ struct aucodec_stats {
 	struct max_min_avg rtt;
 	struct max_min_avg jb_size;
 	int16_t test_score;
+	char audio_route[1024];
 };
     
 #ifdef __cplusplus

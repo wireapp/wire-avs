@@ -218,6 +218,9 @@ static void test_init(enum cert_type cert_type, unsigned seq_lost)
 	err = tls_alloc(&tls, TLS_METHOD_DTLS, 0, 0);
 	ASSERT_EQ(0, err);
 
+	err = cert_enable_ecdh(tls);
+	ASSERT_EQ(0, err);
+
 	switch (cert_type) {
 
 	case CERT_TYPE_RSA:

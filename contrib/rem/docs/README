@@ -1,0 +1,55 @@
+README
+------
+
+librem - "Audio and video processing media library"
+Copyright (C) 2010 - 2014 Creytiv.com
+
+Distributed under BSD license
+
+
+
+
+Audio Modules:
+
+  name:     status:       description:
+
+* au        testing       Base audio types
+* aubuf     testing       Audio buffer
+* aufile    testing       Audio file reader/writer
+* aumix     unstable      Audio mixer
+* auresamp  unstable      Audio resampler
+* autone    testing       Tone/DTMF generator
+* g711      stable        G.711 audio codec
+
+
+
+
+Video Modules:
+
+  name:     status:       description:
+
+* vid       testing       Base video types
+* vidconv   testing       Colorspace conversion and scaling
+* vidmix    unstable      Video mixer
+
+
+
+
+Generic modules:
+
+* dsp       testing       DSP routines
+* fir       unstable      FIR (Finite Impulse Response) filter
+
+
+
+
+External dependencies:
+
+libre
+
+
+
+
+Feedback:
+
+- Please send feedback to <libre@creytiv.com>

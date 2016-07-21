@@ -26,7 +26,7 @@
 
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/include/voe_network.h"
 #include "webrtc/voice_engine/include/voe_codec.h"
@@ -37,17 +37,16 @@
 #include "webrtc/voice_engine/include/voe_neteq_stats.h"
 #include "webrtc/voice_engine/include/voe_errors.h"
 #include "webrtc/voice_engine/include/voe_hardware.h"
-#include "webrtc/voice_engine/include/voe_conf_control.h"
 
 #include "avs.h"
 #include "avs_ztime.h"
 #include "avs_audio_io.h"
 #include "avs_flowmgr.h"
+#include "avs_rtpdump.h"
 
 /* common */
 
 #define MILLISECONDS_PER_SECOND 1000
-
 
 /* main file */
 void voe_multi_party_packet_rate_control(struct voe *voe);
@@ -84,26 +83,6 @@ int voe_enc_alloc(struct auenc_state **aesp,
 
 int  voe_enc_start(struct auenc_state *aes);
 void voe_enc_stop(struct auenc_state *aes);
-
-struct znw_stats{
-    webrtc::NetworkStatistics neteq_nw_stats;
-    int64_t Rtt_ms;
-    unsigned int jitter_smpls;
-    uint16_t uplink_loss_q8;
-    unsigned int uplink_jitter_smpls;
-    uint16_t in_vol;
-    uint16_t out_vol;
-};
-
-#define NUM_STATS 32
-#define NW_STATS_DELTA 10
-struct nw_stats {
-    struct znw_stats nw_stats[NUM_STATS];
-    int idx_;
-    int channel_number_;
-    float out_vol_smth_;
-    int n;
-};
 
 /* decoder */
 
@@ -201,6 +180,9 @@ struct voe_channel {
 	int pt;
 
 	VoETransport *transport;
+    
+	wire_avs::RtpDump* rtp_dump_in;
+	wire_avs::RtpDump* rtp_dump_out;
 };
 
 int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
@@ -211,18 +193,39 @@ void voe_transportl_flush(void);
 const char* voe_iosfilepath(void);
 #endif
 
-/* global data */
 
-struct channel_settings {
-	int  channel_number_;
-	int  bitrate_bps_;
-	int  packet_size_ms_;
-	bool using_dtx_;
-	int  last_rtcp_rtt;
-	int  last_rtcp_ploss;
-	bool interrupted_;
+#define NUM_STATS 32
+#define NW_STATS_DELTA 10
+
+struct channel_stats{
+    webrtc::NetworkStatistics neteq_nw_stats;
+    int64_t Rtt_ms;
+    unsigned int jitter_smpls;
+    uint16_t uplink_loss_q8;
+    unsigned int uplink_jitter_smpls;
+    uint16_t in_vol;
+    uint16_t out_vol;
 };
 
+struct channel_data {
+	struct le le;
+	int  channel_number;
+	int  bitrate_bps;
+	int  packet_size_ms;
+	bool using_dtx;
+	int  last_rtcp_rtt;
+	int  last_rtcp_ploss;
+	bool interrupted;
+	struct channel_stats ch_stats[NUM_STATS];
+	int stats_idx;
+	int stats_cnt;
+	float out_vol_smth;
+};
+
+int channel_data_add(struct list *ch_list, int ch, webrtc::CodecInst &c);
+struct channel_data *find_channel_data(struct list *active_chs, int ch);
+
+/* global data */
 struct voe {
 	webrtc::VoiceEngine* ve;
 	webrtc::VoEBase* base;
@@ -234,15 +237,14 @@ struct voe {
 	webrtc::VoERTP_RTCP *rtp_rtcp;
 	webrtc::VoENetEqStats *neteq_stats;
 	webrtc::VoEHardware *hw;
-	webrtc::VoEConfControl *conferencing;
 
 	webrtc::CodecInst *codecs;
 	size_t ncodecs;
 
 	int nch;
-	std::vector<channel_settings> active_channel_settings;
-    int packet_size_ms;
-    int min_packet_size_ms;
+	struct list channel_data_list;
+	int packet_size_ms;
+	int min_packet_size_ms;
 	int manual_packet_size_ms;
     int bitrate_bps;
     int manual_bitrate_bps;
@@ -257,7 +259,7 @@ struct voe {
 	bool isMuted;
 	bool isSilenced;
     
-	const char *path_to_files;
+	std::string path_to_files;
     
 	struct tmr tmr_neteq_stats;
     
@@ -270,8 +272,6 @@ struct voe {
 	uint16_t in_vol_max;
 	uint16_t out_vol_max;
     
-	std::vector<nw_stats> nws;
-      
 	struct vm_state vm;
     
 	struct audio_test_state autest;

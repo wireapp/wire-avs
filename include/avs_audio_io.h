@@ -20,5 +20,8 @@
 #define AVS_AUDIO_IO_H
 
 #include "src/audio_io/fake_audiodevice.h"
+#if TARGET_OS_IPHONE
+ #include "src/audio_io/ios/audio_io_ios.h"
+#endif
 
 #endif // AVS_AUDIO_IO_H

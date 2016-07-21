@@ -186,7 +186,10 @@ static int dec_alloc(struct audec_state **adsp,
 static int audec_rtp_handler(struct audec_state *ads,
 			     const uint8_t *pkt, size_t len)
 {
+#if 0
+	/* Dont print anything here, it is too noisy .. */
 	debug("audummy: decoder receive %zu bytes\n", len);
+#endif
 	return 0;
 }
 

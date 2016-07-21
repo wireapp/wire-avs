@@ -916,6 +916,17 @@ bool call_has_media(struct call *call)
 	return has_media;
 }
 
+static bool stats_has_video(struct mediaflow *mf)
+{
+	struct rtp_stats* rtps = mediaflow_snd_video_rtp_stats(mf);
+	bool has_video = false;
+	if(rtps){
+		if(rtps->bit_rate_stats.max != -1){
+			has_video = true;
+		}
+	}
+	return has_video;
+}
 
 bool call_stats_prepare(struct call *call, struct json_object *jobj)
 {
@@ -961,20 +972,26 @@ bool call_stats_prepare(struct call *call, struct json_object *jobj)
 				    json_object_new_boolean(dtls));
 		json_object_object_add(jobj, "ice",
 				    json_object_new_boolean(ice));
-
+		json_object_object_add(jobj, "video",
+					json_object_new_boolean(stats_has_video(userflow_mediaflow(flow->userflow))));
+        
 		struct aucodec_stats *voe_stats = mediaflow_codec_stats(userflow_mediaflow(flow->userflow));
 		if (voe_stats) {
 			err |= jzon_add_int(jobj, "mic_vol(dB)", voe_stats->in_vol.avg);
 			err |= jzon_add_int(jobj, "spk_vol(dB)", voe_stats->out_vol.avg);
-			err |= jzon_add_int(jobj, "avg_loss_d", voe_stats->loss_d.avg);
-			err |= jzon_add_int(jobj, "max_loss_d", voe_stats->loss_d.max);
-			err |= jzon_add_int(jobj, "avg_loss_u", voe_stats->loss_u.avg);
-			err |= jzon_add_int(jobj, "max_loss_u", voe_stats->loss_u.max);
 			err |= jzon_add_int(jobj, "avg_rtt", voe_stats->rtt.avg);
 			err |= jzon_add_int(jobj, "max_rtt", voe_stats->rtt.max);
+			err |= jzon_add_int(jobj, "avg_jb_loss", voe_stats->loss_d.avg);
+			err |= jzon_add_int(jobj, "max_jb_loss", voe_stats->loss_d.max);
+			err |= jzon_add_int(jobj, "avg_jb_size", voe_stats->jb_size.avg);
+			err |= jzon_add_int(jobj, "max_jb_size", voe_stats->jb_size.max);
+			err |= jzon_add_int(jobj, "avg_loss_u", voe_stats->loss_u.avg);
+			err |= jzon_add_int(jobj, "max_loss_u", voe_stats->loss_u.max);
 		}
 		struct rtp_stats* rtps = mediaflow_rcv_audio_rtp_stats(userflow_mediaflow(flow->userflow));
 		if (rtps) {
+			err |= jzon_add_int(jobj, "avg_loss_d", (int)rtps->pkt_loss_stats.avg);
+			err |= jzon_add_int(jobj, "max_loss_d", (int)rtps->pkt_loss_stats.max);
 			err |= jzon_add_int(jobj, "avg_rate_d", (int)rtps->bit_rate_stats.avg);
 			err |= jzon_add_int(jobj, "min_rate_d", (int)rtps->bit_rate_stats.min);
 			err |= jzon_add_int(jobj, "avg_pkt_rate_d", (int)rtps->pkt_rate_stats.avg);
@@ -988,27 +1005,30 @@ bool call_stats_prepare(struct call *call, struct json_object *jobj)
 			err |= jzon_add_int(jobj, "avg_pkt_rate_u", (int)rtps->pkt_rate_stats.avg);
 			err |= jzon_add_int(jobj, "min_pkt_rate_u", (int)rtps->pkt_rate_stats.min);
 		}
-		err |= jzon_add_int(jobj, "test_score", voe_stats->test_score);
-		if (mediaflow_has_video(userflow_mediaflow(flow->userflow))) {
-			rtps = mediaflow_rcv_video_rtp_stats(userflow_mediaflow(flow->userflow));
-			if (rtps) {
-				err |= jzon_add_int(jobj, "v_avg_rate_d", (int)rtps->bit_rate_stats.avg);
-				err |= jzon_add_int(jobj, "v_min_rate_d", (int)rtps->bit_rate_stats.min);
-				err |= jzon_add_int(jobj, "v_max_rate_d", (int)rtps->bit_rate_stats.max);
-				err |= jzon_add_int(jobj, "v_avg_frame_rate_d", (int)rtps->frame_rate_stats.avg);
-				err |= jzon_add_int(jobj, "v_min_frame_rate_d", (int)rtps->frame_rate_stats.min);
-				err |= jzon_add_int(jobj, "v_max_frame_rate_d", (int)rtps->frame_rate_stats.max);
-				err |= jzon_add_int(jobj, "v_dropouts", rtps->dropouts);
-			}
-			rtps = mediaflow_snd_video_rtp_stats(userflow_mediaflow(flow->userflow));
-			if (rtps) {
-				err |= jzon_add_int(jobj, "v_avg_rate_u", (int)rtps->bit_rate_stats.avg);
-				err |= jzon_add_int(jobj, "v_min_rate_u", (int)rtps->bit_rate_stats.min);
-				err |= jzon_add_int(jobj, "v_max_rate_u", (int)rtps->bit_rate_stats.max);
-				err |= jzon_add_int(jobj, "v_avg_frame_rate_u", (int)rtps->frame_rate_stats.avg);
-				err |= jzon_add_int(jobj, "v_min_frame_rate_u", (int)rtps->frame_rate_stats.min);
-				err |= jzon_add_int(jobj, "v_max_frame_rate_u", (int)rtps->frame_rate_stats.max);
-			}
+		if (voe_stats) {
+			struct json_object *jsess;
+			jsess = json_object_new_string(voe_stats->audio_route);
+			json_object_object_add(jobj, "audio_route", jsess);
+			err |= jzon_add_int(jobj, "test_score", voe_stats->test_score);
+		}
+		rtps = mediaflow_rcv_video_rtp_stats(userflow_mediaflow(flow->userflow));
+		if (rtps) {
+			err |= jzon_add_int(jobj, "v_avg_rate_d", (int)rtps->bit_rate_stats.avg);
+			err |= jzon_add_int(jobj, "v_min_rate_d", (int)rtps->bit_rate_stats.min);
+			err |= jzon_add_int(jobj, "v_max_rate_d", (int)rtps->bit_rate_stats.max);
+			err |= jzon_add_int(jobj, "v_avg_frame_rate_d", (int)rtps->frame_rate_stats.avg);
+			err |= jzon_add_int(jobj, "v_min_frame_rate_d", (int)rtps->frame_rate_stats.min);
+			err |= jzon_add_int(jobj, "v_max_frame_rate_d", (int)rtps->frame_rate_stats.max);
+			err |= jzon_add_int(jobj, "v_dropouts", rtps->dropouts);
+		}
+		rtps = mediaflow_snd_video_rtp_stats(userflow_mediaflow(flow->userflow));
+		if (rtps) {
+			err |= jzon_add_int(jobj, "v_avg_rate_u", (int)rtps->bit_rate_stats.avg);
+			err |= jzon_add_int(jobj, "v_min_rate_u", (int)rtps->bit_rate_stats.min);
+			err |= jzon_add_int(jobj, "v_max_rate_u", (int)rtps->bit_rate_stats.max);
+			err |= jzon_add_int(jobj, "v_avg_frame_rate_u", (int)rtps->frame_rate_stats.avg);
+			err |= jzon_add_int(jobj, "v_min_frame_rate_u", (int)rtps->frame_rate_stats.min);
+			err |= jzon_add_int(jobj, "v_max_frame_rate_u", (int)rtps->frame_rate_stats.max);
 		}
 		if (err)
 			return NULL;
@@ -1025,6 +1045,8 @@ bool call_stats_prepare(struct call *call, struct json_object *jobj)
 			if (err)
 				return NULL;
 		}
+
+		err |= jzon_add_int(jobj, "flow_error", flow->err);
 	}
 
 	json_object_object_add(jobj, "media_established",

@@ -31,6 +31,9 @@ import com.waz.call.RequestHandler;
 import com.waz.voicemessage.VoiceMessage;
 import com.waz.voicemessage.VoiceMessageStatusHandler;
 
+import com.waz.audioeffect.AudioEffect;
+import com.waz.audioeffect.AudioEffectStatusHandler;
+
 import com.waz.media.manager.player.SoundSource;
 import com.waz.media.manager.MediaManager;
 
@@ -215,6 +218,8 @@ public class AudioTest extends Activity implements RequestHandler, VoiceMessageS
     
     private VoiceMessage vm;
     
+    private AudioEffect ae;
+    
     private AudioManager audioManager;
     
     private ProgressBar mProgress;
@@ -235,6 +240,8 @@ public class AudioTest extends Activity implements RequestHandler, VoiceMessageS
         fm = new FlowManager(ctx_, this);
 
         vm = new VoiceMessage(fm);
+
+        ae = new AudioEffect();
         
         vm.vmRegisterHandler(this);
         
@@ -276,7 +283,8 @@ public class AudioTest extends Activity implements RequestHandler, VoiceMessageS
         
         ((Button) findViewById(R.id.start_record_voice_message)).setOnClickListener(new OnClickListener() {
             public void onClick(View view) {
-                vm.vmStartRecord("sdcard/voicemessage.ogg");
+                ae.applyEffectWav("sdcard/in.wav","sdcard/out.wav");
+                //vm.vmStartRecord("sdcard/voicemessage.ogg");
             }
         });
 

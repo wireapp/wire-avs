@@ -1,0 +1,28 @@
+/**
+ * @file bld.inf  Symbian build information
+ *
+ * Copyright (C) 2010 Creytiv.com
+ */
+
+PRJ_EXPORTS
+
+..\..\include\rem.h            \epoc32\include\rem\rem.h
+..\..\include\rem_au.h         \epoc32\include\rem\rem_au.h
+..\..\include\rem_aubuf.h      \epoc32\include\rem\rem_aubuf.h
+..\..\include\rem_audio.h      \epoc32\include\rem\rem_audio.h
+..\..\include\rem_aufile.h     \epoc32\include\rem\rem_aufile.h
+..\..\include\rem_aumix.h      \epoc32\include\rem\rem_aumix.h
+..\..\include\rem_auresamp.h   \epoc32\include\rem\rem_auresamp.h
+..\..\include\rem_autone.h     \epoc32\include\rem\rem_autone.h
+..\..\include\rem_dsp.h        \epoc32\include\rem\rem_dsp.h
+..\..\include\rem_fir.h        \epoc32\include\rem\rem_fir.h
+..\..\include\rem_g711.h       \epoc32\include\rem\rem_g711.h
+..\..\include\rem_vid.h        \epoc32\include\rem\rem_vid.h
+..\..\include\rem_vidconv.h    \epoc32\include\rem\rem_vidconv.h
+..\..\include\rem_video.h      \epoc32\include\rem\rem_video.h
+..\..\include\rem_vidmix.h     \epoc32\include\rem\rem_vidmix.h
+
+
+PRJ_MMPFILES
+
+rem.mmp

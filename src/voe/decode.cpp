@@ -19,7 +19,7 @@
 
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/include/voe_network.h"
 #include "webrtc/voice_engine/include/voe_codec.h"
@@ -30,7 +30,6 @@
 #include "webrtc/voice_engine/include/voe_neteq_stats.h"
 #include "webrtc/voice_engine/include/voe_errors.h"
 #include "webrtc/voice_engine/include/voe_hardware.h"
-#include "webrtc/voice_engine/include/voe_conf_control.h"
 #include "voe_settings.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
 #include <vector>
@@ -125,76 +124,22 @@ int voe_dec_start(struct audec_state *ads)
 	info("voe: starting decoder\n");
 
 	webrtc::CodecInst c;
-	channel_settings chs;
-    nw_stats nws;
     
 	gvoe.base->StartReceive(ads->ve->ch);
 	gvoe.base->StartPlayout(ads->ve->ch);
 
 	gvoe.codec->GetSendCodec(ads->ve->ch, c);
 
-	chs.channel_number_ = ads->ve->ch;
-	chs.bitrate_bps_ = c.rate;
-	chs.packet_size_ms_ = (c.pacsize*1000)/c.plfreq;
-	chs.using_dtx_ = false;
-	chs.last_rtcp_rtt = 0;
-	chs.last_rtcp_ploss = 0;
-	gvoe.active_channel_settings.push_back(chs);
-
-	memset(&nws,0,sizeof(nw_stats));
-	nws.channel_number_ = ads->ve->ch;
-	nws.out_vol_smth_ = -1.0f;
-	gvoe.nws.push_back(nws);
-        
+	channel_data_add(&gvoe.channel_data_list, ads->ve->ch, c);
+    
 	voe_multi_party_packet_rate_control(&gvoe);
     
-    voe_update_agc_settings(&gvoe);
+	voe_update_agc_settings(&gvoe);
     
 #if ZETA_USE_RCV_NS
 	info("voe: Enabling rcv ns in mode = %d \n", (int)ZETA_RCV_NS_MODE);
 
 	gvoe.processing->SetRxNsStatus(ads->ve->ch, true,  ZETA_RCV_NS_MODE);
-#endif
-
-#if FORCE_RECORDING
-	if ( gvoe.path_to_files ) {
-#if TARGET_OS_IPHONE
-		std::string prefix = "/Ios_";
-#elif defined(ANDROID)
-		std::string prefix = "/Android_";
-#else
-		std::string prefix = "Osx_";
-#endif
-		std::string file_in, file_out;
-
-		file_in.insert(0, gvoe.path_to_files);
-		file_in.insert(file_in.size(),prefix);
-		file_in.insert(file_in.size(),"packets_in_");
-		file_out.insert(0, gvoe.path_to_files);
-		file_out.insert(file_out.size(),prefix);
-		file_out.insert(file_out.size(),"packets_out_");
-
-		char  buf[80];
-		sprintf(buf,"ch%d_", ads->ve->ch);
-		file_in.insert(file_in.size(),buf);
-		file_out.insert(file_out.size(),buf);
-
-		time_t     now = time(0);
-		struct tm  tstruct;
-
-		tstruct = *localtime(&now);
-		strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
-
-		file_in.insert(file_in.size(),buf);
-		file_in.insert(file_in.size(),".rtpdump");
-		file_out.insert(file_out.size(),buf);
-		file_out.insert(file_out.size(),".rtpdump");
-
-		gvoe.rtp_rtcp->StartRTPDump(ads->ve->ch, file_in.c_str(),
-					   webrtc::kRtpIncoming);
-		gvoe.rtp_rtcp->StartRTPDump(ads->ve->ch, file_out.c_str(),
-					   webrtc::kRtpOutgoing);
-	}
 #endif
 
 	return 0;
@@ -213,24 +158,10 @@ void voe_dec_stop(struct audec_state *ads)
 	gvoe.base->StopPlayout(ads->ve->ch);
 	gvoe.base->StopReceive(ads->ve->ch);
 
-	for ( auto it = gvoe.active_channel_settings.begin();
-	      it < gvoe.active_channel_settings.end(); it++) {
-        
-		if ( it->channel_number_ == ads->ve->ch) {
-			gvoe.active_channel_settings.erase(it);
-			break;
-		}
+	struct channel_data *cd = find_channel_data(&gvoe.channel_data_list, ads->ve->ch);
+	if(cd){
+		mem_deref(cd);
 	}
-
-	for ( auto it = gvoe.nws.begin();
-	      it != gvoe.nws.end(); it++) {
-        
-		if ( it->channel_number_ == ads->ve->ch) {
-			gvoe.nws.erase(it);
-			break;
-		}
-	}
-	
 	voe_multi_party_packet_rate_control(&gvoe);
     
 	voe_update_agc_settings(&gvoe);
@@ -247,10 +178,4 @@ void voe_dec_stop(struct audec_state *ads)
 	}
 #endif
 
-#if FORCE_RECORDING
-	if (gvoe.rtp_rtcp) {
-		gvoe.rtp_rtcp->StopRTPDump(ads->ve->ch, webrtc::kRtpIncoming);
-		gvoe.rtp_rtcp->StopRTPDump(ads->ve->ch, webrtc::kRtpOutgoing);
-	}
-#endif
 }

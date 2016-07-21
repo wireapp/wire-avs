@@ -296,6 +296,7 @@ struct marshal_video_handlers_elem {
 
 	flowmgr_video_state_change_h *video_state_change_handler;
 	flowmgr_render_frame_h *render_frame_handler;
+	flowmgr_video_size_h *video_size_handler;
 	void *arg;
 };
 
@@ -567,9 +568,10 @@ static void mqueue_handler(int id, void *data, void *arg)
 	case MARSHAL_SET_VIDEO_HANDLERS: {
 		struct marshal_video_handlers_elem *mse = data;
 
-		flowmgr_set_video_handlers(me->fm, 
+		flowmgr_set_video_handlers(me->fm,
 			mse->video_state_change_handler,
 			mse->render_frame_handler,
+			mse->video_size_handler,		   
 			mse->arg);
 		break;
 	}
@@ -1160,9 +1162,12 @@ int marshal_flowmgr_is_sending_video(struct flowmgr *fm,
 	return me.a.ret;
 }
 
-void marshal_flowmgr_set_video_handlers(struct flowmgr *fm, 
+void marshal_flowmgr_set_video_handlers(
+	struct flowmgr *fm, 
 	flowmgr_video_state_change_h *video_state_change_handler,
-	flowmgr_render_frame_h *render_frame_handler, void *arg)
+	flowmgr_render_frame_h *render_frame_handler,
+	flowmgr_video_size_h *video_size_handler,
+	void *arg)
 {
 	struct marshal_video_handlers_elem me;
 
@@ -1171,6 +1176,7 @@ void marshal_flowmgr_set_video_handlers(struct flowmgr *fm,
 
 	me.video_state_change_handler = video_state_change_handler;
 	me.render_frame_handler = render_frame_handler;
+	me.video_size_handler = video_size_handler;
 	me.arg = arg;
 
 	marshal_send(&me);

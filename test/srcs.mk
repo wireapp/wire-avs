@@ -10,6 +10,7 @@ TEST_SRCS	+= util.cpp
 TEST_SRCS	+= test_acm.cpp
 TEST_SRCS	+= test_apm.cpp
 TEST_SRCS	+= test_audummy.cpp
+TEST_SRCS	+= test_bwe.cpp
 TEST_SRCS	+= test_cert.cpp
 TEST_SRCS	+= test_chunk.cpp
 TEST_SRCS	+= test_confpos.cpp
@@ -60,7 +61,7 @@ endif
 
 
 # optional tests
-#TEST_SRCS	+= test_vie.cpp
+TEST_SRCS	+= test_vie.cpp
 
 # Fakes/mocks in alphabetical order
 TEST_SRCS	+= fake_backend.cpp

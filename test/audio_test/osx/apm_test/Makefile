@@ -13,7 +13,7 @@ CXXFLAGS	:= -std=c++11 -fvisibility=default \
 		   -isysroot $(SYSROOT) -DWEBRTC_POSIX -I$(MEDIAENGINE_PATH)
 
 LD		:= $(CXX)
-LDFLAGS		:= -L$(LIB_PATH) -lavsobjc
+LDFLAGS		:= -L$(LIB_PATH) -lavsobjc -framework Foundation
 
 SOURCES = \
 	../../src/apm_test.cpp

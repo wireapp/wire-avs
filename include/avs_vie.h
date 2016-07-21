@@ -26,14 +26,13 @@ extern "C" {
 int  vie_init(struct list *vidcodecl);
 void vie_close(void);
 
-typedef int (vie_getsize_h)(const void *view, int *w, int *h);
-
-void vie_set_getsize_handler(vie_getsize_h *getsizeh);
 
 void vie_capture_router_handle_frame(struct avs_vidframe *frame);
 
 void vie_set_video_handlers(flowmgr_video_state_change_h *state_change_h,
-	flowmgr_render_frame_h *render_frame_h, void *arg);
+	flowmgr_render_frame_h *render_frame_h,
+	flowmgr_video_size_h *size_h,
+	void *arg);
 
 #ifdef __cplusplus
 }

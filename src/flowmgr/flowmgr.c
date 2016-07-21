@@ -27,13 +27,11 @@
 #include <re/re.h>
 
 #include "avs.h"
+#include "avs_version.h"
 //#include "avs_voe.h"
 #include "avs_vie.h"
 
 #include "flowmgr.h"
-
-
-static const char *software = AVS_PROJECT " " AVS_VERSION " (" ARCH "/" OS ")";
 
 
 /* Call signalling URL bases */
@@ -65,9 +63,6 @@ static struct {
 	char ifname[256];
 
 	struct list flowmgrl;
-
-	const char *cert;
-	size_t cert_len;
 
 } msys = {
 	.inited = false,
@@ -177,8 +172,34 @@ static void wakeup_handler(int id, void *data, void *arg)
 }
 
 
+static const char *cipherv[] = {
+
+	"ECDHE-RSA-AES128-GCM-SHA256",
+	"ECDHE-ECDSA-AES128-GCM-SHA256",
+	"ECDHE-RSA-AES256-GCM-SHA384",
+	"ECDHE-ECDSA-AES256-GCM-SHA384",
+	"DHE-RSA-AES128-GCM-SHA256",
+	"DHE-DSS-AES128-GCM-SHA256",
+	"ECDHE-RSA-AES128-SHA256",
+	"ECDHE-ECDSA-AES128-SHA256",
+	"ECDHE-RSA-AES128-SHA",
+	"ECDHE-ECDSA-AES128-SHA",
+	"ECDHE-RSA-AES256-SHA384",
+	"ECDHE-ECDSA-AES256-SHA384",
+	"ECDHE-RSA-AES256-SHA",
+	"ECDHE-ECDSA-AES256-SHA",
+	"DHE-RSA-AES128-SHA256",
+	"DHE-RSA-AES128-SHA",
+	"DHE-DSS-AES128-SHA256",
+	"DHE-RSA-AES256-SHA256",
+	"DHE-DSS-AES256-SHA",
+	"DHE-RSA-AES256-SHA",
+	"ECDHE-RSA-AES128-CBC-SHA",
+
+};
+
+
 static int msystem_init(const char *msysname,
-			const char *cert, size_t cert_len,
 			enum cert_type cert_type)
 {
 	int err;
@@ -199,21 +220,16 @@ static int msystem_init(const char *msysname,
 		return err;
 	}
 
-	err = tls_set_ciphers(msys.dtls);
+	err = cert_enable_ecdh(msys.dtls);
 	if (err)
 		return err;
 
-	if (cert && cert_len) {
-		info("flowmgr: set certificate (%zu bytes)\n", cert_len);
+	info("flowmgr: setting %zu ciphers for DTLS\n", ARRAY_SIZE(cipherv));
+	err = tls_set_ciphers(msys.dtls, cipherv, ARRAY_SIZE(cipherv));
+	if (err)
+		return err;
 
-		err = tls_set_certificate(msys.dtls, cert, cert_len);
-		if (err) {
-			warning("flowmgr: failed to set certificate"
-				" [%zu bytes] (%m)\n", cert_len, err);
-			return err;
-		}
-	}
-	else {
+	{
 		uint64_t t1, t2;
 
 		t1 = tmr_jiffies();
@@ -414,12 +430,12 @@ int flowmgr_init(const char *msysname, const char *log_url,
 		return err;
 	}
 
-	err = msystem_init(msysname, msys.cert, msys.cert_len, cert_type);
+	err = msystem_init(msysname, cert_type);
 	if (err)
 		goto out;
 
 	info("flowmgr: initialized -- %s [machine %H]\n",
-	     software, sys_build_get, 0);
+	     avs_version_str(), sys_build_get, 0);
 
 	if (log_url) {
 		warning("flowmgr: init: log_url is deprecated\n");
@@ -430,14 +446,6 @@ int flowmgr_init(const char *msysname, const char *log_url,
 		msystem_free();
 
 	return err;
-}
-
-
-/* NOTE: must be called BEFORE flowmgr_init() */
-void flowmgr_set_cert(const char *cert, size_t cert_len)
-{
-	msys.cert     = cert;
-	msys.cert_len = cert_len;
 }
 
 
@@ -528,7 +536,16 @@ void flowmgr_close(void)
 
 void flowmgr_network_changed(struct flowmgr *fm)
 {
-	info("flowmgr(%p): network_changed\n", fm);
+	struct sa laddr;
+	char ifname[64] = "";
+
+	sa_init(&laddr, AF_INET);
+
+	(void)net_rt_default_get(AF_INET, ifname, sizeof(ifname));
+	(void)net_default_source_addr_get(AF_INET, &laddr);
+
+	info("flowmgr(%p): network_changed (laddr %s|%J)\n",
+	     fm, ifname, &laddr);
 
 	if (!fm)
 		return;
@@ -1213,6 +1230,10 @@ void flowmgr_release_flows(struct flowmgr *fm, const char *convid)
 		return;
 	}
 
+	info("* * * * * * FLOWMGR CALL SUMMARY: * * * * * *\n");
+	info("%H\n", call_debug, call);
+	info("* * * * * * * * * * * * * * * * * * * * * * *\n");
+
 	call_set_active(call, false);
 	
 	if (fm->use_metrics)
@@ -1297,7 +1318,7 @@ int flowmgr_alloc(struct flowmgr **fmp, flowmgr_req_h *reqh,
 	if (!fm)
 		return ENOMEM;
 
-	info("flowmgr(%p): alloc: (%s)\n", fm, avs_version_str());	
+	info("flowmgr(%p): alloc: (%s)\n", fm, avs_version_str());
 	
 	err = dict_alloc(&fm->calls);
 	if (err) {
@@ -1395,9 +1416,10 @@ void flowmgr_set_conf_pos_handler(struct flowmgr *fm,
 void flowmgr_set_video_handlers(struct flowmgr *fm, 
 				flowmgr_video_state_change_h *state_change_h,
 				flowmgr_render_frame_h *render_frame_h,
+				flowmgr_video_size_h *size_h,
 				void *arg)
 {
-	vie_set_video_handlers(state_change_h, render_frame_h, arg);
+	vie_set_video_handlers(state_change_h, render_frame_h, size_h, arg);
 }
 
 
@@ -1761,7 +1783,7 @@ int flowmgr_send_metrics(struct flowmgr *fm, const char *convid,
 		return ENOMEM;
 
 	json_object_object_add(jobj, "version",
-			       json_object_new_string(software));	
+			       json_object_new_string(avs_version_str()));
 	handled = call_stats_prepare(call, jobj);
 	json_object_object_add(jobj, "success",
 			       json_object_new_boolean(handled));

@@ -21,6 +21,7 @@
 enum {
 	/*LAYER_RTP  =  40,*/
 	LAYER_DTLS =  20,       /* must be above zero */
+	LAYER_DTLS_TRANSPORT = 15,  /* below DTLS */
 	LAYER_SRTP =  10,       /* must be below RTP */
 	LAYER_ICE  = -10,
 	LAYER_TURN = -20,       /* must be below ICE */
@@ -77,3 +78,22 @@ int consent_start(struct consent **conp, struct stun *stun,
 
 int dtls_print_sha1_fingerprint(struct re_printf *pf, const struct tls *tls);
 int dtls_print_sha256_fingerprint(struct re_printf *pf, const struct tls *tls);
+
+
+/*
+ * Packet
+ */
+
+enum packet {
+	PACKET_UNKNOWN = 0,
+	PACKET_RTP,
+	PACKET_RTCP,
+	PACKET_DTLS,
+	PACKET_STUN,
+};
+
+bool packet_is_rtp_or_rtcp(const struct mbuf *mb);
+bool packet_is_rtcp_packet(const struct mbuf *mb);
+bool packet_is_dtls_packet(const struct mbuf *mb);
+enum packet packet_classify_packet_type(const struct mbuf *mb);
+const char *packet_classify_name(enum packet pkt);

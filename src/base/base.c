@@ -30,7 +30,7 @@
 #include <re/re_dbg.h>
 
 
-static const char *software = AVS_PROJECT " " AVS_VERSION " (" ARCH "/" OS ")";
+static const char *avs_software = AVS_PROJECT " " AVS_VERSION " (" ARCH "/" OS ")";
 
 
 static struct {
@@ -83,7 +83,7 @@ int avs_init(uint64_t flags)
 
 	dbg_handler_set(debug_handler, NULL);
 
-	info("AVS inited with flags=0x%llx [%s]\n", flags, software);
+	info("AVS inited with flags=0x%llx [%s]\n", flags, avs_software);
 
 	info("init: using async polling method '%s'\n",
 	     poll_method_name(poll_method_best()));
@@ -128,10 +128,4 @@ uint64_t avs_get_flags(void)
 const char *avs_get_token(void)
 {
 	return base.token;
-}
-
-
-const char *avs_version_str(void)
-{
-	return software;
 }

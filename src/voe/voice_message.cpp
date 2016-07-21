@@ -26,7 +26,7 @@
 
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/include/voe_network.h"
 #include "webrtc/voice_engine/include/voe_codec.h"
@@ -37,7 +37,6 @@
 #include "webrtc/voice_engine/include/voe_neteq_stats.h"
 #include "webrtc/voice_engine/include/voe_errors.h"
 #include "webrtc/voice_engine/include/voe_hardware.h"
-#include "webrtc/voice_engine/include/voe_conf_control.h"
 #include "voe_settings.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
 
@@ -487,24 +486,24 @@ public:
     virtual ~VmTransport() {
     };
     
-    virtual int SendPacket(int channel, const void *data, size_t len) {
+    virtual bool SendRtp(const uint8_t* packet, size_t length, const webrtc::PacketOptions& options) {
         //printf("SendPacket channel = %d len = %zu \n", channel, len);
         
         /* First write previous payload to file */
         write_to_opus_file();
         
         /* Then copy new payload. By not yet writing to file we can set the end-of-stream bit for the last packet */
-        uint32_t len32 = len - RTP_HEADER_IN_BYTES; // use a type of known length
+        uint32_t len32 = length - RTP_HEADER_IN_BYTES; // use a type of known length
         if(len32 > 0 && len32 < sizeof(payload)) {
-            memcpy(payload, ((uint8_t *)data) + RTP_HEADER_IN_BYTES, len32);
+            memcpy(payload, packet + RTP_HEADER_IN_BYTES, len32);
             _op.bytes = len32;
         }
         
-        return (int)len;
+        return true;
     };
-    
-    virtual int SendRTCPPacket(int channel, const void *data, size_t len) {
-        return (int)len;
+
+    virtual bool SendRtcp(const uint8_t* packet, size_t length) {
+        return true;
     };
     
     void deregister()
@@ -1064,10 +1063,14 @@ int voe_vm_apply_effect(const char inFileNameUTF8[1024], const char outFileNameU
                 
                 output_samples = opus_decode(dec, op_dec.packet, op_dec.bytes * sizeof(uint8_t), buf, BUF_SIZE, 0);
                 
-                aueffect_process(aue, (const int16_t*)buf, buf, output_samples);
-                
-                len = opus_encode(enc, buf, output_samples, data, DATA_SIZE);
-                op_enc.bytes = len;
+                size_t proc_samples;
+                aueffect_process(aue, (const int16_t*)buf, buf, output_samples, &proc_samples);                
+                if(proc_samples == output_samples){
+                    len = opus_encode(enc, buf, output_samples, data, DATA_SIZE);
+                    op_enc.bytes = len;
+                } else {
+                    error("voe_vm_apply_effect: can only use real time effects \n");
+                }
                 
                 break;
             }

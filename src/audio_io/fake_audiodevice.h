@@ -18,6 +18,7 @@
 
 #include "webrtc/modules/audio_device/include/audio_device.h"
 #include <pthread.h>
+#include <string.h>
 
 #define FRAME_LEN_MS 10
 #define FS_KHZ 16
@@ -28,8 +29,8 @@ namespace webrtc {
     public:
         fake_audiodevice(bool realtime = false);
         ~fake_audiodevice();
-        int32_t AddRef() { return 0; }
-        int32_t Release() { return 0; }
+        int32_t AddRef() const { return 0; }
+        int32_t Release() const { return 0; }
         int32_t RegisterEventObserver(AudioDeviceObserver* eventCallback) {
             return 0;
         }
@@ -44,10 +45,10 @@ namespace webrtc {
         int32_t SetRecordingDevice(uint16_t index) { return -1; }
         int32_t SetRecordingDevice(WindowsDeviceType device) { return -1; }
         int32_t SetStereoRecording(bool enable) { return 0; }
-        int32_t SetAGC(bool enable) { return -1; }
+        int32_t SetAGC(bool enable) { return 0; }
         int32_t StopRecording();
         int64_t TimeUntilNextProcess() { return 0; }
-        int32_t Process() { return 0; }
+        void Process() { return; }
         int32_t Terminate();
         
         int32_t ActiveAudioLayer(AudioLayer* audioLayer) const { return -1; }
@@ -168,6 +169,8 @@ namespace webrtc {
         pthread_t play_tid_ = 0;
         volatile bool is_recording_;
         volatile bool is_playing_;
+        volatile bool rec_is_initialized_;
+        volatile bool play_is_initialized_;
         bool realtime_;
     };
 

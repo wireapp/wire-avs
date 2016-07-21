@@ -1,26 +1,32 @@
 /*
-* Wire
-* Copyright (C) 2016 Wire Swiss GmbH
-*
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 3 of the License, or
-* (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
-
-/*
-#if !defined(__has_feature) || !__has_feature(objc_arc)
-#error "This file requires ARC support."
-#endif
-*/
+ * Wire
+ * Copyright (C) 2016 Wire Swiss GmbH
+ *
+ * The Wire Software is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License,
+ * or (at your option) any later version.
+ *
+ * The Wire Software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with the Wire Software. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * This module of the Wire Software uses software code from
+ * WebRTC (https://chromium.googlesource.com/external/webrtc)
+ *
+ * *  Copyright (c) 2015 The WebRTC project authors. All Rights Reserved.
+ * *
+ * *  Use of the WebRTC source code on a stand-alone basis is governed by a
+ * *  BSD-style license that can be found in the LICENSE file in the root of
+ * *  the source tree.
+ * *  An additional intellectual property rights grant can be found
+ * *  in the file PATENTS.  All contributing project authors to Web RTC may
+ * *  be found in the AUTHORS file in the root of the source tree.
+ */
 
 #import <TargetConditionals.h>
 
@@ -35,6 +41,18 @@
 
 #include "avs_vie.h"
 
+#if TARGET_OS_IPHONE
+
+enum AVSDeviceOrientation {
+	AVSDeviceOrientationUnknown =            UIDeviceOrientationUnknown,
+	AVSDeviceOrientationPortrait =           UIDeviceOrientationPortrait,
+	AVSDeviceOrientationPortraitUpsideDown = UIDeviceOrientationPortraitUpsideDown,
+	AVSDeviceOrientationLandscapeLeft =      UIDeviceOrientationLandscapeLeft,
+	AVSDeviceOrientationLandscapeRight =     UIDeviceOrientationLandscapeRight
+};
+
+#endif
+
 @interface AVSCapturer ()
 {
 	AVSCapturerState _state;
@@ -48,10 +66,12 @@
 	uint32_t _width;
 	uint32_t _height;
 	uint32_t _maxFps;
+	CMTime _tsOffset;
+	BOOL _firstFrame;
 	NSString* _captureDevice;
 	BOOL _isFront;
 #if TARGET_OS_IPHONE
-	UIDeviceOrientation _orientation;
+	AVSDeviceOrientation _orientation;
 #endif
 }
 
@@ -86,10 +106,6 @@
 
 		_previewLayer = [AVCaptureVideoPreviewLayer layerWithSession:_captureSession];
 		[_previewLayer setVideoGravity:AVLayerVideoGravityResizeAspectFill];
-
-#if TARGET_OS_IPHONE
-		_orientation = [UIDevice currentDevice].orientation;
-#endif
 
 		NSArray *devArray = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
 		if (devArray && [devArray count] > 0) {
@@ -127,9 +143,11 @@
 				selector:@selector(deviceOrientationDidChange:)
 				name:UIDeviceOrientationDidChangeNotification
 				object:nil];
+
+		[self deviceOrientationDidChange:nil];
 #endif
 
-		}
+	}
 	return self;
 }
 
@@ -159,9 +177,14 @@
 	_width = width;
 	_height = height;
 	_maxFps = max_fps;
+	_firstFrame = YES;
 	AVCaptureVideoDataOutput* currentOutput = [[_captureSession outputs] firstObject];
 
 	[self directOutputToSelf];
+
+#if TARGET_OS_IPHONE
+	[self deviceOrientationDidChange:nil];
+#endif
 
 	dispatch_async(
 		dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
@@ -452,26 +475,23 @@
 
 #if TARGET_OS_IPHONE
 	switch (_orientation) {
-		case UIDeviceOrientationPortrait:
+		case AVSDeviceOrientationPortrait:
 			frame.rotation = 90;
 			break;
 
-		case UIDeviceOrientationPortraitUpsideDown:
+		case AVSDeviceOrientationPortraitUpsideDown:
 			frame.rotation = 270;
 			break;
 
-		case UIDeviceOrientationLandscapeLeft:
+		case AVSDeviceOrientationLandscapeLeft:
 			frame.rotation = _isFront ? 180 : 0;
 			break;
 
-		case UIDeviceOrientationLandscapeRight:
+		case AVSDeviceOrientationLandscapeRight:
 			frame.rotation = _isFront ? 0 : 180;
 			break;
 
-		case UIDeviceOrientationFaceUp:
-		case UIDeviceOrientationFaceDown:
-		case UIDeviceOrientationUnknown:
-		default:
+		case AVSDeviceOrientationUnknown:
 			frame.rotation = 0;
 			break;
 	}
@@ -481,8 +501,18 @@
 	frame.u = (uint8_t*)CVPixelBufferGetBaseAddressOfPlane(videoFrame, kUVPlaneIndex);
 	frame.ys = (size_t)CVPixelBufferGetBytesPerRowOfPlane(videoFrame, kYPlaneIndex);
 	frame.us = (size_t)CVPixelBufferGetBytesPerRowOfPlane(videoFrame, kUVPlaneIndex);
+
+	CMTime ct = CMSampleBufferGetOutputPresentationTimeStamp(sampleBuffer);
+	if (_firstFrame) {
+		_firstFrame = NO;
+		_tsOffset = ct;
+		frame.ts = 0;
+	}
+	else {
+		frame.ts = uint32_t(CMTimeGetSeconds(CMTimeSubtract(ct, _tsOffset)) * 1000);
+	}
 	
-	//printf("%s: sending frame %dx%d\n", __FUNCTION__, frame.w, frame.h);
+	//printf("%s: sending frame %dx%d ts: %u\n", __FUNCTION__, frame.w, frame.h, frame.ts);
 	flowmgr_handle_frame(&frame);
 
 out:
@@ -505,29 +535,81 @@ out:
 
 - (void)deviceOrientationDidChange:(NSNotification*)notification
 {
-	_orientation = [UIDevice currentDevice].orientation;
+	AVSDeviceOrientation newori = AVSDeviceOrientationUnknown;
+	UIDeviceOrientation devori = [UIDevice currentDevice].orientation;
+	UIInterfaceOrientation uiori = [[UIApplication sharedApplication] statusBarOrientation];
+
+	switch (devori) {
+		case UIDeviceOrientationPortrait:
+			newori = AVSDeviceOrientationPortrait;
+			break;
+
+		case UIDeviceOrientationPortraitUpsideDown:
+			newori = AVSDeviceOrientationPortraitUpsideDown;
+			break;
+
+		case UIDeviceOrientationLandscapeLeft:
+			newori = AVSDeviceOrientationLandscapeLeft;
+			break;
+
+		case UIDeviceOrientationLandscapeRight:
+			newori = AVSDeviceOrientationLandscapeRight;
+			break;
+
+		default:
+			break;
+	}
+
+	if (newori == AVSDeviceOrientationUnknown) {
+		switch (uiori) {
+			case UIInterfaceOrientationPortrait:
+				newori = AVSDeviceOrientationPortrait;
+				break;
+
+			case UIInterfaceOrientationPortraitUpsideDown:
+				newori = AVSDeviceOrientationPortraitUpsideDown;
+				break;
+
+			case UIInterfaceOrientationLandscapeLeft:
+				newori = AVSDeviceOrientationLandscapeLeft;
+				break;
+
+			case UIInterfaceOrientationLandscapeRight:
+				newori = AVSDeviceOrientationLandscapeRight;
+				break;
+
+			default:
+				newori = AVSDeviceOrientationPortrait;
+				break;
+		}
+	}
+
+	info("%s old: %d new: %d dev: %d ui: %d\n", __FUNCTION__, _orientation, newori,
+		devori, uiori);
+
+	_orientation = newori;
 
 	if (!_previewLayer) {
 		return;
 	}
 
 	switch (_orientation) {
-		case UIDeviceOrientationPortrait:
+		case AVSDeviceOrientationPortrait:
 			[_previewLayer.connection
 				setVideoOrientation:AVCaptureVideoOrientationPortrait];
 			break;
 
-		case UIDeviceOrientationPortraitUpsideDown:
+		case AVSDeviceOrientationPortraitUpsideDown:
 			[_previewLayer.connection
 				setVideoOrientation:AVCaptureVideoOrientationPortraitUpsideDown];
 			break;
 
-		case UIDeviceOrientationLandscapeLeft:
+		case AVSDeviceOrientationLandscapeLeft:
 			[_previewLayer.connection
 				setVideoOrientation:AVCaptureVideoOrientationLandscapeRight];
 			break;
 
-		case UIDeviceOrientationLandscapeRight:
+		case AVSDeviceOrientationLandscapeRight:
 			[_previewLayer.connection
 				setVideoOrientation:AVCaptureVideoOrientationLandscapeLeft];
 			break;

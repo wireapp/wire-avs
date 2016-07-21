@@ -96,7 +96,7 @@ static void allpass_d(struct ap_d *ap, float x, float y[])
     y[0] = -ap->c * w0 + wd;
 }
 
-void* create_reverb(int fs_hz)
+void* create_reverb(int fs_hz, int strength)
 {
     struct ar_d_params ar_params[MAX_NUM_AR] =
     {
@@ -106,30 +106,62 @@ void* create_reverb(int fs_hz)
         {0.7f, 0.75f, 25.62f},
     };
     
-    struct ap_d_params ap_params[MAX_NUM_AP] =
+    struct ap_d_params ap_params_min[MAX_NUM_AP] =
     {
-        {0.53f, 184.3f},
-        {0.51f, 196.8f},
-        {0.55f, 173.2f},
+        {0.83f, 84.3f},
+        {0.81f, 96.8f},
+        {0.85f, 73.2f},
+    };
+    
+    struct ap_d_params ap_params_mid[MAX_NUM_AP] =
+    {
+        {0.93f, 44.3f},
+        {0.91f, 56.8f},
+        {0.95f, 37.2f},
+    };
+
+    struct ap_d_params ap_params_max[MAX_NUM_AP] =
+    {
+        {0.93f, 84.3f},
+        {0.91f, 96.8f},
+        {0.95f, 73.2f},
     };
     
     struct reverb_effect* rvb = (struct reverb_effect*)calloc(sizeof(struct reverb_effect),1);
     
     float d, fs_khz = fs_hz/1000.0f;
-    
+
     for(int i = 0; i < NUM_AR; i++){
         d = ar_params[i].d_ms * fs_khz;
         init_ar_d(&rvb->ar[i], ar_params[i].b1, ar_params[i].ad, (int)d);
     }
-    for(int i = 0; i < NUM_AP; i++){
-        d = ap_params[i].d_ms * fs_khz;
-        init_allpass_d(&rvb->ap[i], ap_params[i].c, (int)d);
-        rvb->ap[i].max_imp = (fs_khz * MAX_IMP_MS);
+    if(strength < 1){
+        for(int i = 0; i < NUM_AP; i++){
+            d = ap_params_min[i].d_ms * fs_khz;
+            init_allpass_d(&rvb->ap[i], ap_params_min[i].c, (int)d);
+            rvb->ap[i].max_imp = (fs_khz * MAX_IMP_MS);
+        }
+
+    }
+    if(strength == 1){
+        for(int i = 0; i < NUM_AP; i++){
+            d = ap_params_mid[i].d_ms * fs_khz;
+            init_allpass_d(&rvb->ap[i], ap_params_mid[i].c, (int)d);
+            rvb->ap[i].max_imp = (fs_khz * MAX_IMP_MS);
+        }
+    }
+    if(strength > 1){
+        for(int i = 0; i < NUM_AP; i++){
+            d = ap_params_max[i].d_ms * fs_khz;
+            init_allpass_d(&rvb->ap[i], ap_params_max[i].c, (int)d);
+            rvb->ap[i].max_imp = (fs_khz * MAX_IMP_MS);
+        }
     }
     
     rvb->pre_sc = 1.0f / 32767.0f;
     rvb->pre_sc = rvb->pre_sc * 0.5;
-    rvb->post_sc = 32767.0f * 2.0f;    
+    rvb->post_sc = 32767.0f * 4.0f;
+    
     return (void*)rvb;
 }
 
@@ -148,12 +180,12 @@ static float compress(float x)
     return y;
 }
 
-void reverb_process(void *st, int16_t in[], int16_t out[], int L)
+void reverb_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t *L_out)
 {
     float x, y, tmp, sc = 1.0f / 32767.0f;
     struct reverb_effect *rvb = (struct reverb_effect*)st;
     
-    for( int i = 0; i < L; i++){
+    for( size_t i = 0; i < L_in; i++){
         x = (float)in[i];
         x = x * rvb->pre_sc;
         
@@ -169,9 +201,11 @@ void reverb_process(void *st, int16_t in[], int16_t out[], int L)
         for(int i = 0; i < NUM_AP; i++){
             allpass_d(&rvb->ap[i], y, &y);
         }
+        y = 0.7f*y + x;
         y = compress(y);
         y = y * rvb->post_sc;
         
         out[i] = (int16_t)y;
     }
+    *L_out = L_in;
 }

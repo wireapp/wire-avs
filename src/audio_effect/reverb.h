@@ -15,6 +15,9 @@
 * You should have received a copy of the GNU General Public License
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
+#ifndef AVS_SRC_AUDIO_EFFECT_REVERB_H
+#define AVS_SRC_AUDIO_EFFECT_REVERB_H
+
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -70,3 +73,5 @@ struct reverb_effect {
     float pre_sc;
     float post_sc;
 };
+
+#endif

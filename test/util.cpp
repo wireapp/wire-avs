@@ -114,7 +114,11 @@ int create_dtls_srtp_context(struct tls **dtlsp, enum cert_type cert_type)
 	if (err)
 		goto out;
 
-	err = tls_set_ciphers(dtls);
+	err = cert_enable_ecdh(dtls);
+	if (err)
+		goto out;
+
+	//err = tls_set_ciphers(dtls);
 	if (err)
 		goto out;
 

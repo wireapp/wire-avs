@@ -172,9 +172,11 @@ void AVSError ( NSString *message, ... )
 	struct mediamgr *_mm;
 	NSString *_convId;
 	AVSIntensityLevel _intensity;
+	NSDictionary *_sounds;
 };
 
 - (void)mcatChanged:(enum mediamgr_state)mmState;
+- (void)registerMedia:(NSString*)name withUrl:(NSURL*)url;
 
 @end
 
@@ -250,16 +252,12 @@ static AVSMediaManager *_defaultMediaManager;
 {
 
 	NSDictionary *sounds = [configuration valueForKey:@"sounds"];
+	_sounds = sounds;
 		
 	for ( NSString *name in sounds.allKeys ) {
 		NSDictionary *snd = [sounds objectForKey:name];
 		NSString *path = [snd objectForKey:@"path"];
 		NSString *format = [snd objectForKey:@"format"];
-		BOOL loop = [[snd objectForKey:@"loopAllowed"] intValue] > 0;
-		bool mixing = [[snd objectForKey:@"mixingAllowed"] intValue] > 0;
-		bool incall = [[snd objectForKey:@"incall"] intValue] > 0;
-		int intensity = [[snd objectForKey:@"intensity"] intValue];
-		int priority = [name hasPrefix:@"ringing"] ? 1 : 0; // TODO: get this from the file
 
 		NSString *fullPath = [[NSBundle mainBundle] pathForResource:path ofType:format inDirectory:directory];
 		if (!fullPath) {
@@ -271,18 +269,7 @@ static AVSMediaManager *_defaultMediaManager;
 			continue;
 		}
 
-		NSLog(@"registering media %@ for file %@", name, url);
-		AVAudioPlayer *player = [[AVAudioPlayer alloc] initWithContentsOfURL:url error:nil];
-		if (!player) {
-			continue;
-		}
-
-		AVSSound *sound = [[AVSSound alloc] initWithName:name andAudioPlayer:player];
-
-		bool is_call_media = [name isEqualToString: @"ringing_from_me"];
-		sound.looping = loop ? YES : NO;
-		mediamgr_register_media(_mm, [name UTF8String], (__bridge_retained void *)(sound),
-			mixing, incall, intensity, priority, is_call_media);
+		[self registerMedia:name withUrl:url];
 	}
 
 }
@@ -296,6 +283,39 @@ static AVSMediaManager *_defaultMediaManager;
 
 	mediamgr_register_media(_mm, [media.name UTF8String], (__bridge_retained void *)(media),
 		mixing, incall, intensity, priority, false);
+}
+
+- (void)registerUrl:(NSURL*)url forMedia:(NSString*)name
+{
+	mediamgr_unregister_media(_mm, [name UTF8String]);
+	[self registerMedia:name withUrl:url];
+}
+
+- (void)registerMedia:(NSString*)name withUrl:(NSURL*)url 
+{
+	NSDictionary *snd = [_sounds objectForKey:name];
+	if (!snd) {
+		return;
+	}
+
+	BOOL loop = [[snd objectForKey:@"loopAllowed"] intValue] > 0;
+	bool mixing = [[snd objectForKey:@"mixingAllowed"] intValue] > 0;
+	bool incall = [[snd objectForKey:@"incall"] intValue] > 0;
+	int intensity = [[snd objectForKey:@"intensity"] intValue];
+	int priority = [name hasPrefix:@"ringing"] ? 1 : 0; // TODO: get this from the file
+
+	NSLog(@"registering media %@ for file %@", name, url);
+	AVAudioPlayer *player = [[AVAudioPlayer alloc] initWithContentsOfURL:url error:nil];
+	if (!player) {
+		return;
+	}
+
+	AVSSound *sound = [[AVSSound alloc] initWithName:name andAudioPlayer:player];
+
+	bool is_call_media = [name isEqualToString: @"ringing_from_me"];
+	sound.looping = loop ? YES : NO;
+	mediamgr_register_media(_mm, [name UTF8String], (__bridge_retained void *)(sound),
+		mixing, incall, intensity, priority, is_call_media);
 }
 
 - (void)unregisterAllMedia

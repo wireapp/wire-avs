@@ -27,6 +27,6 @@ struct avs_vidframe;
 
 @property (nonatomic) BOOL shouldFill;
 
-- (void) handleFrame:(struct avs_vidframe*) frame;
+- (BOOL) handleFrame:(struct avs_vidframe*) frame;
 
 @end

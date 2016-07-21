@@ -151,3 +151,23 @@ int cert_tls_set_selfsigned_ecdsa(struct tls *tls, const char *curve_name)
 
 	return err;
 }
+
+
+/**
+ * Enable ECDH (Elliptic Curve Diffie-Hellmann) on the TLS context
+ *
+ * This is valid for a TLS/DTLS server only.
+ */
+int cert_enable_ecdh(struct tls *tls)
+{
+	if (!tls)
+		return EINVAL;
+
+	if (!SSL_CTX_set_ecdh_auto(tls->ctx, 1)) {
+		warning("cert: failed to enable ECDH auto\n");
+		ERR_clear_error();
+		return EPROTO;
+	}
+
+	return 0;
+}

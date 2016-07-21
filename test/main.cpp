@@ -42,10 +42,12 @@ int main(int argc, char **argv)
 		return err;
 	}
 
+#if 0
 	/* NOTE: This is a hack to use a static Certificate for all tests.
 	 *       Generating selfsigned certs on target is very slow.
 	 */
 	flowmgr_set_cert(fake_certificate_rsa, strlen(fake_certificate_rsa));
+#endif
 
 	sys_coredump_set(true);
 

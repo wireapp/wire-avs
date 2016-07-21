@@ -121,12 +121,6 @@ void voe_stop_playing_PCM_file_as_microphone(void);
 int  voe_start_recording_playout_PCM_file(const char fileNameUTF8[1024]);
 void voe_stop_recording_playout_PCM_file();
 
-int  voe_start_preproc_recording(const char fileNameUTF8[1024]);
-void voe_stop_preproc_recording();
-
-int  voe_start_packet_recording(const char fileNameUTF8[1024]);
-void voe_stop_packet_recording();
-
 int voe_enable_fec(bool enable);
 int voe_enable_aec(bool enable);
 int voe_enable_rcv_ns(bool enable);
@@ -161,6 +155,8 @@ void voe_set_audio_state_handler(
     flowmgr_audio_state_change_h *state_change_h,
     void *arg
 );
+
+void voe_set_file_path(const char pathUTF8[1024]);
     
 #ifdef __cplusplus
 }

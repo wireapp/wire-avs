@@ -378,6 +378,7 @@ int userflow_update_config(struct userflow *uf)
 int userflow_alloc_mediaflow(struct userflow *uf)
 {
 	enum mediaflow_nat nat = MEDIAFLOW_TRICKLEICE_DUALSTACK;
+	struct flowmgr *fm;
 	struct sa laddr;	
 	int err;
 
@@ -412,6 +413,14 @@ int userflow_alloc_mediaflow(struct userflow *uf)
 	if (err) {
 		warning("flowmgr: failed to alloc mediaflow (%m)\n", err);
 		goto out;
+	}
+
+	fm = call_flowmgr(uf->call);
+	if (fm && fm->config.cfg.early_dtls) {
+
+		info("flowmgr: enable early-DTLS\n");
+		mediaflow_set_earlydtls(uf->mediaflow,
+					fm->config.cfg.early_dtls);
 	}
 
 #if 1

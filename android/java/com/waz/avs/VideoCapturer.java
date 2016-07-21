@@ -1,3 +1,34 @@
+/*
+ * Wire
+ * Copyright (C) 2016 Wire Swiss GmbH
+ *
+ * The Wire Software is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License,
+ * or (at your option) any later version.
+ *
+ * The Wire Software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with the Wire Software. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * This module of the Wire Software uses software code from
+ * WebRTC (https://chromium.googlesource.com/external/webrtc)
+ *
+ * *  Copyright (c) 2015 The WebRTC project authors. All Rights Reserved.
+ * *
+ * *  Use of the WebRTC source code on a stand-alone basis is governed by a
+ * *  BSD-style license that can be found in the LICENSE file in the root of
+ * *  the source tree.
+ * *  An additional intellectual property rights grant can be found
+ * *  in the file PATENTS.  All contributing project authors to Web RTC may
+ * *  be found in the AUTHORS file in the root of the source tree.
+ */
+
+
 package com.waz.avs;
 
 
@@ -16,6 +47,8 @@ import android.util.Log;
 
 import android.view.Gravity;
 import android.view.TextureView;
+
+import com.waz.call.FlowManager;
 
 import java.io.IOException;
 
@@ -42,8 +75,8 @@ public class VideoCapturer implements PreviewCallback,
 	private int fps;
 	private float ftime;
 	private float lastFtime;
-	private ReentrantLock lock = new ReentrantLock();	
-	
+	private ReentrantLock lock = new ReentrantLock();
+	private boolean destroying = false;
 	
 	public static VideoCapturerInfo[] getCapturers() {
 
@@ -83,6 +116,20 @@ public class VideoCapturer implements PreviewCallback,
 	}
 
 	@SuppressWarnings("deprecation")		
+	public VideoCapturer(final VideoCapturerInfo cap,
+			     final int w, final int h, final int fps) {
+		Runnable r = new Runnable() {
+			@Override
+			public void run() {
+				initCameraByCap(cap, w, h, fps);
+				synchronized(this) {
+					this.notify();
+				}
+			}
+		};
+		runSyncOnMain(r);
+		
+	}
 	public VideoCapturer(final int facing,
 			     final int w, final int h, final int fps) {
 
@@ -121,34 +168,36 @@ public class VideoCapturer implements PreviewCallback,
 	
 	public void destroy() {
 
-		Runnable r = new Runnable() {
-			@Override
-			public void run() {
-				stopCamera();
+	    if (camera == null)
+		    return;
 
-				lock.lock();
-				if (camera != null) {
-					try {
-						camera.reconnect();
-						camera.release();
-						camera = null;
-					}
-					catch(IOException ioe) {
-						Log.e(TAG, "destroy: reconnect failed: " + ioe);
-					}
-				}
-		
-				Log.d(TAG, "destroy: camera released");
-				previewView = null;
+	    Runnable r = new Runnable() {
+		@Override
+		public void run() {
+			stopCamera();
 
-				lock.unlock();
-				synchronized(this) {
-					this.notify();
-				}
+			lock.lock();
+			try {
+				camera.reconnect();
+				camera.release();
+				camera = null;
 			}
-		};
+			catch(IOException ioe) {
+				Log.e(TAG, "destroy: reconnect failed: " + ioe);
+			}
+		
+			Log.d(TAG, "destroy: camera released");
+			previewView = null;
+			destroying = false;
 
-		runSyncOnMain(r);
+			lock.unlock();
+			synchronized(this) {
+				this.notify();
+			}
+		}
+	    };
+
+	    runSyncOnMain(r);
 	}
 
 
@@ -169,16 +218,12 @@ public class VideoCapturer implements PreviewCallback,
 				}
 			}
 		}
-		
 	}
 	
 	public void setCallback(VideoCapturerCallback cb) {
 		this.capturerCallback = cb;
 	}
 
-	
-	public void stopCapture() {
-	}
 	
 	public int startCapture(final TextureView view) {
 		Log.d(TAG, "startCapture on: " + view);
@@ -210,24 +255,13 @@ public class VideoCapturer implements PreviewCallback,
 		return 0;
 	}
 
-	private void initCamera(int facing, int w, int h, int fps) {
-		VideoCapturerInfo[] capturers = getCapturers();
-		int n = capturers.length;
+	private void initCameraByCap(VideoCapturerInfo cap,
+				     int w, int h, int fps) {
 		
-		if (n < 1)
-			return;
-		
-		int dev = 0;
-		for(VideoCapturerInfo cap: capturers) {
-			if (cap.facing == facing) {
-				dev = cap.dev;
-				break;
-			}
-		}
-		
+		boolean failed = false;
 		Camera.Parameters params;
 
-		this.facing = facing;
+		this.facing = cap.facing;
 		this.w = w;
 		this.h = h;
 		this.fps = fps;
@@ -236,10 +270,10 @@ public class VideoCapturer implements PreviewCallback,
 		
 		lock.lock();
 		try {
-			Log.d(TAG, "There are: " + n + " cameras. Using dev="+ dev + " want facing=" + facing);
+			Log.d(TAG, "Using camera dev="+ cap.dev + "facing=" + cap.facing);
 			cameraInfo = new CameraInfo();
-			Camera.getCameraInfo(dev, cameraInfo);
-			camera = Camera.open(dev);
+			Camera.getCameraInfo(cap.dev, cameraInfo);
+			camera = Camera.open(cap.dev);
 			params = camera.getParameters();
 
 			/* Auto focus */
@@ -277,9 +311,30 @@ public class VideoCapturer implements PreviewCallback,
 				camera.release();
 				camera = null;
 			}
+			failed = true;
 		}
 
-		lock.unlock();
+
+		if (failed)
+			cameraFailed();
+		
+	}
+	private void initCamera(int facing, int w, int h, int fps) {
+		VideoCapturerInfo[] capturers = getCapturers();
+		int n = capturers.length;
+		
+		if (n < 1) {
+			cameraFailed();
+			return;
+		}
+		
+		int dev = 0;
+		for(VideoCapturerInfo cap: capturers) {
+			if (cap.facing == facing) {
+				initCameraByCap(cap, w, h, fps);
+				break;
+			}
+		}		
 	}
 
 
@@ -367,14 +422,18 @@ public class VideoCapturer implements PreviewCallback,
 		Log.d(TAG, "onSurfaceTextureAvailable: "
 		      + width + "x" + height + " camera=" + camera);
 
-		startCamera(surface);
+		if (!destroying && previewView != null)
+			startCamera(surface);
 	}
 
 
 	private void startCamera(SurfaceTexture surface) {
 
-		lock.lock();
+		if (destroying)
+			return;
 		
+		lock.lock();
+
 		Log.d(TAG, "startCamera: cam=" + this.camera
 		      + " surface=" + surface);
 
@@ -397,12 +456,17 @@ public class VideoCapturer implements PreviewCallback,
 			}
 			catch (Exception e) {
 				Log.e(TAG, "startCamera: failed: " + e);
+				cameraFailed();
 			}
 		}
 
 		lock.unlock();
 	}
 
+	private void cameraFailed() {
+		FlowManager.cameraFailed();
+	}
+	
 	@Override
 	public void onSurfaceTextureSizeChanged(SurfaceTexture surface,
 						int width, int height) {

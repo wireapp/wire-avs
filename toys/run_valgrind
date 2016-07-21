@@ -1,4 +1,5 @@
 #!/bin/bash -ex
 
 valgrind --leak-check=yes --error-exitcode=42 \
+    --suppressions=toys/avs.supp \
     ./ztest $@

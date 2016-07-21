@@ -22,6 +22,7 @@
 #include <sys/time.h>
 #include <re/re.h>
 #include "avs_audio_io.h"
+#include "webrtc/base/logging.h"
 
 
 TEST(voe, basic_init_close)
@@ -58,10 +59,40 @@ TEST(voe, close_twice)
 	voe_close();
 }
 
-TEST(voe, enc_dec_alloc)
-{
+
+class Voe : public ::testing::Test {
+
+public:
+
+	virtual void SetUp() override
+	{
+		int err;
+
+#if 1
+		rtc::LogMessage::SetLogToStderr(false);
+#endif
+
+		err = voe_init(&aucodecl);
+		ASSERT_EQ(0, err);
+
+		voe_register_adm((void*)&ad);
+	}
+
+	virtual void TearDown() override
+	{
+		voe_deregister_adm();
+
+		voe_close();
+	}
+
+protected:
 	struct list aucodecl = LIST_INIT;
-	int err;
+	webrtc::fake_audiodevice ad;
+};
+
+
+TEST_F(Voe, enc_dec_alloc)
+{
 	struct aucodec_param prm;
 	struct auenc_state *aesp = NULL;
 	struct audec_state *adsp = NULL;
@@ -69,16 +100,11 @@ TEST(voe, enc_dec_alloc)
 	const struct aucodec *ac;
 	int pt = 96;
 	int srate = 48000;
-	webrtc::fake_audiodevice ad;
+	int err;
     
 	memset(&prm, 0, sizeof(prm));
 
-	err = voe_init(&aucodecl);
-	ASSERT_EQ(0, err);
-    
-	voe_register_adm((void*)&ad);
-    
-	ac = aucodec_find(&aucodecl, "opus", 48000, 2);
+    	ac = aucodec_find(&aucodecl, "opus", 48000, 2);
     
 	if (ac->enc_alloc){
 		err = ac->enc_alloc(&aesp, &mctxp, ac, NULL, &prm,
@@ -94,13 +120,11 @@ TEST(voe, enc_dec_alloc)
     
 	mem_deref(aesp);
 	mem_deref(adsp);
-    
-	voe_close();
 }
 
-TEST(voe, unmute_after_call)
+
+TEST_F(Voe, unmute_after_call)
 {
-	struct list aucodecl = LIST_INIT;
 	int err;
 	struct aucodec_param prm;
 	struct auenc_state *aesp = NULL;
@@ -110,15 +134,9 @@ TEST(voe, unmute_after_call)
 	int pt = 96;
 	int srate = 48000;
 	bool muted;
-	webrtc::fake_audiodevice ad;
     
 	memset(&prm, 0, sizeof(prm));
 
-	err = voe_init(&aucodecl);
-	ASSERT_EQ(0, err);
-    
-	voe_register_adm((void*)&ad);
-    
 	ac = aucodec_find(&aucodecl, "opus", 48000, 2);
     
 	if (ac->enc_alloc){
@@ -150,9 +168,8 @@ TEST(voe, unmute_after_call)
 	err = voe_get_mute(&muted);
 	ASSERT_EQ(err, 0);
 	ASSERT_EQ(muted, false);
-    
-	voe_close();
 }
+
 
 struct sync_state{
 	pthread_mutex_t mutex;
@@ -187,7 +204,7 @@ static void wait_for_event(struct sync_state* pss){
 	struct timespec t;
 	gettimeofday(&now, NULL);
     
-	t.tv_sec = now.tv_sec + 15;
+	t.tv_sec = now.tv_sec + 30;
 	t.tv_nsec = 0;
     
 	pthread_mutex_lock(&pss->mutex);
@@ -244,6 +261,7 @@ static int send_rtp(const uint8_t *pkt, size_t len, void *arg){
 
     return 0;
 }
+
 
 TEST(voe, enc_dec_alloc_start_stop)
 {
@@ -316,6 +334,80 @@ TEST(voe, enc_dec_alloc_start_stop)
     
 	voe_close();
 }
+
+TEST(voe, packet_size_40)
+{
+    struct list aucodecl = LIST_INIT;
+    int err;
+    struct auenc_state *aesp = NULL;
+    struct audec_state *adsp = NULL;
+    struct media_ctx *mctxp = NULL;
+    const struct aucodec *ac;
+    int pt = 96;
+    int srate = 48000;
+    webrtc::fake_audiodevice ad;
+    struct sync_state ss;
+    init_sync_state(&ss);
+    struct aucodec_param prm;
+    memset(&prm, 0, sizeof(prm));
+    prm.local_ssrc = 0x12345678;
+    prm.pt = 96;
+    prm.srate = 48000;
+    prm.ch = 2;
+    
+    err = voe_init(&aucodecl);
+    ASSERT_EQ(0, err);
+    
+    voe_register_adm((void*)&ad);
+    
+    ac = aucodec_find(&aucodecl, "opus", 48000, 2);
+    if (ac->enc_alloc){
+        err = ac->enc_alloc(&aesp, &mctxp, ac, NULL, &prm,
+                            send_rtp, NULL, NULL, NULL, &ss);
+        ASSERT_EQ(0, err);
+    }
+    
+    if (ac->dec_alloc){
+        err = ac->dec_alloc(&adsp, &mctxp, ac, NULL, &prm,
+                            NULL, NULL, NULL);
+        ASSERT_EQ(0, err);
+    }
+    
+    if (ac->enc_start){
+        ac->enc_start(aesp);
+    }
+    
+    if (ac->dec_start){
+        ac->dec_start(adsp);
+    }
+    
+    voe_set_packet_size(40);
+    
+    wait_for_event(&ss);
+    //ASSERT_EQ(pt, ss.pt); // for some reason the first packet has wrong pt ??
+    
+    wait_for_event(&ss);
+    ASSERT_EQ(pt, ss.pt);
+    ASSERT_EQ(prm.local_ssrc, ss.ssrc);
+    ASSERT_EQ(1, ss.seq_diff);
+    ASSERT_EQ(2*960, ss.timestamp_diff);
+    
+    if (ac->enc_stop){
+        ac->enc_stop(aesp);
+    }
+    
+    if (ac->dec_stop){
+        ac->dec_stop(adsp);
+    }
+    
+    mem_deref(aesp);
+    mem_deref(adsp);
+    
+    voe_deregister_adm();
+    
+    voe_close();
+}
+
 #if 0
 static void mqueue_handler(int id, void *data, void *arg)
 {

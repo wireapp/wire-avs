@@ -236,12 +236,15 @@ CFLAGS   += \
          -fvisibility=hidden -Os -g -ffunction-sections -fdata-sections
 
 CPPFLAGS += \
-         -I. -DWEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE -DWEBRTC_CODEC_OPUS -DZETA_OPUS_MODS -DMESH_MULTIPARTY_OPT \
-	 -DSSL_USE_OPENSSL -DFEATURE_ENABLE_SSL \
+         -I. -DWEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE -DWEBRTC_CODEC_OPUS \
+	 -DSSL_USE_OPENSSL -DFEATURE_ENABLE_SSL -D__STDC_FORMAT_MACROS=1 \
 	 -DAVS_VERSION='"$(AVS_VERSION)"' -DAVS_PROJECT='"$(AVS_PROJECT)"' \
 	 -I$(BUILD_TARGET)/include -Iinclude \
 	 -Imediaengine -Imediaengine/webrtc \
-	 -Icontrib/ogg/include
+	 -Icontrib/ogg/include \
+	 -Icontrib/opus/include \
+	 -Icontrib/opus/celt \
+	 -Icontrib/opus/silk
 
 CXXFLAGS += \
          -fvisibility=hidden -ffunction-sections -fdata-sections -Os -g \
@@ -351,24 +354,28 @@ JNI_SUFFIX   := .so
 CPPFLAGS += \
          -I$(TOOLCHAIN_PATH)/ndk/sources/android/cpufeatures \
          -DWEBRTC_POSIX -DWEBRTC_LINUX -DWEBRTC_ANDROID \
-         -DNO_STL -DZETA_AECM \
-	 -DANDROID -D__ANDROID__ -U__STRICT_ANSI__
+         -DNO_STL -DZETA_AECM -DHAVE_GAI_STRERROR=1 \
+	 -DANDROID -D__ANDROID__ \
+	 -U__STRICT_ANSI__ \
+	 -fPIC
 
 # XXX Review these ...
 CFLAGS   += \
 	 -fpic \
 	 -ffunction-sections -funwind-tables \
 	 -fstack-protector -fno-short-enums \
-	 -fomit-frame-pointer -fno-strict-aliasing
+	 -fomit-frame-pointer -fno-strict-aliasing \
+	 -fPIC
 
-CXXFLAGS += -nostdlib
+CXXFLAGS += -nostdlib -fPIC
 
 ifneq ($(BLA),)
 LFLAGS   += \
-	 -nostdlib -Wl,-soname,libtwolib-second.so \
+	 -nostdlib -fPIC -Wl,-soname,libtwolib-second.so \
 	 -Wl,--whole-archive -Wl,--no-undefined -Wl,--gc-sections
 else
 LFLAGS	+= \
+	-fPIC \
 	-L$(SYSROOT)/lib \
 	-no-canonical-prefixes -Wl,--fix-cortex-a8  -Wl,--no-undefined \
 	-Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now -mthumb
@@ -381,17 +388,18 @@ SH_LIBS += \
 	$(TOOLCHAIN_PATH)/libc++/libc++_static.a
 
 LIBS += \
-	-lcpufeatures -lc -lm -ldl -llog -lGLESv2 -latomic
+	-lcpufeatures -lc -lm -ldl -llog -lGLESv2 -latomic -lOpenSLES
 
 # this one was added to get ztest to link:
 LIBS += \
-	$(TOOLCHAIN_PATH)/libc++/libc++_static.a
+	$(TOOLCHAIN_PATH)/libc++/libc++_static.a \
+	$(TOOLCHAIN_PATH)/libc++/libc++abi.a \
+	$(TOOLCHAIN_PATH)/libc++/libandroid_support.a
 
-
-# XXX Once we do, enable this:
-#
-#CXXFLAGS	+= -DWEBRTC_ANDROID_OPENSLES
-#LIBS		+= -lOpenSLES
+ifeq ($(AVS_ARCH),armv7)
+LIBS +=	\
+	$(TOOLCHAIN_PATH)/libc++/libunwind.a
+endif
 
 # Architecture Settings
 #
@@ -399,7 +407,7 @@ ifeq ($(AVS_ARCH),armv7)
 CPPFLAGS += \
 	-march=armv7-a -mfpu=neon -mfloat-abi=softfp -mcpu=cortex-a8
 SH_LIBS += \
-	$(TOOLCHAIN_PATH)/libc++/thumb/libc++_static.a
+	$(TOOLCHAIN_PATH)/libc++/libc++_static.a
 
 else ifeq ($(AVS_ARCH),arm64)
 CPPFLAGS += \
@@ -447,9 +455,10 @@ JNI_SUFFIX := .jnilib
 # Settings
 #
 CPPFLAGS += \
-         -arch $(AVS_ARCH) \
-         -isysroot $(SDK_PATH) \
-         -DCARBON_DEPRECATED=YES -DWEBRTC_POSIX -DWEBRTC_MAC -DWEBRTC_IOS -DZETA_IOS_STEREO_PLAYOUT \
+	 -arch $(AVS_ARCH) \
+	 -isysroot $(SDK_PATH) \
+	 -DCARBON_DEPRECATED=YES -DWEBRTC_POSIX -DWEBRTC_MAC -DWEBRTC_IOS \
+	 -DZETA_IOS_STEREO_PLAYOUT -DHAVE_GAI_STRERROR=1 \
 	 -DIPHONE -pipe -no-cpp-precomp
 LFLAGS	 += \
 	 -arch $(AVS_ARCH) \
@@ -514,7 +523,7 @@ JNI_SUFFIX := .so
 # Settings
 #
 CPPFLAGS += \
-         -DWEBRTC_POSIX -DWEBRTC_LINUX
+         -DWEBRTC_POSIX -DWEBRTC_LINUX -DHAVE_GAI_STRERROR=1
 
 SH_LFLAGS += -shared
 
@@ -563,7 +572,7 @@ JNI_SUFFIX := .jnilib
 #
 CPPFLAGS += \
          -isysroot $(SDK_PATH) \
-         -DWEBRTC_POSIX -DWEBRTC_MAC -DZETA_USING_AU_HAL \
+         -DWEBRTC_POSIX -DWEBRTC_MAC -DZETA_USING_AU_HAL -DHAVE_GAI_STRERROR=1 \
 	 -pipe -no-cpp-precomp \
 	 -mmacosx-version-min=10.9
 LFLAGS   += \

@@ -223,6 +223,9 @@ public class MediaManager implements OnAudioFocusChangeListener {
         if ( Name.equals("ringing_from_me") ) {
             stream = android.media.AudioManager.STREAM_VOICE_CALL;
         }
+        if ( Name.equals("ringing_from_me_video") ) {
+            stream = android.media.AudioManager.STREAM_VOICE_CALL;
+        }
         if ( Name.equals("ringing_from_them") ) {
             stream = android.media.AudioManager.STREAM_RING;
         }

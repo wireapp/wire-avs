@@ -54,8 +54,11 @@ AND_CC_OBJS := \
 AND_OBJS := $(AND_CC_OBJS)
 
 ifeq ($(AVS_OS),android)
-AND_DEPS := $(CONTRIB_BREAKPAD_TARGET)
-AND_LIBS := $(CONTRIB_BREAKPAD_LIBS)
+#ifneq ($(AVS_PROJECT),avsopen)
+#AND_DEPS := $(CONTRIB_BREAKPAD_TARGET)
+#AND_LIBS := $(CONTRIB_BREAKPAD_LIBS)
+#AND_CPPFLAGS += -DUSE_BREAKPAD=1
+#endif
 endif
 
 ADB       := $(ANDROID_SDK_ROOT)/platform-tools/adb
@@ -159,3 +162,6 @@ android_symlinks:
 	@echo "setting up symlinks for webrtc"
 	@mkdir -p android/java/org/webrtc/
 	@ln -s ../../../../mediaengine/webrtc/modules/audio_device/android/java/src/org/webrtc/voiceengine android/java/org/webrtc/
+	@ln -s ../../../../mediaengine/webrtc/base/java/src/org/webrtc/Logging.java android/java/org/webrtc/
+	@ln -s ../../../../mediaengine/webrtc/base/java/src/org/webrtc/ThreadUtils.java android/java/org/webrtc/
+

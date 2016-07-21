@@ -23,8 +23,8 @@
 
 #include <sys/time.h>
 
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/modules/audio_coding/include/audio_coding_module.h"
+#include "webrtc/system_wrappers/include/trace.h"
 
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/include/voe_network.h"
@@ -200,23 +200,23 @@ public:
     virtual~ DummyTransport() {
     };
     
-    virtual int SendPacket(int channel, const void *data, size_t len) {
+	virtual bool SendRtp(const uint8_t* packet, size_t length, const webrtc::PacketOptions& options) {
         struct timeval now, res;
         gettimeofday(&now, NULL);
         timersub(&now, &start_time_, &res);
         int32_t now_ms = (int32_t)res.tv_sec*1000 + (int32_t)res.tv_usec/1000;
         if(prev_snd_time_ms_ > 0){
             if((now_ms - prev_snd_time_ms_) > 2*packet_size_ms_){
-                LOG("Warning Channel %d inter packet Jitter = %d ms \n", channel, (now_ms - prev_snd_time_ms_) - packet_size_ms_);
+                LOG("Warning DummyTransport(%p) inter packet Jitter = %d ms \n", this, (now_ms - prev_snd_time_ms_) - packet_size_ms_);
             }
         }
         prev_snd_time_ms_ = now_ms;
         
-        return (int)len;
+        return true;
     };
     
-    virtual int SendRTCPPacket(int channel, const void *data, size_t len){
-        return (int)len;
+    virtual bool SendRtcp(const uint8_t* packet, size_t length) {
+        return true;
     };
     
     void deregister()
@@ -343,7 +343,7 @@ static void *main_function(void *arg)
     c.pacsize = (c.plfreq * PACKET_SIZE_MS) / 1000;
     
     /* Encode audio files to RTP stream files */
-    rtc::scoped_ptr<webrtc::AudioCodingModule> acm(webrtc::AudioCodingModule::Create(0));
+    std::unique_ptr<webrtc::AudioCodingModule> acm(webrtc::AudioCodingModule::Create(0));
     ret = acm->RegisterSendCodec(c);
     if( ret < 0 ){
         LOG("acm->SetSendCodec returned %d \n", ret);

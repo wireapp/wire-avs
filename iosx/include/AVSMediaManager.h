@@ -112,6 +112,7 @@ typedef NS_ENUM (NSUInteger, AVSIntensityLevel) {
 
 - (void)internalRegisterMediaFromConfiguration:(NSDictionary *)configuration inDirectory:(NSString *)directory;
 - (void)registerMedia:(id<AVSMedia>)media withOptions:(NSDictionary *)options;
+- (void)registerUrl:(NSURL*)url forMedia:(NSString*)name;
 - (void)unregisterMedia:(id<AVSMedia>)media;
 
 - (BOOL)isInterrupted;

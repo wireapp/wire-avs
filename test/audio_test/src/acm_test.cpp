@@ -22,8 +22,8 @@
 
 #include <sys/time.h>
 
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/modules/audio_coding/include/audio_coding_module.h"
+#include "webrtc/system_wrappers/include/trace.h"
 
 #include "NwSimulator.h"
 
@@ -157,7 +157,6 @@ namespace webrtc {
 
 using webrtc::AudioFrame;
 using webrtc::AudioCodingModule;
-using rtc::scoped_ptr;
 
 /**********************************/
 /* Main Testing part              */
@@ -178,7 +177,7 @@ int main(int argc, char *argv[])
   int32_t sample_rate_hz = 16000;
   
   NW_type nw_type = NW_type_clean;
-  bool encode = true, decode = true, useFec = false, useDtx = false;
+  bool encode = true, decode = true, useFec = false, useDtx = false, changePackets = false;
   uint32_t ssrc = 0;
   int num_input_channels = 1, packet_loss_rate = 0, packet_size_ms = 20, bit_rate_bps = 32000;
   int ret, num_frames = 0;
@@ -240,7 +239,9 @@ int main(int argc, char *argv[])
       useFec = true;
 	}  else if (strcmp(argv[args], "-dtx")==0){
 		useDtx = true;
-	} else if (strcmp(argv[args], "-ssrc")==0){
+    }  else if (strcmp(argv[args], "-change_packets")==0){
+        changePackets = true;
+    } else if (strcmp(argv[args], "-ssrc")==0){
       args++;
       ssrc = atol(argv[args]);
     }else if (strcmp(argv[args], "-codec")==0){
@@ -278,7 +279,7 @@ int main(int argc, char *argv[])
     return -1;
   }
     
-  scoped_ptr<AudioCodingModule> acm(AudioCodingModule::Create(0));
+  std::unique_ptr<AudioCodingModule> acm(AudioCodingModule::Create(0));
     
   printf("\n--- Running ACM test:  --- \n");
   printf("Fs                          : %d Hz \n", sample_rate_hz);
@@ -393,34 +394,35 @@ int main(int argc, char *argv[])
       timeradd(&res, &tmp, &totTime);
       
       num_frames++;
-#if 0
-	  /* Every 20 sec switch packet size 20 <-> 60 ms */
-	  if( num_frames % 2000 == 0 ){
-		acm->SendCodec(&my_codec_param);
-		  if((my_codec_param.plfreq/1000) * 20 == my_codec_param.pacsize){
+      if(changePackets){
+	    /* Every 20 sec switch packet size 20 <-> 60 ms */
+	    if( num_frames % 2000 == 0 ){
+          rtc::Optional<webrtc::CodecInst> current_codec;
+          current_codec = acm->SendCodec();
+		    if((current_codec->plfreq/1000) * 20 == current_codec->pacsize){
 			  // switch to 60 ms
-			  my_codec_param.pacsize = (my_codec_param.plfreq/1000) * 60;
+			  current_codec->pacsize = (current_codec->plfreq/1000) * 60;
 			  printf("Switch to 60 ms packets !! \n");
-		  } else {
+		    } else {
 			  // switch to 20 ms
-		      my_codec_param.pacsize = (my_codec_param.plfreq/1000) * 20;
+		      current_codec->pacsize = (current_codec->plfreq/1000) * 20;
               printf("Switch to 20 ms packets !! \n");
 		  }
-		  acm->RegisterSendCodec( my_codec_param );
-	  }
-#endif
+		  acm->RegisterSendCodec( *current_codec );
+	    }
+      }
     }
    
     ms_tot = (float)totTime.tv_sec*1000.0 + (float)totTime.tv_usec/1000.0;
     
-    webrtc::CodecInst current_codec;
-    acm->SendCodec(&current_codec);
+    rtc::Optional<webrtc::CodecInst> current_codec;
+    current_codec = acm->SendCodec();
     
     printf("ACM encoding test finished processed %d frames \n", num_frames);
     printf("%d ms audio took %f ms %.1f %% of real time \n", 10*num_frames, ms_tot, 100*ms_tot/(float)(10*num_frames));
     printf("ACM API Fs                  = %d Hz \n", sample_rate_hz);
-    printf("codec API Fs                = %d Hz \n", current_codec.plfreq);
-    printf("codec channels              = %d \n", current_codec.channels);
+    printf("codec API Fs                = %d Hz \n", current_codec->plfreq);
+    printf("codec channels              = %zu \n", current_codec->channels);
     printf("Average bitrate             = %.1f kbps \n\n", (float)(8*tCB.  get_total_bytes())/(10*num_frames));
   
     fclose(in_file);
@@ -568,7 +570,7 @@ int main(int argc, char *argv[])
                                              inCallStats.jitterPeaksFound, inCallStats.currentPacketLossRate );
           fprintf( jb_log_file,"%d %d %d %d ", inCallStats.currentDiscardRate, inCallStats.currentExpandRate,
                                              inCallStats.currentPreemptiveRate, inCallStats.currentAccelerateRate );
-          fprintf( jb_log_file,"%d %d \n", inCallStats.clockDriftPPM, inCallStats.addedSamples );
+          fprintf( jb_log_file,"%d %zu \n", inCallStats.clockDriftPPM, inCallStats.addedSamples );
         }
       }
       timeMs++;
@@ -578,8 +580,7 @@ int main(int argc, char *argv[])
     printf("ACM decoding test finished processed %d frames \n", num_frames);
     printf("%d ms audio took %f ms %.1f %% of real time \n", 10*num_frames, ms_tot, 100*ms_tot/(float)(10*num_frames));
     printf("ACM decoding test lost %d packets of %d \n", nws->GetLostPacketCount(), nws->GetPacketCount());
-    printf("ACM PlayoutMode             = %d \n", acm->PlayoutMode());
-    printf("ACM Playout channels        = %d \n", audioframe.num_channels_);
+    printf("ACM Playout channels        = %zu \n", audioframe.num_channels_);
 #ifdef PRINT_NETEQ_STATS
 #if 0
     webrtc::ACMNetworkStatistics inCallStats;

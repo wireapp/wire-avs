@@ -29,7 +29,7 @@
 
 #include "webrtc/common.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
-#include "webrtc/modules/interface/module_common_types.h"
+#include "webrtc/modules/include/module_common_types.h"
 
 struct APMtestSetup {
     bool enable_HP;
@@ -362,7 +362,7 @@ void APM_unit_test(
                      near_file);
     
     gettimeofday(&startTime, NULL);
-    ret = apm->AnalyzeReverseStream(&far_frame);
+    ret = apm->ProcessReverseStream(&far_frame);
     if( ret < 0 ){
       printf("apm->AnalyzeReverseStream returned %d \n", ret);
     }

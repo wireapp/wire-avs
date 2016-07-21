@@ -236,6 +236,9 @@ static void mediaflow_estab_handler(const char *crypto, const char *codec,
 
 	ASSERT_TRUE(mediaflow_is_ready(ag->mf));
 
+	ASSERT_TRUE(mediaflow_dtls_peer_isset(ag->mf));
+
+
 	if (agents_are_established(ag)) {
 
 		send_traffic(ag);
@@ -408,7 +411,7 @@ static void gather_server(struct agent *ag)
 
 
 static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
-			enum mode mode, const char *name)
+			enum mode mode, const char *name, bool early_dtls)
 {
 	struct sa laddr;
 	struct agent *ag;
@@ -440,6 +443,9 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 			      mediaflow_close_handler,
 			      ag);
 	ASSERT_EQ(0, err);
+
+	if (early_dtls)
+		mediaflow_set_earlydtls(ag->mf, true);
 
 	mediaflow_set_gather_handler(ag->mf, gather_handler);
 
@@ -560,7 +566,7 @@ static void sdp_exchange(struct agent *a, struct agent *b)
 }
 
 
-static void test_b2b(enum mode a_mode, enum mode b_mode)
+static void test_b2b(enum mode a_mode, enum mode b_mode, bool early_dtls)
 {
 	struct test test;
 	struct agent *a = NULL, *b = NULL;
@@ -576,8 +582,8 @@ static void test_b2b(enum mode a_mode, enum mode b_mode)
 	aucodec_register(&test.aucodecl, &dummy_pcmu);
 
 	/* initialization */
-	agent_alloc(&a, &test, true, a_mode, "A");
-	agent_alloc(&b, &test, false, b_mode, "B");
+	agent_alloc(&a, &test, true, a_mode, "A", early_dtls);
+	agent_alloc(&b, &test, false, b_mode, "B", early_dtls);
 	ASSERT_TRUE(a != NULL);
 	ASSERT_TRUE(b != NULL);
 	a->other = b;
@@ -664,6 +670,11 @@ static void test_b2b(enum mode a_mode, enum mode b_mode)
 	ASSERT_TRUE(mediaflow_stats_get(b->mf)->dtls_estab >= 0);
 	ASSERT_TRUE(mediaflow_stats_get(b->mf)->dtls_estab < 5000);
 
+	/* check if early-dtls was negotiated correctly */
+	ASSERT_EQ(early_dtls, mediaflow_early_dtls_supported(a->mf));
+	ASSERT_EQ(early_dtls, mediaflow_early_dtls_supported(b->mf));
+
+
 	mem_deref(a);
 	mem_deref(b);
 
@@ -673,41 +684,88 @@ static void test_b2b(enum mode a_mode, enum mode b_mode)
 
 TEST(media, b2b_trickle_stun_and_lite)
 {
-	test_b2b(TRICKLE_STUN, LITE);
+	test_b2b(TRICKLE_STUN, LITE, false);
 }
 
 
 TEST(media, b2b_trickle_turn_and_lite)
 {
-	test_b2b(TRICKLE_TURN, LITE);
+	test_b2b(TRICKLE_TURN, LITE, false);
 }
 
 
 TEST(media, b2b_trickle_stun_and_trickle_stun)
 {
-	test_b2b(TRICKLE_STUN, TRICKLE_STUN);
+	test_b2b(TRICKLE_STUN, TRICKLE_STUN, false);
 }
 
 
 TEST(media, b2b_trickle_stun_and_trickle_turn)
 {
-	test_b2b(TRICKLE_STUN, TRICKLE_TURN);
+	test_b2b(TRICKLE_STUN, TRICKLE_TURN, false);
 }
 
 
 TEST(media, b2b_trickle_turn_and_trickle_turn)
 {
-	test_b2b(TRICKLE_TURN, TRICKLE_TURN);
+	test_b2b(TRICKLE_TURN, TRICKLE_TURN, false);
 }
 
 
 TEST(media, b2b_turnonly_and_turnonly)
 {
-	test_b2b(TRICKLE_TURN_ONLY, TRICKLE_TURN_ONLY);
+	test_b2b(TRICKLE_TURN_ONLY, TRICKLE_TURN_ONLY, false);
 }
 
 
 TEST(media, b2b_turnonly_and_lite)
 {
-	test_b2b(TRICKLE_TURN_ONLY, LITE);
+	test_b2b(TRICKLE_TURN_ONLY, LITE, false);
 }
+
+
+/* same tests with Early-DTLS enabled: */
+
+
+TEST(media, b2b_trickle_stun_and_lite_earlydtls)
+{
+	test_b2b(TRICKLE_STUN, LITE, true);
+}
+
+
+TEST(media, b2b_trickle_turn_and_lite_earlydtls)
+{
+	test_b2b(TRICKLE_TURN, LITE, true);
+}
+
+
+TEST(media, b2b_trickle_stun_and_trickle_stun_earlydtls)
+{
+	test_b2b(TRICKLE_STUN, TRICKLE_STUN, true);
+}
+
+
+TEST(media, b2b_trickle_stun_and_trickle_turn_earlydtls)
+{
+	test_b2b(TRICKLE_STUN, TRICKLE_TURN, true);
+}
+
+
+TEST(media, b2b_trickle_turn_and_trickle_turn_earlydtls)
+{
+	test_b2b(TRICKLE_TURN, TRICKLE_TURN, true);
+}
+
+
+TEST(media, b2b_turnonly_and_turnonly_earlydtls)
+{
+	test_b2b(TRICKLE_TURN_ONLY, TRICKLE_TURN_ONLY, true);
+}
+
+
+TEST(media, b2b_turnonly_and_lite_earlydtls)
+{
+	test_b2b(TRICKLE_TURN_ONLY, LITE, true);
+}
+
+

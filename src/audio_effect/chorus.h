@@ -15,6 +15,9 @@
 * You should have received a copy of the GNU General Public License
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
+#ifndef AVS_SRC_AUDIO_EFFECT_CHORUS_H
+#define AVS_SRC_AUDIO_EFFECT_CHORUS_H
+
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -24,15 +27,15 @@
 #include <stdlib.h>
 
 #include "webrtc/common_audio/resampler/include/push_resampler.h"
+#include "common_settings.h"
 
-#define MAX_FS_KHZ 48
 #define UP_FAC 2
 #define MAX_L_MS 40
 #define MAX_D_MS 100
 #define MIN_D_MS 20
 #define MAX_A 0.8
 #define MIN_A 0.7
-#define NUM_SINE_ELEM 3
+#define NUM_SINE_ELEM 4
 #define NUM_RAND_ELEM 0
 
 #define RAND_PERIOD_MS 500
@@ -63,9 +66,9 @@ struct sine_chorus_elem {
     float d_omega;
 };
 
-struct chorus_effect {
+struct chorus_org_effect {
     int fs_khz;
-    int16_t buf[(MAX_D_MS+MAX_L_MS)*MAX_FS_KHZ*UP_FAC];
+    int16_t buf[(MAX_D_MS+MAX_L_MS)*Z_MAX_FS_KHZ*UP_FAC];
 #if NUM_RAND_ELEM
     struct rand_chorus_elem r_elem[NUM_RAND_ELEM];
 #endif
@@ -74,3 +77,15 @@ struct chorus_effect {
 #endif
     webrtc::PushResampler<int16_t> *resampler;
 };
+
+struct chorus_alt_effect {
+    void* pse1;
+    void* pse2;
+};
+
+struct chorus_effect {
+    int strength;
+    void* st;
+};
+
+#endif

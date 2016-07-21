@@ -51,6 +51,7 @@
 IOSX_MODULES += flowmgr
 IOSX_MODULES += mediamgr
 IOSX_MODULES += videoutil
+IOSX_MODULES += audioutil
 
 IOSX_MODMKS := $(patsubst %,iosx/src/%/mod.mk,$(IOSX_MODULES))
 IOSX_MKS    := $(OUTER_MKS) mk/iosx.mk $(IOSX_MODMKS)

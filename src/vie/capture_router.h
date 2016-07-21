@@ -23,7 +23,7 @@
 #include "webrtc/common.h"
 #include "webrtc/video_send_stream.h"
 
-void vie_capture_router_init(void);
+int  vie_capture_router_init(void);
 void vie_capture_router_deinit(void);
 
 void vie_capture_router_attach_stream(webrtc::VideoCaptureInput *stream_input,

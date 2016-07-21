@@ -81,7 +81,8 @@ int vie_dec_alloc(struct viddec_state **vdsp,
 	vds->pt = pt;
 	vds->errh = errh;
 	vds->arg = arg;
-	vds->prm = *prm;
+	if (prm)
+		vds->prm = *prm;
 
  out:
 	if (err) {
@@ -111,7 +112,6 @@ static bool sdp_has_remb(struct viddec_state *vds){
 
 int vie_render_start(struct viddec_state *vds)
 {
-	webrtc::VideoReceiveStream::Config receive_config;
   	webrtc::VideoReceiveStream::Decoder decoder;
 	struct vie *vie = vds ? vds->vie : NULL;
 	int ret;
@@ -121,6 +121,8 @@ int vie_render_start(struct viddec_state *vds)
 
 	if (!vie || !vie->call)
 		return EINVAL;
+
+	webrtc::VideoReceiveStream::Config receive_config(vie->transport);
 
 	if (vds->prm.local_ssrcc < 1 || vds->prm.remote_ssrcc < 1) {
 		error("%s: No SSRCS to use for video local:%u remote %u\n",
@@ -138,7 +140,7 @@ int vie_render_start(struct viddec_state *vds)
 
 		sdp_format *rtx;
 
-		rtx = sdp_media_format(vds->sdpm, false, NULL,
+		rtx = sdp_media_format(vds->sdpm, true, NULL,
 				       -1, "rtx", -1, -1);
 
 		if (!rtx) {
@@ -183,15 +185,17 @@ int vie_render_start(struct viddec_state *vds)
 	decoder.decoder = vie->decoder;
 	receive_config.decoders.push_back(decoder);
 
-	receive_config.enable_vqi = (avs_get_flags() & AVS_FLAG_EXPERIMENTAL);
+	// TODO: find the new version of this flag
+	//receive_config.enable_vqi = (avs_get_flags() & AVS_FLAG_EXPERIMENTAL);
     
 	vie->receive_stream = vie->call->CreateVideoReceiveStream(receive_config);
 
 	vie->receive_stream->Start();
 
 	vds->started = true;
-	debug("%s: %s\n",
-	      __FUNCTION__, vds->started ? "started" : "stopped");
+	debug("%s: %s lssrc=%u rssrc=%u\n",
+	      __FUNCTION__, vds->started ? "started" : "stopped",
+	      vds->prm.local_ssrcv[0], vds->prm.remote_ssrcv[0]);
 
 	debug("%s: completed successfully\n", __FUNCTION__, ret);
 
@@ -214,6 +218,10 @@ void vie_render_stop(struct viddec_state *vds)
 		vie->call->DestroyVideoReceiveStream(vie->receive_stream);
 	}
 
+    if(vie->decoder){
+        delete vie->decoder;
+    }
+    
 
 	if (vie->receive_renderer) {
 		delete vie->receive_renderer;
@@ -254,10 +262,8 @@ void vie_dec_rtp_handler(struct viddec_state *vds,
 			 const uint8_t *pkt, size_t len)
 {
 	webrtc::PacketReceiver::DeliveryStatus delstat;
-	webrtc::PacketTime pt(tmr_jiffies(), 0ULL);
+	webrtc::PacketTime pt(-1, 0ULL);
 	struct vie *vie = vds ? vds->vie : NULL;
-	struct rtp_header rtph;
-	
 
 	if (!vie || !vds)
 		return;
@@ -269,43 +275,27 @@ void vie_dec_rtp_handler(struct viddec_state *vds,
 		debug("vie: %s: first RTP packet received\n", __func__);
 		vds->packet_received = true;
 	}
-	
+
+
 	stats_rtp_add_packet(&vie->stats_rx, pkt, len);
 
-#if FORCE_VIDEO_RECORDING
-	if(!vie->rtpDump->IsActive()){
-		char  buf[80];
-		time_t     now = time(0);
-		struct tm  tstruct;
-        
-#if TARGET_OS_IPHONE
-		std::string prefix = voe_iosfilepath();
-		prefix.insert(prefix.size(),"/Ios_");
-#elif defined(ANDROID)
-		std::string prefix = "/sdcard/Android_";
-#else
-		std::string prefix = "Osx_";
-#endif
-		tstruct = *localtime(&now);
-		strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
-        
-		std::string name = prefix + "VidIn";
-		name.insert(name.size(),buf);
-		name.insert(name.size(),".rtp");
-        
-		vie->rtpDump->Start(name.c_str());
-	}
+#if FORCE_VIDEO_RTP_RECORDING
 	// Only Save RTP header and length;
-	int32_t len32 = (int32_t)len;
-	uint8_t buf[12 + sizeof(int32_t)]; // RTP header is 12 bytes
+	uint32_t len32 = (int32_t)len;
+	uint8_t buf[VIDEO_RTP_RECORDING_LENGTH + sizeof(uint32_t)]; // RTP header is 12 bytes but we also need header extension
     
-	memcpy(buf, &len32, sizeof(int32_t));
-	memcpy(&buf[sizeof(int32_t)], pkt, 12*sizeof(uint8_t));
+	memcpy(buf, &len32, sizeof(uint32_t));
+	memcpy(&buf[sizeof(uint32_t)], pkt, VIDEO_RTP_RECORDING_LENGTH*sizeof(uint8_t));
 
-	vie->rtpDump->DumpPacket(buf, sizeof(buf));
+	vie->rtp_dump_in->DumpPacket(buf, sizeof(buf));
 #endif
-    
-	delstat = vie->call->Receiver()->DeliverPacket(webrtc::MediaType::VIDEO, pkt, len);
+
+	delstat = vie->call->Receiver()->DeliverPacket(webrtc::MediaType::VIDEO, pkt, len, pt);
+
+
+	if (delstat != webrtc::PacketReceiver::DELIVERY_OK) {
+		warning("vie: DeliverPacket error %d\n", delstat);
+	}
 }
 
 
@@ -314,6 +304,7 @@ void vie_dec_rtcp_handler(struct viddec_state *vds,
 {
 	struct vie *vie = vds ? vds->vie : NULL;
 	webrtc::PacketReceiver::DeliveryStatus delstat;
+	webrtc::PacketTime pt(tmr_jiffies(), 0ULL);
 
 	if (!vds || !vds->vie)
 		return;
@@ -329,5 +320,5 @@ void vie_dec_rtcp_handler(struct viddec_state *vds,
 			vie->stats_rx.rtcp.bitrate_limit);
 	}
 
-	delstat = vie->call->Receiver()->DeliverPacket(webrtc::MediaType::VIDEO, pkt, len);
+	delstat = vie->call->Receiver()->DeliverPacket(webrtc::MediaType::VIDEO, pkt, len, pt);
 }

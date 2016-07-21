@@ -29,8 +29,7 @@
 
 #include "webrtc/common.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
-#include "webrtc/modules/interface/module_common_types.h"
-#include "webrtc/base/scoped_ptr.h"
+#include "webrtc/modules/include/module_common_types.h"
 
 #include "gtest/gtest.h"
 #include "complexity_check.h"
@@ -63,7 +62,7 @@ static int APM_unit_test(
   float* cpu_load,
   struct APMtestSetup* setup)
 {
-  rtc::scoped_ptr<AudioProcessing> apm(AudioProcessing::Create());
+  std::unique_ptr<AudioProcessing> apm(AudioProcessing::Create());
     
   AudioFrame far_frame;
   AudioFrame near_frame;
@@ -176,7 +175,7 @@ static int APM_unit_test(
                      near_file);
     
     gettimeofday(&startTime, NULL);
-    ret = apm->AnalyzeReverseStream(&far_frame);
+    ret = apm->ProcessReverseStream(&far_frame);
     if( ret < 0 ){
       return -1;
     }

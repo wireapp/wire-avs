@@ -159,38 +159,6 @@ void flowmgr_stop_speak_file_record(void)
 }
 
 
-int flowmgr_start_preproc_recording(const char fileNameUTF8[1024])
-{
-	int err = 0;
-
-	err = voe_start_preproc_recording(fileNameUTF8);
-
-	return err;
-}
-
-
-void flowmgr_stop_preproc_recording(void)
-{
-	voe_stop_preproc_recording();
-}
-
-
-int flowmgr_start_packet_recording(const char fileNameUTF8[1024])
-{
-	int err = 0;
-
-	err = voe_start_packet_recording(fileNameUTF8);
-
-	return err;
-}
-
-
-void flowmgr_stop_packet_recording(void)
-{
-	voe_stop_packet_recording();
-}
-
-
 void flowmgr_enable_fec(bool enable)
 {
 	voe_enable_fec(enable);

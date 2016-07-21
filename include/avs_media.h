@@ -51,6 +51,13 @@ enum media_crypto {
 	CRYPTO_SDESC     = 1<<1
 };
 
+/* only valid for DTLS-SRTP */
+enum media_setup {
+	SETUP_ACTPASS,
+	SETUP_ACTIVE,
+	SETUP_PASSIVE
+};
+
 enum media_type {
 	MEDIA_AUDIO = 0,
 	MEDIA_VIDEO = 1,
@@ -69,6 +76,9 @@ struct mediaflow_stats {
 	int32_t turn_alloc;
 	int32_t nat_estab;
 	int32_t dtls_estab;
+
+	unsigned dtls_pkt_sent;
+	unsigned dtls_pkt_recv;
 };
 
 
@@ -102,6 +112,12 @@ int mediaflow_alloc(struct mediaflow **mfp, struct tls *dtls,
 		    mediaflow_close_h *closeh,
 		    void *arg);
 
+int mediaflow_set_setup(struct mediaflow *mf, enum media_setup setup);
+enum media_setup mediaflow_local_setup(const struct mediaflow *mf);
+
+void mediaflow_set_earlydtls(struct mediaflow *mf, bool enabled);
+bool mediaflow_early_dtls_supported(const struct mediaflow *mf);
+
 void mediaflow_set_rtp_handler(struct mediaflow *mf,
 			       uint32_t audio_srate, uint8_t audio_ch,
 			       mediaflow_audio_h *audioh,
@@ -115,6 +131,7 @@ int mediaflow_start_ice(struct mediaflow *mf);
 
 int mediaflow_start_media(struct mediaflow *mf);
 void mediaflow_stop_media(struct mediaflow *mf);
+void mediaflow_reset_media(struct mediaflow *mf);
 
 
 int mediaflow_set_video_send_active(struct mediaflow *mf, bool video_active);
@@ -190,6 +207,7 @@ int  mediaflow_cryptos_print(struct re_printf *pf, enum media_crypto cryptos);
 const char *mediaflow_nat_name(enum mediaflow_nat nat);
 enum mediaflow_nat mediaflow_nat_resolve(const char *name);
 
+
 struct rtp_stats* mediaflow_rcv_audio_rtp_stats(struct mediaflow *mf);
 struct rtp_stats* mediaflow_snd_audio_rtp_stats(struct mediaflow *mf);
 struct rtp_stats* mediaflow_rcv_video_rtp_stats(struct mediaflow *mf);
@@ -206,3 +224,4 @@ void mediaflow_enable_privacy(struct mediaflow *mf, bool enabled);
 
 const char *mediaflow_lcand_name(const struct mediaflow *mf);
 const char *mediaflow_rcand_name(const struct mediaflow *mf);
+bool mediaflow_dtls_peer_isset(const struct mediaflow *mf);

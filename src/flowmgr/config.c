@@ -78,6 +78,10 @@ static void call_config_resp_handler(int status, struct rr_resp *rr,
 			goto out;
 		}
 	}
+
+	config->early_dtls = false;
+	jzon_bool(&config->early_dtls, jobj, "early_dtls");
+
  out:
         fm->config.rr = NULL;
 
