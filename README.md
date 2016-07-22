@@ -36,7 +36,7 @@ $ multirust default nightly
 
 
 
-For **Android**, you need bot the
+For **Android**, you need both the
 [Android SDK](https://developer.android.com/sdk/index.html) as well as the
 [Android NDK](https://developer.android.com/tools/sdk/ndk/index.html).
 Just get the latest versions and install them somewhere cozy. You need to
@@ -68,6 +68,7 @@ $ sudo apt-get install \
   protobuf-c-compiler \
   yasm \
   zlib1g-dev \
+  zip
 
 $ curl -sSf https://static.rust-lang.org/rustup.sh | sh -s -- --channel=nightly
 ```
