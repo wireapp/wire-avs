@@ -3,10 +3,10 @@
 	url = https://chromium.googlesource.com/external/webrtc/trunk/webrtc.git
 [submodule "contrib/generic-message-proto"]
 	path = contrib/generic-message-proto
-	url = git@github.com:wearezeta/generic-message-proto.git
+	url = https://github.com/wireapp/generic-message-proto.git
 [submodule "contrib/cryptobox-c"]
 	path = contrib/cryptobox-c
-	url = git@github.com:wireapp/cryptobox-c.git
+	url = https://github.com/wireapp/cryptobox-c.git
 [submodule "contrib/opus"]
 	path = contrib/opus
 	url = https://git.xiph.org/opus.git
