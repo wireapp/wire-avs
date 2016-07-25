@@ -389,10 +389,12 @@ void voe_start_audio_proc(struct voe *voe)
 	}
 	info(" ---------------------- \n");
 
+#if !defined(ANDROID)
 	char strNameUTF8[128];
 	if(!voe->hw->GetPlayoutDeviceName(0, strNameUTF8, NULL)){
 		voe_set_auplay(strNameUTF8);
     }
+#endif
     
 #if FORCE_AUDIO_PREPROC_RECORDING
         if( voe->path_to_files ){

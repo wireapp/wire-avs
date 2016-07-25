@@ -373,7 +373,7 @@ $(BUILD_DIST_BASE)/%/avsstub.tar.bz2: \
 #--- avscore Tarballs ---
 
 $(BUILD_DIST_BASE)/%/avscore.tar.bz2:
-	$(MAKE) tools contrib_librem AVS_OS=$* AVS_ARCH=x86_64 DIST=1
+	$(MAKE) contrib_librem AVS_OS=$* AVS_ARCH=x86_64 DIST=1
 	@mkdir -p $(dir $@)/avscore
 	@cp -a $(BUILD_BASE)/$*-x86_64/bin \
 	       $(BUILD_BASE)/$*-x86_64/lib \

@@ -169,7 +169,7 @@ static int wav_converter_init(FILE *in_file, FILE *out_file, struct wav_format *
         }
         if(strcmp(Subchunk2ID,"data")==0){
             format->num_samples_in = Subchunk2Size/format->block_align;
-            int64_t tmp = format->num_samples_in * length_modification_q10;
+            int64_t tmp = (int64_t)format->num_samples_in * (int64_t)length_modification_q10;
             tmp = tmp >> 10;
             format->num_samples_out = tmp;
             uint32_t new_Subchunk2Size = format->num_samples_out * format->block_align;

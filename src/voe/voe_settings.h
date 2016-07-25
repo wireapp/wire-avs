@@ -65,13 +65,13 @@
     #define ZETA_USE_AGC_EARPIECE            true
     #define ZETA_USE_AGC_SPEAKER             true
     #define ZETA_USE_AGC_HEADSET             true
-    #define ZETA_AGC_MODE_EARPIECE           webrtc::kAgcAdaptiveDigital
-    #define ZETA_AGC_MODE_EARPIECE_CONF      webrtc::kAgcAdaptiveDigital
+    #define ZETA_AGC_MODE_EARPIECE           webrtc::kAgcFixedDigital
+    #define ZETA_AGC_MODE_EARPIECE_CONF      webrtc::kAgcFixedDigital
 /* In Speaker mode we dont use Adaptive AGC - risk of adapting to background noise / speakers */
     #define ZETA_AGC_MODE_SPEAKER            webrtc::kAgcFixedDigital
     #define ZETA_AGC_MODE_SPEAKER_CONF       webrtc::kAgcFixedDigital
-    #define ZETA_AGC_MODE_HEADSET            webrtc::kAgcAdaptiveDigital
-    #define ZETA_AGC_MODE_HEADSET_CONF       webrtc::kAgcAdaptiveDigital
+    #define ZETA_AGC_MODE_HEADSET            webrtc::kAgcFixedDigital
+    #define ZETA_AGC_MODE_HEADSET_CONF       webrtc::kAgcFixedDigital
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_EARPIECE          9
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_EARPIECE_CONF     9
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_SPEAKER           9

@@ -40,7 +40,7 @@ AVS_PROJECT := avsmaster
 AVS_RELEASE := 0
 else ifeq ($(VER_BRANCH),open_source)
 AVS_PROJECT := avsopen
-AVS_RELEASE := 0
+AVS_RELEASE := 1
 else
 AVS_PROJECT := avs
 AVS_RELEASE := 1
