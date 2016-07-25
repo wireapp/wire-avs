@@ -55,7 +55,7 @@ endif
 # arch "osx" to trigger the OSX build for the zip file.
 #
 ifeq ($(DIST_ARCH),)
-	DIST_ARCH := $(ALL_AVS_ARCH) osx
+	DIST_ARCH := $(ALL_AVS_ARCH)
 endif
 
 DIST_ARCH_android := $(filter armv7 i386 osx,$(DIST_ARCH))
@@ -199,12 +199,12 @@ ifneq ($(filter osx,$(DIST_ARCH)),)
 	@cp $(BUILD_BASE)/osx-x86_64/lib/libavs.jnilib \
 		$(BUILD_DIST_AND)/zip/libs/osx
 endif
-	@echo 'GEN BUILD INFO > $(BUILD_DIST_AND)/zip/version.buildinfo'
-	@echo `genbuildinfo -b BUILDCONTROL -c ../buildcomponents/android`
+#	@echo 'GEN BUILD INFO > $(BUILD_DIST_AND)/zip/version.buildinfo'
+#	@echo `genbuildinfo -b BUILDCONTROL -c ../buildcomponents/android`
 #	@echo '$(DIST_AND_BUILDINFO)' \
 #		> $(BUILD_DIST_AND)/zip/version.buildinfo
-	@genbuildinfo -b BUILDCONTROL -c ../build/components/android \
-		-o $(BUILD_DIST_AND)/zip/version.buildinfo
+#	@genbuildinfo -b BUILDCONTROL -c ../build/components/android \
+#		-o $(BUILD_DIST_AND)/zip/version.buildinfo
 	@( cd $(BUILD_DIST_AND)/zip && zip -r $@ * )
 
 $(BUILD_DIST_AND)/avs.tar.bz2: $(BUILD_DIST_AND)/avs.zip
