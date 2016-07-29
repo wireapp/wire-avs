@@ -196,7 +196,7 @@ Some specifications implemented:
 
 When reporting bugs against AVS please include the following:
 
-- Wireshark PCAP trace (download https://1.eu.dl.wireshark.org/osx/Wireshark%201.99.3%20Intel%2064.dmg)
+- Wireshark PCAP trace ([download Wireshark](https://www.wireshark.org/download.html))
 - Full logs from client
 - Session-ID
 - Which Backend was used
