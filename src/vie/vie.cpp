@@ -51,6 +51,7 @@ class ViETransport;
 
 static struct vidcodec vie_vidcodecv[NUM_CODECS] = {
 	{
+		.le = LE_INIT,
 		.pt = "100",
 		.name = "VP8",
 		.variant = NULL,
@@ -61,6 +62,7 @@ static struct vidcodec vie_vidcodecv[NUM_CODECS] = {
 		.enc_starth   = vie_capture_start,
 		.enc_stoph    = vie_capture_stop,
 		.enc_holdh    = vie_capture_hold,
+		.enc_bwalloch = vie_capture_getbw,
 
 		.dec_alloch   = vie_dec_alloc,
 		.dec_starth   = vie_render_start,
@@ -68,12 +70,15 @@ static struct vidcodec vie_vidcodecv[NUM_CODECS] = {
 		.dec_holdh    = vie_render_hold,
 		.dec_rtph     = vie_dec_rtp_handler,
 		.dec_rtcph    = vie_dec_rtcp_handler,
+		.dec_debugh   = NULL,
+		.dec_bwalloch = vie_dec_getbw,
 
 		.fmtp_ench    = vie_fmtp_enc,
 	},
 #if USE_RTX
 	{
-		.pt = "101",
+		.le = LE_INIT,
+		.pt = "96",
 		.name = "rtx",
 		.variant = NULL,
 		.fmtp = NULL,
@@ -82,12 +87,17 @@ static struct vidcodec vie_vidcodecv[NUM_CODECS] = {
 		.enc_alloch   = NULL,
 		.enc_starth   = NULL,
 		.enc_stoph    = NULL,
+		.enc_holdh    = NULL,
+		.enc_bwalloch = NULL,
 
 		.dec_alloch   = NULL,
 		.dec_starth   = NULL,
 		.dec_stoph    = NULL,
+		.dec_holdh    = NULL,
 		.dec_rtph     = vie_dec_rtp_handler,
 		.dec_rtcph    = vie_dec_rtcp_handler,
+		.dec_debugh   = NULL,
+		.dec_bwalloch = NULL,
 
 		.fmtp_ench    = vie_rtx_fmtp_enc,
 	}

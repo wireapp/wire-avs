@@ -27,6 +27,7 @@
 		E9DDE6DA1A25D77A002919D5 /* apm_test.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E9DDE6D91A25D77A002919D5 /* apm_test.cpp */; };
 		E9E9E5561A28ACFD00399DC1 /* resampler_test.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E9E9E5551A28ACFD00399DC1 /* resampler_test.cpp */; };
 		E9EE15121BECEB2F00B80B66 /* voe_loopback_test.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E9EE15111BECEB2F00B80B66 /* voe_loopback_test.cpp */; };
+		E9FAE07E1DDEFC5C002CA03C /* test_effects.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E9FAE07D1DDEFC5C002CA03C /* test_effects.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,6 +69,7 @@
 		E9E9E5551A28ACFD00399DC1 /* resampler_test.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = resampler_test.cpp; path = ../src/resampler_test.cpp; sourceTree = "<group>"; };
 		E9E9E5591A28C96200399DC1 /* opus_demo.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = opus_demo.cpp; path = ../src/opus_demo.cpp; sourceTree = "<group>"; };
 		E9EE15111BECEB2F00B80B66 /* voe_loopback_test.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = voe_loopback_test.cpp; path = ../src/voe_loopback_test.cpp; sourceTree = "<group>"; };
+		E9FAE07D1DDEFC5C002CA03C /* test_effects.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = test_effects.cpp; path = ../src/test_effects.cpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -175,6 +177,7 @@
 				E9EE15111BECEB2F00B80B66 /* voe_loopback_test.cpp */,
 				E9E9E5591A28C96200399DC1 /* opus_demo.cpp */,
 				E957EF1C1B162BCF007ADCAC /* voe_conf_test_dec.cpp */,
+				E9FAE07D1DDEFC5C002CA03C /* test_effects.cpp */,
 				E9E9E5551A28ACFD00399DC1 /* resampler_test.cpp */,
 				E9DDE6D91A25D77A002919D5 /* apm_test.cpp */,
 				E799E4521A22290B0057E54F /* acm_test.cpp */,
@@ -234,6 +237,7 @@
 					E799E33D1A2222A10057E54F = {
 						CreatedOnToolsVersion = 6.1;
 						DevelopmentTeam = W5KEQBF9B5;
+						ProvisioningStyle = Automatic;
 					};
 					E799E3561A2222A10057E54F = {
 						CreatedOnToolsVersion = 6.1;
@@ -288,6 +292,7 @@
 				E9D4345D1AC057F400666973 /* opus_demo.cpp in Sources */,
 				E9EE15121BECEB2F00B80B66 /* voe_loopback_test.cpp in Sources */,
 				E9DDE6DA1A25D77A002919D5 /* apm_test.cpp in Sources */,
+				E9FAE07E1DDEFC5C002CA03C /* test_effects.cpp in Sources */,
 				E799E34A1A2222A10057E54F /* ViewController.mm in Sources */,
 				E948FFFE1B5CF4FB00B7822D /* NwSimulator.cpp in Sources */,
 				E9E9E5561A28ACFD00399DC1 /* resampler_test.cpp in Sources */,
@@ -440,6 +445,7 @@
 				ARCHS = "$(ARCHS_STANDARD)";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iOS Development: Soren Jensen (D9DK7CEV5L)";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
@@ -455,6 +461,7 @@
 					../../../contrib/opus,
 					../../../build/dist/ios/avsball/include,
 					../../../mediaengine,
+					../../../include,
 				);
 				INFOPLIST_FILE = AudioTest/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 8.0;
@@ -471,10 +478,9 @@
 				ARCHS = "$(ARCHS_STANDARD)";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iOS Development: Soren Jensen (D9DK7CEV5L)";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				ENABLE_BITCODE = NO;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					WEBRTC_POSIX,
-				);
+				GCC_PREPROCESSOR_DEFINITIONS = WEBRTC_POSIX;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include,
@@ -483,6 +489,7 @@
 					../../../contrib/opus,
 					../../../build/dist/ios/avsball/include,
 					../../../mediaengine,
+					../../../include,
 				);
 				INFOPLIST_FILE = AudioTest/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 8.0;

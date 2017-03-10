@@ -120,3 +120,9 @@ TurnServer::~TurnServer()
 	mem_deref(turnd);
 	mem_deref(us);
 }
+
+
+void TurnServer::set_sim_error(uint16_t sim_error)
+{
+	turnd->sim_error = sim_error;
+}

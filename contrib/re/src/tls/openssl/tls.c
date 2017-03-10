@@ -4,11 +4,12 @@
  * Copyright (C) 2010 Creytiv.com
  */
 #include <string.h>
-#define OPENSSL_NO_KRB5 1
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/rsa.h>
 #include <openssl/bn.h>
+#include <openssl/evp.h>
+#include <openssl/x509.h>
 #include <re_types.h>
 #include <re_fmt.h>
 #include <re_mem.h>
@@ -21,6 +22,12 @@
 #include <re_tcp.h>
 #include <re_tls.h>
 #include "tls.h"
+
+
+/* also defined by wincrypt.h */
+#ifdef WIN32
+#undef X509_NAME
+#endif
 
 
 #define DEBUG_MODULE "tls"
@@ -45,6 +52,13 @@ static void destructor(void *data)
 		X509_free(tls->cert);
 
 	mem_deref(tls->pass);
+
+#ifdef TLS_BIO_OPAQUE
+	if (tls->method_tcp)
+		BIO_meth_free(tls->method_tcp);
+	if (tls->method_udp)
+		BIO_meth_free(tls->method_udp);
+#endif
 }
 
 
@@ -63,6 +77,19 @@ static int password_cb(char *buf, int size, int rwflag, void *userdata)
 	strncpy(buf, tls->pass, size);
 
 	return (int)strlen(tls->pass);
+}
+
+
+static int keytype2int(enum tls_keytype type)
+{
+	switch (type) {
+	case TLS_KEYTYPE_EC:
+		return EVP_PKEY_EC;
+	case TLS_KEYTYPE_RSA:
+		return EVP_PKEY_RSA;
+	default:
+		return EVP_PKEY_NONE;
+	}
 }
 
 
@@ -97,7 +124,13 @@ int tls_alloc(struct tls **tlsp, enum tls_method method, const char *keyfile,
 
 #ifdef USE_OPENSSL_DTLS
 	case TLS_METHOD_DTLSV1:
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L && \
+	!defined(LIBRESSL_VERSION_NUMBER)
+
+		tls->ctx = SSL_CTX_new(DTLS_method());
+#else
 		tls->ctx = SSL_CTX_new(DTLSv1_method());
+#endif
 		break;
 
 #ifdef SSL_OP_NO_DTLSv1_2
@@ -108,7 +141,13 @@ int tls_alloc(struct tls **tlsp, enum tls_method method, const char *keyfile,
 		break;
 
 	case TLS_METHOD_DTLSV1_2:
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L && \
+	!defined(LIBRESSL_VERSION_NUMBER)
+
+		tls->ctx = SSL_CTX_new(DTLS_method());
+#else
 		tls->ctx = SSL_CTX_new(DTLSv1_2_method());
+#endif
 		break;
 #endif
 
@@ -160,6 +199,15 @@ int tls_alloc(struct tls **tlsp, enum tls_method method, const char *keyfile,
 			goto out;
 		}
 	}
+
+#ifdef TLS_BIO_OPAQUE
+	tls->method_tcp = tls_method_tcp();
+	tls->method_udp = tls_method_udp();
+	if (!tls->method_tcp || !tls->method_udp) {
+		err = ENOMEM;
+		goto out;
+	}
+#endif
 
 	err = 0;
  out:
@@ -310,55 +358,63 @@ int tls_set_selfsigned(struct tls *tls, const char *cn)
 /**
  * Set the certificate and private key on a TLS context
  *
- * @param tls TLS Context
- * @param pem Certificate and private key in PEM format
- * @param len Length of PEM string
+ * @param tls      TLS Context
+ * @param cert     Certificate in PEM format
+ * @param len_cert Length of certificate PEM string
+ * @param key      Private key in PEM format, will be read from cert if NULL
+ * @param len_key  Length of private key PEM string
  *
  * @return 0 if success, otherwise errorcode
  */
-int tls_set_certificate(struct tls *tls, const char *pem, size_t len)
+int tls_set_certificate_pem(struct tls *tls, const char *cert, size_t len_cert,
+			    const char *key, size_t len_key)
 {
 	BIO *bio = NULL, *kbio = NULL;
-	X509 *cert = NULL;
-	RSA *rsa = NULL;
+	X509 *x509 = NULL;
+	EVP_PKEY *pkey = NULL;
 	int r, err = ENOMEM;
 
-	if (!tls || !pem || !len)
+	if (!tls || !cert || !len_cert || (key && !len_key))
 		return EINVAL;
 
-	bio  = BIO_new_mem_buf((char *)pem, (int)len);
-	kbio = BIO_new_mem_buf((char *)pem, (int)len);
+	if (!key) {
+		key = cert;
+		len_key = len_cert;
+	}
+
+	bio  = BIO_new_mem_buf((char *)cert, (int)len_cert);
+	kbio = BIO_new_mem_buf((char *)key, (int)len_key);
 	if (!bio || !kbio)
 		goto out;
 
-	cert = PEM_read_bio_X509(bio, NULL, 0, NULL);
-	rsa = PEM_read_bio_RSAPrivateKey(kbio, NULL, 0, NULL);
-	if (!cert || !rsa)
+	x509 = PEM_read_bio_X509(bio, NULL, 0, NULL);
+	pkey = PEM_read_bio_PrivateKey(kbio, NULL, 0, NULL);
+	if (!x509 || !pkey)
 		goto out;
 
-	r = SSL_CTX_use_certificate(tls->ctx, cert);
+	r = SSL_CTX_use_certificate(tls->ctx, x509);
 	if (r != 1)
 		goto out;
 
-	r = SSL_CTX_use_RSAPrivateKey(tls->ctx, rsa);
+	r = SSL_CTX_use_PrivateKey(tls->ctx, pkey);
 	if (r != 1) {
-		DEBUG_WARNING("set_certificate: use_RSAPrivateKey failed\n");
+		DEBUG_WARNING("set_certificate_pem: use_PrivateKey failed\n");
 		goto out;
 	}
 
 	if (tls->cert)
 		X509_free(tls->cert);
 
-	tls->cert = cert;
-	cert = NULL;
+	tls->cert = x509;
+	x509 = NULL;
 
 	err = 0;
 
  out:
-	if (cert)
-		X509_free(cert);
-	if (rsa)
-		RSA_free(rsa);
+	if (x509)
+		X509_free(x509);
+	if (pkey)
+		EVP_PKEY_free(pkey);
 	if (bio)
 		BIO_free(bio);
 	if (kbio)
@@ -367,6 +423,94 @@ int tls_set_certificate(struct tls *tls, const char *pem, size_t len)
 		ERR_clear_error();
 
 	return err;
+}
+
+
+/**
+ * Set the certificate and private key on a TLS context
+ *
+ * @param tls      TLS Context
+ * @param keytype  Private key type
+ * @param cert     Certificate in DER format
+ * @param len_cert Length of certificate DER bytes
+ * @param key      Private key in DER format, will be read from cert if NULL
+ * @param len_key  Length of private key DER bytes
+ *
+ * @return 0 if success, otherwise errorcode
+ */
+int tls_set_certificate_der(struct tls *tls, enum tls_keytype keytype,
+			    const uint8_t *cert, size_t len_cert,
+			    const uint8_t *key, size_t len_key)
+{
+	const uint8_t *buf_cert;
+	X509 *x509 = NULL;
+	EVP_PKEY *pkey = NULL;
+	int r, type, err = ENOMEM;
+
+	if (!tls || !cert || !len_cert || (key && !len_key))
+		return EINVAL;
+
+	type = keytype2int(keytype);
+	if (type == EVP_PKEY_NONE)
+		return EINVAL;
+
+	buf_cert = cert;
+
+	x509 = d2i_X509(NULL, &buf_cert, len_cert);
+	if (!x509)
+		goto out;
+
+	if (!key) {
+		key = buf_cert;
+		len_key = len_cert - (buf_cert - cert);
+	}
+
+	pkey = d2i_PrivateKey(type, NULL, &key, len_key);
+	if (!pkey)
+		goto out;
+
+	r = SSL_CTX_use_certificate(tls->ctx, x509);
+	if (r != 1)
+		goto out;
+
+	r = SSL_CTX_use_PrivateKey(tls->ctx, pkey);
+	if (r != 1) {
+		DEBUG_WARNING("set_certificate_der: use_PrivateKey failed\n");
+		goto out;
+	}
+
+	if (tls->cert)
+		X509_free(tls->cert);
+
+	tls->cert = x509;
+	x509 = NULL;
+
+	err = 0;
+
+ out:
+	if (x509)
+		X509_free(x509);
+	if (pkey)
+		EVP_PKEY_free(pkey);
+	if (err)
+		ERR_clear_error();
+
+	return err;
+}
+
+
+/**
+ * Set the certificate and private key on a TLS context
+ *
+ * @param tls TLS Context
+ * @param pem Certificate and private key in PEM format
+ * @param len Length of PEM string
+ *
+ * @return 0 if success, otherwise errorcode
+ */
+int tls_set_certificate(struct tls *tls, const char *pem, size_t len)
+{
+	return tls_set_certificate_pem(tls, pem, len, NULL, 0);
 }
 
 
@@ -729,4 +873,19 @@ int tls_set_servername(struct tls_conn *tc, const char *servername)
 	}
 
 	return 0;
+}
+
+
+static int print_error(const char *str, size_t len, void *unused)
+{
+	(void)unused;
+	DEBUG_WARNING("%b", str, len);
+
+	return 1;
+}
+
+
+void tls_flush_error(void)
+{
+	ERR_print_errors_cb(print_error, NULL);
 }

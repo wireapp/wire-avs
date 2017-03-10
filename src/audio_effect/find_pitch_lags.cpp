@@ -33,11 +33,17 @@ extern "C" {
 }
 #endif
 
-void init_find_pitch_lags(struct pitch_estimator *pest, int fs_hz)
+void init_find_pitch_lags(struct pitch_estimator *pest, int fs_hz, int complexity)
 {
     pest->resampler = new webrtc::PushResampler<int16_t>;
     pest->resampler->InitializeIfNeeded(fs_hz, 16000, 1);
     pest->fs_khz = fs_hz/1000;
+    if(complexity < 0){
+        pest->complexity = 0;
+    }
+    if(complexity > 2){
+        pest->complexity = 2;
+    }
 }
 
 void free_find_pitch_lags(struct pitch_estimator *pest)
@@ -52,19 +58,24 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     silk_float auto_corr[ Z_LPC_ORDER + 1 ];
     silk_float A[         Z_LPC_ORDER ];
     silk_float refl_coef[ Z_LPC_ORDER ];
-    silk_float Wsig[16*Z_PEST_BUF_SZ_MS];
-    silk_float res[16*Z_PEST_BUF_SZ_MS];
-    int L_re = (L*16)/pest->fs_khz;
+    silk_float Wsig[Z_FS_KHZ*Z_PEST_BUF_SZ_MS];
+    silk_float sig[Z_FS_KHZ*Z_PEST_BUF_SZ_MS];
+    silk_float res[Z_FS_KHZ*Z_PEST_BUF_SZ_MS];
+    int L_re = (L*Z_FS_KHZ)/pest->fs_khz;
     
     /* resample to 16 khz if > 16 khz */
-    pest->resampler->Resample( x, L, &pest->buf[(16*Z_PEST_BUF_SZ_MS) - L_re], L_re);
-    /* Buffer 40 ms */
-    for( int i = 0; i < 16*Z_PEST_BUF_SZ_MS; i++ ) {
+    pest->resampler->Resample( x, L, &pest->buf[(Z_FS_KHZ*Z_PEST_BUF_SZ_MS) - L_re], L_re);
+
+    /* Apply window */
+    for( int i = 0; i < Z_FS_KHZ*Z_PEST_BUF_SZ_MS; i++ ) {
         Wsig[i] = (silk_float)pest->buf[i];
+        sig[i] = (silk_float)pest->buf[i];
     }
+    silk_apply_sine_window_FLP( Wsig, Wsig, 1, Z_WIN_LEN_MS*Z_FS_KHZ );
+    silk_apply_sine_window_FLP( &Wsig[Z_FS_KHZ*(Z_PEST_BUF_SZ_MS - Z_WIN_LEN_MS)], &Wsig[Z_FS_KHZ*(Z_PEST_BUF_SZ_MS - Z_WIN_LEN_MS)], 2, Z_WIN_LEN_MS*Z_FS_KHZ );
     
     /* Calculate autocorrelation sequence */
-    silk_autocorrelation_FLP( auto_corr, Wsig, 16*Z_PEST_BUF_SZ_MS, Z_LPC_ORDER + 1 );
+    silk_autocorrelation_FLP( auto_corr, Wsig, Z_FS_KHZ*Z_PEST_BUF_SZ_MS, Z_LPC_ORDER + 1 );
         
     /* Add white noise, as fraction of energy */
     auto_corr[ 0 ] += auto_corr[ 0 ] * 1e-3f + 1;
@@ -81,7 +92,7 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     /*****************************************/
     /* LPC analysis filtering                */
     /*****************************************/
-    silk_LPC_analysis_filter_FLP( res, A, Wsig, 16*Z_PEST_BUF_SZ_MS, Z_LPC_ORDER );
+    silk_LPC_analysis_filter_FLP( res, A, sig, Z_FS_KHZ*Z_PEST_BUF_SZ_MS, Z_LPC_ORDER );
 
     /* Threshold for pitch estimator */
     thrhld  = 0.2f;
@@ -90,15 +101,17 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     /*****************************************/
     /* Call Pitch estimator                  */
     /*****************************************/
+    silk_float LTPCorr;
     if( silk_pitch_analysis_core_FLP( res, pest->pitchL, &lagIndex,
-                                     &contourIndex, &pest->LTPCorr, pest->pitchL[3], thrhld,
-                                     thrhld, 16, 2, 4, 0 ) == 0 )
+                                     &contourIndex, &LTPCorr, pest->pitchL[3], 0.7,
+                                     thrhld, Z_FS_KHZ, pest->complexity, 4, 4 ) == 0 )
     {
         pest->voiced = true;
     } else {
         pest->voiced = false;
     }
-    memmove(&pest->buf[0], &pest->buf[L_re], ((16*Z_PEST_BUF_SZ_MS) - L_re)*sizeof(int16_t));
+    pest->LTPCorr_Q15 = (opus_int)(LTPCorr * (float)((int)1 << 15));
+    memmove(&pest->buf[0], &pest->buf[L_re], ((Z_FS_KHZ*Z_PEST_BUF_SZ_MS) - L_re)*sizeof(int16_t));
 #else
     opus_int16 Wsig[16*Z_PEST_BUF_SZ_MS];
     opus_int16 res[16*Z_PEST_BUF_SZ_MS];
@@ -111,20 +124,26 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     int L_re = (L*16)/pest->fs_khz;
     
     /* resample to 16 khz if > 16 khz */
-    pest->resampler->Resample( x, L, &pest->buf[(16*Z_PEST_BUF_SZ_MS) - L_re], L_re);
-    /* Buffer 40 ms */
-    for( int i = 0; i < 16*Z_PEST_BUF_SZ_MS; i++ ) {
+    pest->resampler->Resample( x, L, &pest->buf[(Z_FS_KHZ*Z_PEST_BUF_SZ_MS) - L_re], L_re);
+    
+    /* Window 40 ms */
+    silk_apply_sine_window( Wsig, pest->buf, 1, Z_WIN_LEN_MS*Z_FS_KHZ );
+    for( int i = Z_WIN_LEN_MS*Z_FS_KHZ; i < Z_FS_KHZ*(Z_PEST_BUF_SZ_MS-Z_WIN_LEN_MS) ; i++ ) {
         Wsig[i] = (opus_int16)pest->buf[i];
     }
+    silk_apply_sine_window( &Wsig[Z_FS_KHZ*(Z_PEST_BUF_SZ_MS-Z_WIN_LEN_MS)], &pest->buf[Z_FS_KHZ*(Z_PEST_BUF_SZ_MS-Z_WIN_LEN_MS)], 2, Z_WIN_LEN_MS*Z_FS_KHZ );
     
     /* Calculate autocorrelation sequence */
-    silk_autocorr( auto_corr, &scale, pest->buf, 16*Z_PEST_BUF_SZ_MS, Z_LPC_ORDER + 1, 0 );
+    silk_autocorr( auto_corr, &scale, pest->buf, Z_FS_KHZ*Z_PEST_BUF_SZ_MS, Z_LPC_ORDER + 1, 0 );
     
     /* Add white noise, as fraction of energy */
     auto_corr[ 0 ] = silk_SMLAWB( auto_corr[ 0 ], auto_corr[ 0 ], 65 ) + 1;
     
     /* Calculate the reflection coefficients using schur */
     res_nrg = silk_schur( rc_Q15, auto_corr, Z_LPC_ORDER );
+    
+    /* Convert reflection coefficients to prediction coefficients */
+    silk_k2a( A_Q24, rc_Q15, Z_LPC_ORDER );
     
     /* Convert From 32 bit Q24 to 16 bit Q12 coefs */
     for( int i = 0; i < Z_LPC_ORDER; i++ ) {
@@ -135,11 +154,11 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     silk_bwexpander( A_Q12, Z_LPC_ORDER, 64881); // 0.99 in Q16
     
     /* LPC analysis filtering */
-    silk_LPC_analysis_filter( res, Wsig, A_Q12, 16*Z_PEST_BUF_SZ_MS, Z_LPC_ORDER, 0 );
+    silk_LPC_analysis_filter( res, pest->buf, A_Q12, Z_FS_KHZ*Z_PEST_BUF_SZ_MS, Z_LPC_ORDER, 0 );
     
     /* Threshold for pitch estimator */
     opus_int thrhld_Q13  = 1638; // 0.2f
-    opus_int thrhld_Q16  = 13107; // 0.2f
+    opus_int thrhld_Q16  = 45875;
     opus_int16 lagIndex;
     opus_int8 contourIndex;
     /*****************************************/
@@ -147,7 +166,7 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     /*****************************************/
     if( silk_pitch_analysis_core( res, pest->pitchL, &lagIndex,
                                      &contourIndex, &pest->LTPCorr_Q15, pest->pitchL[3],
-                                     thrhld_Q16, thrhld_Q13, 16, 2, 4, 0 ) == 0 )
+                                     thrhld_Q16, thrhld_Q13, 16, pest->complexity , 4, 0 ) == 0 )
     {
         pest->voiced = true;
     } else {

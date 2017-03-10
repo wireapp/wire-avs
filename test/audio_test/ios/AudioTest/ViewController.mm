@@ -152,6 +152,16 @@
     printf("Running test in %d bit mode \n", platform_bits);
 
     /*******************************************/
+    /* Audio effect test                       */
+    /*******************************************/
+    {
+        char *argv[] = {"-fs","44100","-in","testfile32kHz.pcm","-effect","pitch_up_down_3","-out","out.pcm"};
+        int argc = sizeof(argv)/sizeof(char*);
+        
+        effect_test(argc, argv, command);
+    }
+#if 0
+    /*******************************************/
     /* Loopback test                           */
     /*******************************************/
     {
@@ -160,15 +170,11 @@
         
         voe_loopback_test(argc, argv, command);
     }
-#if 0
     /*******************************************/
     /* Conferencing encoder optimization test  */
     /*******************************************/
-    {
-        char *argv[] = {"dummy"};
-        int argc = sizeof(argv)/sizeof(char*);
-    
-        voe_conf_test_dec(argc, argv, command);
+    {    
+        voe_conf_test_dec(command, false, -1);
     }
     /************************************/
     /* Acm test Opus and clean channel  */

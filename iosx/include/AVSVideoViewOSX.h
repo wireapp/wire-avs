@@ -21,7 +21,7 @@
 
 struct avs_vidframe;
 
-@interface AVSVideoViewOSX : NSOpenGLView
+AVS_EXPORT @interface AVSVideoViewOSX : NSOpenGLView
 
 @property (nonatomic) BOOL shouldFill;
 

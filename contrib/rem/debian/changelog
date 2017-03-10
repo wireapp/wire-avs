@@ -1,3 +1,39 @@
+librem (0.5.0) unstable; urgency=medium
+
+  * version 0.5.0
+
+ -- Alfred E. Heggestad <alfred.heggestad@gmail.com>  Fri, 2 Dec 2016 20:00:00 +0100
+
+librem (0.4.7) unstable; urgency=low
+
+  * version 0.4.7
+
+ -- Alfred E. Heggestad <aeh@db.org>  Sun, 13 Dec 2016 16:00:00 +0100
+
+librem (0.4.6-4) unstable; urgency=low
+
+  * version 0.4.6-4
+
+ -- Richard Aas <richard@db.org>  Tue, 2 Sep 2015 13:56:00 +0100
+
+librem (0.4.6-3) unstable; urgency=low
+
+  * version 0.4.6-3
+
+ -- Richard Aas <richard@db.org>  Tue, 18 Aug 2015 08:55:00 +0100
+
+librem (0.4.6-2) unstable; urgency=low
+
+  * version 0.4.6-2
+
+ -- Richard Aas <richard@db.org>  Tue, 13 Jan 2015 13:24:00 +0100
+
+librem (0.4.6-1) unstable; urgency=low
+
+  * version 0.4.6-1
+
+ -- Richard Aas <richard@db.org>  Mon, 17 Nov 2014 09:09:00 +0100
+
 librem (0.4.6) unstable; urgency=low
 
   * version 0.4.6

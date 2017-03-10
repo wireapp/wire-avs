@@ -129,9 +129,24 @@ namespace webrtc {
         if (!rec_tid_) {
             pthread_create(&rec_tid_, NULL, rec_thread, this);
             
+            is_running_ = true;
+                        
             pthread_cond_init(&cond_, NULL);
             
-            is_running_ = true;
+            int max_prio = sched_get_priority_max(SCHED_RR);
+            int min_prio = sched_get_priority_min(SCHED_RR);
+            if (max_prio - min_prio <= 2){
+                max_prio = 0;
+            }
+            if(max_prio > 0){
+                sched_param param;
+                param.sched_priority = max_prio;
+                info("audio_io_ios: Setting thread prio to %d \n", max_prio);
+                int ret = pthread_setschedparam(rec_tid_, SCHED_RR, &param);
+                if(ret != 0){
+                    error("audio_io_ios: Failed to set thread priority \n");
+                }
+            }
         } else {
             warning("Thread already created \n");
         }

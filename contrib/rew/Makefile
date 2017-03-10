@@ -29,6 +29,7 @@ include $(LIBRE_MK)
 # List of modules
 MODULES += shim
 MODULES += trice
+MODULES += pcp
 
 LIBS    += -lm
 

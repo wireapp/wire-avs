@@ -61,11 +61,14 @@ static void rtp_start_handler(bool started, bool video_started, void *arg)
 	flow_rtp_start(uf->flow, started, video_started);
 }
 
-
 static void mediaflow_close_handler(int err, void *arg)
 {
 	struct userflow *uf = arg;
 
+	if(err == EIO){
+		return;
+	}
+    
 	info("userflow(%p): mediaflow closed (%m)\n", uf, err);
 
 	uf->mediaflow = mem_deref(uf->mediaflow);
@@ -93,87 +96,11 @@ static void mediaflow_close_handler(int err, void *arg)
 }
 
 
-#if 0
-static void mediaflow_localcand_handler(const struct zapi_candidate *candv,
-					size_t candc, void *arg)
-{
-	struct userflow *uf = arg;
-	struct call *call = uf->call;
-	struct flow *flow = uf->flow;
-	struct json_object *jobj = NULL;
-	struct json_object *jcands = NULL;
-	struct rr_resp *rr;
-	const char *flowid;
-	char url[256];
-	size_t i;
-	int err;
-
-	if (!call) {
-		warning("flowmgr: local_ice_req: no call\n");
-		return;
-	}
-
-	err = rr_alloc(&rr, call_flowmgr(call), call, flow_ice_resp, flow);
-	if (err) {
-		warning("flowmgr: local_ice_req: alloc rest response fail\n");
-		goto out;
-	}
-
-	flowid = flow_flowid(flow);
-	if (!flowid) {
-		warning("flowmgr: localcand: no flowid\n");
-		err = ENOENT;
-		goto out;
-	}
-
-	if (re_snprintf(url, sizeof(url),
-			CREQ_LCAND, call_convid(call), flowid) < 0) {
-		err = ENOMEM;
-		goto out;
-	}
-
-	jobj = json_object_new_object();
-	jcands = json_object_new_array();
-	{
-		for (i = 0; i < candc; i++) {
-
-			struct json_object *jcand;
-
-			jcand = json_object_new_object();
-
-			err = zapi_candidate_encode(jcand, &candv[i]);
-			if (err)
-				goto out;
-
-			json_object_array_add(jcands, jcand);
-		}
-	}
-	json_object_object_add(jobj, "candidates", jcands);
-
-	err = flowmgr_send_request(call_flowmgr(call), call, rr,
-				   url, HTTP_PUT, CTYPE_JSON, jobj);
-	if (err) {
-		warning("flowmgr: local_ice_req: send_request failed (%m)\n",
-			err);
-		goto out;
-	}
-
- out:
-	mem_deref(jobj);
-
-	if (err) {
-		warning("flowmgr: localcand_handler error (%m)\n", err);
-		flow_error(uf->flow, err);
-	}
-}
-#endif
-
-
 static bool interface_handler(const char *ifname, const struct sa *sa,
 			      void *arg)
 {
 	struct userflow *uf = arg;
-	const char *bindif = msystem_get_interface();
+	const char *bindif = msystem_get_interface(flowmgr_msystem());
 	int err;
 
 	/* Skip loopback and link-local addresses */
@@ -221,7 +148,7 @@ static void mediaflow_gather_handler(void *arg)
 	struct userflow *uf = arg;
 	int err;
 
-	info("flowmgr: gather complete (async_offer=%d, async_answer=%d)\n",
+	info("flowmgr: mediaflow: gather complete (async_offer=%d, async_answer=%d)\n",
 	     uf->sdp.async_offer, uf->sdp.async_answer);
 
 	if (uf->sdp.async_offer) {
@@ -393,7 +320,7 @@ int userflow_alloc_mediaflow(struct userflow *uf)
 	else if (0 == net_default_source_addr_get(AF_INET6, &laddr)) {
 		info("flowmgr: local IPv6 addr %j\n", &laddr);
 	}
-	else if (msystem_get_loopback()) {
+	else if (msystem_get_loopback(flowmgr_msystem())) {
 
 		sa_set_str(&laddr, "127.0.0.1", 0);
 	}
@@ -404,9 +331,9 @@ int userflow_alloc_mediaflow(struct userflow *uf)
 	}
 
 	err = mediaflow_alloc(&uf->mediaflow,
-			      msystem_dtls(),
-			      msystem_aucodecl(),
-			      &laddr, nat, CRYPTO_DTLS_SRTP, true,
+			      msystem_dtls(flowmgr_msystem()),
+			      msystem_aucodecl(flowmgr_msystem()),
+			      &laddr, nat, CRYPTO_DTLS_SRTP,
 			      NULL,
 			      mediaflow_estab_handler, 
 			      mediaflow_close_handler, uf);
@@ -418,17 +345,13 @@ int userflow_alloc_mediaflow(struct userflow *uf)
 	fm = call_flowmgr(uf->call);
 	if (fm && fm->config.cfg.early_dtls) {
 
-		info("flowmgr: enable early-DTLS\n");
-		mediaflow_set_earlydtls(uf->mediaflow,
-					fm->config.cfg.early_dtls);
+		warning("flowmgr: early-DTLS is deprecated\n");
 	}
 
-#if 1
-	if (msystem_get_privacy()) {
+	if (msystem_get_privacy(flowmgr_msystem())) {
 		info("flowmgr: enable mediaflow privacy\n");
 		mediaflow_enable_privacy(uf->mediaflow, true);
 	}
-#endif
 
 	mediaflow_set_gather_handler(uf->mediaflow,
 				     mediaflow_gather_handler);
@@ -438,7 +361,8 @@ int userflow_alloc_mediaflow(struct userflow *uf)
 	info("flowmgr: adding video\n");
 
 	// TODO: add a run-time option for video-call or not ?
-	err = mediaflow_add_video(uf->mediaflow, msystem_vidcodecl());
+	err = mediaflow_add_video(uf->mediaflow,
+				  msystem_vidcodecl(flowmgr_msystem()));
 	if (err) {
 		warning("flowmgr: mediaflow add video failed (%m)\n", err);
 		goto out;
@@ -452,7 +376,7 @@ int userflow_alloc_mediaflow(struct userflow *uf)
 
 	if (uf->num_if == 0) {
 
-		if (msystem_get_loopback()) {
+		if (msystem_get_loopback(flowmgr_msystem())) {
 
 			struct sa lo;
 

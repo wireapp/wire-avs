@@ -20,6 +20,11 @@
 //  zmm
 //
 
+#ifndef AVS_EXPORT
+#define AVS_EXPORT __attribute__((visibility("default")))
+#endif
+
+
 typedef NS_ENUM(NSInteger, AVSVideoConverterQuality) {
         AVSVideoConverterDontReencode,
         AVSVideoConverterQualityLow,
@@ -36,7 +41,7 @@ typedef NS_ENUM(NSInteger, AVSVideoConverterQuality) {
 @end
 
 
-@interface AVSVideoConverter : NSObject
+AVS_EXPORT @interface AVSVideoConverter : NSObject
 
 @property id <AVSVideoConverterProgressDelegate> delegate;
 

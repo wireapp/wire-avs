@@ -21,7 +21,6 @@
 #       include "TargetConditionals.h"
 #endif
 
-#include <ogg/ogg.h>
 #include <pthread.h>
 
 #include "webrtc/common_types.h"
@@ -37,6 +36,7 @@
 #include "webrtc/voice_engine/include/voe_neteq_stats.h"
 #include "webrtc/voice_engine/include/voe_errors.h"
 #include "webrtc/voice_engine/include/voe_hardware.h"
+#include "webrtc/voice_engine/include/voe_external_media.h"
 
 #include "avs.h"
 #include "avs_ztime.h"
@@ -44,17 +44,25 @@
 #include "avs_flowmgr.h"
 #include "avs_rtpdump.h"
 
+#include "audio_effect_interface.h"
+
 /* common */
 
 #define MILLISECONDS_PER_SECOND 1000
 
-/* main file */
-void voe_multi_party_packet_rate_control(struct voe *voe);
+/* device */
 void voe_start_audio_proc(struct voe *voe);
 void voe_stop_audio_proc(struct voe *voe);
 void voe_update_agc_settings(struct voe *voe);
 void voe_update_aec_settings(struct voe *voe);
 int voe_update_mute(struct voe *voe);
+
+/* channel settings */
+void voe_multi_party_packet_rate_control(struct voe *voe);
+void voe_update_channel_stats(struct voe *voe,
+                              int channel_id,
+                              int rtcp_rttMs,
+                              int rtcp_loss_Q8);
 
 /* encoder */
 
@@ -66,7 +74,6 @@ struct auenc_state {
 	bool started;
 	auenc_rtp_h *rtph;
 	auenc_rtcp_h *rtcph;
-	auenc_packet_h *pkth;
 	auenc_err_h *errh;
 	void *arg;
 };
@@ -77,7 +84,6 @@ int voe_enc_alloc(struct auenc_state **aesp,
 			struct aucodec_param *prm,
 			auenc_rtp_h *rtph,
 			auenc_rtcp_h *rtcph,
-			auenc_packet_h *pkth,
 			auenc_err_h *errh,
 			void *arg);
 
@@ -92,10 +98,7 @@ struct audec_state {
 	struct voe_channel *ve;
 	struct le le;
 
-	audec_recv_h *recvh;
 	audec_err_h *errh;
-    
-	struct tmr tmr_rtp_timeout;
     
 	void *arg;
 };
@@ -105,7 +108,6 @@ int  voe_dec_alloc(struct audec_state **adsp,
 			const struct aucodec *ac,
 			const char *fmtp,
 			struct aucodec_param *prm,
-			audec_recv_h *recvh,
 			audec_err_h *errh,
 			void *arg);
 
@@ -115,43 +117,16 @@ void voe_dec_stop(struct audec_state *ads);
 void voe_calculate_stats(int ch);
 void voe_set_channel_load(struct voe *voe);
 
-
-/* Voice Messaging */
-class VmTransport;
-
-struct vm_state {
-    int ch;
-    VmTransport *transport;
-    FILE *fp;
-    pthread_mutex_t mutex;
-    struct tmr tmr_vm_player;
-    struct timeval next_event;
-    webrtc::CodecInst c;
-    uint16_t seqNum;
-    uint32_t timeStamp;
-    uint32_t ssrc;
-    ogg_sync_state   oy;
-    ogg_page         og;
-    ogg_stream_state os;
-    int start_time_ms;
-    int finished;
-    uint32_t samplepos;
-    uint32_t samplestot;
-    int stream_init;
-    vm_play_status_h *play_statush;
-    void             *play_statush_arg;
-    unsigned int file_length_ms;
-};
-
-void voe_vm_init(struct vm_state *vm);
+int voe_start_preproc_recording(const char fileNameUTF8[1024]);
+void voe_stop_preproc_recording();
+void voe_start_rtp_dump(struct voe_channel *ve);
 
 /* Audio Testing */
 struct audio_test_state {
-    std::string file_out;
-    std::string file_in;
     int test_score;
     bool is_running;
     webrtc::fake_audiodevice *fad;
+    class VoEAudioOutputAnalyzer *output_analyzer;
 };
 
 void voe_init_audio_test(struct audio_test_state *autest);
@@ -237,7 +212,8 @@ struct voe {
 	webrtc::VoERTP_RTCP *rtp_rtcp;
 	webrtc::VoENetEqStats *neteq_stats;
 	webrtc::VoEHardware *hw;
-
+	webrtc::VoEExternalMedia *external_media;
+    
 	webrtc::CodecInst *codecs;
 	size_t ncodecs;
 
@@ -246,8 +222,8 @@ struct voe {
 	int packet_size_ms;
 	int min_packet_size_ms;
 	int manual_packet_size_ms;
-    int bitrate_bps;
-    int manual_bitrate_bps;
+	int bitrate_bps;
+	int manual_bitrate_bps;
 
 	struct list encl;  /* struct auenc_state */
 	struct list decl;  /* struct audec_state */
@@ -259,25 +235,27 @@ struct voe {
 	bool isMuted;
 	bool isSilenced;
     
-	std::string path_to_files;
+	bool cbr_enabled;
+    
+	char *path_to_files;
     
 	struct tmr tmr_neteq_stats;
     
 	struct mqueue *mq;
 	struct list transportl;
     
-	std::string playout_device;
+	char *playout_device;
   
 	float in_vol_smth;
 	uint16_t in_vol_max;
 	uint16_t out_vol_max;
     
-	struct vm_state vm;
-    
 	struct audio_test_state autest;
     
 	webrtc::AudioDeviceModule* adm;
 
+    class VoEAudioEffect *voe_audio_effect;
+    
 	struct {
 		flowmgr_audio_state_change_h *chgh;
 		void *arg;

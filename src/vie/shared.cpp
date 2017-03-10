@@ -44,9 +44,32 @@ bool ViETransport::SendRtp(const uint8_t* packet, size_t length,
 	struct videnc_state *ves = vie->ves;
 	int err = 0;
 
+#if defined(VIE_PRINT_ENCODE_RTP) || defined(VIE_DEBUG_RTX)
+	struct rtp_header rtph;
+	struct mbuf mb;
+
 	// TODO: use options maybe?
 	
 	//debug("vie: rtp[%d bytes]\n", (int)length);
+
+	mb.buf = (uint8_t *)packet;
+	mb.pos = 0;
+	mb.size = length;
+	mb.end = mb.size;
+
+	err = rtp_hdr_decode(&rtph, &mb);
+ #if defined(VIE_PRINT_ENCODE_RTP)
+	if (!err) {
+		info("vie: decode: pt=%d ssrc=%u\n", rtph.pt, rtph.ssrc);
+	}
+ #endif
+ #if defined(VIE_DEBUG_RTX)
+	if (!err && (rtph.pt == vie->rtx_pt)){
+		uint16_t osn = ntohs(mbuf_read_u16(&mb));
+		info("vie: Sending %d Bytee RTX packet seq = %u ssrc = %u osn = %d \n", length, rtph.seq, rtph.ssrc, osn);
+	}
+ #endif
+#endif
 
 	if (!active || !ves) {
 		warning("cannot send RTP\n");
@@ -90,6 +113,10 @@ bool ViETransport::SendRtcp(const uint8_t* packet, size_t length)
 
 	stats_rtcp_add_packet(&vie->stats_tx, packet, length);
 
+#if FORCE_VIDEO_RTP_RECORDING
+	vie->rtcp_dump_out->DumpPacket(packet, length);
+#endif
+    
 	if (ves->rtcph) {
 		err = ves->rtcph(packet, length, ves->arg);
 		if (err) {
@@ -209,9 +236,17 @@ static void vie_destructor(void *arg)
 	if(vie->rtp_dump_out){
 		vie->rtp_dump_out->Stop();
 	}
+	if(vie->rtcp_dump_in){
+		vie->rtcp_dump_in->Stop();
+	}
+	if(vie->rtcp_dump_out){
+		vie->rtcp_dump_out->Stop();
+	}
 #endif
 	delete vie->rtp_dump_in;
 	delete vie->rtp_dump_out;
+	delete vie->rtcp_dump_in;
+	delete vie->rtcp_dump_out;
 }
 
 static void vie_start_rtp_dump(struct vie *vie)
@@ -241,6 +276,12 @@ static void vie_start_rtp_dump(struct vie *vie)
     
 	vie->rtp_dump_in->Start(name_in.c_str());
 	vie->rtp_dump_out->Start(name_out.c_str());
+    
+	name_in.insert(name_in.size()-1,"c");
+	vie->rtcp_dump_in->Start(name_in.c_str());
+
+	name_out.insert(name_out.size()-1,"c");
+	vie->rtcp_dump_out->Start(name_out.c_str());
 }
 
 int vie_alloc(struct vie **viep, const struct vidcodec *vc, int pt)
@@ -284,6 +325,8 @@ all_config.bitrate_config.max_bitrate_bps =
 
 	vie->rtp_dump_in = new wire_avs::RtpDump();
 	vie->rtp_dump_out = new wire_avs::RtpDump();
+	vie->rtcp_dump_in = new wire_avs::RtpDump();
+	vie->rtcp_dump_out = new wire_avs::RtpDump();
     
 #if FORCE_VIDEO_RTP_RECORDING
 	vie_start_rtp_dump(vie);

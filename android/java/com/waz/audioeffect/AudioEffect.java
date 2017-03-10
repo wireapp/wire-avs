@@ -47,7 +47,15 @@ public class AudioEffect {
   public final static int AVS_AUDIO_EFFECT_PACE_DOWN_MAX     = 18;
   public final static int AVS_AUDIO_EFFECT_REVERSE           = 19;
   public final static int AVS_AUDIO_EFFECT_VOCODER_MED       = 20;
-  public final static int AVS_AUDIO_EFFECT_NONE              = 21;
+  public final static int AVS_AUDIO_EFFECT_AUTO_TUNE_MIN     = 21;
+  public final static int AVS_AUDIO_EFFECT_AUTO_TUNE_MED     = 22;
+  public final static int AVS_AUDIO_EFFECT_AUTO_TUNE_MAX     = 23;
+  public final static int AVS_AUDIO_EFFECT_PITCH_UP_DOWN_MIN = 24;
+  public final static int AVS_AUDIO_EFFECT_PITCH_UP_DOWN_MED = 25;
+  public final static int AVS_AUDIO_EFFECT_PITCH_UP_DOWN_MAX = 26;
+  public final static int AVS_AUDIO_EFFECT_NONE              = 27;
+  public final static int AVS_AUDIO_EFFECT_CHORUS_MED        = 28;
+  public final static int AVS_AUDIO_EFFECT_VOCODER_MIN       = 29;
     
   public AudioEffect ( ) {
   }

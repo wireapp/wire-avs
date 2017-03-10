@@ -293,59 +293,11 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setFilePath
 
 /*
  * Class:     com_waz_call_FlowManager
- * Method:    vmStartRecord
- * Signature: (Ljava/lang/String;)V
+ * Method:    setAudioEffect
+ * Signature: (I)I
  */
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmStartRecord
-  (JNIEnv *, jobject, jstring);
-
-/*
- * Class:     com_waz_call_FlowManager
- * Method:    vmStopRecord
- * Signature: ()V
- */
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmStopRecord
-  (JNIEnv *, jobject);
-
-/*
- * Class:     com_waz_call_FlowManager
- * Method:    vmGetLength
- * Signature: (Ljava/lang/String;)I
- */
-JNIEXPORT jint JNICALL Java_com_waz_call_FlowManager_vmGetLength
-  (JNIEnv *, jobject, jstring);
-
-/*
- * Class:     com_waz_call_FlowManager
- * Method:    vmStartPlay
- * Signature: (Ljava/lang/String;I)V
- */
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmStartPlay
-  (JNIEnv *, jobject, jstring, jint);
-
-/*
- * Class:     com_waz_call_FlowManager
- * Method:    vmStopPlay
- * Signature: ()V
- */
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmStopPlay
-  (JNIEnv *, jobject);
-
-/*
- * Class:     com_waz_call_FlowManager
- * Method:    vmApplyChorus
- * Signature: (Ljava/lang/String;Ljava/lang/String;)V
- */
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmApplyChorus
-  (JNIEnv *, jobject, jstring, jstring);
-
-/*
- * Class:     com_waz_call_FlowManager
- * Method:    vmApplyReverb
- * Signature: (Ljava/lang/String;Ljava/lang/String;)V
- */
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmApplyReverb
-  (JNIEnv *, jobject, jstring, jstring);
+JNIEXPORT jint JNICALL Java_com_waz_call_FlowManager_setAudioEffect
+  (JNIEnv *, jobject, jint);
 
 #ifdef __cplusplus
 }

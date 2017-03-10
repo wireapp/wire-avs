@@ -30,11 +30,9 @@
 
 #define IS_TRICKLE(nat) (nat)==MEDIAFLOW_TRICKLEICE_DUALSTACK
 
-#define NAT_IS_ACTIVE(nat) (nat) != MEDIAFLOW_ICELITE
-
 #define HAS_TURN(nat)					\
-	(nat) == MEDIAFLOW_TRICKLEICE_DUALSTACK ||	\
-		(nat) == MEDIAFLOW_TURN
+	(nat) == MEDIAFLOW_TRICKLEICE_DUALSTACK
+
 
 struct test {
 	struct list aucodecl;
@@ -42,10 +40,13 @@ struct test {
 
 
 struct agent {
-	TurnServer *turn_srv;
+	TurnServer *turn_srvv[2];
+	size_t turn_srvc;
 	struct test *test;
 	struct tls *dtls;
 	struct mediaflow *mf;
+	struct dce *dce;
+	struct dce_channel *dce_ch;
 	struct agent *other;
 	char name[64];
 	bool offerer;
@@ -53,12 +54,14 @@ struct agent {
 	struct tmr tmr;
 	int turn_proto;
 	bool turn_secure;
+	bool datachan;
 	int err;
 
 	unsigned n_lcand_expect;  /* all local candidates, incl. HOST */
 
 	unsigned n_lcand;
 	unsigned n_estab;
+	unsigned n_datachan_estab;
 };
 
 
@@ -176,7 +179,7 @@ static void mediaflow_estab_handler(const char *crypto, const char *codec,
 
 	ASSERT_TRUE(mediaflow_dtls_peer_isset(ag->mf));
 
-	if (agents_are_established(ag)) {
+	if (agents_are_established(ag) && !ag->datachan) {
 
 		re_cancel();
 	}
@@ -191,8 +194,7 @@ static void mediaflow_close_handler(int err, void *arg)
 	/* if this one is called, there was an error */
 	ASSERT_TRUE(false);
 
-	ag->err = EPROTO;
-	re_cancel();
+	abort_test(ag, err ? err : EPROTO);
 }
 
 
@@ -200,49 +202,64 @@ static void tmr_complete_handler(void *arg)
 {
 	struct agent *ag = static_cast<struct agent *>(arg);
 
-	if (are_we_complete(ag)) {
+	if (are_we_complete(ag) && !ag->datachan) {
 
 		re_cancel();
 		return;
 	}
 
-	tmr_start(&ag->tmr, 10, tmr_complete_handler, ag);
+	tmr_start(&ag->tmr, 5, tmr_complete_handler, ag);
 }
 
 
-/** A dummy PCMU codec to test a fixed codec */
-static struct aucodec dummy_pcmu = {
-	.pt        = "0",
-	.name      = "PCMU",
-	.srate     = 8000,
-	.ch        = 1,
-	.enc_alloc = NULL,
-	.ench      = NULL,
-	.dec_alloc = NULL,
-	.dech      = NULL,
-};
+static void data_estab_handler(void *arg)
+{
+	struct agent *ag = (struct agent *)arg;
+
+	++ag->n_datachan_estab;
+
+	if (ag->other->n_datachan_estab) {
+		info("both datachannels established -- stop.\n");
+		re_cancel();
+	}
+
+}
+
+
+static void data_channel_handler(int chid,
+				 uint8_t *data, size_t len, void *arg)
+{
+	struct agent *ag = (struct agent *)arg;
+	(void)data;
+	info("datachan recv %zu bytes on channel %d\n", len, chid);
+}
 
 
 static void destructor(void *arg)
 {
 	struct agent *ag = static_cast<struct agent *>(arg);
+	size_t i;
 
 	tmr_cancel(&ag->tmr);
 
 	mem_deref(ag->mf);
 	mem_deref(ag->dtls);
 
-	if (ag->turn_srv)
-		delete ag->turn_srv;
+	for (i=0; i<ag->turn_srvc; i++) {
+		if (ag->turn_srvv[i])
+			delete ag->turn_srvv[i];
+	}
 }
 
 
 static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
-			enum mediaflow_nat nat, const char *name,
-			int turn_proto, bool turn_secure)
+			const char *name,
+			int turn_proto, bool turn_secure, bool datachan,
+			size_t turn_srvc)
 {
 	struct sa laddr;
 	struct agent *ag;
+	enum mediaflow_nat nat = MEDIAFLOW_TRICKLEICE_DUALSTACK;
 	int err;
 
 	ag = (struct agent *)mem_zalloc(sizeof(*ag), destructor);
@@ -255,14 +272,16 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 	str_ncpy(ag->name, name, sizeof(ag->name));
 	ag->turn_proto = turn_proto;
 	ag->turn_secure = turn_secure;
+	ag->datachan = datachan;
+	ag->turn_srvc = turn_srvc;
 
 	sa_set_str(&laddr, "127.0.0.1", 0);
 
-	err = create_dtls_srtp_context(&ag->dtls, CERT_TYPE_RSA);
+	err = create_dtls_srtp_context(&ag->dtls, TLS_KEYTYPE_EC);
 	ASSERT_EQ(0, err);
 
 	err = mediaflow_alloc(&ag->mf, ag->dtls, &test->aucodecl, &laddr,
-			      nat, CRYPTO_DTLS_SRTP, false,
+			      nat, CRYPTO_DTLS_SRTP,
 			      mediaflow_localcand_handler,
 			      mediaflow_estab_handler,
 			      mediaflow_close_handler,
@@ -271,7 +290,7 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 
 	ASSERT_FALSE(mediaflow_is_ready(ag->mf));
 
-	if (nat == MEDIAFLOW_ICELITE) {
+	if (1) {
 
 		info("[ %s ] adding local host candidate (%J)\n",
 			  name, &laddr);
@@ -288,15 +307,42 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 
 	if (HAS_TURN(nat)) {
 
-		ag->turn_srv = new TurnServer;
+		size_t i;
+
+		ASSERT_TRUE(turn_srvc > 0);
+
+		for (i=0; i<turn_srvc; i++) {
+			ag->turn_srvv[i] = new TurnServer;
+		}
 
 		if (turn_proto == IPPROTO_UDP)
-			ag->n_lcand_expect += 2;  /* SRFLX and RELAY */
+			ag->n_lcand_expect += (2 * turn_srvc);  /* SRFLX and RELAY */
 		else
-			ag->n_lcand_expect += 1;  /* RELAY */
+			ag->n_lcand_expect += (1 * turn_srvc);  /* RELAY */
 	}
 
-	tmr_start(&ag->tmr, 10, tmr_complete_handler, ag);
+	if (datachan) {
+		struct dce *dce;
+		ag->dce = mediaflow_get_dce(ag->mf);
+
+		ASSERT_TRUE(ag->dce != NULL);
+
+		err = dce_channel_alloc(&ag->dce_ch,
+					ag->dce,
+					"calling-3.0",
+					"",
+					data_estab_handler,
+					NULL,
+					NULL,
+					data_channel_handler,
+					ag);
+		ASSERT_EQ(0, err);
+
+		err = mediaflow_add_data(ag->mf);
+		ASSERT_EQ(0, err);
+	}
+
+	tmr_start(&ag->tmr, 5, tmr_complete_handler, ag);
 
 #if 0
 	re_printf("[ %s ] agent allocated (%s, %s)\n",
@@ -365,16 +411,19 @@ static void start_ice(struct agent *ag)
 	switch (ag->turn_proto) {
 
 	case IPPROTO_UDP:
-		err = mediaflow_gather_turn(ag->mf, &ag->turn_srv->addr,
-					    "user", "pass");
-		ASSERT_EQ(0, err);
+		for (size_t i=0; i<ag->turn_srvc; i++) {
+			err = mediaflow_gather_turn(ag->mf,
+						    &ag->turn_srvv[i]->addr,
+						    "user", "pass");
+			ASSERT_EQ(0, err);
+		}
 		break;
 
 	case IPPROTO_TCP:
 		if (ag->turn_secure)
-			srv = &ag->turn_srv->addr_tls;
+			srv = &ag->turn_srvv[0]->addr_tls;
 		else
-			srv = &ag->turn_srv->addr_tcp;
+			srv = &ag->turn_srvv[0]->addr_tcp;
 
 		err = mediaflow_gather_turn_tcp(ag->mf, srv,
 						"user", "pass",
@@ -389,25 +438,34 @@ static void start_ice(struct agent *ag)
 }
 
 
-static void test_b2b(enum mediaflow_nat a_nat, int a_turn_proto,
-		     bool a_turn_secure, enum mediaflow_nat b_nat)
+static void test_b2b(int a_turn_proto,
+		     bool a_turn_secure,
+		     bool datachan, size_t turn_srvc)
 {
 	struct test test;
 	struct agent *a = NULL, *b = NULL;
 	int err;
 
 #if 1
-	log_set_min_level(LOG_LEVEL_INFO);
-	log_enable_stderr(false);
+	log_set_min_level(LOG_LEVEL_WARN);
+	log_enable_stderr(true);
 #endif
 
 	memset(&test, 0, sizeof(test));
 
-	aucodec_register(&test.aucodecl, &dummy_pcmu);
+	err = audummy_init(&test.aucodecl);
+	ASSERT_EQ(0, err);
+
+	if (datachan) {
+		err = dce_init();
+		ASSERT_EQ(0, err);
+	}
 
 	/* initialization */
-	agent_alloc(&a, &test, true, a_nat, "A", a_turn_proto, a_turn_secure);
-	agent_alloc(&b, &test, false, b_nat, "B", IPPROTO_UDP, false);
+	agent_alloc(&a, &test, true, "A", a_turn_proto, a_turn_secure,
+		    datachan, turn_srvc);
+	agent_alloc(&b, &test, false, "B", IPPROTO_UDP, false,
+		    datachan, turn_srvc);
 	ASSERT_TRUE(a != NULL);
 	ASSERT_TRUE(b != NULL);
 	a->other = b;
@@ -415,14 +473,22 @@ static void test_b2b(enum mediaflow_nat a_nat, int a_turn_proto,
 
 	sdp(a, b);
 
+	/* verify that DataChannels is negotiated correctly */
+	if (datachan) {
+		ASSERT_TRUE(mediaflow_has_data(a->mf));
+		ASSERT_TRUE(mediaflow_has_data(b->mf));
+	}
+	else {
+		ASSERT_FALSE(mediaflow_has_data(a->mf));
+		ASSERT_FALSE(mediaflow_has_data(b->mf));
+	}
+
 	/* start ICE connectivity check for the Trickle agents */
-	if (NAT_IS_ACTIVE(a->nat))
-		start_ice(a);
-	if (NAT_IS_ACTIVE(b->nat))
-		start_ice(b);
+	start_ice(a);
+	start_ice(b);
 
 	/* start the main loop -- wait for network traffic */
-	err = re_main_wait(5000);
+	err = re_main_wait(10000);
 	if (err) {
 		warning("main timeout!\n");
 		a = (struct agent *)mem_deref(a);
@@ -440,25 +506,46 @@ static void test_b2b(enum mediaflow_nat a_nat, int a_turn_proto,
 	ASSERT_EQ(1, a->n_estab);
 	ASSERT_EQ(1, b->n_estab);
 
-	if (a->turn_srv) {
+	/* verify if datachannel was established */
+	if (datachan) {
+		ASSERT_EQ(1, a->n_datachan_estab);
+		ASSERT_EQ(1, b->n_datachan_estab);
+	}
+	else {
+		ASSERT_EQ(0, a->n_datachan_estab);
+		ASSERT_EQ(0, b->n_datachan_estab);
+	}
+
+#if 0
+	re_printf("TURN-Servers summary for A:\n");
+	for (size_t i=0; i<turn_srvc; i++) {
+
+		re_printf("  TURN #%zu:  nrecv=%u\n",
+			  i, a->turn_srvv[i]->nrecv);
+	}
+#endif
+
+	if (a->turn_srvc > 0) {
 
 		switch (a_turn_proto) {
 
 		case IPPROTO_UDP:
-			ASSERT_TRUE(a->turn_srv->nrecv > 0);
-			ASSERT_EQ(0, a->turn_srv->nrecv_tcp);
-			ASSERT_EQ(0, a->turn_srv->nrecv_tls);
+			for (size_t i=0; i<turn_srvc; i++) {
+				ASSERT_TRUE(a->turn_srvv[i]->nrecv > 0);
+			}
+			ASSERT_EQ(0, a->turn_srvv[0]->nrecv_tcp);
+			ASSERT_EQ(0, a->turn_srvv[0]->nrecv_tls);
 			break;
 
 		case IPPROTO_TCP:
-			ASSERT_EQ(0, a->turn_srv->nrecv);
+			ASSERT_EQ(0, a->turn_srvv[0]->nrecv);
 			if (a_turn_secure) {
-				ASSERT_EQ(0, a->turn_srv->nrecv_tcp);
-				ASSERT_TRUE(a->turn_srv->nrecv_tls > 0);
+				ASSERT_EQ(0, a->turn_srvv[0]->nrecv_tcp);
+				ASSERT_TRUE(a->turn_srvv[0]->nrecv_tls > 0);
 			}
 			else {
-				ASSERT_TRUE(a->turn_srv->nrecv_tcp > 0);
-				ASSERT_EQ(0, a->turn_srv->nrecv_tls);
+				ASSERT_TRUE(a->turn_srvv[0]->nrecv_tcp > 0);
+				ASSERT_EQ(0, a->turn_srvv[0]->nrecv_tls);
 			}
 			break;
 		}
@@ -467,47 +554,49 @@ static void test_b2b(enum mediaflow_nat a_nat, int a_turn_proto,
 	mem_deref(a);
 	mem_deref(b);
 
-	aucodec_unregister(&dummy_pcmu);
+	audummy_close();
+
+	dce_close();
 }
 
 
 TEST(media_dual, trickledual_and_trickle)
 {
-	test_b2b(MEDIAFLOW_TRICKLEICE_DUALSTACK, IPPROTO_UDP, false,
-		 MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_b2b(IPPROTO_UDP, false,
+		 false, 1);
 }
 
 
 TEST(media_dual, trickledual_and_trickledual)
 {
-	test_b2b(MEDIAFLOW_TRICKLEICE_DUALSTACK, IPPROTO_UDP, false,
-		 MEDIAFLOW_TRICKLEICE_DUALSTACK);
-}
-
-
-TEST(media_dual, trickledual_and_lite)
-{
-	test_b2b(MEDIAFLOW_TRICKLEICE_DUALSTACK, IPPROTO_UDP, false,
-		 MEDIAFLOW_ICELITE);
+	test_b2b(IPPROTO_UDP, false,
+		 false, 1);
 }
 
 
 TEST(media_dual, trickledual_turntcp_and_lite)
 {
-	test_b2b(MEDIAFLOW_TRICKLEICE_DUALSTACK, IPPROTO_TCP, false,
-		 MEDIAFLOW_ICELITE);
+	test_b2b(IPPROTO_TCP, false,
+		 false, 1);
 }
 
 
 TEST(media_dual, trickledual_turntls_and_lite)
 {
-	test_b2b(MEDIAFLOW_TRICKLEICE_DUALSTACK, IPPROTO_TCP, true,
-		 MEDIAFLOW_ICELITE);
+	test_b2b(IPPROTO_TCP, true,
+		 false, 1);
 }
 
 
-TEST(media_dual, turn_and_turn)
+TEST(media_dual, data_channels)
 {
-	test_b2b(MEDIAFLOW_TURN, IPPROTO_UDP, false,
-		 MEDIAFLOW_TURN);
+	test_b2b(IPPROTO_UDP, false,
+		 true, 1);
+}
+
+
+TEST(media_dual, trickle_with_2_turn_servers)
+{
+	test_b2b(IPPROTO_UDP, false,
+		 false, 2);
 }

@@ -38,17 +38,30 @@ static void* create_chorus_org(int fs_hz, int strength)
     
     cho->resampler = new webrtc::PushResampler<int16_t>;
     cho->resampler->InitializeIfNeeded(fs_hz, fs_hz*UP_FAC, 1);
-    
     cho->fs_khz = (fs_hz/1000);
+    
+    float max_a = MAX_A;
+    float max_d_ms = MAX_D_MS;
+    if(strength < 1){
+        max_a = max_a * 0.5f;
+        max_d_ms = max_d_ms * 0.75f;
+    }
+    float min_a = MIN_A;
+    float min_d_ms = MIN_D_MS;
+    if(strength < 1){
+        max_a = max_a * 0.5f;
+        min_d_ms = min_d_ms * 0.75f;
+    }
+    
 #if NUM_RAND_ELEM
     period_len = (cho->fs_khz * RAND_PERIOD_MS);
     int offset = period_len / NUM_RAND_ELEM;
     
     for(int j = 0; j < NUM_RAND_ELEM; j++){
-        cho->r_elem[j].max_d = MAX_D_MS * cho->fs_khz;
-        cho->r_elem[j].min_d = MIN_D_MS * cho->fs_khz;
-        cho->r_elem[j].max_a = MAX_A;
-        cho->r_elem[j].min_a = MIN_A;
+        cho->r_elem[j].max_d = max_d_ms * cho->fs_khz;
+        cho->r_elem[j].min_d = min_d_ms * cho->fs_khz;
+        cho->r_elem[j].max_a = max_a;
+        cho->r_elem[j].min_a = min_a;
         cho->r_elem[j].cnt = j*offset;
         cho->r_elem[j].period_smpls = period_len;
         //cho->elem[j].alpha = 0.001; // to do depend on fs
@@ -61,10 +74,10 @@ static void* create_chorus_org(int fs_hz, int strength)
     float d_omega = (2*PI)/period_len;
     
     for(int j = 0; j < NUM_SINE_ELEM; j++){
-        cho->s_elem[j].max_d = MAX_D_MS * cho->fs_khz;
-        cho->s_elem[j].min_d = MIN_D_MS * cho->fs_khz;
-        cho->s_elem[j].max_a = MAX_A;
-        cho->s_elem[j].min_a = MIN_A;
+        cho->s_elem[j].max_d = max_d_ms * cho->fs_khz;
+        cho->s_elem[j].min_d = min_d_ms * cho->fs_khz;
+        cho->s_elem[j].max_a = max_a;
+        cho->s_elem[j].min_a = min_a;
         cho->s_elem[j].d_omega = d_omega;
         cho->s_elem[j].omega = (PI/2)*j;
     }
@@ -210,7 +223,7 @@ void* create_chorus(int fs_hz, int strength)
 
     cho->strength = strength;
     if(strength > 0){
-        cho->st = create_chorus_org(fs_hz, 0);
+        cho->st = create_chorus_org(fs_hz, strength - 1);
     } else {
         cho->st = create_chorus_alt(fs_hz, 0);
     }

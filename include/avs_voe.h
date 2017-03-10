@@ -108,8 +108,8 @@ int voe_set_auplay(const char *dev);
 int voe_set_mute(bool mute);
 int voe_get_mute(bool *muted);
 
-int voe_start_silencing();
-int voe_stop_silencing();
+int voe_start_silencing(void);
+int voe_stop_silencing(void);
     
 int voe_invol(struct auenc_state *aes, double *invol);
 int voe_outvol(struct audec_state *ads, double *outvol);
@@ -119,37 +119,23 @@ int  voe_start_playing_PCM_file_as_microphone(const char fileNameUTF8[1024],
 void voe_stop_playing_PCM_file_as_microphone(void);
 
 int  voe_start_recording_playout_PCM_file(const char fileNameUTF8[1024]);
-void voe_stop_recording_playout_PCM_file();
-
-int voe_enable_fec(bool enable);
-int voe_enable_aec(bool enable);
-int voe_enable_rcv_ns(bool enable);
+void voe_stop_recording_playout_PCM_file(void);
     
 int voe_set_bitrate(int rate_bps);
 int voe_set_packet_size(int packet_size_ms);
 
 void voe_register_adm(void* adm);
-void voe_deregister_adm();
+void voe_deregister_adm(void);
+    
+void voe_enable_cbr(bool enabled);
+bool voe_have_cbr();
     
 int voe_debug(struct re_printf *pf, void *unused);
 
 void voe_update_conf_parts(const struct audec_state *adsv[], size_t adsc);
-
-typedef void (vm_play_status_h)(bool is_playing, unsigned int cur_time_ms, unsigned int file_length_ms, void *arg);
     
-int voe_vm_start_record(const char fileNameUTF8[1024]);
-int voe_vm_stop_record();
-int voe_vm_get_length(const char fileNameUTF8[1024],
-                      int* length_ms);
-int voe_vm_start_play(const char fileNameUTF8[1024],
-                      int  start_time_ms,
-                      vm_play_status_h *handler,
-                      void *arg);
-int voe_vm_stop_play();
-    
-int voe_vm_apply_effect(const char inFileNameUTF8[1024],
-                        const char outFileNameUTF8[1024],
-                        audio_effect effect);
+int voe_set_audio_effect(enum audio_effect effect_type);
+enum audio_effect voe_get_audio_effect(void);
     
 void voe_set_audio_state_handler(
     flowmgr_audio_state_change_h *state_change_h,

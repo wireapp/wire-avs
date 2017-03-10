@@ -17,8 +17,4 @@
 */
 #include "gtest/gtest.h"
 
-#ifdef __linux__
 #define COMPLEXITY_CHECK( load, thres) (load > thres) ? (void)printf("warning: load = %f thres = %f \n", (float)load, (float)thres) : (void)0
-#else
-#define COMPLEXITY_CHECK( load, thres) EXPECT_LT( load, thres)
-#endif

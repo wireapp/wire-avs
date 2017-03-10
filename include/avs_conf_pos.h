@@ -33,7 +33,7 @@ struct conf_part {
 int conf_part_add(struct conf_part **cpp, struct list *partl,
 		  const char *uid, void *data);
 
-struct conf_part *conf_part_find(struct list *partl, const char *userid);
+struct conf_part *conf_part_find(const struct list *partl, const char *userid);
 
 /* Return position associated with user id */
 uint32_t conf_pos_calc(const char *uid);

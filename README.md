@@ -29,7 +29,10 @@ $ brew install \
   libsodium \
   libtool \
   multirust \
+  pkg-config \
   protobuf-c \
+  readline \
+  sdl \
   yasm
 $ multirust default nightly
 ```
@@ -149,9 +152,9 @@ then add all ``.a`` files in there as ``-l`` arguments.
     '--------------'  | Nevent   |  '-----------'  '----------'
        |      |       '----------'
        |      |                                    .----------.
-  .---------. |                                    |   RTG    |
-  |Mediaflow| |                                    '----------'
-  '---------'\|
+  .---------. |  .-----.                           |   RTG    |
+  |Mediaflow| |  | DCE |                           '----------'
+  '---------'\|  '-----'
        |      |\                                   .----------.
    .-------.  | \.--------.                        | Protobuf |
    |aucodec|  |  |vidcodec|                        '----------'
@@ -190,6 +193,7 @@ Some specifications implemented:
 * https://tools.ietf.org/html/draft-ietf-mmusic-trickle-ice-01
 * https://tools.ietf.org/html/draft-ietf-rtcweb-stun-consent-freshness-11
 * https://tools.ietf.org/html/rfc7845
+* https://tools.ietf.org/html/draft-ietf-rtcweb-data-channel-13
 
 
 # Reporting bugs

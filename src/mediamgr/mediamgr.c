@@ -27,6 +27,9 @@
 #include <unistd.h>
 
 
+#define MM_USE_THREAD   1
+
+
 typedef enum {
 	MM_HEADSET_PLUGGED = 0,
 	MM_HEADSET_UNPLUGGED,
@@ -94,7 +97,8 @@ struct mm_message {
 	};
 };
 
-struct mediamgr {
+
+struct mm {
 	struct mqueue *mq;
 	struct dict *sounds;
 
@@ -103,16 +107,27 @@ struct mediamgr {
 	volatile bool started;
 
 	pthread_t thread;
-	mediamgr_mcat_changed_h *mcat_changed_h;
-	void *arg;
 
 	struct mm_route_state_machine router;
 
 	int intensity_thres;
 
+	struct list mml;
+};
+
+struct mediamgr {
+	struct mm *mm;
+	struct le le; /* member of the mm list */
+	
 	mediamgr_route_changed_h *route_changed_h;
 	void* route_changed_arg;
+	
+	mediamgr_mcat_changed_h *mcat_changed_h;
+	void *arg;
 };
+
+
+static struct mm *g_mm = NULL;
 
 
 /* prototypes */
@@ -134,7 +149,7 @@ const char *MMroute2Str(enum mediamgr_auplay route)
 
 static void mm_destructor(void *arg)
 {
-	struct mediamgr *mm = arg;
+	struct mm *mm = arg;
 
 	if (mm->started) {
 		mqueue_push(mm->mq, MM_MARSHAL_EXIT, NULL);
@@ -148,34 +163,50 @@ static void mm_destructor(void *arg)
 	mem_deref(mm->mq);
 
 	mm_platform_free(mm);
+
+	g_mm = NULL;
 }
 
 
-int mediamgr_alloc(struct mediamgr **mmp,
-		   mediamgr_mcat_changed_h *mcat_handler, void *arg)
+static void mediamgr_destructor(void *arg)
 {
-	struct mediamgr *mm;
-	int err = 0;
+	struct mediamgr *mm = arg;
 
-	if (!mmp || !mcat_handler) {
-		return EINVAL;
-	}
+	list_unlink(&mm->le);
+
+	mem_deref(mm->mm);
+}
+
+
+struct mm *mediamgr_get(struct mediamgr *mm)
+{
+	return mm ? mm->mm : NULL;
+}
+
+
+static int mm_alloc(struct mm **mmp)
+{
+	struct mm *mm;
+	int err = 0;
 
 	mm = mem_zalloc(sizeof(*mm), mm_destructor);
 	if (!mm)
 		return ENOMEM;
 
 	err = dict_alloc(&mm->sounds);
-	if (err) {
+	if (err)
 		goto out;
-	}
 
 	mm->started = false;
 
+#ifdef MM_USE_THREAD	
 	err = pthread_create(&mm->thread, NULL, mediamgr_thread, mm);
 	if (err != 0) {
 		goto out;
 	}
+#else
+	mediamgr_thread(mm);
+#endif
 	for ( int cnt = 0; cnt < 10000; cnt++) {
 		if (mm->started) {
 			break;
@@ -183,10 +214,7 @@ int mediamgr_alloc(struct mediamgr **mmp,
 		usleep(1000);  /* 1ms so allow to wait 10 secs */
 	}
 
-	mm->mcat_changed_h = mcat_handler;
-	mm->arg = arg;
 	mm->router.cur_route = MEDIAMGR_AUPLAY_UNKNOWN;
-	mm->route_changed_h = NULL;
 
 	mm->intensity_thres = MM_INTENSITY_THRES_ALL;
 
@@ -197,6 +225,44 @@ int mediamgr_alloc(struct mediamgr **mmp,
 	else {
 		*mmp = mm;
 	}
+
+	return err;
+}
+
+
+int mediamgr_alloc(struct mediamgr **mmp,
+		   mediamgr_mcat_changed_h *mcat_handler, void *arg)
+{
+	struct mediamgr *mm;
+	int err = 0;
+
+	if (!mmp || !mcat_handler)
+		return EINVAL;
+	
+	mm = mem_zalloc(sizeof(*mm), mediamgr_destructor);
+	if (!mm)
+		return ENOMEM;
+	
+	if (!g_mm) {
+		err = mm_alloc(&g_mm);
+		if (err)
+			goto out;
+		mm->mm = g_mm;
+	}
+	else {
+		mm->mm = mem_ref(g_mm);
+	}
+
+	mm->mcat_changed_h = mcat_handler;
+	mm->arg = arg;
+
+	list_append(&g_mm->mml, &mm->le, mm);
+	
+ out:
+	if (err)
+		mem_deref(mm);
+	else
+		*mmp = mm;
 
 	return err;
 }
@@ -219,12 +285,16 @@ static bool stop_playing_during_call(char *key, void *val, void *arg)
 }
 
 
-static void update_route(struct mediamgr *mm, mm_route_update_event event)
+static void update_route(struct mm *mm, mm_route_update_event event)
 {
+	struct le *le;
 	int ret = 0;
 
 	enum mediamgr_auplay cur_route = mm_platform_get_route();
 	enum mediamgr_auplay wanted_route = cur_route;
+
+	if (!mm)
+		return;
 
 	switch (event) {
 
@@ -323,7 +393,6 @@ static void update_route(struct mediamgr *mm, mm_route_update_event event)
 			wanted_route = MEDIAMGR_AUPLAY_SPEAKER;
 		}
 		mm->router.prefer_loudspeaker = true;
-		mm->router.prefer_loudspeaker = false;
 		break;
             
 	case MM_CALL_STOP:
@@ -375,20 +444,26 @@ static void update_route(struct mediamgr *mm, mm_route_update_event event)
 		// SSJ waybe wait 100 ms and try again ??
 		//     Android and BT dosnt change immidiatly
 	}
-	if (mm->route_changed_h) {
-		mm->route_changed_h(cur_route, mm->route_changed_arg);
+
+	LIST_FOREACH(&g_mm->mml, le) {
+		struct mediamgr *mgr = le->data;
+		
+		if (mgr->route_changed_h) {
+			mgr->route_changed_h(cur_route,
+					     mgr->route_changed_arg);
+		}
 	}
 }
 
 
-static void mediamgr_enter_call(struct mediamgr *mm, struct dict *sounds)
+static void mediamgr_enter_call(struct mm *mm, struct dict *sounds)
 {
 	dict_apply(sounds, stop_playing_during_call, NULL);
 
 	mm_platform_enter_call();
 }
 
-static void mediamgr_exit_call(struct mediamgr *mm, struct dict *sounds)
+static void mediamgr_exit_call(struct mm *mm, struct dict *sounds)
 {
 	mm_platform_exit_call();
 }
@@ -430,8 +505,9 @@ static bool stop_play(char *key, void *val, void *arg)
 }
 
 
-static bool mediamgr_can_play_sound(struct mediamgr *mm,
-				    struct dict *sounds, struct sound *to_play)
+static bool mediamgr_can_play_sound(struct mm *mm,
+				    struct dict *sounds,
+				    struct sound *to_play)
 {
 	mm_playback_mode mode = MM_PLAYBACK_NONE;
 
@@ -442,7 +518,7 @@ static bool mediamgr_can_play_sound(struct mediamgr *mm,
 
 	/* Some sounds are not allowed in-call */
 	bool incall = (mm->call_state == MEDIAMGR_STATE_INCALL ||
-					mm->call_state == MEDIAMGR_STATE_INVIDEOCALL);
+		       mm->call_state == MEDIAMGR_STATE_INVIDEOCALL);
 	if (!to_play->incall && incall) {
 		return false;
 	}
@@ -465,14 +541,17 @@ static bool mediamgr_can_play_sound(struct mediamgr *mm,
 	case MM_PLAYBACK_MIXING:
 		return to_play->mixing;
 	}
+
+	return false;
 }
 
 
-static int mediamgr_post_media_command(struct mediamgr *mm,
+static int mediamgr_post_media_command(struct mm *mm,
 				       mm_marshal_id cmd,
 				       const char* media_name)
 {
 	struct mm_message *elem;
+	
 	elem = mem_zalloc(sizeof(struct mm_message), NULL);
 	if (!elem) {
 		return -1;
@@ -484,65 +563,86 @@ static int mediamgr_post_media_command(struct mediamgr *mm,
 }
 
 
-void mediamgr_play_media(struct mediamgr *mm, const char *media_name)
-{
-	if (mediamgr_post_media_command(mm, MM_MARSHAL_PLAY_MEDIA,
+void mediamgr_play_media(struct mediamgr *mediamgr, const char *media_name)
+{	
+	if (!mediamgr)
+		return;
+
+	if (mediamgr_post_media_command(mediamgr->mm, MM_MARSHAL_PLAY_MEDIA,
 					media_name) != 0) {
 		error("mediamgr_play_media failed \n");
 	}
 }
 
 
-void mediamgr_pause_media(struct mediamgr *mm, const char *media_name)
+void mediamgr_pause_media(struct mediamgr *mediamgr, const char *media_name)
 {
-	if (mediamgr_post_media_command(mm, MM_MARSHAL_PAUSE_MEDIA,
+	if (!mediamgr)
+		return;
+	
+	if (mediamgr_post_media_command(mediamgr->mm, MM_MARSHAL_PAUSE_MEDIA,
 					media_name) != 0) {
 		error("mediamgr_pause_media failed \n");
 	}
 }
 
 
-void mediamgr_stop_media(struct mediamgr *mm, const char *media_name)
+void mediamgr_stop_media(struct mediamgr *mediamgr, const char *media_name)
 {
-	if (mediamgr_post_media_command(mm, MM_MARSHAL_STOP_MEDIA,
+	if (!mediamgr)
+		return;
+	
+	if (mediamgr_post_media_command(mediamgr->mm, MM_MARSHAL_STOP_MEDIA,
 					media_name) != 0) {
 		error("mediamgr_stop_media failed \n");
 	}
 }
 
 
-void mediamgr_set_call_state(struct mediamgr *mm, enum mediamgr_state state)
+void mediamgr_set_call_state(struct mediamgr *mediamgr,
+			     enum mediamgr_state state)
 {
 	struct mm_message *elem;
+
+	if (!mediamgr)
+		return;
+	
 	elem = mem_zalloc(sizeof(struct mm_message), NULL);
 	if (!elem) {
 		error("mediamgr_set_call_state failed \n");
 		return;
 	}
 	elem->state_elem.state = state;
-	if (mqueue_push(mm->mq, MM_MARSHAL_CALL_STATE, elem) != 0) {
+	if (mqueue_push(mediamgr->mm->mq, MM_MARSHAL_CALL_STATE, elem) != 0) {
 		error("mediamgr_set_call_state failed \n");
 	}
 }
 
 
-void mediamgr_register_route_change_h(struct mediamgr *mm,
+void mediamgr_register_route_change_h(struct mediamgr *mediamgr,
 				      mediamgr_route_changed_h *handler,
 				      void *arg)
 {
-	if (!mm) {
+	if (!mediamgr) {
 		error("mediamgr_register_route_change_h failed no mm \n");
 		return;
 	}
 
-	mm->route_changed_h   = handler;
-	mm->route_changed_arg = arg;
+	mediamgr->route_changed_h   = handler;
+	mediamgr->route_changed_arg = arg;
 }
 
 
-void mediamgr_enable_speaker(struct mediamgr *mm, bool enable)
+void mediamgr_enable_speaker(struct mediamgr *mediamgr, bool enable)
 {
 	struct mm_message *elem;
+	struct mm *mm;
+
+	if (!mediamgr)
+		return;
+
+	mm = mediamgr->mm;
+	
 	elem = mem_zalloc(sizeof(struct mm_message), NULL);
 	if (!elem) {
 		error("mediamgr_enable_speaker failed \n");
@@ -555,9 +655,10 @@ void mediamgr_enable_speaker(struct mediamgr *mm, bool enable)
 }
 
 
-void mediamgr_headset_connected(struct mediamgr *mm, bool connected)
+void mediamgr_headset_connected(struct mm *mm, bool connected)
 {
 	struct mm_message *elem;
+
 	elem = mem_zalloc(sizeof(struct mm_message), NULL);
 	if (!elem) {
 		error("mediamgr_headset_connected failed \n");
@@ -570,9 +671,13 @@ void mediamgr_headset_connected(struct mediamgr *mm, bool connected)
 }
 
 
-void mediamgr_bt_device_connected(struct mediamgr *mm, bool connected)
+void mediamgr_bt_device_connected(struct mm *mm, bool connected)
 {
 	struct mm_message *elem;
+
+	if (!mm)
+		return;
+	
 	elem = mem_zalloc(sizeof(struct mm_message), NULL);
 	if (!elem) {
 		error("mediamgr_bt_device_connected failed \n");
@@ -585,7 +690,7 @@ void mediamgr_bt_device_connected(struct mediamgr *mm, bool connected)
 }
 
 
-void mediamgr_register_media(struct mediamgr *mm,
+void mediamgr_register_media(struct mediamgr *mediamgr,
 			     const char *media_name,
 			     void* media_object,
 			     bool mixing,
@@ -595,6 +700,12 @@ void mediamgr_register_media(struct mediamgr *mm,
 			     bool is_call_media)
 {
 	struct mm_message *elem;
+	struct mm *mm;
+
+	if (!mediamgr)
+		return;
+
+	mm = mediamgr->mm;
 	elem = mem_zalloc(sizeof(struct mm_message), NULL);
 	if (!elem) {
 		error("mediamgr_register_media failed \n");
@@ -614,9 +725,16 @@ void mediamgr_register_media(struct mediamgr *mm,
 }
 
 
-void mediamgr_unregister_media(struct mediamgr *mm, const char *media_name)
+void mediamgr_unregister_media(struct mediamgr *mediamgr,
+			       const char *media_name)
 {
 	struct mm_message *elem;
+	struct mm *mm;
+
+	if (!mediamgr)
+		return;
+
+	mm = mediamgr->mm;	
 	elem = mem_zalloc(sizeof(struct mm_message), NULL);
 	if (!elem) {
 		error("mediamgr_unregister_media failed \n");
@@ -632,12 +750,17 @@ void mediamgr_unregister_media(struct mediamgr *mm, const char *media_name)
 }
 
 
-void mediamgr_set_sound_mode(struct mediamgr *mm,
+void mediamgr_set_sound_mode(struct mediamgr *mediamgr,
 			     enum mediamgr_sound_mode mode)
 {
 	struct mm_message *elem;
-	int intensity;
+	struct mm *mm;
+	int intensity = MM_INTENSITY_THRES_NONE;
 
+	if (!mediamgr)
+		return;
+
+	mm = mediamgr->mm;
 	switch (mode) {
 
 	case MEDIAMGR_SOUND_MODE_ALL:
@@ -666,7 +789,7 @@ void mediamgr_set_sound_mode(struct mediamgr *mm,
 }
 
 
-enum mediamgr_auplay mediamgr_get_route(const struct mediamgr *mm)
+enum mediamgr_auplay mediamgr_get_route(const struct mediamgr *mediamgr)
 {
 	return mm_platform_get_route();
 }
@@ -674,7 +797,7 @@ enum mediamgr_auplay mediamgr_get_route(const struct mediamgr *mm)
 
 static void mqueue_handler(int id, void *data, void *arg)
 {
-	struct mediamgr *mm = (struct mediamgr*)arg;
+	struct mm *mm = arg;
 	struct mm_marshal_elem *marshal = (struct mm_marshal_elem*)data;
 	struct sound *curr_sound;
 
@@ -710,7 +833,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 					&& (mm->call_state != MEDIAMGR_STATE_INCALL &&
 						mm->call_state != MEDIAMGR_STATE_INVIDEOCALL)) {
 					mm_platform_enter_call();
-					update_route(mm, MM_CALL_START);
+					update_route(g_mm, MM_CALL_START);
 				}
 				mm_platform_play_sound(curr_sound);
 			}
@@ -745,7 +868,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 				&& (mm->call_state != MEDIAMGR_STATE_INCALL &&
 					mm->call_state != MEDIAMGR_STATE_INVIDEOCALL)) {
 				mm_platform_exit_call();
-				update_route(mm, MM_CALL_STOP);
+				update_route(g_mm, MM_CALL_STOP);
 			}
 		}
 	}
@@ -767,11 +890,12 @@ static void mqueue_handler(int id, void *data, void *arg)
 			break;
 
 		case MEDIAMGR_STATE_INVIDEOCALL:
+			fire_callback = (mm->call_state != MEDIAMGR_STATE_INCALL);
 			mm->call_state = MEDIAMGR_STATE_INVIDEOCALL;
 			mediamgr_enter_call(mm, mm->sounds);
 			event = MM_VIDEO_CALL_START;
 			has_changed = true;
-			fire_callback = false;
+			fire_callback = true;                
 			break;
                 
 		case MEDIAMGR_STATE_NORMAL:
@@ -808,12 +932,24 @@ static void mqueue_handler(int id, void *data, void *arg)
 		}
 
 		if (has_changed) {
-			update_route(mm, event);
+			update_route(g_mm, event);
 		}
 		if(fire_callback){
-			enum mediamgr_state new_state = ((struct mm_message*)marshal)->state_elem.state;
-			debug("%s: calling mcat changed %d\n", __FUNCTION__, new_state);
-			mm->mcat_changed_h(new_state, mm->arg);
+			enum mediamgr_state new_state =
+				((struct mm_message*)marshal)->state_elem.state;
+			struct le *le;
+			
+			debug("mediamgr: mqueue_handler: calling "
+			      "mcat changed %d\n", new_state);
+			
+			LIST_FOREACH(&g_mm->mml, le) {
+				struct mediamgr *mgr = le->data;
+
+				if (mgr->mcat_changed_h) {
+					mgr->mcat_changed_h(new_state,
+							    mgr->arg);
+				}
+			}
 		}
 	}
 		break;
@@ -828,7 +964,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 		else {
 			event = MM_SPEAKER_DISABLE_REQUEST;
 		}
-		update_route(mm, event);
+		update_route(g_mm, event);
 	}
 		break;
 
@@ -842,7 +978,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 		else {
 			event = MM_HEADSET_UNPLUGGED;
 		}
-		update_route(mm, event);
+		update_route(g_mm, event);
 	}
 		break;
 
@@ -856,7 +992,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 		else {
 			event = MM_BT_DEVICE_DISCONNECTED;
 		}
-		update_route(mm, event);
+		update_route(g_mm, event);
 	}
 		break;
 
@@ -891,16 +1027,23 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 static void *mediamgr_thread(void *arg)
 {
-	struct mediamgr *mm = (struct mediamgr*)arg;
+	struct mm *mm = arg;
 	int err;
 
+#ifdef MM_USE_THREAD
 	err = re_thread_init();
 	if (err) {
 		warning("mediamgr_thread: re_thread_init failed (%m)\n", err);
 		goto out;
 	}
+#else
+	//re_thread_enter();
+#endif
 
 	err = mqueue_alloc(&mm->mq, mqueue_handler, mm);
+#ifndef MM_USE_THREAD
+	//re_thread_leave();
+#endif
 	if (err) {
 		error("mediamgr_thread: cannot allocate mqueue (%m)\n", err);
 		goto out;
@@ -914,10 +1057,12 @@ static void *mediamgr_thread(void *arg)
 	}
 
 	mm->started = true;
+#ifdef MM_USE_THREAD
 	re_main(NULL);
 	info("%s thread exiting\n", __FUNCTION__);
 
 	re_thread_close();
+#endif
 
 out:
 	return NULL;

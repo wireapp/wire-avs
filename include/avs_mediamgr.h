@@ -54,9 +54,11 @@ typedef void (mediamgr_mcat_changed_h)(enum mediamgr_state new_state,
 
 struct mediamgr;
 
+	
 int mediamgr_alloc(struct mediamgr **mmp,
 		   mediamgr_mcat_changed_h *cat_handler, void *arg);
 
+struct mm *mediamgr_get(struct mediamgr *mm);	
 void mediamgr_play_media(struct mediamgr *mm, const char *media_name);
 void mediamgr_pause_media(struct mediamgr *mm, const char *media_name);
 void mediamgr_stop_media(struct mediamgr *mm, const char *media_name);
@@ -65,8 +67,6 @@ void mediamgr_set_call_state(struct mediamgr *mm, enum mediamgr_state state);
 
 void mediamgr_enable_speaker(struct mediamgr *mm, bool enable);
 enum mediamgr_auplay mediamgr_get_route(const struct mediamgr *mm);
-void mediamgr_headset_connected(struct mediamgr *mm, bool connected);
-void mediamgr_bt_device_connected(struct mediamgr *mm, bool connected);
 
 void mediamgr_register_media(struct mediamgr *mm,
 			     const char *media_name,
@@ -85,6 +85,12 @@ void mediamgr_register_route_change_h(struct mediamgr *mm,
 
 void mediamgr_set_sound_mode(struct mediamgr *mm,
 			     enum mediamgr_sound_mode mode);
+
+/* Global functions */
+struct mm;
+void mediamgr_headset_connected(struct mm *mm, bool connected);
+void mediamgr_bt_device_connected(struct mm *mm, bool connected);
+
 
 #ifdef __cplusplus
 }

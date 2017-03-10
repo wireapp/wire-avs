@@ -1,0 +1,15 @@
+language: c
+
+before_install:
+    - sudo apt-get -qq update
+    - sudo apt-get -y install libssl-dev
+
+install:
+    - git clone https://github.com/creytiv/re.git
+    - cd re && make && sudo make install && cd ..
+    - sudo ldconfig
+    - wget "https://github.com/alfredh/pytools/raw/master/ccheck.py"
+
+script: 
+    - make EXTRA_CFLAGS=-Werror
+    - python2 ccheck.py

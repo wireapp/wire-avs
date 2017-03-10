@@ -235,14 +235,32 @@ public class VideoCapturer implements PreviewCallback,
 			public void run() {
 				VideoPreview vp = (VideoPreview)view;
 
+				if (vp == null) {
+					Log.e(TAG, "statCapture failed. No view");
+					return;
+				}
+				
+				int vrot = getViewRotation();
+				Log.d(TAG, "startCapture on main: " + vp + " rot:" + vrot +
+					"facing: " + cameraInfo.facing);
+
+				if (camera != null) {
+					try {
+						camera.setDisplayOrientation(vrot);
+					}
+					catch (RuntimeException e){
+						Log.d(TAG, "startCapture: exception calling " +
+							"setDisplayOrientation: " +
+							e.getMessage());
+
+					}
+				}
+				vp.setVideoOrientation(vrot);
+
 				view.setSurfaceTextureListener(VideoCapturer.this);
 				if (view.isAvailable()) {
 					startCamera(view.getSurfaceTexture());
 				}
-				
-				Log.d(TAG, "startCapture on main: " + view);
-				
-				vp.setRotation(getViewRotation());
 
 				synchronized(this) {
 					this.notify();
@@ -494,7 +512,7 @@ public class VideoCapturer implements PreviewCallback,
 	@Override
 	public void onPreviewFrame(byte[] frame, Camera cam) {
 		long capTime = SystemClock.elapsedRealtime();
-		int rotation = getRotation(); //getDeviceOrientation();
+		int rotation = getRotation();
 
 		/* Discard too frequent frames */
 		if ((capTime - this.lastFtime) < this.ftime) {
@@ -512,13 +530,16 @@ public class VideoCapturer implements PreviewCallback,
 	public int getViewRotation() {
 		if (camera == null || cameraInfo == null)
 			return 0;
-		
+
+		Log.d(TAG, "getViewRotation: camrot: " + cameraInfo.orientation +
+			" facing: " + cameraInfo.facing);
+
 		switch (cameraInfo.facing) {
 		case CameraInfo.CAMERA_FACING_BACK:
 			return cameraInfo.orientation;
 			
 		case CameraInfo.CAMERA_FACING_FRONT:
-			return 360 - cameraInfo.orientation;
+			return (360 - cameraInfo.orientation) % 360;
 
 		default:
 			return 0;
@@ -529,22 +550,8 @@ public class VideoCapturer implements PreviewCallback,
 	public int getRotation() {
 		if (camera == null || cameraInfo == null)
 			return 0;
-		
-		switch (cameraInfo.facing) {
-		case CameraInfo.CAMERA_FACING_BACK:
-			if (cameraInfo.orientation == 90)
-				return 270;
-			else if (cameraInfo.orientation == 270)
-				return 90;
-			else
-				return cameraInfo.orientation;
-			
-		case CameraInfo.CAMERA_FACING_FRONT:
-			return 360 - cameraInfo.orientation;
 
-		default:
-			return 0;
-		}
+		return (360 - cameraInfo.orientation) % 360;
 	}
 
 	private static native void handleCameraFrame(int w, int h,

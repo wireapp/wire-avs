@@ -33,6 +33,13 @@ enum {
 };
 
 
+enum filter_type {
+	FILTER_NONE = 0,
+	FILTER_PACKET_LOSS,
+	FILTER_DUPLICATE
+};
+
+
 struct agent {
 	struct tls *tls;
 	struct dtls_sock *dtls_sock;
@@ -41,12 +48,79 @@ struct agent {
 	struct sa addr;
 	char name[64];
 	bool active;
-	bool estab;
+	unsigned estab;
+	unsigned n_recv;
 	struct agent *peer;
 	struct udp_helper *uh;
 	unsigned seq;
 	unsigned seq_lost;
+	enum filter_type filter_type;
 };
+
+
+static const char *test_payload = "Mr. Potato is coming to town";
+
+
+static void duplicate_mbuf(struct mbuf *mb)
+{
+	size_t pos;
+	size_t len;
+	int err;
+	uint8_t *buf;
+
+	pos = mb->pos;
+	len = mbuf_get_left(mb);
+
+	buf = (uint8_t *)mem_alloc(len, NULL);
+	memcpy(buf, mb->buf + pos, len);
+
+	mb->pos = mb->end;
+
+	err = mbuf_write_mem(mb, buf, len);
+	ASSERT_EQ(0, err);
+
+	mb->pos = pos;
+
+	mem_deref(buf);
+}
+
+
+static bool handle_filter(struct agent *ag, struct mbuf *mb, bool tx)
+{
+	bool drop = false, dup=false;
+
+	++ag->seq;
+
+	switch (ag->filter_type) {
+
+	case FILTER_NONE:
+		break;
+
+	case FILTER_PACKET_LOSS:
+		if (ag->seq == ag->seq_lost) {
+			drop = true;
+		}
+		break;
+
+	case FILTER_DUPLICATE:
+		duplicate_mbuf(mb);
+		dup = true;
+		break;
+
+	default:
+		break;
+	}
+
+#if 0
+	re_printf("[%s]    seq %u    %s %zu bytes    %s    %s\n",
+		  ag->name, ag->seq,
+		  tx ? "TX" : "RX", mbuf_get_left(mb),
+		  drop ? "DROP" : "    ",
+		  dup  ? "DUP!" : "    ");
+#endif
+
+	return drop;
+}
 
 
 static bool udp_helper_send_handler(int *err, struct sa *dst,
@@ -54,17 +128,7 @@ static bool udp_helper_send_handler(int *err, struct sa *dst,
 {
 	struct agent *ag = (struct agent *)arg;
 
-	++ag->seq;
-
-	//re_printf("[%s] %u tx %zu bytes\n",
-	//		  ag->name, ag->seq, mbuf_get_left(mb));
-
-	if (ag->seq_lost && ag->seq == ag->seq_lost) {
-		//re_printf("tx: !! packet number %u DROPPED\n", ag->seq);
-		return true;
-	}
-
-	return false;
+	return handle_filter(ag, mb, true);
 }
 
 
@@ -73,17 +137,7 @@ static bool udp_helper_recv_handler(struct sa *src,
 {
 	struct agent *ag = (struct agent *)arg;
 
-	++ag->seq;
-
-	//	re_printf("[%s] %u rx %zu bytes\n",
-	//		  ag->name, ag->seq, mbuf_get_left(mb));
-
-	if (ag->seq_lost && ag->seq == ag->seq_lost) {
-		//re_printf("rx: !! packet number %u DROPPED\n", ag->seq);
-		return true;
-	}
-
-	return false;
+	return handle_filter(ag, mb, false);
 }
 
 
@@ -91,8 +145,9 @@ static void dtls_estab_handler(void *arg)
 {
 	struct agent *ag = (struct agent *)arg;
 	const char *name;
+	int err;
 
-	ag->estab = true;
+	++ag->estab;
 	name = tls_cipher_name(ag->dtls_conn);
 
 #if 0
@@ -104,11 +159,33 @@ static void dtls_estab_handler(void *arg)
 
 	if (ag->peer->estab) {
 
-		//int algo_bits;
+		struct mbuf *mb = mbuf_alloc(512);
 
-		//algo_bits = dtls_conn_cipher_algorithm_bits(ag->dtls_conn);
-		//ASSERT_TRUE(algo_bits >= 128);
+		mbuf_write_str(mb, test_payload);
 
+		mb->pos = 0;
+		err = dtls_send(ag->dtls_conn, mb);
+		ASSERT_EQ(0, err);
+
+		mb->pos = 0;
+		err = dtls_send(ag->peer->dtls_conn, mb);
+		ASSERT_EQ(0, err);
+
+		mem_deref(mb);
+	}
+}
+
+
+static void dtls_recv_handler(struct mbuf *mb, void *arg)
+{
+	struct agent *ag = (struct agent *)arg;
+
+	++ag->n_recv;
+
+	ASSERT_EQ(str_len(test_payload), mbuf_get_left(mb));
+	ASSERT_EQ(0, memcmp(test_payload, mbuf_buf(mb), mbuf_get_left(mb)));
+
+	if (ag->peer->n_recv > 0) {
 		re_cancel();
 	}
 }
@@ -132,7 +209,8 @@ static void dtls_conn_handler(const struct sa *peer, void *arg)
 	ASSERT_FALSE(ag->active);
 
 	err = dtls_accept(&ag->dtls_conn, ag->tls, ag->dtls_sock,
-			  dtls_estab_handler, 0, dtls_close_handler, ag);
+			  dtls_estab_handler, dtls_recv_handler,
+			  dtls_close_handler, ag);
 	ASSERT_EQ(0, err);
 }
 
@@ -184,15 +262,18 @@ static void agent_connect(struct agent *ag, const struct sa *peer)
 	int err;
 
 	err = dtls_connect(&ag->dtls_conn, ag->tls, ag->dtls_sock, peer,
-			   dtls_estab_handler, 0, dtls_close_handler, ag);
+			   dtls_estab_handler, dtls_recv_handler,
+			   dtls_close_handler, ag);
 	ASSERT_EQ(0, err);
 }
 
 
-static void agent_filter(struct agent *ag, unsigned seq_lost)
+static void agent_filter(struct agent *ag, enum filter_type filter_type,
+			 unsigned seq_lost)
 {
 	int err;
 
+	ag->filter_type = filter_type;
 	ag->seq_lost = seq_lost;
 
 	err = udp_register_helper(&ag->uh, ag->us, LAYER_FILTER,
@@ -203,7 +284,8 @@ static void agent_filter(struct agent *ag, unsigned seq_lost)
 }
 
 
-static void test_init(enum cert_type cert_type, unsigned seq_lost)
+static void test_init(enum tls_keytype cert_type, enum filter_type filter_type,
+		      unsigned seq_lost)
 {
 	struct tls *tls = NULL;
 	struct agent *ag_a=0, *ag_b=0;
@@ -223,13 +305,7 @@ static void test_init(enum cert_type cert_type, unsigned seq_lost)
 
 	switch (cert_type) {
 
-	case CERT_TYPE_RSA:
-		err = tls_set_certificate(tls, fake_certificate_rsa,
-					  strlen(fake_certificate_rsa));
-		ASSERT_EQ(0, err);
-		break;
-
-	case CERT_TYPE_ECDSA:
+	case TLS_KEYTYPE_EC:
 		err = cert_tls_set_selfsigned_ecdsa(tls, "prime256v1");
 		ASSERT_EQ(0, err);
 		break;
@@ -247,7 +323,7 @@ static void test_init(enum cert_type cert_type, unsigned seq_lost)
 	ag_a->peer = ag_b;
 	ag_b->peer = ag_a;
 
-	agent_filter(ag_a, seq_lost);
+	agent_filter(ag_a, filter_type, seq_lost);
 
 	agent_connect(ag_a, &ag_b->addr);
 
@@ -259,29 +335,46 @@ static void test_init(enum cert_type cert_type, unsigned seq_lost)
 	ASSERT_EQ(1, ag_a->estab);
 	ASSERT_EQ(1, ag_b->estab);
 
+	ASSERT_EQ(1, ag_a->n_recv);
+	ASSERT_EQ(1, ag_b->n_recv);
+
 	mem_deref(ag_b);
 	mem_deref(ag_a);
 	mem_deref(tls);
 }
 
 
-TEST(dtls, no_packet_loss)
-{
-	test_init(CERT_TYPE_RSA, 0);
-}
-
-
-TEST(dtls, packet_loss_hi)
-{
-	test_init(CERT_TYPE_RSA, 5);
-	//test_init(6);
-	//test_init(7);
-	//test_init(8);
-	//test_init(9);
-}
-
-
 TEST(dtls, no_packet_loss_with_ecdsa)
 {
-	test_init(CERT_TYPE_ECDSA, 0);
+	test_init(TLS_KEYTYPE_EC, FILTER_NONE, 0);
+}
+
+
+TEST(dtls, duplicate)
+{
+	test_init(TLS_KEYTYPE_EC, FILTER_DUPLICATE, 0);
+}
+
+
+TEST(dtls, loss_1)
+{
+	test_init(TLS_KEYTYPE_EC, FILTER_PACKET_LOSS, 1);
+}
+
+
+TEST(dtls, loss_2)
+{
+	test_init(TLS_KEYTYPE_EC, FILTER_PACKET_LOSS, 2);
+}
+
+
+TEST(dtls, loss_3)
+{
+	test_init(TLS_KEYTYPE_EC, FILTER_PACKET_LOSS, 3);
+}
+
+
+TEST(dtls, loss_4)
+{
+	test_init(TLS_KEYTYPE_EC, FILTER_PACKET_LOSS, 4);
 }

@@ -23,6 +23,11 @@
 #import <AVFoundation/AVFoundation.h>
 #import "AVSFlowManager.h"
 
+#ifndef AVS_EXPORT
+#define AVS_EXPORT __attribute__((visibility("default")))
+#endif
+
+
 typedef enum {
 	AVS_CAPTURER_STATE_STOPPED = 0,
 	AVS_CAPTURER_STATE_STARTING,
@@ -32,7 +37,7 @@ typedef enum {
 }AVSCapturerState;
 
 
-@interface AVSCapturer : NSObject<AVCaptureVideoDataOutputSampleBufferDelegate>
+AVS_EXPORT @interface AVSCapturer : NSObject<AVCaptureVideoDataOutputSampleBufferDelegate>
 
 - (id)init;
 - (int)startWithWidth:(uint32_t)width Height:(uint32_t)height MaxFps:(uint32_t)max_fps;

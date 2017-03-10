@@ -21,6 +21,7 @@ extern "C" {
 	#include "avs_log.h"
 }
 #include "voe.h"
+#include "voe_settings.h"
 
 static void cd_destructor(void *arg)
 {
@@ -68,4 +69,90 @@ struct channel_data *find_channel_data(struct list *active_chs, int ch)
     }
     
     return NULL;
+}
+
+void voe_set_channel_load(struct voe *voe)
+{
+    webrtc::CodecInst c;
+    
+    int bitrate_bps = voe->manual_bitrate_bps ? voe->manual_bitrate_bps : voe->bitrate_bps;
+    int packet_size_ms = voe->manual_packet_size_ms ? voe->manual_packet_size_ms :
+    std::max( voe->packet_size_ms, voe->min_packet_size_ms );
+    
+    struct le *le;
+    for (le = gvoe.channel_data_list.head; le; le = le->next) {
+        struct channel_data *cd = (struct channel_data *)le->data;
+        
+        gvoe.codec->GetSendCodec(cd->channel_number, c);
+        c.pacsize = (c.plfreq * packet_size_ms) / 1000;
+        c.rate = bitrate_bps;
+        gvoe.codec->SetSendCodec(cd->channel_number, c);
+        
+        info("voe: Changing codec settings parameters for channel %d\n", cd->channel_number);
+        info("voe: pltype = %d \n", c.pltype);
+        info("voe: plname = %s \n", c.plname);
+        info("voe: plfreq = %d \n", c.plfreq);
+        info("voe: pacsize = %d (%d ms)\n", c.pacsize, c.pacsize * 1000 / c.plfreq);
+        info("voe: channels = %d \n", c.channels);
+        info("voe: rate = %d \n", c.rate);
+    }
+}
+
+void voe_multi_party_packet_rate_control(struct voe *voe)
+{
+#define ACTIVE_FLOWS_FOR_40MS_PACKETS 2
+#define ACTIVE_FLOWS_FOR_60MS_PACKETS 4
+    
+    webrtc::CodecInst c;
+    
+    /* Change Packet size based on amount of flows in use */
+    int active_flows = list_count(&voe->channel_data_list);
+    int min_packet_size_ms = 20;
+    
+    if ( active_flows >= ACTIVE_FLOWS_FOR_60MS_PACKETS ) {
+        min_packet_size_ms = 60;
+    }
+    else if( active_flows >=  ACTIVE_FLOWS_FOR_40MS_PACKETS) {
+        min_packet_size_ms = 40;
+    }
+    
+    if ( std::max( voe->packet_size_ms,     min_packet_size_ms ) !=
+        std::max( voe->packet_size_ms, voe->min_packet_size_ms ) ) {
+        voe->min_packet_size_ms = min_packet_size_ms;
+        voe_set_channel_load(voe);
+    }
+    
+    voe->min_packet_size_ms = min_packet_size_ms;
+}
+
+#define SWITCH_TO_SHORTER_PACKETS_RTT_MS  500
+#define SWITCH_TO_LONGER_PACKETS_RTT_MS   800
+
+void voe_update_channel_stats(struct voe *voe, int ch_id, int rtcp_rttMs, int rtcp_loss_Q8)
+{
+    int rtt_ms = 0, frac_lost_Q8 = 0;
+    struct le *le;
+    for (le = voe->channel_data_list.head; le; le = le->next) {
+        struct channel_data *cd = (struct channel_data *)le->data;
+        if( cd->channel_number == ch_id ) {
+            cd->last_rtcp_rtt = rtcp_rttMs;
+            cd->last_rtcp_ploss = rtcp_loss_Q8;
+        }
+        rtt_ms = std::max(rtt_ms, cd->last_rtcp_rtt);
+        frac_lost_Q8 = std::max(frac_lost_Q8, cd->last_rtcp_ploss);
+    }
+    int packet_size_ms = gvoe.packet_size_ms;
+    if( rtt_ms < SWITCH_TO_SHORTER_PACKETS_RTT_MS && frac_lost_Q8 < (int)(0.03 * 255) ) {
+        packet_size_ms -= 20;
+    } else
+    if( rtt_ms > SWITCH_TO_LONGER_PACKETS_RTT_MS || frac_lost_Q8 > (int)(0.10 * 255) ) {
+        packet_size_ms += 20;
+    }
+    packet_size_ms = std::max( packet_size_ms, voe->min_packet_size_ms );
+    packet_size_ms = std::min( packet_size_ms, 40 );
+    if( packet_size_ms != voe->packet_size_ms ) {
+        voe->packet_size_ms = packet_size_ms;
+        voe->bitrate_bps = packet_size_ms == 20 ? ZETA_OPUS_BITRATE_HI_BPS : ZETA_OPUS_BITRATE_LO_BPS;
+        voe_set_channel_load(voe);
+    }
 }

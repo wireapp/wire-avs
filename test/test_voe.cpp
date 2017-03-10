@@ -23,41 +23,7 @@
 #include <re/re.h>
 #include "avs_audio_io.h"
 #include "webrtc/base/logging.h"
-
-
-TEST(voe, basic_init_close)
-{
-	struct list aucodecl = LIST_INIT;
-	int err;
-
-	err = voe_init(&aucodecl);
-	ASSERT_EQ(0, err);
-	
-	ASSERT_GE(list_count(&aucodecl), 1);
-
-	voe_close();
-
-	ASSERT_EQ(0, list_count(&aucodecl));
-}
-
-
-TEST(voe, extra_close)
-{
-	voe_close();
-}
-
-
-TEST(voe, close_twice)
-{
-	struct list aucodecl = LIST_INIT;
-	int err;
-
-	err = voe_init(&aucodecl);
-	ASSERT_EQ(0, err);
-
-	voe_close();
-	voe_close();
-}
+#include "ztest.h"
 
 
 class Voe : public ::testing::Test {
@@ -75,6 +41,8 @@ public:
 		err = voe_init(&aucodecl);
 		ASSERT_EQ(0, err);
 
+		ad.EnableSine();
+        
 		voe_register_adm((void*)&ad);
 	}
 
@@ -91,6 +59,72 @@ protected:
 };
 
 
+#define EXPECTED_PACKETS 16
+struct sync_state {
+	pthread_mutex_t mutex;
+
+	struct mqueue *mq;
+	unsigned n_packet;
+	uint8_t pt;
+	uint32_t ssrc;
+	uint16_t prev_seq;
+	int32_t seq_diff;
+	uint32_t prev_timestamp;
+	int64_t timestamp_diff;
+	uint16_t prev_pktsize;
+	uint16_t max_pktsize_diff;
+};
+
+
+static void mqueue_handler(int id, void *data, void *arg)
+{
+	(void)id;
+	(void)data;
+	(void)arg;
+
+	re_cancel();
+}
+
+
+static void init_sync_state(struct sync_state *pss)
+{
+	memset(pss, 0, sizeof(*pss));
+
+	mqueue_alloc(&pss->mq, mqueue_handler, NULL);
+
+	pthread_mutex_init(&pss->mutex,NULL);
+
+	pss->prev_seq = 0;
+	pss->seq_diff = 0;
+	pss->prev_timestamp = 0;
+	pss->timestamp_diff = 0;
+	pss->max_pktsize_diff = 0;
+}
+
+
+TEST_F(Voe, basic_init_close)
+{
+	ASSERT_GE(list_count(&aucodecl), 1);
+
+	voe_close();
+
+	ASSERT_EQ(0, list_count(&aucodecl));
+}
+
+
+TEST_F(Voe, extra_close)
+{
+	voe_close();
+}
+
+
+TEST_F(Voe, close_twice)
+{
+	voe_close();
+	voe_close();
+}
+
+
 TEST_F(Voe, enc_dec_alloc)
 {
 	struct aucodec_param prm;
@@ -98,26 +132,27 @@ TEST_F(Voe, enc_dec_alloc)
 	struct audec_state *adsp = NULL;
 	struct media_ctx *mctxp = NULL;
 	const struct aucodec *ac;
-	int pt = 96;
-	int srate = 48000;
 	int err;
-    
+
 	memset(&prm, 0, sizeof(prm));
 
-    	ac = aucodec_find(&aucodecl, "opus", 48000, 2);
-    
+	ac = aucodec_find(&aucodecl, "opus", 48000, 2);
+	ASSERT_TRUE(ac != NULL);
+
 	if (ac->enc_alloc){
 		err = ac->enc_alloc(&aesp, &mctxp, ac, NULL, &prm,
-                      NULL, NULL, NULL, NULL, NULL);
+				    NULL, NULL, NULL, NULL);
 		ASSERT_EQ(0, err);
+		ASSERT_TRUE(aesp != NULL);
 	}
 
 	if (ac->dec_alloc){
 		err = ac->dec_alloc(&adsp, &mctxp, ac, NULL, &prm,
-                            NULL, NULL, NULL);
+				    NULL, NULL);
 		ASSERT_EQ(0, err);
+		ASSERT_TRUE(adsp != NULL);
 	}
-    
+
 	mem_deref(aesp);
 	mem_deref(adsp);
 }
@@ -125,43 +160,42 @@ TEST_F(Voe, enc_dec_alloc)
 
 TEST_F(Voe, unmute_after_call)
 {
-	int err;
 	struct aucodec_param prm;
 	struct auenc_state *aesp = NULL;
 	struct audec_state *adsp = NULL;
 	struct media_ctx *mctxp = NULL;
 	const struct aucodec *ac;
-	int pt = 96;
-	int srate = 48000;
 	bool muted;
-    
+	int err;
+
 	memset(&prm, 0, sizeof(prm));
 
 	ac = aucodec_find(&aucodecl, "opus", 48000, 2);
-    
+	ASSERT_TRUE(ac != NULL);
+
 	if (ac->enc_alloc){
 		err = ac->enc_alloc(&aesp, &mctxp, ac, NULL, &prm,
-                            NULL, NULL, NULL, NULL, NULL);
+                            NULL, NULL, NULL, NULL);
 		ASSERT_EQ(0, err);
 	}
-    
+
 	if (ac->dec_alloc){
 		err = ac->dec_alloc(&adsp, &mctxp, ac, NULL, &prm,
-                            NULL, NULL, NULL);
+				    NULL, NULL);
 		ASSERT_EQ(0, err);
 	}
-    
+
 	err = voe_get_mute(&muted);
 	ASSERT_EQ(err, 0);
 	ASSERT_EQ(muted, false);
 
 	err = voe_set_mute(true);
 	ASSERT_EQ(err, 0);
-    
+
 	err = voe_get_mute(&muted);
 	ASSERT_EQ(err, 0);
 	ASSERT_EQ(muted, true);
-    
+
 	mem_deref(aesp);
 	mem_deref(adsp);
 
@@ -171,137 +205,100 @@ TEST_F(Voe, unmute_after_call)
 }
 
 
-struct sync_state{
-	pthread_mutex_t mutex;
-	pthread_cond_t cond;
-	bool event;
-	uint8_t pt;
-	uint32_t ssrc;
-    uint16_t prev_seq;
-    int32_t seq_diff;
-    uint32_t prev_timestamp;
-    int64_t timestamp_diff;
-    uint8_t packet_buf[100];
-    int nbytes;
-    const struct aucodec *ac;
-    struct audec_state *adsp;
-};
-
-static void init_sync_state(struct sync_state* pss){
-    pthread_mutex_init(&pss->mutex,NULL);
-    pthread_cond_init(&pss->cond, NULL);
-    pss->event = false;
-    pss->prev_seq = 0;
-    pss->seq_diff = 0;
-    pss->prev_timestamp = 0;
-    pss->timestamp_diff = 0;
-    pss->nbytes = 0;
-}
-
-static void wait_for_event(struct sync_state* pss){
-	int ret = 0;
-	struct timeval now;
-	struct timespec t;
-	gettimeofday(&now, NULL);
-    
-	t.tv_sec = now.tv_sec + 30;
-	t.tv_nsec = 0;
-    
-	pthread_mutex_lock(&pss->mutex);
-	while(!pss->event){
-		ret = pthread_cond_timedwait(&pss->cond, &pss->mutex, &t);
-		if(ret){
-			break;
-		}
-	}
-	pthread_mutex_unlock(&pss->mutex);
-	ASSERT_EQ(0, ret);
-	pss->event = false;
-}
-
-static uint8_t read_uint8(const uint8_t *pkt){
-    return pkt[0];
-}
-
-static uint16_t read_uint16(const uint8_t *pkt){
-    uint16_t tmp = pkt[1] + (((uint16_t)pkt[0]) << 8);
-    return tmp;
-}
-
-static uint32_t read_uint32(const uint8_t *pkt){
-    uint32_t tmp = pkt[3] + (((uint32_t)pkt[2]) << 8);
-	tmp += ((uint32_t)pkt[1] << 16) + ((uint32_t)pkt[0] << 24);
-    return tmp;
-}
-
-static int send_rtp(const uint8_t *pkt, size_t len, void *arg){
-	struct sync_state* pss = (struct sync_state*)arg;
-    
-	pthread_mutex_lock(&pss->mutex);
-	pss->event = true;
-	pss->pt = read_uint8(&pkt[1]);
-    uint16_t seq = read_uint16(&pkt[2]);
-    uint32_t timestamp = read_uint32(&pkt[4]);
-    pss->ssrc = read_uint32(&pkt[8]);
-    pss->seq_diff = seq - pss->prev_seq;
-    if(pss->seq_diff < 0) {
-        pss->seq_diff += 0xffff;
-    }
-    pss->prev_seq = seq;
-    pss->timestamp_diff = timestamp - pss->prev_timestamp;
-    if(pss->timestamp_diff < 0) {
-        pss->timestamp_diff += 0xfffffff;
-    }
-    pss->prev_timestamp = timestamp;
-    memcpy(pss->packet_buf, pkt, len);
-    pss->nbytes = len;
-    
-	pthread_cond_signal(&pss->cond);
-	pthread_mutex_unlock(&pss->mutex);
-
-    return 0;
-}
-
-
-TEST(voe, enc_dec_alloc_start_stop)
+/* NOTE: called from a WebRTC thread */
+static int send_rtp_handler(const uint8_t *pkt, size_t len, void *arg)
 {
-	struct list aucodecl = LIST_INIT;
-	int err;
+	struct sync_state* pss = (struct sync_state*)arg;
+	struct mbuf *mb = mbuf_alloc(len);
+	struct rtp_header hdr;
+	bool complete = false;
+	int err = 0;
+
+	mbuf_write_mem(mb, pkt, len);
+	mb->pos = 0;
+
+	err = rtp_hdr_decode(&hdr, mb);
+	if (err)
+		goto out;
+
+	pthread_mutex_lock(&pss->mutex);
+
+	++pss->n_packet;
+
+	if (pss->n_packet <= EXPECTED_PACKETS) {
+
+		pss->pt = hdr.pt;
+		pss->ssrc = hdr.ssrc;
+		pss->seq_diff = hdr.seq - pss->prev_seq;
+		if (pss->seq_diff < 0) {
+			pss->seq_diff += 0xffff;
+		}
+		pss->prev_seq = hdr.seq;
+		pss->timestamp_diff = hdr.ts - pss->prev_timestamp;
+		if (pss->timestamp_diff < 0) {
+			pss->timestamp_diff += 0xfffffff;
+		}
+		pss->prev_timestamp = hdr.ts;
+		if(pss->prev_pktsize > 0){
+			int16_t diff = len - pss->prev_pktsize;
+			diff = std::abs(diff);
+			pss->max_pktsize_diff = std::max(pss->max_pktsize_diff, (uint16_t)diff);
+		}
+		pss->prev_pktsize = (uint16_t)len;
+	}
+	else {
+		info("ignore rtp packet\n");
+	}
+
+	if (pss->n_packet >= EXPECTED_PACKETS) {
+		complete = true;
+	}
+
+	pthread_mutex_unlock(&pss->mutex);
+
+	if (complete)
+		mqueue_push(pss->mq, 0, NULL);
+
+ out:
+	mem_deref(mb);
+
+	return err;
+}
+
+
+TEST_F(Voe, enc_dec_alloc_start_stop)
+{
 	struct auenc_state *aesp = NULL;
 	struct audec_state *adsp = NULL;
 	struct media_ctx *mctxp = NULL;
 	const struct aucodec *ac;
+	struct sync_state ss;
+	struct aucodec_param prm;
 	int pt = 96;
 	int srate = 48000;
-	webrtc::fake_audiodevice ad;
-	struct sync_state ss;
-    init_sync_state(&ss);
-	struct aucodec_param prm;
-    memset(&prm, 0, sizeof(prm));
-    prm.local_ssrc = 0x12345678;
+	int err;
+
+	init_sync_state(&ss);
+
+	memset(&prm, 0, sizeof(prm));
+	prm.local_ssrc = 0x12345678;
 	prm.pt = 96;
 	prm.srate = 48000;
 	prm.ch = 2;
 
-	err = voe_init(&aucodecl);
-	ASSERT_EQ(0, err);
-    
-	voe_register_adm((void*)&ad);
-    
 	ac = aucodec_find(&aucodecl, "opus", 48000, 2);
 	if (ac->enc_alloc){
 		err = ac->enc_alloc(&aesp, &mctxp, ac, NULL, &prm,
-							send_rtp, NULL, NULL, NULL, &ss);
+				    send_rtp_handler, NULL, NULL, &ss);
 		ASSERT_EQ(0, err);
 	}
-    
+
 	if (ac->dec_alloc){
 		err = ac->dec_alloc(&adsp, &mctxp, ac, NULL, &prm,
-							NULL, NULL, NULL);
+				    NULL, NULL);
 		ASSERT_EQ(0, err);
 	}
-    
-    
+
 	if (ac->enc_start){
 		ac->enc_start(aesp);
 	}
@@ -309,205 +306,93 @@ TEST(voe, enc_dec_alloc_start_stop)
 	if (ac->dec_start){
 		ac->dec_start(adsp);
 	}
-    
-	wait_for_event(&ss);
-    //ASSERT_EQ(pt, ss.pt); // for some reason the first packet has wrong pt ??
-    
-	wait_for_event(&ss);
+
+	err = re_main_wait(30000);
+	ASSERT_EQ(0, err);
+
+	ASSERT_GE(ss.n_packet, EXPECTED_PACKETS);
 	ASSERT_EQ(pt, ss.pt);
 	ASSERT_EQ(prm.local_ssrc, ss.ssrc);
 	ASSERT_EQ(1, ss.seq_diff);
 	ASSERT_EQ(960, ss.timestamp_diff);
-    
+
 	if (ac->enc_stop){
 		ac->enc_stop(aesp);
 	}
-    
+
 	if (ac->dec_stop){
 		ac->dec_stop(adsp);
 	}
-    
+
 	mem_deref(aesp);
 	mem_deref(adsp);
 
-	voe_deregister_adm();
-    
-	voe_close();
+	mem_deref(ss.mq);
 }
 
-TEST(voe, packet_size_40)
+
+TEST_F(Voe, packet_size_40)
 {
-    struct list aucodecl = LIST_INIT;
-    int err;
-    struct auenc_state *aesp = NULL;
-    struct audec_state *adsp = NULL;
-    struct media_ctx *mctxp = NULL;
-    const struct aucodec *ac;
-    int pt = 96;
-    int srate = 48000;
-    webrtc::fake_audiodevice ad;
-    struct sync_state ss;
-    init_sync_state(&ss);
-    struct aucodec_param prm;
-    memset(&prm, 0, sizeof(prm));
-    prm.local_ssrc = 0x12345678;
-    prm.pt = 96;
-    prm.srate = 48000;
-    prm.ch = 2;
-    
-    err = voe_init(&aucodecl);
-    ASSERT_EQ(0, err);
-    
-    voe_register_adm((void*)&ad);
-    
-    ac = aucodec_find(&aucodecl, "opus", 48000, 2);
-    if (ac->enc_alloc){
-        err = ac->enc_alloc(&aesp, &mctxp, ac, NULL, &prm,
-                            send_rtp, NULL, NULL, NULL, &ss);
-        ASSERT_EQ(0, err);
-    }
-    
-    if (ac->dec_alloc){
-        err = ac->dec_alloc(&adsp, &mctxp, ac, NULL, &prm,
-                            NULL, NULL, NULL);
-        ASSERT_EQ(0, err);
-    }
-    
-    if (ac->enc_start){
-        ac->enc_start(aesp);
-    }
-    
-    if (ac->dec_start){
-        ac->dec_start(adsp);
-    }
-    
-    voe_set_packet_size(40);
-    
-    wait_for_event(&ss);
-    //ASSERT_EQ(pt, ss.pt); // for some reason the first packet has wrong pt ??
-    
-    wait_for_event(&ss);
-    ASSERT_EQ(pt, ss.pt);
-    ASSERT_EQ(prm.local_ssrc, ss.ssrc);
-    ASSERT_EQ(1, ss.seq_diff);
-    ASSERT_EQ(2*960, ss.timestamp_diff);
-    
-    if (ac->enc_stop){
-        ac->enc_stop(aesp);
-    }
-    
-    if (ac->dec_stop){
-        ac->dec_stop(adsp);
-    }
-    
-    mem_deref(aesp);
-    mem_deref(adsp);
-    
-    voe_deregister_adm();
-    
-    voe_close();
-}
+	struct auenc_state *aesp = NULL;
+	struct audec_state *adsp = NULL;
+	struct media_ctx *mctxp = NULL;
+	const struct aucodec *ac;
+	int pt = 96;
+	int srate = 48000;
+	struct sync_state ss;
+	struct aucodec_param prm;
+	int err;
 
-#if 0
-static void mqueue_handler(int id, void *data, void *arg)
-{
-    struct sync_state *pss = (struct sync_state *)data;
-    (void)arg;
-    
-    printf("pss->nbytes = %d \n", pss->nbytes);
-    
-//if (ac && ac->dec_rtph) {
-//    ac->dec_rtph(adsp, ss.packet_buf, ss.nbytes);
-//}
-}
+	init_sync_state(&ss);
 
-TEST(voe, enc_dec_alloc_start_stop_interrupt)
-{
-    struct list aucodecl = LIST_INIT;
-    int err;
-    struct auenc_state *aesp = NULL;
-    struct audec_state *adsp = NULL;
-    struct media_ctx *mctxp = NULL;
-    const struct aucodec *ac;
-    int pt = 96;
-    int srate = 48000;
-    webrtc::fake_audiodevice ad(true);
-    struct sync_state ss;
-    init_sync_state(&ss);
-    struct aucodec_param prm;
-    memset(&prm, 0, sizeof(prm));
-    prm.local_ssrc = 0x12345678;
-    prm.pt = 96;
-    prm.srate = 48000;
-    prm.ch = 2;
-    
-    err = voe_init(&aucodecl);
-    ASSERT_EQ(0, err);
-    
-    err = re_thread_init();
-    
-    struct mqueue *mq;
-    err = mqueue_alloc(&mq, mqueue_handler, NULL);
-    if(err){
-        printf("Could not allocate mqueue \n");
-    }
-    
-    voe_register_adm((void*)&ad);
-    
-    ac = aucodec_find(&aucodecl, "opus", 48000, 2);
-    ss.ac = ac;
-    
-    if (ac->enc_alloc){
-        err = ac->enc_alloc(&aesp, &mctxp, ac, NULL, &prm,
-                            send_rtp, NULL, NULL, NULL, &ss);
-        ASSERT_EQ(0, err);
-    }
-    
-    if (ac->dec_alloc){
-        err = ac->dec_alloc(&adsp, &mctxp, ac, NULL, &prm,
-                            NULL, NULL, NULL);
-        ASSERT_EQ(0, err);
-    }
-    ss.adsp = adsp;
-    
-    if (ac->enc_start){
-        ac->enc_start(aesp);
-    }
-    
-    if (ac->dec_start){
-        ac->dec_start(adsp);
-    }
-    
-    wait_for_event(&ss);
-    
-    wait_for_event(&ss);
-    pthread_mutex_lock(&ss.mutex);
-    if (mqueue_push(mq, 0, (void*)&ss) != 0) {
-        error("mediamgr_set_sound_mode failed \n");
-    }
-    pthread_mutex_unlock(&ss.mutex);
-    
-    for(int i = 0; i < 200; i++){
-            wait_for_event(&ss);
-    }
-    
-    
-    //sleep(3);
-    
-    if (ac->enc_stop){
-        ac->enc_stop(aesp);
-    }
-    
-    if (ac->dec_stop){
-        ac->dec_stop(adsp);
-    }
-    
-    mem_deref(aesp);
-    mem_deref(adsp);
-    
-    voe_deregister_adm();
-    
-    voe_close();
-}
-#endif
+	memset(&prm, 0, sizeof(prm));
+	prm.local_ssrc = 0x12345678;
+	prm.pt = 96;
+	prm.srate = 48000;
+	prm.ch = 2;
 
+	ac = aucodec_find(&aucodecl, "opus", 48000, 2);
+	if (ac->enc_alloc){
+		err = ac->enc_alloc(&aesp, &mctxp, ac, NULL, &prm,
+				    send_rtp_handler, NULL, NULL, &ss);
+		ASSERT_EQ(0, err);
+	}
+
+	if (ac->dec_alloc){
+		err = ac->dec_alloc(&adsp, &mctxp, ac, NULL, &prm,
+				    NULL, NULL);
+		ASSERT_EQ(0, err);
+	}
+
+	if (ac->enc_start){
+		ac->enc_start(aesp);
+	}
+
+	if (ac->dec_start){
+		ac->dec_start(adsp);
+	}
+
+	voe_set_packet_size(40);
+
+	err = re_main_wait(30000);
+	ASSERT_EQ(0, err);
+
+	ASSERT_GE(ss.n_packet, EXPECTED_PACKETS);
+	ASSERT_EQ(pt, ss.pt);
+	ASSERT_EQ(prm.local_ssrc, ss.ssrc);
+	ASSERT_EQ(1, ss.seq_diff);
+	ASSERT_EQ(2*960, ss.timestamp_diff);
+
+	if (ac->enc_stop){
+		ac->enc_stop(aesp);
+	}
+
+	if (ac->dec_stop){
+		ac->dec_stop(adsp);
+	}
+
+	mem_deref(aesp);
+	mem_deref(adsp);
+
+	mem_deref(ss.mq);
+}

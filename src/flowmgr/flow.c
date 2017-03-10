@@ -26,7 +26,7 @@
 #include "avs.h"
 
 #include "avs_voe.h"
-#include "avs_voe_stats.h"
+#include "avs_mediastats.h"
 #include "avs_vie.h"
 
 #include "flowmgr.h"
@@ -92,7 +92,7 @@ static void delete_flow(struct flow *flow)
 
 static void release_mediaflow(struct flow *flow)
 {
-	msystem_cancel_volume();
+	flowmgr_cancel_volume();
 
 	if (flow_is_active(flow))
 		call_mestab(flow->call, false);
@@ -291,12 +291,22 @@ void flow_ice_resp(int status, struct rr_resp *rr,
 
 void flow_rtp_start(struct flow *flow, bool started, bool video_started)
 {
+	int err;
+
 	if (!flow)
 		return;
 
+	debug("flowmgr: rtp_start started=%d, video_started=%d\n",
+	      started, video_started);
+
 	if (started) {
 		flow->est_st |= FLOWMGR_ESTAB_RTP;
-		call_add_conf_part(flow->call, flow);
+		err = call_add_conf_part(flow->call, flow);
+		if (err) {
+			warning("flowmgr: flow_rtp_start: "
+				" call_add_conf_part failed for"
+				" flowid=%s (%m)\n", flow->flowid, err);
+		}
 	}	
 	else
 		flow->est_st &= ~FLOWMGR_ESTAB_RTP;
@@ -308,8 +318,6 @@ void flow_rtp_start(struct flow *flow, bool started, bool video_started)
 	flow_estabh(flow);
 	call_mestab_check(flow->call);
 }
-
-
 
 
 int flow_alloc(struct flow **flowp, struct call *call,
@@ -361,12 +369,6 @@ int flow_alloc(struct flow **flowp, struct call *call,
 
 	flow->ix = call_add_flow(call, flow->userflow, flow);
 
-/* CALLING2.0 This doesn't work with eager flows. We will end up sending
- * RTP packets on non-active flows. Wait for lazy flows for this
- */	
-#if CALLING2_0
-	flow_activate(flow, call->active);
-#endif
 	if (flow->ix < 0) {
 		err = ENOENT;
 
@@ -377,8 +379,8 @@ int flow_alloc(struct flow **flowp, struct call *call,
 		goto out;
 	}
 
-	list_append(msystem_flows(), &flow->le, flow);
-	msystem_start_volume();
+	list_append(flowmgr_flows(), &flow->le, flow);
+	flowmgr_start_volume();
 	
 	/* Flow is now owned by the dictionary */
 	mem_deref(flow);
@@ -392,6 +394,7 @@ int flow_alloc(struct flow **flowp, struct call *call,
 		userflow_set_state(uf, USERFLOW_STATE_OFFER);
 		userflow_generate_offer(uf);
 	}
+	flow->userflow_allocated = allocated;
 
  out:
 	if (err) {
@@ -588,7 +591,7 @@ int flow_activate(struct flow *flow, bool active)
 		}
 		userflow_set_flow(flow->userflow, flow);
 
-		if (flow->creator) {
+		if (flow->creator && flow->userflow_allocated) {
 			userflow_set_state(flow->userflow,
 					   USERFLOW_STATE_OFFER);
 			userflow_generate_offer(flow->userflow);
@@ -711,7 +714,7 @@ bool flow_debug_handler(char *key, void *val, void *arg)
 	if (flow->userflow) {
 		err |= re_hprintf(pf, "           name=\"%s\"\n",
 				  flow->userflow->name);
-		err |= re_hprintf(pf, "           mf=[%H]",
+		err |= re_hprintf(pf, "           mf=[%H] \n",
 				  mediaflow_debug,
 				  userflow_mediaflow(flow->userflow));
 	}
@@ -1036,17 +1039,24 @@ int flow_sdp_handler(struct flow *flow, struct json_object *jobj, bool replayed)
 			mediaflow_reset_media(mf);
 		}
 		else if (isoffer) {
-			info("flow_sdp_handler: SDP re-offer detected.\n");
+			info("flow_sdp_handler: SDP re-offer detected"
+			     " (flowid=%s).\n", flow->flowid);
 			flow_restart(flow);
 		}
 		else {
-			warning("flow_sdp_handler: SDP already complete");
+			warning("flow_sdp_handler: SDP already complete"
+				" (flowid=%s)\n", flow->flowid);
 			return 0;
 		}
 	}
 
 	if (isoffer) {
+
 		err = userflow_accept(flow->userflow, sdp);
+		if (err) {
+			warning("flowmgr: flow_sdp_handler: userflow_accept failed (%m)\n", err);
+		}
+
 		if (strm_chg) {
 			mediaflow_start_media(mf);
 		}

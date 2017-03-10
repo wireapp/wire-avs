@@ -12,6 +12,7 @@ extern "C" {
 #endif
 
 
+#include "re_pcp.h"
 #include "re_shim.h"
 #include "re_trice.h"
 

@@ -36,9 +36,13 @@ void frame_timeout_timer(void *arg)
 
 ViERenderer::ViERenderer()
 	: _state(VIE_RENDERER_STATE_STOPPED)
+	, _ts_last(0)
 {
 	lock_alloc(&_lock);
 	tmr_init(&_timer);
+
+	tmr_start(&_timer, VIE_RENDERER_TIMEOUT_LIMIT,
+		  frame_timeout_timer, this);
 }
 
 ViERenderer::~ViERenderer()
@@ -53,6 +57,9 @@ ViERenderer::~ViERenderer()
 	mem_deref(_lock);
 }
 
+/*
+ * this function is called from a non-MAIN thread
+ */
 void ViERenderer::OnFrame(const webrtc::VideoFrame& video_frame)
 {
 	struct avs_vidframe avs_frame;
@@ -67,8 +74,9 @@ void ViERenderer::OnFrame(const webrtc::VideoFrame& video_frame)
 		_state = VIE_RENDERER_STATE_RUNNING;
 	}
 
-	tmr_cancel(&_timer);
-	tmr_start(&_timer, VIE_RENDERER_TIMEOUT_LIMIT, frame_timeout_timer, this);
+	/* Save the time when the last frame was received */
+	_ts_last = tmr_jiffies();
+
 	lock_rel(_lock);
 
 
@@ -114,9 +122,26 @@ void ViERenderer::OnFrame(const webrtc::VideoFrame& video_frame)
 
 void ViERenderer::ReportTimeout()
 {
+	bool timeout = false;
+
+	tmr_start(&_timer, VIE_RENDERER_TIMEOUT_LIMIT,
+		  frame_timeout_timer, this);
+
 	lock_read_get(_lock);
 
-	if (_state == VIE_RENDERER_STATE_RUNNING)
+	if (_ts_last) {
+		const uint64_t now = tmr_jiffies();
+		int delta = now - _ts_last;
+
+		if (delta > VIE_RENDERER_TIMEOUT_LIMIT)
+			timeout = true;
+
+		info("vie: time since last rendered frame: %d ms"
+		      " (timeout=%d)\n",
+		      delta, timeout);
+	}
+
+	if (timeout && _state == VIE_RENDERER_STATE_RUNNING)
 	{
 		if (vid_eng.state_change_h) {
 			vid_eng.state_change_h(FLOWMGR_VIDEO_RECEIVE_STOPPED,

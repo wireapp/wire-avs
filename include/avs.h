@@ -18,6 +18,15 @@
 #ifndef AVS_H__
 #define AVS_H__
 
+#ifdef __APPLE__
+#define AVS_EXPORT __attribute__((visibility("default")))
+#else
+#ifdef ANDROID
+#define AVS_EXPORT __attribute__((visibility("default")))
+#else
+#define AVS_EXPORT
+#endif
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,6 +41,7 @@ extern "C" {
 #include "avs_log.h"
 #include "avs_aucodec.h"
 #include "avs_media.h"
+#include "avs_msystem.h"
 #include "avs_nevent.h"
 #include "avs_packetqueue.h"
 #include "avs_store.h"
@@ -48,13 +58,20 @@ extern "C" {
 #include "avs_mill.h"
 #include "avs_engine.h"
 #include "avs_netprobe.h"
+#include "avs_network.h"
 #include "avs_audummy.h"
+#include "avs_econn.h"
+#include "avs_econn_fmt.h"
+#include "avs_ecall.h"
 
 #include "avs_mediamgr.h"
 
 #include "avs_voe.h"    
+#include "avs_version.h"
     
 #include "avs_audio_effect.h"
+    
+#include "avs_dce.h"
     
 #ifdef __cplusplus
 }

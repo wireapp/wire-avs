@@ -18,11 +18,13 @@
 
 #include <re/re.h>
 #include "avs.h"
+#include "avs_wcall.h"
 #include "flowmgr.h"
 
 
 
-#define DEFAULT_EXPIRY  7200  /* 2 hours */
+#define EXPIRY_MIN   300  /* in seconds (5 minutes)  */
+#define EXPIRY_MAX  3600  /* in seconds (60 minutes) */
 
 
 static int do_request(struct flowmgr *fm);
@@ -43,6 +45,7 @@ static void call_config_resp_handler(int status, struct rr_resp *rr,
 	struct flowmgr *fm = arg;
 	struct json_object *jices;
 	struct call_config *config = &fm->config.cfg;
+	uint32_t ttl = 0;
 	size_t srvc;
 	int err = 0;
 
@@ -58,6 +61,14 @@ static void call_config_resp_handler(int status, struct rr_resp *rr,
 #if 0
 	jzon_dump(jobj);
 #endif
+
+	jzon_u32(&ttl, jobj, "ttl");
+
+	info("flowmgr: config: got ttl of %u seconds\n", ttl);
+
+	/* apply lower and upper limits */
+	ttl = min(ttl, EXPIRY_MAX);
+	ttl = max(ttl, EXPIRY_MIN);
 
 	if (0 == jzon_array(&jices, jobj, "ice_servers")) {
 
@@ -82,6 +93,45 @@ static void call_config_resp_handler(int status, struct rr_resp *rr,
 	config->early_dtls = false;
 	jzon_bool(&config->early_dtls, jobj, "early_dtls");
 
+	/* Features config */
+	{
+		struct json_object *jfeat;
+
+		config->features.ver_one_to_one = 2.0;
+		config->features.ver_multiparty = 2.0;		
+		
+		err = jzon_object(&jfeat, jobj, "features");
+		if (err) {
+			info("config: could not find features\n");
+			err = 0;
+		}
+		else {
+			const char *val;
+			val = jzon_str(jfeat, "protocol_version_1to1");
+			if (val) {
+				config->features.ver_one_to_one =
+					strtod(val, NULL);
+			}
+			else {
+				warning("config: protocol_version_1to1 "
+					"failed %m\n", err);
+			}
+			val = jzon_str(jfeat, "protocol_version_group");
+			if (val) {
+				config->features.ver_multiparty =
+					strtod(val, NULL);
+			}
+			else {
+				warning("config: protocol_version_group "
+					"failed %m\n", err);
+			}
+			
+		}
+
+		info("flowmgr: config: protocol_1to1: %f protocol_group: %f\n",
+		     (float)config->features.ver_one_to_one,
+		     (float)config->features.ver_multiparty);
+	}
  out:
         fm->config.rr = NULL;
 
@@ -91,7 +141,7 @@ static void call_config_resp_handler(int status, struct rr_resp *rr,
 			  tmr_handler, fm);
 	}
 	else {
-		tmr_start(&fm->config.tmr, DEFAULT_EXPIRY * 9/10 * 1000,
+		tmr_start(&fm->config.tmr, ttl * 9/10 * 1000,
 			  tmr_handler, fm);
 	}
 

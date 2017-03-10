@@ -34,8 +34,9 @@
 #include <pthread.h>
 
 #define FRAME_LEN_MS 10
-#define FS_KHZ 16
-#define FRAME_LEN (FRAME_LEN_MS*FS_KHZ)
+
+#define MAX_FS_REC_HZ                   48000
+#define MAX_FS_PLAY_HZ                  48000
 
 #define FS_REC_HZ                       16000
 #define FS_PLAY_HZ                      16000
@@ -43,8 +44,8 @@
 #define REC_CHANNELS                    1
 #define PLAY_CHANNELS                   2
 
-#define REC_BUF_SIZE_IN_SAMPLES         (FS_REC_HZ / 100)
-#define PLAY_BUF_SIZE_IN_SAMPLES        (FS_PLAY_HZ / 100)
+#define REC_BUF_SIZE_IN_SAMPLES         (MAX_FS_REC_HZ / 100)
+#define PLAY_BUF_SIZE_IN_SAMPLES        (MAX_FS_PLAY_HZ / 100)
 
 #define REC_BUFFERS                     20
 
@@ -63,7 +64,7 @@ namespace webrtc {
         int32_t InitSpeaker() { return 0; }
         int32_t SetPlayoutDevice(uint16_t index) { return -1; }
         int32_t SetPlayoutDevice(WindowsDeviceType device) { return -1; }
-        int32_t SetStereoPlayout(bool enable) { return 0; }
+        int32_t SetStereoPlayout(bool enable);
         int32_t StopPlayout();
         int32_t InitMicrophone() { return 0; }
         int32_t SetRecordingDevice(uint16_t index) { return -1; }
@@ -174,7 +175,7 @@ namespace webrtc {
         int32_t ResetAudioDevice();
         int32_t SetLoudspeakerStatus(bool enable) { return 0; }
         int32_t GetLoudspeakerStatus(bool* enabled) const { return 0; }
-        bool BuiltInAECIsAvailable() const { return false; }
+        bool BuiltInAECIsAvailable() const;
         int32_t EnableBuiltInAEC(bool enable) { return -1; }
         bool BuiltInAECIsEnabled() const { return false; }
         
@@ -263,5 +264,10 @@ namespace webrtc {
         
         int32_t tot_rec_delivered_;
         int32_t num_capture_worker_calls_;
+        
+        int dig_mic_gain_;
+        
+        bool want_stereo_playout_;
+        bool using_stereo_playout_;
     };
 }

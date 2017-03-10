@@ -68,7 +68,10 @@ namespace webrtc {
         num_capture_worker_calls_(0),
         tot_rec_delivered_(0),
         is_running_(false),
-        rec_tid_(0){
+        rec_tid_(0),
+        dig_mic_gain_(0),
+        want_stereo_playout_(false),
+        using_stereo_playout_(false){
             memset(play_buffer_, 0, sizeof(play_buffer_));
             memset(rec_buffer_, 0, sizeof(rec_buffer_));
             memset(rec_length_, 0, sizeof(rec_length_));
@@ -133,8 +136,6 @@ namespace webrtc {
                     error("audio_io_ios: Failed to set thread priority \n");
                 }
             }
-            
-            is_running_ = true;
         } else {
             warning("audio_io_ios: Thread already created \n");
         }
@@ -351,6 +352,21 @@ namespace webrtc {
         return 0;
     }
     
+    int32_t audio_io_ios::SetStereoPlayout(bool enable) {
+        info("audio_io_ios: SetStereoPlayout to %d: \n", enable);
+        
+        if(want_stereo_playout_ != enable){
+            want_stereo_playout_ = enable;
+            ResetAudioDevice();
+        }
+        
+        return 0;
+    }
+    
+    bool audio_io_ios::BuiltInAECIsAvailable() const {
+        return !using_stereo_playout_;
+    }
+    
     int32_t audio_io_ios::PlayoutDeviceName(uint16_t index,
                                               char name[kAdmMaxDeviceNameSize],
                                               char guid[kAdmMaxGuidSize]) {
@@ -389,9 +405,21 @@ namespace webrtc {
         NSArray *outputs = [[AVAudioSession sharedInstance] currentRoute].outputs;
         AVAudioSessionPortDescription *outPortDesc = [outputs objectAtIndex:0];
         if ([outPortDesc.portType isEqualToString:AVAudioSessionPortHeadphones]){
-            use_stereo_playout = true;
+            use_stereo_playout = want_stereo_playout_;
+            info("audio_io_ios: A Headset is plugged in \n");
         }
 #endif
+        using_stereo_playout_ = use_stereo_playout;
+      
+        info("audio_io_ios: want_stereo_playout_ = %d use_stereo_playout = %d \n",
+             want_stereo_playout_, use_stereo_playout);
+        
+        NSString *cat = [AVAudioSession sharedInstance].category;
+        if (cat != AVAudioSessionCategoryPlayAndRecord){
+            error("audio_io_ios: catagory not AVAudioSessionCategoryPlayAndRecord \n");
+        } else {
+            info("audio_io_ios: catagory okay AVAudioSessionCategoryPlayAndRecord \n");
+        }
         
         // Create Voice Processing Audio Unit
         AudioComponentDescription desc;
@@ -400,10 +428,12 @@ namespace webrtc {
         desc.componentType = kAudioUnitType_Output;
         if(use_stereo_playout){
             desc.componentSubType = kAudioUnitSubType_RemoteIO;
-            info("A Headset is plugged in use kAudioUnitSubType_RemoteIO !! \n");
+            info("audio_io_ios: Use kAudioUnitSubType_RemoteIO !! \n");
+            dig_mic_gain_ = 3;
         } else {
             desc.componentSubType = kAudioUnitSubType_VoiceProcessingIO;
-            info("No Headset is plugged in use kAudioUnitSubType_VoiceProcessingIO !! \n");
+            info("audio_io_ios: Use kAudioUnitSubType_VoiceProcessingIO !! \n");
+            dig_mic_gain_ = 0;
         }
         desc.componentManufacturer = kAudioUnitManufacturer_Apple;
         desc.componentFlags = 0;
@@ -494,25 +524,13 @@ namespace webrtc {
             error("audio_io_ios: Failed to get AU output stream format: %d \n", result);
         }
         
-        playoutDesc.mSampleRate = preferredSampleRate;
-        info("audio_io_ios: Audio Unit playout opened in sampling rate: \n", playoutDesc.mSampleRate);
+        // Get hardware sample rate for logging (see if we get what we asked for).
+        Float64 sampleRate = session.sampleRate;
+        info("audio_io_ios: Current HW sample rate is: %f wanted %f \n", sampleRate, preferredSampleRate);
         
-        if ((playoutDesc.mSampleRate > 47990.0) &&
-            (playoutDesc.mSampleRate < 48010.0)) {
-            rec_fs_hz_ = 48000;
-        } else if ((playoutDesc.mSampleRate > 44090.0) &&
-                   (playoutDesc.mSampleRate < 44110.0)) {
-            rec_fs_hz_ = 44100;
-        } else if ((playoutDesc.mSampleRate > 15990.0) &&
-                   (playoutDesc.mSampleRate < 16010.0)) {
-            rec_fs_hz_ = 16000;
-        } else if ((playoutDesc.mSampleRate > 7990.0) &&
-                   (playoutDesc.mSampleRate < 8010.0)) {
-            rec_fs_hz_ = 8000;
-        } else {
-            rec_fs_hz_ = 0;
-            error("audio_io_ios: Invalid sample rate \n");
-        }
+        playoutDesc.mSampleRate = (Float64)sampleRate;
+        
+        rec_fs_hz_ = (uint32_t)sampleRate;
         play_fs_hz_ = rec_fs_hz_;
         
         // Set stream format for out/0.
@@ -545,8 +563,7 @@ namespace webrtc {
             error("audio_io_ios: Failed to get AU stream format for in/1 \n");
         }
         
-        recordingDesc.mSampleRate = preferredSampleRate;
-        info("audio_io_ios: Audio Unit recording opened in sampling rate: %d \n", recordingDesc.mSampleRate);
+        recordingDesc.mSampleRate = (Float64)sampleRate;
         
         // Set stream format for out/1 (use same sampling frequency as for in/1).
         recordingDesc.mFormatFlags = kLinearPCMFormatFlagIsSignedInteger |
@@ -567,12 +584,8 @@ namespace webrtc {
         // Initialize here already to be able to get/set stream properties.
         result = AudioUnitInitialize(au_);
         if (0 != result) {
-            error("audio_io_ios: AudioUnitInitialize failed: \n");
+            error("audio_io_ios: AudioUnitInitialize failed: %d \n", result);
         }
-        
-        // Get hardware sample rate for logging (see if we get what we asked for).
-        double sampleRate = session.sampleRate;
-        info("audio_io_ios: Current HW sample rate is: %f output sampling rate %d \n", sampleRate, rec_fs_hz_);
         
         return 0;
     }
@@ -701,7 +714,7 @@ namespace webrtc {
     void audio_io_ios::update_rec_delay() {
         const uint32_t noSamp10ms = rec_fs_hz_ / 100;
         if (rec_buffer_total_size_ > noSamp10ms) {
-            rec_delay_ += (rec_buffer_total_size_ - noSamp10ms) / (rec_fs_hz_ / 1000);
+            rec_delay_ = (rec_buffer_total_size_ - noSamp10ms) / (rec_fs_hz_ / 1000);
         }
     }
 
@@ -768,8 +781,14 @@ namespace webrtc {
                     unsigned int roomInBuffer = noSamp10ms - currentRecLen;
                     nCopy = (dataToCopy < roomInBuffer ? dataToCopy : roomInBuffer);
                     
-                    memcpy(&rec_buffer_[insertPos][currentRecLen], &dataTmp[dataPos],
-                           nCopy * sizeof(int16_t));
+                    if(dig_mic_gain_ > 0){
+                        for(int i = 0; i < nCopy; i++){
+                            rec_buffer_[insertPos][currentRecLen + i] = dataTmp[dataPos + i] << dig_mic_gain_;
+                        }
+                    } else {
+                        memcpy(&rec_buffer_[insertPos][currentRecLen], &dataTmp[dataPos],
+                               nCopy * sizeof(int16_t));
+                    }
                     if (0 == currentRecLen) {
                         rec_seq_[insertPos] = rec_current_seq_;
                         ++rec_current_seq_;
@@ -790,7 +809,7 @@ namespace webrtc {
     }
     
     void* audio_io_ios::record_thread(){
-        int16_t audio_buf[FRAME_LEN] = {0};
+        int16_t audio_buf[MAX_FS_REC_HZ*FRAME_LEN_MS] = {0};
         uint32_t currentMicLevel = 10;
         uint32_t newMicLevel = 0;
         
@@ -810,7 +829,7 @@ namespace webrtc {
             int bufPos = 0;
             unsigned int lowestSeq = 0;
             int lowestSeqBufPos = 0;
-            bool foundBuf = true;
+            bool foundBuf = is_recording_;
             const unsigned int noSamp10ms = rec_fs_hz_ / 100;
             
             while (foundBuf) {
@@ -846,13 +865,13 @@ namespace webrtc {
                     rec_length_[lowestSeqBufPos] = 0;
                 }
             }
-            if( tot_rec_delivered_ >= rec_fs_hz_){
+            if( rec_fs_hz_ > 0 && tot_rec_delivered_ >= rec_fs_hz_){
                 // every second check how many
                 #define THRES_MAX_CALLS_PER_MS_Q10 154 // 150/sec
                 int32_t thres = ((int32_t)((1000*tot_rec_delivered_)/rec_fs_hz_) * THRES_MAX_CALLS_PER_MS_Q10) >> 10;
                 if(num_capture_worker_calls_ > thres){
-                    error("audio_io_ios: %d captureworker calls in %d ms resetting audio device \n",
-                          num_capture_worker_calls_, tot_rec_delivered_);
+                    error("audio_io_ios: %d captureworker calls in %d s resetting audio device \n",
+                          num_capture_worker_calls_, tot_rec_delivered_/rec_fs_hz_);
                     ResetAudioDevice(); // Need mutexes as this comes from another thread than everything else
                 }
                 tot_rec_delivered_ = 0;

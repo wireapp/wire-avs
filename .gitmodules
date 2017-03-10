@@ -9,10 +9,7 @@
 	url = https://github.com/wireapp/cryptobox-c.git
 [submodule "contrib/opus"]
 	path = contrib/opus
-	url = https://git.xiph.org/opus.git
-[submodule "contrib/ogg"]
-	path = contrib/ogg
-	url = https://git.xiph.org/ogg.git
+	url = https://github.com/xiph/opus.git
 [submodule "contrib/libvpx"]
 	path = contrib/libvpx
 	url = https://chromium.googlesource.com/webm/libvpx
@@ -25,3 +22,12 @@
 [submodule "contrib/openssl"]
 	path = contrib/openssl
 	url = https://github.com/openssl/openssl
+[submodule "contrib/usrsctp"]
+	path = contrib/usrsctp
+	url = git@github.com:sctplab/usrsctp.git
+[submodule "contrib/rem"]
+	path = contrib/rem
+	url = https://github.com/creytiv/rem.git
+[submodule "contrib/rew"]
+	path = contrib/rew
+	url = https://github.com/alfredh/rew.git

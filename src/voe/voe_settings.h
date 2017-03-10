@@ -23,6 +23,7 @@
 #endif
 
 #define FORCE_AUDIO_RTP_RECORDING 0
+#define FORCE_AUDIO_PREPROC_RECORDING 0
 
 /* ---  Opus settings --- */
 #define ZETA_USE_INBAND_FEC              true
@@ -47,19 +48,19 @@
     #define ZETA_USE_AGC_EARPIECE            true
     #define ZETA_USE_AGC_SPEAKER             true
     #define ZETA_USE_AGC_HEADSET             true
-    #define ZETA_AGC_MODE_EARPIECE           webrtc::kAgcAdaptiveDigital
-    #define ZETA_AGC_MODE_EARPIECE_CONF      webrtc::kAgcAdaptiveDigital
+    #define ZETA_AGC_MODE_EARPIECE           webrtc::kAgcFixedDigital
+    #define ZETA_AGC_MODE_EARPIECE_CONF      webrtc::kAgcFixedDigital
 /* In Speaker mode we dont use Adaptive AGC - risk of adapting to background noise / speakers */
     #define ZETA_AGC_MODE_SPEAKER            webrtc::kAgcFixedDigital
     #define ZETA_AGC_MODE_SPEAKER_CONF       webrtc::kAgcFixedDigital
-    #define ZETA_AGC_MODE_HEADSET            webrtc::kAgcAdaptiveDigital
-    #define ZETA_AGC_MODE_HEADSET_CONF       webrtc::kAgcAdaptiveDigital
+    #define ZETA_AGC_MODE_HEADSET            webrtc::kAgcFixedDigital
+    #define ZETA_AGC_MODE_HEADSET_CONF       webrtc::kAgcFixedDigital
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_EARPIECE          9
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_EARPIECE_CONF     9
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_SPEAKER           9
     #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_SPEAKER_CONF      9
-    #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_HEADSET           18
-    #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_HEADSET_CONF      18
+    #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_HEADSET           9
+    #define ZETA_AGC_DIG_COMPRESS_GAIN_DB_HEADSET_CONF      9
 #elif defined(ANDROID)
     #define ZETA_USE_EXTERNAL_AUDIO_DEVICE      0
     #define ZETA_USE_AGC_EARPIECE            true
@@ -103,6 +104,7 @@
     #define ZETA_USE_AEC_EARPIECE            false
     #define ZETA_USE_AEC_SPEAKER             false
 #ifdef ZETA_IOS_STEREO_PLAYOUT
+    #define ZETA_USE_BUILD_IN_AEC_HEADSET
     #define ZETA_USE_AEC_HEADSET             true
 #else
     #define ZETA_USE_AEC_HEADSET             false
@@ -116,6 +118,9 @@
     #define ZETA_AECM_MODE_SPEAKER           webrtc::kAecmLoudSpeakerphone
     #define ZETA_AECM_MODE_HEADSET           webrtc::kAecmQuietEarpieceOrHeadset
 #elif defined(ANDROID)
+    #define ZETA_USE_BUILD_IN_AEC_EARPIECE
+    #define ZETA_USE_BUILD_IN_AEC_SPEAKER
+    #define ZETA_USE_BUILD_IN_AEC_HEADSET
     #define ZETA_USE_AEC_EARPIECE            true
     #define ZETA_USE_AEC_SPEAKER             true
     #define ZETA_USE_AEC_HEADSET             true

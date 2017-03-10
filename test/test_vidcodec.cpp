@@ -24,6 +24,7 @@ TEST(vidcodec, good)
 {
 	struct list vidcodecl = LIST_INIT;
 	static struct vidcodec vc_good = {
+		.le = LE_INIT,
 		.pt = "100",
 		.name = "VP8",
 	};
@@ -33,18 +34,4 @@ TEST(vidcodec, good)
 	ASSERT_EQ(1, list_count(&vidcodecl));
 
 	vidcodec_unregister(&vc_good);
-}
-
-
-TEST(vidcodec, bad)
-{
-	struct list vidcodecl = LIST_INIT;
-	static struct vidcodec vc_bad = {
-		.pt = "96",    /* PT reserved for Audio */
-		.name = "VP8",
-	};
-
-	vidcodec_register(&vidcodecl, &vc_bad);
-
-	ASSERT_EQ(0, list_count(&vidcodecl));
 }

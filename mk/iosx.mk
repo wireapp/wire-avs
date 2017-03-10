@@ -121,7 +121,9 @@ endif
 $(IOSX_M_OBJS): $(IOSX_OBJ_PATH)/%.o: iosx/src/%.m
 	@echo "  OC   $(AVS_OS)-$(AVS_ARCH) iosx/src/$*.m"
 	@mkdir -p $(dir $@)
-	@$(CC)  $(CPPFLAGS) $(CFLAGS) $(OCPPFLAGS) \
+	$(CC)  -fobjc-arc -fmodules \
+		-Xclang -fmodule-implementation-of -Xclang avs \
+		$(CPPFLAGS) $(CFLAGS) $(OCPPFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CFLAGS) $(AVS_OPPCFLAGS) \
 		$(IOSX_CPPFLAGS) $(IOSX_CFLAGS) $(IOSX_OCPPFLAGS) \
 		-c $< -o $@ $(DFLAGS)
@@ -129,7 +131,7 @@ $(IOSX_M_OBJS): $(IOSX_OBJ_PATH)/%.o: iosx/src/%.m
 $(IOSX_MM_OBJS): $(IOSX_OBJ_PATH)/%.o: iosx/src/%.mm
 	@echo "  OCXX $(AVS_OS)-$(AVS_ARCH) iosx/src/$*.mm"
 	@mkdir -p $(dir $@)
-	@$(CXX)  $(CPPFLAGS) $(CXXFLAGS) $(OCPPFLAGS) \
+	@$(CXX) -fvisibility=default $(CPPFLAGS) $(CXXFLAGS) $(OCPPFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) $(AVS_OPPCFLAGS) \
 		$(IOSX_CPPFLAGS) $(IOSX_CXXFLAGS) $(IOSX_OCPPFLAGS) \
 		-c $< -o $@ $(DFLAGS)
@@ -149,11 +151,23 @@ $(IOSX_FULL_STATIC): $(IOSX_LIB_STATIC) $(AVS_STATIC) $(MENG_STATIC) \
 	libtool -static -v -o $@ $^
 
 $(IOSX_FULL_SHARED): $(IOSX_LIB_OBJS) $(AVS_STATIC) $(MENG_STATIC)
+	@echo "  LD      $@"
+	@mkdir -p $(dir $@)
+	@mkdir -p $(BUILD_LIB)/avs.framework
+	$(LD)	-install_name @rpath/avs.framework/avs \
+		-Xlinker -rpath -Xlinker @executable_path/Frameworks \
+		-Xlinker -rpath -Xlinker @loader_path/Frameworks \
+		-Xlinker -no_implicit_dylibs \
+		-single_module \
+		$(SH_LFLAGS) $(LFLAGS) $(IOSX_LFLAGS) \
+		$^ $(SH_LIBS) $(LIBS) $(AVS_LIBS) $(MENG_LIBS) $(IOSX_LIBS) \
+		-o $(BUILD_LIB)/avs.framework/avs
+
 $(IOSX_STUB_SHARED): $(IOSX_STUB_OBJS) $(AVS_STATIC)
-$(IOSX_SHARED):
 	@echo "  LD      $@"
 	@mkdir -p $(dir $@)
 	$(LD)   $(SH_LFLAGS) $(LFLAGS) $(IOSX_LFLAGS) \
+		-ObjC \
 		$^ $(SH_LIBS) $(LIBS) $(AVS_LIBS) $(MENG_LIBS) $(IOSX_LIBS) \
 		-o $@
 

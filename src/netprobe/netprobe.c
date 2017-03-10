@@ -288,7 +288,7 @@ int netprobe_alloc(struct netprobe **npb, const struct sa *turn_srv,
 	err = turnconn_alloc(&np->turnc, NULL,
 			     turn_srv, proto, secure,
 			     turn_username, turn_password,
-			     np->us_rx,
+			     AF_INET, np->us_rx,
 			     0, 0,
 			     turnconn_estab_handler, turnconn_data_handler,
 			     turnconn_error_handler, np);

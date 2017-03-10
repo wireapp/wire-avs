@@ -32,6 +32,7 @@
 #define DEBUG_LEVEL 7
 #include <re/re_dbg.h>
 #include <avs.h>
+#include <avs_wcall.h>
 
 #include <avs_vie.h>
 
@@ -45,6 +46,7 @@
 #include "com_waz_call_FlowManager.h"
 #include "com_waz_avs_VideoCapturer.h"
 #include "com_waz_avs_VideoRenderer.h"
+#include "com_waz_audioeffect_AudioEffect.h"
 
 #include "video_renderer.h"
 
@@ -66,7 +68,6 @@ static struct {
 	jmethodID confposmid;	
         jmethodID uvmid;
 	jmethodID nqmid;
-	jmethodID vmpsh;
 
 	/* video: */
 	jmethodID csmid;
@@ -99,7 +100,6 @@ static struct {
 	.mestabmid = NULL,
 	.confposmid = NULL,
 	.nqmid = NULL,
-	.vmpsh = NULL,
 
 	/* video */
 	.csmid = NULL,
@@ -212,7 +212,7 @@ static void jni_log_handler(uint32_t lve, const char *msg)
 			do {
 				nbytes = min(slen, LOG_MAX);
 				memcpy(split, msg + pos, nbytes);
-				split[nbytes] = '\n';
+				split[nbytes] = '\0';
 				__android_log_write(alp, "avs", split);
 				slen -= nbytes;
 				pos += nbytes;
@@ -401,6 +401,10 @@ void *flowmgr_thread(void *arg)
 #else
 	pthread_setname_np(THREAD_NAME);
 #endif
+	/* Force the loading of wcall symbols! 
+	 * Can't this be done with a linker directive?
+	 */
+	wcall_set_ice_servers(NULL, 0);
 
 	err = libre_init();
 	if (err) {
@@ -416,9 +420,9 @@ void *flowmgr_thread(void *arg)
 	}
 
 #ifdef ANDROID
-	err = flowmgr_init("voe", NULL, CERT_TYPE_ECDSA);
+	err = flowmgr_init("voe", NULL, TLS_KEYTYPE_EC);
 #else
-	err = flowmgr_init("audummy", NULL, CERT_TYPE_ECDSA);
+	err = flowmgr_init("audummy", NULL, TLS_KEYTYPE_EC);
 #endif
 	if (err) {
 		warning("flowmgr_thread: flowmgr_init failed (%m)\n", err);
@@ -545,10 +549,6 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 				      "Ljava/lang/String;"
 				      "F)V");
 
-    java.vmpsh = env->GetMethodID(cls, "vmStatushandler",
-                      "(I"
-                      "I"
-                      "I)V");
 #if 0 // XXX Don't try to get this method until its implemented
 	java.nqmid = env->GetMethodID(cls, "networkQuality",
 				      "ILjava/lang/String;F)V");
@@ -869,14 +869,7 @@ static void vm_play_status_handler(bool is_playing, unsigned int cur_time_ms, un
         warning("vm_play_status_handler: cannot attach JNI: %m\n", err);
         goto out;
     }
-    
-    if (java.vmpsh) {
-        jni_re_leave();
-        je.env->CallVoidMethod(jfm->self, java.vmpsh,
-                               (int)is_playing, (int)cur_time_ms, (int)file_length_ms);
-        jni_re_enter();
-    }
-    
+        
 out:
     jni_detach(&je);
 }
@@ -1689,98 +1682,6 @@ JNIEXPORT jobjectArray JNICALL Java_com_waz_call_FlowManager_getVideoCaptureDevi
 
 #endif
 
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmStartRecord
-(JNIEnv *env, jobject self, jstring jfile_name)
-{
-    struct jfm *jfm = self2fm(env, self);
-    const char *file_name = env->GetStringUTFChars(jfile_name, 0);
-    
-    FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_vm_start_record,
-                         jfm->fm, file_name);
-
-    if (file_name)
-	    env->ReleaseStringUTFChars(jfile_name, file_name);
-}
-
-
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmStopRecord
-(JNIEnv *env, jobject self)
-{
-    struct jfm *jfm = self2fm(env, self);
-    
-    FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_vm_stop_record,
-                         jfm->fm);
-}
-
-JNIEXPORT int JNICALL Java_com_waz_call_FlowManager_vmGetLength
-(JNIEnv *env, jobject self, jstring jfile_name)
-{
-    struct jfm *jfm = self2fm(env, self);
-    const char *file_name = env->GetStringUTFChars(jfile_name, 0);
-    int length_ms;
-    
-    int ret = flowmgr_vm_get_length(jfm->fm, file_name, &length_ms);
-
-    if (file_name)
-	    env->ReleaseStringUTFChars(jfile_name, file_name);    
-
-    if(ret < 0){
-        return ret;
-    } else {
-        return length_ms;
-    }
-}
-
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmStartPlay
-(JNIEnv *env, jobject self, jstring jfile_name, int startpos)
-{
-    struct jfm *jfm = self2fm(env, self);
-    const char *file_name = env->GetStringUTFChars(jfile_name, 0);
-    
-    FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_vm_start_play,
-                         jfm->fm, file_name, startpos,  vm_play_status_handler, jfm);
-
-    if (file_name)
-	    env->ReleaseStringUTFChars(jfile_name, file_name);        
-}
-
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmStopPlay
-(JNIEnv *env, jobject self)
-{
-    struct jfm *jfm = self2fm(env, self);
-    
-    FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_vm_stop_play,
-                         jfm->fm);
-}
-
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmApplyChorus
-(JNIEnv *env, jobject self, jstring jfile_name_in,  jstring jfile_name_out)
-{
-    const char *file_name_in = env->GetStringUTFChars(jfile_name_in, 0);
-    const char *file_name_out = env->GetStringUTFChars(jfile_name_out, 0);
-    
-    int err =  voe_vm_apply_effect(file_name_in, file_name_out, AUDIO_EFFECT_CHORUS);
-    
-    if (file_name_in)
-        env->ReleaseStringUTFChars(jfile_name_in, file_name_in);
-    if (file_name_out)
-        env->ReleaseStringUTFChars(jfile_name_out, file_name_out);
-}
-
-JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_vmApplyReverb
-(JNIEnv *env, jobject self, jstring jfile_name_in,  jstring jfile_name_out)
-{
-    const char *file_name_in = env->GetStringUTFChars(jfile_name_in, 0);
-    const char *file_name_out = env->GetStringUTFChars(jfile_name_out, 0);
-    
-    int err =  voe_vm_apply_effect(file_name_in, file_name_out, AUDIO_EFFECT_REVERB);
-    
-    if (file_name_in)
-        env->ReleaseStringUTFChars(jfile_name_in, file_name_in);
-    if (file_name_out)
-        env->ReleaseStringUTFChars(jfile_name_out, file_name_out);
-}
-
 static int vie_jni_get_view_size_handler(const void *view, int *w, int *h)
 {
 	jobject jview = (jobject)view;
@@ -1928,4 +1829,79 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setFilePath
     
     if (file_path)
         env->ReleaseStringUTFChars(jpath, file_path);
+}
+
+JNIEXPORT jint JNICALL Java_com_waz_call_FlowManager_setAudioEffect
+(JNIEnv *env, jobject self, jint effect)
+{
+    struct jfm *jfm = self2fm(env, self);
+    struct flowmgr *fm = jfm->fm;
+    int err;
+    
+    enum audio_effect effect_type = AUDIO_EFFECT_CHORUS_MIN;
+    if (effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_CHORUS_MIN) {
+        effect_type = AUDIO_EFFECT_CHORUS_MIN;
+    } else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_CHORUS_MED){
+        effect_type = AUDIO_EFFECT_CHORUS_MED;
+    } else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_CHORUS_MAX){
+        effect_type = AUDIO_EFFECT_CHORUS_MAX;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_REVERB_MIN){
+        effect_type = AUDIO_EFFECT_REVERB_MIN;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_REVERB_MED){
+        effect_type = AUDIO_EFFECT_REVERB_MID;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_REVERB_MAX){
+        effect_type = AUDIO_EFFECT_REVERB_MAX;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_MIN){
+        effect_type = AUDIO_EFFECT_PITCH_UP_SHIFT_MIN;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_MED){
+        effect_type = AUDIO_EFFECT_PITCH_UP_SHIFT_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_MAX){
+        effect_type = AUDIO_EFFECT_PITCH_UP_SHIFT_MAX;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_INSANE){
+        effect_type = AUDIO_EFFECT_PITCH_UP_SHIFT_INSANE;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_DOWN_MIN){
+        effect_type = AUDIO_EFFECT_PITCH_DOWN_SHIFT_MIN;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_DOWN_MED){
+        effect_type = AUDIO_EFFECT_PITCH_DOWN_SHIFT_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_DOWN_MAX){
+        effect_type = AUDIO_EFFECT_PITCH_DOWN_SHIFT_MAX;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_DOWN_INSANE){
+        effect_type = AUDIO_EFFECT_PITCH_DOWN_SHIFT_INSANE;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PACE_UP_MIN){
+        effect_type = AUDIO_EFFECT_PACE_UP_SHIFT_MIN;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PACE_UP_MED){
+        effect_type = AUDIO_EFFECT_PACE_UP_SHIFT_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PACE_UP_MAX){
+        effect_type = AUDIO_EFFECT_PACE_UP_SHIFT_MAX;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PACE_DOWN_MIN){
+        effect_type = AUDIO_EFFECT_PACE_DOWN_SHIFT_MIN;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PACE_DOWN_MED){
+        effect_type = AUDIO_EFFECT_PACE_DOWN_SHIFT_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PACE_DOWN_MAX){
+        effect_type = AUDIO_EFFECT_PACE_DOWN_SHIFT_MAX;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_REVERSE){
+        effect_type = AUDIO_EFFECT_REVERSE;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_VOCODER_MIN){
+        effect_type = AUDIO_EFFECT_VOCODER_MIN;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_VOCODER_MED){
+        effect_type = AUDIO_EFFECT_VOCODER_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_AUTO_TUNE_MIN){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MIN;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_AUTO_TUNE_MED){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_AUTO_TUNE_MAX){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MAX;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_DOWN_MIN){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MIN;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_DOWN_MED){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_DOWN_MAX){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MAX;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_NONE){
+        effect_type = AUDIO_EFFECT_NONE;
+    }
+    
+    FLOWMGR_MARSHAL_RET(java.tid, err, flowmgr_set_audio_effect, fm, effect_type);
+    
+    return err;
 }

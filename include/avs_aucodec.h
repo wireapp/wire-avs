@@ -29,6 +29,7 @@ struct aucodec_param {
 	uint8_t  pt;
 	uint32_t srate;
 	uint8_t  ch;
+	bool cbr;
 };
 
 struct media_ctx;
@@ -38,14 +39,6 @@ struct aucodec;
 struct mediaflow;
 struct aucodec_stats;
 
-/* RTP packetization (send) handler */
-typedef int (auenc_packet_h)(uint8_t pt, uint32_t ts,
-			     const uint8_t *pld, size_t pld_len,
-			     void *arg);
-
-/* incoming PCM audio (recv) handler */
-typedef int (audec_recv_h)(const int16_t *sampv, size_t sampc,
-			   void *arg);
 
 typedef void (auenc_err_h)(int err, const char *msg, void *arg);
 
@@ -58,12 +51,9 @@ typedef int  (auenc_alloc_h)(struct auenc_state **aesp,
 			     struct aucodec_param *prm,
 			     auenc_rtp_h *rtph,
 			     auenc_rtcp_h *rtcph,
-			     auenc_packet_h *pkth,
 			     auenc_err_h *errh,
 			     void *arg);
 
-typedef int  (auenc_encode_h)(struct auenc_state *aes,
-			      const int16_t *sampv, size_t sampc);
 typedef int  (auenc_start_h)(struct auenc_state *aes);
 typedef void (auenc_stop_h)(struct auenc_state *aes);
 
@@ -75,12 +65,8 @@ typedef int  (audec_alloc_h)(struct audec_state **adsp,
 			     const struct aucodec *ac,
 			     const char *fmtp,
 			     struct aucodec_param *prm,
-			     audec_recv_h *recvh,
 			     audec_err_h *errh,
 			     void *arg);
-typedef int  (audec_decode_h)(struct audec_state *ads,
-			      const struct rtp_header *hdr,
-			      const uint8_t *pld, size_t pld_len);
 typedef int  (audec_rtp_h)(struct audec_state *ads,
 			   const uint8_t *pkt, size_t len);
 typedef int  (audec_rtcp_h)(struct audec_state *ads,
@@ -99,12 +85,10 @@ struct aucodec {
 	bool has_rtp;
 
 	auenc_alloc_h *enc_alloc;
-	auenc_encode_h *ench;
 	auenc_start_h *enc_start;
 	auenc_stop_h *enc_stop;
 
 	audec_alloc_h *dec_alloc;
-	audec_decode_h *dech;
 	audec_rtp_h *dec_rtph;
 	audec_rtcp_h *dec_rtcph;
 	audec_start_h *dec_start;

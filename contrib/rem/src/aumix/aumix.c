@@ -5,6 +5,7 @@
  */
 
 #define _BSD_SOURCE 1
+#define _DEFAULT_SOURCE 1
 #include <unistd.h>
 #include <pthread.h>
 #include <string.h>
@@ -104,6 +105,7 @@ static void *aumix_thread(void *arg)
 		uint64_t now;
 
 		if (!mix->srcl.head) {
+			mix->af = mem_deref(mix->af);
 			pthread_cond_wait(&mix->cond, &mix->mutex);
 			ts = 0;
 		}

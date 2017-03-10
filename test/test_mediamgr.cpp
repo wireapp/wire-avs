@@ -132,13 +132,13 @@ TEST_F(MediamgrTest, routing)
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_EARPIECE);
     
-    mediamgr_bt_device_connected(mm, true);
+    mediamgr_bt_device_connected(mediamgr_get(mm), true);
     wait_for_event(&route_ch_ss);
     
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_EARPIECE);
 
-    mediamgr_bt_device_connected(mm, false);
+    mediamgr_bt_device_connected(mediamgr_get(mm), false);
     wait_for_event(&route_ch_ss);
     
     route = mediamgr_get_route(mm);
@@ -152,7 +152,7 @@ TEST_F(MediamgrTest, routing)
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_EARPIECE);
     
-    mediamgr_headset_connected(mm, true);
+    mediamgr_headset_connected(mediamgr_get(mm), true);
     wait_for_event(&route_ch_ss);
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_HEADSET);
@@ -162,17 +162,17 @@ TEST_F(MediamgrTest, routing)
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_SPEAKER);
     
-    mediamgr_bt_device_connected(mm, true);
+    mediamgr_bt_device_connected(mediamgr_get(mm), true);
     wait_for_event(&route_ch_ss);
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_BT);
     
-    mediamgr_headset_connected(mm, false);
+    mediamgr_headset_connected(mediamgr_get(mm), false);
     wait_for_event(&route_ch_ss);
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_BT);
     
-    mediamgr_bt_device_connected(mm, false);
+    mediamgr_bt_device_connected(mediamgr_get(mm), false);
     wait_for_event(&route_ch_ss);
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_SPEAKER);
@@ -189,12 +189,12 @@ TEST_F(MediamgrTest, routing)
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_SPEAKER);
 
-    mediamgr_headset_connected(mm, true);
+    mediamgr_headset_connected(mediamgr_get(mm), true);
     wait_for_event(&route_ch_ss);
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_HEADSET);
     
-    mediamgr_headset_connected(mm, false);
+    mediamgr_headset_connected(mediamgr_get(mm), false);
     wait_for_event(&route_ch_ss);
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_EARPIECE);
@@ -205,12 +205,12 @@ TEST_F(MediamgrTest, routing)
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_SPEAKER);
 
-    mediamgr_headset_connected(mm, true);
+    mediamgr_headset_connected(mediamgr_get(mm), true);
     wait_for_event(&route_ch_ss);
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_HEADSET);
     
-    mediamgr_headset_connected(mm, false);
+    mediamgr_headset_connected(mediamgr_get(mm), false);
     wait_for_event(&route_ch_ss);
     route = mediamgr_get_route(mm);
     ASSERT_TRUE(route == MEDIAMGR_AUPLAY_SPEAKER);
@@ -247,7 +247,7 @@ TEST(mediamgr, alloc_and_free)
 	struct mediamgr *mm = NULL;
 	int err;
 
-	err = mediamgr_alloc(&mm, on_mcat_changed, NULL);
+	err = mediamgr_alloc(&mm, on_mcat_changed, NULL);	
 	ASSERT_EQ(0, err);
 	ASSERT_TRUE(mm != NULL);
 

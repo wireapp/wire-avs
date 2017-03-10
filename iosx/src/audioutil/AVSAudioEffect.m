@@ -43,9 +43,11 @@ static void progress_status_h(int progress, void *arg)
   
     self.delegate = delegate;
     
-    audio_effect effect_type = AUDIO_EFFECT_CHORUS_MIN;
+    enum audio_effect effect_type = AUDIO_EFFECT_CHORUS_MIN;
     if (effect == AVSAudioEffectTypeChorusMin) {
         effect_type = AUDIO_EFFECT_CHORUS_MIN;
+    } else if(effect == AVSAudioEffectTypeChorusMed){
+        effect_type = AUDIO_EFFECT_CHORUS_MED;
     } else if(effect == AVSAudioEffectTypeChorusMax){
         effect_type = AUDIO_EFFECT_CHORUS_MAX;
     }else if(effect == AVSAudioEffectTypeReverbMin){
@@ -84,8 +86,22 @@ static void progress_status_h(int progress, void *arg)
         effect_type = AUDIO_EFFECT_PACE_DOWN_SHIFT_MAX;
     }else if(effect == AVSAudioEffectTypeReverse){
         effect_type = AUDIO_EFFECT_REVERSE;
+    }else if(effect == AVSAudioEffectTypeVocoderMin){
+        effect_type = AUDIO_EFFECT_VOCODER_MIN;
     }else if(effect == AVSAudioEffectTypeVocoderMed){
         effect_type = AUDIO_EFFECT_VOCODER_MED;
+    }else if(effect == AVSAudioEffectTypeAutoTuneMin){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MIN;
+    }else if(effect == AVSAudioEffectTypeAutoTuneMed){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MED;
+    }else if(effect == AVSAudioEffectTypeAutoTuneMax){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MAX;
+    }else if(effect == AVSAudioEffectTypePitchUpDownMin){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MIN;
+    }else if(effect == AVSAudioEffectTypePitchUpDownMed){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MED;
+    }else if(effect == AVSAudioEffectTypePitchUpDownMax){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MAX;
     }else if(effect == AVSAudioEffectTypeNone){
         effect_type = AUDIO_EFFECT_NONE;
     }

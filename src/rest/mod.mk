@@ -3,7 +3,7 @@
 #
 
 AVS_SRCS += \
-	rest/login.c \
 	rest/chunk.c \
 	rest/cookie.c \
+	rest/login.c \
 	rest/rest.c

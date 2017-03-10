@@ -3,7 +3,8 @@
  *
  * Copyright (C) 2010 Creytiv.com
  */
-#define OPENSSL_NO_KRB5 1
+
+#include <sys/time.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <re_types.h>
@@ -63,10 +64,16 @@ struct tls_conn {
 
 static int bio_create(BIO *b)
 {
+#ifdef TLS_BIO_OPAQUE
+	BIO_set_init(b, 1);
+	BIO_set_data(b, NULL);
+	BIO_set_flags(b, 0);
+#else
 	b->init  = 1;
 	b->num   = 0;
 	b->ptr   = NULL;
 	b->flags = 0;
+#endif
 
 	return 1;
 }
@@ -77,9 +84,15 @@ static int bio_destroy(BIO *b)
 	if (!b)
 		return 0;
 
+#ifdef TLS_BIO_OPAQUE
+	BIO_set_init(b, 0);
+	BIO_set_data(b, NULL);
+	BIO_set_flags(b, 0);
+#else
 	b->ptr   = NULL;
 	b->init  = 0;
 	b->flags = 0;
+#endif
 
 	return 1;
 }
@@ -87,7 +100,11 @@ static int bio_destroy(BIO *b)
 
 static int bio_write(BIO *b, const char *buf, int len)
 {
+#ifdef TLS_BIO_OPAQUE
+	struct tls_conn *tc = BIO_get_data(b);
+#else
 	struct tls_conn *tc = b->ptr;
+#endif
 	struct mbuf *mb;
 	enum {SPACE = 4};
 	int err;
@@ -110,7 +127,11 @@ static int bio_write(BIO *b, const char *buf, int len)
 
 static long bio_ctrl(BIO *b, int cmd, long num, void *ptr)
 {
+#ifdef TLS_BIO_OPAQUE
+	struct tls_conn *tc = BIO_get_data(b);
+#else
 	struct tls_conn *tc = b->ptr;
+#endif
 	(void)num;
 	(void)ptr;
 
@@ -135,6 +156,7 @@ static long bio_ctrl(BIO *b, int cmd, long num, void *ptr)
 }
 
 
+#ifndef TLS_BIO_OPAQUE
 static struct bio_method_st bio_udp_send = {
 	BIO_TYPE_SOURCE_SINK,
 	"udp_send",
@@ -147,6 +169,7 @@ static struct bio_method_st bio_udp_send = {
 	bio_destroy,
 	0
 };
+#endif
 
 
 static void tls_close(struct tls_conn *tc)
@@ -243,7 +266,7 @@ static int tls_connect(struct tls_conn *tc)
 	if (r <= 0) {
 		const int ssl_err = SSL_get_error(tc->ssl, r);
 
-		ERR_clear_error();
+		tls_flush_error();
 
 		switch (ssl_err) {
 
@@ -272,7 +295,7 @@ static int tls_accept(struct tls_conn *tc)
 	if (r <= 0) {
 		const int ssl_err = SSL_get_error(tc->ssl, r);
 
-		ERR_clear_error();
+		tls_flush_error();
 
 		switch (ssl_err) {
 
@@ -442,7 +465,11 @@ static int conn_alloc(struct tls_conn **ptc, struct tls *tls,
 		goto out;
 	}
 
+#ifdef TLS_BIO_OPAQUE
+	tc->sbio_out = BIO_new(tls->method_udp);
+#else
 	tc->sbio_out = BIO_new(&bio_udp_send);
+#endif
 	if (!tc->sbio_out) {
 		ERR_clear_error();
 		BIO_free(tc->sbio_in);
@@ -450,7 +477,11 @@ static int conn_alloc(struct tls_conn **ptc, struct tls *tls,
 		goto out;
 	}
 
+#ifdef TLS_BIO_OPAQUE
+	BIO_set_data(tc->sbio_out, tc);
+#else
 	tc->sbio_out->ptr = tc;
+#endif
 
 	SSL_set_bio(tc->ssl, tc->sbio_in, tc->sbio_out);
 
@@ -620,6 +651,37 @@ void dtls_set_handlers(struct tls_conn *tc, dtls_estab_h *estabh,
 }
 
 
+/**
+ * Get the remote peer of a DTLS Connection
+ *
+ * @param tc DTLS Connection
+ *
+ * @return Remote peer
+ */
+const struct sa *dtls_peer(const struct tls_conn *tc)
+{
+	return tc ? &tc->peer : NULL;
+}
+
+
+/**
+ * Set the remote peer of a DTLS Connection
+ *
+ * @param tc     DTLS Connection
+ * @param peer   Peer address
+ */
+void dtls_set_peer(struct tls_conn *tc, const struct sa *peer)
+{
+	if (!tc || !peer)
+		return;
+
+	hash_unlink(&tc->he);
+	hash_append(tc->sock->ht, sa_hash(peer, SA_ALL), &tc->he, tc);
+
+	tc->peer = *peer;
+}
+
+
 static void sock_destructor(void *arg)
 {
 	struct dtls_sock *sock = arg;
@@ -779,3 +841,25 @@ void dtls_recv_packet(struct dtls_sock *sock, const struct sa *src,
 
 	recv_handler(&addr, mb, sock);
 }
+
+
+#ifdef TLS_BIO_OPAQUE
+BIO_METHOD *tls_method_udp(void)
+{
+	BIO_METHOD *method;
+
+	method = BIO_meth_new(BIO_TYPE_SOURCE_SINK, "udp_send");
+	if (!method) {
+		DEBUG_WARNING("alloc: BIO_meth_new() failed\n");
+		ERR_clear_error();
+		return NULL;
+	}
+
+	BIO_meth_set_write(method, bio_write);
+	BIO_meth_set_ctrl(method, bio_ctrl);
+	BIO_meth_set_create(method, bio_create);
+	BIO_meth_set_destroy(method, bio_destroy);
+
+	return method;
+}
+#endif

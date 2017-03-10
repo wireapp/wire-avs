@@ -22,6 +22,9 @@
 
 #import "AVSMedia.h"
 
+#ifndef AVS_EXPORT
+#define AVS_EXPORT __attribute__((visibility("default")))
+#endif
 
 void AVSDebug ( NSString *message, ... );
 void AVSWarn ( NSString *message, ... );
@@ -76,7 +79,7 @@ typedef NS_ENUM (NSUInteger, AVSIntensityLevel) {
 @end
 
 
-@interface AVSMediaManagerChangeNotification : NSNotification
+AVS_EXPORT @interface AVSMediaManagerChangeNotification : NSNotification
 
 @property (nonatomic, readonly) AVSMediaManager *avsMediaManager;
 /*
@@ -102,7 +105,7 @@ typedef NS_ENUM (NSUInteger, AVSIntensityLevel) {
 @end
 
 
-@interface AVSMediaManager : NSObject
+AVS_EXPORT @interface AVSMediaManager : NSObject
 
 @property (nonatomic) AVSPlaybackRoute playbackRoute;
 
@@ -130,5 +133,11 @@ typedef NS_ENUM (NSUInteger, AVSIntensityLevel) {
 - (void)setCallState:(BOOL)inCall forConversation:(NSString *)convId;
 
 - (void)setVideoCallState:(NSString *)convId;
+
+- (void)setupAudioDevice;
+- (void)resetAudioDevice;
+- (void)startAudio;
+- (void)stopAudio;
+- (void)setUiStartsAudio:(BOOL)ui_starts_audio;
 
 @end

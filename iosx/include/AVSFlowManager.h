@@ -19,6 +19,8 @@
 #import <Foundation/Foundation.h>
 #import <TargetConditionals.h>
 
+#define AVS_EXPORT __attribute__((visibility("default")))
+
 #if TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
 #else
@@ -33,6 +35,8 @@ typedef NSView UIView;
 #define FlowManagerAudioReceiveStateNotification @"AVSFlowManagerAudioReceiveStateNotification"
 
 #import "AVSMediaManager.h"
+
+#import "AVSAudioEffect.h"
 
 /* IMPORTANT: Make sure to keep these enums in sync with avs_flowmgr.h */
 
@@ -95,17 +99,17 @@ typedef NS_ENUM(int, AVSFlowManagerAudioReceiveState) {
 	FLOWMANAGER_AUDIO_INTERRUPTION_STARTED
 };
 
-@interface AVSVideoStateChangeInfo : NSObject
+AVS_EXPORT @interface AVSVideoStateChangeInfo : NSObject
 @property (readonly) AVSFlowManagerVideoReceiveState state;
 @property (readonly) AVSFlowManagerVideoReason reason;
 @end
 
-@interface AVSVideoCaptureDevice : NSObject
+AVS_EXPORT @interface AVSVideoCaptureDevice : NSObject
 @property (readonly) NSString *deviceId;
 @property (readonly) NSString *deviceName;
 @end
 
-@interface AVSAudioStateChangeInfo : NSObject
+AVS_EXPORT @interface AVSAudioStateChangeInfo : NSObject
 @property (readonly) AVSFlowManagerAudioReceiveState state;
 @end
 
@@ -126,8 +130,6 @@ typedef NS_ENUM(int, AVSFlowManagerAudioReceiveState) {
 - (void)mediaWarningOnConversation:(NSString *)convId; 
 
 - (void)errorHandler:(int)err conversationId:(NSString *)convid context:(void const*)ctx;
-
-- (void)vmStatushandler:(BOOL)is_playing current_time:(int)cur_time_ms length:(int)file_length_ms;
 @optional
 
 - (void) didUpdateVolume:(double)volume conversationId:(NSString *)convid participantId:(NSString *)participantId;
@@ -140,7 +142,7 @@ typedef NS_ENUM(int, AVSFlowManagerAudioReceiveState) {
 
 struct flowmgr;
 
-@interface AVSFlowManager : NSObject
+AVS_EXPORT @interface AVSFlowManager : NSObject
 
 + (void)setLogLevel:(AVSFlowManagerLogLevel)logLevel;
 + (NSComparator)conferenceComparator;
@@ -228,11 +230,7 @@ struct flowmgr;
 - (NSArray*)getVideoCaptureDevices;
 - (void)setVideoCaptureDevice:(NSString *)deviceId forConversation:(NSString *)convId;
 
-- (void)vmStartRecord:(NSString *)fileName;
-- (void)vmStopRecord;
-- (int)vmGetLength:(NSString *)fileName;
-- (void)vmStartPlay:(NSString *)fileName toStart:(int)startpos;
-- (void)vmStopPlay;
+- (int)setAudioEffect:(AVSAudioEffectType) effect;
 
 @end
 

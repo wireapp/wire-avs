@@ -59,15 +59,12 @@ enum marshal_id {
 	MARSHAL_ENABLE_LOGGING,
 	MARSHAL_SET_SESSID,
 	MARSHAL_INTERRUPTION,
-	MARSHAL_VM_START_RECORD,
-	MARSHAL_VM_STOP_RECORD,
-	MARSHAL_VM_START_PLAY,
-	MARSHAL_VM_STOP_PLAY,
 	MARSHAL_CAN_SEND_VIDEO,
 	MARSHAL_IS_SENDING_VIDEO,
 	MARSHAL_SET_VIDEO_SEND_STATE,
 	MARSHAL_SET_VIDEO_HANDLERS,
 	MARSHAL_SET_AUDIO_STATE_HANDLER,
+	MARSHAL_SET_AUDIO_EFFECT,
 };
 
 struct marshal_elem {
@@ -242,28 +239,6 @@ struct marshal_selfuserid_elem {
 	const char *userid;
 };
 
-
-struct marshal_vm_start_record_elem {
-	struct marshal_elem a;
-    const char *fileNameUTF8;
-};
-
-struct marshal_vm_stop_record_elem {
-    struct marshal_elem a;
-};
-
-struct marshal_vm_start_play_elem {
-    struct marshal_elem a;
-    const char *fileNameUTF8;
-    int start_time_ms;
-    flowmgr_vm_play_status_h *handler;
-    void *arg;
-};
-
-struct marshal_vm_stop_play_elem {
-    struct marshal_elem a;
-};
-
 struct marshal_video_capture_list_elem {
 	struct marshal_elem a;
 
@@ -305,6 +280,11 @@ struct marshal_audio_state_handler_elem {
     
 	flowmgr_audio_state_change_h *audio_state_change_handler;
 	void *arg;
+};
+
+struct marshal_set_audio_effect_elem {
+	struct marshal_elem a;
+	enum audio_effect effect;
 };
 
 static void mqueue_handler(int id, void *data, void *arg)
@@ -515,34 +495,6 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 	}
 
-	case MARSHAL_VM_START_RECORD: {
-		struct marshal_vm_start_record_elem *mie = data;
-
-		me->ret = flowmgr_vm_start_record(me->fm, mie->fileNameUTF8);
-
-		break;
-	}
-
-	case MARSHAL_VM_STOP_RECORD: {
-		me->ret = flowmgr_vm_stop_record(me->fm);
-
-		break;
-	}
-
-	case MARSHAL_VM_START_PLAY: {
-		struct marshal_vm_start_play_elem *mie = data;
-            
-		me->ret = flowmgr_vm_start_play(me->fm, mie->fileNameUTF8, mie->start_time_ms, mie->handler, mie->arg);
-
-		break;
-	}
-            
-	case MARSHAL_VM_STOP_PLAY: {
-		me->ret = flowmgr_vm_stop_play(me->fm);
-
-		break;
-	}
-
 	case MARSHAL_SET_VIDEO_SEND_STATE: {
 		struct marshal_video_state_elem *mse = data;
 
@@ -582,6 +534,13 @@ static void mqueue_handler(int id, void *data, void *arg)
 		flowmgr_set_audio_state_handler(me->fm,
 			mse->audio_state_change_handler,
 			mse->arg);
+		break;
+	}
+            
+	case MARSHAL_SET_AUDIO_EFFECT: {
+		struct marshal_set_audio_effect_elem *mie = data;
+		me->ret = flowmgr_set_audio_effect(me->fm, mie->effect);
+                
 		break;
 	}
             
@@ -1052,63 +1011,6 @@ int marshal_flowmgr_interruption(struct flowmgr *fm, const char *convid,
 	return me.a.ret;	
 }
 
-
-int marshal_flowmgr_vm_start_record(struct flowmgr *fm, const char fileNameUTF8[1024])
-{
-    struct marshal_vm_start_record_elem me;
-    
-    me.a.id = MARSHAL_VM_START_RECORD;
-    me.a.fm = fm;
-    
-    me.fileNameUTF8 = fileNameUTF8;
-    
-    marshal_send(&me);
-    
-    return me.a.ret;
-}
-
-int marshal_flowmgr_vm_stop_record(struct flowmgr *fm)
-{
-    struct marshal_vm_stop_record_elem me;
-    
-    me.a.id = MARSHAL_VM_STOP_RECORD;
-    me.a.fm = fm;
-    
-    marshal_send(&me);
-    
-    return me.a.ret;
-}
-
-int marshal_flowmgr_vm_start_play(struct flowmgr *fm, const char fileNameUTF8[1024], int start_time_ms, flowmgr_vm_play_status_h *handler, void *arg)
-
-{
-    struct marshal_vm_start_play_elem me;
-    
-    me.a.id = MARSHAL_VM_START_PLAY;
-    me.a.fm = fm;
-    me.fileNameUTF8 = fileNameUTF8;
-    me.start_time_ms = start_time_ms;
-    me.handler = handler;
-    me.arg = arg;
-    
-    marshal_send(&me);
-    
-    return me.a.ret;
-}
-
-int marshal_flowmgr_vm_stop_play(struct flowmgr *fm)
-{
-    struct marshal_vm_stop_play_elem me;
-    
-    me.a.id = MARSHAL_VM_STOP_PLAY;
-    me.a.fm = fm;
-    
-    marshal_send(&me);
-    
-    return me.a.ret;
-}
-
-
 void marshal_flowmgr_network_changed(struct flowmgr *fm)
 {
 	struct marshal_elem me;
@@ -1195,4 +1097,18 @@ void marshal_flowmgr_set_audio_state_handler(struct flowmgr *fm,
 	me.arg = arg;
     
 	marshal_send(&me);
+}
+
+int marshal_flowmgr_set_audio_effect(struct flowmgr *fm, enum audio_effect effect)
+{
+	struct marshal_set_audio_effect_elem me;
+    
+	me.a.id = MARSHAL_SET_AUDIO_EFFECT;
+	me.a.fm = fm;
+    
+	me.effect = effect;
+    
+	marshal_send(&me);
+    
+	return me.a.ret;
 }

@@ -58,7 +58,7 @@ int conf_part_add(struct conf_part **cpp, struct list *partl,
 }
 
 
-struct conf_part *conf_part_find(struct list *partl, const char *userid)
+struct conf_part *conf_part_find(const struct list *partl, const char *userid)
 {
 	struct le *le;
 

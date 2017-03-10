@@ -220,8 +220,8 @@ TEST_F(EngineTest, register_client)
 {
 	struct client_handler clih = {
 		.clientregh = reg_client_handler,
-		.getclih = get_client_handler,
 		.clienth = client_handler,
+		.getclih = get_client_handler,
 		.arg     = this
 	};
 	static const struct zapi_prekey dummy_prekey = {

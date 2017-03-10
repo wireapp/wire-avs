@@ -34,7 +34,7 @@ struct tuple {
 };
 
 
-const char *turn_software = "ztest v" VERSION " (" ARCH "/" OS ")";
+const char *turn_software = "ztest v" AVS_VERSION " (" ARCH "/" OS ")";
 
 
 static bool hash_cmp_handler(struct le *le, void *arg)
@@ -89,6 +89,17 @@ bool turn_request_handler(struct msgctx *ctx, int proto, void *sock,
 	default:
 		return false;
 	}
+
+	if (ctx->turnd->sim_error != 0) {
+
+			err = stun_ereply(proto, sock, src, 0, msg,
+					  ctx->turnd->sim_error,
+					  "Simulated Error",
+					  ctx->key, ctx->keylen, ctx->fp, 1,
+					  STUN_ATTR_SOFTWARE,turn_software);
+			goto out;
+	}
+
 
 	if (ctx->ua.typec > 0) {
 		err = stun_ereply(proto, sock, src, 0, msg,

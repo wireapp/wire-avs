@@ -46,12 +46,13 @@ void aucodec_register(struct list *aucodecl, struct aucodec *ac)
 		int pt = atoi(ac->pt);
 
 		if (pt >= MEDIA_PT_DYNAMIC_START) {
-
+#if 0
 			if (pt < MEDIA_PT_AUDIO_START ||
 			    pt > MEDIA_PT_AUDIO_END) {
 				warning("aucodec: pt outside range\n");
 				return;
 			}
+#endif
 		}
 	}
 

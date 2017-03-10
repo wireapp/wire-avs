@@ -4,4 +4,4 @@
 # Copyright (C) 2010 Creytiv.com
 #
 
-#SRCS	+= au/au.c
+SRCS	+= au/fmt.c

@@ -45,6 +45,7 @@ extern "C" {
 #include "voe.h"
 #include "avs_voe.h"
 
+
 static void ads_destructor(void *arg)
 {
 	struct audec_state *ads = (struct audec_state *)arg;
@@ -52,8 +53,6 @@ static void ads_destructor(void *arg)
 	debug("voe: ads_destructor: %p ve=%p(%d)\n",
 	      ads, ads->ve, mem_nrefs(ads->ve));
 
-	tmr_cancel(&ads->tmr_rtp_timeout);
-    
 	voe_dec_stop(ads);
 
 	list_unlink(&ads->le);
@@ -61,12 +60,12 @@ static void ads_destructor(void *arg)
 	mem_deref(ads->ve);
 }
 
+
 int voe_dec_alloc(struct audec_state **adsp,
 		  struct media_ctx **mctxp,
 		  const struct aucodec *ac,
 		  const char *fmtp,
 		  struct aucodec_param *prm,
-		  audec_recv_h *recvh,
 		  audec_err_h *errh,
 		  void *arg)
 {
@@ -98,12 +97,9 @@ int voe_dec_alloc(struct audec_state **adsp,
 	list_append(&gvoe.decl, &ads->le, ads);
 
 	ads->ac = ac;
-	ads->recvh = recvh;
 	ads->errh = errh;
 	ads->arg = arg;
     
-	tmr_init(&ads->tmr_rtp_timeout);
-
  out:
 	if (err) {
 		mem_deref(ads);
@@ -118,6 +114,7 @@ int voe_dec_alloc(struct audec_state **adsp,
 
 int voe_dec_start(struct audec_state *ads)
 {
+	int ret = 0;
 	if (!ads)
 		return EINVAL;
 
@@ -125,14 +122,16 @@ int voe_dec_start(struct audec_state *ads)
 
 	webrtc::CodecInst c;
     
-	gvoe.base->StartReceive(ads->ve->ch);
-	gvoe.base->StartPlayout(ads->ve->ch);
+	ret = gvoe.base->StartReceive(ads->ve->ch);
+	ret += gvoe.base->StartPlayout(ads->ve->ch);
 
 	gvoe.codec->GetSendCodec(ads->ve->ch, c);
 
 	channel_data_add(&gvoe.channel_data_list, ads->ve->ch, c);
     
 	voe_multi_party_packet_rate_control(&gvoe);
+    
+	voe_update_aec_settings(&gvoe);
     
 	voe_update_agc_settings(&gvoe);
     
@@ -142,7 +141,11 @@ int voe_dec_start(struct audec_state *ads)
 	gvoe.processing->SetRxNsStatus(ads->ve->ch, true,  ZETA_RCV_NS_MODE);
 #endif
 
-	return 0;
+	if(ret){
+		ret = EIO;
+	}
+    
+	return ret;
 }
 
 void voe_dec_stop(struct audec_state *ads)
@@ -163,6 +166,8 @@ void voe_dec_stop(struct audec_state *ads)
 		mem_deref(cd);
 	}
 	voe_multi_party_packet_rate_control(&gvoe);
+        
+	voe_update_aec_settings(&gvoe);
     
 	voe_update_agc_settings(&gvoe);
 

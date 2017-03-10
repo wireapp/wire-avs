@@ -5,6 +5,7 @@
  */
 
 #define _BSD_SOURCE 1
+#define _DEFAULT_SOURCE 1
 #include <unistd.h>
 #define __USE_UNIX98 1
 #include <pthread.h>
@@ -41,7 +42,6 @@ struct vidmix_source {
 };
 
 
-static void vidframe_copy(struct vidframe *dst, const struct vidframe *src);
 static inline void source_mix_full(struct vidframe *mframe,
 				   const struct vidframe *frame_src);
 
@@ -343,7 +343,7 @@ int vidmix_alloc(struct vidmix **mixp)
 		return err;
 	}
 
-#ifdef LINUX
+#if defined(LINUX) && defined(__GLIBC__)
 	err = pthread_rwlockattr_setkind_np(&attr,
 				 PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
 	if (err)
@@ -700,47 +700,6 @@ void vidmix_source_set_focus_idx(struct vidmix_source *src, unsigned pidx)
 	src->focus = focus;
 	src->clear = true;
 	pthread_mutex_unlock(&src->mutex);
-}
-
-
-static void vidframe_copy(struct vidframe *dst, const struct vidframe *src)
-{
-	const uint8_t *ds0, *ds1, *ds2;
-	unsigned lsd, lss, w, h, y;
-	uint8_t *dd0, *dd1, *dd2;
-
-	lsd = dst->linesize[0];
-	lss = src->linesize[0];
-
-	dd0 = dst->data[0];
-	dd1 = dst->data[1];
-	dd2 = dst->data[2];
-
-	ds0 = src->data[0];
-	ds1 = src->data[1];
-	ds2 = src->data[2];
-
-	w  = dst->size.w & ~1;
-	h  = dst->size.h & ~1;
-
-	for (y=0; y<h; y+=2) {
-
-		memcpy(dd0, ds0, w);
-		dd0 += lsd;
-		ds0 += lss;
-
-		memcpy(dd0, ds0, w);
-		dd0 += lsd;
-		ds0 += lss;
-
-		memcpy(dd1, ds1, w/2);
-		dd1 += lsd/2;
-		ds1 += lss/2;
-
-		memcpy(dd2, ds2, w/2);
-		dd2 += lsd/2;
-		ds2 += lss/2;
-	}
 }
 
 

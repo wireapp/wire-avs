@@ -107,8 +107,8 @@ static void udp_recv(const struct sa *src, struct mbuf *mb, void *arg)
 	 */
 	perm = perm_find(al->perms, src);
 	if (!perm) {
-#if 0
-		re_printf("@@@ %zu bytes from %J dropped @@@\n",
+#if 1
+		re_fprintf(stderr, "    @@@ %zu bytes from %J dropped @@@\n",
 			  mbuf_get_left(mb), src);
 #endif
 		++al->dropc_rx;

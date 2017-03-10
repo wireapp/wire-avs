@@ -32,9 +32,10 @@ LOCAL_LDLIBS    := \
 		-L../build/android-armv7/lib \
 		../build/android-armv7/lib/libavscore.a \
 		-lvpx \
+		-lusrsctp \
+		-lifaddrs \
 		-lre \
 		-lrew \
-		-logg \
 		-lssl \
 		-lcrypto \
 		-lcpufeatures \

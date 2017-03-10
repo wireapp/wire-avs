@@ -216,7 +216,7 @@ public class AudioRouter {
           _inCall = true;
           _hasBluetoothHeadset = hasBluetoothHeadset();
           if(_hasBluetoothHeadset){
-              DoLog("startBluetoothSco()");
+              Log.d("wire BT debug","startBluetoothSco()");
               startBluetoothSco();
           } else {
               /* Enable earpiece */

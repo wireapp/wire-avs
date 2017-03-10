@@ -158,6 +158,7 @@ public:
 	TurnServer();
 	~TurnServer();
 	void init();
+	void set_sim_error(uint16_t sim_error);
 
 public:
 	struct turnd *turnd = nullptr;

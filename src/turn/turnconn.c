@@ -55,10 +55,10 @@ static void stun_mapped_addr_handler(int err, const struct sa *map, void *arg)
 
 
 static void turnc_handler(int err, uint16_t scode, const char *reason,
-			      const struct sa *relay_addr,
-			      const struct sa *mapped_addr,
-			      const struct stun_msg *msg,
-			      void *arg)
+			  const struct sa *relay_addr,
+			  const struct sa *mapped_addr,
+			  const struct stun_msg *msg,
+			  void *arg)
 {
 	struct turn_conn *tc = arg;
 	struct stun_attr *attr;
@@ -81,6 +81,7 @@ static void turnc_handler(int err, uint16_t scode, const char *reason,
 #if 1
 		/* XXX: attempt to find reason for some 441 responses */
 		if (scode == 441) {
+			err = EAUTH;
 			warning("turnconn: got 441 on username='%s'\n",
 				tc->username);
 		}
@@ -147,7 +148,8 @@ static void tcp_estab(void *arg)
 
 	tl->mb = (struct mbuf *)mem_deref(tl->mb);
 
-	err = turnc_alloc(&tl->turnc, NULL, IPPROTO_TCP, tl->tc, tl->layer_turn,
+	err = turnc_alloc(&tl->turnc, NULL, IPPROTO_TCP,
+			  tl->tc, tl->layer_turn,
 			  &tl->turn_srv, tl->username, tl->password,
 			  TURN_DEFAULT_LIFETIME, turnc_handler, tl);
 	if (err) {
@@ -275,15 +277,16 @@ static void turnconn_destructor(void *data)
 int turnconn_alloc(struct turn_conn **connp, struct list *connl,
 		   const struct sa *turn_srv, int proto, bool secure,
 		   const char *username, const char *password,
-		   struct udp_sock *sock,
+		   int af, struct udp_sock *sock,
 		   int layer_stun, int layer_turn,
 		   turnconn_estab_h *estabh, turnconn_data_h *datah,
 		   turnconn_error_h *errorh, void *arg)
 {
 	struct turn_conn *tc;
+	struct sa laddr;
 	int err = 0;
 
-	if (!turn_srv || !proto)
+	if (!turn_srv || !proto || af==AF_UNSPEC)
 		return EINVAL;
 
 	if (layer_stun > layer_turn) {
@@ -298,7 +301,7 @@ int turnconn_alloc(struct turn_conn **connp, struct list *connl,
 	tc->turn_srv = *turn_srv;
 	tc->proto = proto;
 	tc->secure = secure;
-	tc->us_turn = mem_ref(sock);
+	tc->af = af;
 	tc->layer_stun = layer_stun;
 	tc->layer_turn = layer_turn;
 	tc->estabh = estabh;
@@ -314,6 +317,58 @@ int turnconn_alloc(struct turn_conn **connp, struct list *connl,
 	switch (proto) {
 
 	case IPPROTO_UDP:
+
+		switch (af) {
+
+		case AF_INET:
+			/* Need a common UDP-socket for STUN/TURN traffic */
+			sa_set_str(&laddr, "0.0.0.0", 0);
+			break;
+
+		case AF_INET6:
+			err = net_default_source_addr_get(AF_INET6,
+							  &laddr);
+			if (err) {
+				warning("mediaflow: no local AF_INET6"
+					" address (%m)\n", err);
+				goto out;
+			}
+			info("mediaflow: laddr turn is v6 (%j)\n",
+			     &laddr);
+			break;
+
+		default:
+			warning("mediaflow: invalid af in laddr sdp\n");
+			err = EAFNOSUPPORT;
+			goto out;
+		}
+
+		if (sock) {
+			struct udp_helper *uh;
+
+			uh = udp_helper_find(sock, layer_turn);
+			if (uh) {
+				warning("turnconn: udp-socket helper"
+				     " already registered for layer %d\n",
+				     layer_turn);
+				err = EPROTO;
+				goto out;
+			}
+			tc->us_turn = mem_ref(sock);
+		}
+		else {
+			err = udp_listen(&tc->us_turn, &laddr,
+					 NULL, NULL);
+			if (err)
+				goto out;
+
+			err = udp_local_get(tc->us_turn, &laddr);
+			if (err)
+				goto out;
+
+			sock = tc->us_turn;
+		}
+
 		err = turnc_alloc(&tc->turnc, NULL, IPPROTO_UDP, sock,
 				  tc->layer_turn, turn_srv, username, password,
 				  TURN_DEFAULT_LIFETIME, turnc_handler, tc);
@@ -373,9 +428,11 @@ int turnconn_alloc(struct turn_conn **connp, struct list *connl,
 
 static void turnc_perm_handler(void *arg)
 {
-	(void)arg;
+	struct turn_conn *conn = arg;
 
-	info("turnconn: TURN permission added OK\n");
+	info("turnconn<%J>: TURN permission added OK\n", &conn->turn_srv);
+
+	++conn->n_permh;
 }
 
 
@@ -384,15 +441,51 @@ int turnconn_add_permission(struct turn_conn *conn, const struct sa *peer)
 	if (!conn || !peer)
 		return EINVAL;
 
-	info("turnconn: adding TURN permission to remote address %j\n",
-	     peer);
+	info("turnconn<%J>: adding TURN permission to remote address %j\n",
+	     &conn->turn_srv, peer);
+
+	if (sa_af(peer) != AF_INET) {
+		warning("turnconn: add_permission: must be IPv4 address\n");
+		return EAFNOSUPPORT;
+	}
 
 	if (!conn->turn_allocated) {
 		warning("turnconn: not allocated, cannot add permission\n");
 		return EINTR;
 	}
 
-	return turnc_add_perm(conn->turnc, peer, turnc_perm_handler, NULL);
+	return turnc_add_perm(conn->turnc, peer, turnc_perm_handler, conn);
+}
+
+
+static void turnc_chan_handler(void *arg)
+{
+	struct turn_conn *conn = arg;
+
+	info("turnconn<%J>: TURN channel added OK\n", &conn->turn_srv);
+}
+
+
+int turnconn_add_channel(struct turn_conn *conn, const struct sa *peer)
+{
+	if (!conn || !peer)
+		return EINVAL;
+
+	info("turnconn<%J>: adding TURN channel to remote address %J\n",
+	     &conn->turn_srv, peer);
+
+	if (sa_af(peer) != AF_INET) {
+		warning("turnconn: add_channel: must be IPv4 address\n");
+		return EAFNOSUPPORT;
+	}
+
+	if (!conn->turn_allocated) {
+		warning("turnconn: not allocated, cannot add channel\n");
+		return EINTR;
+	}
+
+	return turnc_add_chan(conn->turnc, peer,
+			      turnc_chan_handler, conn);
 }
 
 
@@ -412,6 +505,39 @@ struct turn_conn *turnconn_find_allocated(const struct list *turnconnl,
 }
 
 
+bool turnconn_is_one_allocated(const struct list *turnconnl)
+{
+	struct le *le;
+
+	for (le = list_head(turnconnl); le; le = le->next) {
+		struct turn_conn *conn = le->data;
+
+		if (conn->turn_allocated)
+			return true;
+	}
+
+	return false;
+}
+
+
+bool turnconn_are_all_allocated(const struct list *turnconnl)
+{
+	struct le *le;
+
+	if (list_isempty(turnconnl))
+		return false;
+
+	for (le = list_head(turnconnl); le; le = le->next) {
+		struct turn_conn *conn = le->data;
+
+		if (!conn->turn_allocated)
+			return false;
+	}
+
+	return true;
+}
+
+
 const char *turnconn_proto_name(const struct turn_conn *conn)
 {
 	if (!conn)
@@ -426,16 +552,34 @@ const char *turnconn_proto_name(const struct turn_conn *conn)
 
 int turnconn_debug(struct re_printf *pf, const struct turn_conn *conn)
 {
+	int32_t alloc_time;
 	int err = 0;
 
 	if (!conn)
 		return 0;
 
+	if (conn->ts_turn_req && conn->ts_turn_resp) {
+		alloc_time = (int32_t)(conn->ts_turn_resp - conn->ts_turn_req);
+	}
+	else {
+		alloc_time = -1;
+	}
+
 	err |= re_hprintf(pf,
-			  "...[%c] proto=%s srv=%J  turnc=<%p>  (%zu ms)\n",
+			  "...[%c] af=%s  proto=%s srv=%J"
+			  "  turnc=<%p>  (%d ms)\n",
 			  conn->turn_allocated ? 'A' : ' ',
+			  net_af2name(conn->af),
 			  turnconn_proto_name(conn), &conn->turn_srv,
 			  conn->turnc,
-			  conn->ts_turn_resp - conn->ts_turn_req);
+			  alloc_time);
+
+#if 0
+	if (conn->turnc) {
+
+		err |= turnc_debug(pf, conn->turnc);
+	}
+#endif
+
 	return err;
 }

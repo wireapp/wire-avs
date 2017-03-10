@@ -300,7 +300,7 @@ static AVSMediaManager *_defaultMediaManager;
 
 	BOOL loop = [[snd objectForKey:@"loopAllowed"] intValue] > 0;
 	bool mixing = [[snd objectForKey:@"mixingAllowed"] intValue] > 0;
-	bool incall = [[snd objectForKey:@"incall"] intValue] > 0;
+	bool incall = [[snd objectForKey:@"incallAllowed"] intValue] > 0;
 	int intensity = [[snd objectForKey:@"intensity"] intValue];
 	int priority = [name hasPrefix:@"ringing"] ? 1 : 0; // TODO: get this from the file
 
@@ -312,7 +312,13 @@ static AVSMediaManager *_defaultMediaManager;
 
 	AVSSound *sound = [[AVSSound alloc] initWithName:name andAudioPlayer:player];
 
-	bool is_call_media = [name isEqualToString: @"ringing_from_me"];
+	bool is_call_media = false;
+
+	if ([name isEqualToString: @"ringing_from_me"])
+		is_call_media = true;
+	else if ([name isEqualToString: @"ready_to_talk"])
+		is_call_media = true;
+		
 	sound.looping = loop ? YES : NO;
 	mediamgr_register_media(_mm, [name UTF8String], (__bridge_retained void *)(sound),
 		mixing, incall, intensity, priority, is_call_media);
@@ -413,17 +419,14 @@ static AVSMediaManager *_defaultMediaManager;
 {
 }
 
-
 - (BOOL)isRecordingMutedForMediaName:(NSString *)name
 {
 	return NO;
 }
 
-
 - (void)setRecordingMuted:(BOOL)muted forMediaName:(NSString *)name
 {
 }
-
 
 - (void)setCallState:(BOOL)inCall forConversation:(NSString *)convId
 {
@@ -437,11 +440,34 @@ static AVSMediaManager *_defaultMediaManager;
     mediamgr_set_call_state(_mm, MEDIAMGR_STATE_INVIDEOCALL);
 }
 
+- (void)setupAudioDevice
+{
+	[self setCallState:YES forConversation:nil];
+}
+
+- (void)resetAudioDevice
+{
+	[self setCallState:NO forConversation:nil];
+}
+
+- (void)startAudio
+{
+}
+
+- (void)stopAudio
+{
+}
+
+- (void)setUiStartsAudio:(BOOL)ui_starts_audio
+{
+}
+
 - (void)mcatChanged:(enum mediamgr_state)state
 {
 	AVSFlowManagerCategory fcat = FLOWMANAGER_CATEGORY_NORMAL;
 
 	switch(state) {
+		case MEDIAMGR_STATE_INVIDEOCALL:
 		case MEDIAMGR_STATE_INCALL:
 		case MEDIAMGR_STATE_RESUME:
 			fcat = FLOWMANAGER_CATEGORY_CALL;
@@ -452,12 +478,13 @@ static AVSMediaManager *_defaultMediaManager;
 			break;
 
 		case MEDIAMGR_STATE_NORMAL:
-		default:
 			fcat = FLOWMANAGER_CATEGORY_NORMAL;
 			break;
 	}
 
-	[[AVSFlowManager getInstance] mediaCategoryChanged: _convId category: fcat];
+	if (_convId) {
+		[[AVSFlowManager getInstance] mediaCategoryChanged: _convId category: fcat];
+	}
 }
 
 @end

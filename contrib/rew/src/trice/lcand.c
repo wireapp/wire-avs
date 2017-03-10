@@ -568,8 +568,12 @@ void *trice_lcand_sock(struct trice *icem, const struct ice_lcand *lcand)
 void trice_lcand_recv_packet(struct ice_lcand *lcand,
 			     const struct sa *src, struct mbuf *mb)
 {
+	struct sa addr;
+
 	if (!lcand || !src || !mb)
 		return;
 
-	udp_helper_recv_handler((struct sa *)src, mb, lcand);
+	addr = *src;
+
+	udp_helper_recv_handler(&addr, mb, lcand);
 }

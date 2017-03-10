@@ -16,7 +16,10 @@ TEST_SRCS	+= test_chunk.cpp
 TEST_SRCS	+= test_confpos.cpp
 TEST_SRCS	+= test_cookie.cpp
 TEST_SRCS	+= test_dict.cpp
+TEST_SRCS	+= test_dce.cpp
 TEST_SRCS	+= test_dtls.cpp
+TEST_SRCS	+= test_ecall.cpp
+TEST_SRCS	+= test_econn.cpp
 TEST_SRCS	+= test_engine.cpp
 TEST_SRCS	+= test_flowmgr.cpp
 TEST_SRCS	+= test_flowmgr_b2b.cpp
@@ -28,8 +31,11 @@ TEST_SRCS	+= test_media.cpp
 TEST_SRCS	+= test_media_b2b.cpp
 TEST_SRCS	+= test_media_crypto.cpp
 TEST_SRCS	+= test_media_dual.cpp
+TEST_SRCS	+= test_mediastats.cpp
 TEST_SRCS	+= test_mill.cpp
+TEST_SRCS	+= test_msystem.cpp
 TEST_SRCS	+= test_netprobe.cpp
+TEST_SRCS	+= test_network.cpp
 TEST_SRCS	+= test_nevent.cpp
 TEST_SRCS	+= test_packetqueue.cpp
 TEST_SRCS	+= test_resampler.cpp
@@ -40,8 +46,10 @@ TEST_SRCS	+= test_string.cpp
 TEST_SRCS	+= test_turn.cpp
 TEST_SRCS	+= test_uuid.cpp
 TEST_SRCS	+= test_vidcodec.cpp
+TEST_SRCS	+= test_vie.cpp
 TEST_SRCS	+= test_voe.cpp
 TEST_SRCS	+= test_vp8_impl.cpp
+TEST_SRCS	+= test_wcall.cpp
 TEST_SRCS	+= test_zapi.cpp
 TEST_SRCS	+= test_ztime.cpp
 
@@ -59,9 +67,6 @@ ifneq ($(HAVE_CRYPTOBOX),)
 TEST_SRCS	+= test_cryptobox.cpp
 endif
 
-
-# optional tests
-TEST_SRCS	+= test_vie.cpp
 
 # Fakes/mocks in alphabetical order
 TEST_SRCS	+= fake_backend.cpp

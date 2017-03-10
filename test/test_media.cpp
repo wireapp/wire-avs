@@ -27,22 +27,11 @@
  */
 
 
-/** A dummy PCMU codec to test a fixed codec */
-static struct aucodec dummy_opus = {
-	.pt        = NULL,
-	.name      = "opus",
-	.srate     = 48000,
-	.ch        = 2,
-	.enc_alloc = NULL,
-	.ench      = NULL,
-	.dec_alloc = NULL,
-	.dech      = NULL,
-};
-
-
 static struct vidcodec dummy_vp8 = {
+	.le        = LE_INIT,
 	.pt        = "110",
 	.name      = "VP8",
+	.has_rtp   = true,
 };
 
 
@@ -59,18 +48,19 @@ public:
 		log_enable_stderr(true);
 #endif
 
-		aucodec_register(&aucodecl, &dummy_opus);
+		err = audummy_init(&aucodecl);
+		ASSERT_EQ(0, err);
+
 		vidcodec_register(&vidcodecl, &dummy_vp8);
 
 		sa_set_str(&laddr, "127.0.0.1", 0);
 
-		err = create_dtls_srtp_context(&dtls, CERT_TYPE_RSA);
+		err = create_dtls_srtp_context(&dtls, TLS_KEYTYPE_EC);
 		ASSERT_EQ(0, err);
 
 		err = mediaflow_alloc(&mf, dtls, &aucodecl, &laddr,
 				      MEDIAFLOW_TRICKLEICE_DUALSTACK,
 				      CRYPTO_DTLS_SRTP,
-				      false,
 				      mediaflow_localcand_handler,
 				      mediaflow_estab_handler,
 				      mediaflow_close_handler,
@@ -83,7 +73,7 @@ public:
 	{
 		mem_deref(mf);
 		mem_deref(dtls);
-		aucodec_unregister(&dummy_opus);
+		audummy_close();
 		vidcodec_unregister(&dummy_vp8);
 	}
 
@@ -247,7 +237,6 @@ TEST_F(TestMedia, gather_stun)
 	ASSERT_EQ(1, candv[0].compid);
 	ASSERT_EQ(IPPROTO_UDP, candv[0].proto);
 	ASSERT_TRUE(0 != candv[0].prio);
-	ASSERT_EQ(mediaflow_lport(mf), sa_port(&candv[0].addr));
 	ASSERT_EQ(ICE_CAND_TYPE_SRFLX, candv[0].type);
 }
 
@@ -274,7 +263,6 @@ TEST_F(TestMedia, gather_turn)
 	ASSERT_EQ(1, candv[0].compid);
 	ASSERT_EQ(IPPROTO_UDP, candv[0].proto);
 	ASSERT_TRUE(0 != candv[0].prio);
-	ASSERT_EQ(mediaflow_lport(mf), sa_port(&candv[0].addr));
 	ASSERT_EQ(ICE_CAND_TYPE_SRFLX, candv[0].type);
 
 	ASSERT_TRUE(str_isset(candv[1].foundation));
@@ -527,35 +515,6 @@ TEST_F(TestMedia, verify_trickle_option_in_sdp)
 	ASSERT_EQ(0, err);
 
 	ASSERT_TRUE(find_in_sdp(sdp, "trickle"));
-}
-
-
-TEST(media, ice_lite_options_in_sdp)
-{
-	struct mediaflow *mf = NULL;
-	struct sa laddr;
-	int err;
-
-	sa_set_str(&laddr, "127.0.0.1", 0);
-
-	err = mediaflow_alloc(&mf, NULL, NULL, &laddr,
-			      MEDIAFLOW_ICELITE, CRYPTO_NONE, false,
-			      NULL,
-			      NULL,
-			      NULL,
-			      NULL);
-	ASSERT_EQ(0, err);
-	ASSERT_TRUE(mf != NULL);
-
-	char sdp[4096];
-
-	err = mediaflow_generate_offer(mf, sdp, sizeof(sdp));
-	ASSERT_EQ(0, err);
-
-	ASSERT_TRUE(find_in_sdp(sdp, "ice-lite"));
-	ASSERT_FALSE(find_in_sdp(sdp, "trickle"));
-
-	mem_deref(mf);
 }
 
 

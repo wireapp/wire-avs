@@ -30,6 +30,7 @@
 #include "avs_version.h"
 //#include "avs_voe.h"
 #include "avs_vie.h"
+//#include "avs_msystem.h"
 
 #include "flowmgr.h"
 
@@ -37,6 +38,15 @@
 /* Call signalling URL bases */
 
 #define VOLUME_TIMEOUT 100 /* ms between volume updates */
+
+
+static struct {
+	struct list fml;
+	struct list flowl;
+
+	struct tmr vol_tmr;
+	struct msystem *msys;
+} fsys;
 
 
 static const char *events[FLOWMGR_EVENT_MAX] = {
@@ -47,34 +57,6 @@ static const char *events[FLOWMGR_EVENT_MAX] = {
 	"call.remote-candidates-update",
 	"call.remote-sdp"
 };
-
-
-static struct {
-	bool inited;
-	bool started;
-	struct list flows;
-	struct tls *dtls;
-	struct mqueue *mq;
-	struct tmr vol_tmr;
-	char *name;
-	bool using_voe;
-	bool loopback;
-	bool privacy;
-	char ifname[256];
-
-	struct list flowmgrl;
-
-} msys = {
-	.inited = false,
-	.started = false,
-	.flows = LIST_INIT,
-	.dtls = NULL,
-	.mq = NULL,
-};
-
-
-static struct list aucodecl; // todo: temp, move to application ???
-static struct list vidcodecl; // todo: temp, move to application ???
 
 
 static int process_event(bool *hp, struct flowmgr *fm,
@@ -144,6 +126,7 @@ static void color_trace(enum trace_type type,
 	char str[256];
 	size_t len;
 	size_t offset;
+	ssize_t n = 0;
 
 	re_snprintf(str, sizeof(str), "%v", fmt, &ap);
 	len = min(WIDTH, strlen(str));
@@ -154,9 +137,10 @@ static void color_trace(enum trace_type type,
 
 #ifndef ANDROID
 	re_fprintf(stderr, "\x1b[%dm", color);
-	write(STDERR_FILENO, buf, WIDTH);
+	n = write(STDERR_FILENO, buf, WIDTH);
 	re_fprintf(stderr, "\x1b[;m");
 #endif
+	(void)n;
 
 	va_end(ap);
 #undef WIDTH
@@ -164,204 +148,6 @@ static void color_trace(enum trace_type type,
 
 
 /* This is just a dummy handler fo waking up re_main() */
-static void wakeup_handler(int id, void *data, void *arg)
-{
-	(void)id;
-	(void)data;
-	(void)arg;
-}
-
-
-static const char *cipherv[] = {
-
-	"ECDHE-RSA-AES128-GCM-SHA256",
-	"ECDHE-ECDSA-AES128-GCM-SHA256",
-	"ECDHE-RSA-AES256-GCM-SHA384",
-	"ECDHE-ECDSA-AES256-GCM-SHA384",
-	"DHE-RSA-AES128-GCM-SHA256",
-	"DHE-DSS-AES128-GCM-SHA256",
-	"ECDHE-RSA-AES128-SHA256",
-	"ECDHE-ECDSA-AES128-SHA256",
-	"ECDHE-RSA-AES128-SHA",
-	"ECDHE-ECDSA-AES128-SHA",
-	"ECDHE-RSA-AES256-SHA384",
-	"ECDHE-ECDSA-AES256-SHA384",
-	"ECDHE-RSA-AES256-SHA",
-	"ECDHE-ECDSA-AES256-SHA",
-	"DHE-RSA-AES128-SHA256",
-	"DHE-RSA-AES128-SHA",
-	"DHE-DSS-AES128-SHA256",
-	"DHE-RSA-AES256-SHA256",
-	"DHE-DSS-AES256-SHA",
-	"DHE-RSA-AES256-SHA",
-	"ECDHE-RSA-AES128-CBC-SHA",
-
-};
-
-
-static int msystem_init(const char *msysname,
-			enum cert_type cert_type)
-{
-	int err;
-
-	if (msys.inited)
-		return 0;
-
-	err = mqueue_alloc(&msys.mq, wakeup_handler, NULL);
-	if (err) {
-		warning("flowmgr: failed to create mqueue (%m)\n", err);
-		return err;
-	}
-
-	err = tls_alloc(&msys.dtls, TLS_METHOD_DTLS, NULL, NULL);
-	if (err) {
-		warning("flowmgr: failed to create DTLS context (%m)\n",
-			err);
-		return err;
-	}
-
-	err = cert_enable_ecdh(msys.dtls);
-	if (err)
-		return err;
-
-	info("flowmgr: setting %zu ciphers for DTLS\n", ARRAY_SIZE(cipherv));
-	err = tls_set_ciphers(msys.dtls, cipherv, ARRAY_SIZE(cipherv));
-	if (err)
-		return err;
-
-	{
-		uint64_t t1, t2;
-
-		t1 = tmr_jiffies();
-
-		switch (cert_type) {
-
-		case CERT_TYPE_RSA:
-			info("flowmgr: generating selfsigned certificate\n");
-		
-			err = tls_set_selfsigned(msys.dtls, "dtls@avs");
-			if (err) {
-				warning("flowmgr: failed to self-sign"
-					" certificate"
-					" (%m)\n", err);
-				return err;
-			}
-			break;
-
-		case CERT_TYPE_ECDSA:
-			info("flowmgr: generating ECDSA certificate\n");
-			err = cert_tls_set_selfsigned_ecdsa(msys.dtls,
-							    "prime256v1");
-			if (err) {
-				warning("flowmgr: failed to generate ECDSA"
-					" certificate"
-					" (%m)\n", err);
-				return err;
-			}
-			break;
-
-		default:
-			warning("flowmgr: invalid cert type\n");
-			return ENOTSUP;
-		}
-
-		t2 = tmr_jiffies();
-
-		info("flowmgr: generate certificate took %d ms\n",
-		     (int)(t2-t1));
-	}
-
-	tls_set_verify_client(msys.dtls);
-
-	err = tls_set_srtp(msys.dtls, "SRTP_AES128_CM_SHA1_80");
-	if (err) {
-		warning("flowmgr: failed to enable SRTP profile (%m)\n",
-			err);
-		return err;
-	}
-
-	tmr_init(&msys.vol_tmr);
-
-	err = str_dup(&msys.name, msysname);
-	if (streq(msys.name, "audummy"))
-		err = audummy_init(&aucodecl);
-	else if (streq(msys.name, "voe")) {
-		err = voe_init(&aucodecl);
-		if (err) {
-			warning("flowmgr: voe init failed (%m)\n", err);
-			return err;
-		}
-
-		err = vie_init(&vidcodecl);
-		if (err) {
-			warning("flowmgr: vie init failed (%m)\n", err);
-			return err;
-		}
-
-		msys.using_voe = true;
-	}
-	else {
-		warning("flowmgr: media-system not available (%s)\n",
-			msys.name);
-		err = EINVAL;
-	}
-
-	if (err)
-		return err;
-
-	info("flowmgr: msystem successfully initialized\n");
-
-	msys.inited = true;
-
-	return 0;
-}
-
-
-void msystem_cancel_volume(void)
-{
-	if (msys.flows.head == NULL)
-		tmr_cancel(&msys.vol_tmr);
-
-}
-
-
-struct tls *msystem_dtls(void)
-{
-	return msys.dtls;
-}
-
-struct list *msystem_aucodecl(void)
-{
-	return &aucodecl;
-}
-
-struct list *msystem_vidcodecl(void)
-{
-	return &vidcodecl;
-}
-
-struct list *msystem_flows(void)
-{
-	return &msys.flows;
-}
-
-
-bool msystem_get_loopback(void)
-{
-	return msys.loopback;
-}
-
-
-bool msystem_get_privacy(void)
-{
-	return msys.privacy;
-}
-
-
-const char *msystem_get_interface(void)
-{
-	return msys.ifname;
-}
 
 
 static void vol_tmr_handler(void *arg)
@@ -369,57 +155,47 @@ static void vol_tmr_handler(void *arg)
 	struct le *le;
 	bool using_voe = false;
 
-	using_voe = msys.using_voe;
+	using_voe = msystem_is_using_voe(fsys.msys);
 
-	LIST_FOREACH(&msys.flows, le) {
+	LIST_FOREACH(&fsys.flowl, le) {
 		struct flow *flow = le->data;
 
 		flow_vol_handler(flow, using_voe);
 	}
 
-	if (msys.flows.head != NULL) {
-		tmr_start(&msys.vol_tmr, VOLUME_TIMEOUT,
+	if (fsys.flowl.head != NULL) {
+		tmr_start(&fsys.vol_tmr, VOLUME_TIMEOUT,
 			  vol_tmr_handler, NULL);
 	}
 }
 
 
-void msystem_start_volume(void)
+void flowmgr_start_volume(void)
 {
-	if (!tmr_isrunning(&msys.vol_tmr)) {
-		tmr_start(&msys.vol_tmr, VOLUME_TIMEOUT,
+	if (!tmr_isrunning(&fsys.vol_tmr)) {
+		tmr_start(&fsys.vol_tmr, VOLUME_TIMEOUT,
 			  vol_tmr_handler, NULL);
 	}
 }
 
 
-static void msystem_free(void)
+void flowmgr_cancel_volume(void)
 {
-	if (!msys.inited)
-		return;
-
-	if (streq(msys.name, "audummy"))
-		audummy_close();
-	else if (streq(msys.name, "voe")) {
-		vie_close();
-		voe_close();
-	}
-
-	list_clear(&msys.flows);
-	tmr_cancel(&msys.vol_tmr);
-
-	msys.mq = mem_deref(msys.mq);
-	msys.dtls = mem_deref(msys.dtls);
-	msys.name = mem_deref(msys.name);
-	
-	msys.inited = false;
+	tmr_cancel(&fsys.vol_tmr);
 }
 
+struct list *flowmgr_flows(void)
+{
+	return &fsys.flowl;
+}
 
 int flowmgr_init(const char *msysname, const char *log_url,
 		 int cert_type)
 {
 	int err;
+
+	if (fsys.msys != NULL)
+		return 0;
 
 	info("flowmgr_init: msys=%s\n", msysname);
 
@@ -430,9 +206,11 @@ int flowmgr_init(const char *msysname, const char *log_url,
 		return err;
 	}
 
-	err = msystem_init(msysname, cert_type);
-	if (err)
+	err = msystem_get(&fsys.msys, msysname, cert_type, NULL);
+	if (err) {
+		warning("flowmgr: msystem_init failed: %m\n", err);
 		goto out;
+	}
 
 	info("flowmgr: initialized -- %s [machine %H]\n",
 	     avs_version_str(), sys_build_get, 0);
@@ -443,7 +221,7 @@ int flowmgr_init(const char *msysname, const char *log_url,
 
  out:
 	if (err)
-		msystem_free();
+		fsys.msys = mem_deref(fsys.msys);
 
 	return err;
 }
@@ -454,10 +232,10 @@ static void config_handler(struct call_config *cfg, void *arg)
 	struct flowmgr *fm = arg;
 	struct le *le;
 
-	(void)cfg;
-	
 	fm->config.pending = false;
 	fm->config.ready = true;
+
+	msystem_set_call_config(fsys.msys, cfg);
 
 	le = fm->postl.head;
 	while(le) {
@@ -476,9 +254,9 @@ int flowmgr_start(void)
 	struct le *le;
 	int err = 0;
 
-	msys.started = true;
+	msystem_start(fsys.msys);
 	
-	LIST_FOREACH(&msys.flowmgrl, le) {
+	LIST_FOREACH(&fsys.fml, le) {
 		struct flowmgr *fm = le->data;
 
 		fm->config.pending = true;
@@ -491,14 +269,7 @@ int flowmgr_start(void)
 
 void flowmgr_enable_loopback(bool enable)
 {
-	msys.loopback = enable;
-}
-
-
-void flowmgr_enable_privacy(bool enable)
-{
-	info("flowmgr: mediaflow privacy %sabled\n", enable ? "En" : "Dis");
-	msys.privacy = enable;
+	msystem_enable_loopback(fsys.msys, enable);
 }
 
 
@@ -509,7 +280,7 @@ void flowmgr_bind_interface(const char *ifname)
 
 	info("flowmgr: binding to network interface '%s'\n", ifname);
 
-	str_ncpy(msys.ifname, ifname, sizeof(msys.ifname));
+	msystem_set_ifname(fsys.msys, ifname);
 }
 
 
@@ -528,9 +299,12 @@ struct call *flowmgr_call(struct flowmgr *fm, const char *convid)
 
 void flowmgr_close(void)
 {
+	tmr_cancel(&fsys.vol_tmr);
+
 	flowmgr_wakeup();
 	marshal_close();
-	msystem_free();
+	// XXX What is the lifetime of msystem? 
+	fsys.msys = mem_deref(fsys.msys);
 }
 
 
@@ -733,7 +507,7 @@ static int flow_add(struct call *call, const char *flowid,
 	bool active = false;
 	int err;
 
-	if (!msys.inited) {
+	if (!msystem_is_initialized(fsys.msys)) {
 		warning("flowmgr: mediasystem is not initialized!\n");
 		return ENOSYS;
 	}
@@ -1082,7 +856,6 @@ int flowmgr_post_flows(struct call *call)
 	return err;
 }
 
-
 int flowmgr_acquire_flows(struct flowmgr *fm, const char *convid,
 			  const char *sessid,
 			  flowmgr_netq_h *qh, void *arg)
@@ -1100,7 +873,7 @@ int flowmgr_acquire_flows(struct flowmgr *fm, const char *convid,
 	err = call_lookup_alloc(&call, &callocated, fm, convid);
 	if (err)
 		return err;
-
+	
 	call->start_ts = tmr_jiffies();
 
 	if (sessid)
@@ -1288,6 +1061,8 @@ static void fm_destructor(void *arg)
 
 	info("flowmgr(%p): destructor\n", fm);
 
+	tmr_cancel(&fm->config.tmr);
+
 	flowmgr_config_stop(fm);
 
 	close_requests(fm);
@@ -1332,8 +1107,8 @@ int flowmgr_alloc(struct flowmgr **fmp, flowmgr_req_h *reqh,
 	/* Set these elsewhere, for more control... */
 	flowmgr_enable_metrics(fm, false);
 
-	list_append(&msys.flowmgrl, &fm->le, fm);
-	if (msys.started) {
+	list_append(&fsys.fml, &fm->le, fm);
+	if (msystem_is_started(fsys.msys)) {
 		fm->config.pending = true;
 		flowmgr_config_starth(fm, config_handler, fm);
 	}
@@ -1774,9 +1549,9 @@ int flowmgr_send_metrics(struct flowmgr *fm, const char *convid,
 	call = dict_lookup(fm->calls, convid);
 	if (!call)
 		return ENOENT;
-    
-    if(dict_count(call->flows) == 0)
-        return 0;
+
+	if (dict_count(call->flows) == 0)
+		return 0;
 
 	jobj = json_object_new_object();
 	if (!jobj)
@@ -1849,10 +1624,7 @@ int flowmgr_debug(struct re_printf *pf, const struct flowmgr *fm)
 
 int flowmgr_wakeup(void)
 {
-	if (!msys.mq)
-		return ENOSYS;
-
-	return mqueue_push(msys.mq, 0, NULL);
+	return msystem_push(fsys.msys, 0, NULL);	
 }
 
 
@@ -1935,7 +1707,7 @@ void flowmgr_handle_frame(struct avs_vidframe *frame)
 
 bool flowmgr_is_using_voe(void)
 {
-	return msys.using_voe;
+	return msystem_is_using_voe(fsys.msys);
 }
 
 
@@ -2013,4 +1785,10 @@ void flowmgr_set_audio_state_handler(struct flowmgr *fm,
 			void *arg)
 {
 	voe_set_audio_state_handler(state_change_h, arg);
+}
+
+
+struct msystem *flowmgr_msystem(void)
+{
+	return fsys.msys;
 }

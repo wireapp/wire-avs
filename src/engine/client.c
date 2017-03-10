@@ -13,6 +13,7 @@
 #include "conv.h"
 #include "utils.h"
 
+#define MAX_CLIENTS 8
 
 static void get_clients_handler(int err, const struct http_msg *msg,
 				struct mbuf *mb, struct json_object *jobj,
@@ -27,7 +28,7 @@ static void get_clients_handler(int err, const struct http_msg *msg,
 		goto out;
 	}
 
-	if (msg->scode >= 300) {
+	if (msg && msg->scode >= 300) {
 		warning("engine: get clients failed (%u %r)\n",
 			msg->scode, &msg->reason);
 		err = EPROTO;
@@ -131,6 +132,9 @@ static void get_prekeys_handler(int err, const struct http_msg *msg,
 	}
 
 	count = odict_count(clients->u.odict, false);
+	if (count == 0) {
+		warning("engine: no prekeys for user %s\n", user->u.str);
+	}
 
 	for (i=0; i<count; i++) {
 		const struct odict_entry *ae;
@@ -202,16 +206,20 @@ struct uc_ctx {
 };
 
 
+
 static void get_user_clients_handler(int err, const struct http_msg *msg,
-				     struct mbuf *mb, struct json_object *jobj,
+				     struct mbuf *mb,
+				     struct json_object *jobj,
 				     void *arg)
 {
 	struct uc_ctx *ctx = arg;
-	const char *clientidv[8] = {};
+	const char *clientidv[MAX_CLIENTS];
 	size_t i, clientidc = 0;
 
 	if (err) {
-		warning("engine: get user clients failed (%m)\n", err);
+		if (err != ECONNABORTED) {
+			warning("engine: get user clients failed (%m)\n", err);
+		}
 		goto out;
 	}
 
@@ -228,6 +236,9 @@ static void get_user_clients_handler(int err, const struct http_msg *msg,
 #endif
 
 	clientidc = json_object_array_length(jobj);
+	if (clientidc > ARRAY_SIZE(clientidv))
+		clientidc = ARRAY_SIZE(clientidv);
+	
 	for (i=0; i<clientidc; i++) {
 		struct json_object *jent;
 
@@ -289,7 +300,9 @@ static void reg_client_resp_handler(int err, const struct http_msg *msg,
 		goto out;
 	}
 
-	info("engine: Register client: %u %r\n", msg->scode, &msg->reason);
+	info("engine: Register client: %u %r\n",
+	     msg ? msg->scode : 0,
+	     msg ? &msg->reason : 0);
 
 #if 0
 	re_printf("%H\n", jzon_encode_odict_pretty, jzon_get_odict(jobj));

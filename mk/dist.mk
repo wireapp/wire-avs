@@ -89,10 +89,28 @@ DIST_BUNDLE_LIB := \
 	{CFBundleName="$(DIST_BUNDLE_LIB_NAME)";\
 	CFBundleIdentifier="$(DIST_BUNDLE_LIB_IDENTIFIER)";\
 	CFBundleVersion="$(DIST_BUNDLE_VERSION)";\
+	CFBundleShortVersionString="$(DIST_BUNDLE_VERSION)";\
 	CFBundleSignature="$(DIST_BUNDLE_SIGNATURE)";\
 	CFBundlePackageType="$(DIST_BUNDLE_PACKAGE_TYPE)";\
 	NSHumanReadableCopyright="$(DIST_BUNDLE_COPYRIGHT)";\
-	CFBundleGetInfoString="$(DIST_BUNDLE_LIB_INFO)";}
+	CFBundleGetInfoString="$(DIST_BUNDLE_LIB_INFO)";\
+	CFBundleExecutable="avs";\
+	CFBundleSignature="\?\?\?\?";\
+	DTXcode="0821";\
+	DTSDKName="iphoneos10.2";\
+	DTSDKBuild="14C89";\
+	DTPlatformName="iphoneos";\
+	DTPlatformVersion="10.2";\
+	DTPlatformBuild="14C89";\
+	DTCompiler="com.apple.compilers.llvm.clang.1_0";\
+	DTXCodeBuild="8C1002";\
+	MinimumOSVersion="8.0";\
+	UIDeviceFamily=(1, 2);\
+	BuildMachineOSBuild="16D32";\
+	CFBundleDevelopmentRegion="en";\
+	CFBundleSupportedPlatforms=(iPhoneOS);\
+	CFBundleInfoDictionaryVersion="6.0";}
+
 
 DIST_BUNDLE_STUB := \
 	{CFBundleName="$(DIST_BUNDLE_STUB_NAME)";\
@@ -114,7 +132,9 @@ DIST_IOS_TARGETS := \
 	$(BUILD_DIST_IOS)/$(BUILD_LIB_REL).framework.zip \
 	$(BUILD_DIST_IOS)/$(BUILD_STUB_REL).framework.zip \
 	$(BUILD_DIST_IOS)/avs.tar.bz2 \
-	$(BUILD_DIST_IOS)/avsstub.tar.bz2 \
+	$(BUILD_DIST_IOS)/avsstub.tar.bz2
+
+
 
 DIST_OSX_TARGETS := \
 	$(BUILD_DIST_OSX)/$(BUILD_LIB_REL).framework.zip \
@@ -144,7 +164,8 @@ ifneq ($(filter armv7,$(DIST_ARCH)),)
 	$(MAKE) contrib AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) $(JOBS) mediaengine AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=armv7 && \
-	$(MAKE) android_shared AVS_OS=android AVS_ARCH=armv7
+	$(MAKE) android_shared AVS_OS=android AVS_ARCH=armv7 && \
+	$(MAKE) tools test AVS_OS=android AVS_ARCH=armv7
 	@cp $(BUILD_BASE)/android-armv7/lib/libavs.stripped.so \
 		$(BUILD_DIST_AND)/aar/jni/armeabi-v7a/libavs.so
 endif
@@ -158,6 +179,17 @@ ifneq ($(filter i386,$(DIST_ARCH)),)
 	@cp $(BUILD_BASE)/android-i386/lib/libavs.stripped.so \
 		$(BUILD_DIST_AND)/aar/jni/x86/libavs.so
 endif
+ifneq ($(filter osx,$(DIST_ARCH)),)
+	@mkdir -p $(BUILD_DIST_AND)/aar/jni/darwin
+	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=x86_64 && \
+	$(MAKE) contrib AVS_OS=osx AVS_ARCH=x86_64 && \
+	$(MAKE) $(JOBS) mediaengine AVS_OS=osx AVS_ARCH=x86_64 && \
+	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=x86_64 && \
+	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=x86_64
+	@cp $(BUILD_BASE)/osx-x86_64/lib/libavs.jnilib \
+		$(BUILD_DIST_AND)/aar/jni/darwin/libavs.dylib
+endif
+
 	@mkdir -p $(BUILD_DIST_AND)/aar/res/values
 	@echo '$(DIST_AND_BUILDINFO)' \
 		> $(BUILD_DIST_AND)/aar/res/values/buildinfo.xml
@@ -174,7 +206,8 @@ ifneq ($(filter armv7,$(DIST_ARCH)),)
 	$(MAKE) contrib AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) $(JOBS) mediaengine AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=armv7 && \
-	$(MAKE) android_shared AVS_OS=android AVS_ARCH=armv7
+	$(MAKE) android_shared AVS_OS=android AVS_ARCH=armv7 && \
+	$(MAKE) tools test AVS_OS=android AVS_ARCH=armv7
 	@mkdir -p $(BUILD_DIST_AND)/zip/libs/armeabi-v7a
 	@cp $(BUILD_BASE)/android-armv7/lib/libavs.so \
 		$(BUILD_DIST_AND)/zip/libs/armeabi-v7a
@@ -198,6 +231,10 @@ ifneq ($(filter osx,$(DIST_ARCH)),)
 	@mkdir -p $(BUILD_DIST_AND)/zip/libs/osx
 	@cp $(BUILD_BASE)/osx-x86_64/lib/libavs.jnilib \
 		$(BUILD_DIST_AND)/zip/libs/osx
+	@mkdir -p $(BUILD_DIST_AND)/zip/libs/darwin
+	@cp $(BUILD_BASE)/osx-x86_64/lib/libavs.jnilib \
+		$(BUILD_DIST_AND)/zip/libs/darwin/libavs.dylib
+
 endif
 #	@echo 'GEN BUILD INFO > $(BUILD_DIST_AND)/zip/version.buildinfo'
 #	@echo `genbuildinfo -b BUILDCONTROL -c ../buildcomponents/android`
@@ -215,11 +252,15 @@ $(BUILD_DIST_AND)/avs.tar.bz2: $(BUILD_DIST_AND)/avs.zip
 
 # Resources/Info.plist
 #
-$(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL_V)/Resources/Info.plist:
+.SECONDARY: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/Info.plist
+.SECONDARY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/Info.plist
+$(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Info.plist:
 	@mkdir -p $(dir $@)
 	@rm -f $@
 	@defaults write $@ '$(DIST_BUNDLE_LIB)'
 
+.SECONDARY: $(BUILD_DIST_IOS)/$(BUILD_STUB_REL_V)/Resources/Info.plist
+.SECONDARY: $(BUILD_DIST_OSX)/$(BUILD_STUB_REL_V)/Resources/Info.plist
 $(BUILD_DIST_BASE)/%/$(BUILD_STUB_REL_V)/Resources/Info.plist:
 	@mkdir -p $(dir $@)
 	@rm -f $@
@@ -227,20 +268,33 @@ $(BUILD_DIST_BASE)/%/$(BUILD_STUB_REL_V)/Resources/Info.plist:
 
 # Headers
 #
-.SECONDARY .PHONY: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL_V)/Headers
-.SECONDARY .PHONY: $(BUILD_DIST_IOS)/$(BUILD_STUB_REL_V)/Headers
-.SECONDARY .PHONY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL_V)/Headers
-.SECONDARY .PHONY: $(BUILD_DIST_OSX)/$(BUILD_STUB_REL_V)/Headers
-$(BUILD_DIST_BASE)/%/Headers:
+.SECONDARY: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/Headers
+.SECONDARY: $(BUILD_DIST_IOS)/$(BUILD_STUB_REL_V)/Headers
+.SECONDARY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/Headers
+.SECONDARY: $(BUILD_DIST_OSX)/$(BUILD_STUB_REL_V)/Headers
+$(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Headers:
 	@mkdir $@
 	@touch $@
 	@cp -a iosx/include/* $@
+	@cp -a include/avs_wcall.h $@
 
+$(BUILD_DIST_BASE)/%/$(BUILD_STUB_REL_V)/Headers:
+	@mkdir $@
+	@touch $@
+	@cp -a iosx/include/* $@
+	@cp -a include/avs_wcall.h $@
+
+.SECONDARY: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/Modules
+.SECONDARY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/Modules
+$(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Modules:
+	@mkdir $@
+	@touch $@
+	@cp -a iosx/module.modulemap $@
 
 # Libraries
 #
-.PHONY: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL_V)/$(BUILD_LIB_REL)
-$(BUILD_DIST_IOS)/$(BUILD_LIB_REL_V)/$(BUILD_LIB_REL):
+.PHONY: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
+$(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
 	@for arch in $(DIST_ARCH_ios) ; do \
 		$(MAKE) contrib AVS_OS=ios AVS_ARCH=$$arch && \
 		$(MAKE) $(JOBS) mediaengine AVS_OS=ios AVS_ARCH=$$arch && \
@@ -250,9 +304,9 @@ $(BUILD_DIST_IOS)/$(BUILD_LIB_REL_V)/$(BUILD_LIB_REL):
 	@mkdir -p $(dir $@)
 	lipo -create -output $@ \
 		$(foreach arch,$(DIST_ARCH_ios),\
-		-arch $(arch) $(BUILD_BASE)/ios-$(arch)/lib/libavsobjc.dylib)
+		-arch $(arch) $(BUILD_BASE)/ios-$(arch)/lib/avs.framework/avs)
 
-dist_test: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL_V)/$(BUILD_LIB_REL)
+dist_test: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 
 .PHONY: $(BUILD_DIST_IOS)/$(BUILD_STUB_REL_V)/$(BUILD_STUB_REL)
 $(BUILD_DIST_IOS)/$(BUILD_STUB_REL_V)/$(BUILD_STUB_REL):
@@ -264,42 +318,34 @@ $(BUILD_DIST_IOS)/$(BUILD_STUB_REL_V)/$(BUILD_STUB_REL):
 		$(foreach arch,$(DIST_ARCH_ios),\
 		-arch $(arch) $(BUILD_BASE)/ios-$(arch)/lib/libavsobjcstub.dylib)
 
-.PHONY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL_V)/$(BUILD_LIB_REL)
-$(BUILD_DIST_OSX)/$(BUILD_LIB_REL_V)/$(BUILD_LIB_REL):
+.PHONY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
+$(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
 	@$(MAKE) contrib AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) $(JOBS) mediaengine AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) iosx AVS_OS=osx AVS_ARCH=x86_64
 	@mkdir -p $(dir $@)
-	@cp $(BUILD_BASE)/osx-x86_64/lib/libavsobjc.dylib $@
+	@cp $(BUILD_BASE)/osx-x86_64/lib/avs.framework/avs $@
 
 .PHONY: $(BUILD_DIST_OSX)/$(BUILD_STUB_REL_V)/$(BUILD_STUB_REL)
 $(BUILD_DIST_OSX)/$(BUILD_STUB_REL_V)/$(BUILD_STUB_REL):
 	@$(MAKE) iosx AVS_OS=osx AVS_ARCH=x86_64
 	@mkdir -p $(dir $@)
-	@cp $(BUILD_BASE)/osx-x86_64/lib/libavsobjcstub.dylib $@
+	@cp $(BUILD_BASE)/osx-x86_64/lib/avs.framework/avs $@
 
 
 # Package
 #
 $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL).framework.zip: \
-		$(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL_V)/Resources/Info.plist \
-		$(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL_V)/Headers \
-		$(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL_V)/$(BUILD_LIB_REL)
-	@rm -f  $(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/Versions/Current \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/Headers \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/$(BUILD_LIB_REL) \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/Resources
-	@ln -s $(DIST_FMWK_VERSION) \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/Versions/Current 
-	@ln -s Versions/Current/Headers \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/Headers
-	@ln -s Versions/Current/$(BUILD_LIB_REL) \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
-	@ln -s Versions/Current/Resources \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/Resources
-	@( cd $(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL) && \
-		zip --symlinks -r $@ * )
+	$(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Info.plist \
+	$(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Headers \
+	$(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Modules \
+	$(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
+	mkdir -p $(BUILD_DIST_BASE)/$*/Carthage/Build/iOS/avs.framework
+	cp -R $(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/* \
+		$(BUILD_DIST_BASE)/$*/Carthage/Build/iOS/avs.framework
+	@( cd $(BUILD_DIST_BASE)/$* && \
+		zip --symlinks -r $@ Carthage )
 
 $(BUILD_DIST_BASE)/%/$(BUILD_STUB_REL).framework.zip: \
 		$(BUILD_DIST_BASE)/%/$(BUILD_STUB_REL_V)/Resources/Info.plist \
@@ -357,6 +403,7 @@ $(BUILD_DIST_BASE)/%/avs.tar.bz2: \
 		$(BUILD_DIST_BASE)/%/$(BUILD_BALL_REL)/lib/libavsobjc.stripped.a
 	@mkdir -p $(dir $@)
 	@cp -a iosx/include $(BUILD_DIST_BASE)/$*/$(BUILD_BALL_REL)
+	@cp -a include/avs_wcall.h $(BUILD_DIST_BASE)/$*/$(BUILD_BALL_REL)
 	@genbuildinfo -b BUILDCONTROL \
 		-o $(BUILD_DIST_BASE)/$*/$(BUILD_BALL_REL)/version.buildinfo
 	@( cd $(BUILD_DIST_BASE)/$*/$(BUILD_BALL_REL) && tar cfj $@ * )
@@ -365,6 +412,7 @@ $(BUILD_DIST_BASE)/%/avsstub.tar.bz2: \
 		$(BUILD_DIST_BASE)/%/$(BUILD_STUBBALL_REL)/lib/libavsobjcstub.a
 	@mkdir -p $(dir $@)
 	@cp -a iosx/include $(BUILD_DIST_BASE)/$*/$(BUILD_STUBBALL_REL)
+	@cp -a include/avs_wcall.h $(BUILD_DIST_BASE)/$*/$(BUILD_STUBBALL_REL)
 	@genbuildinfo -b BUILDCONTROL \
 		-o $(BUILD_DIST_BASE)/$*/$(BUILD_STUBBALL_REL)/version.buildinfo
 	@( cd $(BUILD_DIST_BASE)/$*/$(BUILD_STUBBALL_REL) && tar cfj $@ * )

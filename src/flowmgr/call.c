@@ -27,9 +27,7 @@
 #include "flowmgr.h"
 
 #include "avs_vie.h"
-#include "avs_voe_stats.h"
-#include "../media/rtp_stats.h"
-
+#include "avs_mediastats.h"
 
 static void call_destructor(void *arg)
 {
@@ -375,35 +373,12 @@ int call_add_flow(struct call *call, struct userflow *uf, struct flow *flow)
 }
 
 
-#if CALLING2_0 /* CALLING2.0 */
-static bool flow_activate_handler(char *key, void *val, void *arg)
-{
-	struct flow *flow = val;
-	struct call *call = arg;
-
-	(void)key;
-
-	flow_activate(flow, call->active);
-
-	return false;
-}
-#endif
-
-
 int call_set_active(struct call *call, bool active)
 {
 	if (!call)
 		return EINVAL;
 
 	call->active = active;
-
-/* CALLING2.0 don't activate all flows, with eager flows
- * we will end up activating non-active flows, leading to
- * never unsilencing.
- */
-#if CALLING2_0
-	dict_apply(call->flows, flow_activate_handler, call);
-#endif
 
 	return 0;
 }
@@ -479,7 +454,11 @@ static bool userflow_post_handler(char *key, void *val, void *arg)
 	case USERFLOW_SIGNAL_STATE_HAVE_REMOTE_OFFER:
 		info("flowmgr: userflow: %p have_remote_offer: accepting...\n",
 		     uf);
-		userflow_accept(uf, NULL);
+
+		err = userflow_accept(uf, NULL);
+		if (err) {
+			warning("flowmgr: userflow_post_handler: userflow_accept failed (%m)\n", err);
+		}
 		break;
 
 	default:
@@ -918,7 +897,7 @@ bool call_has_media(struct call *call)
 
 static bool stats_has_video(struct mediaflow *mf)
 {
-	struct rtp_stats* rtps = mediaflow_snd_video_rtp_stats(mf);
+	const struct rtp_stats* rtps = mediaflow_snd_video_rtp_stats(mf);
 	bool has_video = false;
 	if(rtps){
 		if(rtps->bit_rate_stats.max != -1){
@@ -988,7 +967,7 @@ bool call_stats_prepare(struct call *call, struct json_object *jobj)
 			err |= jzon_add_int(jobj, "avg_loss_u", voe_stats->loss_u.avg);
 			err |= jzon_add_int(jobj, "max_loss_u", voe_stats->loss_u.max);
 		}
-		struct rtp_stats* rtps = mediaflow_rcv_audio_rtp_stats(userflow_mediaflow(flow->userflow));
+		const struct rtp_stats* rtps = mediaflow_rcv_audio_rtp_stats(userflow_mediaflow(flow->userflow));
 		if (rtps) {
 			err |= jzon_add_int(jobj, "avg_loss_d", (int)rtps->pkt_loss_stats.avg);
 			err |= jzon_add_int(jobj, "max_loss_d", (int)rtps->pkt_loss_stats.max);
@@ -1009,7 +988,6 @@ bool call_stats_prepare(struct call *call, struct json_object *jobj)
 			struct json_object *jsess;
 			jsess = json_object_new_string(voe_stats->audio_route);
 			json_object_object_add(jobj, "audio_route", jsess);
-			err |= jzon_add_int(jobj, "test_score", voe_stats->test_score);
 		}
 		rtps = mediaflow_rcv_video_rtp_stats(userflow_mediaflow(flow->userflow));
 		if (rtps) {
@@ -1078,7 +1056,6 @@ void call_ghost_flow_handler(int status, struct rr_resp *rr,
 
 	mem_deref(flel);
 }
-
 
 bool call_can_send_video(struct call *call)
 {

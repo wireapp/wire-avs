@@ -79,7 +79,7 @@ struct userflow {
 	char *name;
 
 	struct mediaflow *mediaflow;
-
+    
 	struct {
 		char *type; /* type of sdp, offer or answer */
 		char *sdp;
@@ -155,7 +155,9 @@ struct flow {
 
 	struct conf_part *cp;
 
-	struct userflow *userflow;	
+	struct userflow *userflow;
+
+	bool userflow_allocated;
 };
 
 
@@ -339,6 +341,8 @@ void call_video_rcvd(struct call *call, bool rcvd);
 void call_set_video_send_active(struct call *call, bool video_active);
 bool call_is_sending_video(struct call *call, const char *partid);
 
+int  call_send_data(struct call *call, struct mbuf *mb);
+
 struct flow *call_find_remote_user(const struct call *call,
 				   const char *remote_user);
 
@@ -406,22 +410,15 @@ void rr_cancel(struct rr_resp *rr);
 void rr_response(struct rr_resp *rr);
 bool rr_isvalid(const struct rr_resp *rr);
 
-
-void msystem_start_volume(void);
-void msystem_cancel_volume(void);
-struct tls *msystem_dtls(void);
-struct list *msystem_aucodecl(void);
-struct list *msystem_vidcodecl(void);
-struct list *msystem_flows(void);
-bool msystem_get_loopback(void);
-bool msystem_get_privacy(void);
-const char *msystem_get_interface(void);
-
 int  marshal_init(void);
 void marshal_close(void);
 
 
+struct list *flowmgr_flows(void);
+void flowmgr_start_volume(void);
+void flowmgr_cancel_volume(void);
 bool flowmgr_is_using_voe(void);
+
 
 /* Userflow */
 

@@ -1,3 +1,34 @@
+2016-12-02 Alfred E. Heggestad <alfred.heggestad@gmail.com>
+
+	* Version 0.5.0
+
+	* Project URL: https://github.com/creytiv/rem
+
+	* build: remove support for Symbian OS
+
+	* vid: add support for YUV444P pixel format
+
+	* vidconv: fix yuv420p <-> nv12 conversion
+		   added vidconv YUV420P to NV12
+
+
+2015-12-13 Alfred E. Heggestad <aeh@db.org>
+
+	* Version 0.4.7
+
+	* build: add pkg-config file (thanks to William King)
+
+	* auconv: new module for audio sample format conversion
+                  (thanks to Ola Palm for testing)
+
+	* aumix: close file on sleep
+
+	* vid: added vidframe_copy()
+
+	* vidmix: pthread_rwlockattr_setkind_np for linux and glibc
+		  (patch copied from openwrt repo)
+
+
 2014-05-18 Alfred E. Heggestad <aeh@db.org>
 
 	* Version 0.4.6

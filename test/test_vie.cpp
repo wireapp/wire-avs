@@ -63,7 +63,7 @@ TEST(vie, close_twice)
 #define FPS     15
 
 
-#define NUM_FRAMES 20
+#define NUM_FRAMES 5
 
 
 class Vie : public ::testing::Test {
@@ -184,6 +184,7 @@ public:
 			.vs = WIDTH/2,
 			.w = WIDTH,
 			.h = HEIGHT,
+			.rotation = 0,
 			.ts = 0       /* ignored by encoder */
 		};
 
@@ -220,8 +221,10 @@ public:
 		if (ts_prev)
 			delta = tmr_jiffies()-ts_prev;
 
+#if 0
 		re_printf("[%4d] render_frame: %d x %d\n",
 			  delta, frame->w, frame->h);
+#endif
 
 		ASSERT_EQ(AVS_VIDFRAME_I420, frame->type);
 		ASSERT_TRUE(frame->y != NULL);
@@ -355,6 +358,7 @@ TEST_F(Vie, encode_decode_loop)
 	err = re_main_wait(60000);
 	ASSERT_EQ(0, err);
 
+#if 0
 	re_printf("frames sent %d (avg. framerate %.1f fps)\n",
 		  n_frame_sent,
 		  1000.0*n_frame_sent / (ts_send_last - ts_send_first));
@@ -365,6 +369,7 @@ TEST_F(Vie, encode_decode_loop)
 		  8000.0*n_rtp_bytes / (ts_rtp_last - ts_rtp_first));
 	re_printf("rtp marker bits: %u\n", n_rtp_marker);
 	re_printf("rtcp packets:    %u\n", n_rtcp);
+#endif
 
 	/* Verify results after test is complete */
 	ASSERT_GE(n_frame_sent, NUM_FRAMES);

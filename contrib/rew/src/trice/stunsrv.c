@@ -81,9 +81,11 @@ static int handle_stun_full(struct trice *icem, struct ice_lcand *lcand,
 	/* note: the candidate-pair can exist in either list */
 	pair = trice_candpair_find(&icem->checkl, lcand, rcand);
 	if (!pair) {
-		DEBUG_WARNING("{%u} candidate pair not found:"
-			      " source=%J\n",
-			      lcand->attr.compid, src);
+		if (icem->conf.enable_prflx) {
+			DEBUG_WARNING("{%u} candidate pair not found:"
+				      " source=%J\n",
+				      lcand->attr.compid, src);
+		}
 		goto out;
 	}
 

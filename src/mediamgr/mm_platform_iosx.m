@@ -15,7 +15,7 @@ static enum mediamgr_auplay current_route = MEDIAMGR_AUPLAY_EARPIECE;
 #endif
 
 static bool in_call = false;
-static struct mediamgr *_mm = NULL;
+static struct mm *_mm = NULL;
 
 // TODO: remove the need for the playing tracker
 @interface PlayingTracker : NSObject <AVSMediaDelegate>
@@ -49,7 +49,9 @@ static struct mediamgr *_mm = NULL;
 {
 	[_lock lock];
 	[_playingDict setObject:media forKey:media.name];
-
+	bool change_cat = false;
+    
+    
 	struct sound *snd = NULL;
 	AVAudioSessionCategoryOptions options =
 		AVAudioSessionCategoryOptionAllowBluetooth;
@@ -60,26 +62,41 @@ static struct mediamgr *_mm = NULL;
 
 	NSString *cat = [AVAudioSession sharedInstance].category;
 	if (snd) {
+		info("mm_platform_ios: didStartPlayingMedia: name=%s "
+		     "is_call_media=%d mixing=%d\n",
+		     snd->path, snd->is_call_media, snd->mixing);
+		
 		if (snd->is_call_media) {
-			cat = AVAudioSessionCategoryPlayAndRecord;
+			if (cat != AVAudioSessionCategoryPlayAndRecord){
+				cat = AVAudioSessionCategoryPlayAndRecord;
+				change_cat = true;
+            }
 		}
 		else if (snd->mixing) {
-			if (cat != AVAudioSessionCategoryPlayback) {
+			if (cat != AVAudioSessionCategoryPlayback && !in_call) {
 				cat = AVAudioSessionCategoryAmbient;
 				options |= AVAudioSessionCategoryOptionMixWithOthers;
+				change_cat = true;
 			}
 		}
 		else {
-			if (cat != AVAudioSessionCategoryPlayback) {
+			if (cat != AVAudioSessionCategoryPlayback && !in_call) {
 				cat = AVAudioSessionCategorySoloAmbient;
+				change_cat = true;
 			}
 		}
 	}
 	else {
+		info("mm_platform_ios: didStartPlayingMedia: "
+		     "no snd for: %s\n",
+		     [media.name UTF8String]);
 		cat = AVAudioSessionCategoryPlayback;
 	}
-
-	[[AVAudioSession sharedInstance] setCategory: cat withOptions: options error:nil];
+	if(change_cat){
+		info("setCategory called from: %s:%d\n", __FILE__, __LINE__);
+		[[AVAudioSession sharedInstance] setCategory: cat withOptions: options error:nil];
+	}
+        
 	[_lock unlock];
 }
 
@@ -113,6 +130,7 @@ static struct mediamgr *_mm = NULL;
 		AVAudioSessionCategoryOptionMixWithOthers;
 
 	if (!in_call && [_playingDict count] == 0) {
+		info("setCategory called from: %s:%d\n", __FILE__, __LINE__);
 		[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryAmbient
 			withOptions:options error:nil];
 	}
@@ -131,7 +149,7 @@ static struct mediamgr *_mm = NULL;
 
 PlayingTracker *_playingTracker = NULL;
 
-int mm_platform_init(struct mediamgr *mm, struct dict *sounds)
+int mm_platform_init(struct mm *mm, struct dict *sounds)
 {
 	_mm = mm;
 
@@ -199,6 +217,15 @@ int mm_platform_init(struct mediamgr *mm, struct dict *sounds)
         
 		}];
     
+    [[NSNotificationCenter defaultCenter] addObserverForName:AVAudioSessionMediaServicesWereLostNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock: ^(NSNotification *notification) {
+    
+        info("mediamgr: AVAudioSessionMediaServicesWereLostNotification recieved \n");
+    }];
+
+    [[NSNotificationCenter defaultCenter] addObserverForName:AVAudioSessionMediaServicesWereResetNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock: ^(NSNotification *notification) {
+        
+        info("mediamgr: AVAudioSessionMediaServicesWereResetNotification recieved \n");
+    }];
     
     // Make sure that the headset connected state is correct
     NSArray *outputs = [[AVAudioSession sharedInstance] currentRoute].outputs;
@@ -215,7 +242,7 @@ int mm_platform_init(struct mediamgr *mm, struct dict *sounds)
 	return 0;
 }
 
-int mm_platform_free(struct mediamgr *mm)
+int mm_platform_free(struct mm *mm)
 {
 	return 0;
 }
@@ -257,6 +284,7 @@ bool mm_platform_is_sound_playing(struct sound *snd)
 
 int mm_platform_enable_speaker(void)
 {
+	info("mm_platform_ios: enable_speaker\n");
 #if TARGET_OS_IPHONE
     if ([[AVAudioSession sharedInstance] category] != AVAudioSessionCategoryPlayAndRecord) {
         [[AVAudioSession sharedInstance] overrideOutputAudioPort:AVAudioSessionPortOverrideSpeaker error:nil];
@@ -270,6 +298,8 @@ int mm_platform_enable_speaker(void)
         } else {
             options = AVAudioSessionCategoryOptionDefaultToSpeaker;
         }
+
+	info("setCategory called from: %s:%d\n", __FILE__, __LINE__);	
         [session setCategory:AVAudioSessionCategoryPlayAndRecord
                  withOptions:options
                        error:nil];
@@ -295,6 +325,7 @@ int mm_platform_enable_bt_sco(void)
         } else {
             options = AVAudioSessionCategoryOptionDefaultToSpeaker;
         }
+	info("setCategory called from: %s:%d\n", __FILE__, __LINE__);	
         [session setCategory:AVAudioSessionCategoryPlayAndRecord
                  withOptions:options
                        error:nil];
@@ -320,6 +351,7 @@ int mm_platform_enable_earpiece(void)
         } else {
             options = AVAudioSessionCategoryOptionDefaultToSpeaker;
         }
+	info("setCategory called from: %s:%d\n", __FILE__, __LINE__);	
         [session setCategory:AVAudioSessionCategoryPlayAndRecord
                  withOptions:options
                        error:nil];
@@ -345,6 +377,8 @@ int mm_platform_enable_headset(void)
         } else {
             options = AVAudioSessionCategoryOptionDefaultToSpeaker;
         }
+	
+	info("setCategory called from: %s:%d\n", __FILE__, __LINE__);	
         [session setCategory:AVAudioSessionCategoryPlayAndRecord
                  withOptions:options
                        error:nil];
@@ -419,13 +453,24 @@ out:
 void mm_platform_enter_call(void){
 	AVAudioSessionCategoryOptions options =
 		AVAudioSessionCategoryOptionAllowBluetooth;
-
+	NSError *err = nil;
+ 
 	info("mm_platform_enter_call() \n");
 
 	if ([[AVAudioSession sharedInstance] category] != AVAudioSessionCategoryPlayAndRecord) {
 		options &= ~AVAudioSessionCategoryOptionDefaultToSpeaker;
+		
+		info("setCategory called from: %s:%d\n", __FILE__, __LINE__);	
 		[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayAndRecord
 			withOptions:options error:nil];
+
+		[[AVAudioSession sharedInstance] setMode:AVAudioSessionModeVoiceChat error:&err];
+		if (err.code != 0) {
+			error("%s: couldn't set session's audio mode: %ld",
+				__FUNCTION__, (long)err.code);
+		}
+        
+		usleep(1000000);
 	}
 	in_call = true;
 }
@@ -434,13 +479,21 @@ void mm_platform_exit_call(void){
 	AVAudioSessionCategoryOptions options =
 		AVAudioSessionCategoryOptionAllowBluetooth |
 		AVAudioSessionCategoryOptionMixWithOthers;
+	NSError *err = nil;
 
 	info("mm_platform_exit_call() \n");
 
 	if ([[AVAudioSession sharedInstance] category] != AVAudioSessionCategoryAmbient &&
 		[[AVAudioSession sharedInstance] category] != AVAudioSessionCategoryPlayback) {
+		info("setCategory called from: %s:%d\n", __FILE__, __LINE__);   
 		[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryAmbient
 			withOptions:options error:nil];
+        
+		[[AVAudioSession sharedInstance] setMode:AVAudioSessionModeDefault error:&err];
+		if (err.code != 0) {
+			error("%s: couldn't set session's audio mode: %ld",
+				__FUNCTION__, (long)err.code);
+		}
 	}
 	in_call = false;
 }
@@ -460,13 +513,17 @@ void mm_platform_registerMedia(struct dict *sounds,
 	
 	snd = mem_zalloc(sizeof(struct sound), NULL);
 	
-	snd->path = strdup(name);
+	str_dup((char **)&snd->path, name);
 	snd->arg = mediaObj;
 	snd->mixing = mixing;
 	snd->incall = incall;
 	snd->intensity = intensity;
 	snd->priority = priority;
 	snd->is_call_media = is_call_media;
+
+	info("mm_platform_ios: registerMedia: %s mixing=%d incall=%d int=%d "
+	     "prio=%d is_call=%d\n",
+	     name, mixing, incall, intensity, priority, is_call_media);
 	
 	dict_add(sounds, name, (void*)snd);
 	mem_deref(snd); // to get the ref count to 1
@@ -483,6 +540,7 @@ void mm_platform_registerMedia(struct dict *sounds,
 void mm_platform_unregisterMedia(struct dict *sounds, const char *name){
 	struct sound *snd = dict_lookup(sounds, name);
 	if (snd) {
+		mem_deref((void*)snd->path);
 		id media = (id)snd->arg;
 		CFRelease(media);
 	}

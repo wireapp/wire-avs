@@ -19,6 +19,7 @@
 #define AVS_FLOWMGR_H    1
 
 #include "avs_vidframe.h"
+#include "avs_audio_effect.h"
 
 struct flowmgr;
 struct rr_resp;
@@ -30,8 +31,8 @@ void flowmgr_close(void);
 int  flowmgr_is_ready(struct flowmgr *fm, bool *is_ready);
 void flowmgr_enable_dualstack(bool enable);
 void flowmgr_enable_loopback(bool enable);
-void flowmgr_enable_privacy(bool enable);
 void flowmgr_bind_interface(const char *ifname);
+struct msystem *flowmgr_msystem(void);
 
 struct mqueue *flowmgr_mqueue(void);
 int  flowmgr_wakeup(void);
@@ -337,6 +338,10 @@ struct call_config {
 	size_t iceserverc;
 
 	bool early_dtls;
+	struct {
+		double ver_one_to_one;
+		double ver_multiparty;
+	} features;
 };
 
 typedef void (call_config_h)(struct call_config *cfg, void *arg);
@@ -425,23 +430,8 @@ int flowmgr_sort_participants(struct list *partl);
 int  flowmgr_start_mic_file_playout(const char fileNameUTF8[1024], int fs);
 void flowmgr_stop_mic_file_playout(void);
 
-int  flowmgr_start_speak_file_record(const char fileNameUTF8[1024]);
-void flowmgr_stop_speak_file_record(void);
-
-void flowmgr_enable_fec(bool enable);
-void flowmgr_enable_aec(bool enable);
-void flowmgr_enable_rcv_ns(bool enable);
-
 void flowmgr_set_bitrate(int rate_bps);
 void flowmgr_set_packet_size(int packet_size_ms);
-
-typedef void (flowmgr_vm_play_status_h)(bool is_playing, unsigned int cur_time_ms, unsigned int file_length_ms, void *arg);
-
-int flowmgr_vm_start_record(struct flowmgr *fm, const char fileNameUTF8[1024]);
-int flowmgr_vm_stop_record(struct flowmgr *fm);
-int flowmgr_vm_get_length(struct flowmgr *fm, const char fileNameUTF8[1024], int* length_ms);
-int flowmgr_vm_start_play(struct flowmgr *fm, const char fileNameUTF8[1024], int  start_time_ms, flowmgr_vm_play_status_h *handler, void *arg);
-int flowmgr_vm_stop_play(struct flowmgr *fm);
 
 void flowmgr_silencing(bool start);
 
@@ -466,6 +456,9 @@ bool flowmgr_is_sending_video(struct flowmgr *fm,
 void flowmgr_set_video_send_state(struct flowmgr *fm, const char *convid, enum flowmgr_video_send_state state);
 
 void flowmgr_set_video_view(struct flowmgr *fm, const char *convid, const char *partid, void *view);
+
+int flowmgr_set_audio_effect(struct flowmgr *fm, enum audio_effect effect);
+enum audio_effect flowmgr_get_audio_effect(struct flowmgr *fm);
 
 struct avs_vidframe;
 void flowmgr_handle_frame(struct avs_vidframe *frame);
@@ -527,13 +520,6 @@ void marshal_flowmgr_refresh_access_token(struct flowmgr *fm,
 					  const char *token,
 					  const char *type);
 
-
-int marshal_flowmgr_vm_start_record(struct flowmgr *fm, const char fileNameUTF8[1024]);
-int marshal_flowmgr_vm_stop_record(struct flowmgr *fm);
-int marshal_flowmgr_vm_start_play(struct flowmgr *fm, const char fileNameUTF8[1024], int  start_time_ms, flowmgr_vm_play_status_h *handler, void *arg);
-int marshal_flowmgr_vm_stop_play(struct flowmgr *fm);
-
-
 void marshal_flowmgr_set_video_handlers(struct flowmgr *fm, 
 			flowmgr_video_state_change_h *state_change_h,
 			flowmgr_render_frame_h *render_frame_h,
@@ -549,6 +535,7 @@ int marshal_flowmgr_is_sending_video(struct flowmgr *fm,
 				     const char *convid, const char *partid);
 void marshal_flowmgr_set_video_send_state(struct flowmgr *fm, const char *convid, enum flowmgr_video_send_state state);
 
+int marshal_flowmgr_set_audio_effect(struct flowmgr *fm, enum audio_effect effect);
 
 /* Wrap flow manager calls into these macros if you want to call them
  * from outside the re thread.

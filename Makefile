@@ -24,8 +24,8 @@
 
 # Master version number
 #
-VER_MAJOR := 2
-VER_MINOR := 8
+VER_MAJOR := 3
+VER_MINOR := 3
 
 ifeq ($(BUILD_NUMBER),)
 VER_PATCH := snapshot
@@ -38,15 +38,16 @@ VER_BRANCH := $(shell git rev-parse --abbrev-ref HEAD || echo "Fetching branch f
 ifeq ($(VER_BRANCH),master)
 AVS_PROJECT := avsmaster
 AVS_RELEASE := 0
+AVS_VERSION := 0.$(VER_PATCH)
 else ifeq ($(VER_BRANCH),open_source)
 AVS_PROJECT := avsopen
 AVS_RELEASE := 1
+AVS_VERSION := $(VER_MAJOR).$(VER_MINOR).$(VER_PATCH)
 else
 AVS_PROJECT := avs
 AVS_RELEASE := 1
+AVS_VERSION := $(VER_MAJOR).$(VER_MINOR).$(VER_PATCH)
 endif
-
-AVS_VERSION   := $(VER_MAJOR).$(VER_MINOR).$(VER_PATCH)
 
 MK_COMPONENTS := toolchain contrib mediaengine avs test android iosx dist
 
@@ -60,24 +61,17 @@ include mk/re.mk
 
 OUTER_MKS := Makefile mk/target.mk
 
-# Comment out following line, if we don't want to support CALLING2_0
-#AVS_CALLING2_0	:= yes
-
-ifneq ($(AVS_CALLING2_0),)
-CFLAGS	+= -DCALLING2_0=1
-endif
-
 
 #
 # NOTE: must be defined here, after target.mk is included
 #
 ifeq ($(AVS_OS),osx)
-#HAVE_PROTOBUF	:= 1
-#HAVE_CRYPTOBOX	:= 1
+HAVE_PROTOBUF	:= 1
+HAVE_CRYPTOBOX	:= 1
 endif
 ifeq ($(AVS_OS),linux)
-#HAVE_PROTOBUF	:= 1
-#HAVE_CRYPTOBOX	:= 1
+HAVE_PROTOBUF	:= 1
+HAVE_CRYPTOBOX	:= 1
 endif
 
 
@@ -109,6 +103,7 @@ info:
 	@echo "  AVS_FAMILY: $(AVS_FAMILY)"
 	@echo "     HOST_OS: $(HOST_OS)"
 	@echo "   HOST_ARCH: $(HOST_ARCH)"
+	@echo "      CCACHE: $(CCACHE)"
 	@echo "          CC: $(CC)"
 	@echo "         CXX: $(CXX)"
 	@echo "          LD: $(LD)"
@@ -127,7 +122,7 @@ info:
 	@echo "  HAVE_PROTOBUF: $(HAVE_PROTOBUF)"
 
 version:
-	@echo "$(VER_MAJOR).$(VER_MINOR).$(VER_PATCH)"
+	@echo "$(AVS_VERSION)"
 
 
 avs_release:

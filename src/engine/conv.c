@@ -270,7 +270,7 @@ static int load_conv(struct engine_conv *conv)
 		goto out;
 
 	for (i = 0; i < cnt; ++i) {
-		struct engine_conv_member *mbr;
+		struct engine_conv_member *mbr = NULL;
 
 		err = load_member(&mbr, conv->engine, so);
 		if (err)
@@ -608,6 +608,8 @@ static struct engine_conv *import_conv(struct engine *engine,
 		return NULL;
 	update_conv(conv, jobj, existing);
 
+	info("conv: import: %H\n", engine_conv_debug, conv);
+
 	return conv;
 }
 
@@ -904,7 +906,7 @@ static void user_update_handler(struct engine_user *user,
 {
 	(void) arg;
 
-	if (!changes & ENGINE_USER_NAME)
+	if (!(changes & ENGINE_USER_NAME))
 		return;
 
 	/* Send a name update for all conversations with no name and the
@@ -1428,6 +1430,83 @@ static void startup_handler(struct engine *engine,
 
 static void close_handler(void)
 {
+}
+
+
+int engine_conv_debug(struct re_printf *pf, const struct engine_conv *conv)
+{
+	struct le *le;
+	int err = 0;
+
+	if (!conv)
+		return 0;
+	
+	err |= re_hprintf(pf, "CONV %p:\n", conv);
+	err |= re_hprintf(pf, "ID:   %s\n", conv->id);
+	err |= re_hprintf(pf, "Type: ");
+	switch (conv->type) {
+	case ENGINE_CONV_REGULAR:
+		err |= re_hprintf(pf, "GROUP\n");
+		break;
+		
+	case ENGINE_CONV_SELF:
+		err |= re_hprintf(pf, "SELF\n");
+		break;
+		
+	case ENGINE_CONV_ONE:
+		err |= re_hprintf(pf, "1-1\n");
+		break;
+		
+	case ENGINE_CONV_CONNECT:
+		err |= re_hprintf(pf, "CONNECTING\n");
+		break;
+		
+	default:
+		err |= re_hprintf(pf, "???\n");
+		break;
+	}
+	err |= re_hprintf(pf, "Members:\n");
+	LIST_FOREACH(&conv->memberl, le) {
+		struct engine_conv_member *mbr = le->data;
+
+		err |= re_hprintf(pf, "  %s %s", mbr->user->id,
+				  mbr->user->display_name);
+		if (!mbr->active)
+			err |= re_hprintf(pf, " [left]");
+		if (mbr->in_call)
+			err |= re_hprintf(pf, " [in call]");
+		err |= re_hprintf(pf, "\n");
+	}
+	if (!conv->active)
+		err |= re_hprintf(pf, "You have left the conversation.\n");
+	if (conv->archived)
+		err |= re_hprintf(pf, "You have archived the conversation.\n");
+	if (conv->muted)
+		err |= re_hprintf(pf, "You have muted the conversation.\n");
+	err |= re_hprintf(pf, "Call state:\n   device: ");
+	if (conv->device_in_call)
+		err |= re_hprintf(pf, "in call.\n");
+	else
+		err |= re_hprintf(pf, "not in call.\n");
+	err |= re_hprintf(pf, "   user:   ");
+	if (conv->user_in_call)
+		err |= re_hprintf(pf, "in call.\n");
+	else
+		err |= re_hprintf(pf, "not in call.\n");
+	err |= re_hprintf(pf, "   others: %i in call.\n",
+			  conv->others_in_call);
+	LIST_FOREACH(&conv->memberl, le) {
+		struct engine_conv_member *mbr = le->data;
+
+		if (mbr->in_call) {
+			err |= re_hprintf(pf, "      o %s\n",
+					  mbr->user->display_name);
+		}
+	}
+	err |= re_hprintf(pf, "Last event: %s\n", conv->last_event);
+	err |= re_hprintf(pf, "Last read:  %s\n", conv->last_read);
+
+	return err;	
 }
 
 

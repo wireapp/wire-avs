@@ -16,6 +16,7 @@ enum vidfmt {
 	VID_FMT_RGB555,       /* packed RGB  5:5:5   16bpp (native endian) */
 	VID_FMT_NV12,         /* planar YUV  4:2:0   12bpp UV interleaved  */
 	VID_FMT_NV21,         /* planar YUV  4:2:0   12bpp VU interleaved  */
+	VID_FMT_YUV444P,      /* planar YUV  4:4:4   24bpp                 */
 	/* marker */
 	VID_FMT_N
 };
@@ -122,6 +123,7 @@ void vidframe_init_buf(struct vidframe *vf, enum vidfmt fmt,
 int  vidframe_alloc(struct vidframe **vfp, enum vidfmt fmt,
 		    const struct vidsz *sz);
 void vidframe_fill(struct vidframe *vf, uint32_t r, uint32_t g, uint32_t b);
+void vidframe_copy(struct vidframe *dst, const struct vidframe *src);
 
 
 const char *vidfmt_name(enum vidfmt fmt);

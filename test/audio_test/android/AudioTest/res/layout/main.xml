@@ -16,46 +16,16 @@
     android:layout_height="wrap_content"
     />
     <Button
-    android:id="@+id/start_voe_conf_test"
-    android:text="Start Voe Conferencing Test"
-    android:layout_width="fill_parent"
-    android:layout_height="wrap_content"
-    />
-    <Button
     android:id="@+id/start_voe_loop_back_test"
     android:text="Start Loop Back Test"
     android:layout_width="fill_parent"
     android:layout_height="wrap_content"
     />
     <Button
-    android:id="@+id/start_record_voice_message"
-    android:text="Start Recording Voice Message"
+    android:id="@+id/start_voe_conf_test"
+    android:text="Start Stereo Conferencing Test"
     android:layout_width="fill_parent"
     android:layout_height="wrap_content"
-    />
-    <Button
-    android:id="@+id/stop_record_voice_message"
-    android:text="Stop Recording Voice Message"
-    android:layout_width="fill_parent"
-    android:layout_height="wrap_content"
-    />
-    <Button
-    android:id="@+id/start_play_voice_message"
-    android:text="Start Playing Voice Message"
-    android:layout_width="fill_parent"
-    android:layout_height="wrap_content"
-    />
-    <Button
-    android:id="@+id/stop_play_voice_message"
-    android:text="Stop Playing Voice Message"
-    android:layout_width="fill_parent"
-    android:layout_height="wrap_content"
-    />
-    <ProgressBar
-    android:id="@+id/progress_bar"
-    android:layout_width="fill_parent"
-    android:layout_height="wrap_content"
-    style="@android:style/Widget.ProgressBar.Horizontal"
     />
     <Button
     android:id="@+id/toggle_audio_mode"
@@ -66,6 +36,18 @@
     <Button
     android:id="@+id/toggle_speaker"
     android:text="Toggle Speaker"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    />
+    <Button
+    android:id="@+id/toggle_hw_aec"
+    android:text="Toggle Hw AEC usage"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    />
+    <Button
+    android:id="@+id/num_channels"
+    android:text="Toggle Number of Channels"
     android:layout_width="fill_parent"
     android:layout_height="wrap_content"
     />
@@ -90,6 +72,24 @@
         android:layout_marginRight="7px"
         android:layout_width="wrap_content" />
         <TextView android:id="@+id/txtIsSpeakerOn"
+        android:gravity="left" />
+    </TableRow>
+    <TableRow
+        android:layout_margin="1px">
+        <TextView android:layout_gravity="right"
+        android:text="Hw AEC enabled:"
+        android:layout_marginRight="7px"
+        android:layout_width="wrap_content" />
+        <TextView android:id="@+id/txtIsHwAecOn"
+        android:gravity="left" />
+    </TableRow>
+    <TableRow
+        android:layout_margin="1px">
+        <TextView android:layout_gravity="right"
+        android:text="Num Channels:"
+        android:layout_marginRight="7px"
+        android:layout_width="wrap_content" />
+        <TextView android:id="@+id/txtNumChannels"
         android:gravity="left" />
     </TableRow>
 </TableLayout> </LinearLayout>

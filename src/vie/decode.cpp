@@ -36,6 +36,9 @@ static void vds_destructor(void *arg)
 
 	vie_render_stop(vds);
 
+	if (vds->vie)
+		vds->vie->vds = NULL;
+
 	mem_deref(vds->sdpm);
 	mem_deref(vds->vie);
 }
@@ -134,7 +137,10 @@ int vie_render_start(struct viddec_state *vds)
 	receive_config.rtp.nack.rtp_history_ms = 0;    
 	receive_config.rtp.local_ssrc = vds->prm.local_ssrcv[0];
 	receive_config.rtp.remote_ssrc = vds->prm.remote_ssrcv[0];
-    
+
+	vie->stats_tx.rtcp.ssrc = vds->prm.remote_ssrcv[0];
+	vie->stats_tx.rtcp.bitrate_limit = 0;
+
 #if USE_RTX
 	if (vds->prm.remote_ssrcc > 1) {
 
@@ -147,8 +153,9 @@ int vie_render_start(struct viddec_state *vds)
 			warning("vie: %s: rtx_fmt not found\n", __func__);
 		}
 		else {
-			debug("vie: %s: rtx ssrc=%u pt=%d\n",
-			      __func__, vds->prm.remote_ssrcv[1], rtx->pt);
+			debug("vie: %s: vdspt=%d rtx ssrc=%u pt=%d\n",
+			      __func__, vds->pt, vds->prm.remote_ssrcv[1],
+			      rtx->pt);
 
 			receive_config.rtp.nack.rtp_history_ms = 1000;
 
@@ -265,11 +272,36 @@ void vie_dec_rtp_handler(struct viddec_state *vds,
 	webrtc::PacketTime pt(-1, 0ULL);
 	struct vie *vie = vds ? vds->vie : NULL;
 
+#if defined(VIE_PRINT_ENCODE_RTP) || defined(VIE_DEBUG_RTX)
+	struct mbuf mb;
+	struct rtp_header rtph;
+	int err;
+
+	mb.buf = (uint8_t *)pkt;
+	mb.pos = 0;
+	mb.size = len;
+	mb.end = mb.size;
+	
+	err = rtp_hdr_decode(&rtph, &mb);
+ #if defined(VIE_PRINT_ENCODE_RTP)
+	if (!err) {
+		info("vie: decode: pt=%d ssrc=%u\n", rtph.pt, rtph.ssrc);
+	}
+ #endif
+ #if defined(VIE_DEBUG_RTX)
+	if (!err && (rtph.pt == vie->rtx_pt)){
+		uint16_t osn = ntohs(mbuf_read_u16(&mb));
+		info("vie: Recieved %d Bytes RTX packet seq = %u ssrc = %u osn = %d \n", len, rtph.seq, rtph.ssrc, osn);
+	}
+ #endif
+#endif
+	
 	if (!vie || !vds)
 		return;
 
 	if (!vds->started)
 		return;
+
 
 	if (!vds->packet_received) {
 		debug("vie: %s: first RTP packet received\n", __func__);
@@ -315,6 +347,10 @@ void vie_dec_rtcp_handler(struct viddec_state *vds,
 	uint32_t old_limit = vie->stats_rx.rtcp.bitrate_limit;
 	stats_rtcp_add_packet(&vds->vie->stats_rx, pkt, len);
 
+#if FORCE_VIDEO_RTP_RECORDING
+	vie->rtcp_dump_in->DumpPacket(pkt, len);
+#endif
+    
 	if (old_limit != vie->stats_rx.rtcp.bitrate_limit) {
 		vie_bandwidth_allocation_changed(vie, vie->stats_rx.rtcp.ssrc,
 			vie->stats_rx.rtcp.bitrate_limit);
@@ -322,3 +358,14 @@ void vie_dec_rtcp_handler(struct viddec_state *vds,
 
 	delstat = vie->call->Receiver()->DeliverPacket(webrtc::MediaType::VIDEO, pkt, len, pt);
 }
+
+uint32_t vie_dec_getbw(struct viddec_state *vds)
+{
+	if (!vds || !vds->vie) {
+		return 0;
+	}
+
+	// Receive limit is stored in tx stats
+	return vds->vie->stats_tx.rtcp.bitrate_limit;
+}
+

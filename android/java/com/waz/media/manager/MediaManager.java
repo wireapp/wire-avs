@@ -90,14 +90,8 @@ public class MediaManager implements OnAudioFocusChangeListener {
     public long mmPointer;
     
     private Configuration config;
-    
-    public MediaManager ( ) {
-        ctx = null;
-
-    }
-    
-    public MediaManager ( final Context context) {
-      
+        
+    private MediaManager ( final Context context) {
         attach(context);
       
         setIntensity ( IntensityLevel.FULL );
@@ -108,16 +102,12 @@ public class MediaManager implements OnAudioFocusChangeListener {
         
         audioManager.setSpeakerphoneOn(false);
     }
-   
-    public static MediaManager getInstance ( ) {
-        if ( _instance == null ) {
-            _instance = new MediaManager();
-        }
-        
-        return _instance;
-    }
     
     public static MediaManager getInstance ( Context context ) {
+        if( context == null){
+            Log.e("avs MediaManager", "getInstance called with null context. \n");
+            return null;
+        }
         if ( _instance == null ) {
             _instance = new MediaManager(context);
         }
@@ -134,7 +124,8 @@ public class MediaManager implements OnAudioFocusChangeListener {
     }
     
     protected void finalize ( ) throws Throwable  {
-        detach();
+	if (ctx != null)
+	    detach();
         
         super.finalize();
     }

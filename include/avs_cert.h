@@ -17,11 +17,5 @@
 */
 
 
-enum cert_type {
-	CERT_TYPE_RSA    = 1,
-	CERT_TYPE_ECDSA  = 2,
-};
-
-
 int cert_tls_set_selfsigned_ecdsa(struct tls *tls, const char *curve_name);
 int cert_enable_ecdh(struct tls *tls);

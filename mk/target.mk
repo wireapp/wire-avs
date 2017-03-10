@@ -206,6 +206,14 @@ XCRUN := xcrun
 endif
 
 
+#
+# Detect if Compiler-Cache (ccache) is available
+#
+CCACHE	:= $(shell [ -e /usr/bin/ccache ] 2>/dev/null \
+	|| [ -e /usr/local/bin/ccache ] \
+	&& echo "ccache")
+
+
 #--- Build paths ------------------------------------------------------------
 
 BUILD_BASE := $(shell pwd)/build
@@ -241,7 +249,6 @@ CPPFLAGS += \
 	 -DAVS_VERSION='"$(AVS_VERSION)"' -DAVS_PROJECT='"$(AVS_PROJECT)"' \
 	 -I$(BUILD_TARGET)/include -Iinclude \
 	 -Imediaengine -Imediaengine/webrtc \
-	 -Icontrib/ogg/include \
 	 -Icontrib/opus/include \
 	 -Icontrib/opus/celt \
 	 -Icontrib/opus/silk
@@ -434,8 +441,10 @@ AVS_OS_FAMILY := darwin
 #
 ifeq ($(AVS_ARCH),i386)
 SDK := iphonesimulator
+HOST_OPTIONS := --host=arm-apple-darwin
 else ifeq ($(AVS_ARCH),x86_64)
 SDK := iphonesimulator
+HOST_OPTIONS := --host=arm-apple-darwin
 else
 SDK := iphoneos
 endif
@@ -477,14 +486,14 @@ LIBS	 += \
 
 ifeq ($(SDK),iphoneos)
 CPPFLAGS += \
-         -miphoneos-version-min=7.0
+         -miphoneos-version-min=8.0
 LFLAGS	 += \
-         -miphoneos-version-min=7.0
+         -miphoneos-version-min=8.0
 else
 CPPFLAGS += \
-         -mios-simulator-version-min=7.0
+         -mios-simulator-version-min=8.0
 LFLAGS	 += \
-         -mios-simulator-version-min=7.0
+         -mios-simulator-version-min=8.0
 endif
 
 # video
@@ -511,8 +520,8 @@ AVS_OS_FAMILY := linux
 
 # Tools
 #
-CC	   := /usr/bin/clang
-CXX	   := /usr/bin/clang++
+CC	   := $(CCACHE) /usr/bin/clang
+CXX	   := $(CCACHE) /usr/bin/clang++
 LD	   := /usr/bin/clang++
 AR	   := /usr/bin/ar
 RANLIB	   := /usr/bin/ranlib
@@ -559,8 +568,8 @@ SDK_PATH := $(shell $(XCRUN) --show-sdk-path --sdk $(SDK))
 
 # Tools
 #
-CC	   := $(shell $(XCRUN) --sdk $(SDK) -f clang)
-CXX	   := $(shell $(XCRUN) --sdk $(SDK) -f clang++)
+CC	   := $(CCACHE) $(shell $(XCRUN) --sdk $(SDK) -f clang)
+CXX	   := $(CCACHE) $(shell $(XCRUN) --sdk $(SDK) -f clang++)
 LD	   := $(CXX)
 AR	   := $(shell $(XCRUN) --sdk $(SDK) -f ar)
 RANLIB	   := $(shell $(XCRUN) --sdk $(SDK) -f ranlib)

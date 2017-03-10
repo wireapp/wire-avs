@@ -37,9 +37,11 @@ int opus_demo(int argc, char *argv[], const char *path);
 
 int voe_conf_test(int argc, char *argv[], const char *path);
 
-int voe_conf_test_dec(int argc, char *argv[], const char *path);
+int voe_conf_test_dec(const char *path, bool use_build_in_aec, int num_channels);
 
 int voe_loopback_test(int argc, char *argv[], const char *path);
+
+int effect_test(int argc, char *argv[], const char *path);
 
 namespace voe_dec_test{
     int voe_dec_test(int argc, char *argv[], const char *path);

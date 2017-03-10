@@ -32,8 +32,11 @@ public:
 
 		tmr_init(&tmr_watchdog);
 
-		/* silence log output during tests */
-		log_enable_stderr(false);
+
+#if 1
+		log_set_min_level(LOG_LEVEL_WARN);
+		log_enable_stderr(true);
+#endif
 
 		backend = new FakeBackend;
 
@@ -44,6 +47,9 @@ public:
 		ASSERT_EQ(0, err);
 
 		err = http_client_alloc(&http_cli, dnsc);
+		ASSERT_EQ(0, err);
+
+		err = http_client_alloc(&http_cli_ws, dnsc);
 		ASSERT_EQ(0, err);
 
 		err = rest_client_alloc(&rest_cli, http_cli, backend->uri,
@@ -72,6 +78,7 @@ public:
 		mem_deref(websock);
 		mem_deref(login);
 		mem_deref(rest_cli);
+		mem_deref(http_cli_ws);
 		mem_deref(http_cli);
 		mem_deref(dnsc);
 	}
@@ -138,9 +145,9 @@ public:
 	{
 		RestTest *restTest = static_cast<RestTest *>(arg);
 
-		if (err || msg->scode >= 300) {
+		if (err || !msg || msg->scode >= 300) {
 			restTest->err = err;
-			restTest->scode = msg->scode;
+			restTest->scode = msg ? msg->scode : 599;
 
 			re_cancel();
 			return;
@@ -182,7 +189,7 @@ public:
 
 		/* Subscribe to Notification Events */
 		err = nevent_alloc(&nevent, websock,
-				   http_cli, backend->uri, "abc-123",
+				   http_cli_ws, backend->uri, "abc-123",
 				   nevent_estab_handler,
 				   nevent_recv_handler,
 				   nevent_close_handler, this);
@@ -259,6 +266,7 @@ protected:
 	FakeBackend *backend;
 	struct dnsc *dnsc = NULL;
 	struct http_cli *http_cli = NULL;
+	struct http_cli *http_cli_ws = NULL;
 	struct rest_cli *rest_cli = NULL;
 	struct login *login = NULL;
 	struct websock *websock = NULL;

@@ -17,6 +17,7 @@
 */
 #include <re.h>
 #include <avs.h>
+#include <avs_mediastats.h>
 #include <gtest/gtest.h>
 #include "fakes.hpp"
 #include "ztest.h"
@@ -25,23 +26,18 @@
 /*
  * Test-cases that involve 2 instances of "struct mediaflow" running
  * in a back-to-back (B2B) setup.
+ *
+ * NOTE: This test is deprecated, please use test_media_dual.cpp instead
  */
 
 
-#define NUM_PACKETS 2
-#define TS 160
-#define SSRC 0x01020304
-#define NTP_SEC 1234
-#define NTP_FRAC 5678
-#define PSENT 1
-#define OSENT 160
+#define NUM_PACKETS 4
 
 
 enum mode {
 	TRICKLE_STUN,
 	TRICKLE_TURN,
 	TRICKLE_TURN_ONLY,
-	LITE,
 };
 
 #define IS_TRICKLE(mode) ((mode)==TRICKLE_STUN ||	\
@@ -70,13 +66,8 @@ struct agent {
 
 	unsigned n_lcand_expect;  /* all local candidates, incl. HOST */
 
-	uint16_t seq;
 	unsigned n_lcand;
 	unsigned n_estab;
-	unsigned n_rtp_sent;
-	unsigned n_rtp_recv;
-	unsigned n_rtcp_sent;
-	unsigned n_rtcp_recv;
 };
 
 static const uint8_t payload[160] = {0};
@@ -87,67 +78,6 @@ static void abort_test(struct agent *ag, int err)
 {
 	ag->err = err;
 	re_cancel();
-}
-
-
-static void send_rtp_packet(struct agent *ag)
-{
-	struct rtp_header hdr;
-	int err;
-
-	memset(&hdr, 0, sizeof(hdr));
-
-	hdr.ver = RTP_VERSION;
-	hdr.seq = ++ag->seq;
-	hdr.ts  = TS;
-	hdr.ssrc = SSRC;
-
-	err = mediaflow_send_rtp(ag->mf, &hdr, payload, sizeof(payload));
-	ASSERT_EQ(0, err);
-
-	++ag->n_rtp_sent;
-}
-
-
-static int rr_encode_handler(struct mbuf *mb, void *arg)
-{
-	struct agent *ag = (struct agent *)arg;
-	int err = 0;
-
-	err |= mbuf_write_u32(mb, htonl(SSRC));
-	err |= mbuf_write_u32(mb, htonl(0));
-	err |= mbuf_write_u32(mb, htonl(ag->seq));
-	err |= mbuf_write_u32(mb, htonl(42));
-	err |= mbuf_write_u32(mb, htonl(0));
-	err |= mbuf_write_u32(mb, htonl(0));
-
-	return err;
-}
-
-
-static void send_rtcp_packet(struct agent *ag)
-{
-	uint32_t ssrc = SSRC;
-	uint32_t ntp_sec = NTP_SEC;
-	uint32_t ntp_frac = NTP_FRAC;
-	uint32_t rtp_ts = TS;
-	uint32_t psent = PSENT;
-	uint32_t osent = OSENT;
-	int err;
-
-	struct mbuf *mb = mbuf_alloc(256);
-
-	err = rtcp_encode(mb, RTCP_SR, 1,
-			  ssrc, ntp_sec, ntp_frac, rtp_ts, psent, osent,
-                          rr_encode_handler, ag);
-	ASSERT_EQ(0, err);
-
-	err = mediaflow_send_raw_rtcp(ag->mf, mb->buf, mb->end);
-	ASSERT_EQ(0, err);
-
-	++ag->n_rtcp_sent;
-
-	mem_deref(mb);
 }
 
 
@@ -187,7 +117,15 @@ static bool are_connchecks_complete(const struct agent *ag)
 
 static bool is_traffic_complete(const struct agent *ag)
 {
-	return (ag->n_rtp_recv > 0 && ag->n_rtcp_recv > 0);
+	const struct rtp_stats* stats;
+
+	stats = mediaflow_rcv_audio_rtp_stats(ag->mf);
+
+	if (stats->packet_cnt >= NUM_PACKETS &&
+	    stats->byte_cnt >= 400)
+		return true;
+
+	return false;
 }
 
 
@@ -213,20 +151,12 @@ static bool are_we_complete(const struct agent *ag)
 }
 
 
-static void send_traffic(struct agent *ag)
-{
-	for (int i=0; i<NUM_PACKETS; i++) {
-		send_rtp_packet(ag);
-		send_rtcp_packet(ag);
-	}
-}
-
-
 static void mediaflow_estab_handler(const char *crypto, const char *codec,
 				    const char *type, const struct sa *sa,
 				    void *arg)
 {
 	struct agent *ag = static_cast<struct agent *>(arg);
+	int err;
 
 	++ag->n_estab;
 
@@ -241,58 +171,10 @@ static void mediaflow_estab_handler(const char *crypto, const char *codec,
 
 	if (agents_are_established(ag)) {
 
-		send_traffic(ag);
-		send_traffic(ag->other);
-	}
-}
-
-
-static void mediaflow_rtp_handler(const struct sa *src,
-				  const struct rtp_header *hdr,
-				  struct mbuf *mb, void *arg)
-{
-	struct agent *ag = static_cast<struct agent *>(arg);
-
-	++ag->n_rtp_recv;
-
-	ASSERT_EQ(RTP_VERSION, hdr->ver);
-	ASSERT_TRUE(hdr->seq < 10);
-	ASSERT_EQ(TS, hdr->ts);
-	ASSERT_EQ(SSRC, hdr->ssrc);
-
-	ASSERT_EQ(sizeof(payload), mbuf_get_left(mb));
-	ASSERT_TRUE(0 == memcmp(mbuf_buf(mb), payload, sizeof(payload)));
-
-#if 1
-	if (are_we_complete(ag)) {
-		re_cancel();
-	}
-#endif
-}
-
-
-static void mediaflow_rtcp_handler(struct rtp_sock *rtp,
-				   struct rtcp_msg *msg, void *arg)
-{
-	struct agent *ag = static_cast<struct agent *>(arg);
-
-	++ag->n_rtcp_recv;
-
-	/* verify content of the RTCP packet */
-	ASSERT_EQ(RTCP_VERSION, msg->hdr.version);
-	ASSERT_EQ(1, msg->hdr.count);
-	ASSERT_EQ(RTCP_SR, msg->hdr.pt);
-	ASSERT_EQ(12, msg->hdr.length);
-
-	ASSERT_EQ(SSRC, msg->r.sr.ssrc);
-	ASSERT_EQ(NTP_SEC, msg->r.sr.ntp_sec);
-	ASSERT_EQ(NTP_FRAC, msg->r.sr.ntp_frac);
-	ASSERT_EQ(TS, msg->r.sr.rtp_ts);
-	ASSERT_EQ(PSENT, msg->r.sr.psent);
-	ASSERT_EQ(OSENT, msg->r.sr.osent);
-
-	if (are_we_complete(ag)) {
-		re_cancel();
+		err = mediaflow_start_media(ag->mf);
+		ASSERT_EQ(0, err);
+		err = mediaflow_start_media(ag->other->mf);
+		ASSERT_EQ(0, err);
 	}
 }
 
@@ -320,21 +202,8 @@ static void tmr_complete_handler(void *arg)
 		return;
 	}
 
-	tmr_start(&ag->tmr, 10, tmr_complete_handler, ag);
+	tmr_start(&ag->tmr, 5, tmr_complete_handler, ag);
 }
-
-
-/** A dummy PCMU codec to test a fixed codec */
-static struct aucodec dummy_pcmu = {
-	.pt        = "0",
-	.name      = "PCMU",
-	.srate     = 8000,
-	.ch        = 1,
-	.enc_alloc = NULL,
-	.ench      = NULL,
-	.dec_alloc = NULL,
-	.dech      = NULL,
-};
 
 
 static void destructor(void *arg)
@@ -411,7 +280,7 @@ static void gather_server(struct agent *ag)
 
 
 static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
-			enum mode mode, const char *name, bool early_dtls)
+			enum mode mode, const char *name)
 {
 	struct sa laddr;
 	struct agent *ag;
@@ -419,8 +288,7 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 	bool host_cand = (mode != TRICKLE_TURN_ONLY);
 	int err;
 
-	nat = IS_TRICKLE(mode) ?
-		MEDIAFLOW_TRICKLEICE_DUALSTACK : MEDIAFLOW_ICELITE;
+	nat = MEDIAFLOW_TRICKLEICE_DUALSTACK;
 
 	ag = (struct agent *)mem_zalloc(sizeof(*ag), destructor);
 	ASSERT_TRUE(ag != NULL);
@@ -433,26 +301,18 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 
 	sa_set_str(&laddr, "127.0.0.1", 0);
 
-	err = create_dtls_srtp_context(&ag->dtls, CERT_TYPE_RSA);
+	err = create_dtls_srtp_context(&ag->dtls, TLS_KEYTYPE_EC);
 	ASSERT_EQ(0, err);
 
 	err = mediaflow_alloc(&ag->mf, ag->dtls, &test->aucodecl, &laddr,
-			      nat, CRYPTO_DTLS_SRTP, false,
+			      nat, CRYPTO_DTLS_SRTP,
 			      NULL, /*mediaflow_localcand_handler,*/
 			      mediaflow_estab_handler,
 			      mediaflow_close_handler,
 			      ag);
 	ASSERT_EQ(0, err);
 
-	if (early_dtls)
-		mediaflow_set_earlydtls(ag->mf, true);
-
 	mediaflow_set_gather_handler(ag->mf, gather_handler);
-
-	mediaflow_set_rtp_handler(ag->mf, 0, 0,
-				  NULL,
-				  mediaflow_rtp_handler,
-				  mediaflow_rtcp_handler);
 
 	if (host_cand) {
 		/* NOTE: at least one HOST candidate is needed */
@@ -491,7 +351,7 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 
 	gather_server(ag);
 
-	tmr_start(&ag->tmr, 10, tmr_complete_handler, ag);
+	tmr_start(&ag->tmr, 5, tmr_complete_handler, ag);
 
 #if 0
 	re_printf("[ %s ] agent allocated (%s, %s, %s)\n",
@@ -512,14 +372,6 @@ static bool find_host_cand(const char *sdp)
 			     "a=candidate:[^ ]+ 1 UDP"
 			     " [0-9]+ 127.0.0.1 [0-9]+ typ host",
 			     NULL, NULL, NULL);
-}
-
-
-static bool find_tcp_cand(const char *sdp)
-{
-	return 0 == re_regex(sdp, str_len(sdp),
-			     "a=candidate:[^ ]+ 1 TCP [0-9]+",
-			     NULL, NULL);
 }
 
 
@@ -553,9 +405,6 @@ static void sdp_exchange(struct agent *a, struct agent *b)
 	err = mediaflow_handle_answer(a->mf, answer);
 	ASSERT_EQ(0, err);
 
-	ASSERT_FALSE(find_tcp_cand(offer));
-	ASSERT_FALSE(find_tcp_cand(answer));
-
 	/* check for any candidates in SDP */
 	if (find_host_cand(offer))
 		++a->n_lcand;
@@ -571,6 +420,7 @@ static void test_b2b(enum mode a_mode, enum mode b_mode, bool early_dtls)
 	struct test test;
 	struct agent *a = NULL, *b = NULL;
 	int err;
+	(void)early_dtls;
 
 #if 1
 	log_set_min_level(LOG_LEVEL_WARN);
@@ -579,11 +429,12 @@ static void test_b2b(enum mode a_mode, enum mode b_mode, bool early_dtls)
 
 	memset(&test, 0, sizeof(test));
 
-	aucodec_register(&test.aucodecl, &dummy_pcmu);
+	err = audummy_init(&test.aucodecl);
+	ASSERT_EQ(0, err);
 
 	/* initialization */
-	agent_alloc(&a, &test, true, a_mode, "A", early_dtls);
-	agent_alloc(&b, &test, false, b_mode, "B", early_dtls);
+	agent_alloc(&a, &test, true, a_mode, "A");
+	agent_alloc(&b, &test, false, b_mode, "B");
 	ASSERT_TRUE(a != NULL);
 	ASSERT_TRUE(b != NULL);
 	a->other = b;
@@ -605,7 +456,7 @@ static void test_b2b(enum mode a_mode, enum mode b_mode, bool early_dtls)
 #endif
 
 	/* start the main loop -- wait for network traffic */
-	err = re_main_wait(5000);
+	err = re_main_wait(10000);
 	if (err) {
 		re_printf("main timeout!\n");
 		a = (struct agent *)mem_deref(a);
@@ -643,10 +494,10 @@ static void test_b2b(enum mode a_mode, enum mode b_mode, bool early_dtls)
 	ASSERT_GE(a->n_estab, 1);
 	ASSERT_GE(b->n_estab, 1);
 
-	ASSERT_TRUE(a->n_rtp_recv > 0);
-	ASSERT_TRUE(b->n_rtp_recv > 0);
-	ASSERT_TRUE(a->n_rtcp_recv > 0);
-	ASSERT_TRUE(b->n_rtcp_recv > 0);
+	ASSERT_TRUE(mediaflow_rcv_audio_rtp_stats(a->mf)->packet_cnt > 0);
+	ASSERT_TRUE(mediaflow_rcv_audio_rtp_stats(b->mf)->packet_cnt > 0);
+	ASSERT_TRUE(mediaflow_rcv_audio_rtp_stats(a->mf)->byte_cnt > 0);
+	ASSERT_TRUE(mediaflow_rcv_audio_rtp_stats(b->mf)->byte_cnt > 0);
 
 	if (HAS_TURN(a_mode)) {
 		ASSERT_TRUE(mediaflow_stats_get(a->mf)->turn_alloc >= 0);
@@ -670,27 +521,10 @@ static void test_b2b(enum mode a_mode, enum mode b_mode, bool early_dtls)
 	ASSERT_TRUE(mediaflow_stats_get(b->mf)->dtls_estab >= 0);
 	ASSERT_TRUE(mediaflow_stats_get(b->mf)->dtls_estab < 5000);
 
-	/* check if early-dtls was negotiated correctly */
-	ASSERT_EQ(early_dtls, mediaflow_early_dtls_supported(a->mf));
-	ASSERT_EQ(early_dtls, mediaflow_early_dtls_supported(b->mf));
-
-
 	mem_deref(a);
 	mem_deref(b);
 
-	aucodec_unregister(&dummy_pcmu);
-}
-
-
-TEST(media, b2b_trickle_stun_and_lite)
-{
-	test_b2b(TRICKLE_STUN, LITE, false);
-}
-
-
-TEST(media, b2b_trickle_turn_and_lite)
-{
-	test_b2b(TRICKLE_TURN, LITE, false);
+	audummy_close();
 }
 
 
@@ -716,56 +550,3 @@ TEST(media, b2b_turnonly_and_turnonly)
 {
 	test_b2b(TRICKLE_TURN_ONLY, TRICKLE_TURN_ONLY, false);
 }
-
-
-TEST(media, b2b_turnonly_and_lite)
-{
-	test_b2b(TRICKLE_TURN_ONLY, LITE, false);
-}
-
-
-/* same tests with Early-DTLS enabled: */
-
-
-TEST(media, b2b_trickle_stun_and_lite_earlydtls)
-{
-	test_b2b(TRICKLE_STUN, LITE, true);
-}
-
-
-TEST(media, b2b_trickle_turn_and_lite_earlydtls)
-{
-	test_b2b(TRICKLE_TURN, LITE, true);
-}
-
-
-TEST(media, b2b_trickle_stun_and_trickle_stun_earlydtls)
-{
-	test_b2b(TRICKLE_STUN, TRICKLE_STUN, true);
-}
-
-
-TEST(media, b2b_trickle_stun_and_trickle_turn_earlydtls)
-{
-	test_b2b(TRICKLE_STUN, TRICKLE_TURN, true);
-}
-
-
-TEST(media, b2b_trickle_turn_and_trickle_turn_earlydtls)
-{
-	test_b2b(TRICKLE_TURN, TRICKLE_TURN, true);
-}
-
-
-TEST(media, b2b_turnonly_and_turnonly_earlydtls)
-{
-	test_b2b(TRICKLE_TURN_ONLY, TRICKLE_TURN_ONLY, true);
-}
-
-
-TEST(media, b2b_turnonly_and_lite_earlydtls)
-{
-	test_b2b(TRICKLE_TURN_ONLY, LITE, true);
-}
-
-

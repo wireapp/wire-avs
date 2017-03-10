@@ -41,7 +41,7 @@ JNIEXPORT jint JNICALL Java_com_waz_audioeffect_AudioEffect_applyEffectWav(JNIEn
     const char *file_name_in = env->GetStringUTFChars(jfile_name_in, 0);
     const char *file_name_out = env->GetStringUTFChars(jfile_name_out, 0);
     
-    audio_effect effect_type = AUDIO_EFFECT_CHORUS_MIN;
+    enum audio_effect effect_type = AUDIO_EFFECT_CHORUS_MIN;
     if (effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_CHORUS_MIN) {
         effect_type = AUDIO_EFFECT_CHORUS_MIN;
     } else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_CHORUS_MAX){
@@ -84,6 +84,18 @@ JNIEXPORT jint JNICALL Java_com_waz_audioeffect_AudioEffect_applyEffectWav(JNIEn
         effect_type = AUDIO_EFFECT_REVERSE;
     }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_VOCODER_MED){
         effect_type = AUDIO_EFFECT_VOCODER_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_AUTO_TUNE_MIN){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MIN;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_AUTO_TUNE_MED){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_AUTO_TUNE_MAX){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MAX;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_DOWN_MIN){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MIN;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_DOWN_MED){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_DOWN_MAX){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MAX;
     }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_NONE){
         effect_type = AUDIO_EFFECT_NONE;
     }
@@ -103,9 +115,11 @@ JNIEXPORT jint JNICALL Java_com_waz_audioeffect_AudioEffect_applyEffectPCM(JNIEn
     const char *file_name_in = env->GetStringUTFChars(jfile_name_in, 0);
     const char *file_name_out = env->GetStringUTFChars(jfile_name_out, 0);
     
-    audio_effect effect_type = AUDIO_EFFECT_CHORUS_MIN;
+    enum audio_effect effect_type = AUDIO_EFFECT_CHORUS_MIN;
     if (effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_CHORUS_MIN) {
         effect_type = AUDIO_EFFECT_CHORUS_MIN;
+    } else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_CHORUS_MED){
+        effect_type = AUDIO_EFFECT_CHORUS_MED;
     } else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_CHORUS_MAX){
         effect_type = AUDIO_EFFECT_CHORUS_MAX;
     }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_REVERB_MIN){
@@ -144,8 +158,22 @@ JNIEXPORT jint JNICALL Java_com_waz_audioeffect_AudioEffect_applyEffectPCM(JNIEn
         effect_type = AUDIO_EFFECT_PACE_DOWN_SHIFT_MAX;
     }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_REVERSE){
         effect_type = AUDIO_EFFECT_REVERSE;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_VOCODER_MIN){
+        effect_type = AUDIO_EFFECT_VOCODER_MIN;
     }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_VOCODER_MED){
         effect_type = AUDIO_EFFECT_VOCODER_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_AUTO_TUNE_MIN){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MIN;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_AUTO_TUNE_MED){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_AUTO_TUNE_MAX){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MAX;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_DOWN_MIN){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MIN;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_DOWN_MED){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MED;
+    }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_PITCH_UP_DOWN_MAX){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MAX;
     }else if(effect == com_waz_audioeffect_AudioEffect_AVS_AUDIO_EFFECT_NONE){
         effect_type = AUDIO_EFFECT_NONE;
     }

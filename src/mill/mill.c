@@ -43,6 +43,7 @@ struct mill {
 	 */
 	struct dnsc *dnsc;
 	struct http_cli *http;
+	struct http_cli *http_ws;
 	struct rest_cli *rest;
 	struct login *login;
 	struct websock *websock;
@@ -76,6 +77,7 @@ static void mill_destructor(void *arg)
 	mem_deref(ml->websock);
 	mem_deref(ml->login);
 	mem_deref(ml->rest);
+	mem_deref(ml->http_ws);
 	mem_deref(ml->http);
 	mem_deref(ml->dnsc);
 }
@@ -132,7 +134,7 @@ static int start_nevent(struct mill *mill, const struct login_token *token)
 	if (err)
 		return err;
 
-	return nevent_alloc(&mill->nevent, mill->websock, mill->http,
+	return nevent_alloc(&mill->nevent, mill->websock, mill->http_ws,
 			    mill->notification_uri, token->access_token,
 			    nevent_estab_handler, NULL, NULL, mill);
 }
@@ -219,6 +221,10 @@ int mill_alloc(struct mill **millp, const char *request_uri,
 		goto out;
 
 	err = http_client_alloc(&mill->http, mill->dnsc);
+	if (err)
+		goto out;
+
+	err = http_client_alloc(&mill->http_ws, mill->dnsc);
 	if (err)
 		goto out;
 

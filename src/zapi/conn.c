@@ -158,7 +158,7 @@ int zapi_connection_apply(struct rest_cli *cli, int pri,
 	data->arg = arg;
 
 	err = rest_get(NULL, cli, pri, connection_apply_handler, data,
-		       "/self/connections");
+		       "/connections");
 	if (err)
 		mem_deref(data);
 	return err;
@@ -194,7 +194,7 @@ int zapi_connection_update(struct rest_cli *cli, int pri, const char *id,
 
 	err = rest_request_jobj(NULL, cli, pri, "PUT",
 				data ? zapi_error_handler : NULL, data, jobj,
-				"/self/connections/%s", id);
+				"/connections/%s", id);
 	if (err)
 		goto out;
 	

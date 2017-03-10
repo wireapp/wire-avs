@@ -30,11 +30,13 @@
 
 #include <re/re.h>
 #include <avs.h>
+#include <avs_wcall.h>
 
 #import "AVSMediaManager.h"
 
 #import "AVSFlowManager.h"
 #import "AVSCapturer.h"
+
 
 #if TARGET_OS_IPHONE
 #import "AVSVideoView.h"
@@ -50,13 +52,13 @@ static struct {
 	pthread_t tid;
 	enum log_level log_level;
 	int err;
-    uint64_t avs_flags;
+	uint64_t avs_flags;
 } fmw = {
 	.initialized = false,
 	.tid = NULL,
-	.log_level = LOG_LEVEL_INFO,
+	.log_level = LOG_LEVEL_DEBUG,
 	.err = 0,
-    .avs_flags = 0
+	.avs_flags = 0,
 };
 
 static NSComparisonResult (^conferenceComparator)(id, id) =
@@ -76,6 +78,7 @@ static NSComparisonResult (^conferenceComparator)(id, id) =
 
 static void video_state_change_h(enum flowmgr_video_receive_state state,
 	enum flowmgr_video_reason reason, void *arg);
+static void wcall_video_state_change_handler(int state, void *arg);
 
 static int render_frame_h(struct avs_vidframe *frame, void *arg);
 
@@ -215,6 +218,7 @@ static struct log log_def = {
 };
 
 
+
 static void *avs_thread(void *arg)
 {
 	int err;
@@ -222,6 +226,11 @@ static void *avs_thread(void *arg)
     
 	info("avs_thread: starting...\n");
 
+	/* Force the loading of wcall symbols! 
+	 * Can't this be done with a linker directive?
+	 */
+	wcall_set_ice_servers(NULL, 0);
+	
 	err = libre_init();
 	if (err) {
 		warning("flowmgr_thread: libre_init failed (%m)\n", err);
@@ -240,7 +249,7 @@ static void *avs_thread(void *arg)
 		return NULL;
 	}
 
-	err = flowmgr_init("voe", NULL, CERT_TYPE_ECDSA);
+	err = flowmgr_init("voe", NULL, TLS_KEYTYPE_EC);
 	fmw.initialized = err == 0;
 	fmw.err = err;
 	if (err) {
@@ -415,17 +424,6 @@ static void err_handler(int err, const char *convid, void *arg)
     }
 }
 
-static void vm_play_status_handler(bool is_playing, unsigned int cur_time_ms, unsigned int file_length_ms, void *arg)
-{
-    AVSFlowManager *fm = (__bridge AVSFlowManager *)arg;
-    
-    if([fm.delegate respondsToSelector:@selector(vmStatushandler:current_time:length:)]){
-        dispatch_async(DISPATCH_Q, ^{
-            [fm.delegate vmStatushandler:is_playing current_time:cur_time_ms length:file_length_ms];
-        });
-    }
-}
-
 #if 0
 static inline enum log_level convert_logl(AVSFlowManagerLogLevel logLevel)
 {
@@ -588,7 +586,9 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_audio_state_handler, fm,
 			     audio_state_change_h,
 			     (__bridge void *)(self));
-    
+
+        wcall_set_video_state_handler(wcall_video_state_change_handler);
+
 	self = [super init];
 
 	if ( self ) {
@@ -612,7 +612,9 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 		g_Fm = self;
 	}
 
+#if !(TARGET_IPHONE_SIMULATOR)
 	_capturer = [[AVSCapturer alloc] init];
+#endif
 	
 	return self;
 }
@@ -1225,44 +1227,72 @@ out:
 	}
 }
 
-
-- (void)vmStartRecord:(NSString *)fileName
+- (int)setAudioEffect:(AVSAudioEffectType) effect
 {
-    const char *file_name = [fileName UTF8String];
-
-    FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_vm_start_record, self.flowManager, file_name);
-}
-
-- (void)vmStopRecord
-{
-    FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_vm_stop_record, self.flowManager);
-}
-
-- (int)vmGetLength:(NSString *)fileName
-{
-    const char *file_name = [fileName UTF8String];
-    int length_ms;
+    int ret;
     
-    int ret = flowmgr_vm_get_length(self.flowManager, file_name, &length_ms);
-    
-    if(ret < 0){
-        return ret;
-    } else {
-        return length_ms;
+    enum audio_effect effect_type = AUDIO_EFFECT_CHORUS_MIN;
+    if (effect == AVSAudioEffectTypeChorusMin) {
+        effect_type = AUDIO_EFFECT_CHORUS_MIN;
+    } else if(effect == AVSAudioEffectTypeChorusMax){
+        effect_type = AUDIO_EFFECT_CHORUS_MAX;
+    }else if(effect == AVSAudioEffectTypeReverbMin){
+        effect_type = AUDIO_EFFECT_REVERB_MIN;
+    }else if(effect == AVSAudioEffectTypeReverbMed){
+        effect_type = AUDIO_EFFECT_REVERB_MID;
+    }else if(effect == AVSAudioEffectTypeReverbMax){
+        effect_type = AUDIO_EFFECT_REVERB_MAX;
+    }else if(effect == AVSAudioEffectTypePitchupMin){
+        effect_type = AUDIO_EFFECT_PITCH_UP_SHIFT_MIN;
+    }else if(effect == AVSAudioEffectTypePitchupMed){
+        effect_type = AUDIO_EFFECT_PITCH_UP_SHIFT_MED;
+    }else if(effect == AVSAudioEffectTypePitchupMax){
+        effect_type = AUDIO_EFFECT_PITCH_UP_SHIFT_MAX;
+    }else if(effect == AVSAudioEffectTypePitchupInsane){
+        effect_type = AUDIO_EFFECT_PITCH_UP_SHIFT_INSANE;
+    }else if(effect == AVSAudioEffectTypePitchdownMin){
+        effect_type = AUDIO_EFFECT_PITCH_DOWN_SHIFT_MIN;
+    }else if(effect == AVSAudioEffectTypePitchdownMed){
+        effect_type = AUDIO_EFFECT_PITCH_DOWN_SHIFT_MED;
+    }else if(effect == AVSAudioEffectTypePitchdownMax){
+        effect_type = AUDIO_EFFECT_PITCH_DOWN_SHIFT_MAX;
+    }else if(effect == AVSAudioEffectTypePitchdownInsane){
+        effect_type = AUDIO_EFFECT_PITCH_DOWN_SHIFT_INSANE;
+    }else if(effect == AVSAudioEffectTypePaceupMin){
+        effect_type = AUDIO_EFFECT_PACE_UP_SHIFT_MIN;
+    }else if(effect == AVSAudioEffectTypePaceupMed){
+        effect_type = AUDIO_EFFECT_PACE_UP_SHIFT_MED;
+    }else if(effect == AVSAudioEffectTypePaceupMax){
+        effect_type = AUDIO_EFFECT_PACE_UP_SHIFT_MAX;
+    }else if(effect == AVSAudioEffectTypePacedownMin){
+        effect_type = AUDIO_EFFECT_PACE_DOWN_SHIFT_MIN;
+    }else if(effect == AVSAudioEffectTypePacedownMed){
+        effect_type = AUDIO_EFFECT_PACE_DOWN_SHIFT_MED;
+    }else if(effect == AVSAudioEffectTypePacedownMax){
+        effect_type = AUDIO_EFFECT_PACE_DOWN_SHIFT_MAX;
+    }else if(effect == AVSAudioEffectTypeReverse){
+        effect_type = AUDIO_EFFECT_REVERSE;
+    }else if(effect == AVSAudioEffectTypeVocoderMed){
+        effect_type = AUDIO_EFFECT_VOCODER_MED;
+    }else if(effect == AVSAudioEffectTypeAutoTuneMin){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MIN;
+    }else if(effect == AVSAudioEffectTypeAutoTuneMed){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MED;
+    }else if(effect == AVSAudioEffectTypeAutoTuneMax){
+        effect_type = AUDIO_EFFECT_AUTO_TUNE_MAX;
+    }else if(effect == AVSAudioEffectTypePitchUpDownMin){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MIN;
+    }else if(effect == AVSAudioEffectTypePitchUpDownMed){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MED;
+    }else if(effect == AVSAudioEffectTypePitchUpDownMax){
+        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MAX;
+    }else if(effect == AVSAudioEffectTypeNone){
+        effect_type = AUDIO_EFFECT_NONE;
     }
-}
-
-- (void)vmStartPlay:(NSString *)fileName toStart:(int)startpos
-{
-    const char *file_name = [fileName UTF8String];
     
-    FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_vm_start_play, self.flowManager,
-                         file_name, startpos, vm_play_status_handler, (__bridge void *)(self));
-}
-
-- (void)vmStopPlay
-{
-    FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_vm_stop_play, self.flowManager);
+    FLOWMGR_MARSHAL_RET(fmw.tid, ret, flowmgr_set_audio_effect, self.flowManager, effect_type);
+    
+    return ret;
 }
 
 @end
@@ -1311,6 +1341,36 @@ static void video_state_change_h(enum flowmgr_video_receive_state state,
 	AVSVideoStateChangeInfo *info = [[AVSVideoStateChangeInfo alloc]
 		initWithState:st reason:re];
 	avs_flow_manager_send_notification(FlowManagerVideoReceiveStateNotification, info);
+}
+
+static void wcall_video_state_change_handler(int state, void *arg)
+{
+	enum flowmgr_video_receive_state fstate;
+	enum flowmgr_video_reason freason;
+
+	switch (state) {
+	case WCALL_VIDEO_RECEIVE_STOPPED:
+		fstate = FLOWMGR_VIDEO_RECEIVE_STOPPED;
+		freason = FLOWMGR_VIDEO_NORMAL;
+		break;
+
+	case WCALL_VIDEO_RECEIVE_STARTED:
+		fstate = FLOWMGR_VIDEO_RECEIVE_STARTED;
+		freason = FLOWMGR_VIDEO_NORMAL;
+		break;
+
+	case WCALL_VIDEO_RECEIVE_BAD_CONN:
+		fstate = FLOWMGR_VIDEO_RECEIVE_STOPPED;
+		freason = FLOWMGR_VIDEO_BAD_CONNECTION;
+		break;
+
+	default:
+		fstate = FLOWMGR_VIDEO_RECEIVE_STOPPED;
+		freason = FLOWMGR_VIDEO_NORMAL;
+		break;
+	}
+
+	video_state_change_h(fstate, freason, arg);
 }
 
 static void audio_state_change_h(enum flowmgr_audio_receive_state state,

@@ -98,9 +98,7 @@ int sys_kernel_get(struct re_printf *pf, void *unused)
 
 	(void)unused;
 
-#if defined (__SYMBIAN32__)
-	str = "Symbian OS";
-#elif defined(WIN32)
+#if defined(WIN32)
 	str = "Win32";
 #else
 	str = "?";
@@ -199,7 +197,7 @@ const char *sys_username(void)
 	login = getenv("LOGNAME");
 	if (!login)
 		login = getenv("USER");
-#if defined (HAVE_UNISTD_H) && !defined (__SYMBIAN32__)
+#ifdef HAVE_UNISTD_H
 	if (!login) {
 		login = getlogin();
 	}

@@ -550,7 +550,6 @@ static int print_handler_dyn(const char *p, size_t size, void *arg)
 }
 
 
-#if 1
 struct strm_print {
 	FILE *f;
 	size_t n;
@@ -593,7 +592,6 @@ int re_vfprintf(FILE *stream, const char *fmt, va_list ap)
 
 	return (int)sp.n;
 }
-#endif
 
 
 /**

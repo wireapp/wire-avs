@@ -1,3 +1,20 @@
+/*
+* Wire
+* Copyright (C) 2016 Wire Swiss GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <http://www.gnu.org/licenses/>.
+*/
 
 #ifdef __APPLE__
 #include <unistd.h>
@@ -498,7 +515,7 @@ TEST_F(cryptoboxtest, performance)
 	uint8_t *msg = (uint8_t *)mem_alloc(len, NULL);
 	rand_bytes(msg, len);
 
-	re_printf("sending %d messages of size %zu bytes\n",
+	info("sending %d messages of size %zu bytes\n",
 		  NUM_MESSAGES, len);
 
 	t1 = tmr_jiffies();
@@ -510,6 +527,7 @@ TEST_F(cryptoboxtest, performance)
 
 	t2 = tmr_jiffies();
 
+#if 0
 	re_printf("~~~ performance report ~~~\n");
 	re_printf("num_messages:   %d\n", NUM_MESSAGES);
 	re_printf("message_size:   %zu\n", len);
@@ -517,6 +535,7 @@ TEST_F(cryptoboxtest, performance)
 	re_printf("average:        %.1f ms\n", 1.0*(t2-t1)/NUM_MESSAGES);
 	re_printf("~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~\n");
 	re_printf("\n");
+#endif
 
 	mem_deref(msg);
 }

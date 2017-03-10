@@ -46,9 +46,11 @@ public:
 
 #if 1
 		/* you can enable this to see what is going on .. */
-		log_set_min_level(LOG_LEVEL_INFO);
-		log_enable_stderr(false);
+		log_set_min_level(LOG_LEVEL_WARN);
+		log_enable_stderr(true);
 #endif
+
+		tmr_init(&tmr_send);
 
 		err = sa_set_str(&laddr, "127.0.0.1", 0);
 		ASSERT_EQ(0, err);
@@ -62,13 +64,27 @@ public:
 
 	virtual void TearDown() override
 	{
+		tmr_cancel(&tmr_send);
+
 		mem_deref(turnc);
-		mem_deref(tc);
-		mem_deref(tlsc);
-		mem_deref(tls);
 		mem_deref(us_cli);
 		mem_deref(us_peer);
 		mem_deref(mb);
+	}
+
+	void alloc_turn(int proto, bool secure, const struct sa *srv_addr)
+	{
+		int err;
+
+		ASSERT_TRUE(turnc == NULL);
+
+		err = turnconn_alloc(&turnc, NULL, srv_addr, proto, secure,
+				     "user", "pass", AF_INET, us_cli, 0, 0,
+				     turnconn_estab_handler,
+				     turnconn_data_handler,
+				     turnconn_error_handler, this);
+		ASSERT_EQ(0, err);
+		ASSERT_TRUE(turnc != NULL);
 	}
 
 	void start(int _proto, bool _secure)
@@ -82,12 +98,6 @@ public:
 		err = sa_set_str(&laddr, "127.0.0.1", 0);
 		ASSERT_EQ(0, err);
 
-		if (secure) {
-			err = tls_alloc(&tls, TLS_METHOD_SSLV23,
-					NULL, NULL);
-			ASSERT_EQ(0, err);
-		}
-
 		switch (proto) {
 
 		case IPPROTO_UDP:
@@ -98,10 +108,7 @@ public:
 			err = udp_local_get(us_cli, &addr_cli);
 			ASSERT_EQ(0, err);
 
-			err = turnc_alloc(&turnc, NULL, proto, us_cli, 0,
-					  &srv.addr, "user", "pass", 600,
-					  turnc_handler, this);
-			ASSERT_EQ(0, err);
+			alloc_turn(proto, secure, &turn_addr);
 			break;
 
 		case IPPROTO_TCP:
@@ -110,15 +117,7 @@ public:
 			else
 				turn_addr = srv.addr_tcp;
 
-			err = tcp_connect(&tc, &turn_addr, tcp_estab,
-					  tcp_recv, tcp_close, this);
-			ASSERT_EQ(0, err);
-
-			if (secure) {
-				err = tls_start_tcp(&tlsc, tls,
-						    tc, 0);
-				ASSERT_EQ(0, err);
-			}
+			alloc_turn(proto, secure, &turn_addr);
 			break;
 
 		default:
@@ -128,19 +127,31 @@ public:
 		}
 	}
 
-	static void turnc_handler(int err,
-				  uint16_t scode, const char *reason,
-				  const struct sa *relay_addr,
-				  const struct sa *mapped_addr,
-				  const struct stun_msg *msg,
-				  void *arg)
+	static void tmr_send_handler(void *arg)
 	{
 		TestTurn *tt = static_cast<TestTurn *>(arg);
 
+		if (tt->turnc->n_permh > 0) {
+
+			tt->send_data(payload);
+			tt->send_data(payload);
+
+		}
+		else {
+			tmr_start(&tt->tmr_send, 10, tmr_send_handler, tt);
+		}
+	}
+
+	static void turnconn_estab_handler(struct turn_conn *conn,
+					   const struct sa *relay_addr,
+					   const struct sa *mapped_addr,
+					   const struct stun_msg *msg, void *arg)
+	{
+		TestTurn *tt = static_cast<TestTurn *>(arg);
+		int err;
+
 		++tt->n_alloch;
 
-		ASSERT_EQ(0, err);
-		ASSERT_EQ(0, scode);
 		ASSERT_TRUE(sa_isset(relay_addr, SA_ALL));
 		ASSERT_TRUE(sa_isset(mapped_addr, SA_ALL));
 
@@ -150,19 +161,30 @@ public:
 
 		tt->addr_relay = *relay_addr;
 
-		err = turnc_add_perm(tt->turnc, &tt->addr_peer,
-				     turnc_perm_handler, tt);
+		err = turnconn_add_permission(tt->turnc, &tt->addr_peer);
 		ASSERT_EQ(0, err);
+
+		tmr_start(&tt->tmr_send, 10, tmr_send_handler, tt);
 	}
 
-	static void turnc_perm_handler(void *arg)
+	static void turnconn_data_handler(struct turn_conn *conn,
+					  const struct sa *src,
+					  struct mbuf *mb, void *arg)
 	{
 		TestTurn *tt = static_cast<TestTurn *>(arg);
 
-		++tt->n_permh;
+		tt->data_handler(src, mb);
+	}
 
-		tt->send_data(payload);
-		tt->send_data(payload);
+	static void turnconn_error_handler(int err, void *arg)
+	{
+		TestTurn *tt = static_cast<TestTurn *>(arg);
+
+		warning("turnconn error (%m)\n", err);
+
+		tt->alloc_error = err ? err : EPROTO;
+
+		re_cancel();
 	}
 
 	static void peer_udp_recv(const struct sa *src, struct mbuf *mb,
@@ -217,7 +239,7 @@ public:
 			break;
 
 		case IPPROTO_TCP:
-			err = turnc_send(turnc, &addr_peer, mb);
+			err = turnc_send(turnc->turnc, &addr_peer, mb);
 			ASSERT_EQ(0, err);
 			break;
 
@@ -245,130 +267,26 @@ public:
 #endif
 	}
 
-	static void tcp_recv(struct mbuf *mb, void *arg)
-	{
-		TestTurn *tl = static_cast<TestTurn *>(arg);
-		int err = 0;
-
-		if (tl->mb) {
-			size_t pos;
-
-			pos = tl->mb->pos;
-
-			tl->mb->pos = tl->mb->end;
-
-			err = mbuf_write_mem(tl->mb, mbuf_buf(mb),
-					     mbuf_get_left(mb));
-			if (err)
-				goto out;
-
-			tl->mb->pos = pos;
-		}
-		else {
-			tl->mb = (struct mbuf *)mem_ref(mb);
-		}
-
-		for (;;) {
-
-			size_t len, pos, end;
-			struct sa src;
-			uint16_t typ;
-
-			if (mbuf_get_left(tl->mb) < 4)
-				break;
-
-			typ = ntohs(mbuf_read_u16(tl->mb));
-			len = ntohs(mbuf_read_u16(tl->mb));
-
-			if (typ < 0x4000)
-				len += STUN_HEADER_SIZE;
-			else if (typ < 0x8000)
-				len += 4;
-			else {
-				err = EBADMSG;
-				goto out;
-			}
-
-			tl->mb->pos -= 4;
-
-			if (mbuf_get_left(tl->mb) < len)
-				break;
-
-			pos = tl->mb->pos;
-			end = tl->mb->end;
-
-			tl->mb->end = pos + len;
-
-			err = turnc_recv(tl->turnc, &src, tl->mb);
-			if (err)
-				goto out;
-
-			if (mbuf_get_left(tl->mb))
-				tl->data_handler(&src, tl->mb);
-
-			/* 4 byte alignment */
-			while (len & 0x03)
-				++len;
-
-			tl->mb->pos = pos + len;
-			tl->mb->end = end;
-
-			if (tl->mb->pos >= tl->mb->end) {
-				tl->mb = (struct mbuf *)mem_deref(tl->mb);
-				break;
-			}
-		}
-
-	out:
-		if (err) {
-			ASSERT_EQ(0, err);
-		}
-	}
-
-	static void tcp_estab(void *arg)
-	{
-		TestTurn *tl = static_cast<TestTurn *>(arg);
-		int err;
-
-		tl->mb = (struct mbuf *)mem_deref(tl->mb);
-
-		err = turnc_alloc(&tl->turnc, NULL, IPPROTO_TCP, tl->tc, 0,
-				  &tl->turn_addr, "user", "pass",
-				  TURN_DEFAULT_LIFETIME, turnc_handler, tl);
-		if (err) {
-			ASSERT_EQ(0, err);
-		}
-	}
-
-	static void tcp_close(int err, void *arg)
-	{
-		TestTurn *tl = static_cast<TestTurn *>(arg);
-
-		re_cancel();
-	}
-
 protected:
+	struct tmr tmr_send;
 	TurnServer srv;
-	struct turnc *turnc = nullptr;
+	struct turn_conn *turnc = nullptr;
 	struct udp_sock *us_cli = nullptr;
 	struct udp_sock *us_peer = nullptr;
-	struct tcp_conn *tc = nullptr;
 	struct sa addr_cli;
 	struct sa addr_peer;
 	struct sa addr_relay;
 	struct sa turn_addr;
-
-	struct tls_conn *tlsc = nullptr;
-	struct tls *tls = nullptr;
 	struct mbuf *mb = nullptr;
 	int proto;
 	bool secure;
 
 	unsigned n_alloch = 0;
-	unsigned n_permh = 0;
 	unsigned n_udp_cli = 0;
 	unsigned n_tcp_cli = 0;
 	unsigned n_udp_peer = 0;
+
+	int alloc_error = 0;
 };
 
 
@@ -383,8 +301,9 @@ TEST_F(TestTurn, allocation_permission_send)
 	ASSERT_EQ(0, err);
 
 	/* verify TURN client */
+	ASSERT_EQ(0, alloc_error);
 	ASSERT_EQ(1, n_alloch);
-	ASSERT_EQ(1, n_permh);
+	ASSERT_EQ(1, turnc->n_permh);
 	ASSERT_TRUE(n_udp_peer > 0);
 	ASSERT_TRUE(n_udp_cli > 0);
 
@@ -405,7 +324,7 @@ TEST_F(TestTurn, allocation_permission_send_tcp)
 
 	/* verify TURN client */
 	ASSERT_EQ(1, n_alloch);
-	ASSERT_EQ(1, n_permh);
+	ASSERT_EQ(1, turnc->n_permh);
 	ASSERT_TRUE(n_udp_peer > 0);
 	ASSERT_EQ(0, n_udp_cli);
 	ASSERT_TRUE(n_tcp_cli > 0);
@@ -427,16 +346,43 @@ TEST_F(TestTurn, allocation_permission_send_tls)
 
 	/* verify TURN client */
 	ASSERT_EQ(1, n_alloch);
-	ASSERT_EQ(1, n_permh);
+	ASSERT_EQ(1, turnc->n_permh);
 	ASSERT_TRUE(n_udp_peer > 0);
 	ASSERT_EQ(0, n_udp_cli);
 	ASSERT_TRUE(n_tcp_cli > 0);
 
-	ASSERT_TRUE(tls != NULL);
-	ASSERT_TRUE(tlsc != NULL);
+	ASSERT_TRUE(turnc->tls != NULL);
+	ASSERT_TRUE(turnc->tlsc != NULL);
 
 	/* verify TURN server */
 	ASSERT_EQ(0, srv.nrecv);
+}
+
+
+TEST_F(TestTurn, allocation_failure_441)
+{
+	int err;
+
+	/* silence warnings .. */
+	log_set_min_level(LOG_LEVEL_ERROR);
+
+	srv.set_sim_error(441);
+
+	start(IPPROTO_UDP, false);
+
+	/* start mainloop, wait for traffic */
+	err = re_main_wait(5000);
+	ASSERT_EQ(0, err);
+
+	/* verify TURN client */
+	ASSERT_EQ(EAUTH, alloc_error);
+	ASSERT_EQ(0, n_alloch);
+	ASSERT_EQ(0, turnc->n_permh);
+	ASSERT_EQ(0, n_udp_peer);
+	ASSERT_EQ(0, n_udp_cli);
+
+	/* verify TURN server */
+	ASSERT_GE(srv.nrecv, 1);
 }
 
 

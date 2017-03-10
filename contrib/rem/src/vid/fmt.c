@@ -1,5 +1,5 @@
 /**
- * @file fmt.c Video Formats
+ * @file vid/fmt.c Video Formats
  *
  * Copyright (C) 2010 Creytiv.com
  */
@@ -20,6 +20,7 @@ const struct vidfmt_desc vidfmt_descv[VID_FMT_N] = {
 	{"rgb555",  1, 3, { {0, 2}, {0, 2}, {0, 2}, {0, 0} } },
 	{"nv12",    3, 2, { {0, 1}, {1, 2}, {1, 2}, {0, 0} } },
 	{"nv21",    3, 2, { {0, 1}, {1, 2}, {1, 2}, {0, 0} } },
+	{"yuv444p", 3, 3, { {0, 1}, {1, 1}, {2, 1}, {0, 0} } },
 };
 
 

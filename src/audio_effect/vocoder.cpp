@@ -58,6 +58,16 @@ void* create_vocoder(int fs_hz, int strength)
     ve->e_min_track = E_MIN;
     ve->e_max_track = E_MIN + 10;
     
+    init_find_pitch_lags(&ve->pest, PROC_FS_KHZ*1000, 2);    
+    ve->pitch_period = 84;
+    
+    ve->strength = strength;
+    if(strength == 0){
+        ve->max_pitch_delta = E_MAX_PITCH_DELTA;
+    } else if(strength == 1){
+        ve->max_pitch_delta = 0;
+    }
+    
     return (void*)ve;
 }
 
@@ -266,36 +276,75 @@ static float energy_based_mix(struct vocoder_effect *ve, int16_t sig[], int L)
     return energy_mix;
 }
 
+static int median_pitch(struct vocoder_effect *ve)
+{
+    float mean = 0;
+    for(int i = 0; i < E_PL_BUF_SZ; i++){
+        mean += (float)ve->pL_buf[i];
+    }
+    mean = mean / (float)E_PL_BUF_SZ;
+    
+    int median = 0;
+    float min_diff = 1e7;
+    float diff;
+    for(int i = 0; i < E_PL_BUF_SZ; i++){
+        diff = ( mean - (float)ve->pL_buf[i]);
+        diff = diff * diff;
+        if(diff < min_diff){
+            median = ve->pL_buf[i];
+            min_diff = diff;
+        }
+    }
+    return median;
+}
+
 void vocoder_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t *L_out)
 {
     struct vocoder_effect *ve = (struct vocoder_effect*)st;
-
+    
     int L10 = (ve->fs_khz * 10);
     int N = L_in / L10;
     //if( N * L10 != L_in || L_in > (ve->fs_khz * MAX_L_MS)){
     //    printf("vocoder_process needs 10 ms chunks max %d ms \n", MAX_L_MS);
     //}
-
+    
     int L10_out = (L_in * 16) / ve->fs_khz;
-
+    
     size_t n_samp = 0;
     int16_t tmp_buf[L10_out];
     int16_t res[L10_out];
     silk_float filt_out[L10_out];
     silk_float a[Z_REST_LPC_ORDER];
     float g, mix, tilt;
+    int pL, median_pL;
     for( int i = 0; i < N; i++){
-        ve->resampler_in->Resample( &in[i*L10], L10, tmp_buf, L10_out);
+        ve->resampler_in->Resample( &in[i*L10], L10, &ve->buf[L10_out], L10_out);
         
-        find_res(ve, tmp_buf, L10_out, res, a, &g, &tilt);
-    
-        // Mix more when low pass
-        if(tilt > 0.5f){
-            mix = 1.0f;
-        }else {
-            mix = 0.65f;
+        find_pitch_lags(&ve->pest, &ve->buf[L10_out], L10_out);
+        
+        pL = ((ve->pest.pitchL[2] + ve->pest.pitchL[3]) >> 1);
+        ve->pL_buf[E_PL_BUF_SZ-1] = pL;
+        
+        median_pL = median_pitch(ve);
+        
+        find_res(ve, ve->buf, L10_out, res, a, &g, &tilt);
+        
+        if(median_pL > 0 && tilt > 0.55f){
+            int pitch_delta = median_pL - ve->pitch_period;
+            if(pitch_delta < -ve->max_pitch_delta){
+                pitch_delta = -ve->max_pitch_delta;
+            }
+            if(pitch_delta > ve->max_pitch_delta){
+                pitch_delta = ve->max_pitch_delta;
+            }
+            ve->pitch_period += pitch_delta;
+            
+            mix = (tilt * tilt);
+        } else {
+            mix = 0.3;
         }
-        float energy_mix = energy_based_mix(ve, tmp_buf, L10_out);
+        
+        float energy_mix = energy_based_mix(ve, ve->buf, L10_out);
         if(mix > energy_mix){
             mix = energy_mix;
         }
@@ -306,12 +355,11 @@ void vocoder_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t 
             ve->mix_smth += MIX_SMTH_DOWN * (mix - ve->mix_smth);
         }
         
-        int pitch_period = 84;
-        g = g * 3.0f;
+        g = g * 0.0417f * (float)ve->pitch_period;
         int16_t exe;
         // generate pulse train as exitation
         for(int j = 0; j < L10_out; j++){
-            if(ve->samples_since_pulse == pitch_period){
+            if(ve->samples_since_pulse >= ve->pitch_period){
                 exe = (int16_t)g;
                 ve->samples_since_pulse = 0;
             } else if(ve->samples_since_pulse < 3){
@@ -323,15 +371,18 @@ void vocoder_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t 
             }
             res[j] = (1-ve->mix_smth)*res[j] + ve->mix_smth*exe;
         }
-    
+        
         lpc_synthesis(ve, res, a, filt_out, L10_out);
-    
+        
         for(int j = 0; j < L10_out; j++){
             tmp_buf[j] = (int16_t)compress(filt_out[j]);
         }
-    
+        
         ve->resampler_out->Resample( tmp_buf, L10_out, &out[i*L10], L10);
-    
+        
+        memmove(ve->pL_buf, &ve->pL_buf[1], (E_PL_BUF_SZ-1) * sizeof(int));
+        memmove(ve->buf, &ve->buf[L10_out], L10_out * sizeof(int16_t));
+        
         n_samp += L10;
         
         ve->cnt++;

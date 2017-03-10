@@ -492,13 +492,50 @@ static void nv12_to_yuv420p(unsigned xoffs, unsigned width, double rw,
 		dd0[id + lsd]   = ds0[xs  + ys2*lss];
 		dd0[id+1 + lsd] = ds0[xs2 + ys2*lss];
 
-		id = xd/2    + yd*lsd/4;
-		is = ((xs>>1) + (ys>>1)*lss/2) & ~1;
+		id = (xd>>1) + (yd>>1)*lsd/2;
+		is = xs/2    + ys*lss/4;
 
 		dd1[id] = ds1[2*is];
 		dd2[id] = ds1[2*is+1];
 	}
 }
+
+
+static void yuv420p_to_nv12(unsigned xoffs, unsigned width, double rw,
+			    unsigned yd, unsigned ys, unsigned ys2,
+			    uint8_t *dd0, uint8_t *dd1, uint8_t *dd2,
+			    unsigned lsd,
+			    const uint8_t *ds0, const uint8_t *ds1,
+			    const uint8_t *ds2, unsigned lss
+			    )
+{
+	unsigned x, xd, xs, xs2;
+	unsigned id, is;
+
+	(void)dd2;
+
+	for (x=0; x<width; x+=2) {
+
+		xd  = x + xoffs;
+
+		xs  = (unsigned)(x * rw);
+		xs2 = (unsigned)((x+1) * rw);
+
+		id = xd + yd*lsd;
+
+		dd0[id]         = ds0[xs  + ys*lss];
+		dd0[id+1]       = ds0[xs2 + ys*lss];
+		dd0[id + lsd]   = ds0[xs  + ys2*lss];
+		dd0[id+1 + lsd] = ds0[xs2 + ys2*lss];
+
+		id = xd/2    + yd*lsd/4;
+		is = (xs>>1) + (ys>>1)*lss/2;
+
+		dd1[2*id]   = ds1[is];
+		dd1[2*id+1] = ds2[is];
+	}
+}
+
 
 static void nv21_to_yuv420p(unsigned xoffs, unsigned width, double rw,
 			    unsigned yd, unsigned ys, unsigned ys2,
@@ -536,7 +573,7 @@ static void nv21_to_yuv420p(unsigned xoffs, unsigned width, double rw,
 }
 
 #define MAX_SRC 9
-#define MAX_DST 7
+#define MAX_DST 8
 
 /**
  * Pixel conversion table:  [src][dst]
@@ -549,7 +586,7 @@ static line_h *conv_table[MAX_SRC][MAX_DST] = {
  * Dst:  YUV420P              YUYV422   UYVY422   RGB32
  */
 	{yuv420p_to_yuv420p,  NULL,     NULL,     yuv420p_to_rgb32, NULL,
-	 yuv420p_to_rgb565, yuv420p_to_rgb555},
+	 yuv420p_to_rgb565, yuv420p_to_rgb555, yuv420p_to_nv12},
 	{yuyv422_to_yuv420p,  NULL,     NULL,     NULL, NULL, NULL, NULL},
 	{uyvy422_to_yuv420p,  NULL,     NULL,     NULL, NULL, NULL, NULL},
 	{rgb32_to_yuv420p,    NULL,     NULL,     NULL, NULL, NULL, NULL},

@@ -33,7 +33,7 @@
 
 static struct vie_capture_router {
 	webrtc::VideoCaptureInput *stream_input;
-	lock *lock;
+	struct lock *lock;
 	bool buffer_rotate;
 #if PRINT_PERIODIC_FRAME_STATS
 	struct timeb fps_time;

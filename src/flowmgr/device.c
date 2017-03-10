@@ -142,41 +142,6 @@ void flowmgr_stop_mic_file_playout(void)
 	voe_stop_playing_PCM_file_as_microphone();
 }
 
-
-int flowmgr_start_speak_file_record(const char fileNameUTF8[1024])
-{
-	int err = 0;
-
-	err = voe_start_recording_playout_PCM_file(fileNameUTF8);
-
-	return err;
-}
-
-
-void flowmgr_stop_speak_file_record(void)
-{
-	voe_stop_recording_playout_PCM_file();
-}
-
-
-void flowmgr_enable_fec(bool enable)
-{
-	voe_enable_fec(enable);
-}
-
-
-void flowmgr_enable_aec(bool enable)
-{
-	voe_enable_aec(enable);
-}
-
-
-void flowmgr_enable_rcv_ns(bool enable)
-{
-	voe_enable_rcv_ns(enable);
-}
-
-
 void flowmgr_set_bitrate(int rate_bps)
 {
 	voe_set_bitrate(rate_bps);

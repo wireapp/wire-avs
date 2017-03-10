@@ -24,6 +24,9 @@
 
 #import "AVSMediaManager.h"
 
+#ifndef AVS_EXPORT
+#define AVS_EXPORT __attribute__((visibility("default")))
+#endif
 
 @class AVSMediaManagerClientChangeNotification;
 
@@ -35,7 +38,7 @@
 @end
 
 
-@interface AVSMediaManagerClientChangeNotification : NSNotification
+AVS_EXPORT @interface AVSMediaManagerClientChangeNotification : NSNotification
 
 @property (nonatomic, readonly) AVSMediaManager *manager;
 @property (nonatomic, readonly) BOOL intensityLevelChanged;

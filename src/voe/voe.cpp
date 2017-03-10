@@ -195,258 +195,6 @@ void MyObserver::CallbackOnError(int channel, int err_code)
 
 static MyObserver my_observer;
 
-static void tmr_neteq_stats_handler(void *arg)
-{
-    struct channel_stats chstat;
-    struct voe *voe = (struct voe *)arg;
-    
-    if(list_count(&voe->channel_data_list) > 0 && voe->nch > 0 && !voe->isSilenced){
-#if NETEQ_LOGGING
-        info("------ %d active channels ------- \n", list_count(&voe->channel_data_list));
-#endif
-        struct le *le;
-        for(le = voe->channel_data_list.head; le; le = le->next){
-            struct channel_data *cd = (struct channel_data *)le->data;
-            
-            chstat.in_vol = 20 * log10(voe->in_vol_smth + 1.0f);
-            chstat.out_vol = 20 * log10(cd->out_vol_smth + 1.0f);
-            
-            int ch_id = cd->channel_number;
-            voe->neteq_stats->GetNetworkStatistics(ch_id, chstat.neteq_nw_stats);
-            
-            webrtc::CallStatistics stats;
-            voe->rtp_rtcp->GetRTCPStatistics(ch_id, stats);
-            chstat.Rtt_ms = stats.rttMs;
-            chstat.jitter_smpls = stats.jitterSamples;
-            
-            unsigned int NTPHigh = 0, NTPLow = 0, timestamp = 0, playoutTimestamp = 0, jitter = 0;
-            unsigned short fractionLostUp_Q8 = 0; // Uplink packet loss as reported by remote side
-            voe->rtp_rtcp->GetRemoteRTCPData( ch_id, NTPHigh, NTPLow, timestamp, playoutTimestamp, &jitter, &fractionLostUp_Q8);
-            
-            chstat.uplink_loss_q8 = fractionLostUp_Q8;
-            chstat.uplink_jitter_smpls = jitter;
-            
-            memcpy(&cd->ch_stats[cd->stats_idx], &chstat, sizeof(chstat));
-            cd->stats_idx++;
-            if(cd->stats_idx >= NUM_STATS){
-               cd->stats_idx = 0;
-            }
-            cd->stats_cnt++;
-#if NETEQ_LOGGING
-            float pl_rate = ((float)chstat.neteq_nw_stats.currentPacketLossRate)/163.84f; // convert Q14 -> float and fraction to percent
-            float fec_rate = ((float)chstat.neteq_nw_stats.currentSecondaryDecodedRate)/163.84f; // convert Q14 -> float and fraction to percent
-            float exp_rate = ((float)chstat.neteq_nw_stats.currentExpandRate)/163.84f;
-            float acc_rate = ((float)chstat.neteq_nw_stats.currentAccelerateRate)/163.84f;
-            float dec_rate = ((float)chstat.neteq_nw_stats.currentPreemptiveRate)/163.84f;
-            info("ch# %d BufferSize = %d ms PacketLossRate = %.2f ExpandRate = %.2f fec_rate = %.2f AccelerateRate = %.2f DecelerateRate = %.2f \n", ch_id, chstat.neteq_nw_stats.currentBufferSize, pl_rate, exp_rate, fec_rate, acc_rate, dec_rate);
-#endif
-        }
-    }
-    tmr_start(&voe->tmr_neteq_stats, NW_STATS_DELTA*MILLISECONDS_PER_SECOND, tmr_neteq_stats_handler, voe);
-}
-
-
-static const char *AGCmode2Str(webrtc::AgcModes AGCmode)
-{
-    switch (AGCmode) {
-            
-        case webrtc::kAgcDefault:                 return "Default";
-        case webrtc::kAgcAdaptiveAnalog:          return "AdaptiveAnalog";
-        case webrtc::kAgcAdaptiveDigital:         return "AdaptiveDigital";
-        case webrtc::kAgcFixedDigital:            return "FixedDigital";
-        default: return "?";
-    }
-}
-
-static const char *ECmode2Str(webrtc::EcModes ECmode)
-{
-	switch (ECmode) {
-            
-        case webrtc::kEcDefault:                  return "Default";
-        case webrtc::kEcConference:               return "Aec (Agressive)";
-        case webrtc::kEcAec:                      return "Aec";
-        case webrtc::kEcAecm:                     return "Aecm";
-        default: return "?";
-	}
-}
-
-
-static const char *AECMmode2Str(webrtc::AecmModes AECMmode)
-{
-	switch (AECMmode) {
-            
-        case webrtc::kAecmQuietEarpieceOrHeadset: return "QuietEarpieceOrHeadset";
-        case webrtc::kAecmEarpiece:               return "Earpiece";
-        case webrtc::kAecmLoudEarpiece:           return "LoudEarpiece";
-        case webrtc::kAecmSpeakerphone:           return "Speakerphone";
-        case webrtc::kAecmLoudSpeakerphone:       return "LoudSpeakerphone";
-        default: return "?";
-	}
-}
-
-
-static const char *NSmode2Str(webrtc::NsModes NSMode)
-{
-	switch (NSMode) {
-            
-        case webrtc::kNsDefault:                  return "Default";
-        case webrtc::kNsConference:               return "Conference";
-        case webrtc::kNsLowSuppression:           return "LowSuppression";
-        case webrtc::kNsModerateSuppression:      return "ModerateSuppression";
-        case webrtc::kNsHighSuppression:          return "HighSuppression";
-        case webrtc::kNsVeryHighSuppression:      return "VeryHighSuppression";
-        default: return "?";
-	}
-}
-
-
-void voe_start_audio_proc(struct voe *voe)
-{
-	int ret = 0;
-	bool enabled;
-	webrtc::EcModes ECmode;
-	webrtc::AgcModes AGCmode;
-	webrtc::AecmModes AECMmode;
-	webrtc::NsModes NSMode;
-	auto proc = voe->processing;
-
-	if (!proc)
-		return;
-
-	/* SetUp HP filter */
-	ret = proc->EnableHighPassFilter( ZETA_USE_HP );
-    
-	/* SetUp AGC */
-	ret = proc->SetAgcStatus( ZETA_USE_AGC_SPEAKER, ZETA_AGC_MODE_SPEAKER);
-
-	/* SetUp AEC */
-    
-    /* Does the device have build in AEC ?*/
-#ifdef ZETA_USE_BUILD_IN_AEC
-	bool build_in_aec = voe->hw->BuiltInAECIsAvailable();
-#else
-	bool build_in_aec = false;
-#endif
-	if (build_in_aec){
-		info("voe: using build in AEC !! \n");
-		voe->hw->EnableBuiltInAEC(true);
-	}
-	else {
-		ret = proc->SetEcStatus( ZETA_USE_AEC_SPEAKER, ZETA_AEC_MODE);
-		if(ZETA_AEC_DELAY_CORRECTION){
-			webrtc::Config config;
-			config.Set<webrtc::ExtendedFilter>(new webrtc::ExtendedFilter(ZETA_AEC_DELAY_CORRECTION));
-			voe->base->audio_processing()->SetExtraOptions(config); // Not Supported by real API but can be found by going through base API
-		}
-		if(ZETA_AEC_DELAY_AGNOSTIC){
-			webrtc::Config config;
-			config.Set<webrtc::DelayAgnostic>(new webrtc::DelayAgnostic(ZETA_AEC_DELAY_AGNOSTIC));
-			voe->base->audio_processing()->SetExtraOptions(config); // Not Supported by real API but can be found by going through base API
-		}
-        
-		// If AECM used set agressivness and use of comfort noise
-		ret = proc->GetEcStatus(enabled, ECmode);
-		if ( enabled && ECmode == webrtc::kEcAecm) {
-			proc->SetAecmMode( ZETA_AECM_MODE_SPEAKER, ZETA_AECM_CNG );
-		}
-	}
-	/* Setup Noise Supression */
-	ret = proc->SetNsStatus( ZETA_USE_NS, ZETA_NS_MODE_SPEAKER );
-	
-	info("voe: -- Preproc Settings -- \n");
-
-	if(proc->IsHighPassFilterEnabled()){
-		info("voe: Microphone High Pass filter enabled \n");
-	}
-	ret = proc->GetAgcStatus( enabled, AGCmode);
-	if (enabled){
-		info("voe: AGC enabled in mode %s \n", AGCmode2Str(AGCmode));
-	}
-	else {
-		info("voe: AGC disabled \n");
-	}
-	ret = proc->GetEcStatus(enabled, ECmode);
-	if ( enabled ) {
-		if ( ECmode == webrtc::kEcAecm) {
-			ret = proc->GetAecmMode( AECMmode, enabled );
-			info("voe: AECM enabled in mode %s CNG = %d \n",
-			     AECMmode2Str(AECMmode), enabled);
-		} else {
-			info("voe: AEC enabled in mode %s \n", ECmode2Str(ECmode));
-			if(ZETA_AEC_DELAY_CORRECTION){
-				info("voe: AEC in extended filter mode \n");
-			}
-		}
-	} else {
-		info("voe: AEC disabled \n");
-	}
-
-	ret = proc->GetNsStatus( enabled, NSMode );
-	if (enabled){
-		info("voe: Noise Supression enabled in mode %s \n", NSmode2Str(NSMode));
-	} else {
-		info("voe: Noise Supression disabled \n");
-	}
-	info(" ---------------------- \n");
-
-#if !defined(ANDROID)
-	char strNameUTF8[128];
-	if(!voe->hw->GetPlayoutDeviceName(0, strNameUTF8, NULL)){
-		voe_set_auplay(strNameUTF8);
-    }
-#endif
-    
-#if FORCE_AUDIO_PREPROC_RECORDING
-        if( voe->path_to_files ){
-#if TARGET_OS_IPHONE
-		std::string prefix = "/Ios_";
-#elif defined(ANDROID)
-		std::string prefix = "/Android_";
-#else
-		std::string prefix = "Osx_";
-#endif
-		std::string file;
-            
-		file.insert(0,voe->path_to_files);
-		file.insert(file.size(),prefix);
-		file.insert(file.size(),"apm_");
-        
-		char  buf[80];
-		time_t     now = time(0);
-		struct tm  tstruct;
-            
-		tstruct = *localtime(&now);
-		strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
-            
-		//file.insert(0,fileNameUTF8);
-		file.insert(file.size(),buf);
-		file.insert(file.size(),".aecdump");
-            
-		voe_start_preproc_recording(file.c_str());
-        }
-#endif
-}
-
-
-void voe_stop_audio_proc(struct voe *voe)
-{
-	int ret;
-	auto proc = voe->processing;
-
-	if (!proc)
-		return;
-
-	// Disable AEC
-	ret = proc->SetEcStatus(false);
-
-	// Disable AGC
-	ret = proc->SetAgcStatus(false);
-
-	// Disable NS
-	ret = proc->SetNsStatus(false);
-}
-
-
 void voe_update_conf_parts(const struct audec_state *adsv[], size_t adsc)
 {
 	std::list<int> confl;
@@ -468,6 +216,10 @@ static bool all_interrupted()
 	int ch_interrupted = 0;
 	int nch = 0;
 
+	if(nch == 0){
+		return false;
+	}
+    
 	struct le *le;
 	for (le = gvoe.channel_data_list.head; le; le = le->next) {
 		struct channel_data *cd = (struct channel_data *)le->data;
@@ -497,6 +249,8 @@ static void set_interrupted(int ch, bool interrupted)
 	}
 }
 
+
+#if 0
 static void tmr_rtp_timeout_handler(void *arg)
 {
 	struct audec_state *ads = (struct audec_state *)arg;
@@ -510,6 +264,8 @@ static void tmr_rtp_timeout_handler(void *arg)
 		}
 	}
 }
+#endif
+
 
 static int rtp_handler(struct audec_state *ads,
 		       const uint8_t *pkt, size_t len)
@@ -524,9 +280,7 @@ static int rtp_handler(struct audec_state *ads,
 	    
 	if (gvoe.nw){
 		set_interrupted(ads->ve->ch, false);
-		tmr_cancel(&ads->tmr_rtp_timeout);
-		tmr_start(&ads->tmr_rtp_timeout, 2*MILLISECONDS_PER_SECOND,tmr_rtp_timeout_handler, ads);
-        
+
 		gvoe.nw->ReceivedRTPPacket(ads->ve->ch, pkt, len);
 
 #if FORCE_AUDIO_RTP_RECORDING
@@ -538,9 +292,6 @@ static int rtp_handler(struct audec_state *ads,
         
 	return 0;
 }
-
-#define SWITCH_TO_SHORTER_PACKETS_RTT_MS  500
-#define SWITCH_TO_LONGER_PACKETS_RTT_MS   800
 
 static int rtcp_handler(struct audec_state *ads,
 			const uint8_t *pkt, size_t len)
@@ -568,45 +319,25 @@ static int rtcp_handler(struct audec_state *ads,
 		gvoe.rtp_rtcp->GetRemoteRTCPData( ads->ve->ch, NTPHigh, NTPLow, timestamp, playoutTimestamp, &jitter, &fractionLostUp_Q8);
 		debug("voe: Channel %d RTCP:  RTT = %d ms; uplink packet loss perc = %d downlink packet loss perc = %d\n", ads->ve->ch, stats.rttMs, (int)(fractionLostUp_Q8/2.55f+0.5f), (int)(stats.fractionLost/2.55f+0.5f));
         
-		struct le *le;
-		for (le = gvoe.channel_data_list.head; le; le = le->next) {
-			struct channel_data *cd = (struct channel_data *)le->data;
-			if( cd->channel_number == ads->ve->ch ) {
-				cd->last_rtcp_rtt = stats.rttMs;
-				cd->last_rtcp_ploss = fractionLostUp_Q8;
-			}
-			rtt_ms = std::max(rtt_ms, cd->last_rtcp_rtt);
-			frac_lost_Q8 = std::max(frac_lost_Q8, cd->last_rtcp_ploss);
-		}
-		int packet_size_ms = gvoe.packet_size_ms;
-		if( rtt_ms < SWITCH_TO_SHORTER_PACKETS_RTT_MS && frac_lost_Q8 < (int)(0.03 * 255) ) {
-			packet_size_ms -= 20;
-		} else
-		if( rtt_ms > SWITCH_TO_LONGER_PACKETS_RTT_MS || frac_lost_Q8 > (int)(0.10 * 255) ) {
-			packet_size_ms += 20;
-		}
-        packet_size_ms = std::max( packet_size_ms, gvoe.min_packet_size_ms );
-        packet_size_ms = std::min( packet_size_ms, 40 );
-        if( packet_size_ms != gvoe.packet_size_ms ) {
-            gvoe.packet_size_ms = packet_size_ms;
-            gvoe.bitrate_bps = packet_size_ms == 20 ? ZETA_OPUS_BITRATE_HI_BPS : ZETA_OPUS_BITRATE_LO_BPS;
-            voe_set_channel_load(&gvoe);
-        }
+        voe_update_channel_stats(&gvoe, ads->ve->ch, stats.rttMs, fractionLostUp_Q8);
     }
 	return 0;
 }
 
+static char fmtp_no_cbr[] = "stereo=0;sprop-stereo=0;useinbandfec=1";
+static char fmtp_cbr[] = "stereo=0;sprop-stereo=0;useinbandfec=1;cbr=1";
 
 static struct aucodec voe_aucodecv[NUM_CODECS] = {
 	{
+		.le        = LE_INIT,
+		.pt        = "111",
 		.name      = "opus",
 		.srate     = 48000,
 		.ch        = 2,
-		.fmtp      = "stereo=0;sprop-stereo=0;useinbandfec=1",
+		.fmtp      = fmtp_no_cbr,
 		.has_rtp   = true,
 
 		.enc_alloc = voe_enc_alloc,
-		.ench      = NULL,
 		.enc_start = voe_enc_start,
 		.enc_stop  = voe_enc_stop,
 
@@ -638,6 +369,8 @@ webrtc::CodecInst *find_codec(const char *name)
 void voe_close(void)
 {
 	info("voe: module close\n");
+
+	tmr_cancel(&gvoe.tmr_neteq_stats);
 
 	if (gvoe.codec) {
 		gvoe.codec->Release();
@@ -671,6 +404,10 @@ void voe_close(void)
 		gvoe.hw->Release();
 		gvoe.hw = NULL;
 	}
+    if (gvoe.external_media) {
+        gvoe.external_media->Release();
+        gvoe.external_media = NULL;
+    }
     
 	for (int i = 0; i < NUM_CODECS; ++i) {
 		struct aucodec *ac = &voe_aucodecv[i];
@@ -695,11 +432,12 @@ void voe_close(void)
 
 	webrtc::Trace::ReturnTrace();
 
-	tmr_cancel(&gvoe.tmr_neteq_stats);
-    
 	gvoe.mq = (struct mqueue *)mem_deref(gvoe.mq);
     
 	list_flush(&gvoe.channel_data_list);
+
+	gvoe.playout_device = (char *)mem_deref(gvoe.playout_device);
+	gvoe.path_to_files = (char *)mem_deref(gvoe.path_to_files);
 
 	info("voe: module unloaded\n");
 
@@ -786,6 +524,12 @@ int voe_init(struct list *aucodecl)
 		goto out;
 	}
 
+    gvoe.external_media = webrtc::VoEExternalMedia::GetInterface(gvoe.ve);
+    if (!gvoe.external_media) {
+        err = ENOENT;
+        goto out;
+    }
+    
 	list_init(&gvoe.transportl);
 
 	err = mqueue_alloc(&gvoe.mq, mq_callback, NULL);
@@ -843,6 +587,8 @@ int voe_init(struct list *aucodecl)
 	gvoe.isMuted = false;
 	gvoe.isSilenced = false;
     
+	gvoe.cbr_enabled = false;
+    
 	gvoe.adm = NULL;
     
 	gvoe.state.chgh = NULL;
@@ -851,20 +597,18 @@ int voe_init(struct list *aucodecl)
 	gvoe.base->RegisterVoiceEngineObserver(my_observer);
     
 #if TARGET_OS_IPHONE
-    gvoe.path_to_files = voe_iosfilepath();
+	voe_set_file_path(voe_iosfilepath());
 #elif defined(ANDROID)
-    gvoe.path_to_files = "/data/local/tmp";
+	voe_set_file_path("/data/local/tmp");
 #else
-    gvoe.path_to_files = "";
+	gvoe.path_to_files = NULL;
 #endif
     
-    gvoe.playout_device = "uninitialized";
+	str_dup(&gvoe.playout_device, "uninitialized");
     
-    tmr_start(&gvoe.tmr_neteq_stats, MILLISECONDS_PER_SECOND, tmr_neteq_stats_handler, &gvoe);
+	voe_init_audio_test(&gvoe.autest);
     
-    voe_vm_init(&gvoe.vm);
-    
-    voe_init_audio_test(&gvoe.autest);
+	gvoe.voe_audio_effect = NULL;
  out:
 	if (err)
 		voe_close();
@@ -882,133 +626,23 @@ void voe_deregister_adm()
 	gvoe.adm = NULL;
 }
 
-int voe_set_auplay(const char *dev)
+void voe_enable_cbr(bool enabled)
 {
-	bool enabled;
-	webrtc::EcModes ECmode;
-	webrtc::AgcModes AGCmode;
-    
-	auto voeProc = gvoe.processing;
-    
-    info("voe: Playout device switched from %s to %s \n",
-        gvoe.playout_device.c_str(), dev);
-    
-    gvoe.playout_device = dev;
-    
-	if (gvoe.nch == 0) {
-		return 0;
+	const char *fmtp_ptr = NULL;
+	gvoe.cbr_enabled = enabled;
+	if(enabled){
+		fmtp_ptr = fmtp_cbr;
+	} else {
+		fmtp_ptr = fmtp_no_cbr;
 	}
-    
-    /* Setup AEC based on the routing */
-    voe_update_aec_settings(&gvoe);
-
-    /* Setup AGC based on the routing and if in a conference or not */
-    voe_update_agc_settings(&gvoe);
-    
-	return 0;
+	for(int i = 0; i < NUM_CODECS; i++){
+		voe_aucodecv[i].fmtp = fmtp_ptr;
+	}
 }
 
-void voe_update_aec_settings(struct voe *voe)
+bool voe_have_cbr()
 {
-    int ret;
-    auto voeProc = voe->processing;
-
-    if (!voeProc)
-	    return;
-
-    if (streq(voe->playout_device.c_str(), "speaker")) {
-        info("voe: Setup aec settings for speakerphone \n");
-        int ret = voeProc->SetEcStatus(ZETA_USE_AEC_SPEAKER, ZETA_AEC_MODE);
-        if ( ZETA_USE_AEC_SPEAKER && ZETA_AEC_MODE == webrtc::kEcAecm) {
-            ret += voeProc->SetAecmMode(ZETA_AECM_MODE_SPEAKER, false);
-            info("voe: Change AECM mode to %d \n", ZETA_AECM_MODE_SPEAKER);
-        }
-    }
-    else if (streq(voe->playout_device.c_str(), "earpiece") || streq(voe->playout_device.c_str(), "bt")) {
-        info("voe: Setup aec settings for earpiece \n");
-        int ret = voeProc->SetEcStatus(ZETA_USE_AEC_EARPIECE, ZETA_AEC_MODE);
-        if ( ZETA_USE_AEC_EARPIECE && ZETA_AEC_MODE == webrtc::kEcAecm) {
-            ret += voeProc->SetAecmMode(ZETA_AECM_MODE_EARPIECE, false);
-            info("voe: Change AECM mode to %d \n", ZETA_AECM_MODE_EARPIECE);
-        }
-    }
-    else if (streq(voe->playout_device.c_str(), "headset")) {
-        info("voe: Setup aec settings for headset \n");
-        /* Setup AEC (Reset by disabeling + enabeling) */
-        int ret = voeProc->SetEcStatus(ZETA_USE_AEC_HEADSET, ZETA_AEC_MODE);
-        if ( ZETA_USE_AEC_HEADSET && ZETA_AEC_MODE == webrtc::kEcAecm) {
-            ret += voeProc->SetAecmMode(ZETA_AECM_MODE_HEADSET, false);
-            info("voe: Change AECM mode to %d \n", ZETA_AECM_MODE_HEADSET);
-        }
-    }
-
-}
-
-void voe_update_agc_settings(struct voe *voe)
-{
-    bool enabled, use_agc = true;
-    webrtc::AgcModes AGCmode, wantedAGCmode = ZETA_AGC_MODE_EARPIECE;
-    webrtc::AgcConfig AGCconfig;
-    unsigned short wanted_digCompresGaindB;
-    int ret;
-    auto voeProc = voe->processing;
-    
-    /* Get current AGC settings */
-    ret = voeProc->GetAgcStatus(enabled , AGCmode);
-    ret = voeProc->GetAgcConfig(AGCconfig);
-    
-    wanted_digCompresGaindB = AGCconfig.digitalCompressionGaindB;
-    
-    if (streq(voe->playout_device.c_str(), "speaker")) {
-        use_agc = ZETA_USE_AGC_SPEAKER;
-        if(list_count(&voe->channel_data_list) > 1){ /* In a conference we have more than one active channel */
-            info("voe: Setup agc settings for speakerphone + conference call \n");
-            wantedAGCmode = ZETA_AGC_MODE_SPEAKER_CONF;
-            wanted_digCompresGaindB = ZETA_AGC_DIG_COMPRESS_GAIN_DB_SPEAKER_CONF;
-        }else{
-            info("voe: Setup agc settings for speakerphone + one-one call \n");
-            wantedAGCmode = ZETA_AGC_MODE_SPEAKER;
-            wanted_digCompresGaindB = ZETA_AGC_DIG_COMPRESS_GAIN_DB_SPEAKER;
-        }
-    }
-    else if (streq(voe->playout_device.c_str(), "earpiece") || streq(voe->playout_device.c_str(), "bt")) {
-        use_agc = ZETA_USE_AGC_EARPIECE;
-        if(list_count(&voe->channel_data_list) > 1){
-            info("voe: Setup agc settings for earpiece + conference call \n");
-            wantedAGCmode = ZETA_AGC_MODE_EARPIECE_CONF;
-            wanted_digCompresGaindB = ZETA_AGC_DIG_COMPRESS_GAIN_DB_EARPIECE_CONF;
-        }else{
-            info("voe: Setup agc settings for earpiece + one-one call \n");
-            wantedAGCmode = ZETA_AGC_MODE_EARPIECE;
-            wanted_digCompresGaindB = ZETA_AGC_DIG_COMPRESS_GAIN_DB_EARPIECE;
-        }
-    }
-    else if (streq(voe->playout_device.c_str(), "headset")) {
-        use_agc = ZETA_USE_AGC_HEADSET;
-        if(list_count(&voe->channel_data_list) > 1){
-            info("voe: Setup agc settings for headset + conference call \n");
-            wantedAGCmode = ZETA_AGC_MODE_HEADSET_CONF;
-            wanted_digCompresGaindB = ZETA_AGC_DIG_COMPRESS_GAIN_DB_HEADSET_CONF;
-        }else{
-            info("voe: Setup agc settings for headset + one-one call \n");
-            wantedAGCmode = ZETA_AGC_MODE_HEADSET;
-            wanted_digCompresGaindB = ZETA_AGC_DIG_COMPRESS_GAIN_DB_HEADSET;
-        }
-    }
-
-    /* Update AGC Mode */
-    if( AGCmode != wantedAGCmode || enabled != use_agc){
-        ret = voeProc->SetAgcStatus(false , wantedAGCmode);
-        ret = voeProc->SetAgcStatus(use_agc, wantedAGCmode);
-    }
-
-    /* Update Fixed Digital Settings */
-    if(wanted_digCompresGaindB != AGCconfig.digitalCompressionGaindB
-       && wanted_digCompresGaindB != AGC_COMPRESSION_GAIN_IGNORE){
-        
-        AGCconfig.digitalCompressionGaindB = wanted_digCompresGaindB;
-        ret = voeProc->SetAgcConfig(AGCconfig);
-    }
+	return gvoe.cbr_enabled;
 }
 
 int voe_invol(struct auenc_state *aes, double *invol)
@@ -1107,44 +741,6 @@ int voe_stop_silencing()
 }
 
 
-int voe_enable_rcv_ns(bool enable)
-{
-	webrtc::NsModes NSmode;
-	bool enabled;
-	int err;
-    
-	if (gvoe.processing && list_count(&gvoe.channel_data_list) > 0) {
-        struct le *le;
-        for( le = gvoe.channel_data_list.head; le; le = le->next){
-            struct channel_data *cd = (struct channel_data *)le->data;
-            
-            err = gvoe.processing->GetRxNsStatus(cd->channel_number, enabled, NSmode);
-            if (err) {
-                warning("voe_enable_rcv_ns:"
-                        " voeProc->GetEcStatus failed\n");
-                return ENOSYS;
-            }
-            if ( enable == enabled){
-                warning("voe_enable_rcv_ns: rcv_ns"
-                        " enabled already %d \n", enable);
-            }else {
-                err = gvoe.processing->SetRxNsStatus(cd->channel_number, enable, NSmode);
-                if (err) {
-                    warning("voe_enable_rcv_ns:"
-                            " voeProc->SetRxNsStatus failed\n");
-                    return ENOSYS;
-                }
-            }
-        }
-    }else {
-		warning("voe_enable_rcv_ns: no active call"
-			" cannot change NS status \n");
-	}
-
-	return 0;
-}
-
-
 int voe_debug(struct re_printf *pf, void *unused)
 {
 	struct le *le;
@@ -1183,62 +779,6 @@ int voe_debug(struct re_printf *pf, void *unused)
 	return err;
 }
 
-
-void voe_set_channel_load(struct voe *voe)
-{
-	webrtc::CodecInst c;
-    
-	int bitrate_bps = voe->manual_bitrate_bps ? voe->manual_bitrate_bps : voe->bitrate_bps;
-	int packet_size_ms = voe->manual_packet_size_ms ? voe->manual_packet_size_ms :
-		std::max( voe->packet_size_ms, voe->min_packet_size_ms );
-    
-	struct le *le;
-	for (le = gvoe.channel_data_list.head; le; le = le->next) {
-		struct channel_data *cd = (struct channel_data *)le->data;
-		
-		gvoe.codec->GetSendCodec(cd->channel_number, c);
-		c.pacsize = (c.plfreq * packet_size_ms) / 1000;
-		c.rate = bitrate_bps;
-		gvoe.codec->SetSendCodec(cd->channel_number, c);
-
-		info("voe: Changing codec settings parameters for channel %d\n", cd->channel_number);
-		info("voe: pltype = %d \n", c.pltype);
-		info("voe: plname = %s \n", c.plname);
-		info("voe: plfreq = %d \n", c.plfreq);
-		info("voe: pacsize = %d (%d ms)\n", c.pacsize, c.pacsize * 1000 / c.plfreq);
-		info("voe: channels = %d \n", c.channels);
-		info("voe: rate = %d \n", c.rate);
-	}
-}
-
-
-void voe_multi_party_packet_rate_control(struct voe *voe)
-{
-#define ACTIVE_FLOWS_FOR_40MS_PACKETS 2
-#define ACTIVE_FLOWS_FOR_60MS_PACKETS 4
-    
-	webrtc::CodecInst c;
-    
-	/* Change Packet size based on amount of flows in use */
-	int active_flows = list_count(&voe->channel_data_list);
-	int min_packet_size_ms = 20;
-
-	if ( active_flows >= ACTIVE_FLOWS_FOR_60MS_PACKETS ) {
-		min_packet_size_ms = 60;
-	}
-	else if( active_flows >=  ACTIVE_FLOWS_FOR_40MS_PACKETS) {
-		min_packet_size_ms = 40;
-	}
-
-	if ( std::max( voe->packet_size_ms,     min_packet_size_ms ) !=
-	     std::max( voe->packet_size_ms, voe->min_packet_size_ms ) ) {
-		voe->min_packet_size_ms = min_packet_size_ms;
-		voe_set_channel_load(voe);
-	}
-
-	voe->min_packet_size_ms = min_packet_size_ms;
-}
-
 void voe_set_audio_state_handler(flowmgr_audio_state_change_h *state_chgh,
 				 void *arg)
 {
@@ -1246,9 +786,9 @@ void voe_set_audio_state_handler(flowmgr_audio_state_change_h *state_chgh,
 	gvoe.state.arg = arg;
 }
 
-void voe_set_file_path(const char pathUTF8[1024])
+void voe_set_file_path(const char *path)
 {
-    info("avs: setting path_to_files to %s \n", pathUTF8);
-    gvoe.path_to_files.clear();
-    gvoe.path_to_files = pathUTF8;
+    info("avs: setting path_to_files to %s \n", path);
+    gvoe.path_to_files = (char *)mem_deref(gvoe.path_to_files);
+    str_dup(&gvoe.path_to_files, path);
 }

@@ -20,6 +20,7 @@
 #include "fake_audiodevice.h"
 #include <sys/time.h>
 #include <string.h>
+#include <math.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -48,6 +49,8 @@ namespace webrtc {
 		rec_tid_ = 0;
 		play_tid_ = 0;
 		realtime_ = realtime;
+		delta_omega_ = 0.0f;
+		omega_ = 0.0f;
     }
 
 	fake_audiodevice::~fake_audiodevice() {
@@ -99,9 +102,9 @@ namespace webrtc {
     
 	int32_t fake_audiodevice::StartRecording() {
 		if(!is_recording_){
+			is_recording_ = true;
 			pthread_create(&rec_tid_, NULL, rec_thread, this);
 		}
-		is_recording_ = true;
 		return 0;
     }
     
@@ -139,7 +142,14 @@ namespace webrtc {
 
 		return 0;
 	}
-    
+
+    int32_t fake_audiodevice::EnableSine() {
+		delta_omega_ = 2*3.14*(440.0f/(FS_KHZ*1000));
+		omega_ = 0.0f;
+        
+		return 0;
+    }
+        
 	void* fake_audiodevice::record_thread(){
 		int16_t audio_buf[FRAME_LEN] = {0};
 		uint32_t currentMicLevel = 10;
@@ -158,6 +168,16 @@ namespace webrtc {
 
 			timeradd(&next_io_time, &delta, &next_io_time);
 
+			if(delta_omega_ > 0.0f){
+				float tmp;
+				for( int i = 0; i < FRAME_LEN; i++){
+					tmp = (int16_t)(sinf(omega_) * 8000.0f);
+					omega_ += delta_omega_;
+					audio_buf[i] = (int16_t)tmp;
+				}
+				omega_ = fmod(omega_, 2*3.1415926536);
+			}
+                
 			if(audioCallback_){
 				int32_t ret = audioCallback_->RecordedDataIsAvailable((void*)audio_buf,
 												FRAME_LEN, 2, 1, FS_KHZ*1000, 0, 0,

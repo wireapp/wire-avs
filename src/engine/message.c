@@ -240,7 +240,7 @@ static void conversation_events_handler (int err, const struct http_msg *msg,
 	count = json_object_array_length(jevents);
 	for (i = 0; i < count; ++i) {
 		struct json_object *jitem;
-		struct engine_msg *emsg;
+		struct engine_msg *emsg = NULL;
 
 		jitem = json_object_array_get_idx(jevents, i);
 		if (jitem == NULL)
@@ -337,96 +337,6 @@ int engine_set_last_read(struct engine_conv *conv, const char *msg_id)
 	return 0;
 }
 
-/*** engine_send_text_message
- */
-
-
-static void message_resp_handler(int err, const struct http_msg *msg,
-				 struct mbuf *mb, struct json_object *jobj,
-				 void *arg)
-{
-	if (err) {
-		warning("message send failed (%m)\n", err);
-		return;
-	}
-
-	if (msg && msg->scode >= 300) {
-		info("message send failed: %u %r.\n",
-		     msg->scode, &msg->reason);
-		return;
-	}
-
-	// TODO: the response body contains a JSON
-	//       should we use it ?
-
-#if 0
-	//re_printf("%H\n", http_msg_print, msg);
-	re_printf("--- response: ---\n");
-	re_printf("%H\n", jzon_print, jobj);
-	re_printf("\n");
-#endif
-
-	re_printf("msg: OK\n");
-}
-
-
-int engine_send_text_message(struct engine_conv *conv, const char *msg)
-{
-	char *uuid = NULL;
-	struct rest_req *rr = NULL;
-	int err;
-
-	err = uuid_v4(&uuid);
-	if (err)
-		return err;
-
-	err = rest_req_alloc(&rr, message_resp_handler, NULL, "POST",
-			     "/conversations/%s/messages", conv->id);
-	if (err)
-		goto out;
-
-	err = rest_req_add_json(rr, "ss", "content", msg, "nonce", uuid);
-	if (err)
-		goto out;
-
-	err = rest_req_start(NULL, rr, conv->engine->rest, 0);
-	if (err)
-		goto out;
-
- out:
-	mem_deref(uuid);
-	return err;
-}
-
-
-int engine_send_text_message_vf(struct engine_conv *conv, const char *msg,
-				va_list ap)
-
-{
-	char *str;
-	int err;
-
-	err = re_vsdprintf(&str, msg, ap);
-	if (err)
-		return err;
-	err = engine_send_text_message(conv, str);
-	mem_deref(str);
-	return err;
-}
-
-
-int engine_send_text_message_f(struct engine_conv *conv, const char *msg,
-			       ...)
-{
-	va_list ap;
-	int err;
-
-	va_start(ap, msg);
-	err = engine_send_text_message_vf(conv, msg, ap);
-	va_end(ap);
-	return err;
-}
-
 
 /*** engine_send_text_message
  */
@@ -450,11 +360,16 @@ static void otr_resp_handler(int err, const struct http_msg *msg,
 	if (msg->scode >= 300) {
 		warning("engine: otr message failed (%u %r)\n",
 			msg->scode, &msg->reason);
+
+		re_printf("%H\n", jzon_encode_odict_pretty,
+			  jzon_get_odict(jobj));
+
 		err = EPROTO;
 		goto out;
 	}
 
-	re_printf("OTR message: %u %r\n", msg->scode, &msg->reason);
+	info("engine: OTR message response: %u %r\n",
+	     msg->scode, &msg->reason);
 
 #if 0
 	re_printf("%H\n", http_msg_print, msg);
@@ -470,24 +385,72 @@ static void otr_resp_handler(int err, const struct http_msg *msg,
 }
 
 
-// XXX: API under construction
+static void client_msg_destructor(void *arg)
+{
+	struct client_msg *msg = arg;
+
+	mem_deref(msg->cipher);
+}
+
+
+static void recipient_msg_destructor(void *arg)
+{
+	struct recipient_msg *rmsg = arg;
+
+	list_flush(&rmsg->msgl);
+}
+
+
+int engine_client_msg_alloc(struct client_msg **msgp, struct list *msgl)
+{
+	struct client_msg *msg;
+
+	if (!msgp)
+		return EINVAL;
+
+	msg = mem_zalloc(sizeof(*msg), client_msg_destructor);
+	if (!msg)
+		return ENOMEM;
+
+	if (msgl)
+		list_append(msgl, &msg->le, msg);
+	
+	*msgp = msg;
+	
+	return 0;
+}
+
+
+int engine_recipient_msg_alloc(struct recipient_msg **rmsgp)
+{
+	struct recipient_msg *rmsg;
+
+	if (!rmsgp)
+		return EINVAL;
+
+	rmsg = mem_zalloc(sizeof(*rmsg), recipient_msg_destructor);
+	if (!rmsg)
+		return ENOMEM;
+
+	*rmsgp = rmsg;
+	
+	return 0;
+}
+
+
 int engine_send_otr_message(struct engine_conv *conv,
-			    const char *sender_clientid
-			    ,
-			    const char *recipient_userid,
-			    const char *recipient_clientid,
-			    const uint8_t *cipher, size_t cipher_len,
+			    const char *sender_clientid,
+			    struct list *msgl,
 			    bool transient,
 			    engine_status_h *resph, void *arg)
 {
 	struct json_object *jobj, *recipients, *map;
 	struct otr_context *ctx;
+	struct le *le;
 	int priority = 0;
 	int err;
 
-	if (!conv || !sender_clientid || !recipient_userid)
-		return EINVAL;
-	if (!cipher || !cipher_len)
+	if (!conv || !sender_clientid || !msgl)
 		return EINVAL;
 
 	ctx = mem_zalloc(sizeof(*ctx), NULL);
@@ -496,15 +459,23 @@ int engine_send_otr_message(struct engine_conv *conv,
 
 	jobj       = json_object_new_object();
 	recipients = json_object_new_object();
-	map        = json_object_new_object();
 
-	/* Build the recipients entry first */
-	err = jzon_add_base64(map, recipient_clientid, cipher, cipher_len);
-	if (err)
-		goto out;
+	for(le = msgl->head; le != NULL; le = le->next) {
+		struct recipient_msg *rmsg = le->data;
+		struct le *rle;
 
-	json_object_object_add(recipients, recipient_userid, map);
-
+		map = json_object_new_object();
+		for(rle = rmsg->msgl.head; rle; rle = rle->next) {
+			const struct client_msg *cm = rle->data;
+			
+			err = jzon_add_base64(map, cm->clientid,
+					      cm->cipher, cm->cipher_len);
+			if (err)
+				goto out;
+		}
+		json_object_object_add(recipients, rmsg->userid, map);
+	}
+	
 	/* Build the outer object */
 	err = jzon_add_str(jobj, "sender", sender_clientid);
 	if (err)
@@ -714,7 +685,7 @@ static void conv_otr_message_add_handler(struct engine *engine,
 
 	err = engine_lookup_conv(&conv, engine, conv_id);
 	if (err) {
-		warning("engine: otr-message in unknown conversation"
+		info("engine: otr-message in unknown conversation"
 			" '%s'.\n", conv_id);
 		return;
 	}

@@ -12,4 +12,4 @@ AVS_SRCS += \
 	flowmgr/marshal.c \
 	flowmgr/rr.c \
 	flowmgr/userflow.c \
-	flowmgr/voice_message.c
+	flowmgr/audio_effect.c

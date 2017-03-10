@@ -4,6 +4,7 @@
  * Copyright (C) 2010 Creytiv.com
  */
 #include <string.h>
+#include <assert.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -189,8 +190,11 @@ int tmr_status(struct re_printf *pf, void *unused)
 	for (le = tmrl->head; le; le = le->next) {
 		const struct tmr *tmr = le->data;
 
-		err |= re_hprintf(pf, "  %p: th=%p expire=%llums\n",
-				  tmr, tmr->th,
+		err |= re_hprintf(pf, "  [%36s:%-4d] "
+				  " %p: th=%p expire=%llums\n",
+				  tmr->file, tmr->line,
+				  tmr,
+				  tmr->th,
 				  (unsigned long long)tmr_get_expire(tmr));
 	}
 
@@ -233,13 +237,31 @@ void tmr_init(struct tmr *tmr)
  * @param th    Timeout handler
  * @param arg   Handler argument
  */
-void tmr_start(struct tmr *tmr, uint64_t delay, tmr_h *th, void *arg)
+void tmr_start_real(struct tmr *tmr, uint64_t delay, tmr_h *th, void *arg,
+		    const char *file, int line)
 {
 	struct list *tmrl = tmrl_get();
 	struct le *le;
 
 	if (!tmr)
 		return;
+
+	if (delay) {
+		str_ncpy(tmr->file, file, sizeof(tmr->file));
+		tmr->line = line;
+	}
+
+	if (delay && tmr->tid &&
+	    !pthread_equal(tmr->tid, pthread_self())) {
+
+		DEBUG_WARNING("tmr_start[%s:%d]: called from different thread!"
+			      " (origin=%p, start=%p, delay=%llu)\n",
+			      tmr->file, tmr->line,
+			      tmr->tid, pthread_self(), delay);
+	}
+
+	if (!tmr->tid)
+		tmr->tid = pthread_self();
 
 	if (tmr->th) {
 		list_unlink(&tmr->le);
@@ -271,15 +293,6 @@ void tmr_start(struct tmr *tmr, uint64_t delay, tmr_h *th, void *arg)
 			list_prepend(tmrl, &tmr->le, tmr);
 		}
 	}
-
-#ifdef HAVE_ACTSCHED
-	/* TODO: this is a hack. when a new timer is started we must reset
-	   the main sleeping timer in actsched.cpp */
-	{
-		extern void actsched_restart_timer(void);
-		actsched_restart_timer();
-	}
-#endif
 }
 
 
@@ -290,6 +303,15 @@ void tmr_start(struct tmr *tmr, uint64_t delay, tmr_h *th, void *arg)
  */
 void tmr_cancel(struct tmr *tmr)
 {
+	if (tmr && tmr->tid &&
+	    !pthread_equal(tmr->tid, pthread_self())) {
+
+		DEBUG_WARNING("tmr_cancel[%s:%d]: called from different thread!"
+			      " (start=%p, cancel=%p)\n",
+			      tmr->file, tmr->line,
+			      tmr->tid, pthread_self());
+	}
+
 	tmr_start(tmr, 0, NULL, NULL);
 }
 

@@ -33,7 +33,6 @@ import com.waz.avs.VideoCapturerCallback;
 import com.waz.avs.VideoCapturerInfo;
 import com.waz.call.FlowSource;
 import com.waz.call.RequestHandler;
-import com.waz.voicemessage.VoiceMessageStatusHandler;
 
 import com.waz.call.FlowManagerListener;
 
@@ -112,8 +111,6 @@ public class FlowManager
 	
   private final Context context;
   private final RequestHandler handler;
-
-  private VoiceMessageStatusHandler vmHandler = null;
     
   private HashSet<FlowManagerListener> _listenerSet = null;
 
@@ -132,7 +129,7 @@ public class FlowManager
   }
 
   private MediaManager getMediaManager ( ) {
-    return MediaManager.getInstance();
+    return MediaManager.getInstance(this.context);
   }
 
   public FlowManager ( final Context context, RequestHandler handler ) {
@@ -148,7 +145,6 @@ public class FlowManager
 		      long flags ) {
       this.context = context;
       this.handler = handler;
-      this.vmHandler = null;
       this.getMediaManager().addListener(this);
                    
       sharedFm = this;
@@ -470,29 +466,9 @@ public class FlowManager
   }
 
   private native void setFilePath(String path);
-  public native void vmStartRecord(String fileName);
-  public native void vmStopRecord();
-  public native int vmGetLength(String fileName);
-  public native void vmStartPlay(String fileName, int startpos);
-  public native void vmStopPlay();
-  public native void vmApplyChorus(String fileNameIn, String fileNameOut);
-  public native void vmApplyReverb(String fileNameIn, String fileNameOut);
-  public void vmRegisterHandler(VoiceMessageStatusHandler handler)
-  {
-      this.vmHandler = handler;
-  }
     
-  private void vmStatushandler(int is_playing, int cur_time_ms, int file_length_ms)
-  {
-      boolean playing = true;
-      if(is_playing == 0){
-          playing = false;
-      }
-      if(this.vmHandler != null){
-          this.vmHandler.vmStatushandler(playing, cur_time_ms, file_length_ms);
-      }
-  }      
-    
+  public native int setAudioEffect(int effect_type);
+               
   final String logTag = "avs FlowManager";
     
   private void DoLog(String msg) {

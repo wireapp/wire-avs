@@ -43,5 +43,6 @@ int sound_alloc(struct sound **sndp,
 
 const char *MMroute2Str(enum mediamgr_auplay route);
 
+
 #endif
 

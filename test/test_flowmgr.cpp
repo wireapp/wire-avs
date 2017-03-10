@@ -96,7 +96,7 @@ public:
 		log_srv = new HttpServer;
 		ASSERT_TRUE(log_srv != NULL);
 
-		err = flowmgr_init(FM_MSYS, NULL, CERT_TYPE_ECDSA);
+		err = flowmgr_init(FM_MSYS, NULL, TLS_KEYTYPE_EC);
 		ASSERT_EQ(0, err);
 
 		flowmgr_enable_loopback(true);

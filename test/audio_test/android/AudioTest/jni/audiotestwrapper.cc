@@ -25,7 +25,8 @@
 
 extern "C" {
 
-JNIEXPORT void JNICALL Java_com_audiotest_VoeConfTest_Start(JNIEnv* env, jclass clazz, jobject context)
+JNIEXPORT void JNICALL Java_com_audiotest_VoeConfTest_Start
+(JNIEnv* env, jclass clazz, jobject context, bool use_hw_aec, int num_channels)
 {
     JavaVM* jvm = NULL;
     
@@ -36,14 +37,12 @@ JNIEXPORT void JNICALL Java_com_audiotest_VoeConfTest_Start(JNIEnv* env, jclass 
     LOGI("StartVoeConfTest \n");
     
     {
-        char *argv[] = {"dummy"};
-        int argc = sizeof(argv)/sizeof(char*);
-        
-        voe_conf_test_dec(argc, argv, "/sdcard");
+        voe_conf_test_dec("/sdcard", use_hw_aec, num_channels);
     }
 }
 
-JNIEXPORT void JNICALL Java_com_audiotest_StartStopStressTest_Start(JNIEnv* env, jclass clazz, jobject context)
+JNIEXPORT void JNICALL Java_com_audiotest_StartStopStressTest_Start
+(JNIEnv* env, jclass clazz, jobject context)
 {
     JavaVM* jvm = NULL;
         
@@ -61,22 +60,23 @@ JNIEXPORT void JNICALL Java_com_audiotest_StartStopStressTest_Start(JNIEnv* env,
     }
 }
 
-    JNIEXPORT void JNICALL Java_com_audiotest_LoopbackTest_Start(JNIEnv* env, jclass clazz, jobject context)
+JNIEXPORT void JNICALL Java_com_audiotest_LoopbackTest_Start
+(JNIEnv* env, jclass clazz, jobject context)
+{
+    JavaVM* jvm = NULL;
+        
+    jint res = env->GetJavaVM(&jvm);
+        
+    webrtc::VoiceEngine::SetAndroidObjects(jvm, context);
+        
+    LOGI("StartStartStopStressTest \n");
+        
     {
-        JavaVM* jvm = NULL;
-        
-        jint res = env->GetJavaVM(&jvm);
-        
-        webrtc::VoiceEngine::SetAndroidObjects(jvm, context);
-        
-        LOGI("StartStartStopStressTest \n");
-        
-        {
-            char *argv[] = {"dummy"};
-            int argc = sizeof(argv)/sizeof(char*);
+        char *argv[] = {"dummy"};
+        int argc = sizeof(argv)/sizeof(char*);
             
-            voe_loopback_test(argc, argv, "/sdcard");
-        }
+        voe_loopback_test(argc, argv, "/sdcard");
     }
+}
     
 }

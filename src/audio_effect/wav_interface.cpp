@@ -206,40 +206,41 @@ static void reverse_stream(FILE *in_file,
     int progress = 0;
     int rem = format->num_samples_in - N*L;
     int16_t bufIn[L], bufOut[L];
+    FILE *tmp_file = in_file;
     
     size_t count;
     fseek(in_file, format->num_samples_in*sizeof(int16_t), SEEK_CUR);
     for( int i = 0; i < N; i++){
         fseek(in_file, -L*sizeof(int16_t), SEEK_CUR);
         
-        count = fread(bufIn,
-                  sizeof(int16_t),
-                  L,
-                  in_file);
+        count = fread(bufIn, sizeof(int16_t), L, in_file);
 
         for( int j = 0; j < L; j++){
             bufOut[j] = bufIn[L - j - 1];
         }
         
-        count = fwrite(bufOut,
-                      sizeof(int16_t),
-                      L,
-                      out_file);
+        count = fwrite(bufOut, sizeof(int16_t), L, out_file);
         
         fseek(in_file, -L*sizeof(int16_t), SEEK_CUR);
     }
     
     memset(bufIn, 0, rem*sizeof(int16_t));
 
-    count = fwrite(bufIn,
-                   sizeof(int16_t),
-                   rem,
-                   out_file);
+    count = fwrite(bufIn, sizeof(int16_t), rem, out_file);
+    
+    for( int i = 0; i < N; i++){
+        count = fread(bufIn, sizeof(int16_t), L, tmp_file);        
+        count = fwrite(bufIn, sizeof(int16_t), L, out_file);        
+    }
+    
+    memset(bufIn, 0, rem*sizeof(int16_t));
+    
+    count = fwrite(bufIn, sizeof(int16_t), rem, out_file);
 }
 
 int apply_effect_to_wav(const char* wavIn,
                         const char* wavOut,
-                        audio_effect effect_type,
+                        enum audio_effect effect_type,
                         bool reduce_noise,
                         effect_progress_h* progress_h,
                         void *arg)
@@ -272,6 +273,10 @@ int apply_effect_to_wav(const char* wavIn,
     
     int length_modification_q10 = 1024;
     aueffect_length_modification(aue, &length_modification_q10);
+    
+    if(effect_type == AUDIO_EFFECT_REVERSE){
+        length_modification_q10 = 1024 * 2; // We append the original
+    }
     
     struct wav_format format;
     ret = wav_converter_init(in_file, out_file, &format, length_modification_q10);

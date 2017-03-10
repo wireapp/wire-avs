@@ -195,7 +195,7 @@ static void sdp_exchange(struct agent *a, struct agent *b)
 
 static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 			enum media_crypto cryptos, const char *name,
-			enum cert_type cert_type)
+			enum tls_keytype cert_type)
 {
 	struct sa laddr;
 	struct agent *ag;
@@ -217,14 +217,16 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 	}
 
 	err = mediaflow_alloc(&ag->mf, ag->dtls, &test->aucodecl, &laddr,
-			      MEDIAFLOW_NAT_NONE, cryptos,
-			      true, /* external-RTP */
+			      MEDIAFLOW_TRICKLEICE_DUALSTACK, cryptos,
 			      NULL, mediaflow_estab_handler,
 			      mediaflow_close_handler,
 			      ag);
 	ASSERT_EQ(0, err);
 
 	mediaflow_set_tag(ag->mf, ag->name);
+
+	err = mediaflow_add_local_host_candidate(ag->mf, "en0", &laddr);
+	ASSERT_EQ(0, err);
 
 #if 0
 	re_printf("[ %s ] agent allocated (%s, cryptos=%H)\n",
@@ -237,8 +239,8 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 }
 
 
-static void test_b2b_base(enum cert_type a_cert,
-			  enum cert_type b_cert,
+static void test_b2b_base(enum tls_keytype a_cert,
+			  enum tls_keytype b_cert,
 			  enum media_crypto a_cryptos,
 			  enum media_crypto b_cryptos,
 			  enum media_crypto mode_expect,
@@ -319,8 +321,8 @@ static void test_b2b_base(enum cert_type a_cert,
 }
 
 
-static void test_b2b(enum cert_type a_cert,
-		     enum cert_type b_cert,
+static void test_b2b(enum tls_keytype a_cert,
+		     enum tls_keytype b_cert,
 		     enum media_crypto a_cryptos,
 		     enum media_crypto b_cryptos,
 		     enum media_crypto mode_expect)
@@ -336,7 +338,7 @@ static void test_setup(enum media_setup a_setup,
 		       enum media_setup a_setup_expect,
 		       enum media_setup b_setup_expect)
 {
-	test_b2b_base(CERT_TYPE_ECDSA, CERT_TYPE_ECDSA,
+	test_b2b_base(TLS_KEYTYPE_EC, TLS_KEYTYPE_EC,
 		      CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP,
 		      a_setup, b_setup, a_setup_expect, b_setup_expect);
 }
@@ -344,28 +346,28 @@ static void test_setup(enum media_setup a_setup,
 
 TEST(media_crypto, none_and_none)
 {
-	test_b2b((enum cert_type)0, (enum cert_type)0,
+	test_b2b((enum tls_keytype)0, (enum tls_keytype)0,
 		 CRYPTO_NONE, CRYPTO_NONE, CRYPTO_NONE);
 }
 
 
 TEST(media_crypto, dtlssrtp_and_dtlssrtp)
 {
-	test_b2b(CERT_TYPE_RSA, CERT_TYPE_RSA,
+	test_b2b(TLS_KEYTYPE_RSA, TLS_KEYTYPE_RSA,
 		 CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP);
 }
 
 
 TEST(media_crypto, sdesc_and_sdesc)
 {
-	test_b2b((enum cert_type)0, (enum cert_type)0,
+	test_b2b((enum tls_keytype)0, (enum tls_keytype)0,
 		 CRYPTO_SDESC, CRYPTO_SDESC, CRYPTO_SDESC);
 }
 
 
 TEST(media_crypto, both_and_both)
 {
-	test_b2b(CERT_TYPE_RSA, CERT_TYPE_RSA,
+	test_b2b(TLS_KEYTYPE_RSA, TLS_KEYTYPE_RSA,
 		 (enum media_crypto)(CRYPTO_DTLS_SRTP|CRYPTO_SDESC),
 		 (enum media_crypto)(CRYPTO_DTLS_SRTP|CRYPTO_SDESC),
 		 CRYPTO_DTLS_SRTP);
@@ -374,21 +376,21 @@ TEST(media_crypto, both_and_both)
 
 TEST(media_crypto, mix_rsa_ecdsa_dtlssrtp_and_dtlssrtp)
 {
-	test_b2b(CERT_TYPE_RSA, CERT_TYPE_ECDSA,
+	test_b2b(TLS_KEYTYPE_RSA, TLS_KEYTYPE_EC,
 		 CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP);
 }
 
 
 TEST(media_crypto, mix_ecdsa_rsa_dtlssrtp_and_dtlssrtp)
 {
-	test_b2b(CERT_TYPE_ECDSA, CERT_TYPE_RSA,
+	test_b2b(TLS_KEYTYPE_EC, TLS_KEYTYPE_RSA,
 		 CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP);
 }
 
 
 TEST(media_crypto, mix_ecdsa_ecdsa_dtlssrtp_and_dtlssrtp)
 {
-	test_b2b(CERT_TYPE_ECDSA, CERT_TYPE_ECDSA,
+	test_b2b(TLS_KEYTYPE_EC, TLS_KEYTYPE_EC,
 		 CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP);
 }
 

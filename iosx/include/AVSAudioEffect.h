@@ -16,8 +16,14 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#ifndef AVS_EXPORT
+#define AVS_EXPORT __attribute__((visibility("default")))
+#endif
+
+
 typedef NS_ENUM(NSInteger, AVSAudioEffectType) {
         AVSAudioEffectTypeChorusMin,
+        AVSAudioEffectTypeChorusMed,
         AVSAudioEffectTypeChorusMax,
         AVSAudioEffectTypeReverbMin,
         AVSAudioEffectTypeReverbMed,
@@ -37,7 +43,14 @@ typedef NS_ENUM(NSInteger, AVSAudioEffectType) {
         AVSAudioEffectTypePacedownMed,
         AVSAudioEffectTypePacedownMax,
         AVSAudioEffectTypeReverse,
+        AVSAudioEffectTypeVocoderMin,
         AVSAudioEffectTypeVocoderMed,
+        AVSAudioEffectTypeAutoTuneMin,
+        AVSAudioEffectTypeAutoTuneMed,
+        AVSAudioEffectTypeAutoTuneMax,
+        AVSAudioEffectTypePitchUpDownMin,
+        AVSAudioEffectTypePitchUpDownMed,
+        AVSAudioEffectTypePitchUpDownMax,
         AVSAudioEffectTypeNone,
 };
 
@@ -49,9 +62,9 @@ typedef NS_ENUM(NSInteger, AVSAudioEffectType) {
 @end
 
 
-@interface AVSAudioEffect : NSObject
+AVS_EXPORT @interface AVSAudioEffect : NSObject
 
-@property id <AVSAudioEffectProgressDelegate> delegate;
+@property(nonatomic, assign) id <AVSAudioEffectProgressDelegate> delegate;
 
 - (int)applyEffectWav:(id<AVSAudioEffectProgressDelegate>)delegate inFile: (NSString *)inWavFileName outFile: (NSString *)outWavFileName effect: (AVSAudioEffectType) effect nr_flag:(bool)reduce_noise;
 

@@ -12,8 +12,6 @@ AND_JAVA_SRCS := \
 	com/waz/call/FlowSource.java \
 	com/waz/call/RequestHandler.java \
 	com/waz/log/LogHandler.java \
-	com/waz/voicemessage/VoiceMessage.java \
-	com/waz/voicemessage/VoiceMessageStatusHandler.java \
 	org/webrtc/voiceengine/WebRtcAudioRecord.java \
 	org/webrtc/voiceengine/WebRtcAudioTrack.java \
 	org/webrtc/voiceengine/WebRtcAudioManager.java \

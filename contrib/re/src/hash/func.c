@@ -205,7 +205,7 @@ static uint32_t hashlittle( const void *key, size_t length, uint32_t initval)
 			k += 3;
 		}
 
-#ifndef VALGRIND
+#if 0 /*ndef VALGRIND*/
 		switch (length) {
 
 		case 12: c+=k[2]; b+=k[1]; a+=k[0]; break;

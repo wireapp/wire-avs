@@ -1,5 +1,100 @@
 ChangeLog for AVS -- latest on top!
+==============================================================================
+AVS Release 3.3
 
+Date:	    24. February 2017
+GIT:	    https://github.com/wearezeta/avs/tree/release-3.3
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:       - Roaming / SDP Update support for calling3
+               - Use SDES between avs clients for faster call setup
+               - API for using constant bitrate audio
+               - mediaflow refactor
+
+==============================================================================
+AVS Release 3.2
+
+Date:	    02. February 2017
+GIT:	    https://github.com/wearezeta/avs/tree/release-3.2
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+
+Summary:       - DTLS optimizations
+               - mediaflow refactor
+               - C3: Forking and ICE checks
+               - Bug fixes
+
+==============================================================================
+AVS Release 3.1
+
+Date:	    05. January 2017
+GIT:	    https://github.com/wearezeta/avs/tree/release-3.1
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+
+Summary:	- Bug fixes for CallKit (from 2.9 branch)
+		- Adjustment to AGC for conference calls (normalizer vs. digital AGC)
+		- C3 fixes: prop-sync, requested API changes/extensions,
+		  call states, callbacks, etc.
+		- Bug fixes
+
+==============================================================================
+AVS Release 3.0
+
+Date:	    28. October 2016
+GIT:	    https://github.com/wearezeta/avs/tree/release-3.0
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+
+Summary:	- Implementation of Calling 3 protocol
+
+==============================================================================
+AVS Release 2.9
+
+Date:	    21. September 2016
+GIT:	    https://github.com/wearezeta/avs/tree/release-2.9
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+
+Summary:	- Increased video quality (less frozen video)
+		- More stable call setup (less hanging in "connecting" state)
+		- TURN improvements (Call setup reliability)
+		- ICE improvements (Call setup reliability)
+		- Fixes to IPv6 handling (still known issue for NAT64 though)
+		- Data channel added (but not enabled yet)
+		- Improved audio filter (new effects + more intelligible robot voice)
+
+==============================================================================
+AVS Release 2.8
+
+Date:	    12. August 2016
+GIT:	    https://github.com/wearezeta/avs/tree/release-2.8
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+
+Summary:	- Android now uses NDK r12b.
+		- Use desktop digital AGC on mobile, to reduce noise amplification.
+		- Added option for audio effects in calls.
+		- Added new audio effects. Auto-tune and pitch up_down.
+		- Android MM made more robust to avoid rare crashes.
 
 ==============================================================================
 

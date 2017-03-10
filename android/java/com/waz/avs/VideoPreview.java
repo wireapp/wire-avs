@@ -43,6 +43,8 @@ public class VideoPreview extends TextureView
 {
 	private float aspectRatio = 4.0f/3.0f;
 	private boolean shouldFill = true;
+	private int orientation = 90;
+	private static final String TAG = "VideoPreview";
 
 	public VideoPreview(Context ctx) {
 		super(ctx);
@@ -57,23 +59,38 @@ public class VideoPreview extends TextureView
 		shouldFill = fill;
 	}
 	
+	public void setVideoOrientation(int ori) {
+		orientation = ori;
+		Log.d(TAG, "setVideoOrientation: ori: " + orientation);
+	}
+	
 	@Override
 	protected void onMeasure(int wSpec, int hSpec) {
 		final int width;
 		final int height;
 		int w;
 		int h;
+		float ar = this.aspectRatio;
+
+		if (orientation == 90 || orientation == 270) {
+			ar = 1.0f / ar;
+		}
 
 		width = MeasureSpec.getSize(wSpec);
 		height = MeasureSpec.getSize(hSpec);
+		float vr = ((float)width) / height;
 		
-		if ((shouldFill && (width > height))
-		 || (!shouldFill && (width <= height))) {
+		Log.d(TAG, "onMeasure: ori: " + orientation + " ar: " + this.aspectRatio +
+			" ar2: " + ar +  " vr: " + vr + " fill: " + this.shouldFill +
+			" w: " + width + " h: " + height);
+
+		if ((shouldFill && (vr > ar))
+		 || (!shouldFill && (vr <= ar))) {
 			w = width;
-			h = (int)((float)width/this.aspectRatio);
+			h = (int)((float)width/ar);
 		}
 		else {
-			w = (int)(this.aspectRatio * (float)height);
+			w = (int)(ar * (float)height);
 			h = height;
 		}
 

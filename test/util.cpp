@@ -102,7 +102,7 @@ int dns_init(struct dnsc **dnscp)
 }
 
 
-int create_dtls_srtp_context(struct tls **dtlsp, enum cert_type cert_type)
+int create_dtls_srtp_context(struct tls **dtlsp, enum tls_keytype cert_type)
 {
 	struct tls *dtls = NULL;
 	int err;
@@ -124,12 +124,12 @@ int create_dtls_srtp_context(struct tls **dtlsp, enum cert_type cert_type)
 
 	switch (cert_type) {
 
-	case CERT_TYPE_RSA:
+	case TLS_KEYTYPE_RSA:  /* XXX: RSA is deprecated, remove */
 		err = tls_set_certificate(dtls, fake_certificate_rsa,
 					  strlen(fake_certificate_rsa));
 		break;
 
-	case CERT_TYPE_ECDSA:
+	case TLS_KEYTYPE_EC:
 		err = cert_tls_set_selfsigned_ecdsa(dtls, "prime256v1");
 		break;
 

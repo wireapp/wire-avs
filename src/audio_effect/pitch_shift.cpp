@@ -47,7 +47,7 @@ void* create_pitch_up_shift(int fs_hz, int strength)
 
     pse->fs_khz = fs_hz/1000;
     
-    init_find_pitch_lags(&pse->pest, fs_hz);
+    init_find_pitch_lags(&pse->pest, fs_hz, 2);
     
     if(strength < 0){
         strength = 0;
@@ -81,7 +81,7 @@ void* create_pitch_down_shift(int fs_hz, int strength)
     
     pse->fs_khz = fs_hz/1000;
     
-    init_find_pitch_lags(&pse->pest, fs_hz);
+    init_find_pitch_lags(&pse->pest, fs_hz, 2);
     
     if(strength < 0){
         strength = 0;

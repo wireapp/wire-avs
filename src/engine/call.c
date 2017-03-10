@@ -531,6 +531,10 @@ static void flow_response_handler(int err, const struct http_msg *msg,
 		goto out;
 
 	if (err) {
+
+		if (err == ECONNABORTED)
+			return;
+
 		status = -1;
 	}
 	else {
@@ -656,7 +660,7 @@ static int init_handler(void)
 	if (str_isset(engine_get_msys())) {
 
 		err = flowmgr_init(engine_get_msys(), NULL,
-				   CERT_TYPE_ECDSA);
+				   TLS_KEYTYPE_EC);
 		if (err)
 			return err;
 	}

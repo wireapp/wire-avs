@@ -16,6 +16,7 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 #include <string.h>
+#include <assert.h>
 #include <ctype.h>
 #include <re.h>
 #include "avs_version.h"
@@ -23,6 +24,9 @@
 #include "avs_log.h"
 #include "avs_store.h"
 #include "avs_rest.h"
+
+
+#define REST_MAGIC 0x0e5100a3
 
 
 struct rest_cli {
@@ -38,6 +42,7 @@ struct rest_cli {
 };
 
 struct rest_req {
+	uint32_t magic;
 	struct le le;
 	struct rest_cli *rest_cli;
 	struct rest_req **reqp;
@@ -51,6 +56,7 @@ struct rest_req {
 	char *header;
 	char *ctype;
 	struct mbuf *req_body;
+	bool chunked;
 	bool json;
 	bool raw;
 	int prio;
@@ -232,13 +238,18 @@ static void response(struct rest_req *req, const struct http_msg *msg,
 	len = mbuf_get_left(mb);
 
 	/* Optional parsing of JSON body here */
-	if (req->json && len) {
+	if (req->json) {
+
+		if (len == 0) {
+			warning("rest: json but no bytes to decode\n");
+			goto out;
+		}
 
 		err = jzon_decode(&jobj, (char *)mbuf_buf(mb), len);
 		if (err) {
-			warning("rest: [%s %s] JSON parse error "
+			warning("rest: [%s %s] JSON parse error (%m) "
 				" [%zu bytes]\n",
-				req->method, req->path, len);
+				req->method, req->path, err, len);
 			goto out;
 		}
 	}
@@ -262,11 +273,20 @@ static int handle_chunk(struct rest_req *req, const struct http_msg *msg,
 		return err;
 	}
 
-	debug("rest: [%s %s] %zu chunks, length=%zu [%s]\n",
-	     req->method, req->path,
+	debug("rest: [%s %s] append %zu bytes, %zu chunks,"
+		  " total_length=%zu [%s]\n",
+		  req->method, req->path, n,
 	     chunk_decoder_count_chunks(req->chunk_dec),
 	     chunk_decoder_length(req->chunk_dec),
 	     chunk_decoder_is_final(req->chunk_dec) ? "Final" : "");
+
+	return err;
+}
+
+
+static int handle_final_chunk(struct rest_req *req)
+{
+	int err = 0;
 
 	if (chunk_decoder_is_final(req->chunk_dec)) {
 
@@ -280,7 +300,7 @@ static int handle_chunk(struct rest_req *req, const struct http_msg *msg,
 		}
 
 		mb->pos = 0;
-		response(req, msg, mb);
+		response(req, req->msg, mb);
 
 		mem_deref(mb);
 	}
@@ -289,27 +309,46 @@ static int handle_chunk(struct rest_req *req, const struct http_msg *msg,
 }
 
 
+/* NOTE: dont call response_complete() from here! */
 static void http_data_handler(struct mbuf *mb, void *arg)
 {
 	struct rest_req *req = arg;
+	int err = 0;
 
-	if (req->chunk_dec)
-		handle_chunk(req, NULL, mbuf_buf(mb), mbuf_get_left(mb));
-	else if (req->mb_body) {
+	assert(REST_MAGIC == req->magic);
 
-		/* append data to the body-buffer */
-		mbuf_write_mem(req->mb_body, mbuf_buf(mb), mbuf_get_left(mb));
+	if (req->chunked) {
 
-		if (req->mb_body->end == req->mb_body->size) {
-
-			req->mb_body->pos = 0;
-			response(req, req->msg, req->mb_body);
+		if (!req->chunk_dec) {
+			err = chunk_decoder_alloc(&req->chunk_dec);
+			if (err) {
+				warning("rest: chunk decoder alloc (%m)\n",
+					err);
+				goto out;
+			}
 		}
+
+		handle_chunk(req, req->msg, mbuf_buf(mb), mbuf_get_left(mb));
+
+		handle_final_chunk(req);
 	}
 	else {
-		warning("rest: recvd %zu bytes of data -- dropped\n",
-			mbuf_get_left(mb));
+		if (!req->mb_body) {
+			req->mb_body = mbuf_alloc(mbuf_get_left(mb));
+			if (!req->mb_body) {
+				err = ENOMEM;
+				goto out;
+			}
+		}
+
+		/* append data to the body-buffer */
+		mbuf_write_mem(req->mb_body,
+			       mbuf_buf(mb), mbuf_get_left(mb));
 	}
+
+ out:
+	if (err)
+		req_close(req, err, NULL, NULL, NULL);
 }
 
 
@@ -318,11 +357,25 @@ static void http_resp_handler(int err, const struct http_msg *msg, void *arg)
 	struct rest_req *req = arg;
 	const struct http_hdr *hdr = 0;
 	uint64_t ms_req;
-	bool chunked;
 
-	if (!msg) {
-		warning("http_resp_handler: rest request failed: %m\n", err);
-		goto out;
+	assert(REST_MAGIC == req->magic);
+
+	if (err == ECONNABORTED)
+		return;
+
+	/* if msg==NULL then the request is complete */
+	if (msg == NULL) {
+
+		if (req->chunked) {
+
+			handle_final_chunk(req);
+		}
+		else {
+			req->mb_body->pos = 0;
+			response(req, req->msg, req->mb_body);
+		}
+
+		return;
 	}
 	
 	req->ts_resp = tmr_jiffies();
@@ -354,16 +407,16 @@ static void http_resp_handler(int err, const struct http_msg *msg, void *arg)
 		(0 == pl_strcasecmp(&msg->ctyp.subtype, "json"));
 
 #if 1
-	if (req->json && msg && msg->scode >= 300) {
+	if (msg && msg->scode >= 300) {
 
 		info("rest: http error response: \n%b\n",
 		     mbuf_buf(msg->mb), mbuf_get_left(msg->mb));
 	}
 #endif
 
-	chunked = http_msg_hdr_has_value(msg, HTTP_HDR_TRANSFER_ENCODING,
-					 "chunked");
-	if (chunked) {
+	req->chunked = http_msg_hdr_has_value(msg, HTTP_HDR_TRANSFER_ENCODING,
+					      "chunked");
+	if (req->chunked) {
 
 		err = chunk_decoder_alloc(&req->chunk_dec);
 		if (err) {
@@ -371,32 +424,30 @@ static void http_resp_handler(int err, const struct http_msg *msg, void *arg)
 			goto out;
 		}
 
-		err = handle_chunk(req, msg, mbuf_buf(msg->mb),
-				   mbuf_get_left(msg->mb));
-		if (err)
-			goto out;
+		req->msg = mem_ref((struct http_msg *)msg);
 
 		return; /* More data is coming */
 	}
 	else {
 		/* verify content-length, if we need to buffer */
-		if (msg->clen != mbuf_get_left(msg->mb)) {
 
-			info("rest: non-chunked response [json=%u]"
-			     " -- clen %zu != mbuf %zu -- need to buffer..\n",
-			     req->json,
-			     msg->clen, mbuf_get_left(msg->mb));
+		info("rest: non-chunked response [json=%u]"
+		     " -- clen %zu\n",
+		     req->json, msg->clen);
 
-			req->msg = mem_ref((struct http_msg *)msg);
-			req->mb_body = mbuf_alloc(msg->clen);
+		req->msg = mem_ref((struct http_msg *)msg);
 
-			mbuf_write_mem(req->mb_body, mbuf_buf(msg->mb),
-				       mbuf_get_left(msg->mb));
-
-			return; /* More data is coming */
+		if (msg->clen == 0) {
+			response(req, req->msg, NULL);
+			return;
 		}
 
-		response(req, msg, msg->mb);
+		req->mb_body = mbuf_alloc(msg->clen);
+
+		/* the raw data is handled in http_data_handler()
+		 */
+
+		return; /* More data is coming */
 	}
 
  out:
@@ -472,6 +523,7 @@ int rest_req_valloc(struct rest_req **rrp,
 	if (!rr)
 		return ENOMEM;
 
+	rr->magic = REST_MAGIC;
 	rr->resph = resph;
 	rr->arg = arg;
 

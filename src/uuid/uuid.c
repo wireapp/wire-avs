@@ -50,8 +50,6 @@ int uuid_v4(char **uuidp)
 	}
 	uuid[i] = '\0';
 
-	debug("UUID=%s\n", uuid);
-
 	if (uuidp) {
 		*uuidp = uuid;
 	}

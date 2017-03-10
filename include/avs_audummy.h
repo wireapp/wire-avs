@@ -17,3 +17,4 @@
 */
 int  audummy_init(struct list *aucodecl);
 void audummy_close(void);
+void audummy_force_error(void);

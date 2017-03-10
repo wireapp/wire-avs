@@ -1,3 +1,5 @@
+MENG_CPPFLAGS_webrtc/voice_engine/ += \
+	-DAVS_DISABLE_MULTIPARTY_OPT
 
 MENG_SRCS += \
 	webrtc/voice_engine/channel.cc \

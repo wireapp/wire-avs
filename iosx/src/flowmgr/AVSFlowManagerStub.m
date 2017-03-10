@@ -288,25 +288,10 @@
 {
 }
 
-- (void)vmStartRecord:(NSString *)fileName
-{
-}
-
-- (void)vmStopRecord
-{
-}
-
-- (int)vmGetLength:(NSString *)fileName
+- (int)setAudioEffect:(AVSAudioEffectType) effect
 {
     return 0;
 }
 
-- (void)vmStartPlay:(NSString *)fileName toStart:(int)startpos
-{
-}
-
-- (void)vmStopPlay
-{
-}
 @end
 

@@ -22,8 +22,12 @@
 #import <Foundation/Foundation.h>
 #import "AVSFlowManager.h"
 
+#ifndef AVS_EXPORT
+#define AVS_EXPORT __attribute__((visibility("default")))
+#endif
 
-@interface AVSVideoPreview: UIView
+
+AVS_EXPORT @interface AVSVideoPreview: UIView
 
 - (void)didMoveToWindow;
 

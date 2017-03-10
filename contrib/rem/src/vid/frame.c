@@ -33,6 +33,7 @@ size_t vidframe_size(enum vidfmt fmt, const struct vidsz *sz)
 	case VID_FMT_RGB555:  return sz->w * sz->h * 2;
 	case VID_FMT_NV12:    return sz->w * sz->h * 3 / 2;
 	case VID_FMT_NV21:    return sz->w * sz->h * 3 / 2;
+	case VID_FMT_YUV444P: return sz->w * sz->h * 3;
 	default:
 		return 0;
 	}
@@ -127,6 +128,16 @@ void vidframe_init_buf(struct vidframe *vf, enum vidfmt fmt,
 		vf->data[1] = vf->data[0] + vf->linesize[0] * sz->h;
 		break;
 
+	case VID_FMT_YUV444P:
+		vf->linesize[0] = sz->w;
+		vf->linesize[1] = sz->w;
+		vf->linesize[2] = sz->w;
+
+		vf->data[0] = buf;
+		vf->data[1] = vf->data[0] + vf->linesize[0] * sz->h;
+		vf->data[2] = vf->data[1] + vf->linesize[1] * sz->h;
+		break;
+
 	default:
 		(void)re_printf("vidframe: no fmt %s\n", vidfmt_name(fmt));
 		return;
@@ -204,6 +215,71 @@ void vidframe_fill(struct vidframe *vf, uint32_t r, uint32_t g, uint32_t b)
 
 	default:
 		(void)re_printf("vidfill: no fmt %s\n", vidfmt_name(vf->fmt));
+		break;
+	}
+}
+
+
+/**
+ * Copy content between to equally sized video frames of same pixel format
+ *
+ * @param dst Destination frame
+ * @param src Source frame
+ */
+void vidframe_copy(struct vidframe *dst, const struct vidframe *src)
+{
+	const uint8_t *ds0, *ds1, *ds2;
+	unsigned lsd, lss, w, h, y;
+	uint8_t *dd0, *dd1, *dd2;
+
+	if (!dst || !src)
+		return;
+
+	if (!vidsz_cmp(&dst->size, &src->size))
+		return;
+
+	if (dst->fmt != src->fmt)
+		return;
+
+	switch (dst->fmt) {
+
+	case VID_FMT_YUV420P:
+		lsd = dst->linesize[0];
+		lss = src->linesize[0];
+
+		dd0 = dst->data[0];
+		dd1 = dst->data[1];
+		dd2 = dst->data[2];
+
+		ds0 = src->data[0];
+		ds1 = src->data[1];
+		ds2 = src->data[2];
+
+		w  = dst->size.w & ~1;
+		h  = dst->size.h & ~1;
+
+		for (y=0; y<h; y+=2) {
+
+			memcpy(dd0, ds0, w);
+			dd0 += lsd;
+			ds0 += lss;
+
+			memcpy(dd0, ds0, w);
+			dd0 += lsd;
+			ds0 += lss;
+
+			memcpy(dd1, ds1, w/2);
+			dd1 += lsd/2;
+			ds1 += lss/2;
+
+			memcpy(dd2, ds2, w/2);
+			dd2 += lsd/2;
+			ds2 += lss/2;
+		}
+		break;
+
+	default:
+		(void)re_printf("vidframe_copy(): unsupported format\n");
 		break;
 	}
 }

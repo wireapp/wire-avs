@@ -572,16 +572,6 @@ int rtcp_send(struct rtp_sock *rs, struct mbuf *mb)
 }
 
 
-void rtp_recv_packet(struct rtp_sock *rs, const struct sa *src,
-		     struct mbuf *mb)
-{
-	if (!rs || !src || !mb)
-		return;
-
-	udp_recv_handler(src, mb, rs);
-}
-
-
 /**
  * RTP Debug handler, use with fmt %H
  *

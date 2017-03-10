@@ -197,7 +197,7 @@ int engine_update_conn(struct engine_user *user,
 	data->arg = arg;
 
 	err = rest_req_alloc(&rr, update_conn_handler, data,
-			     "PUT", "/self/connections/%s", user->id);
+			     "PUT", "/connections/%s", user->id);
 	if (err)
 		goto out;
 
@@ -307,6 +307,7 @@ static void get_conn_handler(int err, const struct http_msg *msg,
 			     void *arg)
 {
 	struct engine_sync_step *step = arg;
+	struct json_object *jarr;
 	int i, datac;
 
 	err = rest_err(err, msg);
@@ -315,14 +316,20 @@ static void get_conn_handler(int err, const struct http_msg *msg,
 		goto out;
 	}
 
-	datac = json_object_array_length(jobj);
+	err = jzon_array(&jarr, jobj, "connections");
+	if (err) {
+		/* fallback to old api */
+		jarr = jobj;
+	}
+
+	datac = json_object_array_length(jarr);
 	if (datac == 0)
 		goto out;
 
 	for (i = 0; i < datac; ++i) {
 		struct json_object *jitem;
 
-		jitem = json_object_array_get_idx(jobj, i);
+		jitem = json_object_array_get_idx(jarr, i);
 		if (!jitem)
 			continue;
 
@@ -339,7 +346,7 @@ static void sync_handler(struct engine_sync_step *step)
 	int err;
 
 	err = rest_get(NULL, step->engine->rest, 0, get_conn_handler, step,
-		       "/self/connections");
+		       "/connections");
 	if (err) {
 		error("Getting connections failed: %m.\n", err);
 		engine_sync_next(step);

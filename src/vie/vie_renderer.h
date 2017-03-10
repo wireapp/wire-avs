@@ -45,6 +45,7 @@ private:
 	enum ViERendererState _state;
 	lock *_lock;
 	struct tmr _timer;
+	uint64_t _ts_last;
 };
 
 #endif

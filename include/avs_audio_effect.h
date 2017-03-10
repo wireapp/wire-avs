@@ -24,13 +24,15 @@ extern "C" {
 #endif
     
 typedef void* (create_effect_h)(int fs_hz, int strength);
+typedef void (reset_effect_h)(void *st, int fs_hz);
 typedef void (free_effect_h)(void *st);
 typedef void (effect_process_h)(void *st, int16_t in[], int16_t out[], size_t L_in, size_t *L_out);
 typedef void (effect_length_h)(void *st, int *length_mod_Q10);
     
-typedef enum {
+enum audio_effect{
     AUDIO_EFFECT_CHORUS = 0,
     AUDIO_EFFECT_CHORUS_MIN,
+    AUDIO_EFFECT_CHORUS_MED,
     AUDIO_EFFECT_CHORUS_MAX,
     AUDIO_EFFECT_REVERB,
     AUDIO_EFFECT_REVERB_MIN,
@@ -53,19 +55,32 @@ typedef enum {
     AUDIO_EFFECT_PACE_UP_SHIFT_MED,
     AUDIO_EFFECT_PACE_UP_SHIFT_MAX,
     AUDIO_EFFECT_REVERSE,
+    AUDIO_EFFECT_VOCODER_MIN,
     AUDIO_EFFECT_VOCODER_MED,
+    AUDIO_EFFECT_AUTO_TUNE_MIN,
+    AUDIO_EFFECT_AUTO_TUNE_MED,
+    AUDIO_EFFECT_AUTO_TUNE_MAX,
+    AUDIO_EFFECT_PITCH_UP_DOWN_MIN,
+    AUDIO_EFFECT_PITCH_UP_DOWN_MED,
+    AUDIO_EFFECT_PITCH_UP_DOWN_MAX,
+    AUDIO_EFFECT_HARMONIZER_MIN,
+    AUDIO_EFFECT_HARMONIZER_MED,
+    AUDIO_EFFECT_HARMONIZER_MAX,
+    AUDIO_EFFECT_NORMALIZER,
     AUDIO_EFFECT_NONE,
-} audio_effect;
+};
 
 struct aueffect {
     void *effect;
     create_effect_h *e_create_h;
+    reset_effect_h *e_reset_h;
     free_effect_h *e_free_h;
     effect_process_h *e_proc_h;
     effect_length_h *e_length_h;
 };
     
-int aueffect_alloc(struct aueffect **auep, audio_effect effect_type, int fs_hz);
+int aueffect_alloc(struct aueffect **auep, enum audio_effect effect_type, int fs_hz);
+int aueffect_reset(struct aueffect *aue, int fs_hz);
 int aueffect_process(struct aueffect *aue, const int16_t *sampin, int16_t *sampout, size_t n_sampin, size_t *n_sampout);
 int aueffect_length_modification(struct aueffect *aue, int *length_modification_q10);
     
@@ -92,13 +107,30 @@ void* create_vocoder(int fs_hz, int strength);
 void free_vocoder(void *st);
 void vocoder_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t *L_out);
 
+void* create_auto_tune(int fs_hz, int strength);
+void free_auto_tune(void *st);
+void auto_tune_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t *L_out);
+
+void* create_harmonizer(int fs_hz, int strength);
+void free_harmonizer(void *st);
+void harmonizer_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t *L_out);
+
+void* create_normalizer(int fs_hz, int strength);
+void reset_normalizer(void *st, int fs_hz);
+void free_normalizer(void *st);
+void normalizer_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t *L_out);
+    
+void* create_pitch_cycler(int fs_hz, int strength);
+void free_pitch_cycler(void *st);
+void pitch_cycler_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t *L_out);
+    
 void* create_pass_through(int fs_hz, int strength);
 void free_pass_through(void *st);
 void pass_through_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t *L_out);
     
 typedef void (effect_progress_h)(int progress, void *arg);
-int apply_effect_to_wav(const char* wavIn, const char* wavOut, audio_effect effect_type, bool reduce_noise, effect_progress_h* progress_h, void *arg);
-int apply_effect_to_pcm(const char* pcmIn, const char* pcmOut, int fs_hz, audio_effect effect_type, bool reduce_noise, effect_progress_h* progress_h, void *arg);
+int apply_effect_to_wav(const char* wavIn, const char* wavOut, enum audio_effect effect_type, bool reduce_noise, effect_progress_h* progress_h, void *arg);
+int apply_effect_to_pcm(const char* pcmIn, const char* pcmOut, int fs_hz, enum audio_effect effect_type, bool reduce_noise, effect_progress_h* progress_h, void *arg);
     
 #ifdef __cplusplus
 }

@@ -24,11 +24,21 @@ enum tls_fingerprint {
 	TLS_FINGERPRINT_SHA256,
 };
 
+enum tls_keytype {
+	TLS_KEYTYPE_RSA,
+	TLS_KEYTYPE_EC,
+};
+
 
 int tls_alloc(struct tls **tlsp, enum tls_method method, const char *keyfile,
 	      const char *pwd);
 int tls_add_ca(struct tls *tls, const char *capath);
 int tls_set_selfsigned(struct tls *tls, const char *cn);
+int tls_set_certificate_pem(struct tls *tls, const char *cert, size_t len_cert,
+			    const char *key, size_t len_key);
+int tls_set_certificate_der(struct tls *tls, enum tls_keytype keytype,
+			    const uint8_t *cert, size_t len_cert,
+			    const uint8_t *key, size_t len_key);
 int tls_set_certificate(struct tls *tls, const char *cert, size_t len);
 void tls_set_verify_client(struct tls *tls);
 int tls_set_srtp(struct tls *tls, const char *suites);
@@ -78,5 +88,7 @@ int dtls_accept(struct tls_conn **ptc, struct tls *tls,
 int dtls_send(struct tls_conn *tc, struct mbuf *mb);
 void dtls_set_handlers(struct tls_conn *tc, dtls_estab_h *estabh,
 		       dtls_recv_h *recvh, dtls_close_h *closeh, void *arg);
+const struct sa *dtls_peer(const struct tls_conn *tc);
+void dtls_set_peer(struct tls_conn *tc, const struct sa *peer);
 void dtls_recv_packet(struct dtls_sock *sock, const struct sa *src,
 		      struct mbuf *mb);

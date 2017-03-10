@@ -244,6 +244,26 @@ static AVSMediaManager *_defaultMediaManager;
 {
 }
 
+- (void)setupAudioDevice
+{
+}
+
+- (void)resetAudioDevice
+{
+}
+
+- (void)startAudio
+{
+}
+
+- (void)stopAudio
+{
+}
+
+- (void)setUiStartsAudio:(BOOL)ui_starts_audio
+{
+}
+
 @end
 
 #import "AVSMediaManager+Client.h"

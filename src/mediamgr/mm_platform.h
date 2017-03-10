@@ -21,14 +21,14 @@
 
 #include "mediamgr.h"
 
-struct mediamgr;
+struct mm;
 
 #ifdef __cplusplus__
 extern "C" {
 #endif
 
-int mm_platform_init(struct mediamgr *mm, struct dict *sounds);
-int mm_platform_free(struct mediamgr *mm);
+int mm_platform_init(struct mm *mm, struct dict *sounds);
+int mm_platform_free(struct mm *mm);
 	
 void mm_platform_play_sound(struct sound *snd);
 void mm_platform_pause_sound(struct sound *snd);

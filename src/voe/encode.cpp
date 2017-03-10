@@ -65,7 +65,6 @@ int voe_enc_alloc(struct auenc_state **aesp,
 		  struct aucodec_param *prm,
 		  auenc_rtp_h *rtph,
 		  auenc_rtcp_h *rtcph,
-		  auenc_packet_h *pkth,
 		  auenc_err_h *errh,
 		  void *arg)
 {
@@ -100,14 +99,13 @@ int voe_enc_alloc(struct auenc_state **aesp,
 	aes->ac = ac;
 	aes->rtph = rtph;
 	aes->rtcph = rtcph;
-	aes->pkth = pkth;
 	aes->errh = errh;
 	aes->arg = arg;
 
 	if(gvoe.rtp_rtcp){
 		gvoe.rtp_rtcp->SetLocalSSRC(aes->ve->ch, prm->local_ssrc);
 	}
-        
+    
  out:
 	if (err) {
 		mem_deref(aes);
@@ -122,6 +120,7 @@ int voe_enc_alloc(struct auenc_state **aesp,
 
 int voe_enc_start(struct auenc_state *aes)
 {
+	int ret = 0;
 	if (!aes)
 		return EINVAL;
 
@@ -130,10 +129,13 @@ int voe_enc_start(struct auenc_state *aes)
 	aes->started = true;
 
 	if (gvoe.base){
-		gvoe.base->StartSend(aes->ve->ch);
+		ret = gvoe.base->StartSend(aes->ve->ch);
 	}
-
-	return 0;
+	if(ret){
+		ret = EIO;
+	}
+    
+	return ret;
 }
 
 

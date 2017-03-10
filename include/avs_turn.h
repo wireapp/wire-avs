@@ -47,6 +47,7 @@ struct turn_conn {
 	struct stun_keepalive *ska;
 	char *username;
 	char *password;
+	int af;
 	int proto;
 	bool secure;
 	bool turn_allocated;
@@ -59,21 +60,26 @@ struct turn_conn {
 
 	uint64_t ts_turn_resp;
 	uint64_t ts_turn_req;
+
+	unsigned n_permh;
 };
 
 
 int turnconn_alloc(struct turn_conn **connp, struct list *connl,
 		   const struct sa *turn_srv, int proto, bool secure,
 		   const char *username, const char *password,
-		   struct udp_sock *sock,
+		   int af, struct udp_sock *sock,
 		   int layer_stun, int layer_turn,
 		   turnconn_estab_h *estabh, turnconn_data_h *datah,
 		   turnconn_error_h *errorh, void *arg
 		   );
 int turnconn_add_permission(struct turn_conn *conn, const struct sa *peer);
+int turnconn_add_channel(struct turn_conn *conn, const struct sa *peer);
 struct turn_conn *turnconn_find_allocated(const struct list *turnconnl,
 					  int proto);
 const char *turnconn_proto_name(const struct turn_conn *conn);
+bool turnconn_is_one_allocated(const struct list *turnconnl);
+bool turnconn_are_all_allocated(const struct list *turnconnl);
 int turnconn_debug(struct re_printf *pf, const struct turn_conn *conn);
 
 

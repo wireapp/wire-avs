@@ -80,6 +80,12 @@ int stats_rtcp_add_packet(struct transp_stats *stats,
 			break;
 
 		case RTCP_RTPFB:
+#if defined(VIE_DEBUG_RTX)
+			info("vie:RTCP_RTPFB ssrc_packet = %u ssrc_media = %u n = %u \n", msg->r.fb.ssrc_packet, msg->r.fb.ssrc_media, msg->r.fb.n);
+			for(int i = 0; i < msg->r.fb.n; i++){
+				info("    pid = %u bitmask = %u \n", msg->r.fb.fci.gnackv[i].pid,  msg->r.fb.fci.gnackv[i].blp);
+			}
+#endif
 			++stats->rtcp.rtpfb;
 			break;
 
@@ -87,10 +93,10 @@ int stats_rtcp_add_packet(struct transp_stats *stats,
 			++stats->rtcp.psfb;
 
 			if (msg->hdr.count == RTCP_PSFB_PLI) {
-				warning("** PLI **\n");
+				warning("vie: RTCP PLI\n");
 			}
 			else if (msg->hdr.count == RTCP_PSFB_SLI) {
-				warning("** SLI **\n");
+				warning("vie: RTCP SLI\n");
 			}
 			else if (msg->hdr.count == RTCP_PSFB_AFB) {
 				//info("** RTCP_PSFB_AFB (REMB) **\n");

@@ -22,7 +22,7 @@ extern "C" {
 #include "avs_aucodec.h"
 #include "avs_ztime.h"    
 }
-#include "avs_voe_stats.h"
+#include "avs_mediastats.h"
 #include "voe.h"
 
 #include <math.h>
@@ -73,7 +73,7 @@ int voe_get_stats(struct audec_state *ads, struct aucodec_stats *new_stats)
     new_stats->jb_size.max = in_valid ? -1 : stats.max_currentBufferSize;
     new_stats->jb_size.min = in_valid ? -1 : stats.min_currentBufferSize;
     new_stats->test_score = gvoe.autest.test_score;
-    strcpy(new_stats->audio_route, gvoe.playout_device.c_str());
+    strcpy(new_stats->audio_route, gvoe.playout_device);
     
     return 0;
 }

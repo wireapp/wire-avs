@@ -33,6 +33,8 @@
 #define FORCE_VIDEO_RTP_RECORDING 0
 #define VIDEO_RTP_RECORDING_LENGTH 30
 
+//#define VIE_DEBUG_RTX 1
+
 static const int kVideoRotationRtpExtensionId = 4;
 static const int kAbsSendTimeExtensionId = 3;
 
@@ -122,6 +124,7 @@ int  vie_enc_alloc(struct videnc_state **vesp,
 int  vie_capture_start(struct videnc_state *ves);
 void vie_capture_stop(struct videnc_state *ves);
 void vie_capture_hold(struct videnc_state *ves, bool hold);
+uint32_t vie_capture_getbw(struct videnc_state *ves);
 
 void vie_frame_handler(webrtc::VideoFrame *frame, void *arg);
 
@@ -159,6 +162,7 @@ void vie_dec_rtp_handler(struct viddec_state *vds,
 			 const uint8_t *pkt, size_t len);
 void vie_dec_rtcp_handler(struct viddec_state *vds,
 			  const uint8_t *pkt, size_t len);
+uint32_t vie_dec_getbw(struct viddec_state *vds);
 
 void vie_update_ssrc_array( uint32_t array[], size_t *count, uint32_t val);
 
@@ -189,6 +193,10 @@ struct vie {
     
     wire_avs::RtpDump* rtp_dump_in;
     wire_avs::RtpDump* rtp_dump_out;
+    wire_avs::RtpDump* rtcp_dump_in;
+    wire_avs::RtpDump* rtcp_dump_out;
+    
+    int rtx_pt;
 };
 
 int vie_alloc(struct vie **viep, const struct vidcodec *vc, int pt);

@@ -41,7 +41,7 @@ static int get_number_of_frames(const char* pcmIn, int frame_length)
     FILE *in_file;
     in_file = fopen(pcmIn,"rb");
     if( in_file == NULL ){
-        printf("Could not open file for reading \n");
+        error("Could not open file for reading \n");
         return -1;
     }
     
@@ -72,22 +72,16 @@ static int reverse_stream(const char* pcmIn,
     int L = fs_hz/100;
     int16_t bufIn[L], bufOut[L];
     
-    in_file = fopen(pcmIn,"rb");
-    if( in_file == NULL ){
-        printf("Could not open file for reading \n");
-        return -1;
-    }
-    
     int n_frames = get_number_of_frames(pcmIn, L);
     
     in_file = fopen(pcmIn,"rb");
     if( in_file == NULL ){
-        printf("Could not open file for reading \n");
+        error("Could not open file for reading \n");
         return -1;
     }
     out_file = fopen(pcmOut,"wb");
     if( out_file == NULL ){
-        printf("Could not open file for writing \n");
+        error("Could not open file for writing \n");
         fclose(in_file);
         return -1;
     }
@@ -97,29 +91,32 @@ static int reverse_stream(const char* pcmIn,
     for( int i = 0; i < n_frames; i++){
         fseek(in_file, -L*sizeof(int16_t), SEEK_CUR);
         
-        count = fread(bufIn,
-                  sizeof(int16_t),
-                  L,
-                  in_file);
+        count = fread(bufIn, sizeof(int16_t), L, in_file);
 
         for( int j = 0; j < L; j++){
             bufOut[j] = bufIn[L - j - 1];
         }
         
-        count = fwrite(bufOut,
-                      sizeof(int16_t),
-                      L,
-                      out_file);
+        count = fwrite(bufOut, sizeof(int16_t), L, out_file);
         
         fseek(in_file, -L*sizeof(int16_t), SEEK_CUR);
     }
+    fseek(in_file, 0, SEEK_SET);
+    for( int i = 0; i < n_frames; i++){
+        count = fread(bufIn, sizeof(int16_t), L, in_file);
+        count = fwrite(bufIn, sizeof(int16_t), L, out_file);
+    }
+    
+    fclose(in_file);
+    fclose(out_file);
+    
     return 0;
 }
 
 int apply_effect_to_pcm(const char* pcmIn,
                         const char* pcmOut,
                         int fs_hz,
-                        audio_effect effect_type,
+                        enum audio_effect effect_type,
                         bool reduce_noise,                        
                         effect_progress_h* progress_h,
                         void *arg)
@@ -159,12 +156,12 @@ int apply_effect_to_pcm(const char* pcmIn,
     
     in_file = fopen(pcmIn,"rb");
     if( in_file == NULL ){
-        printf("Could not open file for reading \n");
+        error("Could not open file for reading \n");
         return -1;
     }
     out_file = fopen(pcmOut,"wb");
     if( out_file == NULL ){
-        printf("Could not open file for writing \n");
+        error("Could not open file for writing \n");
         fclose(in_file);
         return -1;
     }

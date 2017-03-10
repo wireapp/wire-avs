@@ -51,6 +51,8 @@ namespace webrtc {
         void Process() { return; }
         int32_t Terminate();
         
+        int32_t EnableSine();
+        
         int32_t ActiveAudioLayer(AudioLayer* audioLayer) const { return -1; }
         ErrorCode LastError() const { return kAdmErrNone; }
         bool Initialized() const { return true; }
@@ -160,7 +162,7 @@ namespace webrtc {
         bool BuiltInAECIsAvailable() const { return false; }
         int32_t EnableBuiltInAEC(bool enable) { return -1; }
         bool BuiltInAECIsEnabled() const { return false; }
-        
+                
         void* record_thread();
         void* playout_thread();
     private:
@@ -172,6 +174,8 @@ namespace webrtc {
         volatile bool rec_is_initialized_;
         volatile bool play_is_initialized_;
         bool realtime_;
+        float delta_omega_;
+        float omega_;
     };
 
 }

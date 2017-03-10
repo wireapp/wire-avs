@@ -34,6 +34,7 @@
 #include "webrtc/voice_engine/include/voe_errors.h"
 #include "webrtc/voice_engine/include/voe_volume_control.h"
 #include "webrtc/voice_engine/include/voe_audio_processing.h"
+#include "webrtc/voice_engine/include/voe_hardware.h"
 
 #include "NwSimulator.h"
 
@@ -273,6 +274,12 @@ static MyObserver my_observer;
 #define VOE_THREAD_LOAD_PCT 100
 #define MAIN_THREAD_LOAD_PCT 100
 
+struct test_setup{
+    const char *path;
+    bool use_build_in_aec;
+    int num_channels;
+};
+
 void *main_function(void *arg)
 {
     webrtc::VoiceEngine* ve = webrtc::VoiceEngine::Create();
@@ -305,6 +312,12 @@ void *main_function(void *arg)
     if(!proc){
         LOG("VoEAudioProcessing::GetInterface failed \n");
     }
+    webrtc::VoEHardware *hw = webrtc::VoEHardware::GetInterface(ve);
+    if (!hw) {
+        printf("VoEHardware::GetInterface failed \n");
+    }
+    
+    struct test_setup *setup = (struct test_setup *)arg;
     
     int numChannels, i;
     int ret, num_frames = 0;
@@ -315,7 +328,7 @@ void *main_function(void *arg)
     std::vector<std::string> rtp_files, in_files;
     
 #if TARGET_OS_IPHONE || defined(WEBRTC_ANDROID)
-    std::string file_path = (const char *)arg;
+    std::string file_path = setup->path;
 #else
     //std::string file_path = "../../../test/audio_test/files/";
 	std::string file_path = "../../files/";
@@ -360,6 +373,9 @@ void *main_function(void *arg)
     }
     
     numChannels = (int)in_files.size();
+    if( setup->num_channels > 0 && setup->num_channels < numChannels){
+        numChannels = setup->num_channels;
+    }
     
     webrtc::CodecInst c;
     
@@ -462,6 +478,14 @@ void *main_function(void *arg)
 #if defined(WEBRTC_ANDROID)
     proc->StartDebugRecording("/sdcard/proc.aecdump");
 #endif
+    
+    if( setup->use_build_in_aec ){
+        bool build_in_aec = hw->BuiltInAECIsAvailable();
+        if (build_in_aec){
+            printf("voe: using build in AEC !! \n");
+            hw->EnableBuiltInAEC(true);
+        }
+    }
     
     base->RegisterVoiceEngineObserver(my_observer);
     
@@ -621,6 +645,10 @@ void *main_function(void *arg)
     proc->StopDebugRecording();
 #endif
 
+    if(hw){
+        hw->Release();
+        hw = NULL;
+    }
     if(proc){
         proc->Release();
         proc = NULL;
@@ -659,7 +687,7 @@ void *main_function(void *arg)
 }
 
 #if TARGET_OS_IPHONE || defined(WEBRTC_ANDROID)
-int voe_conf_test_dec(int argc, char *argv[], const char *path)
+int voe_conf_test_dec(const char *path, bool use_build_in_aec, int num_channels)
 #else
 int main(int argc, char *argv[])
 #endif
@@ -667,12 +695,15 @@ int main(int argc, char *argv[])
     pthread_t tid;
     void* thread_ret;
     is_running = true;
+    struct test_setup setup;
+    setup.use_build_in_aec = false;
+    setup.num_channels = -1;
 #if TARGET_OS_IPHONE || defined(WEBRTC_ANDROID)
-    std::string tmp_path = path;
-    pthread_create(&tid, NULL, main_function, (void*)path);
-#else
-    pthread_create(&tid, NULL, main_function, NULL);
+    setup.use_build_in_aec = use_build_in_aec;
+    setup.num_channels = num_channels;
+    setup.path = path;
 #endif
+    pthread_create(&tid, NULL, main_function, (void*)&setup);
     while(is_running){
         burn_cpu(MAIN_THREAD_LOAD_PCT);
         timespec t;

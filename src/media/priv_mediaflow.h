@@ -33,46 +33,6 @@ extern const char *avs_software;
 
 
 /*
- * ICE-lite
- */
-
-typedef void (ice_estab_h)(struct ice_cand_attr *rcand, void *arg);
-typedef void (ice_close_h)(int err, void *arg);
-
-struct ice_lite;
-
-struct lite_cand {
-	struct le le;
-	struct ice_cand_attr cand;
-};
-
-int icelite_alloc(struct ice_lite **icep, struct udp_sock *us,
-		  const char *ufrag, const char *pwd,
-		  ice_estab_h *estabh, ice_close_h *closeh, void *arg);
-int icelite_cand_add(struct ice_lite *ice, const struct ice_cand_attr *cand);
-struct ice_cand_attr *icelite_cand_find(const struct ice_lite *ice,
-					const struct sa *addr);
-struct list *icelite_rcandl(struct ice_lite *ice);
-int icelite_debug(struct re_printf *pf, const struct ice_lite *ice);
-
-
-/*
- * Consent Freshness
- */
-
-typedef void (consent_close_h)(int err, void *arg);
-
-struct consent;
-
-int consent_start(struct consent **conp, struct stun *stun,
-		  struct udp_sock *us, bool controlling,
-		  const char *lufrag,
-		  const char *rufrag, const char *rpwd,
-		  size_t presz, const struct sa *raddr,
-		  consent_close_h *closeh, void *arg);
-
-
-/*
  * DTLS
  */
 
@@ -97,3 +57,11 @@ bool packet_is_rtcp_packet(const struct mbuf *mb);
 bool packet_is_dtls_packet(const struct mbuf *mb);
 enum packet packet_classify_packet_type(const struct mbuf *mb);
 const char *packet_classify_name(enum packet pkt);
+
+
+/*
+ * SDP
+ */
+
+int sdp_fingerprint_decode(const char *attr, struct pl *hash,
+			   uint8_t *md, size_t *sz);

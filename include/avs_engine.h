@@ -168,6 +168,9 @@ struct engine_user {
 	void *arg;
 };
 
+int engine_lookup_user(struct engine_user **userp, struct engine *engine,
+		       const char *id, bool collect);
+
 
 /* Get yourself
  */
@@ -250,7 +253,7 @@ enum engine_conv_type {
 	ENGINE_CONV_CONNECT
 };
 
-
+struct wcall;
 struct engine_conv {
 	struct engine *engine;
 	char *id;
@@ -267,6 +270,7 @@ struct engine_conv {
 	int  others_in_call;
 	bool user_in_call;
 	bool device_in_call;
+	
 
 	/* Event-related information
 	 */
@@ -307,6 +311,9 @@ struct engine_conv *engine_apply_convs(struct engine *engine,
 /* printf handler for a conversation's name
  */
 int engine_print_conv_name(struct re_printf *pf, struct engine_conv *conv);
+
+int engine_conv_debug(struct re_printf *pf, const struct engine_conv *conv);
+
 
 /* Conversation updates
  */
@@ -387,17 +394,31 @@ int engine_apply_messages(struct engine_conv *conv, bool forward,
 			  const char *start, const char *end,
 			  engine_msg_apply_h *h, void *arg);
 
-int engine_send_text_message(struct engine_conv *conv, const char *msg);
-int engine_send_text_message_vf(struct engine_conv *conv, const char *msg,
-				va_list ap);
-int engine_send_text_message_f(struct engine_conv *conv, const char *msg,
-			       ...);
+struct client_msg {
+	char clientid[64];
+	uint8_t *cipher;
+	size_t cipher_len;
+
+	struct le le; /* member of recipient_msg list */
+};
+
+
+int engine_client_msg_alloc(struct client_msg **msgp, struct list *msgl);
+
+struct recipient_msg {
+	char userid[64];
+	struct list msgl; /* List of client_msg for this recipient */
+
+	struct le le; /* member of recipient list */
+};
+
+
+int engine_recipient_msg_alloc(struct recipient_msg **rmsgp);
+
+
 int engine_send_otr_message(struct engine_conv *conv,
-			    const char *sender_clientid
-			    ,
-			    const char *recipient_userid,
-			    const char *recipient_clientid,
-			    const uint8_t *cipher, size_t cipher_len,
+			    const char *sender_clientid,
+			    struct list *msgl,
 			    bool transient,
 			    engine_status_h *resph, void *arg);
 int engine_send_data(struct engine_conv *conv, const char *ctype,
@@ -406,7 +427,6 @@ int engine_send_file(struct engine_conv *conv, const char *ctype,
 		     const char *path);
 int engine_fetch_asset(struct engine *engine,
 		       const char *cid, const char *aid, const char *path);
-
 
 /************* Listening to Events *****************************************/
 

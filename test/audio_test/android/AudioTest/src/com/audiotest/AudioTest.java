@@ -18,7 +18,6 @@ import android.widget.SeekBar;
 import android.widget.SeekBar.OnSeekBarChangeListener;
 import android.widget.Spinner;
 import android.widget.Toast;
-import android.widget.ProgressBar;
 import android.os.Handler;
 
 import android.content.Context;
@@ -28,11 +27,6 @@ import android.media.AudioManager;
 import android.util.Log;
 import com.waz.call.FlowManager;
 import com.waz.call.RequestHandler;
-import com.waz.voicemessage.VoiceMessage;
-import com.waz.voicemessage.VoiceMessageStatusHandler;
-
-import com.waz.audioeffect.AudioEffect;
-import com.waz.audioeffect.AudioEffectStatusHandler;
 
 import com.waz.media.manager.player.SoundSource;
 import com.waz.media.manager.MediaManager;
@@ -66,7 +60,10 @@ class LoopbackTest implements Runnable {
 
 class VoeConfTest implements Runnable {
     private boolean isRunning_ = false;
+    private boolean useHwAec = false;
+    private int numChannels = -1;
     private Context ctx_;
+    
     
     VoeConfTest(Context context){
         ctx_ = context;
@@ -76,7 +73,7 @@ class VoeConfTest implements Runnable {
     public void run() {
         isRunning_ = true;
         Log.d("VoeConfTest java", "VoeConfTest not on UI thread tid = " + android.os.Process.myTid());
-        Start(ctx_);
+        Start(ctx_, useHwAec, numChannels);
         isRunning_ = false;
     }
     
@@ -84,7 +81,12 @@ class VoeConfTest implements Runnable {
         return isRunning_;
     }
     
-    public native void Start(Context context); // C++ function
+    public void SetOptions(boolean use_hw_aec, int num_channels) {
+        useHwAec = use_hw_aec;
+        numChannels = num_channels;
+    }
+    
+    public native void Start(Context context, boolean use_hw_aec, int num_channels); // C++ function
 }
 
 class StartStopStressTest implements Runnable {
@@ -205,8 +207,10 @@ class StartStopStressTest implements Runnable {
     public native void Start(Context context); // C++ function
 }
 
-public class AudioTest extends Activity implements RequestHandler, VoiceMessageStatusHandler{
+public class AudioTest extends Activity implements RequestHandler {
     
+    private boolean useHwAec = false;
+    int numChannels = 1;
     private Context ctx_;
     private VoeConfTest voeconftest_;
     private LoopbackTest loopbacktest_;
@@ -216,13 +220,7 @@ public class AudioTest extends Activity implements RequestHandler, VoiceMessageS
     
     private FlowManager fm;
     
-    private VoiceMessage vm;
-    
-    private AudioEffect ae;
-    
     private AudioManager audioManager;
-    
-    private ProgressBar mProgress;
     
     /** Called when the activity is first created. */
     @Override
@@ -238,16 +236,6 @@ public class AudioTest extends Activity implements RequestHandler, VoiceMessageS
         startstopstresstest_ = new StartStopStressTest(ctx_);
 
         fm = new FlowManager(ctx_, this);
-
-        vm = new VoiceMessage(fm);
-
-        ae = new AudioEffect();
-        
-        vm.vmRegisterHandler(this);
-        
-        mProgress = (ProgressBar) findViewById(R.id.progress_bar);
-
-        mProgress.setProgress(0);
         
         // Start updating the UI at regular intervals
         handler.postDelayed(sendUpdatesToUI, 1000);
@@ -256,6 +244,8 @@ public class AudioTest extends Activity implements RequestHandler, VoiceMessageS
         ((Button) findViewById(R.id.start_voe_conf_test)).setOnClickListener(new OnClickListener() {
             public void onClick(View view) {
                 if(!voeconftest_.GetisRunning()){
+                    voeconftest_.SetOptions(useHwAec, numChannels);
+                    
                     Thread t = new Thread(voeconftest_);
                     t.start();
                 }
@@ -281,35 +271,6 @@ public class AudioTest extends Activity implements RequestHandler, VoiceMessageS
             }
         });
         
-        ((Button) findViewById(R.id.start_record_voice_message)).setOnClickListener(new OnClickListener() {
-            public void onClick(View view) {
-                ae.applyEffectWav("sdcard/in.wav","sdcard/out.wav");
-                //vm.vmStartRecord("sdcard/voicemessage.ogg");
-            }
-        });
-
-        ((Button) findViewById(R.id.stop_record_voice_message)).setOnClickListener(new OnClickListener() {
-            public void onClick(View view) {
-                vm.vmStopRecord();
-            }
-        });
-
-        ((Button) findViewById(R.id.start_play_voice_message)).setOnClickListener(new OnClickListener() {
-            public void onClick(View view) {
-                mProgress.setProgress(0);
-                
-                vm.vmStartPlay("sdcard/voicemessage.ogg",0);
-            }
-        });
-        
-        ((Button) findViewById(R.id.stop_play_voice_message)).setOnClickListener(new OnClickListener() {
-            public void onClick(View view) {
-                vm.vmStopPlay();
-                
-                mProgress.setProgress(0);
-            }
-        });
-        
         ((Button) findViewById(R.id.toggle_audio_mode)).setOnClickListener(new OnClickListener() {
             public void onClick(View view) {
                 if(audioManager.getMode() == AudioManager.MODE_IN_COMMUNICATION){
@@ -326,6 +287,21 @@ public class AudioTest extends Activity implements RequestHandler, VoiceMessageS
                     audioManager.setSpeakerphoneOn(false);
                 } else {
                     audioManager.setSpeakerphoneOn(true);
+                }
+            }
+        });
+        
+        ((Button) findViewById(R.id.toggle_hw_aec)).setOnClickListener(new OnClickListener() {
+            public void onClick(View view) {
+                useHwAec = !useHwAec;
+            }
+        });
+        
+        ((Button) findViewById(R.id.num_channels)).setOnClickListener(new OnClickListener() {
+            public void onClick(View view) {
+                numChannels++;
+                if(numChannels > 6){
+                    numChannels = 1;
                 }
             }
         });
@@ -364,11 +340,6 @@ public class AudioTest extends Activity implements RequestHandler, VoiceMessageS
 return 0;
     }
 
-    public void vmStatushandler(boolean is_playing, int cur_time_ms, int file_length_ms){
-        int progress = (100*cur_time_ms) / file_length_ms;
-        mProgress.setProgress(progress);
-    }
-
     private void updateUI() {
         
         TextView txtAudioMode = (TextView) findViewById(R.id.txtAudioMode);
@@ -390,6 +361,16 @@ return 0;
         } else {
             txtIsSpeakerOn.setText("false");
         }
+
+        TextView txtIsHwAecOnOn = (TextView) findViewById(R.id.txtIsHwAecOn);
+        if(useHwAec){
+            txtIsHwAecOnOn.setText("true");
+        } else {
+            txtIsHwAecOnOn.setText("false");
+        }
+
+        TextView txtNumChannels = (TextView) findViewById(R.id.txtNumChannels);
+        txtNumChannels.setText(Integer.toString(numChannels));
     }
 
     final String logTag = "AudioTest java";

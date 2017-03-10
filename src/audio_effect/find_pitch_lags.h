@@ -35,18 +35,20 @@
 #define Z_LPC_ORDER 10
 #define Z_NB_SUBFR 4
 #define Z_PEST_BUF_SZ_MS 40
+#define Z_WIN_LEN_MS 2
+#define Z_FS_KHZ 16
 
 struct pitch_estimator {
     int16_t buf[Z_MAX_FS_KHZ*40];
     webrtc::PushResampler<int16_t> *resampler;
     opus_int pitchL[Z_NB_SUBFR];
-    silk_float LTPCorr;
     opus_int LTPCorr_Q15;
     int fs_khz;
+    int complexity;
     bool voiced;
 };
 
-void init_find_pitch_lags(struct pitch_estimator *pest, int fs_hz);
+void init_find_pitch_lags(struct pitch_estimator *pest, int fs_hz, int complexity);
 void free_find_pitch_lags(struct pitch_estimator *pest);
 
 void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L);

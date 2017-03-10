@@ -128,6 +128,10 @@ static int jni_attach(struct jni_env *je)
     int err = 0;
     
     je->attached = false;
+
+	if (!java.vm)
+		return ENOSYS;
+
     res = (*java.vm)->GetEnv(java.vm, (void **)&je->env, JNI_VERSION_1_6);
     
     if (res != JNI_OK || je->env == NULL) {
@@ -197,13 +201,13 @@ static void nativeUpdateRoute(JNIEnv* env, jobject obj, jint route, jlong native
 }
 
 static void nativeHeadsetConnected(JNIEnv* env, jobject obj, jboolean connected, jlong nativeMM) {
-    struct mediamgr *mm = (struct mediamgr *)nativeMM;
+    struct mm *mm = (struct mm *)nativeMM;
     
     mediamgr_headset_connected(mm, connected);
 }
 
 static void nativeBTDeviceConnected(JNIEnv* env, jobject obj, jboolean connected, jlong nativeMM) {
-    struct mediamgr *mm = (struct mediamgr *)nativeMM;
+    struct mm *mm = (struct mm *)nativeMM;
     
     mediamgr_bt_device_connected(mm, connected);
 }
@@ -355,7 +359,7 @@ void mm_android_jni_cleanup(JNIEnv *env, jobject jobj){
     java.initialized = false;
 }
 
-static void jni_create_router(struct mediamgr *mm)
+static void jni_create_router(struct mm *mm)
 {
     struct jni_env jni_env;
     
@@ -370,7 +374,7 @@ static void jni_create_router(struct mediamgr *mm)
     jni_detach(&jni_env);
 }
 
-static void jni_free_router(struct mediamgr *mm)
+static void jni_free_router(struct mm *mm)
 {
     struct jni_env jni_env;
     
@@ -384,7 +388,7 @@ static void jni_free_router(struct mediamgr *mm)
     jni_detach(&jni_env);
 }
 
-int mm_platform_init(struct mediamgr *mm, struct dict *sounds)
+int mm_platform_init(struct mm *mm, struct dict *sounds)
 {
     jni_create_router(mm);
     
@@ -393,7 +397,7 @@ int mm_platform_init(struct mediamgr *mm, struct dict *sounds)
 	return 0;
 }
 
-int mm_platform_free(struct mediamgr *mm)
+int mm_platform_free(struct mm *mm)
 {
     jni_free_router(mm);
     
@@ -599,7 +603,7 @@ void mm_android_jni_on_media_category_changed(enum mediamgr_state state, void *a
     }
     
     bool mcat_is_call = false;
-    if( state == MEDIAMGR_STATE_INCALL ){
+    if( state == MEDIAMGR_STATE_INCALL || state == MEDIAMGR_STATE_INVIDEOCALL){
         mcat_is_call = true;
     }
     

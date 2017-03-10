@@ -26,21 +26,22 @@
 #include <string>
 #include <stdlib.h>
 
-#define LOG2_MAX_D      14
-#define MAX_D           (1 << LOG2_MAX_D)
-#define MASK            (MAX_D - 1)
+#define TS_LOG2_MAX_D      14
+#define TS_MAX_D           (1 << TS_LOG2_MAX_D)
+#define TS_MASK            (TS_MAX_D - 1)
 
 #define MAX_L_MS Z_MAX_FS_KHZ*10
 
 struct time_scale {
     int fs_in_khz;
     int fs_out_khz;
-    int16_t buf[MAX_D];
+    int16_t buf[TS_MAX_D];
     int read_idx;
     int write_idx;
     int maxL;
     int minL;
     bool voiced;
+    float nc_bufsz_fac;
 };
 
 void time_scale_init(struct time_scale* ts, int fs_in_hz, int fs_out_hz);

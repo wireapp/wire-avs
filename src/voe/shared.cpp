@@ -33,6 +33,7 @@
 #include "voe_settings.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
 #include <vector>
+#include "webrtc/common_audio/resampler/include/push_resampler.h"
 
 extern "C" {
 #include "avs_log.h"
@@ -40,28 +41,36 @@ extern "C" {
 #include "avs_aucodec.h"
 #include "avs_conf_pos.h"
 #include "avs_base.h"
+#include "avs_audio_effect.h"
 }
 
 #include "voe.h"
-
+#include "interleaver.h"
 
 static void tmr_transport_handler(void *arg);
-
 
 class VoETransport : public webrtc::Transport {
 public:
 	VoETransport(struct voe_channel *ve_) : ve(ve_), active(true),
-					rtp_started(false) {
+					rtp_started(false)
+	{
+		debug("VoETransport::ctor\n");
+
 		tmr_init(&tmr);
 		le = (struct le)LE_INIT;
 		list_append(&gvoe.transportl, &le, this);
+		intlv.set_mode(INTERLEAVING_MODE_OFF);
 	};
-	virtual ~VoETransport() {
+
+	virtual ~VoETransport()
+	{
+		debug("VoETransport::dtor\n");
+
 		tmr_cancel(&tmr);
 		list_unlink(&le);
 	};
 
-    virtual bool SendRtp(const uint8_t* packet, size_t length, const webrtc::PacketOptions& options)
+	bool SendRtp_core(const uint8_t* packet, size_t length)
 	{
 		int err = 0;
 		struct auenc_state *aes = NULL;
@@ -69,7 +78,7 @@ public:
 			err = ENOENT;
 			goto out;
 		}
-		
+        
 		aes = ve->aes;
 		if (aes->rtph) {
 			err = aes->rtph(packet, length, aes->arg);
@@ -81,9 +90,35 @@ public:
 			ve->rtp_dump_out->DumpPacket(packet, length);
 #endif
 		}
-
+        
 	out:
 		return err ? false : true;
+	}
+    
+	virtual bool SendRtp(const uint8_t* packet, size_t length, const webrtc::PacketOptions& options)
+	{
+		int err = 0;
+		struct auenc_state *aes = NULL;
+		if (!active) {
+			return false;
+		}
+
+		bool ret;
+		uint8_t *packet_ptr;
+		size_t packet_length;// = intlv.flush(&packet_ptr);
+        
+#if 0
+		while(packet_length > 0){
+			ret = SendRtp_core(packet_ptr, packet_length);
+			if(!ret){
+				return ret;
+			}
+		}
+#endif
+		packet_length = intlv.update(packet, length, &packet_ptr);
+		ret = SendRtp_core(packet_ptr, packet_length);
+        
+		return ret;
 	};
 
     
@@ -119,6 +154,9 @@ public:
 	void deregister()
 	{
 		active = false;
+
+		debug("VoETransport::deregister\n");
+
 		tmr_start(&tmr, MILLISECONDS_PER_SECOND,
 			  tmr_transport_handler, this);
 	}
@@ -129,6 +167,7 @@ private:
 	bool rtp_started;
 	struct tmr tmr;
 	struct le le;
+	interleaver intlv;
 };
 
 
@@ -139,6 +178,55 @@ static void tmr_transport_handler(void *arg)
 	delete tp;
 }
 
+static void tmr_neteq_stats_handler(void *arg)
+{
+	struct channel_stats chstat;
+	struct voe *voe = (struct voe *)arg;
+        
+	if(list_count(&voe->channel_data_list) > 0 && voe->nch > 0 && !voe->isSilenced){
+#if NETEQ_LOGGING
+		info("------ %d active channels ------- \n", list_count(&voe->channel_data_list));
+#endif
+		struct le *le;
+		for(le = voe->channel_data_list.head; le; le = le->next){
+			struct channel_data *cd = (struct channel_data *)le->data;
+            
+			chstat.in_vol = 20 * log10(voe->in_vol_smth + 1.0f);
+			chstat.out_vol = 20 * log10(cd->out_vol_smth + 1.0f);
+            
+			int ch_id = cd->channel_number;
+			voe->neteq_stats->GetNetworkStatistics(ch_id, chstat.neteq_nw_stats);
+            
+			webrtc::CallStatistics stats;
+			voe->rtp_rtcp->GetRTCPStatistics(ch_id, stats);
+			chstat.Rtt_ms = stats.rttMs;
+			chstat.jitter_smpls = stats.jitterSamples;
+            
+			unsigned int NTPHigh = 0, NTPLow = 0, timestamp = 0, playoutTimestamp = 0, jitter = 0;
+			unsigned short fractionLostUp_Q8 = 0; // Uplink packet loss as reported by remote side
+			voe->rtp_rtcp->GetRemoteRTCPData( ch_id, NTPHigh, NTPLow, timestamp, playoutTimestamp, &jitter, &fractionLostUp_Q8);
+            
+			chstat.uplink_loss_q8 = fractionLostUp_Q8;
+			chstat.uplink_jitter_smpls = jitter;
+            
+			memcpy(&cd->ch_stats[cd->stats_idx], &chstat, sizeof(chstat));
+			cd->stats_idx++;
+			if(cd->stats_idx >= NUM_STATS){
+				cd->stats_idx = 0;
+			}
+			cd->stats_cnt++;
+#if NETEQ_LOGGING
+			float pl_rate = ((float)chstat.neteq_nw_stats.currentPacketLossRate)/163.84f; // convert Q14 -> float and fraction to percent
+			float fec_rate = ((float)chstat.neteq_nw_stats.currentSecondaryDecodedRate)/163.84f; // convert Q14 -> float and fraction to percent
+			float exp_rate = ((float)chstat.neteq_nw_stats.currentExpandRate)/163.84f;
+			float acc_rate = ((float)chstat.neteq_nw_stats.currentAccelerateRate)/163.84f;
+			float dec_rate = ((float)chstat.neteq_nw_stats.currentPreemptiveRate)/163.84f;
+			info("ch# %d BufferSize = %d ms PacketLossRate = %.2f ExpandRate = %.2f fec_rate = %.2f AccelerateRate = %.2f DecelerateRate = %.2f \n", ch_id, chstat.neteq_nw_stats.currentBufferSize, pl_rate, exp_rate, fec_rate, acc_rate, dec_rate);
+#endif
+		}
+	}
+	tmr_start(&voe->tmr_neteq_stats, NW_STATS_DELTA*MILLISECONDS_PER_SECOND, tmr_neteq_stats_handler, voe);
+}
 
 static void setup_external_audio_device()
 {
@@ -152,7 +240,7 @@ static void setup_external_audio_device()
  #elif defined(ANDROID)
 	// Not Supported yet
  #else // Desktop
-	webrtc::audio_io_osx* ap = new webrtc::audio_io_ios();
+	webrtc::audio_io_osx* ap = new webrtc::audio_io_osx();
 	voe_register_adm((void*)ap);
 #endif
 #endif
@@ -163,7 +251,7 @@ static void clean_external_audio_device()
 	if(!gvoe.adm){
 		return;
 	}
-#if USING_EXTERNAL_AUDIO_DEVICE
+#if ZETA_USE_EXTERNAL_AUDIO_DEVICE
  #if TARGET_OS_IPHONE
 	webrtc::audio_io_ios* ap = (webrtc::audio_io_ios*)gvoe.adm;
 	delete ap;
@@ -173,6 +261,7 @@ static void clean_external_audio_device()
 	webrtc::audio_io_osx* ap = (webrtc::audio_io_osx*)gvoe.adm;
 	delete ap
  #endif
+	gvoe.adm = NULL;
 #endif
 }
 
@@ -216,11 +305,18 @@ static void ve_destructor(void *arg)
 		voe_stop_audio_proc(&gvoe);
 
 		voe_stop_silencing();
-
-		voe_stop_audio_test(&gvoe);
+        
+		gvoe.external_media->DeRegisterExternalMediaProcessing(-1, webrtc::kRecordingAllChannelsMixed);
+		if(gvoe.voe_audio_effect){
+			delete gvoe.voe_audio_effect;
+		}
+        
+		tmr_cancel(&gvoe.tmr_neteq_stats);
         
 		gvoe.base->Terminate();
         
+		voe_stop_audio_test(&gvoe);
+                
 		if(gvoe.autest.fad){
 			info("voe: Deleting fake audio device \n");
 			voe_deregister_adm();
@@ -245,50 +341,6 @@ static void ve_destructor(void *arg)
 	}
 }
 
-static void voe_start_rtp_dump(struct voe_channel *ve)
-{
-	if ( gvoe.path_to_files.length() ) {
-#if TARGET_OS_IPHONE
-		std::string prefix = "/Ios_";
-#elif defined(ANDROID)
-		std::string prefix = "/Android_";
-#else
-		std::string prefix = "Osx_";
-#endif
-		std::string file_in, file_out;
-        
-		file_in.insert(0, gvoe.path_to_files);
-		file_in.insert(file_in.size(),prefix);
-		file_in.insert(file_in.size(),"packets_in_");
-		file_out.insert(0, gvoe.path_to_files);
-		file_out.insert(file_out.size(),prefix);
-		file_out.insert(file_out.size(),"packets_out_");
-        
-		char  buf[80];
-		sprintf(buf,"ch%d_", ve->ch);
-		file_in.insert(file_in.size(),buf);
-		file_out.insert(file_out.size(),buf);
-        
-		time_t     now = time(0);
-		struct tm  tstruct;
-        
-		tstruct = *localtime(&now);
-		strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
-        
-		file_in.insert(file_in.size(),buf);
-		file_in.insert(file_in.size(),".rtpdump");
-		file_out.insert(file_out.size(),buf);
-		file_out.insert(file_out.size(),".rtpdump");
-        
-		if(ve->rtp_dump_in){
-			ve->rtp_dump_in->Start(file_in.c_str());
-		}
-		if(ve->rtp_dump_out){
-			ve->rtp_dump_out->Start(file_out.c_str());
-		}
-	}
-}
-
 int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
                  uint32_t srate, int pt)
 {
@@ -297,6 +349,7 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 	int err = 0;
 	int bitrate_bps;
 	int packet_size_ms;
+	bool test_mode = false;
 
 	ve = (struct voe_channel *)mem_zalloc(sizeof(*ve), ve_destructor);
 	if (!ve)
@@ -327,7 +380,18 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 		}
 
 		gvoe.base->Init(gvoe.adm);
-
+        
+		if (avs_get_flags() & AVS_FLAG_AUDIO_TEST){
+			voe_start_audio_test(&gvoe);
+			test_mode = true;
+		}
+        
+		gvoe.voe_audio_effect = new VoEAudioEffect(test_mode);
+		if(gvoe.voe_audio_effect){
+			gvoe.external_media->RegisterExternalMediaProcessing(-1,
+									webrtc::kRecordingAllChannelsMixed, *gvoe.voe_audio_effect);
+		}
+        
 		voe_start_audio_proc(&gvoe);
 
 		voe_get_mute(&gvoe.isMuted);
@@ -339,10 +403,8 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 		gvoe.in_vol_smth = 0.0f;
 		gvoe.in_vol_max = 0;
 		gvoe.out_vol_max = 0;
-	}
-
-	if (avs_get_flags() & AVS_FLAG_AUDIO_TEST){
-		voe_start_audio_test(&gvoe);
+        
+		tmr_start(&gvoe.tmr_neteq_stats, 5*MILLISECONDS_PER_SECOND, tmr_neteq_stats_handler, &gvoe);
 	}
     
 	bitrate_bps = gvoe.manual_bitrate_bps ? gvoe.manual_bitrate_bps : gvoe.bitrate_bps;
@@ -372,7 +434,7 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 	gvoe.codec->SetFECStatus( ve->ch, ZETA_USE_INBAND_FEC );
     
 	gvoe.codec->SetOpusDtx( ve->ch, ZETA_USE_DTX );
-    
+        
 	ve->rtp_dump_in = new wire_avs::RtpDump();
 	ve->rtp_dump_out = new wire_avs::RtpDump();
     
@@ -404,3 +466,66 @@ void voe_transportl_flush(void)
 		delete vt;
 	}
 }
+
+int voe_set_audio_effect(enum audio_effect effect_type)
+{
+	int ret = 0;
+	if(!gvoe.voe_audio_effect){
+		return -1;
+	}
+    
+	switch (effect_type) {
+		case AUDIO_EFFECT_CHORUS_MAX:
+		case AUDIO_EFFECT_CHORUS_MED:
+		case AUDIO_EFFECT_CHORUS_MIN:
+		case AUDIO_EFFECT_CHORUS:
+		case AUDIO_EFFECT_VOCODER_MIN:
+		case AUDIO_EFFECT_VOCODER_MED:
+		case AUDIO_EFFECT_PITCH_UP_SHIFT_INSANE:
+		case AUDIO_EFFECT_PITCH_UP_SHIFT_MAX:
+		case AUDIO_EFFECT_PITCH_UP_SHIFT_MED:
+		case AUDIO_EFFECT_PITCH_UP_SHIFT_MIN:
+		case AUDIO_EFFECT_PITCH_UP_SHIFT:
+		case AUDIO_EFFECT_PITCH_DOWN_SHIFT_INSANE:
+		case AUDIO_EFFECT_PITCH_DOWN_SHIFT_MAX:
+		case AUDIO_EFFECT_PITCH_DOWN_SHIFT_MED:
+		case AUDIO_EFFECT_PITCH_DOWN_SHIFT_MIN:
+		case AUDIO_EFFECT_PITCH_DOWN_SHIFT:
+        case AUDIO_EFFECT_AUTO_TUNE_MIN:
+		case AUDIO_EFFECT_AUTO_TUNE_MED:
+		case AUDIO_EFFECT_AUTO_TUNE_MAX:
+		case AUDIO_EFFECT_PITCH_UP_DOWN_MIN:
+		case AUDIO_EFFECT_PITCH_UP_DOWN_MED:
+		case AUDIO_EFFECT_PITCH_UP_DOWN_MAX:
+		case AUDIO_EFFECT_HARMONIZER_MIN:
+		case AUDIO_EFFECT_HARMONIZER_MED:
+		case AUDIO_EFFECT_HARMONIZER_MAX:
+		case AUDIO_EFFECT_NONE:
+			gvoe.voe_audio_effect->AddEffect(effect_type);
+			break;
+		case AUDIO_EFFECT_REVERB_MAX:
+		case AUDIO_EFFECT_REVERB_MID:
+		case AUDIO_EFFECT_REVERB_MIN:
+		case AUDIO_EFFECT_REVERB:
+		case AUDIO_EFFECT_PACE_DOWN_SHIFT_MAX:
+		case AUDIO_EFFECT_PACE_DOWN_SHIFT_MED:
+		case AUDIO_EFFECT_PACE_DOWN_SHIFT_MIN:
+		case AUDIO_EFFECT_PACE_UP_SHIFT_MAX:
+		case AUDIO_EFFECT_PACE_UP_SHIFT_MED:
+		case AUDIO_EFFECT_PACE_UP_SHIFT_MIN:
+		case AUDIO_EFFECT_REVERSE:
+			error("voe: audio effect cannot be used in real time \n");
+			ret = -1;
+			break;
+		default:
+			error("voe: no valid audio effect \n");
+			ret = -1;
+	}
+	return ret;
+}
+    
+audio_effect voe_get_audio_effect()
+{
+	return AUDIO_EFFECT_NONE;
+}
+

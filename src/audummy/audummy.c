@@ -28,6 +28,7 @@
 
 static struct {
 	int ncodecs;
+	bool force_error;
 } audummy;
 
 
@@ -35,12 +36,13 @@ struct auenc_state {
 	const struct aucodec *ac;  /* inheritance */
 
 	struct tmr tmr_tx;
+	uint32_t ssrc;
 	uint32_t ts;
+	uint16_t seq;
 	int pt;
 
 	auenc_rtp_h *rtph;
 	auenc_rtcp_h *rtcph;
-	auenc_packet_h *pkth;
 	auenc_err_h *errh;
 	void *arg;
 };
@@ -49,21 +51,58 @@ struct auenc_state {
 struct audec_state {
 	const struct aucodec *ac;  /* inheritance */
 
-	audec_recv_h *recvh;
 	audec_err_h *errh;
 	void *arg;
 };
+
+
+static int send_packet(struct auenc_state *aes, const uint8_t *pld, size_t len)
+{
+	struct rtp_header hdr;
+	struct mbuf *mb = mbuf_alloc(128);
+	int err;
+
+	memset(&hdr, 0, sizeof(hdr));
+
+	hdr.ver  = RTP_VERSION;
+	hdr.m    = 0;
+	hdr.pt   = aes->pt;
+	hdr.seq  = aes->seq++;
+	hdr.ts   = aes->ts;
+	hdr.ssrc = aes->ssrc;
+
+	err = rtp_hdr_encode(mb, &hdr);
+	if (err)
+		goto out;
+
+	err = mbuf_write_mem(mb, pld, len);
+	if (err)
+		goto out;
+
+	err = aes->rtph(mb->buf, mb->end, aes->arg);
+	if (err)
+		goto out;
+
+ out:
+	mem_deref(mb);
+	return err;
+}
 
 
 static void timeout(void *arg)
 {
 	struct auenc_state *aes = arg;
 	static uint8_t pld[100];
+	int err;
 
 	tmr_start(&aes->tmr_tx, 20, timeout, aes);
 
-	if (aes->pkth)
-		aes->pkth(aes->pt, aes->ts, pld, sizeof(pld), aes->arg);
+	debug("audummy: encoder send %zu bytes\n", sizeof(pld));
+
+	err = send_packet(aes, pld, sizeof(pld));
+	if (err) {
+		warning("audummy: send_packet failed (%m)\n", err);
+	}
 
 	aes->ts += 1920; /* opus in 48000Hz/2ch */
 }
@@ -85,7 +124,6 @@ static int enc_alloc(struct auenc_state **aesp,
 		     struct aucodec_param *prm,
 		     auenc_rtp_h *rtph,
 		     auenc_rtcp_h *rtcph,
-		     auenc_packet_h *pkth,
 		     auenc_err_h *errh,
 		     void *arg)
 {
@@ -102,11 +140,13 @@ static int enc_alloc(struct auenc_state **aesp,
 	if (!aes)
 		return ENOMEM;
 
+	aes->ssrc = rand_u32();
+	aes->seq = rand_u16() & 0x0fff;
+
 	aes->ac = ac;
 	aes->pt = prm->pt;
 	aes->rtph = rtph;
 	aes->rtcph = rtcph;
-	aes->pkth = pkth;
 	aes->errh = errh;
 	aes->arg = arg;
 
@@ -124,6 +164,9 @@ static int audummy_start(struct auenc_state *aes)
 	if (!aes)
 		return EINVAL;
 
+	if(audummy.force_error)
+		return EIO;
+    
 	tmr_start(&aes->tmr_tx, 20, timeout, aes);
 
 	return 0;
@@ -153,7 +196,6 @@ static int dec_alloc(struct audec_state **adsp,
 		     const struct aucodec *ac,
 		     const char *fmtp,
 		     struct aucodec_param *prm,
-		     audec_recv_h *recvh,
 		     audec_err_h *errh,
 		     void *arg)
 {
@@ -170,7 +212,6 @@ static int dec_alloc(struct audec_state **adsp,
 		return ENOMEM;
 
 	ads->ac = ac;
-	ads->recvh = recvh;
 	ads->errh = errh;
 	ads->arg = arg;
 
@@ -186,10 +227,27 @@ static int dec_alloc(struct audec_state **adsp,
 static int audec_rtp_handler(struct audec_state *ads,
 			     const uint8_t *pkt, size_t len)
 {
-#if 0
+	struct rtp_header hdr;
+	struct mbuf mb;
+	int err;
+
+	mb.buf = (void *)pkt;
+	mb.pos = 0;
+	mb.end = len;
+	mb.size = len;
+
+	err = rtp_hdr_decode(&hdr, &mb);
+	if (err) {
+		warning("audummy: could not decode RTP header (%m)\n", err);
+		return err;
+	}
+
+#if 1
 	/* Dont print anything here, it is too noisy .. */
-	debug("audummy: decoder receive %zu bytes\n", len);
+	debug("audummy: decoded RTP packet:  seq=%u  ts=%u\n",
+	      hdr.seq, hdr.ts);
 #endif
+
 	return 0;
 }
 
@@ -203,7 +261,7 @@ static struct aucodec audummy_aucodecv[NUM_CODECS] = {
 		.has_rtp   = true,
 
 		.enc_alloc = enc_alloc,
-		.ench      = NULL,
+
 		.enc_start = audummy_start,
 		.enc_stop  = audummy_stop,
 
@@ -227,6 +285,7 @@ int audummy_init(struct list *aucodecl)
 	/* list all supported codecs */
 
 	audummy.ncodecs = 0;
+	audummy.force_error = false;
 	for (i = 0; i < NUM_CODECS; ++i) {
 		struct aucodec *ac = &audummy_aucodecv[i];
 
@@ -263,3 +322,9 @@ void audummy_close(void)
 		     ac->name, ac->srate, ac->ch);
 	}
 }
+
+void audummy_force_error(void)
+{
+	audummy.force_error = true;
+}
+

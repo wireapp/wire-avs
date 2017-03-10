@@ -22,14 +22,14 @@
 
 static enum mediamgr_auplay current_route = MEDIAMGR_AUPLAY_EARPIECE;
 
-int mm_platform_init(struct mediamgr *mm, struct dict *sounds)
+int mm_platform_init(struct mm *mm, struct dict *sounds)
 {
 	(void)mm;
 	(void)sounds;
 	return 0;
 }
 
-int mm_platform_free(struct mediamgr *mm)
+int mm_platform_free(struct mm *mm)
 {
 	return 0;
 }

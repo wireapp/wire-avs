@@ -37,7 +37,7 @@ int opus_demo(int argc, char *argv[], const char *path);
 
 int voe_conf_test(int argc, char *argv[], const char *path);
 
-int voe_conf_test_dec(int argc, char *argv[], const char *path);
+int voe_conf_test_dec(const char *path, bool use_build_in_aec, int num_channels);
 
 int start_stop_stress_test(int argc, char *argv[], const char *path);
 

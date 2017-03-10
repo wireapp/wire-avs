@@ -51,6 +51,8 @@ struct turnd {
 	struct list tcl;
 	turn_recv_h *recvh;
 	void *arg;
+
+	uint16_t sim_error;
 };
 
 struct chanlist;

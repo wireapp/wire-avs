@@ -111,6 +111,9 @@ static void ves_destructor(void *arg)
 
 	vie_capture_stop(ves);
 
+	if (ves->vie)
+		ves->vie->ves = NULL;
+	
 	mem_deref(ves->sdpm);
 	mem_deref(ves->vie);
 
@@ -254,6 +257,8 @@ static int vie_capture_start_int(struct videnc_state *ves)
 	send_config.rtp.fec.red_payload_type = -1;	
 	send_config.rtp.fec.red_rtx_payload_type = -1;	
 
+    // 1500 - IP_v6(40) - TCP(20) - TURN(4) - SRTP(10) = 1426 ~ 1400
+    send_config.rtp.max_packet_size = 1400;
 #if USE_RTX
 	if (ves->prm.local_ssrcc > 1) {
 		sdp_format *rtx;
@@ -272,7 +277,10 @@ static int vie_capture_start_int(struct videnc_state *ves)
 			send_config.rtp.rtx.ssrcs.push_back(ves->prm.local_ssrcv[1]);
 
 			send_config.rtp.rtx.payload_type = rtx->pt;
+            
+			vie->rtx_pt = rtx->pt;
 		}
+        
 	}
 #endif
 
@@ -403,6 +411,16 @@ void vie_capture_hold(struct videnc_state *ves, bool hold)
 		}
 	}
 #endif
+}
+
+uint32_t vie_capture_getbw(struct videnc_state *ves)
+{
+	if (!ves || !ves->vie) {
+		return 0;
+	}
+
+	// Send limit is stored in rx stats
+	return ves->vie->stats_rx.rtcp.bitrate_limit;
 }
 
 void vie_bandwidth_allocation_changed(struct vie *vie, uint32_t ssrc, uint32_t allocation)

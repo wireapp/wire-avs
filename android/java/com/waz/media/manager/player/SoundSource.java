@@ -57,6 +57,8 @@ public class SoundSource implements MediaSource, OnPreparedListener, OnSeekCompl
   private float _volume = 1;
   private boolean _shouldLoop = false;
 
+  private boolean isUpdating = false;
+    
   //private boolean _shouldMuteIncomingSound = false;
   private boolean _shouldMuteOutgoingSound = false;
 
@@ -114,6 +116,12 @@ public class SoundSource implements MediaSource, OnPreparedListener, OnSeekCompl
 
 
   private void update ( ) {
+    if(isUpdating){
+        DoLogErr("Sound Source update() allready running ! \n");
+        //return;
+    }
+    isUpdating = true;
+      
     boolean playChanged = true;
     boolean stopChanged = true;
     boolean stateChanged = true;
@@ -139,6 +147,7 @@ public class SoundSource implements MediaSource, OnPreparedListener, OnSeekCompl
       stopChanged = this._requestStop != requestStop;
       stateChanged = this._currentState != currentState;
     }
+    isUpdating = false;
   }
 
   private void onFailState ( ) {
@@ -147,8 +156,12 @@ public class SoundSource implements MediaSource, OnPreparedListener, OnSeekCompl
     if ( this._requestPlay ) {
       DoLog("Sound Source -> reset(): " + this._name);
 
+      float vol = getVolume ( );
+      boolean looping = getShouldLoop ( );
       this._player.reset();
-
+      setVolume(vol);
+      setShouldLoop(looping);
+        
       this._currentState = MPState.NULL;
     }
   }
@@ -189,7 +202,7 @@ public class SoundSource implements MediaSource, OnPreparedListener, OnSeekCompl
         
         this._player.reset();
           
-        if(MediaManager.getInstance().isWiredHsOn()){
+        if(MediaManager.getInstance(this._context).isWiredHsOn()){
           this._player.setAudioStreamType(AudioManager.STREAM_VOICE_CALL);
           DoLog("Reconfigure to STREAM_VOICE_CALL");
         } else {
@@ -332,7 +345,7 @@ public class SoundSource implements MediaSource, OnPreparedListener, OnSeekCompl
         
         this._player.reset();
             
-        if(MediaManager.getInstance().isWiredHsOn()){
+        if(MediaManager.getInstance(this._context).isWiredHsOn()){
           this._player.setAudioStreamType(AudioManager.STREAM_VOICE_CALL);
           DoLog("Reconfigure to STREAM_VOICE_CALL");
         } else {
@@ -348,10 +361,17 @@ public class SoundSource implements MediaSource, OnPreparedListener, OnSeekCompl
         setVolume(vol);
         setShouldLoop(looping);
       }
-        
-      this._player.prepareAsync();
-
       this._currentState = MPState.PREP;
+      try {
+          this._player.prepareAsync();
+      }
+      catch( Exception e){
+        DoLogErr("prepareAsync failed");
+        this._requestPlay = false;
+        this._requestStop = false;
+          
+        this._currentState = MPState.FAIL;
+      }
     }
   }
 
@@ -396,6 +416,10 @@ public class SoundSource implements MediaSource, OnPreparedListener, OnSeekCompl
   public void onPrepared ( MediaPlayer player ) {
     DoLog("Sound Source Prepared: " + this._uri);
 
+    if(this._currentState != MPState.PREP){
+        DoLogErr("Sound Source illegal state change " + this._currentState + " to prepared");
+    }
+      
     this._currentState = MPState.IDLE;
 
     this.update();

@@ -21,9 +21,14 @@
 #include <OpenGLES/ES2/gl.h>
 #include <OpenGLES/ES2/glext.h>
 
+#ifndef AVS_EXPORT
+#define AVS_EXPORT __attribute__((visibility("default")))
+#endif
+
+
 struct avs_vidframe;
 
-@interface AVSVideoView : UIView
+AVS_EXPORT @interface AVSVideoView : UIView
 
 @property (nonatomic) BOOL shouldFill;
 
