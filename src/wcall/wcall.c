@@ -55,6 +55,7 @@ static struct {
 	wcall_close_h *closeh;
 	wcall_state_change_h *stateh;
 	wcall_video_state_change_h *vstateh;
+	wcall_audio_cbr_enabled_h *acbrh;
 	void *arg;
 } calling = {
 	.mm = NULL,
@@ -97,6 +98,10 @@ struct wcall {
 		int recv_state;
 	} video;
 
+	struct {
+		bool recv_cbr_state;
+	} audio;
+    
 	int state; /* wcall state */
 
 	struct le le;
@@ -169,11 +174,6 @@ static void call_config_handler(struct call_config *cfg)
 	if (calling.readyh) {
 		int ver = WCALL_VERSION_3;
 
-		if (cfg->features.ver_one_to_one >= 3.0)
-			ver = WCALL_VERSION_3;
-		else
-			ver = WCALL_VERSION_2;
-		
 		calling.readyh(ver, calling.arg);
 	}
 		
@@ -311,9 +311,9 @@ static void ecall_media_estab_handler(void *arg, bool update)
 	     wcall->convid, wcall->userid, update);
 	
 	if (wcall->video.video_call)
-		mmst = MEDIAMGR_STATE_INVIDEOCALL;
+		mmst = MEDIAMGR_STATE_VIDEOCALL_ESTABLISHED;
 	else
-		mmst = MEDIAMGR_STATE_INCALL;
+		mmst = MEDIAMGR_STATE_CALL_ESTABLISHED;
     
 	set_state(wcall, WCALL_STATE_MEDIA_ESTAB);
     
@@ -390,7 +390,7 @@ static void ecall_propsync_handler(void *arg)
 			state = WCALL_VIDEO_RECEIVE_STARTED;
 		}
 	}
-
+    
 	if (vstate_changed && state != wcall->video.recv_state) {
 		info("wcall(%p): propsync_handler updating recv_state "
 		     "%s -> %s\n",
@@ -399,12 +399,26 @@ static void ecall_propsync_handler(void *arg)
 		     state ? "true" : "false");
 		wcall->video.recv_state = state;
 		info("wcall(%p): propsync_handler call vstateh(%p) \n",
-		     wcall, calling.estabh);
+		     wcall, calling.vstateh);
 		if (calling.vstateh) {
 			uint64_t now = tmr_jiffies();
 			calling.vstateh(state, calling.arg);
 			info("wcall(%p): calling.vstateh took %ld ms\n",
 			     wcall, tmr_jiffies() - now);
+		}
+	}
+    
+	vr = ecall_props_get_remote(wcall->ecall, "audiocbr");
+	if (vr) {
+		info("wcall(%p): propsync_handler audiocbr = %s \n", wcall, vr);
+		if (strcmp(vr, "true") == 0 && !wcall->audio.recv_cbr_state) {
+			if (calling.acbrh) {
+				uint64_t now = tmr_jiffies();
+				calling.acbrh(calling.arg);
+				info("wcall(%p): acbrh took %ld ms\n",
+				     wcall, tmr_jiffies() - now);
+			}
+			wcall->audio.recv_cbr_state = true;
 		}
 	}
 }
@@ -607,6 +621,7 @@ static int call_add(struct wcall **wcallp,
 	}
 
 	wcall->video.recv_state = WCALL_VIDEO_RECEIVE_STOPPED;
+	wcall->audio.recv_cbr_state = false;
 
 	list_append(&calling.wcalls, &wcall->le, wcall);
 	
@@ -786,6 +801,7 @@ void wcall_close(void)
 	calling.estabh = NULL;
 	calling.closeh = NULL;
 	calling.vstateh = NULL;
+	calling.acbrh = NULL;
 	calling.arg = NULL;
 
 	lock_rel(calling.lock);
@@ -855,7 +871,7 @@ int wcall_start(const char *convid, int is_video_call)
 
 	wcall->video.video_call = (is_video_call != 0);
     
-	mediamgr_set_call_state(calling.mm, MEDIAMGR_STATE_INCALL);
+	mediamgr_set_call_state(calling.mm, MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS);
     
  out:
 	return err;
@@ -879,7 +895,7 @@ int wcall_answer(const char *convid)
 	err = marshal_ecall_answer(calling.ecall_marshal,
 				   wcall->ecall);
 
-	mediamgr_set_call_state(calling.mm, MEDIAMGR_STATE_INCALL);
+	mediamgr_set_call_state(calling.mm, MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS);
     
 	return err;
 }
@@ -928,6 +944,7 @@ void wcall_resp(int status, const char *reason, void *arg)
 	}
 
 	warning("wcall: resp: ctx:%p not found\n", ctx);
+	ctx = NULL;
 
  out:
 	lock_rel(calling.lock);
@@ -1044,7 +1061,7 @@ static bool call_restart_handler(struct le *le, void *arg)
 	if (wcall->ecall) {
 		info("wcall(%p): restarting call: %p in conv: %s\n",
 		     wcall, wcall->ecall, wcall->convid);
-		ecall_restart(wcall->ecall);
+		marshal_ecall_restart(calling.ecall_marshal, wcall->ecall);
 	}
 
 	
@@ -1071,14 +1088,17 @@ void wcall_network_changed(void)
 	lock_rel(calling.lock);
 }
 
-
+AVS_EXPORT
+void wcall_set_audio_cbr_enabled_handler(wcall_audio_cbr_enabled_h *acbrh)
+{
+	calling.acbrh = acbrh;
+}
 
 AVS_EXPORT
 void wcall_set_state_handler(wcall_state_change_h *stateh)
 {
 	calling.stateh = stateh;
 }
-
 
 static void wcall_set_video_send_active_internal(struct wcall *call,
 						 bool active)

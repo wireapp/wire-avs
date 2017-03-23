@@ -46,6 +46,8 @@ struct ecall {
 	struct dce_channel *dce_ch;
 
 	struct tmr tmr;
+	struct tmr media_start_tmr;
+	struct tmr update_tmr;
 
 	struct econn_props *props_local;
 	struct econn_props *props_remote;

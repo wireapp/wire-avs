@@ -218,3 +218,6 @@ const char *mediaflow_rcand_name(const struct mediaflow *mf);
 bool mediaflow_dtls_peer_isset(const struct mediaflow *mf);
 
 struct dce *mediaflow_get_dce(const struct mediaflow *mf);
+
+bool mediaflow_get_audio_cbr(const struct mediaflow *mf);
+

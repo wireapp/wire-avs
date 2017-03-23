@@ -470,6 +470,12 @@ void mm_platform_enter_call(void){
 				__FUNCTION__, (long)err.code);
 		}
         
+		//[[AVAudioSession sharedInstance] setPreferredSampleRate:16000 error:&err];
+		//if (err.code != 0) {
+		//	error("%s: couldn't set session's preferred sample rate: %ld",
+		//		__FUNCTION__, (long)err.code);
+		//}
+        
 		usleep(1000000);
 	}
 	in_call = true;
@@ -496,6 +502,13 @@ void mm_platform_exit_call(void){
 		}
 	}
 	in_call = false;
+}
+
+void mm_platform_set_active(void){
+	NSError *err = nil;
+    
+    info("mm_platform_set_active ! \n");
+    [[AVAudioSession sharedInstance] setActive:YES error:&err];    
 }
 
 void mm_platform_registerMedia(struct dict *sounds,

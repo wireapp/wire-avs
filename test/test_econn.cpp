@@ -123,6 +123,7 @@ static void econn_update_req_handler(struct econn *econn,
                                      const char *clientid_sender,
                                      const char *sdp,
                                      struct econn_props *props,
+				     bool should_reset,
                                      void *arg);
 static void econn_update_resp_handler(struct econn *conn,
                                       const char *sdp,
@@ -308,10 +309,10 @@ static void client_new_econn(struct client *cli)
 			  &cli->transp,
 			  econn_conn_handler,
 			  econn_answer_handler,
-              econn_update_req_handler,
-              econn_update_resp_handler,
-              econn_close_handler,
-              cli);
+			  econn_update_req_handler,
+			  econn_update_resp_handler,
+			  econn_close_handler,
+			  cli);
 	ASSERT_EQ(0, err);
 	ASSERT_TRUE(cli->econn != NULL);
 }
@@ -781,11 +782,12 @@ static void econn_answer_handler(struct econn *conn,
 }
 
 static void econn_update_req_handler(struct econn *econn,
-                               const char *userid_sender,
-                               const char *clientid_sender,
-                               const char *sdp,
-                               struct econn_props *props,
-                               void *arg)
+				     const char *userid_sender,
+				     const char *clientid_sender,
+				     const char *sdp,
+				     struct econn_props *props,
+				     bool should_reset,
+				     void *arg)
 {
 }
 

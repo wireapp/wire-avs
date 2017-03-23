@@ -640,6 +640,9 @@ void mm_platform_exit_call(void){
     jni_detach(&jni_env);
 }
 
+void mm_platform_set_active(void){
+}
+
 enum mediamgr_auplay mm_platform_get_route(void){
     debug("mm: mm_platform_get_route \n");
     

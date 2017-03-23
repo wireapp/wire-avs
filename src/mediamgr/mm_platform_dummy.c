@@ -97,6 +97,10 @@ void mm_platform_exit_call(void){
     info("mm_platform_exit_call() \n");
 }
 
+void mm_platform_set_active(void){
+    info("mm_platform_set_active() \n");
+}
+
 void mm_platform_registerMedia(struct dict *sounds,
                                const char *name,
                                void *mediaObj,

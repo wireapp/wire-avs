@@ -2099,6 +2099,9 @@ int dce_channel_alloc(struct dce_channel **chp,
 
 bool dce_is_chan_open(const struct dce_channel *ch)
 {
+	if(!ch){
+		return false;
+	}
 	if(ch->id == -1){
 		return false;
 	} else {

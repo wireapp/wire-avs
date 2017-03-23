@@ -25,6 +25,7 @@ struct sync_state{
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
 	bool event;
+	enum mediamgr_state mm_state;
 	struct ztime event_time;
 };
 
@@ -44,6 +45,7 @@ static void on_mcat_changed(enum mediamgr_state new_mcat, void *arg){
 	pthread_mutex_lock(&pss->mutex);
 	ztime_get(&pss->event_time);
 	pss->event = true;
+	pss->mm_state = new_mcat;
 	pthread_cond_signal(&pss->cond);
 	pthread_mutex_unlock(&pss->mutex);
 }
@@ -220,26 +222,133 @@ TEST_F(MediamgrTest, catagory_change_timing)
 {
 	struct ztime cur_time;
 
-	ztime_get(&cur_time);
-	mediamgr_state state = MEDIAMGR_STATE_NORMAL;
-	mediamgr_set_call_state(mm, state);
-	wait_for_event(&cat_ch_ss);
-	int64_t t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-	COMPLEXITY_CHECK(t,2);
+    ztime_get(&cur_time);
+    mediamgr_state state = MEDIAMGR_STATE_NORMAL;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    int64_t t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
     
-	ztime_get(&cur_time);
-	state = MEDIAMGR_STATE_INCALL;
-	mediamgr_set_call_state(mm, state);
-	wait_for_event(&cat_ch_ss);
-	t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-	COMPLEXITY_CHECK(t,2);
+    ztime_get(&cur_time);
+    state = MEDIAMGR_STATE_INCALL;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
     
-	ztime_get(&cur_time);
-	state = MEDIAMGR_STATE_NORMAL;
-	mediamgr_set_call_state(mm, state);
-	wait_for_event(&cat_ch_ss);
-	t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-	COMPLEXITY_CHECK(t,2);
+    ztime_get(&cur_time);
+    state = MEDIAMGR_STATE_NORMAL;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
+}
+
+TEST_F(MediamgrTest, catagory_change_new_states_callKit)
+{
+    struct ztime cur_time;
+    
+    ztime_get(&cur_time);
+    mediamgr_state state = MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    int64_t t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_AUDIO_PERMISSIONS_READY);
+    
+    ztime_get(&cur_time);
+    state = MEDIAMGR_STATE_CALL_ESTABLISHED;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_INCALL);
+    
+    ztime_get(&cur_time);
+    state = MEDIAMGR_STATE_NORMAL;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_NORMAL);
+}
+
+TEST_F(MediamgrTest, catagory_change_new_states_callKit_1)
+{
+    struct ztime cur_time;
+
+    mediamgr_set_user_starts_audio(mm, true);
+    
+    ztime_get(&cur_time);
+    mediamgr_state state = MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    int64_t t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS);
+    
+    ztime_get(&cur_time);
+    state = MEDIAMGR_STATE_CALL_ESTABLISHED;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_CALL_ESTABLISHED);
+    
+    ztime_get(&cur_time);
+    state = MEDIAMGR_STATE_AUDIO_PERMISSIONS_READY;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_INCALL);
+    
+    ztime_get(&cur_time);
+    state = MEDIAMGR_STATE_NORMAL;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_NORMAL);
+}
+
+TEST_F(MediamgrTest, catagory_change_new_states_callKit_2)
+{
+    struct ztime cur_time;
+    
+    mediamgr_set_user_starts_audio(mm, true);
+    
+    ztime_get(&cur_time);
+    mediamgr_state state = MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    int64_t t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS);
+    
+    ztime_get(&cur_time);
+    state = MEDIAMGR_STATE_AUDIO_PERMISSIONS_READY;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_AUDIO_PERMISSIONS_READY);
+    
+    ztime_get(&cur_time);
+    state = MEDIAMGR_STATE_CALL_ESTABLISHED;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_INCALL);
+    
+    ztime_get(&cur_time);
+    state = MEDIAMGR_STATE_NORMAL;
+    mediamgr_set_call_state(mm, state);
+    wait_for_event(&cat_ch_ss);
+    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
+    COMPLEXITY_CHECK(t,2);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_NORMAL);
 }
 
 TEST(mediamgr, alloc_and_free)

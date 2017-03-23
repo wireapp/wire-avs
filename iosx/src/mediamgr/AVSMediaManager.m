@@ -372,7 +372,6 @@ static AVSMediaManager *_defaultMediaManager;
 	_intensity = intensity;
 }
 
-
 - (BOOL)isPlaybackMuted
 {
 	return NO;
@@ -442,24 +441,27 @@ static AVSMediaManager *_defaultMediaManager;
 
 - (void)setupAudioDevice
 {
-	[self setCallState:YES forConversation:nil];
+    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS);
 }
 
 - (void)resetAudioDevice
 {
-	[self setCallState:NO forConversation:nil];
+    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_NORMAL);
 }
 
 - (void)startAudio
 {
+    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_AUDIO_PERMISSIONS_READY);
 }
 
 - (void)stopAudio
 {
+    //mediamgr_set_call_state(_mm, MEDIAMGR_STATE_NORMAL);
 }
 
 - (void)setUiStartsAudio:(BOOL)ui_starts_audio
 {
+    mediamgr_set_user_starts_audio(_mm, ui_starts_audio ? true : false);
 }
 
 - (void)mcatChanged:(enum mediamgr_state)state
@@ -477,7 +479,7 @@ static AVSMediaManager *_defaultMediaManager;
 			fcat = FLOWMANAGER_CATEGORY_HOLD;
 			break;
 
-		case MEDIAMGR_STATE_NORMAL:
+		default:
 			fcat = FLOWMANAGER_CATEGORY_NORMAL;
 			break;
 	}

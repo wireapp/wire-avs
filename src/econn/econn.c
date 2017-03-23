@@ -337,6 +337,9 @@ static void handle_update_request(struct econn *econn,
 				  const char *clientid_sender,
 				  const struct econn_message *msg)
 {
+	bool is_winner;
+	bool should_reset = false;
+	
 	/* check if the Remote ClientID is correct */
 	if (0 != str_casecmp(econn->clientid_remote, clientid_sender)) {
 		warning("econn: ignoring update responce from wrong clientid. "
@@ -352,6 +355,29 @@ static void handle_update_request(struct econn *econn,
 		econn_set_state(econn, ECONN_UPDATE_RECV);
 		break;
 
+	case ECONN_UPDATE_SENT:
+		is_winner = econn_iswinner(econn->userid_self, econn->clientid,
+					   userid_sender, clientid_sender);
+
+		info("econn: handle_update_request: "
+		     "[%s] conflict: is_winner=%d\n",
+		     econn->userid_self, is_winner);
+
+		if (is_winner) {
+			/* We are winner, drop remote offer
+			 * and expect new ANSWER from peer */
+			//econn->conflict = 1;
+
+			return;
+		}
+		else { /* We are Looser -- drop our offer,
+		       * we must send a new ANSWER */
+
+			econn_set_state(econn, ECONN_UPDATE_RECV);
+			should_reset = true;
+		}
+		break;
+		
 	default:
 		warning("[ %s.%s ] econn: recv_update: "
 		     "ignore received UPDATE Request "
@@ -361,7 +387,7 @@ static void handle_update_request(struct econn *econn,
 		     econn_state_name(econn->state));
 		return;
 	}
-
+	
 	tmr_start(&econn->tmr_local, econn->conf.timeout_setup,
 		  tmr_local_handler, econn);
 
@@ -371,6 +397,7 @@ static void handle_update_request(struct econn *econn,
 				   clientid_sender,
 				   msg->u.setup.sdp_msg,
 				   msg->u.setup.props,
+				   should_reset,
 				   econn->arg);
 	}
 }

@@ -92,6 +92,11 @@ typedef void (wcall_close_h)(int reason, const char *convid,
  */
 typedef void (wcall_video_state_change_h)(int state, void *arg);
 
+/**
+  * Callback used to inform user that other side is sending us cbr audio
+ */
+typedef void (wcall_audio_cbr_enabled_h)(void *arg);
+    
 int wcall_init(const char *userid,
 	       const char *clientid,
 	       wcall_ready_h *readyh,
@@ -164,7 +169,8 @@ void wcall_set_video_send_active(const char *convid, int active /*bool*/);
 
 void wcall_network_changed(void);
 	
-
+void wcall_set_audio_cbr_enabled_handler(wcall_audio_cbr_enabled_h *acbrh);
+    
 struct re_printf;
 int  wcall_debug(struct re_printf *pf, void *ignored);
 

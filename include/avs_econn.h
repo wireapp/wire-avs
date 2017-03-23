@@ -126,6 +126,7 @@ typedef void (econn_update_req_h)(struct econn *econn,
 				  const char *clientid_sender,
 				  const char *sdp,
 				  struct econn_props *props,
+				  bool should_reset,
 				  void *arg);
 
 /**

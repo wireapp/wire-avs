@@ -207,6 +207,11 @@ struct mediaflow {
 		uint64_t ts_connect;
 	} data;
 
+	/* Audio */
+	struct {
+		bool cbr;
+	} audio;
+    
 	/* User callbacks */
 	mediaflow_localcand_h *lcandh;
 	mediaflow_estab_h *estabh;
@@ -240,6 +245,10 @@ struct mediaflow {
 	uint32_t magic;
 };
 
+struct vid_ref {
+	struct vidcodec *vc;
+	struct mediaflow *mf;
+};
 
 #undef debug
 #undef info
@@ -677,6 +686,9 @@ static int start_codecs(struct mediaflow *mf)
 		if (mf->started && ac->enc_start) {
 			ac->enc_start(mf->aes);
 		}
+        
+		mf->audio.cbr = prm.cbr;
+        
 	}
 	mediastats_rtp_stats_init(&mf->audio_stats_snd, fmt->pt, 2000);
 
@@ -878,6 +890,7 @@ static int start_video_codecs(struct mediaflow *mf)
 	const struct vidcodec *vc;
 	const struct sdp_format *fmt;
 	struct vidcodec_param prm;
+	struct vid_ref *vr;
 	int err = 0;
 
 	fmt = sdp_media_rformat(mf->video.sdpm, NULL);
@@ -887,7 +900,8 @@ static int start_video_codecs(struct mediaflow *mf)
 		goto out;
 	}
 
-	vc = fmt->data;
+	vr = fmt->data;
+	vc = vr->vc;
 	if (!vc) {
 		warning("mediaflow: no vidcodec in sdp data\n");
 		err = EINVAL;
@@ -2746,6 +2760,38 @@ enum media_setup mediaflow_local_setup(const struct mediaflow *mf)
 	return mf->setup_local;
 }
 
+static bool vid_fmtp_cmp_handler(const char *params1, const char *params2,
+			     void *data)
+{
+	struct vid_ref *vr = data;
+
+	if (vr->vc && vr->vc->fmtp_cmph)
+		return vr->vc->fmtp_cmph(params1, params2, vr->vc);
+
+	return true;
+}
+
+
+static int vid_fmtp_enc_handler(struct mbuf *mb, const struct sdp_format *fmt,
+				bool offer, void *data)
+{
+	struct sdp_format *ref_fmt = NULL;
+	struct vid_ref *vr = data;
+
+	if (!vr->vc || !vr->mf)
+		return 0;
+	
+	if (vr->vc->codec_ref) {
+		ref_fmt = sdp_media_format(vr->mf->video.sdpm, true, NULL, -1,
+					   vr->vc->codec_ref->name, -1, -1);
+	}
+
+	if (vr->vc->fmtp_ench)
+		return vr->vc->fmtp_ench(mb, fmt, offer, ref_fmt);
+	else
+		return 0;
+}
+
 
 int mediaflow_add_video(struct mediaflow *mf, struct list *vidcodecl)
 {
@@ -2830,14 +2876,26 @@ int mediaflow_add_video(struct mediaflow *mf, struct list *vidcodecl)
 
 		LIST_FOREACH(vidcodecl, le) {
 			struct vidcodec *vc = list_ledata(le);
+			struct vid_ref *vr;
+		   
+			vr = mem_zalloc(sizeof(*vr), NULL);
+			if (!vr)
+				goto out;
+
+			vr->mf = mf;
+			vr->vc = vc;
 
 			err = sdp_format_add(NULL, mf->video.sdpm, false,
 					     vc->pt, vc->name, 90000, 1,
-					     vc->fmtp_ench, vc->fmtp_cmph,
-					     vc, false,
+					     vid_fmtp_enc_handler,
+					     vid_fmtp_cmp_handler,
+					     vr, true,
 					     "%s", vc->fmtp);
-			if (err)
+			mem_deref(vr);
+			if (err) {
+				
 				goto out;
+			}
 
 			ssrcv[i] = rand_u32();
 			re_snprintf(ssrc_group, sizeof(ssrc_group),
@@ -2942,7 +3000,7 @@ int mediaflow_add_data(struct mediaflow *mf)
 		goto out;
 
 	err = sdp_media_set_lattr(mf->data.sdpm, true,
-			      "sctpmap", "5000 webrtc-datachannel streams=16");
+			      "sctpmap", "5000 webrtc-datachannel 16");
 	if (err) {
 		warning("mediaflow_add_data: failed to add lattr: %m\n", err);
 		goto out;
@@ -3434,6 +3492,16 @@ static int post_sdp_decode(struct mediaflow *mf)
 		group = sdp_session_rattr(mf->sdp, "group");
 		if (group) {
 			sdp_session_set_lattr(mf->sdp, true, "group", group);
+		}
+	}
+
+	if (mf->data.sdpm) {
+		mid = sdp_media_rattr(mf->data.sdpm, "mid");
+		if (mid) {
+			debug("mediaflow: updating data mid-value "
+			      "to '%s'\n", mid);
+			sdp_media_set_lattr(mf->data.sdpm,
+					    true, "mid", mid);
 		}
 	}
 
@@ -5393,4 +5461,12 @@ struct dce *mediaflow_get_dce(const struct mediaflow *mf)
 		return NULL;
     
 	return mf->data.dce;
+}
+
+bool mediaflow_get_audio_cbr(const struct mediaflow *mf)
+{
+	if (!mf)
+		return false;
+    
+	return mf->audio.cbr;
 }

@@ -99,6 +99,8 @@ static struct vidcodec vie_vidcodecv[NUM_CODECS] = {
 		.dec_debugh   = NULL,
 		.dec_bwalloch = NULL,
 
+		.codec_ref    = &vie_vidcodecv[0],
+
 		.fmtp_ench    = vie_rtx_fmtp_enc,
 	}
 #endif

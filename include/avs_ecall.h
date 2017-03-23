@@ -135,6 +135,7 @@ struct ecall_marshal;
 int  ecall_marshal_alloc(struct ecall_marshal **emp);
 int  marshal_ecall_start(struct ecall_marshal *em, struct ecall *ecall);
 int  marshal_ecall_answer(struct ecall_marshal *em, struct ecall *ecall);
+int  marshal_ecall_restart(struct ecall_marshal *em, struct ecall *ecall);
 int  marshal_ecall_transp_recv(struct ecall_marshal *em,
 			       struct ecall *ecall,
 			       uint64_t curr_time,
@@ -156,6 +157,7 @@ int marshal_ecall_end(struct ecall_marshal *em, struct ecall *ecall);
 int  marshal_ecall_set_video_send_active(struct ecall_marshal *em,
 					 struct ecall *ecall,
 					 bool active);
+
 int marshal_ecall_media_start(struct ecall_marshal *em, struct ecall *ecall);
 int marshal_ecall_media_stop(struct ecall_marshal *em, struct ecall *ecall);
 

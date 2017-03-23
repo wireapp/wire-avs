@@ -31,9 +31,9 @@
 int vie_fmtp_enc(struct mbuf *mb, const struct sdp_format *fmt,
 		 bool offer, void *data)
 {
-	const struct vidcodec *vc = (const struct vidcodec *)data;
 	int err = 0;
-	(void)vc;
+
+	(void)data;
 
 	err |= mbuf_printf(mb, "a=rtcp-fb:%s ccm fir\r\n", fmt->id);
 	err |= mbuf_printf(mb, "a=rtcp-fb:%s nack\r\n", fmt->id);
@@ -52,18 +52,17 @@ int vie_fmtp_enc(struct mbuf *mb, const struct sdp_format *fmt,
 
 #endif
 
-
 	return err;
 }
 
 int vie_rtx_fmtp_enc(struct mbuf *mb, const struct sdp_format *fmt,
 		     bool offer, void *data)
 {
-	const struct vidcodec *vc = (const struct vidcodec *)data;
+	const struct sdp_format *ref = (const struct sdp_format *)data;
 	int err = 0;
-	(void)vc;
+	const char *ref_id = ref ? ref->id : "100";
 
-	err |= mbuf_printf(mb, "a=fmtp:%s apt=100\r\n", fmt->id);
+	err |= mbuf_printf(mb, "a=fmtp:%s apt=%s\r\n", fmt->id, ref_id);
 
 	return err;
 }

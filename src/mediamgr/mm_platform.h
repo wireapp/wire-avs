@@ -57,7 +57,9 @@ void mm_platform_unregisterMedia(struct dict *sounds, const char *name);
 		
 void mm_platform_enter_call(void);
 void mm_platform_exit_call(void);
-	
+
+void mm_platform_set_active(void);
+    
 #ifdef __cplusplus__
 };
 #endif

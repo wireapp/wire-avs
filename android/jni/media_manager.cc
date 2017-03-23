@@ -16,6 +16,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 #include <jni.h>
+#include <pthread.h>
 #ifdef ANDROID
 #include <android/log.h>
 #include "webrtc/voice_engine/include/voe_base.h"

@@ -105,7 +105,16 @@ int voe_enc_alloc(struct auenc_state **aesp,
 	if(gvoe.rtp_rtcp){
 		gvoe.rtp_rtcp->SetLocalSSRC(aes->ve->ch, prm->local_ssrc);
 	}
-    
+	if(gvoe.codec){
+		int ret = gvoe.codec->SetOpusCbr(aes->ve->ch, gvoe.cbr_enabled || prm->cbr);
+		if(ret){
+			prm->cbr = false;
+		} else {
+			prm->cbr = gvoe.cbr_enabled || prm->cbr;
+		}
+	} else {
+		prm->cbr = false;
+	}
  out:
 	if (err) {
 		mem_deref(aes);

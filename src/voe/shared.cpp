@@ -434,7 +434,9 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 	gvoe.codec->SetFECStatus( ve->ch, ZETA_USE_INBAND_FEC );
     
 	gvoe.codec->SetOpusDtx( ve->ch, ZETA_USE_DTX );
-        
+    
+	gvoe.codec->SetOpusCbr( ve->ch, gvoe.cbr_enabled );
+    
 	ve->rtp_dump_in = new wire_avs::RtpDump();
 	ve->rtp_dump_out = new wire_avs::RtpDump();
     

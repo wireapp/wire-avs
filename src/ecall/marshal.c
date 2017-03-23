@@ -30,6 +30,7 @@ enum mq_event {
 	ECALL_MEV_MSG_RECV,
 	ECALL_MEV_START,
 	ECALL_MEV_ANSWER,
+	ECALL_MEV_RESTART,
 	ECALL_MEV_END,
 	ECALL_MEV_VIDEO_SEND_ACTIVE,
 	ECALL_MEV_MEDIA_START,
@@ -58,7 +59,6 @@ struct mq_data {
 			char *clientid;
 			struct econn_message *msg;
 		} msg_recv;
-		
 
 		struct {
 			struct ecall *ecall;
@@ -74,9 +74,17 @@ struct mq_data {
 
 		struct {
 			struct ecall *ecall;
+		} restart;		
+
+		struct {
+			struct ecall *ecall;
 			bool active;
 		} video_send_active;
 
+		struct {
+			struct ecall *ecall;
+		} audio_send_cbr;
+        
 		struct {
 			struct ecall *ecall;
 		} media_start;
@@ -133,6 +141,13 @@ static void mqueue_handler(int id, void *data, void *arg)
 		}
 		break;
 
+	case ECALL_MEV_RESTART:
+		err = ecall_restart(md->u.restart.ecall);
+		if (err) {
+			warning("ecall: ecall_restart failed (%m)\n", err);
+		}
+		break;		
+
 	case ECALL_MEV_END:
 		ecall_end(md->u.end.ecall);
 		break;
@@ -146,7 +161,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 				err);
 		}
 		break;
-
+        
 	case ECALL_MEV_MEDIA_START:
 		err = ecall_media_start(md->u.media_start.ecall);
 		if (err) {
@@ -259,6 +274,14 @@ static void answer_destructor(void *arg)
 }
 
 
+static void restart_destructor(void *arg)
+{
+	struct mq_data *md = arg;
+
+	mem_deref(md->u.answer.ecall);
+}
+
+
 static void end_destructor(void *arg)
 {
 	struct mq_data *md = arg;
@@ -273,7 +296,6 @@ static void video_send_active_destructor(void *arg)
 
 	mem_deref(md->u.video_send_active.ecall);
 }
-
 
 int marshal_ecall_transp_recv(struct ecall_marshal *em,
 			      struct ecall *ecall,
@@ -397,6 +419,29 @@ int marshal_ecall_answer(struct ecall_marshal *em,
 }
 
 
+int marshal_ecall_restart(struct ecall_marshal *em,
+			  struct ecall *ecall)
+{
+	struct mq_data *md;
+	int err = 0;
+
+	if (!em)
+		return EINVAL;
+
+	md = mem_zalloc(sizeof(*md), restart_destructor);
+	if (!md)
+		return ENOMEM;
+
+	md->u.restart.ecall = mem_ref(ecall);
+
+	err = mqueue_push(em->mq, ECALL_MEV_RESTART, md);
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
+
 int marshal_ecall_end(struct ecall_marshal *em,
 		      struct ecall *ecall)
 {
@@ -418,7 +463,6 @@ int marshal_ecall_end(struct ecall_marshal *em,
 
 	return err;
 }
-
 
 int  marshal_ecall_set_video_send_active(struct ecall_marshal *em,
 					 struct ecall *ecall,

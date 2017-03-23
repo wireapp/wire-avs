@@ -627,13 +627,14 @@ public:
 	{
 		struct client *cli = (struct client *)arg;
 		struct conv_loop *loop = cli->loop;
+		Ecall *fix = cli->fix;
 
 		info("[%s.%s] propsync\n", cli->userid, cli->clientid);
 
 		++cli->n_propsync;
 
-		if (total_propsync(loop) >= 2) {
-
+		if (fix->exp_total_propsyncs &&
+			total_propsync(loop) >= fix->exp_total_propsyncs) {
 			cli->fix->test_complete(loop, 0);
 		}
 	}
@@ -890,6 +891,7 @@ protected:
 	unsigned exp_total_media_estab = 0;
 	unsigned exp_total_audio_estab = 0;
 	unsigned exp_total_datachan_estab = 0;
+	unsigned exp_total_propsyncs = 0;
 	unsigned exp_total_close = 0;
 
 	struct list pendingl = LIST_INIT;
@@ -1914,7 +1916,6 @@ TEST_F(Ecall, flow014)
 	ASSERT_EQ(0, n_cancel);
 }
 
-
 TEST_F(Ecall, propsync)
 {
 	struct client *a1, *b1;
@@ -1932,7 +1933,7 @@ TEST_F(Ecall, propsync)
 
 	b1->action_conn = ACTION_ANSWER;
 
-	exp_total_datachan_estab = 2;
+	exp_total_propsyncs = 4;
 	a1->action_destab = ACTION_TEST_COMPLETE;
 
 	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
@@ -1941,8 +1942,8 @@ TEST_F(Ecall, propsync)
 	err = re_main_wait(10000);
 	ASSERT_EQ(0, err);
 
-	ASSERT_EQ(0, a1->n_propsync);
-	ASSERT_EQ(0, b1->n_propsync);
+	ASSERT_EQ(2, a1->n_propsync);
+	ASSERT_EQ(2, b1->n_propsync);
 
 	// change a local prop
 
@@ -1953,14 +1954,15 @@ TEST_F(Ecall, propsync)
 
 	// expect change
 
+	exp_total_propsyncs = 6;
+    
 	/* Wait again .. */
 	err = re_main_wait(5000);
 	ASSERT_EQ(0, err);
 
-	ASSERT_EQ(1, a1->n_propsync);
-	ASSERT_EQ(1, b1->n_propsync);
+	ASSERT_EQ(3, a1->n_propsync);
+	ASSERT_EQ(3, b1->n_propsync);
 }
-
 
 TEST_F(Ecall, ice)
 {
@@ -2053,6 +2055,7 @@ TEST_F(Ecall, audio_io_error)
 	ASSERT_TRUE( b1->metrics_json != NULL);
 }
 
+#if 1
 TEST_F(Ecall, restart)
 {
 	struct client *a1, *b2;
@@ -2097,4 +2100,4 @@ TEST_F(Ecall, restart)
 	ASSERT_EQ(1, b2->n_conn);
 	ASSERT_EQ(2, b2->n_datachan_estab);
 }
-
+#endif

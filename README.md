@@ -90,6 +90,8 @@ The first time you need to fetch the submodules by doing:
 $ ./prepare.sh
 ```
 
+Patches for webrtc are under mediaengine/webrtc_patches. Run apply_patches.sh to apply them
+
 If you simply say ``make``, a selection of tools is being built for your
 host machine. You probably want ``zcall``, the AVS command line client.
 You can only build that by saying ``make zcall``. Similarly, you can

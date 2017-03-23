@@ -39,6 +39,8 @@
 #define SDP_MAX_LEN 4096
 #define ECALL_MAGIC 0xeca1100f
 
+#define UPDATE_DEREF_TIMEOUT 3000
+
 
 static const struct ecall_conf default_conf = {
 	.econf = {
@@ -216,22 +218,33 @@ static void econn_update_req_handler(struct econn *econn,
 				     const char *clientid_sender,
 				     const char *sdp,
 				     struct econn_props *props,
+				     bool should_reset,
 				     void *arg)
 {
 	struct ecall *ecall = arg;
 	int err = 0;
 	const char *vr;
 	bool video_active = false;
+	bool strm_chg;
 
 	assert(ECALL_MAGIC == ecall->magic);
 
 	ecall->update = true;
-	if (ecall->mf)
-		ecall->mf = mem_deref(ecall->mf);
 
-	err = alloc_mediaflow(ecall);
-	if (err)
-		goto error;
+	strm_chg = strstr(sdp, "x-streamchange") != NULL;
+	
+	if (ecall->mf && strm_chg) {
+		info("ecall: update: x-streamchange\n");
+		mediaflow_stop_media(ecall->mf);
+		mediaflow_sdpstate_reset(ecall->mf);		
+		mediaflow_reset_media(ecall->mf);
+	}
+	else {
+		ecall->mf = mem_deref(ecall->mf);
+		err = alloc_mediaflow(ecall);
+		if (err)
+			goto error;
+	}
 
 	err = mediaflow_handle_offer(ecall->mf, sdp);
 	if (err) {
@@ -263,6 +276,10 @@ static void econn_update_req_handler(struct econn *econn,
 		warning("ecall(%p): generate_or_gather_answer failed (%m)\n",
 			ecall, err);
 		goto error;
+	}
+
+	if (strm_chg) {
+		mediaflow_start_media(ecall->mf);
 	}
 
 	return;
@@ -351,7 +368,7 @@ static void econn_answer_handler(struct econn *conn, bool reset,
 }
 
 
-static void econn_update_resp_handler(struct econn *conn,
+static void econn_update_resp_handler(struct econn *econn,
 				      const char *sdp,
 				      struct econn_props *props,
 				      void *arg)
@@ -393,6 +410,9 @@ static void econn_update_resp_handler(struct econn *conn,
 	ecall->props_remote = mem_deref(ecall->props_remote);
 	ecall->props_remote = mem_ref(props);
 
+	if (dce_is_chan_open(ecall->dce_ch))
+		econn_set_datachan_established(econn);
+	
 	return;
 
  error:
@@ -426,6 +446,8 @@ static void ecall_destructor(void *data)
 	list_unlink(&ecall->le);
 
 	tmr_cancel(&ecall->tmr);
+	tmr_cancel(&ecall->media_start_tmr);
+	tmr_cancel(&ecall->update_tmr);
 
 	mem_deref(ecall->mf);
 	mem_deref(ecall->userid_self);
@@ -552,6 +574,10 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 	if (err)
 		goto out;
 
+	err = econn_props_add(ecall->props_local, "audiocbr", "false");
+	if (err)
+		goto out;
+    
 	err |= str_dup(&ecall->convid, convid);
 	err |= str_dup(&ecall->userid_self, userid_self);
 	err |= str_dup(&ecall->clientid, clientid);
@@ -711,6 +737,9 @@ static int generate_answer(struct ecall *ecall, struct econn *econn)
 
 	if (ecall->update) {
 		err = econn_update_resp(econn, sdp, ecall->props_local);
+
+		if (dce_is_chan_open(ecall->dce_ch))
+			econn_set_datachan_established(econn);		
 	}
 	else {
 		err = econn_answer(econn, sdp, ecall->props_local);
@@ -723,6 +752,23 @@ static int generate_answer(struct ecall *ecall, struct econn *econn)
 	return err;
 }
 
+static void media_start_timeout_handler(void *arg)
+{
+	struct ecall *ecall = arg;
+    
+	assert(ECALL_MAGIC == ecall->magic);
+    
+	info("ecall(%p): media_start timeout \n", ecall);
+    
+	if (ecall->econn){
+		econn_set_error(ecall->econn, EIO);
+        
+		ecall_end(ecall);
+	} else {
+		/* notify upwards */
+		ecall_close(ecall, EIO);
+	}
+}
 
 static void mf_estab_handler(const char *crypto, const char *codec,
 			     const char *type, const struct sa *sa,
@@ -740,6 +786,9 @@ static void mf_estab_handler(const char *crypto, const char *codec,
 
 	if (ecall->media_estabh) {
 		ecall->media_estabh(ecall->arg, ecall->update);
+
+		// Start a timer to check that we do start Audio Later
+		tmr_start(&ecall->media_start_tmr, 5000, media_start_timeout_handler, ecall);
 	}
 	else {
 		int err = ecall_media_start(ecall);
@@ -824,14 +873,32 @@ static void mf_gather_handler(void *arg)
 	ecall_close(ecall, err);
 }
 
-
 static void channel_estab_handler(void *arg)
 {
 	struct ecall *ecall = arg;
+	int err = 0;
 
 	assert(ECALL_MAGIC == ecall->magic);
 
 	econn_set_datachan_established(ecall->econn);
+
+	/* Update the cbr status */
+	if(mediaflow_get_audio_cbr(ecall->mf)){
+		err = econn_props_update(ecall->props_local, "audiocbr", "true");
+		if (err) {
+			warning("ecall: econn_props_update(audiocbr)",
+			        " failed (%m)\n", err);
+		}
+	}
+    
+	/* sync the properties to the remote peer */
+	if (econn_can_send_propsync(ecall->econn)) {
+		err = econn_send_propsync(ecall->econn, false, ecall->props_local);
+		if (err) {
+			warning("ecall: econn_send_propsync"
+				" failed (%m)\n", err);
+		}
+	}
 
 	if (ecall->datachan_estabh)
 		ecall->datachan_estabh(ecall->arg, ecall->update);
@@ -893,7 +960,7 @@ static void data_channel_handler(int chid, uint8_t *data,
 				warning("ecall: econn_send_propsync"
 					" failed (%m)\n",
 					err);
-				return;
+				goto out;
 			}
 		}
 
@@ -1430,7 +1497,6 @@ int ecall_set_video_send_active(struct ecall *ecall, bool active)
 	return err;
 }
 
-
 bool ecall_is_answered(const struct ecall *ecall)
 {
 	return ecall ? ecall->answered : false;
@@ -1455,6 +1521,7 @@ bool ecall_has_video(const struct ecall *ecall)
 int ecall_media_start(struct ecall *ecall)
 {
 	int err;
+	const char *is_video;
 
 	debug("ecall: media start ecall=%p\n", ecall);
 
@@ -1465,7 +1532,11 @@ int ecall_media_start(struct ecall *ecall)
 		info("ecall: mediaflow not ready cannot start media \n");
 		return 0;
 	}
-    
+
+	is_video = ecall_props_get_local(ecall, "videosend");
+	if (is_video && strcmp(is_video, "true") == 0) {
+		mediaflow_set_video_send_active(ecall->mf, true);
+	}
 	err = mediaflow_start_media(ecall->mf);
 	if (err) {
 		warning("ecall: mediaflow start media failed (%m)\n", err);
@@ -1473,6 +1544,9 @@ int ecall_media_start(struct ecall *ecall)
 		goto out;
 	}
 	info("ecall: media started on ecall:%p\n", ecall);
+    
+	// Cancel timer
+	tmr_cancel(&ecall->media_start_tmr);
 
  out:
     

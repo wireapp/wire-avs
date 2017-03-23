@@ -107,6 +107,8 @@ struct vidcodec {
 	viddec_rtcp_h *dec_rtcph;
 	viddec_debug_h *dec_debugh;
 	viddec_bwalloc_h *dec_bwalloch;
+	
+	struct vidcodec *codec_ref;
 
 	sdp_fmtp_enc_h *fmtp_ench;
 	sdp_fmtp_cmp_h *fmtp_cmph;
