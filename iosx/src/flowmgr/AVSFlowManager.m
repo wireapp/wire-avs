@@ -78,7 +78,6 @@ static NSComparisonResult (^conferenceComparator)(id, id) =
 
 static void video_state_change_h(enum flowmgr_video_receive_state state,
 	enum flowmgr_video_reason reason, void *arg);
-static void wcall_video_state_change_handler(int state, void *arg);
 
 static int render_frame_h(struct avs_vidframe *frame, void *arg);
 
@@ -158,7 +157,8 @@ AVSFlowManager *g_Fm = nil;
 
 static NSString *avsString(const char *s)
 {
-	return s ? [NSString stringWithUTF8String:s] : nil;
+	NSString *ss = s ? [NSString stringWithUTF8String:s] : [NSString new];
+	return ss ? ss : [NSString new];
 }
 
 static NSData *avsData(const char *d, size_t dlen)
@@ -206,10 +206,13 @@ static void log_handler(uint32_t lve, const char *msg)
 		return;
 	
 	NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+	NSString *nsmsg = avsString(msg);
 	
-	[nc postNotificationName:@"AVSLogMessageNotification"
-			  object:nil
-			userInfo:@{@"message": avsString(msg)}];
+	if (nsmsg) {
+		[nc postNotificationName:@"AVSLogMessageNotification"
+				  object:nil
+				userInfo:@{@"message": nsmsg}];
+	}
 }
 
 
@@ -229,7 +232,7 @@ static void *avs_thread(void *arg)
 	/* Force the loading of wcall symbols! 
 	 * Can't this be done with a linker directive?
 	 */
-	wcall_set_ice_servers(NULL, 0);
+	wcall_get_members(NULL);
 	
 	err = libre_init();
 	if (err) {
@@ -586,8 +589,6 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_audio_state_handler, fm,
 			     audio_state_change_h,
 			     (__bridge void *)(self));
-
-        wcall_set_video_state_handler(wcall_video_state_change_handler);
 
 	self = [super init];
 
@@ -1341,36 +1342,6 @@ static void video_state_change_h(enum flowmgr_video_receive_state state,
 	AVSVideoStateChangeInfo *info = [[AVSVideoStateChangeInfo alloc]
 		initWithState:st reason:re];
 	avs_flow_manager_send_notification(FlowManagerVideoReceiveStateNotification, info);
-}
-
-static void wcall_video_state_change_handler(int state, void *arg)
-{
-	enum flowmgr_video_receive_state fstate;
-	enum flowmgr_video_reason freason;
-
-	switch (state) {
-	case WCALL_VIDEO_RECEIVE_STOPPED:
-		fstate = FLOWMGR_VIDEO_RECEIVE_STOPPED;
-		freason = FLOWMGR_VIDEO_NORMAL;
-		break;
-
-	case WCALL_VIDEO_RECEIVE_STARTED:
-		fstate = FLOWMGR_VIDEO_RECEIVE_STARTED;
-		freason = FLOWMGR_VIDEO_NORMAL;
-		break;
-
-	case WCALL_VIDEO_RECEIVE_BAD_CONN:
-		fstate = FLOWMGR_VIDEO_RECEIVE_STOPPED;
-		freason = FLOWMGR_VIDEO_BAD_CONNECTION;
-		break;
-
-	default:
-		fstate = FLOWMGR_VIDEO_RECEIVE_STOPPED;
-		freason = FLOWMGR_VIDEO_NORMAL;
-		break;
-	}
-
-	video_state_change_h(fstate, freason, arg);
 }
 
 static void audio_state_change_h(enum flowmgr_audio_receive_state state,

@@ -1,4 +1,25 @@
 ChangeLog for AVS -- latest on top!
+
+==============================================================================
+AVS Release 3.4
+
+Date:	    24. April 2017
+GIT:	    https://github.com/wearezeta/avs/tree/release-3.4
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:       - Version 3 group calling
+		- BE switch removed for 1:1 C3 calls
+		- Update of VPx to fix potential security issue
+		- Update of WebRTC
+		- Bug fixes:
+			- BT on iOS
+			- Missing ringtone on Android
+			- More robust handling of calls/config
+			- many more
+
 ==============================================================================
 AVS Release 3.3
 

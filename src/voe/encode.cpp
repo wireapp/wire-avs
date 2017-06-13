@@ -54,13 +54,14 @@ static void aes_destructor(void *arg)
 	voe_enc_stop(aes);
 
 	list_unlink(&aes->le);
-
-	mem_deref(aes->ve);
+    
+	if(list_isempty(&gvoe.encl)){
+		voe_set_mute(false);
+	}
 }
 
 
 int voe_enc_alloc(struct auenc_state **aesp,
-		  struct media_ctx **mctxp,
 		  const struct aucodec *ac, const char *fmtp,
 		  struct aucodec_param *prm,
 		  auenc_rtp_h *rtph,
@@ -71,7 +72,7 @@ int voe_enc_alloc(struct auenc_state **aesp,
 	struct auenc_state *aes;
 	int err = 0;
 
-	if (!aesp || !ac || !mctxp) {
+	if (!aesp || !ac) {
 		return EINVAL;
 	}
 
@@ -81,70 +82,64 @@ int voe_enc_alloc(struct auenc_state **aesp,
 	if (!aes)
 		return ENOMEM;
 
-	if (*mctxp) {
-		aes->ve = (struct voe_channel *)mem_ref(*mctxp);
-	}
-	else {
-		err = voe_ve_alloc(&aes->ve, ac, prm->srate, prm->pt);
-		if (err) {
-			goto out;
-		}
-
-		*mctxp = (struct media_ctx *)aes->ve;
-	}
-
 	list_append(&gvoe.encl, &aes->le, aes);
 
-	aes->ve->aes = aes;
 	aes->ac = ac;
 	aes->rtph = rtph;
 	aes->rtcph = rtcph;
 	aes->errh = errh;
 	aes->arg = arg;
-
-	if(gvoe.rtp_rtcp){
-		gvoe.rtp_rtcp->SetLocalSSRC(aes->ve->ch, prm->local_ssrc);
-	}
-	if(gvoe.codec){
-		int ret = gvoe.codec->SetOpusCbr(aes->ve->ch, gvoe.cbr_enabled || prm->cbr);
-		if(ret){
-			prm->cbr = false;
-		} else {
-			prm->cbr = gvoe.cbr_enabled || prm->cbr;
-		}
-	} else {
-		prm->cbr = false;
-	}
- out:
-	if (err) {
-		mem_deref(aes);
-	}
-	else {
-		*aesp = aes;
-	}
+	aes->local_ssrc = prm->local_ssrc;
+	aes->remote_ssrc = prm->remote_ssrc;
+	aes->pt = prm->pt;
+	aes->srate = prm->srate;
+	//aes->ch = prm
+	aes->cbr = gvoe.cbr_enabled || prm->cbr;
+    prm->cbr = aes->cbr;
+    
+	*aesp = aes;
 
 	return err;
 }
 
 
-int voe_enc_start(struct auenc_state *aes)
+int voe_enc_start(struct auenc_state *aes, struct media_ctx **mctxp)
 {
-	int ret = 0;
-	if (!aes)
+	int err = 0;
+	if (!aes || !mctxp)
 		return EINVAL;
 
-	info("voe: starting encoder -- StartSend ch %d \n", aes->ve->ch);
+	if (*mctxp) {
+		aes->ve = (struct voe_channel *)mem_ref(*mctxp);
+	} else {
+		err = voe_ve_alloc(&aes->ve, aes->ac, aes->srate, aes->pt);
+		if (err) {
+			goto out;
+		}
+		*mctxp = (struct media_ctx *)aes->ve;
+	}
+    
+	aes->ve->aes = aes;
+        
+	if(gvoe.rtp_rtcp){
+		gvoe.rtp_rtcp->SetLocalSSRC(aes->ve->ch, aes->local_ssrc);
+	}
+	if(gvoe.codec){
+		gvoe.codec->SetOpusCbr(aes->ve->ch, aes->cbr);
+	}
 
+	info("voe: starting encoder -- StartSend ch %d \n", aes->ve->ch);
+    
 	aes->started = true;
 
 	if (gvoe.base){
-		ret = gvoe.base->StartSend(aes->ve->ch);
+		err = gvoe.base->StartSend(aes->ve->ch);
 	}
-	if(ret){
-		ret = EIO;
+	if(err){
+		err = EIO;
 	}
-    
-	return ret;
+out:
+	return err;
 }
 
 
@@ -155,10 +150,14 @@ void voe_enc_stop(struct auenc_state *aes)
 
 	aes->started = false;
 
+	if(!aes->ve)
+		return;
+    
 	if (gvoe.base){
 		info("voe: stopping encoder -- StopSend ch %d \n",
 		     aes->ve->ch);
 
 		gvoe.base->StopSend(aes->ve->ch);
 	}
+	aes->ve = (struct voe_channel *)mem_deref(aes->ve);
 }

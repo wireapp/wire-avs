@@ -304,7 +304,6 @@ int userflow_update_config(struct userflow *uf)
 
 int userflow_alloc_mediaflow(struct userflow *uf)
 {
-	enum mediaflow_nat nat = MEDIAFLOW_TRICKLEICE_DUALSTACK;
 	struct flowmgr *fm;
 	struct sa laddr;	
 	int err;
@@ -333,8 +332,7 @@ int userflow_alloc_mediaflow(struct userflow *uf)
 	err = mediaflow_alloc(&uf->mediaflow,
 			      msystem_dtls(flowmgr_msystem()),
 			      msystem_aucodecl(flowmgr_msystem()),
-			      &laddr, nat, CRYPTO_DTLS_SRTP,
-			      NULL,
+			      &laddr, CRYPTO_DTLS_SRTP,
 			      mediaflow_estab_handler, 
 			      mediaflow_close_handler, uf);
 	if (err) {
@@ -343,10 +341,6 @@ int userflow_alloc_mediaflow(struct userflow *uf)
 	}
 
 	fm = call_flowmgr(uf->call);
-	if (fm && fm->config.cfg.early_dtls) {
-
-		warning("flowmgr: early-DTLS is deprecated\n");
-	}
 
 	if (msystem_get_privacy(flowmgr_msystem())) {
 		info("flowmgr: enable mediaflow privacy\n");

@@ -63,6 +63,7 @@ extern "C" {
 #include "avs_econn.h"
 #include "avs_econn_fmt.h"
 #include "avs_ecall.h"
+#include "avs_egcall.h"
 
 #include "avs_mediamgr.h"
 

@@ -32,7 +32,7 @@
 // step 1 get a back non-crypto case working
 
 
-#define CALL_DURATION 150
+#define CALL_DURATION 400
 
 
 struct test {
@@ -147,7 +147,6 @@ static void destructor(void *arg)
 	mem_deref(ag->dtls);
 }
 
-
 static void sdp_exchange(struct agent *a, struct agent *b)
 {
 	char offer[4096], answer[4096];
@@ -217,8 +216,8 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 	}
 
 	err = mediaflow_alloc(&ag->mf, ag->dtls, &test->aucodecl, &laddr,
-			      MEDIAFLOW_TRICKLEICE_DUALSTACK, cryptos,
-			      NULL, mediaflow_estab_handler,
+			      cryptos,
+			      mediaflow_estab_handler,
 			      mediaflow_close_handler,
 			      ag);
 	ASSERT_EQ(0, err);
@@ -294,7 +293,7 @@ static void test_b2b_base(enum tls_keytype a_cert,
 	ASSERT_EQ(0, err);
 
 	/* start the main loop -- wait for network traffic */
-	err = re_main_wait(2000);
+	err = re_main_wait(5000);
 
 #if 0
 	re_printf("%H\n", mediaflow_summary, a->mf);

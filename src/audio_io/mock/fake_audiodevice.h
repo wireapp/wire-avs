@@ -16,7 +16,7 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "webrtc/modules/audio_device/include/audio_device.h"
+#include "../audio_io_class.h"
 #include <pthread.h>
 #include <string.h>
 
@@ -25,7 +25,7 @@
 #define FRAME_LEN (FRAME_LEN_MS*FS_KHZ)
 
 namespace webrtc {
-    class fake_audiodevice : public AudioDeviceModule {
+    class fake_audiodevice : public audio_io_class {
     public:
         fake_audiodevice(bool realtime = false);
         ~fake_audiodevice();
@@ -36,6 +36,7 @@ namespace webrtc {
         }
         int32_t RegisterAudioCallback(AudioTransport* audioCallback);
         int32_t Init() { return 0; }
+        int32_t InitInternal() { return 0; }
         int32_t InitSpeaker() { return 0; }
         int32_t SetPlayoutDevice(uint16_t index) { return -1; }
         int32_t SetPlayoutDevice(WindowsDeviceType device) { return -1; }
@@ -50,6 +51,7 @@ namespace webrtc {
         int64_t TimeUntilNextProcess() { return 0; }
         void Process() { return; }
         int32_t Terminate();
+        int32_t TerminateInternal() { return 0; }
         
         int32_t EnableSine();
         
@@ -162,7 +164,10 @@ namespace webrtc {
         bool BuiltInAECIsAvailable() const { return false; }
         int32_t EnableBuiltInAEC(bool enable) { return -1; }
         bool BuiltInAECIsEnabled() const { return false; }
-                
+        
+        int32_t RegisterCommandHandler(audio_io_command_h *cmdh, void *arg) { return 0; }
+        int32_t HandleCommand(enum audio_io_command cmd) { return 0; }
+        
         void* record_thread();
         void* playout_thread();
     private:

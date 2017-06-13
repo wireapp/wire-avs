@@ -55,12 +55,11 @@ const char fragShader[] = {
 	"  y=texture2D(Ytex,vec2(nx,ny)).r;\n"
 	"  u=texture2D(Utex,vec2(nx,ny)).r;\n"
 	"  v=texture2D(Vtex,vec2(nx,ny)).r;\n"
-	"  y=1.1643*(y-0.0625);\n"
 	"  u=u-0.5;\n"
 	"  v=v-0.5;\n"
-	"  r=y+1.5958*v;\n"
-	"  g=y-0.39173*u-0.81290*v;\n"
-	"  b=y+2.017*u;\n"
+	"  r=y+1.403*v;\n"
+	"  g=y-0.344*u-0.714*v;\n"
+	"  b=y+1.770*u;\n"
 	"  gl_FragColor=vec4(r,g,b,1.0);\n"
 	"}\n"};
 
@@ -81,6 +80,7 @@ const char indices[] = {0, 1, 2, 3};
 	BOOL _shouldFill;
 	NSLock *_lock;
 	BOOL _newFrame;	
+	BOOL _firstFrame;
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -306,6 +306,12 @@ const char indices[] = {0, 1, 2, 3};
 	BOOL sizeChanged = NO;
 	
 	[_lock lock];
+	if (_firstFrame) {
+		info("AVSVideoView handleFrame firstFrame run: %s bg: %s sz: %dx%d\n",
+			_running ? "yes" : "no", _backgrounded ? "yes" : "no",
+			frame->w, frame->h);
+		_firstFrame = NO;
+	}
 	[_context makeCurrentContext];
 
 	if (_texWidth != (GLsizei)frame->ys || _texHeight != frame->h) {
@@ -382,7 +388,8 @@ const char indices[] = {0, 1, 2, 3};
 	[_context makeCurrentContext];
 	[self setupProgram];
 	glViewport(0, 0, frameRect.size.width, frameRect.size.height);
-		[_lock unlock];
+	_firstFrame = YES;
+	[_lock unlock];
 	return [super initWithFrame:frameRect pixelFormat:pf];
 }
 

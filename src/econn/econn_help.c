@@ -29,12 +29,16 @@ const char *econn_msg_name(enum econn_msg msg)
 {
 	switch (msg) {
 
-	case ECONN_SETUP:     return "SETUP";
-	case ECONN_CANCEL:    return "CANCEL";
-	case ECONN_UPDATE:    return "UPDATE";
-	case ECONN_HANGUP:    return "HANGUP";
-	case ECONN_PROPSYNC:  return "PROPSYNC";
-	default:              return "???";
+	case ECONN_SETUP:		return "SETUP";
+	case ECONN_CANCEL:		return "CANCEL";
+	case ECONN_UPDATE:		return "UPDATE";
+	case ECONN_HANGUP:		return "HANGUP";
+	case ECONN_PROPSYNC:		return "PROPSYNC";
+	case ECONN_GROUP_START:		return "GROUPSTART";
+	case ECONN_GROUP_LEAVE:		return "GROUPLEAVE";
+	case ECONN_GROUP_CHECK:		return "GROUPCHECK";
+	case ECONN_GROUP_SETUP:		return "GROUPSETUP";
+	default:            return "???";
 	}
 }
 
@@ -54,7 +58,7 @@ const char *econn_state_name(enum econn_state st)
 	case ECONN_TERMINATING:          return "Terminating";
 	case ECONN_UPDATE_RECV:          return "UpdateRecv";
 	case ECONN_UPDATE_SENT:          return "UpdateSent";
-            
+
 	default: return "???";
 	}
 }

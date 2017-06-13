@@ -70,7 +70,9 @@ bool ecall_stats_prepare(struct ecall *ecall, struct json_object *jobj,
 			       json_object_new_string(avs_version_str()));
 	json_object_object_add(jobj, "protocol-version",
 			       json_object_new_string(econn_proto_version));
-
+	bool is_group = ecall_get_conf_part(ecall) ? true : false;
+	json_object_object_add(jobj, "group", json_object_new_boolean(is_group));
+    
 	err = jzon_add_int(jobj, "estab_time(ms)", ecall->call_estab_time);
 	if (err)
 		return false;

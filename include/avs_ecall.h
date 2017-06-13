@@ -21,27 +21,19 @@ struct ecall;
 
 
 typedef int  (ecall_transp_send_h)(const char *userid_sender,
-				   const char *msg, void *arg);
+				   struct econn_message *msg, void *arg);
 
 
 /**
  * Incoming call, may be called multiple times
  */
-typedef void (ecall_conn_h)(const char *userid_sender,
+typedef void (ecall_conn_h)(uint32_t msg_time, const char *userid_sender,
 			    bool video_call, void *arg);
 
 
 /** Call has been aswered
  */
 typedef void (ecall_answer_h)(void *arg);
-
-
-/**
- * Missed call, may be called multiple times
- */
-typedef void (ecall_missed_h)(uint32_t msg_time, const char *userid_sender,
-			      bool video_call, void *arg);
-
 
 /**
  * Want to start media, called once.
@@ -51,12 +43,12 @@ typedef void (ecall_media_start_h)(void *arg);
 /**
  * Call/media established, called after every UPDATE.
  */
-typedef void (ecall_media_estab_h)(void *arg, bool update);
+typedef void (ecall_media_estab_h)(struct ecall *ecall, bool update, void *arg);
 
 /**
  * Call/audio established, called after every UPDATE.
  */
-typedef void (ecall_audio_estab_h)(void *arg, bool update);
+typedef void (ecall_audio_estab_h)(struct ecall *ecall, bool update, void *arg);
 
 /**
  * The Data-Channel was established, called after every UPDATE.
@@ -72,11 +64,11 @@ typedef void (ecall_propsync_h)(void *arg);
 /**
  * The call was terminated, called once.
  */
-typedef void (ecall_close_h)(int err, const char *metrics_json, void *arg);
+typedef void (ecall_close_h)(int err, const char *metrics_json, struct ecall *ecall,
+	uint32_t msg_time, void *arg);
 
 struct ecall_conf {
 	struct econn_conf econf;
-	enum mediaflow_nat nat;
 	int trace;
 };
 
@@ -88,7 +80,6 @@ int  ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		 const char *clientid,
 		 ecall_conn_h *connh,
 		 ecall_answer_h *answerh,
-		 ecall_missed_h *missedh,
 		 ecall_media_estab_h *media_estabh,
 		 ecall_audio_estab_h *audio_estabh,
 		 ecall_datachan_estab_h *datachan_estabh,
@@ -112,8 +103,14 @@ void ecall_msg_recv(struct ecall *ecall,
 		    const char *clientid_sender,
 		    struct econn_message *msg);
 void ecall_end(struct ecall *ecall);
+void ecall_set_peer_userid(struct ecall *ecall, const char *userid);
+void ecall_set_peer_clientid(struct ecall *ecall, const char *clientid);
+const char *ecall_get_peer_userid(const struct ecall *ecall);
+const char *ecall_get_peer_clientid(const struct ecall *ecall);
 struct ecall *ecall_find_convid(const struct list *ecalls,
 				const char *convid);
+struct ecall *ecall_find_userid(const struct list *ecalls,
+				const char *userid);
 int ecall_debug(struct re_printf *pf, const struct ecall *ecall);
 struct mediaflow *ecall_mediaflow(const struct ecall *ecall);
 struct econn *ecall_get_econn(const struct ecall *ecall);
@@ -129,37 +126,5 @@ const char *ecall_props_get_remote(struct ecall *ecall, const char *key);
 void ecall_trace(const struct ecall *ecall, bool tx, const char *fmt, ...);
 int  ecall_restart(struct ecall *ecall);
 
-/* Marshalled functions */
-struct ecall_marshal;
-
-int  ecall_marshal_alloc(struct ecall_marshal **emp);
-int  marshal_ecall_start(struct ecall_marshal *em, struct ecall *ecall);
-int  marshal_ecall_answer(struct ecall_marshal *em, struct ecall *ecall);
-int  marshal_ecall_restart(struct ecall_marshal *em, struct ecall *ecall);
-int  marshal_ecall_transp_recv(struct ecall_marshal *em,
-			       struct ecall *ecall,
-			       uint64_t curr_time,
-			       uint64_t msg_time,
-			       const char *convid,
-			       const char *userid,
-			       const char *clientid,
-			       const char *str);
-int  marshal_ecall_msg_recv(struct ecall_marshal *em,
-			    struct ecall *ecall,
-			    uint64_t curr_time,
-			    uint64_t msg_time,
-			    const char *convid,
-			    const char *userid,
-			    const char *clientid,
-			    struct econn_message *msg);
-int marshal_ecall_end(struct ecall_marshal *em, struct ecall *ecall);
-
-int  marshal_ecall_set_video_send_active(struct ecall_marshal *em,
-					 struct ecall *ecall,
-					 bool active);
-
-int marshal_ecall_media_start(struct ecall_marshal *em, struct ecall *ecall);
-int marshal_ecall_media_stop(struct ecall_marshal *em, struct ecall *ecall);
-
-
-
+struct conf_part *ecall_get_conf_part(struct ecall *ecall);
+void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp);

@@ -31,3 +31,6 @@
 [submodule "contrib/rew"]
 	path = contrib/rew
 	url = https://github.com/alfredh/rew.git
+[submodule "contrib/re"]
+	path = contrib/re
+	url = git@github.com:alfredhz/re.git

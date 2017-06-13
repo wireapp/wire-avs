@@ -441,12 +441,12 @@ static AVSMediaManager *_defaultMediaManager;
 
 - (void)setupAudioDevice
 {
-    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS);
+    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS_FROM_UI);
 }
 
 - (void)resetAudioDevice
 {
-    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_NORMAL);
+    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_NORMAL_FROM_UI);
 }
 
 - (void)startAudio

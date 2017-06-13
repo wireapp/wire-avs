@@ -41,7 +41,7 @@ int voe_get_stats(struct audec_state *ads, struct aucodec_stats *new_stats)
 {
     struct voe_stats stats;
     
-    if (!ads)
+    if (!ads || !ads->ve)
         return EINVAL;
     
     if(!stats_available(ads->ve->ch)){

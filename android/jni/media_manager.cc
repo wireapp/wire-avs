@@ -193,7 +193,14 @@ JNIEXPORT void JNICALL Java_com_waz_media_manager_MediaManager_registerMedia
 
     debug("mediamgr_registerMedia = %s \n", media_name);
     
-    mediamgr_register_media(jmm->mm, media_name, (void*)refobj, mixing, incall, intensity, 0, false);
+    int priority = 0;
+    if(strlen(media_name) >= strlen("ringing")){
+        if( strncmp(media_name, "ringing", strlen("ringing")) == 0){
+            priority = 1;
+        }
+    }
+    
+    mediamgr_register_media(jmm->mm, media_name, (void*)refobj, mixing, incall, intensity, priority, false);
     if (media_name) {
         env->ReleaseStringUTFChars(jmedia_name, media_name);
     }

@@ -90,15 +90,11 @@ static void call_config_resp_handler(int status, struct rr_resp *rr,
 		}
 	}
 
-	config->early_dtls = false;
-	jzon_bool(&config->early_dtls, jobj, "early_dtls");
-
 	/* Features config */
 	{
 		struct json_object *jfeat;
 
 		config->features.ver_one_to_one = 2.0;
-		config->features.ver_multiparty = 2.0;		
 		
 		err = jzon_object(&jfeat, jobj, "features");
 		if (err) {
@@ -116,21 +112,10 @@ static void call_config_resp_handler(int status, struct rr_resp *rr,
 				warning("config: protocol_version_1to1 "
 					"failed %m\n", err);
 			}
-			val = jzon_str(jfeat, "protocol_version_group");
-			if (val) {
-				config->features.ver_multiparty =
-					strtod(val, NULL);
-			}
-			else {
-				warning("config: protocol_version_group "
-					"failed %m\n", err);
-			}
-			
 		}
 
-		info("flowmgr: config: protocol_1to1: %f protocol_group: %f\n",
-		     (float)config->features.ver_one_to_one,
-		     (float)config->features.ver_multiparty);
+		info("flowmgr: config: protocol_1to1: %f\n",
+		     (float)config->features.ver_one_to_one);
 	}
  out:
         fm->config.rr = NULL;
@@ -178,6 +163,10 @@ static int do_request(struct flowmgr *fm)
 	}
 
  out:
+	if (err) {
+		warning("flowmgr: call_config request error (%m)\n", err);
+		tmr_start(&fm->config.tmr, 60 * 1000, tmr_handler, fm);
+	}
 	return err;
 }
 

@@ -119,7 +119,6 @@ static void aes_destructor(void *arg)
 
 
 static int enc_alloc(struct auenc_state **aesp,
-		     struct media_ctx **mctxp,
 		     const struct aucodec *ac, const char *fmtp,
 		     struct aucodec_param *prm,
 		     auenc_rtp_h *rtph,
@@ -130,7 +129,7 @@ static int enc_alloc(struct auenc_state **aesp,
 	struct auenc_state *aes;
 	int err = 0;
 
-	if (!aesp || !ac || !mctxp) {
+	if (!aesp || !ac) {
 		return EINVAL;
 	}
 
@@ -159,9 +158,10 @@ static int enc_alloc(struct auenc_state **aesp,
 }
 
 
-static int audummy_start(struct auenc_state *aes)
+static int audummy_start(struct auenc_state *aes,
+		     struct media_ctx **mctxp)
 {
-	if (!aes)
+	if (!aes || !mctxp)
 		return EINVAL;
 
 	if(audummy.force_error)
@@ -192,7 +192,6 @@ static void ads_destructor(void *arg)
 
 
 static int dec_alloc(struct audec_state **adsp,
-		     struct media_ctx **mctxp,
 		     const struct aucodec *ac,
 		     const char *fmtp,
 		     struct aucodec_param *prm,
@@ -202,7 +201,7 @@ static int dec_alloc(struct audec_state **adsp,
 	struct audec_state *ads;
 	int err = 0;
 
-	if (!adsp || !ac || !mctxp)
+	if (!adsp || !ac)
 		return EINVAL;
 
 	info("audummy: dec_alloc: allocating codec:%s(%d)\n", ac->name, prm->pt);

@@ -589,7 +589,7 @@ int voe_init(struct list *aucodecl)
     
 	gvoe.cbr_enabled = false;
     
-	gvoe.adm = NULL;
+	gvoe.aio = NULL;
     
 	gvoe.state.chgh = NULL;
 	gvoe.state.arg = NULL;
@@ -601,7 +601,7 @@ int voe_init(struct list *aucodecl)
 #elif defined(ANDROID)
 	voe_set_file_path("/data/local/tmp");
 #else
-	gvoe.path_to_files = NULL;
+	voe_set_file_path("");
 #endif
     
 	str_dup(&gvoe.playout_device, "uninitialized");
@@ -616,14 +616,17 @@ int voe_init(struct list *aucodecl)
 	return err;
 }
 
-void voe_register_adm(void* adm)
+void voe_register_adm(struct audio_io *aio)
 {
-	gvoe.adm = (webrtc::AudioDeviceModule*)adm;
+	if(gvoe.aio){
+		error("voe: cant register adm allready registered \n");
+	}
+	gvoe.aio = aio;
 }
 
 void voe_deregister_adm()
 {
-	gvoe.adm = NULL;
+	gvoe.aio = NULL;
 }
 
 void voe_enable_cbr(bool enabled)
@@ -761,18 +764,20 @@ int voe_debug(struct re_printf *pf, void *unused)
 	err |= re_hprintf(pf, " encoders (%u):\n", list_count(&gvoe.encl));
 	for (le = gvoe.encl.head; le; le = le->next) {
 		struct auenc_state *aes = (struct auenc_state *)le->data;
-
-		err |= re_hprintf(pf, " ...%s channel=%d\n",
+		if(aes->ve){
+			err |= re_hprintf(pf, " ...%s channel=%d\n",
 				  aes->ac->name, aes->ve->ch);
+		}
 	}
 	err |= re_hprintf(pf, "\n");
 
 	err |= re_hprintf(pf, " decoders (%u):\n", list_count(&gvoe.decl));
 	for (le = gvoe.decl.head; le; le = le->next) {
 		struct audec_state *ads = (struct audec_state *)le->data;
-
-		err |= re_hprintf(pf, " ...%s channel=%d\n",
+		if(ads->ve){
+			err |= re_hprintf(pf, " ...%s channel=%d\n",
 				  ads->ac->name, ads->ve->ch);
+		}
 	}
 	err |= re_hprintf(pf, "\n");
 

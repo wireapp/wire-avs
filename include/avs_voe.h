@@ -25,6 +25,7 @@ extern "C" {
       
 #include "avs_flowmgr.h"
 #include "avs_audio_effect.h"
+#include "avs_audio_io.h"
     
 /*
  * VoE -- Voice Engine
@@ -124,7 +125,7 @@ void voe_stop_recording_playout_PCM_file(void);
 int voe_set_bitrate(int rate_bps);
 int voe_set_packet_size(int packet_size_ms);
 
-void voe_register_adm(void* adm);
+void voe_register_adm(struct audio_io *aio);
 void voe_deregister_adm(void);
     
 void voe_enable_cbr(bool enabled);
@@ -143,7 +144,7 @@ void voe_set_audio_state_handler(
 );
 
 void voe_set_file_path(const char pathUTF8[1024]);
-    
+
 #ifdef __cplusplus
 }
 #endif

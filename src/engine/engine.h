@@ -51,6 +51,7 @@ struct engine {
 	 */
 	enum engine_state state;
 	bool need_sync;           /* ... once we reach active  */
+	bool clear_cookies;       /* ... once we logged in */
 	struct list modulel;
 
 	/* Configuration

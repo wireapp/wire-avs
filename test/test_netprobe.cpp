@@ -22,6 +22,10 @@
 #include "ztest.h"
 
 
+#define INTERVAL_MS    1
+#define NUM_PACKETS    2
+
+
 class Netprobe : public ::testing::Test {
 
 public:
@@ -62,11 +66,10 @@ protected:
 
 TEST_F(Netprobe, udp)
 {
-#define NUM_PACKETS 10
 	int err;
 
 	err = netprobe_alloc(&np, &srv.addr, IPPROTO_UDP, false,
-			     "", "", NUM_PACKETS, 20,
+			     "", "", NUM_PACKETS, INTERVAL_MS,
 			     netprobe_handler, this);
 	ASSERT_EQ(0, err);
 
@@ -82,11 +85,10 @@ TEST_F(Netprobe, udp)
 
 TEST_F(Netprobe, tcp)
 {
-#define NUM_PACKETS 10
 	int err;
 
 	err = netprobe_alloc(&np, &srv.addr_tcp, IPPROTO_TCP, false,
-			     "", "", NUM_PACKETS, 20,
+			     "", "", NUM_PACKETS, INTERVAL_MS,
 			     netprobe_handler, this);
 	ASSERT_EQ(0, err);
 
@@ -102,11 +104,10 @@ TEST_F(Netprobe, tcp)
 
 TEST_F(Netprobe, tls)
 {
-#define NUM_PACKETS 10
 	int err;
 
 	err = netprobe_alloc(&np, &srv.addr_tls, IPPROTO_TCP, true,
-			     "", "", NUM_PACKETS, 20,
+			     "", "", NUM_PACKETS, INTERVAL_MS,
 			     netprobe_handler, this);
 	ASSERT_EQ(0, err);
 

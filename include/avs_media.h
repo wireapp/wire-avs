@@ -38,10 +38,6 @@ enum media_pt {
 	MEDIA_PT_VIDEO_END   = 110,
 };
 
-enum mediaflow_nat {
-	MEDIAFLOW_TRICKLEICE_DUALSTACK,
-};
-
 enum media_crypto {
 	CRYPTO_NONE      = 0,
 	CRYPTO_DTLS_SRTP = 1<<0,
@@ -81,8 +77,6 @@ struct mediaflow_stats {
 };
 
 
-typedef void (mediaflow_localcand_h)(const struct zapi_candidate *candv,
-				     size_t candc, void *arg);
 typedef void (mediaflow_estab_h)(const char *crypto, const char *codec,
 				 const char *type, const struct sa *sa,
 				 void *arg);
@@ -101,9 +95,7 @@ typedef void (mediaflow_data_channel_h)(int chid,
 int mediaflow_alloc(struct mediaflow **mfp, struct tls *dtls,
 		    const struct list *aucodecl,
 		    const struct sa *laddr,
-		    enum mediaflow_nat nat,
 		    enum media_crypto cryptos,
-		    mediaflow_localcand_h *lcandh,
 		    mediaflow_estab_h *estabh,
 		    mediaflow_close_h *closeh,
 		    void *arg);
@@ -167,7 +159,6 @@ void mediaflow_set_rtpstate_handler(struct mediaflow *mf,
 				      mediaflow_rtp_state_h *rtpstateh);
 const char *mediaflow_peer_software(const struct mediaflow *mf);
 
-void mediaflow_rtp_start_send(struct mediaflow *mf);
 bool mediaflow_has_video(const struct mediaflow *mf);
 bool mediaflow_is_sending_video(struct mediaflow *mf);
 int  mediaflow_video_debug(struct re_printf *pf, const struct mediaflow *mf);
@@ -194,8 +185,6 @@ bool mediaflow_ice_ready(const struct mediaflow *mf);
 bool mediaflow_is_rtpstarted(const struct mediaflow *mf);
 int  mediaflow_cryptos_print(struct re_printf *pf, enum media_crypto cryptos);
 const char *mediaflow_setup_name(enum media_setup setup);
-const char *mediaflow_nat_name(enum mediaflow_nat nat);
-enum mediaflow_nat mediaflow_nat_resolve(const char *name);
 
 
 const struct rtp_stats* mediaflow_rcv_audio_rtp_stats(const struct mediaflow *mf);
@@ -219,5 +208,6 @@ bool mediaflow_dtls_peer_isset(const struct mediaflow *mf);
 
 struct dce *mediaflow_get_dce(const struct mediaflow *mf);
 
+uint32_t mediaflow_candc(const struct mediaflow *mf, bool local,
+			 enum ice_cand_type typ);
 bool mediaflow_get_audio_cbr(const struct mediaflow *mf);
-

@@ -30,7 +30,7 @@
 
 #include <AudioUnit/AudioUnit.h>
 
-#include "webrtc/modules/audio_device/include/audio_device.h"
+#include "../audio_io_class.h"
 #include <pthread.h>
 
 #define FRAME_LEN_MS 10
@@ -49,8 +49,10 @@
 
 #define REC_BUFFERS                     20
 
+
+
 namespace webrtc {
-    class audio_io_ios : public AudioDeviceModule {
+    class audio_io_ios : public audio_io_class {
     public:
         audio_io_ios();
         ~audio_io_ios();
@@ -61,20 +63,26 @@ namespace webrtc {
         }
         int32_t RegisterAudioCallback(AudioTransport* audioCallback);
         int32_t Init();
+        int32_t InitInternal();
         int32_t InitSpeaker() { return 0; }
         int32_t SetPlayoutDevice(uint16_t index) { return -1; }
         int32_t SetPlayoutDevice(WindowsDeviceType device) { return -1; }
         int32_t SetStereoPlayout(bool enable);
         int32_t StopPlayout();
+        int32_t StopPlayoutInternal();
         int32_t InitMicrophone() { return 0; }
         int32_t SetRecordingDevice(uint16_t index) { return -1; }
         int32_t SetRecordingDevice(WindowsDeviceType device) { return -1; }
         int32_t SetStereoRecording(bool enable) { return 0; }
         int32_t SetAGC(bool enable) { return -1; }
         int32_t StopRecording();
+        int32_t StopRecordingInternal();
         int64_t TimeUntilNextProcess() { return 0; }
         void Process() { return; }
         int32_t Terminate();
+        int32_t TerminateInternal();
+        
+        int32_t EnableSine() { return -1; }
         
         int32_t ActiveAudioLayer(AudioLayer* audioLayer) const { return -1; }
         ErrorCode LastError() const { return kAdmErrNone; }
@@ -90,14 +98,16 @@ namespace webrtc {
             return -1;
         }
         int32_t PlayoutIsAvailable(bool* available) { return 0; }
-        int32_t InitPlayout();
+        int32_t InitPlayout() { return 0; };
         bool PlayoutIsInitialized() const;
         int32_t RecordingIsAvailable(bool* available) { return 0; }
-        int32_t InitRecording();
+        int32_t InitRecording() { return 0; };
         bool RecordingIsInitialized() const;
         int32_t StartPlayout();
+        int32_t StartPlayoutInternal();
         bool Playing() const;
         int32_t StartRecording();
+        int32_t StartRecordingInternal();
         bool Recording() const;
         bool AGC() const { return true; }
         int32_t SetWaveOutVolume(uint16_t volumeLeft,
@@ -173,6 +183,7 @@ namespace webrtc {
         }
         int32_t PlayoutSampleRate(uint32_t* samplesPerSec) const { return 0; }
         int32_t ResetAudioDevice();
+        int32_t ResetAudioDeviceInternal();
         int32_t SetLoudspeakerStatus(bool enable) { return 0; }
         int32_t GetLoudspeakerStatus(bool* enabled) const { return 0; }
         bool BuiltInAECIsAvailable() const;
@@ -202,6 +213,8 @@ namespace webrtc {
         
         OSStatus play_process_impl(uint32_t inNumberFrames, AudioBufferList* ioData);
         
+        int32_t RegisterCommandHandler(audio_io_command_h *cmdh, void *arg);
+        int32_t HandleCommand(enum audio_io_command cmd);
     private:
         int32_t init_play_or_record();
         int32_t shutdown_play_or_record();
@@ -269,5 +282,8 @@ namespace webrtc {
         
         bool want_stereo_playout_;
         bool using_stereo_playout_;
+        
+        audio_io_command_h *cmdh_;
+        void *arg_;
     };
 }

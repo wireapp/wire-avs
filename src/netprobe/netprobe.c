@@ -176,7 +176,7 @@ static void tmr_handler(void *arg)
 		send_one(np, np->seq_ctr++);
 	}
 	else {
-		tmr_start(&np->tmr_tx, 100, tmr_completed_handler, np);
+		tmr_start(&np->tmr_tx, 50, tmr_completed_handler, np);
 	}
 }
 

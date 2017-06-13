@@ -59,14 +59,14 @@ public:
 		ASSERT_EQ(0, err);
 
 		err = mediaflow_alloc(&mf, dtls, &aucodecl, &laddr,
-				      MEDIAFLOW_TRICKLEICE_DUALSTACK,
 				      CRYPTO_DTLS_SRTP,
-				      mediaflow_localcand_handler,
 				      mediaflow_estab_handler,
 				      mediaflow_close_handler,
 				      this);
 		ASSERT_EQ(0, err);
 		ASSERT_TRUE(mf != NULL);
+
+		mediaflow_set_gather_handler(mf, mediaflow_gather_handler);
 	}
 
 	virtual void TearDown() override
@@ -77,47 +77,13 @@ public:
 		vidcodec_unregister(&dummy_vp8);
 	}
 
-	static void mediaflow_localcand_handler(
-					const struct zapi_candidate *candv,
-					size_t candc, void *arg)
+	static void mediaflow_gather_handler(void *arg)
 	{
 		TestMedia *tm = static_cast<TestMedia *>(arg);
-		ASSERT_TRUE(tm->candc < ARRAY_SIZE(tm->candv));
 
-		for (size_t i=0; i<candc; i++) {
-			struct ice_cand_attr *cand = &tm->candv[tm->candc];
-			const struct zapi_candidate *zcand = &candv[i];
-			int err;
+		++tm->n_gather;
 
-			if (0 == str_casecmp(zcand->sdp,
-					     "a=end-of-candidates")) {
-				++tm->n_local_eoc;
-				continue;
-			}
-
-			tm->candc++;
-
-			err = ice_cand_attr_decode(cand, zcand->sdp);
-			ASSERT_EQ(0, err);
-
-			ASSERT_STREQ("audio", zcand->mid);
-			ASSERT_EQ(0, zcand->mline_index);
-
-			/* verify that SRFLX and RELAY candidates contain
-			   the related address */
-			switch (cand->type) {
-
-			case ICE_CAND_TYPE_SRFLX:
-			case ICE_CAND_TYPE_RELAY:
-				ASSERT_TRUE(sa_isset(&cand->rel_addr, SA_ALL));
-				break;
-			default:
-				break;
-			}
-		}
-
-		if (tm->candc >= tm->candc_expected)
-			re_cancel();
+		re_cancel();
 	}
 
 	static void mediaflow_estab_handler(const char *crypto,
@@ -142,14 +108,12 @@ protected:
 	struct list aucodecl = LIST_INIT;
 	struct list vidcodecl = LIST_INIT;
 
-	struct ice_cand_attr candv[32];
-	size_t candc = 0;
 	size_t candc_expected = 0;
 
 	/* count how many times the callback handlers are called */
 	unsigned n_estab = 0;
 	unsigned n_close = 0;
-	unsigned n_local_eoc = 0;
+	unsigned n_gather = 0;
 };
 
 
@@ -167,10 +131,9 @@ TEST_F(TestMedia, alloc_and_not_ready)
 
 TEST_F(TestMedia, init)
 {
-	ASSERT_EQ(0, candc);
+	ASSERT_EQ(0, n_gather);
 	ASSERT_EQ(0, n_estab);
 	ASSERT_EQ(0, n_close);
-	ASSERT_EQ(0, n_local_eoc);
 }
 
 
@@ -182,10 +145,9 @@ TEST_F(TestMedia, sdp_offer_with_no_codecs)
 	err = mediaflow_generate_offer(mf, sdp, sizeof(sdp));
 	ASSERT_EQ(0, err);
 
-	ASSERT_EQ(0, candc);
+	ASSERT_EQ(0, n_gather);
 	ASSERT_EQ(0, n_estab);
 	ASSERT_EQ(0, n_close);
-	ASSERT_EQ(0, n_local_eoc);
 
 	/* simple verification of SDP offer */
 	ASSERT_TRUE(strstr(sdp, "c=IN IP4 127.0.0.1"));
@@ -230,14 +192,7 @@ TEST_F(TestMedia, gather_stun)
 
 	/* verify results after traffic is complete */
 	ASSERT_TRUE(srv.nrecv > 0);
-	ASSERT_EQ(1, candc);
-	ASSERT_EQ(1, n_local_eoc);
-
-	ASSERT_TRUE(str_isset(candv[0].foundation));
-	ASSERT_EQ(1, candv[0].compid);
-	ASSERT_EQ(IPPROTO_UDP, candv[0].proto);
-	ASSERT_TRUE(0 != candv[0].prio);
-	ASSERT_EQ(ICE_CAND_TYPE_SRFLX, candv[0].type);
+	ASSERT_EQ(1, n_gather);
 }
 
 
@@ -256,21 +211,7 @@ TEST_F(TestMedia, gather_turn)
 
 	/* verify results after traffic is complete */
 	ASSERT_TRUE(srv.nrecv > 0);
-	ASSERT_EQ(2, candc);
-	ASSERT_EQ(1, n_local_eoc);
-
-	ASSERT_TRUE(str_isset(candv[0].foundation));
-	ASSERT_EQ(1, candv[0].compid);
-	ASSERT_EQ(IPPROTO_UDP, candv[0].proto);
-	ASSERT_TRUE(0 != candv[0].prio);
-	ASSERT_EQ(ICE_CAND_TYPE_SRFLX, candv[0].type);
-
-	ASSERT_TRUE(str_isset(candv[1].foundation));
-	ASSERT_EQ(1, candv[1].compid);
-	ASSERT_EQ(IPPROTO_UDP, candv[1].proto);
-	ASSERT_TRUE(0 != candv[1].prio);
-	ASSERT_TRUE(sa_isset(&candv[1].addr, SA_ALL));
-	ASSERT_EQ(ICE_CAND_TYPE_RELAY, candv[1].type);
+	ASSERT_EQ(1, n_gather);
 }
 
 
@@ -550,6 +491,7 @@ TEST_F(TestMedia, verify_sha256_fingerprint_in_offer)
 }
 
 
+#if 0
 TEST_F(TestMedia, verify_end_of_candidates)
 {
 	TurnServer srv;
@@ -566,6 +508,7 @@ TEST_F(TestMedia, verify_end_of_candidates)
 	/* verify results after traffic is complete */
 	ASSERT_EQ(1, n_local_eoc);
 }
+#endif
 
 
 TEST_F(TestMedia, sdp_offer_with_audio_only)

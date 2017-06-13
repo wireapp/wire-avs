@@ -24,6 +24,11 @@
 struct msystem {
 	struct msystem_config config;
 	struct call_config *call_config;
+
+	/* Turn servers derived from calls config */
+	struct msystem_turn_server *turnv;
+	size_t turnc;
+	
 	bool inited;
 	bool started;
 	struct tls *dtls;
@@ -89,6 +94,8 @@ static void msystem_destructor(void *data)
 	msys->dtls = mem_deref(msys->dtls);
 	msys->name = mem_deref(msys->name);
 	msys->call_config = mem_deref(msys->call_config);
+	msys->turnc = 0;
+	msys->turnv = mem_deref(msys->turnv);
 	
 	dce_close();
 
@@ -410,18 +417,73 @@ bool msystem_have_datachannel(const struct msystem *msys)
 
 int msystem_set_call_config(struct msystem *msys, struct call_config *cfg)
 {
+	size_t i;
+	int err;
+
 	if (!msys || !cfg)
 		return EINVAL;
 
-	if (msys->call_config)
-		msys->call_config = mem_deref(msys->call_config);
+	msys->call_config = mem_deref(msys->call_config);	
 	msys->call_config = mem_zalloc(sizeof(*cfg), NULL);
 	if (!msys->call_config)
 		return ENOMEM;
 
 	*msys->call_config = *cfg;
 
-	return 0;
+	msys->turnc = cfg->iceserverc;
+	msys->turnv = mem_deref(msys->turnv);
+	msys->turnv = mem_zalloc(msys->turnc * sizeof(*(msys->turnv)), NULL);
+
+	for (i = 0; i < cfg->iceserverc; ++i) {
+		struct zapi_ice_server *srv = &cfg->iceserverv[i];
+		struct uri uri;
+		struct pl pl_uri;
+		
+		pl_set_str(&pl_uri, srv->url);
+		err = uri_decode(&uri, &pl_uri);
+		if (err) {
+			warning("cannot decode URI (%r)\n", &pl_uri);
+			goto out;
+		}
+
+		if (0 == pl_strcasecmp(&uri.scheme, "turn")) {
+			struct msystem_turn_server *ts = &msys->turnv[i];
+			
+			err = sa_set(&ts->srv, &uri.host, uri.port);
+			if (err)
+				goto out;
+
+			str_ncpy(ts->user, srv->username, sizeof(ts->user));
+			str_ncpy(ts->pass, srv->credential, sizeof(ts->pass));
+		}
+		else {
+			warning("msystem: get_turn_servers: unknown URI scheme"
+				" '%r'\n", &uri.scheme);
+			err = ENOTSUP;
+			goto out;
+		}
+	}
+
+ out:
+	if (err) {
+		msys->turnv = mem_deref(msys->turnv);
+		msys->turnc = 0;
+	}
+	
+	return err;
+}
+
+
+size_t msystem_get_turn_servers(struct msystem_turn_server **turnvp,
+				struct msystem *msys)
+					     
+{
+	if (!msys || !turnvp)
+		return 0;
+	else {
+		*turnvp = msys->turnv;
+		return msys->turnc;
+	}
 }
 
 
@@ -429,4 +491,31 @@ struct call_config *msystem_get_call_config(const struct msystem *msys)
 {
 	return msys ? msys->call_config : NULL;
 }
-	
+
+
+int msystem_update_conf_parts(struct list *partl)
+{
+	const struct audec_state **adsv;
+	struct le *le;
+	size_t i, adsc = list_count(partl);
+
+	adsv = mem_zalloc(sizeof(*adsv) * adsc, NULL);
+	if (!adsv)
+		return ENOMEM;
+
+	/* convert the participant list to a vector */
+	for (le = list_head(partl), i = 0; le; le = le->next, ++i) {
+		struct conf_part *part = le->data;
+		struct mediaflow *mf = part->data;
+		struct audec_state *ads = mediaflow_decoder(mf);
+
+		adsv[i] = ads;
+	}
+
+	voe_update_conf_parts(adsv, adsc);
+
+	mem_deref(adsv);
+
+	return 0;
+}
+

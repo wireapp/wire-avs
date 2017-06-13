@@ -284,11 +284,8 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 {
 	struct sa laddr;
 	struct agent *ag;
-	enum mediaflow_nat nat;
 	bool host_cand = (mode != TRICKLE_TURN_ONLY);
 	int err;
-
-	nat = MEDIAFLOW_TRICKLEICE_DUALSTACK;
 
 	ag = (struct agent *)mem_zalloc(sizeof(*ag), destructor);
 	ASSERT_TRUE(ag != NULL);
@@ -305,8 +302,8 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 	ASSERT_EQ(0, err);
 
 	err = mediaflow_alloc(&ag->mf, ag->dtls, &test->aucodecl, &laddr,
-			      nat, CRYPTO_DTLS_SRTP,
-			      NULL, /*mediaflow_localcand_handler,*/
+			      CRYPTO_DTLS_SRTP,
+
 			      mediaflow_estab_handler,
 			      mediaflow_close_handler,
 			      ag);

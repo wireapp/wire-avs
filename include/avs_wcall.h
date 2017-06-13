@@ -29,6 +29,17 @@ struct wcall;
 #define WCALL_VERSION_2 2
 #define WCALL_VERSION_3 3
 
+struct wcall_member {
+	char *userid;
+	int audio_estab;
+};
+
+struct wcall_members {
+	struct wcall_member *membv;
+	size_t membc;
+};
+	
+	
 /* This will be called when the calling system is ready for calling.
  * The version parameter specifies the config obtained version to use for
  * calling.
@@ -42,8 +53,9 @@ typedef int (wcall_send_h)(void *ctx, const char *convid, const char *userid,
 			   void *arg);
 
 /* Incoming call */
-typedef void (wcall_incoming_h)(const char *convid,
+typedef void (wcall_incoming_h)(const char *convid, uint32_t msg_time,
 				const char *userid, int video_call /*bool*/,
+				int should_ring /*bool*/,
 				void *arg);
 
 /* Missed Incoming call */
@@ -64,6 +76,17 @@ typedef void (wcall_answered_h)(const char *convid, void *arg);
 typedef void (wcall_estab_h)(const char *convid,
 			   const char *userid, void *arg);
 
+/** 
+ * Callback used to inform the user that the participant list
+ * in a group call has changed. Use the wcall_get_members to get the list.
+ * When done processing the list be sure to call wcall_free_members.
+ *
+ * @param convid   Conversation id on which participant list has changed
+ * @param arg      User context passed to wcall_set_group_changed_handler
+ */
+
+typedef void (wcall_group_changed_h)(const char *convid, void *arg);
+
 
 #define WCALL_REASON_NORMAL             0
 #define WCALL_REASON_ERROR              1
@@ -72,12 +95,16 @@ typedef void (wcall_estab_h)(const char *convid,
 #define WCALL_REASON_CANCELED           4
 #define WCALL_REASON_ANSWERED_ELSEWHERE 5
 #define WCALL_REASON_IO_ERROR           6
+#define WCALL_REASON_STILL_ONGOING      7
     
 /* Call terminated */
-typedef void (wcall_close_h)(int reason, const char *convid,
-			   const char *userid, const char *metrics_json,
-			     void *arg);
+typedef void (wcall_close_h)(int reason, const char *convid, uint32_t msg_time,
+			   const char *userid, void *arg);
 
+/* Call metrics */
+typedef void (wcall_metrics_h)(const char *convid,
+    const char *metrics_json, void *arg);
+    
 /* Video receive state */
 #define	WCALL_VIDEO_RECEIVE_STOPPED  0
 #define	WCALL_VIDEO_RECEIVE_STARTED  1
@@ -106,32 +133,25 @@ int wcall_init(const char *userid,
 	       wcall_answered_h *answerh,
 	       wcall_estab_h *estabh,
 	       wcall_close_h *closeh,
+	       wcall_metrics_h *metricsh,
 	       void *arg);
 
 void wcall_close(void);
 	
 
-/* nat is of type enum mediaflow_nat
- */
-void wcall_set_nat(int nat);
-
 void wcall_set_trace(int trace);
 
-
-struct zapi_ice_server;
-/* optional, if not called, it will be populated internally
- * from /calls/config
- */
-int wcall_set_ice_servers(struct zapi_ice_server *srv,
-			  size_t srvc);
 
 /* Returns 0 if successfull
  * Set is_video_call to 0 for false, non-0 for true
  */
-int wcall_start(const char *convid, int is_video_call /*bool*/);
+int wcall_start(const char *convid,
+		int is_video_call /*bool*/,
+		int group /*bool*/);
 
 /* Returns 0 if successfull */
-int wcall_answer(const char *convid);
+int wcall_answer(const char *convid,
+		 int group /*bool*/);
 
 /* Async response from send handler.
  * The ctx parameter MUST be the same context provided in the
@@ -144,7 +164,7 @@ void wcall_resp(int status, const char *reason, void *ctx);
  * curr_time is the timestamp (synced as close as possible)
  * to the backend time when this function is called.
  */
-void wcall_recv_msg(const uint8_t *msg, size_t len,
+void wcall_recv_msg(const uint8_t *buf, size_t len,
 		    uint32_t curr_time, /* timestamp in seconds */
 		    uint32_t msg_time,  /* timestamp in seconds */
 		    const char *convid,
@@ -154,10 +174,11 @@ void wcall_recv_msg(const uint8_t *msg, size_t len,
 /* End the call in the conversation associated to
  * the conversation id in the convid parameter.
  */
-void wcall_end(const char *convid);
+void wcall_end(const char *convid,
+	       int group /*bool*/);
 
 /* Reject a call */
-int wcall_reject(const char *convid);
+int wcall_reject(const char *convid, int group /* bool */);
 
 int wcall_is_video_call(const char *convid /*bool*/);
 
@@ -168,9 +189,11 @@ void wcall_set_video_state_handler(wcall_video_state_change_h *vstateh);
 void wcall_set_video_send_active(const char *convid, int active /*bool*/);
 
 void wcall_network_changed(void);
-	
+
+void wcall_set_group_changed_handler(wcall_group_changed_h *chgh,
+				     void *arg);
 void wcall_set_audio_cbr_enabled_handler(wcall_audio_cbr_enabled_h *acbrh);
-    
+
 struct re_printf;
 int  wcall_debug(struct re_printf *pf, void *ignored);
 
@@ -210,6 +233,18 @@ void wcall_propsync_request(const char *convid);
 
 void wcall_enable_audio_cbr(int enabled);
 
+/**
+ * Returns the members of a group conversation.
+ *
+ * Make sure to always call wcall_free_members after done with the
+ * returned members.
+ *
+ * @param convid  conversation id for which to return members for
+ *
+ */
+struct wcall_members *wcall_get_members(const char *convid);
+void wcall_free_members(struct wcall_members *members);
+	
 #ifdef __cplusplus
 }
 #endif

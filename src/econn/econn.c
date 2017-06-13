@@ -41,7 +41,7 @@ static void tmr_local_handler(void *arg);
 
 
 /* NOTE: Should only be triggered by async events! */
-void econn_close(struct econn *conn, int err)
+void econn_close(struct econn *conn, int err, uint32_t msg_time)
 {
 	econn_close_h *closeh;
 
@@ -75,7 +75,7 @@ void econn_close(struct econn *conn, int err)
 	 */
 	if (closeh) {
 		conn->closeh = NULL;
-		closeh(conn, err, conn->arg);
+		closeh(conn, err, msg_time, conn->arg);
 	}
 
 	/* NOTE here the app should have destroyed the econn */
@@ -348,8 +348,9 @@ static void handle_update_request(struct econn *econn,
 
 		return;
 	}
-    
+
 	switch (econn->state) {
+
 	case ECONN_ANSWERED:
 	case ECONN_DATACHAN_ESTABLISHED:
 		econn_set_state(econn, ECONN_UPDATE_RECV);
@@ -410,13 +411,12 @@ static void handle_update_response(struct econn *econn,
 {
 	/* check if the Remote ClientID is correct */
 	if (0 != str_casecmp(econn->clientid_remote, clientid_sender)) {
-		warning("econn: ignoring update responce from wrong clientid. "
+		warning("econn: ignoring update response from wrong clientid. "
 		        "expected: %s got: %s \n",
 		        econn->clientid_remote, clientid_sender);
-        
 		return;
 	}
-    
+
 	/* todo: use a proper state machine */
 	if (econn->state != ECONN_UPDATE_SENT) {
 		info("econn: recv_setup: ignore received UPDATE(r)"
@@ -493,9 +493,10 @@ static void recv_cancel(struct econn *conn, const char *clientid_sender,
 	}
 
 	econn_set_state(conn, ECONN_TERMINATING);
-
+    
 	/* NOTE: must be done last */
-	econn_close(conn, ECANCELED);
+	econn_close(conn, conn->err ? conn->err : ECANCELED,
+		msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN);
 }
 
 
@@ -526,11 +527,11 @@ static void recv_hangup(struct econn *conn, const struct econn_message *msg)
 			warning("econn: send_hangup failed (%m)\n", err);
 		}
 	}
-
+    
 	econn_set_state(conn, ECONN_TERMINATING);
 
 	/* NOTE: must be done last */
-	econn_close(conn, 0);
+	econn_close(conn, conn->err, msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN);
 }
 
 
@@ -638,7 +639,7 @@ static void tmr_local_handler(void *arg)
 	info("econn: setup timeout (state = %s)\n",
 	     econn_state_name(econn_current_state(conn)));
 
-	econn_close(conn, ETIMEDOUT);
+	econn_close(conn, conn->err ? conn->err : ETIMEDOUT, ECONN_MESSAGE_TIME_UNKNOWN);
 }
 
 
@@ -707,7 +708,7 @@ int econn_update_req(struct econn *conn, const char *sdp,
 
 	default:
 		/* Should we check the state here, before re-starting? */
-        /* SSJ think we should return -1 here */
+		/* SSJ think we should return -1 here */
 		break;
 	}
 
@@ -791,10 +792,10 @@ int econn_answer(struct econn *conn, const char *sdp,
 static void tmr_term_handler(void *arg)
 {
 	struct econn *econn = arg;
-    
+
 	debug("econn: timeout waiting for HANGUP(r)\n");
-    
-	econn_close(econn, econn->err);
+
+	econn_close(econn, ETIMEDOUT, ECONN_MESSAGE_TIME_UNKNOWN);
 }
 
 
@@ -804,7 +805,7 @@ static void tmr_cancel_handler(void *arg)
 
 	debug("econn: closing econn after sending CANCEL \n");
 
-	econn_close(econn, econn->err);
+	econn_close(econn, econn->err, ECONN_MESSAGE_TIME_UNKNOWN);
 }
 
 
@@ -1004,12 +1005,11 @@ void econn_set_datachan_established(struct econn *econn)
 	}
 }
 
+
 void econn_set_error(struct econn *econn, int err)
 {
 	if (!econn)
 		return;
-    
+
 	econn->err = err;
 }
-
-

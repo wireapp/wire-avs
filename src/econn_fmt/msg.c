@@ -66,6 +66,18 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 	if (err)
 		return err;
 
+	if (str_isset(msg->dest_userid)) {
+		err = jzon_add_str(jobj, "dest_userid", msg->dest_userid);
+		if (err)
+			goto out;
+	}
+
+	if (str_isset(msg->dest_clientid)) {
+		err = jzon_add_str(jobj, "dest_clientid", msg->dest_clientid);
+		if (err)
+			goto out;
+	}
+
 	err = jzon_add_bool(jobj, "resp", msg->resp);
 	if (err)
 		goto out;
@@ -73,6 +85,7 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 	switch (msg->msg_type) {
 
 	case ECONN_SETUP:
+	case ECONN_GROUP_SETUP:
 	case ECONN_UPDATE:
 		err = jzon_add_str(jobj, "sdp", msg->u.setup.sdp_msg);
 		if (err)
@@ -104,6 +117,11 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		err = econn_props_encode(jobj, msg->u.propsync.props);
 		if (err)
 			goto out;
+		break;
+
+	case ECONN_GROUP_START:
+	case ECONN_GROUP_LEAVE:
+	case ECONN_GROUP_CHECK:
 		break;
 
 	default:
@@ -161,7 +179,7 @@ int econn_message_decode(struct econn_message **msgp,
 {
 	struct econn_message *msg = NULL;
 	struct json_object *jobj = NULL;
-	const char *ver, *type, *sdp, *sessid;
+	const char *ver, *type, *sdp, *sessid, *userid, *clientid;
 	int err;
 
 	if (!msgp || !str)
@@ -205,13 +223,19 @@ int econn_message_decode(struct econn_message **msgp,
 	}
 	str_ncpy(msg->sessid_sender, sessid, sizeof(msg->sessid_sender));
 
+	userid = jzon_str(jobj, "dest_userid");
+	str_ncpy(msg->dest_userid, userid, sizeof(msg->dest_userid));
+
+	clientid = jzon_str(jobj, "dest_clientid");
+	str_ncpy(msg->dest_clientid, clientid, sizeof(msg->dest_clientid));
+
 	err = jzon_bool(&msg->resp, jobj, "resp");
 	if (err) {
 		warning("econn: missing 'resp' field\n");
 		goto out;
 	}
 
-	if (0 == str_casecmp(type, "setup")) {
+	if (0 == str_casecmp(type, econn_msg_name(ECONN_SETUP))) {
 
 		msg->msg_type = ECONN_SETUP;
 
@@ -230,7 +254,26 @@ int econn_message_decode(struct econn_message **msgp,
 		if (err)
 			goto out;
 	}
-	else if (0 == str_casecmp(type, "update")) {
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_GROUP_SETUP))) {
+
+		msg->msg_type = ECONN_GROUP_SETUP;
+
+		sdp = jzon_str(jobj, "sdp");
+		if (!sdp) {
+			warning("econn: missing 'sdp' field\n");
+			err = EBADMSG;
+			goto out;
+		}
+
+		err = str_dup(&msg->u.setup.sdp_msg, sdp);
+		if (err)
+			goto out;
+
+		err = econn_props_decode(&msg->u.setup.props, jobj);
+		if (err)
+			goto out;
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_UPDATE))) {
 
 		msg->msg_type = ECONN_UPDATE;
 
@@ -249,21 +292,33 @@ int econn_message_decode(struct econn_message **msgp,
 		if (err)
 			info("econn: decode UPDATE: no props\n");
 	}	
-	else if (0 == str_casecmp(type, "cancel")) {
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CANCEL))) {
 
 		msg->msg_type = ECONN_CANCEL;
 	}
-	else if (0 == str_casecmp(type, "hangup")) {
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_HANGUP))) {
 
 		msg->msg_type = ECONN_HANGUP;
 	}
-	else if (0 == str_casecmp(type, "propsync")) {
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_PROPSYNC))) {
 
 		msg->msg_type = ECONN_PROPSYNC;
 
 		err = econn_props_decode(&msg->u.propsync.props, jobj);
 		if (err)
 			goto out;
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_GROUP_START))) {
+
+		msg->msg_type = ECONN_GROUP_START;
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_GROUP_LEAVE))) {
+
+		msg->msg_type = ECONN_GROUP_LEAVE;
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_GROUP_CHECK))) {
+
+		msg->msg_type = ECONN_GROUP_CHECK;
 	}
 	else {
 		warning("econn: decode: unknown message type '%s'\n", type);

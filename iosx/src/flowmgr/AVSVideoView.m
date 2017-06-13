@@ -56,12 +56,11 @@ const char fragShader[] = {
 	"  y=texture2D(Ytex,vec2(nx,ny)).r;\n"
 	"  u=texture2D(Utex,vec2(nx,ny)).r;\n"
 	"  v=texture2D(Vtex,vec2(nx,ny)).r;\n"
-	"  y=1.1643*(y-0.0625);\n"
 	"  u=u-0.5;\n"
 	"  v=v-0.5;\n"
-	"  r=y+1.5958*v;\n"
-	"  g=y-0.39173*u-0.81290*v;\n"
-	"  b=y+2.017*u;\n"
+	"  r=y+1.403*v;\n"
+	"  g=y-0.344*u-0.714*v;\n"
+	"  b=y+1.770*u;\n"
 	"  gl_FragColor=vec4(r,g,b,1.0);\n"
 	"}\n"};
 
@@ -86,6 +85,7 @@ const char indices[] = {0, 1, 2, 3};
 	NSLock *_lock;
 	CADisplayLink* _displayLink;
 	BOOL _newFrame;
+	BOOL _firstFrame;
 }
 
 
@@ -163,6 +163,7 @@ const char indices[] = {0, 1, 2, 3};
 		[CADisplayLink displayLinkWithTarget:self selector:@selector(render:)];
 	[_displayLink addToRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
 	_running = YES;
+	_firstFrame = NO;
 }
 
 - (void)stopRunning
@@ -376,8 +377,14 @@ const char indices[] = {0, 1, 2, 3};
 - (BOOL) handleFrame:(struct avs_vidframe*) frame
 {
 	BOOL sizeChanged = NO;
-	
+
 	[_lock lock];
+	if (_firstFrame) {
+		info("handleFrame firstFrame run: %s bg: %s sz: %dx%d\n", _running ? "yes" : "no",
+			_backgrounded ? "yes" : "no", frame->w, frame->h);
+		_firstFrame = NO;
+	}
+
 	[EAGLContext setCurrentContext:_context];
 	if (!_running || _backgrounded) {
 		goto out;
@@ -479,6 +486,7 @@ out:
 		
 		self.autoresizingMask =
 			UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+		_firstFrame = YES;
 		[_lock unlock];
 
 #if TARGET_OS_IPHONE

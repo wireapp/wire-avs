@@ -46,7 +46,6 @@ typedef int  (auenc_rtp_h)(const uint8_t *pkt, size_t len, void *arg);
 typedef int  (auenc_rtcp_h)(const uint8_t *pkt, size_t len, void *arg);
 
 typedef int  (auenc_alloc_h)(struct auenc_state **aesp,
-			     struct media_ctx **mctxp,
 			     const struct aucodec *ac, const char *fmtp,
 			     struct aucodec_param *prm,
 			     auenc_rtp_h *rtph,
@@ -54,14 +53,13 @@ typedef int  (auenc_alloc_h)(struct auenc_state **aesp,
 			     auenc_err_h *errh,
 			     void *arg);
 
-typedef int  (auenc_start_h)(struct auenc_state *aes);
+typedef int  (auenc_start_h)(struct auenc_state *aes, struct media_ctx **mctxp);
 typedef void (auenc_stop_h)(struct auenc_state *aes);
 
 typedef void (audec_err_h)(int err, const char *msg, void *arg);
 
 
 typedef int  (audec_alloc_h)(struct audec_state **adsp,
-			     struct media_ctx **mctxp,
 			     const struct aucodec *ac,
 			     const char *fmtp,
 			     struct aucodec_param *prm,
@@ -71,7 +69,7 @@ typedef int  (audec_rtp_h)(struct audec_state *ads,
 			   const uint8_t *pkt, size_t len);
 typedef int  (audec_rtcp_h)(struct audec_state *ads,
 			    const uint8_t *pkt, size_t len);
-typedef int  (audec_start_h)(struct audec_state *ads);
+typedef int  (audec_start_h)(struct audec_state *ads, struct media_ctx **mctxp);
 typedef void (audec_stop_h)(struct audec_state *ads);
 typedef int  (audec_get_stats)(struct audec_state *ads, struct aucodec_stats *stats);
 

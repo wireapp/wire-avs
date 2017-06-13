@@ -66,6 +66,7 @@ AVS_MODULES += vidcodec
 AVS_MODULES += voe
 AVS_MODULES += vie
 AVS_MODULES += wcall
+AVS_MODULES += egcall
 AVS_MODULES += audio_io
 AVS_MODULES += audio_effect
 AVS_MODULES += audummy

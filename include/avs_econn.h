@@ -28,6 +28,11 @@ enum econn_msg {
 	ECONN_HANGUP = 3,
 	ECONN_PROPSYNC = 4,
 
+	/* Group call: */
+	ECONN_GROUP_START = 5,
+	ECONN_GROUP_LEAVE = 6,
+	ECONN_GROUP_CHECK = 7,
+	ECONN_GROUP_SETUP = 8,
 };
 
 enum econn_state {
@@ -49,6 +54,8 @@ enum econn_dir {
 	ECONN_DIR_OUTGOING,
 	ECONN_DIR_INCOMING
 };
+
+#define ECONN_MESSAGE_TIME_UNKNOWN (0)
 
 /**
  * Econn Properties.
@@ -75,6 +82,8 @@ struct econn_message {
 	/* common types: */
 	enum econn_msg msg_type;
 	char sessid_sender[64];
+	char dest_userid[64];
+	char dest_clientid[64];
 	bool resp;
 
 	uint32_t time; /* in seconds */
@@ -139,7 +148,7 @@ typedef void (econn_update_resp_h)(struct econn *econn, const char *sdp,
  * Indicates that this ECONN was closed, locally or by remote peer
  * Should only be called once per ECONN.
  */
-typedef void (econn_close_h)(struct econn *econn, int err, void *arg);
+typedef void (econn_close_h)(struct econn *econn, int err, uint32_t msg_time, void *arg);
 
 
 /* transport */
@@ -187,7 +196,7 @@ int  econn_update_resp(struct econn *conn, const char *sdp,
 		       const struct econn_props *props);
 
 void econn_end(struct econn *conn);
-void econn_close(struct econn *conn, int err);
+void econn_close(struct econn *conn, int err, uint32_t msg_time);
 void econn_set_state(struct econn *conn, enum econn_state state);
 enum econn_state econn_current_state(const struct econn *conn);
 enum econn_dir econn_current_dir(const struct econn *conn);

@@ -145,11 +145,11 @@ public class FlowManager
 		      long flags ) {
       this.context = context;
       this.handler = handler;
-      this.getMediaManager().addListener(this);
                    
       sharedFm = this;
       
       attach(context, flags);
+      this.getMediaManager().addListener(this);
 
       File fileDir = context.getFilesDir();      
       setFilePath(fileDir.getAbsolutePath());

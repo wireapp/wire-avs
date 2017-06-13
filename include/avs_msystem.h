@@ -52,6 +52,18 @@ bool msystem_have_datachannel(const struct msystem *msys);
 struct call_config;
 int  msystem_set_call_config(struct msystem *msys, struct call_config *cfg);
 struct call_config *msystem_get_call_config(const struct msystem *msys);
+int msystem_update_conf_parts(struct list *partl);
+
+#define MAX_TURN_SERVERS 8
+
+struct msystem_turn_server {
+	struct sa srv;
+	char user[128];
+	char pass[128];
+};
+
+size_t msystem_get_turn_servers(struct msystem_turn_server **turnvp,
+			     struct msystem *msys);
 
 
 #endif

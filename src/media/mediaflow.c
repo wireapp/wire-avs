@@ -105,8 +105,6 @@ struct mediaflow {
 	struct aucodec_stats codec_stats;
 
 	struct tmr tmr_rtp;
-	bool external_rtp;
-	bool enable_rtcp;
 	uint32_t lssrcv[MEDIA_NUM];
 	char cname[16];             /* common for audio+video */
 	char msid[36];
@@ -122,12 +120,6 @@ struct mediaflow {
 	char sdp_rtool[64];
 
 	/* ice: */
-	enum mediaflow_nat nat;
-
-	/* union: { */
-
-	struct tmr tmr_nat;
-
 	struct trice *trice;
 	struct stun *trice_stun;
 	struct udp_helper *trice_uh;
@@ -136,9 +128,6 @@ struct mediaflow {
 	struct list turnconnl;
 	struct tmr tmr_error;
 
-	/* } */
-
-	uint64_t ice_tiebrk;
 	char ice_ufrag[16];
 	char ice_pwd[32];
 	bool ice_ready;
@@ -213,7 +202,6 @@ struct mediaflow {
 	} audio;
     
 	/* User callbacks */
-	mediaflow_localcand_h *lcandh;
 	mediaflow_estab_h *estabh;
 	mediaflow_close_h *closeh;
 	mediaflow_rtp_state_h *rtpstateh;
@@ -307,25 +295,6 @@ static void mf_log(const struct mediaflow *mf, enum log_level level,
 
 	vloglv(level, fmt, ap);
 	va_end(ap);
-}
-
-
-const char *mediaflow_nat_name(enum mediaflow_nat nat)
-{
-	switch (nat) {
-
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK: return "Trickle-Dualstack";
-	default: return "?";
-	}
-}
-
-
-enum mediaflow_nat mediaflow_nat_resolve(const char *name)
-{
-	if (0 == str_casecmp(name, "ice"))
-		return MEDIAFLOW_TRICKLEICE_DUALSTACK;
-
-	return (enum mediaflow_nat)-1;
 }
 
 
@@ -455,24 +424,17 @@ static size_t get_headroom(const struct mediaflow *mf)
 	if (!mf)
 		return 0;
 
-	switch (mf->nat) {
-
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
-		if (!mf->trice)
-			return 0;
-
-		if (!mf->sel_pair)
-			return 0;
-
-		if (mf->sel_pair->lcand->attr.type == ICE_CAND_TYPE_RELAY)
-			return 36;
-		else
-			return 0;
-		break;
-
-	default:
+	if (!mf->trice)
 		return 0;
-	}
+
+	if (!mf->sel_pair)
+		return 0;
+
+	if (mf->sel_pair->lcand->attr.type == ICE_CAND_TYPE_RELAY)
+		return 36;
+	else
+		return 0;
+
 
 	return headroom;
 }
@@ -527,16 +489,8 @@ bool mediaflow_is_ready(const struct mediaflow *mf)
 	if (!mf)
 		return false;
 
-	switch (mf->nat) {
-
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
-		if (!mf->ice_ready)
-			return false;
-		break;
-
-	default:
-		break;
-	}
+	if (!mf->ice_ready)
+		return false;
 
 	if (mf->cryptos_local == CRYPTO_NONE)
 		return true;
@@ -665,14 +619,14 @@ static int start_codecs(struct mediaflow *mf)
 	prm.srate = ac->srate;
 	prm.ch = ac->ch;
 	prm.cbr = false;
-	if(fmt->params){
-		if (0 == re_regex(fmt->params, strlen(fmt->params), "cbr=1")){
+	if (fmt->params) {
+		if (0 == re_regex(fmt->params, strlen(fmt->params), "cbr=1")) {
 			prm.cbr = true;
 		}
 	}
-    
+
 	if (ac->enc_alloc && !mf->aes) {
-		err = ac->enc_alloc(&mf->aes, &mf->mctx, ac, NULL,
+		err = ac->enc_alloc(&mf->aes, ac, NULL,
 				    &prm,
 				    voenc_rtp_handler,
 				    voenc_rtcp_handler,
@@ -684,7 +638,8 @@ static int start_codecs(struct mediaflow *mf)
 		}
 
 		if (mf->started && ac->enc_start) {
-			ac->enc_start(mf->aes);
+			error("mediaflow: unexpected start of audio encoder \n"); // SSJ does this ever happen ?
+			ac->enc_start(mf->aes, &mf->mctx);
 		}
         
 		mf->audio.cbr = prm.cbr;
@@ -693,7 +648,7 @@ static int start_codecs(struct mediaflow *mf)
 	mediastats_rtp_stats_init(&mf->audio_stats_snd, fmt->pt, 2000);
 
 	if (ac->dec_alloc && !mf->ads){
-		err = ac->dec_alloc(&mf->ads, &mf->mctx, ac, NULL,
+		err = ac->dec_alloc(&mf->ads, ac, NULL,
 				    &prm,
 				    audec_error_handler,
 				    mf);
@@ -703,7 +658,8 @@ static int start_codecs(struct mediaflow *mf)
 		}
 
 		if (mf->started && ac->dec_start) {
-			ac->dec_start(mf->ads);
+			error("mediaflow: unexpected start of audio decoder \n"); // SSJ does this ever happen ?
+			ac->dec_start(mf->ads, &mf->mctx);
 		}
 	}
 	mediastats_rtp_stats_init(&mf->audio_stats_rcv, fmt->pt, 2000);
@@ -726,7 +682,8 @@ static int videnc_rtp_handler(const uint8_t *pkt, size_t len, void *arg)
 		if (vc && vc->enc_bwalloch) {
 			bwalloc = vc->enc_bwalloch(mf->video.ves);
 		}
-		mediastats_rtp_stats_update(&mf->video_stats_snd, pkt, len, bwalloc);
+		mediastats_rtp_stats_update(&mf->video_stats_snd,
+					    pkt, len, bwalloc);
 	}
 
 	return err;
@@ -825,7 +782,7 @@ static int dce_send_data_handler(uint8_t *pkt, size_t len, void *arg)
 	struct mediaflow *mf = arg;
 	struct mbuf mb;
 	int err = 0;
-	
+
 	if (!mediaflow_is_ready(mf)) {
 		warning("mediaflow: send_data(%zu bytes): not ready"
 			" [ice=%d, crypto=%d]\n",
@@ -880,7 +837,7 @@ static void dce_estab_handler(void *arg)
 
 	info("mediaflow(%p): dce established (%d ms)\n",
 	     mf, mf->mf_stats.dce_estab);
-    
+
 	mf->data.ready = true;
 }
 
@@ -1079,8 +1036,8 @@ static int send_packet(struct mediaflow *mf, size_t headroom,
 	if (!mf)
 		return EINVAL;
 
-	info("mediaflow: <%s> send_packet `%s' (%zu bytes) via %s to %J\n",
-	     mediaflow_nat_name(mf->nat),
+	info("mediaflow: send_packet `%s' (%zu bytes) via %s to %J\n",
+
 	     packet_classify_name(pkt),
 	     mbuf_get_left(mb_pkt),
 	     sock_prefix(headroom), raddr);
@@ -1096,53 +1053,43 @@ static int send_packet(struct mediaflow *mf, size_t headroom,
 	/* now invalid */
 	mb_pkt = NULL;
 
-	switch (mf->nat) {
+	if (mf->ice_ready && mf->sel_pair) {
 
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
+		struct ice_lcand *lcand = NULL;
+		void *sock;
 
-		if (mf->ice_ready && mf->sel_pair) {
+		sock = trice_lcand_sock(mf->trice, mf->sel_pair->lcand);
+		if (!sock) {
+			warning("send: selected lcand %p"
+				" has no sock [%H]\n",
+				mf->sel_pair->lcand,
+				trice_cand_print, mf->sel_pair->lcand);
+			err = ENOTCONN;
+			goto out;
+		}
 
-			struct ice_lcand *lcand = NULL;
-			void *sock;
-
-			sock = trice_lcand_sock(mf->trice, mf->sel_pair->lcand);
-			if (!sock) {
-				warning("send: selected lcand %p"
-					" has no sock [%H]\n",
-					mf->sel_pair->lcand,
-					trice_cand_print, mf->sel_pair->lcand);
-				err = ENOTCONN;
-				goto out;
-			}
-
-			if (AF_INET6 == sa_af(raddr)) {
-				lcand = trice_lcand_find2(mf->trice,
-							  ICE_CAND_TYPE_HOST,
-							  AF_INET6);
-				if (lcand) {
-					info("mediaflow: send_packet: \n",
-					     " using local IPv6 socket\n");
-					sock = lcand->us;
-				}
-			}
-
-			err = udp_send(sock, raddr, mb);
-			if (err) {
-				warning("mediaflow: send helper error"
-					" raddr=%J (%m)\n",
-					raddr, err);
+		if (AF_INET6 == sa_af(raddr)) {
+			lcand = trice_lcand_find2(mf->trice,
+						  ICE_CAND_TYPE_HOST,
+						  AF_INET6);
+			if (lcand) {
+				info("mediaflow: send_packet: \n",
+				     " using local IPv6 socket\n");
+				sock = lcand->us;
 			}
 		}
-		else {
-			warning("mediaflow: send_packet: "
-				"drop %zu bytes (ICE not ready)\n",
-				len);
-		}
-		break;
 
-	default:
-		err = ENOTSUP;
-		break;
+		err = udp_send(sock, raddr, mb);
+		if (err) {
+			warning("mediaflow: send helper error"
+				" raddr=%J (%m)\n",
+				raddr, err);
+		}
+	}
+	else {
+		warning("mediaflow: send_packet: "
+			"drop %zu bytes (ICE not ready)\n",
+			len);
 	}
 
  out:
@@ -1287,14 +1234,15 @@ static int check_data_channel(struct mediaflow *mf)
 
 	info("mediaflow: dtls_estab_handler: has_data=%d active=%d\n",
 	     has_data, mf->setup_local == SETUP_ACTIVE);
-	
+
 	if (has_data) {
 		info("mediaflow: dce: connecting.. (%p)\n",
 		     mf->data.dce);
 
 		mf->data.ts_connect = tmr_jiffies();
 
-		err = dce_connect(mf->data.dce, mf->setup_local == SETUP_ACTIVE);
+		err = dce_connect(mf->data.dce,
+				  mf->setup_local == SETUP_ACTIVE);
 		if (err) {
 			warning("mediaflow: dce_connect failed (%m)\n",
 				err);
@@ -1362,7 +1310,7 @@ static void dtls_estab_handler(void *arg)
 	}
 
 	mf->crypto_ready = true;
-	
+
 	mediaflow_established_handler(mf);
 
 	check_data_channel(mf);
@@ -1422,7 +1370,8 @@ static void dtls_conn_handler(const struct sa *unused_peer, void *arg)
 
 	/* NOTE: The DTLS peer should be set in handle_dtls_packet */
 	if (!mediaflow_dtls_peer_isset(mf)) {
-		warning("mediaflow: dtls_conn_handler: DTLS peer is not set\n");
+		warning("mediaflow: dtls_conn_handler:"
+			" DTLS peer is not set\n");
 	}
 
 	/* peer is a dummy address, must not be set/used */
@@ -1716,7 +1665,7 @@ static void handle_dtls_packet(struct mediaflow *mf, const struct sa *src,
 		return;
 	}
 
-	if (mf->nat == MEDIAFLOW_TRICKLEICE_DUALSTACK &&
+	if (
 	    !mediaflow_ice_ready(mf)) {
 
 		warning("mediaflow: ICE is not ready (%s) --"
@@ -1742,8 +1691,8 @@ static void handle_dtls_packet(struct mediaflow *mf, const struct sa *src,
 	}
 	if (!sa_cmp(src, &mf->dtls_peer.addr, SA_ALL)) {
 		info("dtls: source addr mismatch (%s|peer=%J, %s|packet=%J)\n",
-			sock_prefix(mf->dtls_peer.headroom), &mf->dtls_peer.addr,
-			sock_prefix(headroom), src);
+		     sock_prefix(mf->dtls_peer.headroom), &mf->dtls_peer.addr,
+		     sock_prefix(headroom), src);
 	}
 
 	dtls_recv_packet(mf->dtls_sock, &dummy_dtls_peer, mb);
@@ -1813,7 +1762,9 @@ static bool udp_helper_recv_handler_srtp(struct sa *src, struct mbuf *mb,
 
 			if (msg->hdr.pt == RTCP_APP) {
 
-				if (0 != memcmp(msg->r.app.name, app_label, 4)) {
+				if (0 != memcmp(msg->r.app.name,
+						app_label, 4)) {
+
 					warning("invalid app name '%b'\n",
 						msg->r.app.name, (size_t)4);
 					goto done;
@@ -1845,14 +1796,8 @@ static bool udp_helper_recv_handler_srtp(struct sa *src, struct mbuf *mb,
 		 *
 		 * otherwise just pass it up to internal RTP-stack
 		 */
-		if (mf->external_rtp) {
-			external_rtp_recv(mf, src, mb);
-			return true; /* handled */
-		}
-		else {
-			update_rx_stats(mf, mbuf_get_left(mb));
-			return false;  /* continue processing */
-		}
+		external_rtp_recv(mf, src, mb);
+		return true; /* handled */
 	}
 
 	return false;
@@ -1945,7 +1890,8 @@ static void external_rtp_recv(struct mediaflow *mf,
 				bwalloc = vc->dec_bwalloch(mf->video.vds);
 			}
 			mediastats_rtp_stats_update(&mf->video_stats_rcv,
-					 mbuf_buf(mb),mbuf_get_left(mb), bwalloc);
+					 mbuf_buf(mb),mbuf_get_left(mb),
+						    bwalloc);
 		}
 
 		goto out;
@@ -1987,7 +1933,7 @@ static int print_candidates(struct re_printf *pf, const struct mediaflow *mf)
 	if (!mf)
 		return 0;
 
-	if (mf->nat == MEDIAFLOW_TRICKLEICE_DUALSTACK) {
+	if (mf->trice) {
 		err = trice_debug(pf, mf->trice);
 	}
 
@@ -2016,8 +1962,8 @@ int mediaflow_summary(struct re_printf *pf, const struct mediaflow *mf)
 			  mf->sdp_state, mf->got_sdp, mf->sent_sdp);
 	err |= re_hprintf(pf, "     remote_tool=%s\n", mf->sdp_rtool);
 
-	err |= re_hprintf(pf, "nat: %s (ready=%d)\n",
-			  mediaflow_nat_name(mf->nat), mf->ice_ready);
+	err |= re_hprintf(pf, "nat: (ready=%d)\n",
+			  mf->ice_ready);
 	err |= re_hprintf(pf, "remote candidates:\n");
 
 	err |= print_candidates(pf, mf);
@@ -2087,7 +2033,7 @@ int mediaflow_summary(struct re_printf *pf, const struct mediaflow *mf)
 
 	err |= re_hprintf(pf, "\nvideo_media: %d\n", mf->video.has_media);
 
-	if (mf->nat == MEDIAFLOW_TRICKLEICE_DUALSTACK) {
+	if (1) {
 
 		err |= re_hprintf(pf, "TURN Clients: (%u)\n",
 				  list_count(&mf->turnconnl));
@@ -2245,7 +2191,7 @@ static void destructor(void *arg)
 
 	mf->estabh = NULL;
 	mf->closeh = NULL;
-    
+
 	if (mf->started)
 		mediaflow_stop_media(mf);
 
@@ -2259,7 +2205,6 @@ static void destructor(void *arg)
 	}
 
 	tmr_cancel(&mf->tmr_rtp);
-	tmr_cancel(&mf->tmr_nat);
 	tmr_cancel(&mf->tmr_error);
 
 	/* XXX: voe is calling to mediaflow_xxx here */
@@ -2345,7 +2290,7 @@ static void mq_callback(int id, void *data, void *arg)
 	switch (id) {
 
 	case MQ_RTP_START:
-		if(!mf->sent_rtp){
+		if (!mf->sent_rtp) {
 			mf->sent_rtp = true;
 			check_rtpstart(mf);
 		}
@@ -2382,6 +2327,60 @@ static void rtp_recv_handler(const struct sa *src,
 }
 
 
+static int init_ice(struct mediaflow *mf)
+{
+	struct trice_conf conf = {
+		.debug = false,
+		.trace = false,
+#if TARGET_OS_IPHONE
+		.ansi = false,
+#elif defined (__ANDROID__)
+		.ansi = false,
+#else
+		.ansi = true,
+#endif
+		.enable_prflx = !mf->privacy_mode
+	};
+	bool controlling = false;  /* NOTE: this is set later */
+	int err;
+
+	err = trice_alloc(&mf->trice, &conf, controlling,
+			  mf->ice_ufrag, mf->ice_pwd);
+	if (err) {
+		warning("mediaflow: DUALSTACK trice error (%m)\n",
+			err);
+		goto out;
+	}
+
+	err = trice_set_software(mf->trice, avs_version_str());
+	if (err)
+		goto out;
+
+	err = stun_alloc(&mf->trice_stun, NULL, NULL, NULL);
+	if (err)
+		goto out;
+
+	/*
+	 * tuning the STUN transaction values
+	 *
+	 * RTO=150 and RC=7 gives around 12 seconds timeout
+	 */
+	stun_conf(mf->trice_stun)->rto = 150;  /* milliseconds */
+	stun_conf(mf->trice_stun)->rc =    8;  /* retransmits */
+
+	/* Virtual socket for directing outgoing Packets */
+	err = udp_register_helper(&mf->trice_uh, mf->rtp,
+				  LAYER_ICE,
+				  udp_helper_send_handler_trice,
+				  NULL, mf);
+	if (err)
+		goto out;
+
+ out:
+	return err;
+}
+
+
 /**
  * Create a new mediaflow.
  *
@@ -2395,9 +2394,7 @@ int mediaflow_alloc(struct mediaflow **mfp,
 		    struct tls *dtls,
 		    const struct list *aucodecl,
 		    const struct sa *laddr_sdp,
-		    enum mediaflow_nat nat,
 		    enum media_crypto cryptos,
-		    mediaflow_localcand_h *lcandh,
 		    mediaflow_estab_h *estabh,
 		    mediaflow_close_h *closeh,
 		    void *arg)
@@ -2406,7 +2403,6 @@ int mediaflow_alloc(struct mediaflow **mfp,
 	struct le *le;
 	struct sa laddr_rtp;
 	uint16_t lport;
-	bool external_rtp = true;
 	int err;
 
 	if (!mfp || !laddr_sdp)
@@ -2433,19 +2429,14 @@ int mediaflow_alloc(struct mediaflow **mfp,
 		goto out;
 
 	mf->dtls   = mem_ref(dtls);
-	mf->nat    = nat;
 	mf->setup_local    = SETUP_ACTPASS;
 	mf->setup_remote   = SETUP_ACTPASS;
-	mf->external_rtp = external_rtp;
 	mf->cryptos_local = cryptos;
 	mf->crypto_fallback = CRYPTO_DTLS_SRTP;
 
-	mf->lcandh = lcandh;
 	mf->estabh = estabh;
 	mf->closeh = closeh;
 	mf->arg    = arg;
-
-	mf->ice_tiebrk = rand_u64();
 
 	err = pthread_mutex_init(&mf->mutex_enc, NULL);
 	if (err)
@@ -2457,8 +2448,6 @@ int mediaflow_alloc(struct mediaflow **mfp,
 	/* RTP must listen on 0.0.0.0 so that we can send/recv
 	   packets on all interfaces */
 	sa_init(&laddr_rtp, AF_INET);
-
-	mf->enable_rtcp = !external_rtp;
 
 	err = udp_listen(&mf->rtp, &laddr_rtp, rtp_recv_handler, mf);
 	if (err) {
@@ -2508,64 +2497,18 @@ int mediaflow_alloc(struct mediaflow **mfp,
 		goto out;
 
 	/* ICE */
-	if (nat == MEDIAFLOW_TRICKLEICE_DUALSTACK) {
-
-		struct trice_conf conf = {
-			.debug = false,
-			.trace = false,
-#if TARGET_OS_IPHONE
-			.ansi = false,
-#elif defined (__ANDROID__)
-			.ansi = false,
-#else
-			.ansi = true,
-#endif
-			.enable_prflx = !mf->privacy_mode
-		};
-		bool controlling = false;  /* NOTE: this is set later */
-
-		err = trice_alloc(&mf->trice, &conf, controlling,
-				  mf->ice_ufrag, mf->ice_pwd);
-		if (err) {
-			warning("mediaflow: DUALSTACK trice error (%m)\n",
-				err);
-			goto out;
-		}
-
-		err = trice_set_software(mf->trice, avs_version_str());
-		if (err)
-			goto out;
-
-		err = stun_alloc(&mf->trice_stun, NULL, NULL, NULL);
-		if (err)
-			goto out;
-
-		/*
-		 * tuning the STUN transaction values
-		 *
-		 * RTO=150 and RC=7 gives around 12 seconds timeout
-		 */
-		stun_conf(mf->trice_stun)->rto = 150;  /* milliseconds */
-		stun_conf(mf->trice_stun)->rc =    8;  /* retransmits */
-
-		/* Virtual socket for directing outgoing Packets */
-		err = udp_register_helper(&mf->trice_uh, mf->rtp,
-					  LAYER_ICE,
-					  udp_helper_send_handler_trice,
-					  NULL, mf);
-		if (err)
-			goto out;
-
-	}
+	err = init_ice(mf);
+	if (err)
+		goto out;
 
 	/* populate SDP with all known audio-codecs */
 	LIST_FOREACH(aucodecl, le) {
 		struct aucodec *ac = list_ledata(le);
 
-		if (external_rtp != ac->has_rtp) {
+		if (true != ac->has_rtp) {
 			warning("mediaflow: external_rtp=%d but "
 				" aucodec '%s' has rtp=%d\n",
-				external_rtp, ac->name, ac->has_rtp);
+				true, ac->name, ac->has_rtp);
 			err = EINVAL;
 			goto out;
 		}
@@ -2579,16 +2522,8 @@ int mediaflow_alloc(struct mediaflow **mfp,
 	}
 
 	/* Set ICE-options */
-	switch (nat) {
-
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
-		sdp_session_set_lattr(mf->sdp, false, "ice-options",
-				      "trickle");
-		break;
-
-	default:
-		break;
-	}
+	sdp_session_set_lattr(mf->sdp, false, "ice-options",
+			      "trickle");
 
 	/* Mandatory */
 	sdp_media_set_lattr(mf->sdpm, false, "rtcp-mux", NULL);
@@ -2596,18 +2531,12 @@ int mediaflow_alloc(struct mediaflow **mfp,
 	lport = PORT_DISCARD;
 	sdp_media_set_lport_rtcp(mf->sdpm, PORT_DISCARD);
 
-	switch (nat) {
 
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
-		sdp_media_set_lattr(mf->sdpm, false, "ice-ufrag",
-				    "%s", mf->ice_ufrag);
-		sdp_media_set_lattr(mf->sdpm, false, "ice-pwd",
-				    "%s", mf->ice_pwd);
-		break;
+	sdp_media_set_lattr(mf->sdpm, false, "ice-ufrag",
+			    "%s", mf->ice_ufrag);
+	sdp_media_set_lattr(mf->sdpm, false, "ice-pwd",
+			    "%s", mf->ice_pwd);
 
-	default:
-		break;
-	}
 
 	/* we enable support for DTLS-SRTP by default, so that the
 	   SDP attributes are sent in the offer. the attributes
@@ -2650,7 +2579,7 @@ int mediaflow_alloc(struct mediaflow **mfp,
 			goto out;
 
 		err = sdp_media_set_lattr(mf->sdpm, true, "setup",
-					  mediaflow_setup_name(mf->setup_local));
+					mediaflow_setup_name(mf->setup_local));
 		if (err)
 			goto out;
 	}
@@ -2686,10 +2615,8 @@ int mediaflow_alloc(struct mediaflow **mfp,
 
 	info("mediaflow: created new mediaflow with"
 	     " local port %u and %u audio-codecs"
-	     " and %s (external_rtp=%d)\n",
-	     lport, list_count(aucodecl),
-	     mediaflow_nat_name(mf->nat),
-	     external_rtp);
+	     " \n",
+	     lport, list_count(aucodecl));
 
  out:
 	if (err)
@@ -2709,7 +2636,8 @@ int mediaflow_set_setup(struct mediaflow *mf, enum media_setup setup)
 		return EINVAL;
 
 	info("mediaflow: local_setup: `%s' --> `%s'\n",
-	     mediaflow_setup_name(mf->setup_local), mediaflow_setup_name(setup));
+	     mediaflow_setup_name(mf->setup_local),
+	     mediaflow_setup_name(setup));
 
 	if (setup != mf->setup_local) {
 
@@ -2733,8 +2661,8 @@ int mediaflow_set_setup(struct mediaflow *mf, enum media_setup setup)
 
 	if (mf->video.sdpm) {
 		err = sdp_media_set_lattr(mf->video.sdpm, true,
-					  "setup",
-					  mediaflow_setup_name(mf->setup_local));
+					"setup",
+					mediaflow_setup_name(mf->setup_local));
 		if (err)
 			return err;
 	}
@@ -2830,18 +2758,10 @@ int mediaflow_add_video(struct mediaflow *mf, struct list *vidcodecl)
 
 	sdp_media_set_lport_rtcp(mf->video.sdpm, PORT_DISCARD);
 
-	switch (mf->nat) {
-
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
-		sdp_media_set_lattr(mf->video.sdpm, false,
-				    "ice-ufrag", "%s", mf->ice_ufrag);
-		sdp_media_set_lattr(mf->video.sdpm, false,
-				    "ice-pwd", "%s", mf->ice_pwd);
-		break;
-
-	default:
-		break;
-	}
+	sdp_media_set_lattr(mf->video.sdpm, false,
+			    "ice-ufrag", "%s", mf->ice_ufrag);
+	sdp_media_set_lattr(mf->video.sdpm, false,
+			    "ice-pwd", "%s", mf->ice_pwd);
 
 	if (mf->dtls) {
 		err = sdp_media_set_lattr(mf->video.sdpm, true,
@@ -2852,8 +2772,8 @@ int mediaflow_add_video(struct mediaflow *mf, struct list *vidcodecl)
 			goto out;
 
 		err = sdp_media_set_lattr(mf->video.sdpm, true,
-					  "setup",
-					  mediaflow_setup_name(mf->setup_local));
+					"setup",
+					mediaflow_setup_name(mf->setup_local));
 		if (err)
 			goto out;
 	}
@@ -2957,18 +2877,10 @@ int mediaflow_add_data(struct mediaflow *mf)
 
 	sdp_media_set_lattr(mf->data.sdpm, false, "mid", "data");
 
-	switch (mf->nat) {
-
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
-		sdp_media_set_lattr(mf->data.sdpm, false,
-				    "ice-ufrag", "%s", mf->ice_ufrag);
-		sdp_media_set_lattr(mf->data.sdpm, false,
-				    "ice-pwd", "%s", mf->ice_pwd);
-		break;
-
-	default:
-		break;
-	}
+	sdp_media_set_lattr(mf->data.sdpm, false,
+			    "ice-ufrag", "%s", mf->ice_ufrag);
+	sdp_media_set_lattr(mf->data.sdpm, false,
+			    "ice-pwd", "%s", mf->ice_pwd);
 
 	if (mf->dtls) {
 		err = sdp_media_set_lattr(mf->data.sdpm, true,
@@ -2978,17 +2890,15 @@ int mediaflow_add_data(struct mediaflow *mf)
 		if (err) {
 			warning("mediaflow_add_data: failed to lattr "
 				"'fingerprint': %m\n", err);
-			
 			goto out;
 		}
 
 		err = sdp_media_set_lattr(mf->data.sdpm, true,
-					  "setup",
-					  mediaflow_setup_name(mf->setup_local));
+					"setup",
+					mediaflow_setup_name(mf->setup_local));
 		if (err) {
 			warning("mediaflow_add_data: failed to lattr "
 				"'setup': %m\n", err);
-			
 			goto out;
 		}
 	}
@@ -3005,8 +2915,8 @@ int mediaflow_add_data(struct mediaflow *mf)
 		warning("mediaflow_add_data: failed to add lattr: %m\n", err);
 		goto out;
 	}
-	
- out:		
+
+ out:
 	return err;
 }
 
@@ -3067,16 +2977,16 @@ static int handle_setup(struct mediaflow *mf)
 
 	if (mf->video.sdpm) {
 		err = sdp_media_set_lattr(mf->video.sdpm, true,
-					  "setup",
-					  mediaflow_setup_name(mf->setup_local));
+					"setup",
+					mediaflow_setup_name(mf->setup_local));
 		if (err)
 			return err;
 	}
 
 	if (mf->data.sdpm) {
 		err = sdp_media_set_lattr(mf->data.sdpm, true,
-					  "setup",
-					  mediaflow_setup_name(mf->setup_local));
+					"setup",
+					mediaflow_setup_name(mf->setup_local));
 		if (err)
 			return err;
 	}
@@ -3224,6 +3134,8 @@ int mediaflow_add_local_host_candidate(struct mediaflow *mf,
 				       const char *ifname,
 				       const struct sa *addr)
 {
+	struct ice_lcand *lcand = NULL;
+	struct interface *ifc;
 	// XXX: adjust local-preference here for v4/v6
 	uint32_t prio = ice_cand_calc_prio(ICE_CAND_TYPE_HOST, 0, 1);
 	int err = 0;
@@ -3240,61 +3152,52 @@ int mediaflow_add_local_host_candidate(struct mediaflow *mf,
 		return EINVAL;
 	}
 
-	if (mf->nat == MEDIAFLOW_TRICKLEICE_DUALSTACK) {
-		struct ice_lcand *lcand = NULL;
-		struct interface *ifc;
 
-		ifc = mem_zalloc(sizeof(*ifc), interface_destructor);
-		if (!ifc)
-			return ENOMEM;
+	ifc = mem_zalloc(sizeof(*ifc), interface_destructor);
+	if (!ifc)
+		return ENOMEM;
 
-		if (!mf->privacy_mode) {
-			err = trice_lcand_add(&lcand, mf->trice,
-					      ICE_COMPID_RTP,
-					      IPPROTO_UDP, prio, addr, NULL,
-					      ICE_CAND_TYPE_HOST, NULL,
-					      0,     /* tcptype */
-					      NULL,  /* sock */
-					      0);
-			if (err) {
-				warning("mediaflow: add_local_host[%j]"
-					" failed (%m)\n",
-					addr, err);
-				return err;
-			}
-
-			/* hijack the UDP-socket of the local candidate
-			 *
-			 * NOTE: this must be done for all local candidates
-			 */
-			udp_handler_set(lcand->us, trice_udp_recv_handler, mf);
-
-			err = sdp_media_set_lattr(mf->sdpm, false,
-						  "candidate",
-						  "%H",
-						  ice_cand_attr_encode, lcand);
-			if (err)
-				return err;
-
-			if (ifname) {
-				str_ncpy(lcand->ifname, ifname,
-					 sizeof(lcand->ifname));
-			}
+	if (!mf->privacy_mode) {
+		err = trice_lcand_add(&lcand, mf->trice,
+				      ICE_COMPID_RTP,
+				      IPPROTO_UDP, prio, addr, NULL,
+				      ICE_CAND_TYPE_HOST, NULL,
+				      0,     /* tcptype */
+				      NULL,  /* sock */
+				      0);
+		if (err) {
+			warning("mediaflow: add_local_host[%j]"
+				" failed (%m)\n",
+				addr, err);
+			return err;
 		}
 
-		list_append(&mf->interfacel, &ifc->le, ifc);
-		ifc->lcand = lcand;
-		ifc->addr = *addr;
-		if (ifname)
-			str_ncpy(ifc->ifname, ifname, sizeof(ifc->ifname));
-		ifc->is_default = sa_cmp(addr, &mf->laddr_default, SA_ADDR);
-		ifc->mf = mf;
+		/* hijack the UDP-socket of the local candidate
+		 *
+		 * NOTE: this must be done for all local candidates
+		 */
+		udp_handler_set(lcand->us, trice_udp_recv_handler, mf);
+
+		err = sdp_media_set_lattr(mf->sdpm, false,
+					  "candidate",
+					  "%H",
+					  ice_cand_attr_encode, lcand);
+		if (err)
+			return err;
+
+		if (ifname) {
+			str_ncpy(lcand->ifname, ifname,
+				 sizeof(lcand->ifname));
+		}
 	}
-	else {
-		warning("mediaflow: add_local_host: invalid nat %d\n",
-			mf->nat);
-		return ENOTSUP;
-	}
+
+	list_append(&mf->interfacel, &ifc->le, ifc);
+	ifc->lcand = lcand;
+	ifc->addr = *addr;
+	if (ifname)
+		str_ncpy(ifc->ifname, ifname, sizeof(ifc->ifname));
+	ifc->is_default = sa_cmp(addr, &mf->laddr_default, SA_ADDR);
+	ifc->mf = mf;
 
 	return err;
 }
@@ -3305,12 +3208,10 @@ static void set_ice_role(struct mediaflow *mf, bool controlling)
 	if (!mf)
 		return;
 
-	if (mf->nat == MEDIAFLOW_TRICKLEICE_DUALSTACK) {
-		if (sdp_media_session_rattr(mf->sdpm, mf->sdp, "ice-lite")) {
-			info("mediaflow: remote side is ice-lite"
-			     " -- force controlling\n");
-			controlling = true;
-		}
+	if (sdp_media_session_rattr(mf->sdpm, mf->sdp, "ice-lite")) {
+		info("mediaflow: remote side is ice-lite"
+		     " -- force controlling\n");
+		controlling = true;
 	}
 
 	if (mf->trice)
@@ -3348,11 +3249,11 @@ int mediaflow_generate_offer(struct mediaflow *mf, char *sdp, size_t sz)
 	}
 	else if (mf->video.sdpm) {
 		sdp_session_set_lattr(mf->sdp, true,
-				      "group", "BUNDLE audio video");	
+				      "group", "BUNDLE audio video");
 	}
 	else if (mf->data.sdpm) {
 		sdp_session_set_lattr(mf->sdp, true,
-				      "group", "BUNDLE audio data");		
+				      "group", "BUNDLE audio data");
 	}
 
 	err = sdp_encode(&mb, mf->sdp, offer);
@@ -3504,13 +3405,11 @@ static int post_sdp_decode(struct mediaflow *mf)
 					    true, "mid", mid);
 		}
 	}
-
-	if (mf->nat == MEDIAFLOW_TRICKLEICE_DUALSTACK) {
-		if (sdp_media_session_rattr(mf->sdpm, mf->sdp, "ice-lite")) {
-			info("mediaflow: remote side is ice-lite"
-			     " -- force controlling\n");
-			set_ice_role(mf, true);
-		}
+    
+	if (sdp_media_session_rattr(mf->sdpm, mf->sdp, "ice-lite")) {
+		info("mediaflow: remote side is ice-lite"
+		     " -- force controlling\n");
+		set_ice_role(mf, true);
 	}
 
 	/*
@@ -3570,7 +3469,6 @@ static int post_sdp_decode(struct mediaflow *mf)
 
 	}
 
-	// XXX if "data"
 	err = handle_setup(mf);
 	if (err) {
 		warning("mediaflow: handle_setup failed (%m)\n", err);
@@ -3884,20 +3782,6 @@ int mediaflow_send_raw_rtp(struct mediaflow *mf, const uint8_t *buf,
 	return err;
 }
 
-
-void mediaflow_rtp_start_send(struct mediaflow *mf)
-{
-	if (!mf)
-		return;
-
-	if (!mf->sent_rtp) {
-		info("mediaflow: first RTP packet sent\n");
-		mf->sent_rtp = true;
-		check_rtpstart(mf);
-	}
-}
-
-
 int mediaflow_send_raw_rtcp(struct mediaflow *mf,
 			    const uint8_t *buf, size_t len)
 {
@@ -3972,15 +3856,6 @@ static bool rcandidate_handler(const char *name, const char *val, void *arg)
 }
 
 
-static void turnc_chan_handler(void *arg)
-{
-	struct mediaflow *mf = arg;
-	(void)mf;
-
-	info("mediaflow: TURN channel added.\n");
-}
-
-
 static void trice_estab_handler(struct ice_candpair *pair,
 				const struct stun_msg *msg, void *arg)
 {
@@ -4024,16 +3899,16 @@ static void trice_estab_handler(struct ice_candpair *pair,
 #endif
 
 
-		// TODO: iterate over all TURN-connections
+		/* add TURN channel */
 		conn = turnconn_find_allocated(&mf->turnconnl,
 					       IPPROTO_UDP);
-		if (conn) {
+		if (conn && AF_INET == sa_af(&pair->rcand->attr.addr)) {
+
 			info("mediaflow: adding TURN channel to %J\n",
 			     &pair->rcand->attr.addr);
 
-			err = turnc_add_chan(conn->turnc,
-					     &pair->rcand->attr.addr,
-					     turnc_chan_handler, mf);
+			err = turnconn_add_channel(conn,
+						   &pair->rcand->attr.addr);
 			if (err) {
 				warning("mediaflow: could not add TURN"
 					" channel (%m)\n", err);
@@ -4108,6 +3983,7 @@ static void trice_failed_handler(int err, uint16_t scode,
 int mediaflow_start_ice(struct mediaflow *mf)
 {
 	struct le *le;
+	int err;
 
 	if (!mf)
 		return EINVAL;
@@ -4116,35 +3992,30 @@ int mediaflow_start_ice(struct mediaflow *mf)
 
 	mf->ts_nat_start = tmr_jiffies();
 
-	if (mf->nat == MEDIAFLOW_TRICKLEICE_DUALSTACK) {
+	sdp_media_rattr_apply(mf->sdpm, "candidate",
+			      rcandidate_handler, mf);
 
-		int err;
+	/* add permission for ALL TURN-Clients */
+	for (le = mf->turnconnl.head; le; le = le->next) {
+		struct turn_conn *conn = le->data;
 
-		sdp_media_rattr_apply(mf->sdpm, "candidate",
-				      rcandidate_handler, mf);
-
-		/* add permission for ALL TURN-Clients */
-		for (le = mf->turnconnl.head; le; le = le->next) {
-			struct turn_conn *conn = le->data;
-
-			if (conn->turnc && conn->turn_allocated) {
-				add_permission_to_remotes_ds(mf, conn);
-			}
+		if (conn->turnc && conn->turn_allocated) {
+			add_permission_to_remotes_ds(mf, conn);
 		}
+	}
 
-		info("mediaflow: start_ice: starting ICE checklist with"
-		     " %u remote candidates\n",
-		     list_count(trice_rcandl(mf->trice)));
+	info("mediaflow: start_ice: starting ICE checklist with"
+	     " %u remote candidates\n",
+	     list_count(trice_rcandl(mf->trice)));
 
-		err = trice_checklist_start(mf->trice, mf->trice_stun,
-					    ICE_INTERVAL, true,
-					    trice_estab_handler,
-					    trice_failed_handler,
-					    mf);
-		if (err) {
-			warning("could not start ICE checklist (%m)\n", err);
-			return err;
-		}
+	err = trice_checklist_start(mf->trice, mf->trice_stun,
+				    ICE_INTERVAL, true,
+				    trice_estab_handler,
+				    trice_failed_handler,
+				    mf);
+	if (err) {
+		warning("could not start ICE checklist (%m)\n", err);
+		return err;
 	}
 
 	return 0;
@@ -4182,72 +4053,65 @@ int mediaflow_add_rcand(struct mediaflow *mf, const char *sdp,
 
 	++mf->stat.n_cand_recv;
 
-	switch (mf->nat) {
+	info("mediaflow: new remote candidate (%H)\n",
+	     trice_cand_print, &rcand);
 
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
-		info("mediaflow: new remote candidate (%H)\n",
-		     trice_cand_print, &rcand);
+	err = trice_rcand_add(NULL, mf->trice, rcand.compid,
+			      rcand.foundation, rcand.proto,
+			      rcand.prio,
+			      &rcand.addr, rcand.type, rcand.tcptype);
+	if (err) {
+		warning("mediaflow: add_rcand: trice_rcand_add failed"
+			" [%J] (%m)\n",
+			&rcand.addr, err);
+	}
 
-		err = trice_rcand_add(NULL, mf->trice, rcand.compid,
-				      rcand.foundation, rcand.proto,
-				      rcand.prio,
-				      &rcand.addr, rcand.type, rcand.tcptype);
-		if (err) {
-			warning("mediaflow: add_rcand: trice_rcand_add failed"
-				" [%J] (%m)\n",
-				&rcand.addr, err);
-		}
+	/* add permission for ALL TURN-Clients */
+	for (le = mf->turnconnl.head; le; le = le->next) {
+		struct turn_conn *tc = le->data;
 
-		/* add permission for ALL TURN-Clients */
-		for (le = mf->turnconnl.head; le; le = le->next) {
-			struct turn_conn *tc = le->data;
+		if (tc->turnc && tc->turn_allocated)
+			add_turn_permission(mf, tc, &rcand);
+	}
 
-			if (tc->turnc && tc->turn_allocated)
-				add_turn_permission(mf, tc, &rcand);
-		}
+	/* NOTE: checklist must be re-started for every new
+	 *       remote candidate
+	 */
 
-		/* NOTE: checklist must be re-started for every new
-		 *       remote candidate
-		 */
+	info("mediaflow: start_ice: starting ICE checklist with"
+	     " %u remote candidates\n",
+	     list_count(trice_rcandl(mf->trice)));
 
-		info("mediaflow: start_ice: starting ICE checklist with"
-		     " %u remote candidates\n",
-		     list_count(trice_rcandl(mf->trice)));
-
-		err = trice_checklist_start(mf->trice, mf->trice_stun,
-					    ICE_INTERVAL, true,
-					    trice_estab_handler,
-					    trice_failed_handler,
-					    mf);
-		if (err) {
-			warning("could not start ICE checklist (%m)\n",
-				err);
-			return err;
-		}
-		break;
-
-	default:
-		break;
+	err = trice_checklist_start(mf->trice, mf->trice_stun,
+				    ICE_INTERVAL, true,
+				    trice_estab_handler,
+				    trice_failed_handler,
+				    mf);
+	if (err) {
+		warning("could not start ICE checklist (%m)\n",
+			err);
+		return err;
 	}
 
 	return 0;
 }
 
+
 static int start_audio(struct mediaflow *mf)
 {
 	const struct aucodec *ac;
 	int err = 0;
-    
+
 	if (mf->aes == NULL)
 		return ENOSYS;
 
 	ac = auenc_get(mf->aes);
 	if (ac && ac->enc_start)
-		err = ac->enc_start(mf->aes);
+		err = ac->enc_start(mf->aes, &mf->mctx);
 
 	ac = audec_get(mf->ads);
 	if (ac && ac->dec_start)
-		err |= ac->dec_start(mf->ads);
+		err |= ac->dec_start(mf->ads, &mf->mctx);
 
 	return err;
 }
@@ -4331,10 +4195,10 @@ int mediaflow_start_media(struct mediaflow *mf)
 	mf->started = true;
 
 	err = start_audio(mf);
-	if(err){
+	if (err) {
 		return err;
 	}
-    
+
 	if (mf->video.has_media) {
 		const struct vidcodec *vc;
 
@@ -4360,6 +4224,7 @@ int mediaflow_start_media(struct mediaflow *mf)
 
 	return err;
 }
+
 
 int mediaflow_set_video_send_active(struct mediaflow *mf, bool video_active)
 {
@@ -4407,6 +4272,7 @@ bool mediaflow_is_sending_video(struct mediaflow *mf)
 
 	return mf->video.started;
 }
+
 
 void mediaflow_stop_media(struct mediaflow *mf)
 {
@@ -4507,99 +4373,70 @@ static void submit_local_candidate(struct mediaflow *mf,
 		.tcptype    = 0,
 	};
 	char cand[512];
-	size_t candc = eoc ? 2 : 1;
+	struct ice_lcand *lcand;
+	int err;
+	bool add;
 
-	struct zapi_candidate candv[] = {
-		{
-			.mid = "audio",
-			.mline_index = 0,
-			.sdp = cand,
-		},
-		{
-			.mid = "audio",
-			.mline_index = 0,
-			.sdp = "a=end-of-candidates",
-		},
-	};
+	switch (type) {
 
-	if (mf->nat == MEDIAFLOW_TRICKLEICE_DUALSTACK) {
+	case ICE_CAND_TYPE_RELAY:
+		add = true;
+		break;
 
-		struct ice_lcand *lcand;
-		int err;
-		bool add;
-
-		switch (type) {
-
-		case ICE_CAND_TYPE_RELAY:
-			add = true;
-			break;
-
-		default:
-			add = !mf->privacy_mode;
-			break;
-		}
-
-		if (!add) {
-			debug("mediaflow: NOT adding cand %s (privacy mode)\n",
-			      ice_cand_type2name(type));
-			return;
-		}
-
-		attr.prio = calc_prio(type, sa_af(addr),
-				      turn_proto, turn_secure);
-
-		if (turn_proto == IPPROTO_UDP) {
-
-		}
-		else
-			sock = NULL;
-
-
-		err = trice_lcand_add(&lcand, mf->trice, attr.compid,
-				      attr.proto, attr.prio, addr, NULL,
-				      attr.type, rel_addr,
-				      0 /* tcptype */,
-				      sock, LAYER_ICE);
-		if (err) {
-			warning("mediaflow: add local cand failed (%m)\n",
-				err);
-			return;
-		}
-
-		if (sockp)
-			*sockp = lcand->us;
-
-		/* hijack the UDP-socket of the local candidate
-		 *
-		 * NOTE: this must be done for all local candidates
-		 */
-		udp_handler_set(lcand->us, trice_udp_recv_handler, mf);
-
-		re_snprintf(cand, sizeof(cand), "a=candidate:%H",
-			    ice_cand_attr_encode, lcand);
-
-		/* also add the candidate to SDP */
-
-		if (add) {
-			err = sdp_media_set_lattr(mf->sdpm, false,
-						  "candidate",
-						  "%H",
-						  ice_cand_attr_encode, lcand);
-			if (err)
-				return;
-		}
-
-	}
-	else {
-		if (rel_addr)
-			attr.rel_addr = *rel_addr;
-
-		re_snprintf(cand, sizeof(cand), "a=candidate:%H",
-			    ice_cand_attr_encode, &attr);
+	default:
+		add = !mf->privacy_mode;
+		break;
 	}
 
-	if (mf->lcandh)
-		mf->lcandh(candv, candc, mf->arg);
+	if (!add) {
+		debug("mediaflow: NOT adding cand %s (privacy mode)\n",
+		      ice_cand_type2name(type));
+		return;
+	}
+
+	attr.prio = calc_prio(type, sa_af(addr),
+			      turn_proto, turn_secure);
+
+	if (turn_proto == IPPROTO_UDP) {
+
+	}
+	else
+		sock = NULL;
+
+
+	err = trice_lcand_add(&lcand, mf->trice, attr.compid,
+			      attr.proto, attr.prio, addr, NULL,
+			      attr.type, rel_addr,
+			      0 /* tcptype */,
+			      sock, LAYER_ICE);
+	if (err) {
+		warning("mediaflow: add local cand failed (%m)\n",
+			err);
+		return;
+	}
+
+	if (sockp)
+		*sockp = lcand->us;
+
+	/* hijack the UDP-socket of the local candidate
+	 *
+	 * NOTE: this must be done for all local candidates
+	 */
+	udp_handler_set(lcand->us, trice_udp_recv_handler, mf);
+
+	re_snprintf(cand, sizeof(cand), "a=candidate:%H",
+		    ice_cand_attr_encode, lcand);
+
+	/* also add the candidate to SDP */
+
+	if (add) {
+		err = sdp_media_set_lattr(mf->sdpm, false,
+					  "candidate",
+					  "%H",
+					  ice_cand_attr_encode, lcand);
+		if (err)
+			return;
+	}
 }
 
 
@@ -4667,26 +4504,18 @@ int mediaflow_gather_stun(struct mediaflow *mf, const struct sa *stun_srv)
 	if (mf->ct_gather)
 		return EALREADY;
 
-	switch (mf->nat) {
+	sa_init(&laddr, sa_af(stun_srv));
 
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
-		sa_init(&laddr, sa_af(stun_srv));
-
-		if (!mf->trice)
-			return EINVAL;
-
-		err = udp_listen(&mf->us_stun, &laddr,
-				 stun_udp_recv_handler, mf);
-		if (err)
-			return err;
-
-		stun = mf->trice_stun;
-		sock = mf->us_stun;
-		break;
-
-	default:
+	if (!mf->trice)
 		return EINVAL;
-	}
+
+	err = udp_listen(&mf->us_stun, &laddr,
+			 stun_udp_recv_handler, mf);
+	if (err)
+		return err;
+
+	stun = mf->trice_stun;
+	sock = mf->us_stun;
 
 	if (!stun || !sock) {
 		warning("mediaflow: gather_stun: no STUN/SOCK instance\n");
@@ -4763,24 +4592,15 @@ static void add_permission_to_remotes(struct mediaflow *mf)
 	if (!mf)
 		return;
 
-	switch (mf->nat) {
+	if (!mf->trice)
+		return;
 
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
+	for (le = mf->turnconnl.head; le; le = le->next) {
 
-		if (!mf->trice)
-			return;
+		conn = le->data;
 
-		for (le = mf->turnconnl.head; le; le = le->next) {
-
-			conn = le->data;
-
-			if (conn->turn_allocated)
-				add_permissions(mf, conn);
-		}
-		break;
-
-	default:
-		break;
+		if (conn->turn_allocated)
+			add_permissions(mf, conn);
 	}
 }
 
@@ -4820,32 +4640,6 @@ static bool turntcp_send_handler(int *err, struct sa *dst,
 }
 
 
-static void add_permission_to_relays(struct mediaflow *mf, struct turn_conn *conn)
-{
-	struct le *le;
-	int err;
-
-	for (le = mf->turnconnl.head; le; le = le->next) {
-
-		struct turn_conn *conn_perm = le->data;
-
-		info("mediaflow: turn: add permission to relay %j\n",
-		     &conn_perm->turn_srv);
-
-		if (AF_INET == sa_af(&conn_perm->turn_srv)) {
-
-			err = turnconn_add_permission(conn,
-						      &conn_perm->turn_srv);
-			if (err) {
-				warning("mediaflow: failed to"
-					" add permission to %j (%m)\n",
-					&conn_perm->turn_srv, err);
-			}
-		}
-	}
-}
-
-
 static void turnconn_estab_handler(struct turn_conn *conn,
 				   const struct sa *relay_addr,
 				   const struct sa *mapped_addr,
@@ -4866,14 +4660,15 @@ static void turnconn_estab_handler(struct turn_conn *conn,
 			- conn->ts_turn_req;
 	}
 
-	if (mf->nat == MEDIAFLOW_TRICKLEICE_DUALSTACK) {
+#if 0
+	if (0) {
 
 		sdp_media_set_laddr(mf->sdpm, relay_addr);
 		sdp_media_set_laddr(mf->video.sdpm, relay_addr);
 
 		add_permission_to_relays(mf, conn);
 	}
-
+#endif
 
 	/* NOTE: important to ship the SRFLX before RELAY cand. */
 
@@ -4975,16 +4770,36 @@ static void turnconn_error_handler(int err, void *arg)
 }
 
 
+#if 0
+static struct interface *default_interface(const struct mediaflow *mf)
+{
+	struct le *le;
+
+	for (le = mf->interfacel.head; le; le = le->next) {
+		struct interface *ifc = le->data;
+
+		if (ifc->is_default)
+			return ifc;
+	}
+
+	/* default not found, just return first one */
+	return list_ledata(list_head(&mf->interfacel));
+}
+#endif
+
 /*
  * Gather RELAY and SRFLX candidates (UDP only)
  */
 int mediaflow_gather_turn(struct mediaflow *mf, const struct sa *turn_srv,
 			  const char *username, const char *password)
 {
+	struct interface *ifc;
 	struct sa turn_srv6;
 	void *sock = NULL;
 	int err;
 
+	(void)ifc;
+	
 	if (!mf || !turn_srv)
 		return EINVAL;
 
@@ -4993,36 +4808,42 @@ int mediaflow_gather_turn(struct mediaflow *mf, const struct sa *turn_srv,
 		return EINVAL;
 	}
 
-	switch (mf->nat) {
 
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
-		if (!mf->trice)
-			return EINVAL;
-
-		/* NOTE: this should only be done if we detect that
-		 *       we are behind a NAT64
-		 */
-		if (mf->af != sa_af(turn_srv)) {
-
-			err = sa_translate_nat64(&turn_srv6, turn_srv);
-			if (err) {
-				warning("gather_turn: sa_translate_nat64(%j)"
-					" failed (%m)\n",
-					turn_srv, err);
-				return err;
-			}
-
-			info("mediaflow: Dualstack: TRANSLATE NAT64"
-			     " (%J ----> %J)\n",
-			     turn_srv, &turn_srv6);
-
-			turn_srv = &turn_srv6;
-		}
-		break;
-
-	default:
+	if (!mf->trice)
 		return EINVAL;
+
+	/* NOTE: this should only be done if we detect that
+	 *       we are behind a NAT64
+	 */
+	if (mf->af != sa_af(turn_srv)) {
+
+		err = sa_translate_nat64(&turn_srv6, turn_srv);
+		if (err) {
+			warning("gather_turn: sa_translate_nat64(%j)"
+				" failed (%m)\n",
+				turn_srv, err);
+			return err;
+		}
+
+		info("mediaflow: Dualstack: TRANSLATE NAT64"
+		     " (%J ----> %J)\n",
+		     turn_srv, &turn_srv6);
+
+		turn_srv = &turn_srv6;
 	}
+
+#if 0
+	/* Reuse UDP-sockets from HOST interface */
+	ifc = default_interface(mf);
+	if (ifc) {
+		info("mediaflow: gather_turn: default interface"
+		     " is %s|%j (lcand=%p)\n",
+		     ifc->ifname, &ifc->addr, ifc->lcand);
+
+		if (ifc->lcand)
+			sock = ifc->lcand->us;
+	}
+#endif
 
 	info("mediaflow: gather_turn: username='%s' srv=%J\n",
 	     username, turn_srv);
@@ -5058,11 +4879,6 @@ int mediaflow_gather_turn_tcp(struct mediaflow *mf, const struct sa *turn_srv,
 	if (!mf || !turn_srv)
 		return EINVAL;
 
-	if (mf->nat != MEDIAFLOW_TRICKLEICE_DUALSTACK) {
-		warning("gather_turn_tcp: only implemented for DS\n");
-		return EINVAL;
-	}
-
 	err = turnconn_alloc(&tc, &mf->turnconnl,
 			     turn_srv, IPPROTO_TCP, secure,
 			     username, password,
@@ -5084,14 +4900,7 @@ size_t mediaflow_remote_cand_count(const struct mediaflow *mf)
 	if (!mf)
 		return 0;
 
-	switch (mf->nat) {
-
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
-		return list_count(trice_rcandl(mf->trice));
-
-	default:
-		return 0;
-	}
+	return list_count(trice_rcandl(mf->trice));
 }
 
 
@@ -5257,19 +5066,12 @@ bool mediaflow_is_gathered(const struct mediaflow *mf)
 	      list_count(&mf->turnconnl),
 	      mf->stun_server, mf->stun_ok);
 
-	switch (mf->nat) {
+	if (!list_isempty(&mf->turnconnl))
+		return turnconn_is_one_allocated(&mf->turnconnl);
 
-	case MEDIAFLOW_TRICKLEICE_DUALSTACK:
-		if (!list_isempty(&mf->turnconnl))
-			return turnconn_is_one_allocated(&mf->turnconnl);
-
-		if (mf->stun_server)
-			return mf->stun_ok;
-		return true;
-
-	default:
-		return false;
-	}
+	if (mf->stun_server)
+		return mf->stun_ok;
+	return true;
 
 	return true;
 }
@@ -5461,6 +5263,25 @@ struct dce *mediaflow_get_dce(const struct mediaflow *mf)
 		return NULL;
     
 	return mf->data.dce;
+}
+
+uint32_t mediaflow_candc(const struct mediaflow *mf, bool local,
+			 enum ice_cand_type typ)
+{
+	struct list *lst;
+	struct le *le;
+	uint32_t n = 0;
+
+	lst = local ? trice_lcandl(mf->trice) : trice_rcandl(mf->trice);
+
+	for (le = list_head(lst);le;le=le->next) {
+		struct ice_cand_attr *cand = le->data;
+
+		if (typ == cand->type)
+			++n;
+	}
+
+	return n;
 }
 
 bool mediaflow_get_audio_cbr(const struct mediaflow *mf)

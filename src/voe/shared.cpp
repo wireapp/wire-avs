@@ -47,6 +47,7 @@ extern "C" {
 #include "voe.h"
 #include "interleaver.h"
 
+
 static void tmr_transport_handler(void *arg);
 
 class VoETransport : public webrtc::Transport {
@@ -228,43 +229,6 @@ static void tmr_neteq_stats_handler(void *arg)
 	tmr_start(&voe->tmr_neteq_stats, NW_STATS_DELTA*MILLISECONDS_PER_SECOND, tmr_neteq_stats_handler, voe);
 }
 
-static void setup_external_audio_device()
-{
-	if(gvoe.adm){
-		return;
-	}
-#if ZETA_USE_EXTERNAL_AUDIO_DEVICE
- #if TARGET_OS_IPHONE
-	webrtc::audio_io_ios* ap = new webrtc::audio_io_ios();
-	voe_register_adm((void*)ap);
- #elif defined(ANDROID)
-	// Not Supported yet
- #else // Desktop
-	webrtc::audio_io_osx* ap = new webrtc::audio_io_osx();
-	voe_register_adm((void*)ap);
-#endif
-#endif
-}
-
-static void clean_external_audio_device()
-{
-	if(!gvoe.adm){
-		return;
-	}
-#if ZETA_USE_EXTERNAL_AUDIO_DEVICE
- #if TARGET_OS_IPHONE
-	webrtc::audio_io_ios* ap = (webrtc::audio_io_ios*)gvoe.adm;
-	delete ap;
- #elif defined(ANDROID)
-	// Not Supported yet
- #else // Desktop
-	webrtc::audio_io_osx* ap = (webrtc::audio_io_osx*)gvoe.adm;
-	delete ap
- #endif
-	gvoe.adm = NULL;
-#endif
-}
-
 static void voe_setup_opus(bool use_stereo, int32_t rate_bps,
 			   webrtc::CodecInst *codec_params)
 {
@@ -294,9 +258,6 @@ static void ve_destructor(void *arg)
 	if (gvoe.base)
 		gvoe.base->DeleteChannel(ve->ch);
 
-	if (gvoe.nch == 1)
-		// This means we are ending a call. But voe_set_mute dosnt work when nch == 0
-		voe_set_mute(false);
 	if (gvoe.nch > 0)
 		--gvoe.nch;
 	if (gvoe.nch == 0) {
@@ -315,14 +276,10 @@ static void ve_destructor(void *arg)
         
 		gvoe.base->Terminate();
         
-		voe_stop_audio_test(&gvoe);
-                
-		if(gvoe.autest.fad){
-			info("voe: Deleting fake audio device \n");
-			voe_deregister_adm();
-			delete gvoe.autest.fad;
+		if(gvoe.aio){
+			gvoe.aio = (struct audio_io *)mem_deref(gvoe.aio);
 		}
-		clean_external_audio_device();
+		voe_stop_audio_test(&gvoe);        
 	}
     
 #if FORCE_AUDIO_RTP_RECORDING
@@ -364,22 +321,23 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
     
 	++gvoe.nch;
 	if (gvoe.nch == 1) {
-		if (avs_get_flags() & AVS_FLAG_AUDIO_TEST){
-			info("voe: Using fake audio device \n");
-			gvoe.autest.fad = new webrtc::fake_audiodevice(true);
-			voe_register_adm((void*)gvoe.autest.fad);
-		}        
-		setup_external_audio_device();
-        
-		info("voe: First Channel created call voe.base->Init() \n");
-
 		if (!gvoe.base) {
 			warning("voe: no gvoe base!\n");
 			err = ENOSYS;
 			goto out;
 		}
 
-		gvoe.base->Init(gvoe.adm);
+		webrtc::AudioDeviceModule* adm = NULL;
+		if(gvoe.aio){
+			mem_ref(gvoe.aio);
+			adm = (webrtc::AudioDeviceModule*)gvoe.aio->aioc;
+		}
+		if (avs_get_flags() & AVS_FLAG_AUDIO_TEST){
+			audio_io_alloc(&gvoe.autest.aio, AUDIO_IO_MODE_MOCK_REALTIME, NULL, NULL);
+			adm = (webrtc::AudioDeviceModule*)gvoe.autest.aio->aioc;
+		}
+		info("voe: First Channel created call voe.base->Init() gvoe.adm = %p \n", adm);
+		gvoe.base->Init(adm);
         
 		if (avs_get_flags() & AVS_FLAG_AUDIO_TEST){
 			voe_start_audio_test(&gvoe);
@@ -394,7 +352,7 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
         
 		voe_start_audio_proc(&gvoe);
 
-		voe_get_mute(&gvoe.isMuted);
+		voe_set_mute(gvoe.isMuted);
 
 		voe_start_silencing();
         

@@ -166,6 +166,10 @@ void voe_start_audio_test(struct voe *voe)
 
 void voe_stop_audio_test(struct voe *voe)
 {
+    if(voe->autest.aio){
+        voe->autest.aio = (struct audio_io *)mem_deref(voe->autest.aio);
+    }
+    
     if(!voe->autest.is_running){
         voe->autest.test_score = -1;
         return;

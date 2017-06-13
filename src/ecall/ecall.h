@@ -34,6 +34,8 @@ enum async_sdp {
  *
  * An ECALL object has a single mediaflow object
  */
+struct conf_part;
+
 struct ecall {
 
 	struct le le;
@@ -44,8 +46,9 @@ struct ecall {
 	struct mediaflow *mf;
 	struct dce *dce;
 	struct dce_channel *dce_ch;
+	bool dce_open;
 
-	struct tmr tmr;
+	struct tmr dc_tmr;
 	struct tmr media_start_tmr;
 	struct tmr update_tmr;
 
@@ -54,17 +57,21 @@ struct ecall {
 
 	char *convid;
 	char *userid_self;
-	char *clientid;
+	char *clientid_self;
+	char *userid_peer;
+	char *clientid_peer;
 
 	struct {
 		enum async_sdp async;
 	} sdp;
 
-	struct {
+	struct turn_server {
 		struct sa srv;
 		char *user;
 		char *pass;
-	} turn;
+	} turnv[MAX_TURN_SERVERS];
+
+	size_t turnc;
 
 	struct econn *econn_pending;
 	bool answered;
@@ -74,11 +81,11 @@ struct ecall {
 	int32_t audio_setup_time;
 	uint64_t ts_started;
 	uint64_t ts_answered;
+	enum media_crypto crypto;
 
 	struct econn_transp transp;
 	ecall_conn_h *connh;
 	ecall_answer_h *answerh;
-	ecall_missed_h *missedh;
 	ecall_transp_send_h *sendh;
 	ecall_media_estab_h *media_estabh;
 	ecall_audio_estab_h *audio_estabh;
@@ -88,8 +95,13 @@ struct ecall {
 	void *arg;
 
 	uint32_t magic;
+
+	struct conf_part *conf_part;
 };
 
 
 bool ecall_stats_prepare(struct ecall *ecall, struct json_object *jobj,
 			 int ecall_err);
+
+struct conf_part *ecall_get_conf_part(struct ecall *ecall);
+void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp);

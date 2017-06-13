@@ -35,7 +35,9 @@ enum mediamgr_auplay {
 
 enum mediamgr_state {
 	MEDIAMGR_STATE_NORMAL = 0,
+	MEDIAMGR_STATE_NORMAL_FROM_UI,
 	MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS,
+	MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS_FROM_UI,
 	MEDIAMGR_STATE_AUDIO_PERMISSIONS_READY,
 	MEDIAMGR_STATE_CALL_ESTABLISHED,
 	MEDIAMGR_STATE_VIDEOCALL_ESTABLISHED,
@@ -91,14 +93,14 @@ void mediamgr_register_route_change_h(struct mediamgr *mm,
 void mediamgr_set_sound_mode(struct mediamgr *mm,
 			     enum mediamgr_sound_mode mode);
     
-void mediamgr_set_user_starts_audio(struct mediamgr *mediamgr,
-			     bool enable);
-    
-/* Global functions */
+void mediamgr_set_user_starts_audio(struct mediamgr *mediamgr, bool enable);
+
+    /* Global functions */
 struct mm;
 void mediamgr_headset_connected(struct mm *mm, bool connected);
 void mediamgr_bt_device_connected(struct mm *mm, bool connected);
 
+void mediamgr_device_changed(struct mm *mm);
 
 #ifdef __cplusplus
 }

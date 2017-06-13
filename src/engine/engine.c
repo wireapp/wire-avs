@@ -277,6 +277,7 @@ static void trigger_startup(struct engine *engine)
 	engine_active_handler(engine);
 }
 
+static int clear_login(struct engine *engine);
 
 static void login_handler(int err, const struct login_token *token, void *arg)
 {
@@ -300,6 +301,10 @@ static void login_handler(int err, const struct login_token *token, void *arg)
 
 		if (engine->state == ENGINE_STATE_LOGIN) {
 			trigger_startup(engine);
+
+			if (engine->clear_cookies) {
+				clear_login(engine);
+			}
 		}
 	}
 }
@@ -337,8 +342,6 @@ static void clear_login_handler(int err, const struct http_msg *msg,
 			err,
 			msg ? msg->scode : 0,
 			msg ? &msg->reason : NULL);
-	else
-		err = start_login(engine);
 
 	if (err) {
 		if (engine->errorh)
@@ -483,10 +486,8 @@ int engine_alloc(struct engine **enginep, const char *request_uri,
 		}
 	}
 
-	if (clear_cookies)
-		err = clear_login(engine);
-	else
-		err = start_login(engine);
+	engine->clear_cookies = clear_cookies;
+	err = start_login(engine);
 	if (err)
 		goto out;
 

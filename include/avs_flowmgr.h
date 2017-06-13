@@ -29,9 +29,6 @@ int  flowmgr_init(const char *msysname, const char *log_url, int cert_type);
 int  flowmgr_start(void);
 void flowmgr_close(void);
 int  flowmgr_is_ready(struct flowmgr *fm, bool *is_ready);
-void flowmgr_enable_dualstack(bool enable);
-void flowmgr_enable_loopback(bool enable);
-void flowmgr_bind_interface(const char *ifname);
 struct msystem *flowmgr_msystem(void);
 
 struct mqueue *flowmgr_mqueue(void);
@@ -337,10 +334,8 @@ struct call_config {
 	struct zapi_ice_server iceserverv[4];
 	size_t iceserverc;
 
-	bool early_dtls;
 	struct {
 		double ver_one_to_one;
-		double ver_multiparty;
 	} features;
 };
 

@@ -136,6 +136,38 @@ static void turnc_handler(int err, uint16_t scode, const char *reason,
 }
 
 
+static void tmr_delay_handler(void *arg)
+{
+       struct turn_conn *conn = arg;
+       int err = 0;
+
+       if (turnconn_is_one_allocated(conn->le.list)) {
+               info("turnconn: one TURN conn already"
+		    " -- skipping new allocation\n");
+
+               mem_deref(conn);
+
+               return;
+       }
+
+       err = turnc_alloc(&conn->turnc, NULL, IPPROTO_UDP, conn->us_turn,
+                         conn->layer_turn, &conn->turn_srv,
+                         conn->username, conn->password,
+                         TURN_DEFAULT_LIFETIME, turnc_handler, conn);
+       if (err) {
+               warning("turnconn: turnc_alloc UDP failed (%m)\n",
+                       err);
+               goto error;
+       }
+
+       return;
+
+ error:
+       if(conn->errorh)
+	       conn->errorh(err ? err : EPROTO, conn->arg);
+}
+
+
 static void tcp_estab(void *arg)
 {
 	struct turn_conn *tl = arg;
@@ -260,6 +292,8 @@ static void turnconn_destructor(void *data)
 
 	list_unlink(&tc->le);
 
+	tmr_cancel(&tc->tmr_delay);
+
 	mem_deref(tc->uh_app);   /* note: deref before us_app */
 	mem_deref(tc->us_app);
 	mem_deref(tc->ska);      /* note: deref before socket */
@@ -297,6 +331,14 @@ int turnconn_alloc(struct turn_conn **connp, struct list *connl,
 	tc = mem_zalloc(sizeof(*tc), turnconn_destructor);
 	if (!tc)
 		return ENOMEM;
+
+	/* the first TURN server has short delay */
+	if (list_isempty(connl)) {
+		tc->delay = 1;
+	}
+	else {
+		tc->delay = 100 + rand_u32() % 100;
+	}
 
 	tc->turn_srv = *turn_srv;
 	tc->proto = proto;
@@ -369,14 +411,7 @@ int turnconn_alloc(struct turn_conn **connp, struct list *connl,
 			sock = tc->us_turn;
 		}
 
-		err = turnc_alloc(&tc->turnc, NULL, IPPROTO_UDP, sock,
-				  tc->layer_turn, turn_srv, username, password,
-				  TURN_DEFAULT_LIFETIME, turnc_handler, tc);
-		if (err) {
-			warning("turnconn: turnc_alloc UDP failed (%m)\n",
-				err);
-			goto out;
-		}
+		tmr_start(&tc->tmr_delay, tc->delay, tmr_delay_handler, tc);
 		break;
 
 	case IPPROTO_TCP:
@@ -566,9 +601,10 @@ int turnconn_debug(struct re_printf *pf, const struct turn_conn *conn)
 	}
 
 	err |= re_hprintf(pf,
-			  "...[%c] af=%s  proto=%s srv=%J"
+			  "...[%c] delay=%ums af=%s  proto=%s srv=%J"
 			  "  turnc=<%p>  (%d ms)\n",
 			  conn->turn_allocated ? 'A' : ' ',
+			  conn->delay,
 			  net_af2name(conn->af),
 			  turnconn_proto_name(conn), &conn->turn_srv,
 			  conn->turnc,

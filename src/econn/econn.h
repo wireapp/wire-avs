@@ -47,7 +47,7 @@ struct econn {
 	econn_close_h *closeh;
 	void *arg;
 	int err;
-    
+
 	uint32_t magic;
 };
 

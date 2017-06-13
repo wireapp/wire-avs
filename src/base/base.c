@@ -15,6 +15,7 @@
 * You should have received a copy of the GNU General Public License
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
+#include <openssl/crypto.h>
 #include <re.h>
 
 #include "avs_log.h"
@@ -87,6 +88,11 @@ int avs_init(uint64_t flags)
 
 	info("init: using async polling method '%s'\n",
 	     poll_method_name(poll_method_best()));
+
+	info("init: libre:    %s\n", sys_libre_version_get());
+	info("init: openssl:  %s (%s)\n",
+	     SSLeay_version(SSLEAY_VERSION),
+	     SSLeay_version(SSLEAY_PLATFORM));
 
 	return 0;
 }

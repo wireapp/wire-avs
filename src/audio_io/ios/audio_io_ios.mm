@@ -71,7 +71,9 @@ namespace webrtc {
         rec_tid_(0),
         dig_mic_gain_(0),
         want_stereo_playout_(false),
-        using_stereo_playout_(false){
+        using_stereo_playout_(false),
+        cmdh_(NULL),
+        arg_(NULL){
             memset(play_buffer_, 0, sizeof(play_buffer_));
             memset(rec_buffer_, 0, sizeof(rec_buffer_));
             memset(rec_length_, 0, sizeof(rec_length_));
@@ -95,29 +97,141 @@ namespace webrtc {
 	}
     
 	int32_t audio_io_ios::RegisterAudioCallback(AudioTransport* audioCallback) {
-		bool is_playing = is_playing_;
-		bool is_recording = is_recording_;
 		StopPlayout();
 		StopRecording(); // Stop the threads that uses audioCallback
 		audioCallback_ = audioCallback;
-		if(is_playing)
-			StartPlayout();
-		if(is_recording)
-			StartRecording();
 		return 0;
 	}
-    
+
     int32_t audio_io_ios::Init() {
         if (initialized_) {
             return 0;
+        } else {
+            return -1;
+        }
+    }
+    
+    int32_t audio_io_ios::RegisterCommandHandler(audio_io_command_h *cmdh, void *arg){
+        cmdh_ = cmdh;
+        arg_ = arg;
+        
+        return 0;
+    }
+    
+    int32_t audio_io_ios::HandleCommand(enum audio_io_command cmd) {
+        switch(cmd){
+        	case AUDIO_IO_COMMAND_START_PLAYOUT:
+                StartPlayoutInternal();
+        	break;
+
+            case AUDIO_IO_COMMAND_STOP_PLAYOUT:
+                StopPlayoutInternal();
+            break;
+
+            case AUDIO_IO_COMMAND_START_RECORDING:
+                StartRecordingInternal();
+            break;
+
+            case AUDIO_IO_COMMAND_STOP_RECORDING:
+                StopRecordingInternal();
+            break;
+
+            case AUDIO_IO_COMMAND_RESET:
+                ResetAudioDeviceInternal();
+            break;
+                
+        	default:
+        	break;
+        }
+        
+        return 0;
+    }
+    
+    int32_t audio_io_ios::InitInternal() {
+        int ret = 0;
+        pthread_mutex_lock(&mutex_);
+        if (initialized_) {
+            goto out;
         }
         
         is_shut_down_ = false;
+        initialized_ = true;
+        
+        ret = init_play_or_record();
+out:
+        pthread_mutex_unlock(&mutex_);
+            
+        return ret;
+    }
+    
+	bool audio_io_ios::PlayoutIsInitialized() const {
+		return is_playing_initialized_;
+	}
+    
+	bool audio_io_ios::RecordingIsInitialized() const {
+		return is_recording_initialized_;
+	}
+
+    int32_t audio_io_ios::StartPlayoutInternal() {
+        info("audio_io_ios: StartPlayoutInternal \n");
+        pthread_mutex_lock(&mutex_);
+        if(!is_playing_initialized_){
+            goto out;
+        }
+        assert(!is_playing_);
+        
+        memset(play_buffer_, 0, sizeof(play_buffer_));
+        play_buffer_used_ = 0;
+        
+        if (!is_recording_) {
+            OSStatus result = AudioOutputUnitStart(au_);
+            if (result != noErr) {
+                error("audio_io_ios: AudioOutputUnitStart failed: \n", result);
+                pthread_mutex_unlock(&mutex_);
+                return -1;
+            }
+        }
+        is_playing_ = true;
+        out:
+        pthread_mutex_unlock(&mutex_);
+        return 0;
+    }
+    
+    
+	int32_t audio_io_ios::StartPlayout() {
+        info("audio_io_ios: StartPlayout \n");
+        if(cmdh_){
+            cmdh_(AUDIO_IO_COMMAND_START_PLAYOUT, arg_);
+        } else {
+            StartPlayoutInternal();
+        }
+		return 0;
+    }
+    
+	bool audio_io_ios::Playing() const {
+		return is_playing_;
+	}
+    
+	int32_t audio_io_ios::StartRecordingInternal() {
+        info("audio_io_ios: StartRecordingInternal \n");
+        pthread_mutex_lock(&mutex_);
+        if(!is_playing_initialized_){
+            goto out;
+        }
+        assert(!is_recording_);
+        
+        memset(rec_buffer_, 0, sizeof(rec_buffer_));
+        memset(rec_length_, 0, sizeof(rec_length_));
+        memset(rec_seq_, 0, sizeof(rec_seq_));
+        
+        rec_current_seq_ = 0;
+        rec_buffer_total_size_ = 0;
+        rec_delay_ = 0;
         
         // Create and start capture thread
         if (!rec_tid_) {
             pthread_cond_init(&cond_, NULL);
-
+            
             is_running_ = true;
             
             pthread_create(&rec_tid_, NULL, rec_thread, this);
@@ -139,89 +253,7 @@ namespace webrtc {
         } else {
             warning("audio_io_ios: Thread already created \n");
         }
-        initialized_ = true;
-        return 0;
-    }
-    
-	int32_t audio_io_ios::InitPlayout() {
-        info("audio_io_ios: InitPlayout \n");
-        assert(initialized_);
-        assert(!is_playing_initialized_);
-        assert(!is_playing_);
-        if (!is_recording_initialized_) {
-            if (init_play_or_record() == -1) {
-                error("audio_io_ios: InitPlayOrRecord failed! \n");
-                return -1;
-            }
-        }
-        is_playing_initialized_ = true;
-		return 0;
-	}
-    
-	bool audio_io_ios::PlayoutIsInitialized() const {
-		return is_playing_initialized_;
-	}
-    
-	int32_t audio_io_ios::InitRecording() {
-        info("audio_io_ios: InitRecording \n");
-        assert(initialized_);
-        assert(!is_recording_initialized_);
-        assert(!is_recording_);
-        if (!is_playing_initialized_) {
-            if (init_play_or_record() == -1) {
-                error("audio_io_ios: InitPlayOrRecord failed! \n");
-                return -1;
-            }
-        }
-        is_recording_initialized_ = true;
-        return 0;
-	}
-    
-	bool audio_io_ios::RecordingIsInitialized() const {
-		return is_recording_initialized_;
-	}
-    
-	int32_t audio_io_ios::StartPlayout() {
-        info("audio_io_ios: StartPlayout \n");
-        assert(is_playing_initialized_);
-        assert(!is_playing_);
         
-        pthread_mutex_lock(&mutex_);
-        
-        memset(play_buffer_, 0, sizeof(play_buffer_));
-        play_buffer_used_ = 0;
-        
-        if (!is_recording_) {
-            OSStatus result = AudioOutputUnitStart(au_);
-            if (result != noErr) {
-                error("audio_io_ios: AudioOutputUnitStart failed: \n", result);
-                pthread_mutex_unlock(&mutex_);
-                return -1;
-            }
-        }
-        is_playing_ = true;
-        pthread_mutex_unlock(&mutex_);
-		return 0;
-    }
-    
-	bool audio_io_ios::Playing() const {
-		return is_playing_;
-	}
-    
-	int32_t audio_io_ios::StartRecording() {
-        info("audio_io_ios: StartRecording \n");
-        assert(is_recording_initialized_);
-        assert(!is_recording_);
-
-        pthread_mutex_lock(&mutex_);
-        
-        memset(rec_buffer_, 0, sizeof(rec_buffer_));
-        memset(rec_length_, 0, sizeof(rec_length_));
-        memset(rec_seq_, 0, sizeof(rec_seq_));
-        
-        rec_current_seq_ = 0;
-        rec_buffer_total_size_ = 0;
-        rec_delay_ = 0;
         if (!is_playing_) {
             OSStatus result = AudioOutputUnitStart(au_);
             if (result != noErr) {
@@ -231,56 +263,31 @@ namespace webrtc {
             }
         }
 		is_recording_ = true;
+    out:
         pthread_mutex_unlock(&mutex_);
 		return 0;
+    }
+    
+    int32_t audio_io_ios::StartRecording() {
+        if(cmdh_){
+            cmdh_(AUDIO_IO_COMMAND_START_RECORDING, arg_);
+        } else {
+            StartRecordingInternal();
+        }
+        return 0;
     }
     
 	bool audio_io_ios::Recording() const {
 		return is_recording_;
 	}
     
-	int32_t audio_io_ios::StopRecording() {
+	int32_t audio_io_ios::StopRecordingInternal() {
         pthread_mutex_lock(&mutex_);
-        info("audio_io_ios: StopRecording \n");
-        
-        if (!is_recording_initialized_ || !is_recording_) {
-            pthread_mutex_unlock(&mutex_);
-            return 0;
-        }
-        
-        if (!is_playing_) {
-            // Both playout and recording has stopped, shutdown the device.
-            shutdown_play_or_record();
-        }
-        is_recording_initialized_ = false;
-        is_recording_ = false;
-        pthread_mutex_unlock(&mutex_);
-        return 0;
-	}
-    
-	int32_t audio_io_ios::StopPlayout() {
-        pthread_mutex_lock(&mutex_);
-        info("audio_io_ios: StopPlayout \n");
-        if (!is_playing_initialized_ || !is_playing_) {
-            pthread_mutex_unlock(&mutex_);
-            return 0;
-        }
-        
         if (!is_recording_) {
-            // Both playout and recording has stopped, shutdown the device.
-            shutdown_play_or_record();
+            goto out;
         }
-        is_playing_initialized_ = false;
-        is_playing_ = false;
-        pthread_mutex_unlock(&mutex_);
-		return 0;
-	}
-    
-	int32_t audio_io_ios::Terminate() {
-        info("audio_io_ios: Terminate \n");
-        if (!initialized_) {
-            return 0;
-        }
+        info("audio_io_ios: StopRecordingInternal \n");
+        
         if (rec_tid_){
             void* thread_ret;
             
@@ -294,42 +301,152 @@ namespace webrtc {
             pthread_cond_destroy(&cond_);
         }
         
-        shutdown_play_or_record();
-        is_shut_down_ = true;
-        initialized_ = false;
+        if (!is_playing_) {
+            // Both playout and recording has stopped, shutdown the device.
+            if (nullptr != au_) {
+                OSStatus result = -1;
+                result = AudioOutputUnitStop(au_);
+                if (0 != result) {
+                    error("audio_io_ios: AudioOutputUnitStop failed: %d ", result);
+                }
+            }
+        }
+        is_recording_ = false;
+    out:
+        pthread_mutex_unlock(&mutex_);
         return 0;
 	}
     
-    int32_t audio_io_ios::ResetAudioDevice() {
+    int32_t audio_io_ios::StopRecording() {
+        info("audio_io_ios: StopRecording \n");
+        if(cmdh_){
+            cmdh_(AUDIO_IO_COMMAND_STOP_RECORDING, arg_);
+        } else {
+            StopRecordingInternal();
+        }
+        int max_wait = 0;
+        int err = 0;
+        while(is_recording_){
+            usleep(1000);
+            max_wait++;
+            info("Waiting for recording to stop !! \n");
+            if(max_wait > 1000){
+                err = -1;
+                break;
+            }
+        }
+        return err;
+    }
+    
+	int32_t audio_io_ios::StopPlayoutInternal() {
         pthread_mutex_lock(&mutex_);
+        if (!is_playing_) {
+            pthread_mutex_unlock(&mutex_);
+            return 0;
+        }
+        info("audio_io_ios: StopPlayoutInternal \n");
+        
+        if (!is_recording_) {
+            // Both playout and recording has stopped, shutdown the device.
+            if (nullptr != au_) {
+                OSStatus result = -1;
+                result = AudioOutputUnitStop(au_);
+                if (0 != result) {
+                    error("audio_io_ios: AudioOutputUnitStop failed: %d ", result);
+                }
+            }
+        }
+        is_playing_ = false;
+        pthread_mutex_unlock(&mutex_);
+		return 0;
+	}
+    
+    int32_t audio_io_ios::StopPlayout() {
+        info("audio_io_ios: StopPlayout \n");
+        if(cmdh_){
+            cmdh_(AUDIO_IO_COMMAND_STOP_PLAYOUT, arg_);
+        } else {
+            StopPlayoutInternal();
+        }
+        int max_wait = 0;
+        int err = 0;
+        while(is_playing_){
+            usleep(1000);
+            max_wait++;
+            info("Waiting for playout to stop !! \n");
+            if(max_wait > 1000){
+                err = -1;
+                break;
+            }
+        }
+        return err;
+    }
+
+	int32_t audio_io_ios::Terminate() {
+        return 0;
+    }
+    
+	int32_t audio_io_ios::TerminateInternal() {
+        info("audio_io_ios: Terminate \n");
+        pthread_mutex_lock(&mutex_);
+        if (!initialized_) {
+            pthread_mutex_unlock(&mutex_);
+            return 0;
+        }
+        shutdown_play_or_record();
+        
+        AVAudioSession* session = [AVAudioSession sharedInstance];
+        [session setPreferredSampleRate:used_sample_rate_ error:nil];
+        
+        is_shut_down_ = true;
+        initialized_ = false;
+        pthread_mutex_unlock(&mutex_);
+        return 0;
+	}
+
+    int32_t audio_io_ios::ResetAudioDevice() {
         info("audio_io_ios: ResetAudioDevice \n");
+        if(cmdh_){
+            cmdh_(AUDIO_IO_COMMAND_RESET, arg_);
+        } else {
+            ResetAudioDeviceInternal();
+        }
+        return 0;
+    }
+    
+    int32_t audio_io_ios::ResetAudioDeviceInternal() {
+        pthread_mutex_lock(&mutex_);
+        
+        info("audio_io_ios: ResetAudioDeviceInternal \n");
         
         if (!is_playing_initialized_ && !is_recording_initialized_) {
             info("audio_io_ios: Playout or recording not initialized, doing nothing \n");
             pthread_mutex_unlock(&mutex_);
-            return 0;  // Nothing to reset
+            return 0;
         }
         
+        int res(0);
+
         // Store the states we have before stopping to restart below
         bool initPlay = is_playing_initialized_;
         bool play = is_playing_;
         bool initRec = is_recording_initialized_;
         bool rec = is_recording_;
         
-        int res(0);
-        
         // Stop playout and recording
-        res += StopPlayout();
-        res += StopRecording();
+        res += StopPlayoutInternal();
+        res += StopRecordingInternal();
+        
+        shutdown_play_or_record();
+        init_play_or_record();
         
         // Restart
         if (initPlay) res += InitPlayout();
         if (initRec)  res += InitRecording();
-        if (play)     res += StartPlayout();
-        if (rec)      res += StartRecording();
+        if (play)     res += StartPlayoutInternal();
+        if (rec)      res += StartRecordingInternal();
         
         pthread_mutex_unlock(&mutex_);
-        
         return res;
     }
     
@@ -348,7 +465,6 @@ namespace webrtc {
 #else
         *available = false;
 #endif
-        
         return 0;
     }
     
@@ -364,7 +480,7 @@ namespace webrtc {
     }
     
     bool audio_io_ios::BuiltInAECIsAvailable() const {
-        return !using_stereo_playout_;
+        return !want_stereo_playout_;
     }
     
     int32_t audio_io_ios::PlayoutDeviceName(uint16_t index,
@@ -585,7 +701,11 @@ namespace webrtc {
         result = AudioUnitInitialize(au_);
         if (0 != result) {
             error("audio_io_ios: AudioUnitInitialize failed: %d \n", result);
+            return -1;
         }
+        
+        is_playing_initialized_ = true;
+        is_recording_initialized_ = true;
         
         return 0;
     }
@@ -596,10 +716,6 @@ namespace webrtc {
         // Close and delete AU.
         OSStatus result = -1;
         if (nullptr != au_) {
-            result = AudioOutputUnitStop(au_);
-            if (0 != result) {
-                error("audio_io_ios: AudioOutputUnitStop failed: %d ", result);
-            }
             result = AudioComponentInstanceDispose(au_);
             if (0 != result) {
                 error("audio_io_ios: AudioComponentInstanceDispose failed: %d \n", result);
@@ -607,11 +723,9 @@ namespace webrtc {
             au_ = nullptr;
         }
         
-        // All I/O should be stopped or paused prior to deactivating the audio
-        // session, hence we deactivate as last action.
-        AVAudioSession* session = [AVAudioSession sharedInstance];
+        is_recording_initialized_ = false;
+        is_playing_initialized_ = false;
         
-        [session setPreferredSampleRate:used_sample_rate_ error:nil];
         return 0;
     }
     
@@ -644,7 +758,6 @@ namespace webrtc {
         }
         
         // Get playout data from Audio Device Buffer
-        
         if (is_playing_) {
             unsigned int noSamp10ms = play_fs_hz_ / 100;
             int16_t dataTmp[2*noSamp10ms];
@@ -852,10 +965,11 @@ namespace webrtc {
                     update_rec_delay();
                     
                     if(audioCallback_){
-                        int32_t ret = audioCallback_->RecordedDataIsAvailable((void*)rec_buffer_[lowestSeqBufPos],
-                                                                              rec_length_[lowestSeqBufPos], 2, 1, rec_fs_hz_,
-                                                                              rec_delay_, 0,
-                                                                              currentMicLevel, false, newMicLevel);
+                        int32_t ret = audioCallback_->RecordedDataIsAvailable(
+                                            (void*)rec_buffer_[lowestSeqBufPos],
+                                            rec_length_[lowestSeqBufPos], 2, 1,
+                                            rec_fs_hz_, rec_delay_, 0,
+                                            currentMicLevel, false, newMicLevel);
                         
                         tot_rec_delivered_ += noSamp10ms;
                     }
@@ -870,9 +984,12 @@ namespace webrtc {
                 #define THRES_MAX_CALLS_PER_MS_Q10 154 // 150/sec
                 int32_t thres = ((int32_t)((1000*tot_rec_delivered_)/rec_fs_hz_) * THRES_MAX_CALLS_PER_MS_Q10) >> 10;
                 if(num_capture_worker_calls_ > thres){
-                    error("audio_io_ios: %d captureworker calls in %d s resetting audio device \n",
-                          num_capture_worker_calls_, tot_rec_delivered_/rec_fs_hz_);
-                    ResetAudioDevice(); // Need mutexes as this comes from another thread than everything else
+                    if(cmdh_){
+                        error("audio_io_ios: %d captureworker calls in %d s run time error! \n",
+                              num_capture_worker_calls_, tot_rec_delivered_/rec_fs_hz_);
+                      
+                        cmdh_(AUDIO_IO_COMMAND_RESET, arg_);
+                    }
                 }
                 tot_rec_delivered_ = 0;
                 num_capture_worker_calls_ = 0;

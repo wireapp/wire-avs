@@ -15,7 +15,6 @@
 #include <re_udp.h>
 #include <re_tcp.h>
 #include <re_sys.h>
-#include <re_net.h>
 #include <re_dns.h>
 
 
@@ -839,8 +838,6 @@ int dnsc_alloc(struct dnsc **dcpp, const struct dnsc_conf *conf,
 	       const struct sa *srvv, uint32_t srvc)
 {
 	struct dnsc *dnsc;
-	struct sa laddr4, laddr6;
-	bool ipv6 = false;
 	int err;
 
 	if (!dcpp)
@@ -859,15 +856,7 @@ int dnsc_alloc(struct dnsc **dcpp, const struct dnsc_conf *conf,
 	if (err)
 		goto out;
 
-	if (0 != net_default_source_addr_get(AF_INET, &laddr4) &&
-	    0 == net_default_source_addr_get(AF_INET6, &laddr6)) {
-
-		ipv6 = true;
-		re_printf("dns: single-stack IPv6 (%j)\n", &laddr6);
-	}
-
-	err = udp_listen(&dnsc->us, ipv6 ? &laddr6 : NULL,
-			 udp_recv_handler, dnsc);
+	err = udp_listen(&dnsc->us, NULL, udp_recv_handler, dnsc);
 	if (err)
 		goto out;
 

@@ -180,7 +180,7 @@ void normalizer_process(void *st, int16_t in[], int16_t out[], size_t L_in, size
                         ne->maxLvl -= diff * NE_ALPHA_MAX_DOWN;
                     }
                         
-                    float diff = ne->Target_vol_db - ( (float)bin + ne->Target_gain_db);
+                    float diff = ne->Target_vol_db - ( ne->maxLvl + ne->Target_gain_db);
                     if(diff > NE_HYSTERESIS_DB){
                         diff = std::min(diff, NE_MAX_INCR_DB);
                     } else if (diff < -NE_HYSTERESIS_DB){

@@ -45,6 +45,7 @@
 
 #define MAX_CLIENTS 4
 #define MAX_CONVLOOPS 1024
+#define NUM_TURN_SERVERS 4
 
 
 class Ecall;
@@ -353,8 +354,10 @@ public:
 		ASSERT_EQ(0, err);
 		ASSERT_TRUE(msys != NULL);
 
-		turn_srv = new TurnServer;
-		ASSERT_TRUE(turn_srv != NULL);
+		for (unsigned i=0; i<ARRAY_SIZE(turn_srvv); i++) {
+			turn_srvv[i] = new TurnServer;
+			ASSERT_TRUE(turn_srvv[i] != NULL);
+		}
 
 		err = mqueue_alloc(&mq, backend_mqueue_handler, this);
 		ASSERT_EQ(0, err);
@@ -374,7 +377,13 @@ public:
 		list_flush(&lst);
 		mem_deref(msys);
 		mem_deref(mq);
-		delete turn_srv;
+
+		for (unsigned i=0; i<ARRAY_SIZE(turn_srvv); i++) {
+			if (turn_srvv[i]) {
+				delete turn_srvv[i];
+				turn_srvv[i] = NULL;
+			}
+		}
 
 		for (size_t i=0; i<loopc; i++) {
 
@@ -520,7 +529,7 @@ public:
 		}
 	}
 
-	static void conn_handler(const char *userid_sender,
+	static void conn_handler(uint32_t msg_time, const char *userid_sender,
 				 bool video_call, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
@@ -548,19 +557,8 @@ public:
 		}
 	}
 
-	static void missed_handler(uint32_t msg_time,
-				   const char *userid_sender,
-				   bool video_call, void *arg)
-	{
-		struct client *cli = (struct client *)arg;
-
-		info("[%s.%s] missed %s call from \"%s\" at: %u\n",
-		     cli->userid, cli->clientid,
-		     video_call ? "video" : "audio",
-		     userid_sender, msg_time);
-	}
-
-	static void audio_estab_handler(void *arg, bool update)
+	static void audio_estab_handler(struct ecall *ecall,
+					bool update, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
 		struct conv_loop *loop = cli->loop;
@@ -579,7 +577,8 @@ public:
 		}
 	}
 
-	static void media_estab_handler(void *arg, bool update)
+	static void media_estab_handler(struct ecall *ecall,
+					bool update, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
 		struct conv_loop *loop = cli->loop;
@@ -639,7 +638,8 @@ public:
 		}
 	}
 
-	static void close_handler(int err, const char *metrics_json, void *arg)
+	static void close_handler(int err, const char *metrics_json, struct ecall* ecall, 
+		uint32_t msg_time, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
 		Ecall *fix = cli->fix;
@@ -680,12 +680,12 @@ public:
 	}
 
 	static int transp_send_handler(const char *userid_sender,
-				       const char *msg, void *arg)
+				       struct econn_message *msg, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
 		struct conv_loop *loop = cli->loop;
 		struct be_msg *be_msg;
-		struct econn_message *econn_msg = 0;
+		char *buf;
 		Ecall *fix = cli->fix;
 		unsigned i;
 		int err = 0;
@@ -711,22 +711,20 @@ public:
 			return ENOMEM;
 
 		be_msg->cli_sender = cli;
+		err = econn_message_encode(&buf, msg);
+		if (err)
+			goto out;
+		
+		be_msg->msg = buf;
+
 		err |= str_dup(&be_msg->userid_sender, userid_sender);
-		err |= str_dup(&be_msg->msg, msg);
 		str_ncpy(be_msg->convid, loop->convid,
 			 sizeof(be_msg->convid));
 
 		list_append(&fix->pendingl, &be_msg->le, be_msg);
 
-		err = econn_message_decode(&econn_msg, 0, 0,
-					   msg, str_len(msg));
-		if (err) {
-			warning("decode error\n");
-			goto out;
-		}
-
 		/* Count number of messages send via Backend */
-		switch (econn_msg->msg_type) {
+		switch (msg->msg_type) {
 
 		case ECONN_SETUP:
 			++fix->n_setup;
@@ -746,7 +744,8 @@ public:
 			goto out;
 
 	out:
-		mem_deref(econn_msg);
+		if (err)
+			mem_deref(buf);
 		return err;
 	}
 
@@ -778,7 +777,7 @@ public:
 		mem_deref(str);
 	}
 
-	void prepare_ecalls(struct conv_loop *loop, enum mediaflow_nat nat)
+	void prepare_ecalls(struct conv_loop *loop)
 	{
 		struct ecall_conf conf;
 		unsigned i;
@@ -788,7 +787,7 @@ public:
 		memset(&conf, 0, sizeof(conf));
 		conf.econf.timeout_setup = 60000;
 		conf.econf.timeout_term = 5000;
-		conf.nat = nat;
+		//conf.nat = nat;
 #if 0
 		conf.trace = 1;
 #endif
@@ -808,7 +807,6 @@ public:
 					  cli->userid, cli->clientid,
 					  conn_handler,
 					  NULL,
-					  missed_handler,
 					  media_estab_handler,
 					  audio_estab_handler,
 					  datachan_estab_handler,
@@ -821,19 +819,25 @@ public:
 
 		/* Add a fake TURN-Server */
 		for (i=0; i<loop->num_clients; i++) {
+
+			struct client *cli = &loop->clients[i];
+
 			if (!loop->clients[i].ecall)
 				continue;
 
-			err = ecall_set_turnserver(loop->clients[i].ecall,
-						   &turn_srv->addr,
-						   "user", "pass");
-			ASSERT_EQ(0, err);
+			for (unsigned j=0; j<ARRAY_SIZE(turn_srvv); j++) {
+
+				err = ecall_set_turnserver(cli->ecall,
+							   &turn_srvv[j]->addr,
+							   "user", "pass");
+				ASSERT_EQ(0, err);
+			}
 		}
 	}
 
-	void test_base(struct conv_loop *loop, enum mediaflow_nat nat)
+	void test_base(struct conv_loop *loop)
 	{
-		prepare_ecalls(loop, nat);
+		prepare_ecalls(loop);
 
 #if 0
 		/* Send a "fake" CANCEL from B to A */
@@ -876,7 +880,7 @@ public:
 	struct tmr tmr_restart;
     
 protected:
-	TurnServer *turn_srv = nullptr;
+	TurnServer *turn_srvv[NUM_TURN_SERVERS] = {nullptr};
 	struct list lst = LIST_INIT;
 	struct msystem *msys = nullptr;
 	struct mqueue *mq = nullptr;
@@ -1001,7 +1005,7 @@ TEST_F(Ecall, check_audio_estabh)
 	a1->action_close = ACTION_TEST_COMPLETE;
 	//b1->action_close = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1037,7 +1041,7 @@ TEST_F(Ecall, transport_error)
 	conv->clients[0].action_close = ACTION_TEST_COMPLETE;
 
 	transp_err = EIO;
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1066,7 +1070,7 @@ TEST_F(Ecall, a_calling_b_no_answer)
 	exp_total_conn = 2;
 	conv->clients[0].action_conn = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1106,7 +1110,7 @@ TEST_F(Ecall, a_calling_b_and_b1_answer)
 	exp_total_datachan_estab = 2;
 	conv->clients[0].action_destab = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1162,7 +1166,7 @@ TEST_F(Ecall, a_calling_b_and_both_answer)
 	exp_total_datachan_estab = 2;
 	a1->action_destab = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1213,7 +1217,7 @@ TEST_F(Ecall, no_answer_and_no_dtls_packets)
 
 	conv->clients[2].action_conn = ACTION_DELAY_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1274,7 +1278,7 @@ TEST_F(Ecall, hundreds_of_calls_in_parallel)
 
 		conv->clients[2].action_close = ACTION_TEST_COMPLETE;
 
-		test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+		test_base(conv);
 	}
 
 	/* Wait .. */
@@ -1324,7 +1328,7 @@ TEST_F(Ecall, flow001)
 	a1->action_destab = ACTION_TEST_COMPLETE;
 	b2->action_destab = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1379,7 +1383,7 @@ TEST_F(Ecall, flow002)
 	exp_total_close = 2;
 	b2->action_close = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1439,7 +1443,7 @@ TEST_F(Ecall, flow003)
 	b1->action_close = ACTION_TEST_COMPLETE;
 	b2->action_close = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1502,7 +1506,7 @@ TEST_F(Ecall, flow004)
 	b1->action_close = ACTION_TEST_COMPLETE;
 	b2->action_close = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1568,7 +1572,7 @@ TEST_F(Ecall, flow006)
 	b1->action_close = ACTION_TEST_COMPLETE;
 	b2->action_close = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1633,7 +1637,7 @@ TEST_F(Ecall, hangup_before_datachannel)
 	a2->action_close = ACTION_TEST_COMPLETE;
 	b1->action_close = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(15000);
@@ -1682,7 +1686,7 @@ TEST_F(Ecall, flow007)
 	exp_total_datachan_estab = 2;
 	a1->action_destab = ACTION_TEST_COMPLETE;
 
-	prepare_ecalls(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	prepare_ecalls(conv);
 
 	/* Call from A to B */
 	err = ecall_start(a1->ecall);
@@ -1745,7 +1749,7 @@ TEST_F(Ecall, flow007_check_audio_estabh)
 	exp_total_audio_estab = 2;
 	a1->action_aestab = ACTION_TEST_COMPLETE;
 
-	prepare_ecalls(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	prepare_ecalls(conv);
 
 	/* Call from A to B */
 	err = ecall_start(a1->ecall);
@@ -1811,7 +1815,7 @@ TEST_F(Ecall, flow008)
 	exp_total_close = 2;
 	b2->action_close = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1819,7 +1823,7 @@ TEST_F(Ecall, flow008)
 
 	// todo: check if we need this?
 	b2->ecall = (struct ecall *)mem_deref(b2->ecall);
-	prepare_ecalls(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	prepare_ecalls(conv);
 
 	/* Call from B to A */
 	err = ecall_start(b2->ecall);
@@ -1886,7 +1890,7 @@ TEST_F(Ecall, flow014)
 	a1->action_destab = ACTION_TEST_COMPLETE;
 	b2->action_destab = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1916,6 +1920,7 @@ TEST_F(Ecall, flow014)
 	ASSERT_EQ(0, n_cancel);
 }
 
+#if 0
 TEST_F(Ecall, propsync)
 {
 	struct client *a1, *b1;
@@ -1936,7 +1941,7 @@ TEST_F(Ecall, propsync)
 	exp_total_propsyncs = 4;
 	a1->action_destab = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -1963,6 +1968,7 @@ TEST_F(Ecall, propsync)
 	ASSERT_EQ(3, a1->n_propsync);
 	ASSERT_EQ(3, b1->n_propsync);
 }
+#endif
 
 TEST_F(Ecall, ice)
 {
@@ -1993,7 +1999,7 @@ TEST_F(Ecall, ice)
 
 	b2->action_close = ACTION_TEST_COMPLETE;
 
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
 
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -2040,7 +2046,7 @@ TEST_F(Ecall, audio_io_error)
 	b1->action_close = ACTION_TEST_COMPLETE;
 	b2->action_close = ACTION_TEST_COMPLETE;
     
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
     
 	/* Wait .. */
 	err = re_main_wait(10000);
@@ -2088,7 +2094,7 @@ TEST_F(Ecall, restart)
     
 	b2->action_close = ACTION_TEST_COMPLETE;
     
-	test_base(conv, MEDIAFLOW_TRICKLEICE_DUALSTACK);
+	test_base(conv);
     
 	/* Wait .. */
 	err = re_main_wait(10000);

@@ -128,7 +128,7 @@ static void econn_update_req_handler(struct econn *econn,
 static void econn_update_resp_handler(struct econn *conn,
                                       const char *sdp,
                                       struct econn_props *props, void *arg);
-static void econn_close_handler(struct econn *econn, int err, void *arg);
+static void econn_close_handler(struct econn *econn, int err, uint32_t msg_time, void *arg);
 static int transp_send_handler(struct econn *call,
 			       struct econn_message *msg, void *arg);
 static int datachannel_send(struct econn *conn,
@@ -345,7 +345,7 @@ static void client_recv(struct client *cli,
 			if (cli->econn &&
 		   econn_current_state(cli->econn) == ECONN_PENDING_INCOMING) {
 
-				econn_close(cli->econn, ECANCELED);
+				econn_close(cli->econn, ECANCELED, ECONN_MESSAGE_TIME_UNKNOWN);
 			}
 			else {
 				info("no pending incoming econns\n");
@@ -798,7 +798,7 @@ static void econn_update_resp_handler(struct econn *conn,
     
 }
 
-static void econn_close_handler(struct econn *econn, int err, void *arg)
+static void econn_close_handler(struct econn *econn, int err, uint32_t msg_time, void *arg)
 {
 	struct client *cli = (struct client *)arg;
 

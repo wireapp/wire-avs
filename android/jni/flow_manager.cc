@@ -404,7 +404,7 @@ void *flowmgr_thread(void *arg)
 	/* Force the loading of wcall symbols! 
 	 * Can't this be done with a linker directive?
 	 */
-	wcall_set_ice_servers(NULL, 0);
+	wcall_get_members(NULL);
 
 	err = libre_init();
 	if (err) {

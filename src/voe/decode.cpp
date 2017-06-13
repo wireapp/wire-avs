@@ -56,13 +56,10 @@ static void ads_destructor(void *arg)
 	voe_dec_stop(ads);
 
 	list_unlink(&ads->le);
-    
-	mem_deref(ads->ve);
 }
 
 
 int voe_dec_alloc(struct audec_state **adsp,
-		  struct media_ctx **mctxp,
 		  const struct aucodec *ac,
 		  const char *fmtp,
 		  struct aucodec_param *prm,
@@ -72,7 +69,7 @@ int voe_dec_alloc(struct audec_state **adsp,
 	struct audec_state *ads;
 	int err = 0;
 
-	if (!adsp || !ac || !mctxp) {
+	if (!adsp || !ac) {
 		return EINVAL;
 	}
 
@@ -82,23 +79,13 @@ int voe_dec_alloc(struct audec_state **adsp,
 	if (!ads)
 		return ENOMEM;
 
-	if (*mctxp) {
-		ads->ve = (struct voe_channel *)mem_ref(*mctxp);
-	}
-	else {
-		err = voe_ve_alloc(&ads->ve, ac, prm->srate, prm->pt);
-		if (err) {
-			goto out;
-		}
-
-		*mctxp = (struct media_ctx *)ads->ve;
-	}
-
 	list_append(&gvoe.decl, &ads->le, ads);
 
 	ads->ac = ac;
 	ads->errh = errh;
 	ads->arg = arg;
+	ads->srate = prm->srate;
+	ads->pt = prm->pt;
     
  out:
 	if (err) {
@@ -112,18 +99,29 @@ int voe_dec_alloc(struct audec_state **adsp,
 }
 
 
-int voe_dec_start(struct audec_state *ads)
+int voe_dec_start(struct audec_state *ads,
+		  struct media_ctx **mctxp)
 {
-	int ret = 0;
-	if (!ads)
+	int err = 0;
+	if (!ads || !mctxp)
 		return EINVAL;
 
 	info("voe: starting decoder\n");
 
+	if (*mctxp) {
+		ads->ve = (struct voe_channel *)mem_ref(*mctxp);
+	} else {
+		err = voe_ve_alloc(&ads->ve, ads->ac, ads->srate, ads->pt);
+		if (err) {
+			goto out;
+		}
+		*mctxp = (struct media_ctx *)ads->ve;
+	}
+    
 	webrtc::CodecInst c;
     
-	ret = gvoe.base->StartReceive(ads->ve->ch);
-	ret += gvoe.base->StartPlayout(ads->ve->ch);
+	err = gvoe.base->StartReceive(ads->ve->ch);
+	err += gvoe.base->StartPlayout(ads->ve->ch);
 
 	gvoe.codec->GetSendCodec(ads->ve->ch, c);
 
@@ -141,16 +139,16 @@ int voe_dec_start(struct audec_state *ads)
 	gvoe.processing->SetRxNsStatus(ads->ve->ch, true,  ZETA_RCV_NS_MODE);
 #endif
 
-	if(ret){
-		ret = EIO;
+	if(err){
+		err = EIO;
 	}
-    
-	return ret;
+out:
+	return err;
 }
 
 void voe_dec_stop(struct audec_state *ads)
 {
-	if (!ads)
+	if (!ads || !ads->ve)
 		return;
 
 	info("voe: stopping decoder\n");
@@ -182,5 +180,5 @@ void voe_dec_stop(struct audec_state *ads)
 					      NSmode);
 	}
 #endif
-
+	ads->ve = (struct voe_channel *)mem_deref(ads->ve);
 }

@@ -76,10 +76,16 @@ struct auenc_state {
 	auenc_rtcp_h *rtcph;
 	auenc_err_h *errh;
 	void *arg;
+    
+	uint32_t local_ssrc;
+	uint32_t remote_ssrc;
+	uint8_t  pt;
+	uint32_t srate;
+	uint8_t  ch;
+	bool cbr;
 };
 
 int voe_enc_alloc(struct auenc_state **aesp,
-			struct media_ctx **mctxp,
 			const struct aucodec *ac, const char *fmtp,
 			struct aucodec_param *prm,
 			auenc_rtp_h *rtph,
@@ -87,7 +93,7 @@ int voe_enc_alloc(struct auenc_state **aesp,
 			auenc_err_h *errh,
 			void *arg);
 
-int  voe_enc_start(struct auenc_state *aes);
+int  voe_enc_start(struct auenc_state *aes, struct media_ctx **mctxp);
 void voe_enc_stop(struct auenc_state *aes);
 
 /* decoder */
@@ -101,17 +107,19 @@ struct audec_state {
 	audec_err_h *errh;
     
 	void *arg;
+    
+	uint8_t  pt;
+	uint32_t srate;
 };
 
 int  voe_dec_alloc(struct audec_state **adsp,
-			struct media_ctx **mctxp,
 			const struct aucodec *ac,
 			const char *fmtp,
 			struct aucodec_param *prm,
 			audec_err_h *errh,
 			void *arg);
 
-int  voe_dec_start(struct audec_state *ads);
+int  voe_dec_start(struct audec_state *ads, struct media_ctx **mctxp);
 int  voe_get_stats(struct audec_state *ads, struct aucodec_stats *new_stats);
 void voe_dec_stop(struct audec_state *ads);
 void voe_calculate_stats(int ch);
@@ -123,10 +131,10 @@ void voe_start_rtp_dump(struct voe_channel *ve);
 
 /* Audio Testing */
 struct audio_test_state {
-    int test_score;
-    bool is_running;
-    webrtc::fake_audiodevice *fad;
-    class VoEAudioOutputAnalyzer *output_analyzer;
+	int test_score;
+	bool is_running;
+	struct audio_io *aio;
+	class VoEAudioOutputAnalyzer *output_analyzer;
 };
 
 void voe_init_audio_test(struct audio_test_state *autest);
@@ -252,9 +260,9 @@ struct voe {
     
 	struct audio_test_state autest;
     
-	webrtc::AudioDeviceModule* adm;
+	struct audio_io *aio;
 
-    class VoEAudioEffect *voe_audio_effect;
+	class VoEAudioEffect *voe_audio_effect;
     
 	struct {
 		flowmgr_audio_state_change_h *chgh;

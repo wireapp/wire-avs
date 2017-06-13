@@ -267,23 +267,6 @@ int flowmgr_start(void)
 }
 
 
-void flowmgr_enable_loopback(bool enable)
-{
-	msystem_enable_loopback(fsys.msys, enable);
-}
-
-
-void flowmgr_bind_interface(const char *ifname)
-{
-	if (!ifname)
-		return;
-
-	info("flowmgr: binding to network interface '%s'\n", ifname);
-
-	msystem_set_ifname(fsys.msys, ifname);
-}
-
-
 struct call *flowmgr_call(struct flowmgr *fm, const char *convid)
 {
 	struct call *call;

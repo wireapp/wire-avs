@@ -16,31 +16,25 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <re.h>
-#include <avs.h>
-#include <avs_wcall.h>
-#include <gtest/gtest.h>
+#ifndef AVS_IO_CLASS_H_
+#define AVS_IO_CLASS_H_
 
+#include "avs_audio_io.h"
+#include "webrtc/modules/audio_device/include/audio_device.h"
 
-TEST(wcall, init_and_no_close)
-{
-	int err;
+namespace webrtc {
+    class audio_io_class : public AudioDeviceModule {
+    public:
+        virtual int32_t InitInternal() = 0;
 
-	err = wcall_init("abc", "123", NULL, NULL, NULL,
-			 NULL, NULL, NULL, NULL, NULL, NULL);
-	ASSERT_EQ(0, err);
-
-	wcall_close();
-
-	/* Extra close, should not crash! */
-	wcall_close();
+        virtual int32_t TerminateInternal() = 0;
+        
+        virtual int32_t RegisterCommandHandler(audio_io_command_h *cmdh, void *arg) = 0;
+        
+        virtual int32_t HandleCommand(enum audio_io_command cmd) = 0;
+        
+        virtual int32_t EnableSine() = 0;
+    };
 }
 
-
-TEST(wcall, only_close)
-{
-	wcall_close();
-	wcall_close();
-	wcall_close();
-	wcall_close();
-}
+#endif

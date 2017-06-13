@@ -45,6 +45,7 @@ struct turn_conn {
 	struct udp_sock *us_app;    // todo: remove?
 	struct udp_sock *us_turn;
 	struct stun_keepalive *ska;
+	struct tmr tmr_delay;
 	char *username;
 	char *password;
 	int af;
@@ -53,6 +54,7 @@ struct turn_conn {
 	bool turn_allocated;
 	int layer_stun;
 	int layer_turn;
+	uint32_t delay;
 	turnconn_estab_h *estabh;
 	turnconn_data_h *datah;
 	turnconn_error_h *errorh;

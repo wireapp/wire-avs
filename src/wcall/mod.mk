@@ -4,4 +4,5 @@
 
 
 AVS_SRCS += \
-	wcall/wcall.c
+	wcall/wcall.c \
+	wcall/marshal.c

@@ -3,7 +3,8 @@
 #
 
 AVS_SRCS += \
-	audio_io/fake_audiodevice.cpp
+    audio_io/audio_io.cpp \
+	audio_io/mock/fake_audiodevice.cpp
 
 ifeq ($(AVS_OS),ios)
 
