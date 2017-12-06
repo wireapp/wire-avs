@@ -91,7 +91,6 @@ struct vidcodec {
 	const char *name;
 	const char *variant;
 	const char *fmtp;
-	bool has_rtp;
 
 	videnc_alloc_h *enc_alloch;
 	videnc_start_h *enc_starth;

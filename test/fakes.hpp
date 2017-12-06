@@ -124,7 +124,7 @@ public:
 	std::map<std::string, std::shared_ptr<Token> > tokens;
 	bool chunked = false;
 
-	// todo: only 1 Websock connection for now
+	// XXX: only 1 Websock connection for now
 	struct websock *ws = nullptr;
 	struct websock_conn *ws_conn = nullptr;
 

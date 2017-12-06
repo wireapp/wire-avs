@@ -163,7 +163,7 @@ static int BWE_unit_test(
         
         size_t payload_length = packetLen - header.headerLength;
         
-        bwe.IncomingPacket( time, payload_length, header, true);
+        bwe.IncomingPacket( time, payload_length, header);
     }
     
     bwo.GetStats(stats);

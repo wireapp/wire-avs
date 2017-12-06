@@ -38,6 +38,8 @@ const char *econn_msg_name(enum econn_msg msg)
 	case ECONN_GROUP_LEAVE:		return "GROUPLEAVE";
 	case ECONN_GROUP_CHECK:		return "GROUPCHECK";
 	case ECONN_GROUP_SETUP:		return "GROUPSETUP";
+	case ECONN_DEVPAIR_PUBLISH:     return "DEVPAIR_PUBLISH";
+	case ECONN_DEVPAIR_ACCEPT:      return "DEVPAIR_ACCEPT";
 	default:            return "???";
 	}
 }
@@ -76,6 +78,17 @@ const char *econn_dir_name(enum econn_dir dir)
 }
 
 
+const char *econn_transp_name(enum econn_transport tp)
+{
+	switch (tp) {
+
+	case ECONN_TRANSP_BACKEND:    return "Backend";
+	case ECONN_TRANSP_DIRECT:     return "Direct";
+	default:                      return "???";
+	}
+}
+
+
 bool econn_iswinner(const char *userid_self, const char *clientid,
 		    const char *userid_remote, const char *clientid_remote)
 {
@@ -101,4 +114,28 @@ bool econn_is_creator(const char *userid_self, const char *userid_remote,
 	return 0 != str_casecmp(userid_self, userid_remote) &&
 		econn_message_isrequest(msg) &&
 		msg->msg_type == ECONN_SETUP;
+}
+
+
+enum econn_transport econn_transp_resolve(enum econn_msg type)
+{
+	switch (type) {
+
+	case ECONN_SETUP:		return ECONN_TRANSP_BACKEND;
+	case ECONN_CANCEL:		return ECONN_TRANSP_BACKEND;
+	case ECONN_UPDATE:		return ECONN_TRANSP_BACKEND;
+	case ECONN_HANGUP:		return ECONN_TRANSP_DIRECT;
+	case ECONN_PROPSYNC:		return ECONN_TRANSP_DIRECT;
+	case ECONN_GROUP_START:		return ECONN_TRANSP_BACKEND;
+	case ECONN_GROUP_LEAVE:		return ECONN_TRANSP_BACKEND;
+	case ECONN_GROUP_CHECK:		return ECONN_TRANSP_BACKEND;
+	case ECONN_GROUP_SETUP:		return ECONN_TRANSP_BACKEND;
+	case ECONN_DEVPAIR_PUBLISH:     return ECONN_TRANSP_BACKEND;
+	case ECONN_DEVPAIR_ACCEPT:      return ECONN_TRANSP_BACKEND;
+
+	default:
+		warning("econn: transp_resolv: message type %d"
+			" not supported\n", type);
+		return (enum econn_transport)-1;
+	}
 }

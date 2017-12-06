@@ -38,6 +38,7 @@ extern "C" {
 #include "avs_conf_pos.h"
 #include "avs_dict.h"
 #include "avs_jzon.h"
+#include "avs_kase.h"
 #include "avs_log.h"
 #include "avs_aucodec.h"
 #include "avs_media.h"
@@ -55,6 +56,7 @@ extern "C" {
 
 #include "avs_rest.h"
 #include "avs_flowmgr.h"
+#include "avs_config.h"
 #include "avs_mill.h"
 #include "avs_engine.h"
 #include "avs_netprobe.h"
@@ -73,6 +75,15 @@ extern "C" {
 #include "avs_audio_effect.h"
     
 #include "avs_dce.h"
+
+#ifdef HAVE_CRYPTOBOX
+#include "avs_cryptobox.h"
+#endif
+
+#ifdef HAVE_PROTOBUF
+#include "avs_protobuf.h"
+#endif
+
     
 #ifdef __cplusplus
 }

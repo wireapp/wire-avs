@@ -159,11 +159,14 @@ static int enc_alloc(struct auenc_state **aesp,
 
 
 static int audummy_start(struct auenc_state *aes,
-		     struct media_ctx **mctxp)
+			 bool cbr,
+			 struct media_ctx **mctxp)
 {
 	if (!aes || !mctxp)
 		return EINVAL;
 
+	(void)cbr;
+	
 	if(audummy.force_error)
 		return EIO;
     
@@ -257,7 +260,6 @@ static struct aucodec audummy_aucodecv[NUM_CODECS] = {
 		.srate     = 48000,
 		.ch        = 2,
 		.fmtp      = "stereo=0;sprop-stereo=0",
-		.has_rtp   = true,
 
 		.enc_alloc = enc_alloc,
 

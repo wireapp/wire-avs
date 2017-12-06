@@ -96,9 +96,42 @@
 #define DATA_CHANNEL_MAX_PROTOCOL_STR_LEN 128
 
 
+#define PAYLOAD_MAGIC 0x60504030
+
+
+enum mq_type {
+	ESTAB,
+	CH_ESTAB,
+	CH_OPEN,
+	CH_CLOSE,
+	CH_DATA
+};
+
+struct payload {
+	struct le le;
+	enum mq_type type;
+	struct dce *dce;           /* pointer */
+	struct dce_channel *ch;    /* pointer */
+	uint32_t magic;
+
+	union {
+		struct {
+			uint16_t sid;
+		} chopen;
+
+		struct {
+			uint8_t *buf;
+			size_t len;
+		} chdata;
+	} v;
+};
+
+
 static struct {
 	struct lock *lock;
 	struct list dcel;
+	struct list pendingl;
+	struct mqueue *mqueue;
 } g_dce = {
 	.lock = NULL
 };
@@ -209,6 +242,48 @@ struct sctp_header {
 	uint32_t vtag;
 	uint32_t checksum;
 };
+
+
+/*
+ * Mqueue payload
+ */
+
+static void payload_destructor(void *arg)
+{
+	struct payload *pld = arg;
+
+	list_unlink(&pld->le);
+
+	switch (pld->type) {
+
+	case CH_DATA:
+		mem_deref(pld->v.chdata.buf);
+		break;
+
+	default:
+		break;
+	}
+}
+
+
+static struct payload *payload_new(struct dce *dce, struct dce_channel *ch,
+				   enum mq_type type)
+{
+	struct payload *pld;
+
+	pld = mem_zalloc(sizeof(*pld), payload_destructor);
+	if (!pld)
+		return NULL;
+
+	pld->magic = PAYLOAD_MAGIC;
+	pld->type = type;
+	pld->dce = dce;
+	pld->ch = ch;
+
+	list_append(&g_dce.pendingl, &pld->le, pld);
+
+	return pld;
+}
 
 
 static bool exist_dce(struct list *dcel, struct dce *dce)
@@ -619,7 +694,7 @@ open_channel(struct peer_connection *pc, uint8_t unordered, uint16_t pr_policy, 
 }
 
 static int
-send_user_message(struct peer_connection *pc, struct channel *channel, char *message, size_t length)
+send_user_message(struct peer_connection *pc, struct channel *channel, const void *message, size_t length)
 {
 	struct sctp_sendv_spa spa;
 
@@ -657,10 +732,10 @@ send_user_message(struct peer_connection *pc, struct channel *channel, char *mes
 	                  NULL, 0,
 	                  &spa, (socklen_t)sizeof(struct sctp_sendv_spa),
 	                  SCTP_SENDV_SPA, 0) < 0) {
-		warning("dce: sctp_sendv \n");
-		return (0);
+		warning("dce: sctp_sendv failed \n");
+		return -1;
 	} else {
-		return (1);
+		return 0;
 	}
 }
 
@@ -885,11 +960,17 @@ handle_open_request_message(struct dce *dce,
 		ch = get_dce_channel(dce, channel->label);
 
 		if(ch){
+			struct payload *pld;
+
 			ch->id = channel->id;
-			if(ch->openh){
-				ch->openh(channel->o_stream, channel->label,
-							channel->protocol, ch->arg);
-			}
+
+			pld = payload_new(dce, ch, CH_OPEN);
+			if (!pld)
+				return;
+
+			pld->v.chopen.sid = channel->o_stream;
+
+			mqueue_push(g_dce.mqueue, pld->type, pld);
 		}
 	}
 }
@@ -919,11 +1000,17 @@ handle_open_ack_message(struct dce *dce,
 	struct dce_channel *ch = NULL;
 	ch = get_dce_channel(dce, channel->label);
 	if(ch) {
+		struct payload *pld;
+
 		ch->id = channel->id;
-		if (ch->openh){
-			ch->openh(channel->i_stream, channel->label,
-				  channel->protocol, ch->arg);
-		}
+
+		pld = payload_new(dce, ch, CH_OPEN);
+		if (!pld)
+			return;
+
+		pld->v.chopen.sid = channel->i_stream;
+
+		mqueue_push(g_dce.mqueue, pld->type, pld);
 	}
 	return;
 }
@@ -963,11 +1050,21 @@ handle_data_message(struct dce *dce,
 
 		struct dce_channel *ch = NULL;
 		ch = get_dce_channel(dce, channel->label);
-		if(ch && ch->datah){
-			ch->datah(channel->id, (uint8_t *)buffer, length,
-				ch->arg);
+
+		if (ch) {
+			struct payload *pld;
+
+			pld = payload_new(dce, ch, CH_DATA);
+			if (!pld)
+				return;
+
+			pld->v.chdata.buf = mem_alloc(length, NULL);
+			memcpy(pld->v.chdata.buf, buffer, length);
+			pld->v.chdata.len = length;
+
+			mqueue_push(g_dce.mqueue, pld->type, pld);
 		}
-        
+
 		lock_peer_connection(&dce->pc);		
 
 		/* Assuming DATA_CHANNEL_PPID_DOMSTRING */
@@ -1040,15 +1137,22 @@ handle_association_change_event(struct dce *dce,
             
 		if (dce) {            
 			struct le *le;
-			
-			if(dce->estabh)
-				dce->estabh(dce->arg);
+			struct payload *pld;
+
+			pld = payload_new(dce, NULL, ESTAB);
+			if (!pld)
+				return;
+
+			mqueue_push(g_dce.mqueue, pld->type, pld);
 
 			LIST_FOREACH(&dce->channell, le) {
 				struct dce_channel *ch = le->data;
                 
-				if (ch->estabh)
-					ch->estabh(ch->arg);
+				pld = payload_new(dce, ch, CH_ESTAB);
+				if (!pld)
+					return;
+
+				mqueue_push(g_dce.mqueue, pld->type, pld);
 			}
 		}
 		lock_peer_connection(&dce->pc);		
@@ -1259,9 +1363,15 @@ handle_stream_reset_event(struct dce *dce, struct sctp_stream_reset_event *strrs
 		if (channel && channel->state == DATA_CHANNEL_CLOSED) {
 			struct dce_channel *ch = NULL;
 			ch = get_dce_channel(dce, channel->label);
-			if(ch && ch->closeh){
-				ch->closeh(channel->id, channel->label,
-					   channel->protocol, ch->arg);
+
+			if (ch) {
+				struct payload *pld;
+
+				pld = payload_new(dce, ch, CH_CLOSE);
+				if (!pld)
+					return;
+
+				mqueue_push(g_dce.mqueue, pld->type, pld);
 			}
 		}
 	}
@@ -1713,7 +1823,7 @@ void dce_recv_pkt(struct dce *dce, const uint8_t *pkt, size_t len)
 }
 
 
-int dce_send(struct dce *dce, struct dce_channel *ch, const char *data, size_t len)
+int dce_send(struct dce *dce, struct dce_channel *ch, const void *data, size_t len)
 {
 	if (!dce || !ch)
 		return EINVAL;
@@ -1725,12 +1835,12 @@ int dce_send(struct dce *dce, struct dce_channel *ch, const char *data, size_t l
 	
 	lock_peer_connection(&dce->pc);
 	dce->snd_dry_event = false;
-	send_user_message(&dce->pc,
+	int ret = send_user_message(&dce->pc,
 			  &dce->pc.channels[ch->id],
-			  (char *)data, len);
+			  data, len);
 	unlock_peer_connection(&dce->pc);
 
-	return 0;
+	return ret;
 }
 
 bool dce_snd_dry(struct dce *dce)
@@ -1834,16 +1944,96 @@ static int usrsctp_send_handler(void *addr, void *buf, size_t len,
 }
 
 
+static void dce_mqueue_handler(int id, void *data, void *arg)
+{
+	struct payload *pld = data;
+	struct dce_channel *ch;
+	bool valid;
+	(void)arg;
+
+	info("dce: mqueue_handler:  id=%d <dce=%p>\n", id, pld->dce);
+
+	if (PAYLOAD_MAGIC != pld->magic) {
+		warning("dce: invalid payload magic\n");
+		return;
+	}
+
+	lock_write_get(g_dce.lock);
+	valid = exist_dce(&g_dce.dcel, pld->dce);
+	lock_rel(g_dce.lock);
+
+	if (!valid) {
+		warning("dce: mqueue_recv: dce(%p) not valid\n", pld->dce);
+		goto out;
+	}
+
+	ch = pld->ch;
+
+	switch (id) {
+
+	case ESTAB:
+		if (pld->dce->estabh)
+			pld->dce->estabh(pld->dce->arg);
+		break;
+
+	case CH_ESTAB:
+		if (ch->estabh)
+			ch->estabh(ch->arg);
+		break;
+
+	case CH_OPEN:
+		if (ch->openh) {
+			ch->openh(pld->v.chopen.sid, ch->label,
+				  ch->protocol, ch->arg);
+		}
+		break;
+
+	case CH_CLOSE:
+		if (ch && ch->closeh) {
+			ch->closeh(ch->id, ch->label,
+				   ch->protocol, ch->arg);
+		}
+
+		break;
+
+	case CH_DATA:
+		if (ch->datah) {
+			ch->datah(ch->id,
+				  pld->v.chdata.buf, pld->v.chdata.len,
+				  ch->arg);
+		}
+		break;
+
+	default:
+		warning("dce: mqueue: ignored event %d\n", id);
+		break;
+	}
+
+ out:
+	mem_deref(pld);
+}
+
+
 int dce_init(void)
 {
+	int err;
+
 	debug("dce_init: inited=%d\n", dce_inited);
 	
 	if (dce_inited)
 		return 0;
 
 	memset(&g_dce, 0, sizeof(g_dce));
-	lock_alloc(&g_dce.lock);
+
 	list_init(&g_dce.dcel);
+
+	err = lock_alloc(&g_dce.lock);
+	if (err)
+		return err;
+
+	err = mqueue_alloc(&g_dce.mqueue, dce_mqueue_handler, NULL);
+	if (err)
+		return err;
 
 	usrsctp_init(0, usrsctp_send_handler, debug_printf);
     
@@ -1867,6 +2057,15 @@ void dce_close(void)
 	}
 
 	mem_deref(g_dce.lock);
+
+	g_dce.mqueue = mem_deref(g_dce.mqueue);
+
+	if (!list_isempty(&g_dce.pendingl)) {
+		debug("dce: flush pending events: %u\n",
+			  list_count(&g_dce.pendingl));
+	}
+	list_flush(&g_dce.pendingl);
+
 	dce_inited = false;	
 }
 

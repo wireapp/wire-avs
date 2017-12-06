@@ -56,7 +56,6 @@ static struct vidcodec vie_vidcodecv[NUM_CODECS] = {
 		.name = "VP8",
 		.variant = NULL,
 		.fmtp = NULL,
-		.has_rtp = true,
 
 		.enc_alloch   = vie_enc_alloc,
 		.enc_starth   = vie_capture_start,
@@ -82,7 +81,6 @@ static struct vidcodec vie_vidcodecv[NUM_CODECS] = {
 		.name = "rtx",
 		.variant = NULL,
 		.fmtp = NULL,
-		.has_rtp = true,
 
 		.enc_alloch   = NULL,
 		.enc_starth   = NULL,

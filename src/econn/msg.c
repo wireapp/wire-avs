@@ -72,6 +72,18 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.propsync.props = mem_deref(msg->u.propsync.props);
 		break;
 
+	case ECONN_DEVPAIR_PUBLISH:
+		msg->u.devpair_publish.sdp =
+			mem_deref(msg->u.devpair_publish.sdp);
+		msg->u.devpair_publish.username =
+			mem_deref(msg->u.devpair_publish.username);
+		break;
+
+	case ECONN_DEVPAIR_ACCEPT:
+		msg->u.devpair_accept.sdp =
+			mem_deref(msg->u.devpair_accept.sdp);
+		break;
+
 	default:
 		break;
 	}

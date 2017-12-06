@@ -42,6 +42,8 @@ enum media_crypto {
 	CRYPTO_NONE      = 0,
 	CRYPTO_DTLS_SRTP = 1<<0,
 	CRYPTO_SDESC     = 1<<1,
+	CRYPTO_KASE      = 1<<2,
+
 	CRYPTO_BOTH      = CRYPTO_DTLS_SRTP | CRYPTO_SDESC
 };
 
@@ -78,7 +80,6 @@ struct mediaflow_stats {
 
 
 typedef void (mediaflow_estab_h)(const char *crypto, const char *codec,
-				 const char *type, const struct sa *sa,
 				 void *arg);
 typedef void (mediaflow_close_h)(int err, void *arg);
 
@@ -92,7 +93,8 @@ typedef void (mediaflow_data_channel_h)(int chid,
 				       uint8_t *data, size_t len, void *arg);
 
 
-int mediaflow_alloc(struct mediaflow **mfp, struct tls *dtls,
+int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
+		    struct tls *dtls,
 		    const struct list *aucodecl,
 		    const struct sa *laddr,
 		    enum media_crypto cryptos,
@@ -104,6 +106,7 @@ int mediaflow_set_setup(struct mediaflow *mf, enum media_setup setup);
 bool mediaflow_is_sdp_offerer(const struct mediaflow *mf);
 enum media_setup mediaflow_local_setup(const struct mediaflow *mf);
 
+int mediaflow_disable_audio(struct mediaflow *mf);
 int mediaflow_add_video(struct mediaflow *mf, struct list *vidcodecl);
 int mediaflow_add_data(struct mediaflow *mf);
 void mediaflow_set_gather_handler(struct mediaflow *mf,
@@ -210,4 +213,10 @@ struct dce *mediaflow_get_dce(const struct mediaflow *mf);
 
 uint32_t mediaflow_candc(const struct mediaflow *mf, bool local,
 			 enum ice_cand_type typ);
-bool mediaflow_get_audio_cbr(const struct mediaflow *mf);
+bool mediaflow_get_audio_cbr(const struct mediaflow *mf, bool local);
+void mediaflow_set_audio_cbr(struct mediaflow *mf, bool enabled);
+int mediaflow_set_remote_clientid(struct mediaflow *mf, const char *clientid);
+void mediaflow_set_ice_role(struct mediaflow *mf, enum ice_role role);
+struct ice_candpair *mediaflow_selected_pair(const struct mediaflow *mf);
+enum ice_role mediaflow_local_role(const struct mediaflow *mf);
+int mediaflow_print_ice(struct re_printf *pf, const struct mediaflow *mf);

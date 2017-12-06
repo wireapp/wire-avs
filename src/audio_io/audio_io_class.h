@@ -28,11 +28,7 @@ namespace webrtc {
         virtual int32_t InitInternal() = 0;
 
         virtual int32_t TerminateInternal() = 0;
-        
-        virtual int32_t RegisterCommandHandler(audio_io_command_h *cmdh, void *arg) = 0;
-        
-        virtual int32_t HandleCommand(enum audio_io_command cmd) = 0;
-        
+                
         virtual int32_t EnableSine() = 0;
     };
 }

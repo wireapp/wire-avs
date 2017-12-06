@@ -45,6 +45,27 @@ struct wav_format {
     uint16_t bits_per_sample;
 };
 
+static int wav_format_debug(struct re_printf *pf, void *arg)
+{
+	struct wav_format *fmt = (struct wav_format *)arg;
+	int err;
+
+	err = re_hprintf(pf, "WAV_FORMAT: audio=0x%02x ch=%d samp=%u "
+			 "samp_in=%d samp_out=%d byterate=%d "
+			 "block_align=%d bits=%d",
+			 fmt->audio_format,
+			 (int)fmt->num_channels,
+			 fmt->sample_rate,
+			 fmt->num_samples_in,
+			 fmt->num_samples_out,
+			 fmt->byte_rate,
+			 (int)fmt->block_align,
+			 (int)fmt->bits_per_sample);
+	
+	return 0;
+}
+
+
 static int wav_converter_init(FILE *in_file, FILE *out_file, struct wav_format *format, int length_modification_q10)
 {
     char chunkID[5] = "";
@@ -52,10 +73,12 @@ static int wav_converter_init(FILE *in_file, FILE *out_file, struct wav_format *
         error("audio_effect: Cannot read file \n");
         return -1;
     }
+    chunkID[4] = '\0';
     if(strcmp(chunkID,"RIFF")!=0){
         error("audio_effect: chumkID = %s expected RIFF \n", chunkID);
         return -1;
     }
+
     if(fwrite(chunkID, sizeof(chunkID)-1, 1, out_file) != 1){
         error("audio_effect: Cannot write file \n");
         return -1;
@@ -65,6 +88,7 @@ static int wav_converter_init(FILE *in_file, FILE *out_file, struct wav_format *
         error("audio_effect: Cannot read file \n");
         return -1;
     };
+
     if(fwrite(&ChunkSize, sizeof(uint32_t), 1, out_file) != 1){
         error("audio_effect: Cannot write file \n");
         return -1;
@@ -74,36 +98,58 @@ static int wav_converter_init(FILE *in_file, FILE *out_file, struct wav_format *
         error("audio_effect: Cannot read file \n");
         return -1;
     }
+    Format[4] = '\0';
     if(strcmp(Format,"WAVE")!=0){
         error("audio_effect: Format = %s expected WAVE \n", Format);
         return -1;
     }
+
     if(fwrite(Format, sizeof(Format)-1, 1, out_file) != 1){
         error("audio_effect: Cannot write file \n");
         return -1;
     }
+
+
+    /* Search for fmt chunk */
+    for(;;) {
+	    char Subchunk1ID[5] = "";
+	    if(fread(Subchunk1ID, sizeof(Subchunk1ID)-1, 1, in_file) != 1){
+		    error("audio_effect: Cannot read file \n");
+		    return -1;
+	    };
+	    Subchunk1ID[4] = '\0';
     
-    char Subchunk1ID[5] = "";
-    if(fread(Subchunk1ID, sizeof(Subchunk1ID)-1, 1, in_file) != 1){
-        error("audio_effect: Cannot read file \n");
-        return -1;
-    };
-    if(fwrite(Subchunk1ID, sizeof(Subchunk1ID)-1, 1, out_file) != 1){
-        error("audio_effect: Cannot write file \n");
-        return -1;
+	    if(fwrite(Subchunk1ID, sizeof(Subchunk1ID)-1, 1, out_file) != 1){
+		    error("audio_effect: Cannot write file \n");
+		    return -1;
+	    }
+	    uint32_t Subchunk1Size;
+	    if(fread(&Subchunk1Size, sizeof(uint32_t), 1, in_file) != 1){
+		    error("audio_effect: Cannot read file \n");
+		    return -1;
+	    }
+
+	    if(fwrite(&Subchunk1Size, sizeof(uint32_t), 1, out_file) != 1){    
+		    error("audio_effect: Cannot write file \n");
+		    return -1;
+	    }
+
+	    if (strcmp(Subchunk1ID, "fmt ") == 0) {
+		    break;
+	    }
+	    for(uint32_t i = 0; i < Subchunk1Size; ++i) {
+		    char tmp;
+		    fread(&tmp, sizeof(char), 1, in_file);
+		    fwrite(&tmp, sizeof(char), 1, out_file);
+	    }
     }
-    uint32_t Subchunk1Size;
-    if(fread(&Subchunk1Size, sizeof(uint32_t), 1, in_file) != 1){
-        error("audio_effect: Cannot read file \n");
-        return -1;
-    }
-    if(fwrite(&Subchunk1Size, sizeof(uint32_t), 1, out_file) != 1){
+
     
-    }
     if(fread(&format->audio_format, sizeof(uint16_t), 1, in_file) != 1){
         error("audio_effect: Cannot read file \n");
         return -1;
     }
+
     if(fwrite(&format->audio_format, sizeof(uint16_t), 1, out_file) != 1){
         error("audio_effect: Cannot write file \n");
         return -1;
@@ -167,6 +213,8 @@ static int wav_converter_init(FILE *in_file, FILE *out_file, struct wav_format *
             error("audio_effect: Cannot read file \n");
             return -1;
         }
+
+	Subchunk2ID[4] = '\0';
         if(strcmp(Subchunk2ID,"data")==0){
             format->num_samples_in = Subchunk2Size/format->block_align;
             int64_t tmp = (int64_t)format->num_samples_in * (int64_t)length_modification_q10;
@@ -248,12 +296,12 @@ int apply_effect_to_wav(const char* wavIn,
     FILE *in_file, *out_file;
     in_file = fopen(wavIn,"rb");
     if( in_file == NULL ){
-        printf("Could not open file for reading \n");
+	    error("Could not open file for reading \n");
         return -1;
     }
     out_file = fopen(wavOut,"wb");
     if( out_file == NULL ){
-        printf("Could not open file for writing \n");
+        error("Could not open file for writing \n");
         fclose(in_file);
         return -1;
     }
@@ -285,10 +333,8 @@ int apply_effect_to_wav(const char* wavIn,
         fclose(out_file);
         return ret;
     }
-    
-    info("format.sample_rate = %d \n", format.sample_rate);
-    info("format.num_channels = %d \n", format.num_channels);
-    info("format.num_samples_in = %d \n", format.num_samples_in);
+
+    info("wav: %s -> %H\n", wavIn, wav_format_debug, &format);
     
     if(effect_type == AUDIO_EFFECT_REVERSE){
         /* Special handling for reverse effect */

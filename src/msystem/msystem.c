@@ -16,12 +16,16 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <pthread.h>
+
 #include "re.h"
 #include "avs.h"
 #include "avs_voe.h"
 #include "avs_vie.h"
 
 struct msystem {
+	pthread_t tid;
+
 	struct msystem_config config;
 	struct call_config *call_config;
 
@@ -38,7 +42,7 @@ struct msystem {
 	bool using_voe;
 	bool loopback;
 	bool privacy;
-	bool cbr;
+	bool crypto_kase;
 	char ifname[256];
 
 	struct list aucodecl;
@@ -116,7 +120,6 @@ static void wakeup_handler(int id, void *data, void *arg)
 
 
 static int msystem_init(struct msystem **msysp, const char *msysname,
-			enum tls_keytype cert_type,
 			struct msystem_config *config)
 {
 	struct msystem *msys;
@@ -156,23 +159,13 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 
 		t1 = tmr_jiffies();
 
-		switch (cert_type) {
-
-		case TLS_KEYTYPE_EC:
-			info("flowmgr: generating ECDSA certificate\n");
-			err = cert_tls_set_selfsigned_ecdsa(msys->dtls,
-							    "prime256v1");
-			if (err) {
-				warning("flowmgr: failed to generate ECDSA"
-					" certificate"
-					" (%m)\n", err);
-				goto out;
-			}
-			break;
-
-		default:
-			warning("flowmgr: invalid cert type\n");
-			err = ENOTSUP;
+		info("msystem: generating ECDSA certificate\n");
+		err = cert_tls_set_selfsigned_ecdsa(msys->dtls,
+						    "prime256v1");
+		if (err) {
+			warning("msystem: failed to generate ECDSA"
+				" certificate"
+				" (%m)\n", err);
 			goto out;
 		}
 
@@ -248,7 +241,7 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 
 
 int msystem_get(struct msystem **msysp, const char *msysname,
-		enum tls_keytype cert_type, struct msystem_config *config)
+		struct msystem_config *config)
 {
 	if (!msysp)
 		return EINVAL;
@@ -258,11 +251,56 @@ int msystem_get(struct msystem **msysp, const char *msysname,
 		return 0;
 	}
 
-
-	return msystem_init(msysp, msysname, cert_type, config);
+	return msystem_init(msysp, msysname, config);
 }
 
 
+void msystem_set_tid(struct msystem *msys, pthread_t tid)
+{
+	info("msystem: setting tid to: %p\n", tid);
+	
+	if (msys)
+		msys->tid = tid;
+}
+
+static bool tid_isset(struct msystem *msys)
+{
+	pthread_t tid;
+
+	memset(&tid, 0, sizeof(tid));
+
+	return !pthread_equal(tid, msys->tid);
+}
+
+void msystem_enter(struct msystem *msys)
+{
+	if (!msys)
+		return;
+
+	if (!tid_isset(msys)) {
+		warning("msystem: enter: tid not set!\n");
+		return;
+	}
+	
+	if (!pthread_equal(pthread_self(), msys->tid))
+		re_thread_enter();
+}
+
+
+void msystem_leave(struct msystem *msys)
+{
+	if (!msys)
+		return;
+
+	if (!tid_isset(msys)) {
+		warning("msystem: leave: tid not set!\n");
+		return;
+	}
+	
+	if (!pthread_equal(pthread_self(), msys->tid))
+		re_thread_leave();
+}
+	
 
 struct tls *msystem_dtls(struct msystem *msys)
 {
@@ -356,20 +394,21 @@ void msystem_enable_privacy(struct msystem *msys, bool enable)
 	msys->privacy = enable;	
 }
 
-void msystem_enable_cbr(struct msystem *msys, bool enable)
+
+void msystem_enable_kase(struct msystem *msys, bool enable)
 {
 	if (!msys)
 		return;
-    
-	voe_enable_cbr(enable);
-    
-	msys->cbr = enable;
+
+	msys->crypto_kase = enable;
 }
 
-bool msystem_have_cbr(const struct msystem *msys)
+
+bool msystem_have_kase(const struct msystem *msys)
 {
-	return msys ? voe_have_cbr() : false;
+	return msys ? msys->crypto_kase : false;
 }
+
 
 void msystem_set_ifname(struct msystem *msys, const char *ifname)
 {

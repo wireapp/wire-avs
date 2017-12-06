@@ -53,6 +53,7 @@ int egcall_alloc(struct egcall **egcallp,
 		 egcall_start_h *starth,
 		 ecall_media_estab_h *media_estabh,
 		 ecall_audio_estab_h *audio_estabh,
+		 ecall_datachan_estab_h *datachan_estabh,
 		 egcall_group_changed_h *grp_chgh,
 		 egcall_leave_h *leaveh,
 		 egcall_close_h *closeh,
@@ -64,9 +65,9 @@ int egcall_set_turnserver(struct egcall *egcall,
 			  const char *username,
 			  const char *credential);
 
-int egcall_start(struct egcall *egcall);
+int egcall_start(struct egcall *egcall, bool audio_cbr);
 
-int egcall_answer(struct egcall *egcall);
+int egcall_answer(struct egcall *egcall, bool audio_cbr);
 
 void egcall_end(struct egcall *egcall);
 

@@ -114,7 +114,6 @@ public:
 		tmr_cancel(&tmr_watchdog);
 	}
 
-	// todo: msg->mb is unused here, use "mb" instead
 	void handle_response(const struct http_msg *msg, struct mbuf *mb,
 			     struct json_object *jobj)
 	{

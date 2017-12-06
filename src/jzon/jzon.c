@@ -430,12 +430,26 @@ struct json_object *jzon_apply(struct json_object *jobj,
 }
 
 
-int jzon_add_str(struct json_object *jobj, const char *key, const char *val)
+int jzon_add_str(struct json_object *jobj, const char *key,
+		 const char *fmt, ...)
 {
+	char *str = NULL;
+	va_list ap;
+	int err;
+
 	if (!jobj || !key)
 		return EINVAL;
 
-	json_object_object_add(jobj, key, json_object_new_string(val));
+	va_start(ap, fmt);
+	err = re_vsdprintf(&str, fmt, ap);
+	va_end(ap);
+
+	if (err)
+		return err;
+
+	json_object_object_add(jobj, key, json_object_new_string(str));
+
+	mem_deref(str);
 
 	return 0;
 }

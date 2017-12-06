@@ -50,6 +50,9 @@ MENG_DEPS      += $(CONTRIB_LIBVPX_TARGET)
 MENG_LIBS      += $(CONTRIB_LIBVPX_LIBS)
 MENG_LIB_FILES += $(CONTRIB_LIBVPX_LIB_FILES)
 
+ifeq ($(AVS_OS),linux)
+MENG_LIBS      += -levent
+endif
 
 MENG_CPPFLAGS += \
 	-Imediaengine/chromium

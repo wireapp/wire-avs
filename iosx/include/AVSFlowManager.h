@@ -189,10 +189,6 @@ AVS_EXPORT @interface AVSFlowManager : NSObject
 - (void)callInterruptionStartInConversation:(NSString *)convId;
 - (void)callInterruptionEndInConversation:(NSString *)convId;
 
-
-- (int)ausrcChanged:(enum AVSFlowManagerAudioSource)ausrc;
-- (int)auplayChanged:(enum AVSFlowManagerAudioPlay)aplay;
-
 - (BOOL)isMuted;
 - (int)setMute:(BOOL)muted;
 
@@ -200,8 +196,6 @@ AVS_EXPORT @interface AVSFlowManager : NSObject
 
 
 - (void)mediaCategoryChanged:(NSString *)convId category:(AVSFlowManagerCategory)category;
-
-- (void)playbackRouteDidChangeInMediaManager:(AVSPlaybackRoute)play_back_route;
 
 - (BOOL)isMediaEstablishedInConversation:(NSString *)convId;
 

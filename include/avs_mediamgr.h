@@ -35,14 +35,16 @@ enum mediamgr_auplay {
 
 enum mediamgr_state {
 	MEDIAMGR_STATE_NORMAL = 0,
-	MEDIAMGR_STATE_NORMAL_FROM_UI,
-	MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS,
-	MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS_FROM_UI,
-	MEDIAMGR_STATE_AUDIO_PERMISSIONS_READY,
+	MEDIAMGR_STATE_OUTGOING_AUDIO_CALL,
+	MEDIAMGR_STATE_OUTGOING_VIDEO_CALL,
+	MEDIAMGR_STATE_INCOMMING_CALL,
+	MEDIAMGR_STATE_AUDIO_ACTIVATED,
+	MEDIAMGR_STATE_AUDIO_DEACTIVATED,
 	MEDIAMGR_STATE_CALL_ESTABLISHED,
 	MEDIAMGR_STATE_VIDEOCALL_ESTABLISHED,
 	MEDIAMGR_STATE_INCALL,
 	MEDIAMGR_STATE_INVIDEOCALL,
+	MEDIAMGR_STATE_TWO_WAY_AUDIO,
 	MEDIAMGR_STATE_ROAMING,
 	MEDIAMGR_STATE_HOLD,
 	MEDIAMGR_STATE_RESUME, // not really a state, goes to INCALL if held, otherwise NORMAL
@@ -53,7 +55,7 @@ enum mediamgr_sound_mode {
 	MEDIAMGR_SOUND_MODE_SOME,
 	MEDIAMGR_SOUND_MODE_NONE,
 };
-
+	
 typedef void (mediamgr_route_changed_h)(enum mediamgr_auplay new_route,
 					void *arg);
 typedef void (mediamgr_mcat_changed_h)(enum mediamgr_state new_state,
@@ -95,12 +97,15 @@ void mediamgr_set_sound_mode(struct mediamgr *mm,
     
 void mediamgr_set_user_starts_audio(struct mediamgr *mediamgr, bool enable);
 
+void mediamgr_enter_call(struct mediamgr *mediamgr);
+void mediamgr_exit_call(struct mediamgr *mediamgr);
+
     /* Global functions */
 struct mm;
 void mediamgr_headset_connected(struct mm *mm, bool connected);
 void mediamgr_bt_device_connected(struct mm *mm, bool connected);
 
-void mediamgr_device_changed(struct mm *mm);
+void mediamgr_device_changed(struct mm *mm);	
 
 #ifdef __cplusplus
 }

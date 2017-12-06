@@ -19,6 +19,7 @@
 #include <assert.h>
 #include <string.h>
 #include <re.h>
+#include "avs_base.h"
 #include "avs_log.h"
 #include "avs_uuid.h"
 #include "avs_zapi.h"
@@ -31,7 +32,7 @@
 
 
 static const struct econn_conf default_conf = {
-	.timeout_setup = 30000,
+	.timeout_setup = 60000,
 	.timeout_term  =  5000,
 };
 
@@ -82,7 +83,7 @@ void econn_close(struct econn *conn, int err, uint32_t msg_time)
 }
 
 
-static int transp_send(struct econn *conn, struct econn_message *msg)
+int econn_transp_send(struct econn *conn, struct econn_message *msg)
 {
 	int err;
 
@@ -120,7 +121,7 @@ static int econn_send_setup(struct econn *conn, bool resp, const char *sdp,
 	/* NOTE: calling the callback handlers MUST be done last,
 	 *       to make sure that all states are correct.
 	 */
-	err = transp_send(conn, &msg);
+	err = econn_transp_send(conn, &msg);
 	if (err) {
 		warning("econn: send_setup: transp_send failed (%m)\n", err);
 		goto out;
@@ -148,7 +149,7 @@ static int send_cancel(struct econn *conn)
 	/* NOTE: calling the callback handlers MUST be done last,
 	 *       to make sure that all states are correct.
 	 */
-	err = transp_send(conn, &msg);
+	err = econn_transp_send(conn, &msg);
 	if (err)
 		return err;
 
@@ -166,7 +167,7 @@ static int send_hangup(struct econn *conn, bool resp)
 		return err;
 	msg.resp = resp;
 
-	err = transp_send(conn, &msg);
+	err = econn_transp_send(conn, &msg);
 	if (err)
 		return err;
 
@@ -339,7 +340,7 @@ static void handle_update_request(struct econn *econn,
 {
 	bool is_winner;
 	bool should_reset = false;
-	
+
 	/* check if the Remote ClientID is correct */
 	if (0 != str_casecmp(econn->clientid_remote, clientid_sender)) {
 		warning("econn: ignoring update responce from wrong clientid. "
@@ -367,7 +368,7 @@ static void handle_update_request(struct econn *econn,
 		if (is_winner) {
 			/* We are winner, drop remote offer
 			 * and expect new ANSWER from peer */
-			//econn->conflict = 1;
+			/*econn->conflict = 1;*/
 
 			return;
 		}
@@ -378,7 +379,7 @@ static void handle_update_request(struct econn *econn,
 			should_reset = true;
 		}
 		break;
-		
+
 	default:
 		warning("[ %s.%s ] econn: recv_update: "
 		     "ignore received UPDATE Request "
@@ -388,7 +389,7 @@ static void handle_update_request(struct econn *econn,
 		     econn_state_name(econn->state));
 		return;
 	}
-	
+
 	tmr_start(&econn->tmr_local, econn->conf.timeout_setup,
 		  tmr_local_handler, econn);
 
@@ -493,7 +494,7 @@ static void recv_cancel(struct econn *conn, const char *clientid_sender,
 	}
 
 	econn_set_state(conn, ECONN_TERMINATING);
-    
+
 	/* NOTE: must be done last */
 	econn_close(conn, conn->err ? conn->err : ECANCELED,
 		msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN);
@@ -527,11 +528,12 @@ static void recv_hangup(struct econn *conn, const struct econn_message *msg)
 			warning("econn: send_hangup failed (%m)\n", err);
 		}
 	}
-    
+
 	econn_set_state(conn, ECONN_TERMINATING);
 
 	/* NOTE: must be done last */
-	econn_close(conn, conn->err, msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN);
+	econn_close(conn, conn->err,
+		    msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN);
 }
 
 
@@ -561,6 +563,12 @@ void econn_recv_message(struct econn *conn,
 
 	case ECONN_HANGUP:
 		recv_hangup(conn, msg);
+		break;
+
+	case ECONN_DEVPAIR_PUBLISH:
+		break;
+
+	case ECONN_DEVPAIR_ACCEPT:
 		break;
 
 	default:
@@ -639,7 +647,8 @@ static void tmr_local_handler(void *arg)
 	info("econn: setup timeout (state = %s)\n",
 	     econn_state_name(econn_current_state(conn)));
 
-	econn_close(conn, conn->err ? conn->err : ETIMEDOUT, ECONN_MESSAGE_TIME_UNKNOWN);
+	econn_close(conn, conn->err ? conn->err : ETIMEDOUT_ECONN,
+		    ECONN_MESSAGE_TIME_UNKNOWN);
 }
 
 
@@ -795,7 +804,7 @@ static void tmr_term_handler(void *arg)
 
 	debug("econn: timeout waiting for HANGUP(r)\n");
 
-	econn_close(econn, ETIMEDOUT, ECONN_MESSAGE_TIME_UNKNOWN);
+	econn_close(econn, econn->err, ECONN_MESSAGE_TIME_UNKNOWN);
 }
 
 
@@ -855,8 +864,11 @@ void econn_end(struct econn *conn)
 			  tmr_term_handler, conn);
 		break;
 
+	case ECONN_TERMINATING:
+		break;
+
 	default:
-		warning("econn: end: cannot send CANCEL"
+		warning("econn: end: cannot end"
 			" in state '%s'\n",
 			econn_state_name(conn->state));
 		break;
@@ -894,7 +906,7 @@ const char *econn_sessid_remote(const struct econn *conn)
 }
 
 
-bool econn_can_send_propsync(struct econn *econn)
+bool econn_can_send_propsync(const struct econn *econn)
 {
 	if (!econn)
 		return false;
@@ -913,8 +925,9 @@ int econn_send_propsync(struct econn *econn, bool resp,
 		return EINVAL;
 
 	if (econn->state != ECONN_DATACHAN_ESTABLISHED) {
-		warning("econn: send_propsync: cannot send Propsync"
+		warning("econn: send_propsync: cannot send Propsync %s"
 			" in wrong state `%s'\n",
+			resp ? "Response" : "Request",
 			econn_state_name(econn->state));
 		return EPROTO;
 	}
@@ -928,7 +941,7 @@ int econn_send_propsync(struct econn *econn, bool resp,
 	msg.resp = resp;
 	msg.u.propsync.props = props;
 
-	err = transp_send(econn, &msg);
+	err = econn_transp_send(econn, &msg);
 	if (err) {
 		warning("econn: transp_send failed (%m)\n", err);
 		return err;

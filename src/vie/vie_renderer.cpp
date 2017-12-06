@@ -21,7 +21,7 @@
 #include <avs_vie.h>
 #include "vie.h"
 #include "vie_renderer.h"
-#include "webrtc/common_video/libyuv/include/scaler.h"
+#include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
 
 extern "C" {
 void frame_timeout_timer(void *arg)
@@ -37,10 +37,12 @@ void frame_timeout_timer(void *arg)
 ViERenderer::ViERenderer()
 	: _state(VIE_RENDERER_STATE_STOPPED)
 	, _ts_last(0)
+	, _fps_count(0)
 {
 	lock_alloc(&_lock);
 	tmr_init(&_timer);
 
+	_ts_fps = tmr_jiffies();
 	tmr_start(&_timer, VIE_RENDERER_TIMEOUT_LIMIT,
 		  frame_timeout_timer, this);
 }
@@ -74,11 +76,23 @@ void ViERenderer::OnFrame(const webrtc::VideoFrame& video_frame)
 		_state = VIE_RENDERER_STATE_RUNNING;
 	}
 
-	/* Save the time when the last frame was received */
-	_ts_last = tmr_jiffies();
-
 	lock_rel(_lock);
 
+	/* Save the time when the last frame was received */
+	uint64_t now = tmr_jiffies();
+	_ts_last = now;
+
+	_fps_count++;
+	uint64_t msec = now - _ts_fps;
+	if (msec > 5000) {
+		if (msec < 6000) {
+			info("vie_renderer_handle_frame hndlr: %p res: %dx%d fps: %0.2f\n",
+				vid_eng.render_frame_h, video_frame.width(),
+				video_frame.height(), (float)_fps_count * 1000.0f / msec); 
+		}
+		_fps_count = 0;
+		_ts_fps = now;
+	}
 
 	if (!vid_eng.render_frame_h)
 		return;

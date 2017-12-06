@@ -404,7 +404,7 @@ void *flowmgr_thread(void *arg)
 	/* Force the loading of wcall symbols! 
 	 * Can't this be done with a linker directive?
 	 */
-	wcall_get_members(NULL);
+	wcall_get_members(NULL, NULL);
 
 	err = libre_init();
 	if (err) {
@@ -420,9 +420,9 @@ void *flowmgr_thread(void *arg)
 	}
 
 #ifdef ANDROID
-	err = flowmgr_init("voe", NULL, TLS_KEYTYPE_EC);
+	err = flowmgr_init("voe");
 #else
-	err = flowmgr_init("audummy", NULL, TLS_KEYTYPE_EC);
+	err = flowmgr_init("audummy");
 #endif
 	if (err) {
 		warning("flowmgr_thread: flowmgr_init failed (%m)\n", err);
@@ -1306,26 +1306,7 @@ JNIEXPORT jint JNICALL Java_com_waz_call_FlowManager_audioPlayDeviceChanged
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setLogHandler
 (JNIEnv *env, jobject self, jobject logh)
 {
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	jclass cls;
-
-	if (!logh)
-		return;
-
-	cls = env->GetObjectClass(logh);
-	if (!cls) {
-		warning("jni: setLogHandler: no class for handler\n");
-		return;
-	}
-
-	jfm->log.appendmid = env->GetMethodID(cls, "append",
-					      "(Ljava/lang/String;)V");
-	jfm->log.uploadmid = env->GetMethodID(cls, "upload",
-					      "()V");
-
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_log_handlers, fm,
-			    log_append_handler, log_upload_handler, jfm);
+	warning("NOT IMPLEMENTED: setLogHandler\n");
 }
 
 
@@ -1396,8 +1377,7 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setEnableLogging
 {
 	struct jfm *jfm = self2fm(env, self);
 
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_enable_logging,
-			     jfm->fm, (bool)jenable);
+	warning("NOT IMPLEMENTED: setEnableLogging\n");
 }
 
 
@@ -1901,7 +1881,7 @@ JNIEXPORT jint JNICALL Java_com_waz_call_FlowManager_setAudioEffect
         effect_type = AUDIO_EFFECT_NONE;
     }
     
-    FLOWMGR_MARSHAL_RET(java.tid, err, flowmgr_set_audio_effect, fm, effect_type);
+    //   FLOWMGR_MARSHAL_RET(java.tid, err, flowmgr_set_audio_effect, fm, effect_type);
     
     return err;
 }

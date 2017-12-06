@@ -16,32 +16,15 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <string.h>
-#include <re/re.h>
-#include "avs_aucodec.h"
-#include "avs_log.h"
-#include "avs_uuid.h"
-#include "avs_zapi.h"
-#include "avs_media.h"
-#include "avs_flowmgr.h"
-#include "avs_rest.h"
-#include "avs_voe.h"
-#include "avs_audio_effect.h"
-#include "flowmgr.h"
+#include <re.h>
+#include <avs.h>
+#include <gtest/gtest.h>
 
-int flowmgr_set_audio_effect(struct flowmgr *fm, enum audio_effect effect)
+
+TEST(version, print)
 {
-	int err = 0;
-	(void)fm;
+	log_set_min_level(LOG_LEVEL_INFO);
+	log_enable_stderr(true);
 
-	err = voe_set_audio_effect(effect);
-    
-	return err;
-}
-
-enum audio_effect flowmgr_get_audio_effect(struct flowmgr *fm)
-{
-	(void)fm;
-
-	return voe_get_audio_effect();
+	avs_print_versions();
 }

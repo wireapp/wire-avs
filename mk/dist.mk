@@ -59,7 +59,7 @@ ifeq ($(DIST_ARCH),)
 endif
 
 DIST_ARCH_android := $(filter armv7 i386 osx,$(DIST_ARCH))
-DIST_ARCH_ios := $(filter armv7 armv7s arm64 i386 x86_64,$(DIST_ARCH))
+DIST_ARCH_ios := $(filter armv7 arm64 i386 x86_64,$(DIST_ARCH))
 
 DIST_FMWK_VERSION := A
 DIST_BUNDLE_LIB_NAME := AVS Library

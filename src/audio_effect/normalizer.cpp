@@ -49,7 +49,9 @@ void* create_normalizer(int fs_hz, int strength)
     ne->Target_vol_db = NE_TARGET_LVL_DB;
     
     ne->gain = 1.0f;
-        
+ 
+    ne->squelch_enabled = false;
+    
     return (void*)ne;
 }
 
@@ -67,6 +69,7 @@ void reset_normalizer(void *st, int fs_hz)
     memset(ne->nrg_buf, 0, sizeof(ne->nrg_buf));
     memset(ne->sig_buf, 0, sizeof(ne->sig_buf));
     
+    ne->speechLvl = 0.0f;
     ne->maxLvl = 0.0f;
     
     ne->gain = 1.0f;
@@ -85,7 +88,8 @@ static void apply_gain(struct normalizer_effect *ne,  int16_t in[], int16_t out[
 {
     int L_sub = ne->fs_khz;
     int N = L / L_sub;
-    float target_gain = pow(10,(float)ne->Target_gain_db/20.0f);
+    float tot_gain_db = ne->Target_gain_db - ne->Squelch_gain_db;
+    float target_gain = pow(10,(float)tot_gain_db/20.0f);
     float alpha, used_target_gain;
     int16_t sig[NE_MAX_FS_KHZ];
     
@@ -145,7 +149,13 @@ void normalizer_process(void *st, int16_t in[], int16_t out[], size_t L_in, size
         }
         nrg = nrg/(float)L_in;
         nrg += 1.0f;
-        ne->nrg_buf[ne->buf_idx] = (int)(10.0f*log10(nrg));
+        float nrgDb = 10.0f*log10(nrg);
+        ne->nrg_buf[ne->buf_idx] = (int)nrgDb;
+        if(nrgDb > ne->maxLvl){
+            ne->maxLvl += (nrgDb - ne->maxLvl)*0.1;
+        } else {
+            ne->maxLvl += (nrgDb - ne->maxLvl)*0.01;
+        }
         ne->buf_idx = (ne->buf_idx + 1) & NE_BUF_MASK;
     
         ne->frame_cnt++;
@@ -172,15 +182,15 @@ void normalizer_process(void *st, int16_t in[], int16_t out[], size_t L_in, size
                         break;
                     }
                 }
-                float diff = ne->maxLvl - (float)bin;
+                float diff = ne->speechLvl - (float)bin;
                 if(diff < NE_UPDATE_RANGE){
                     if(diff < 0){
-                        ne->maxLvl -= diff * NE_ALPHA_MAX_UP;
+                        ne->speechLvl -= diff * NE_ALPHA_MAX_UP;
                     } else {
-                        ne->maxLvl -= diff * NE_ALPHA_MAX_DOWN;
+                        ne->speechLvl -= diff * NE_ALPHA_MAX_DOWN;
                     }
                         
-                    float diff = ne->Target_vol_db - ( ne->maxLvl + ne->Target_gain_db);
+                    float diff = ne->Target_vol_db - ( ne->speechLvl + ne->Target_gain_db);
                     if(diff > NE_HYSTERESIS_DB){
                         diff = std::min(diff, NE_MAX_INCR_DB);
                     } else if (diff < -NE_HYSTERESIS_DB){
@@ -195,6 +205,14 @@ void normalizer_process(void *st, int16_t in[], int16_t out[], size_t L_in, size
             }
             ne->frame_cnt = 0;
         }
+        
+        if(ne->squelch_enabled){
+            float squelsh_gain = ((ne->speechLvl - ne->maxLvl) - 20) * 0.1 * NE_MAX_SQUELCH_GAIN_DB;
+            squelsh_gain = std::max(squelsh_gain, 0.0f);
+            squelsh_gain = std::min(squelsh_gain, NE_MAX_SQUELCH_GAIN_DB);
+            ne->Squelch_gain_db = squelsh_gain;
+        }
+        
         apply_gain(ne, &in[i*L10], &out[i*L10], L10);
     }
     *L_out = L_in;

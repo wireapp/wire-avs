@@ -6,27 +6,30 @@ TEST_SRCS	+= main.cpp
 
 TEST_SRCS	+= util.cpp
 
+# Add first in the list
+TEST_SRCS	+= test_version.cpp
+
 # Testcases in alphabetical order
 TEST_SRCS	+= test_acm.cpp
 TEST_SRCS	+= test_apm.cpp
 TEST_SRCS	+= test_audummy.cpp
-TEST_SRCS	+= test_bwe.cpp
+#TEST_SRCS	+= test_bwe.cpp
 TEST_SRCS	+= test_cert.cpp
 TEST_SRCS	+= test_chunk.cpp
 TEST_SRCS	+= test_confpos.cpp
 TEST_SRCS	+= test_cookie.cpp
-TEST_SRCS	+= test_dict.cpp
 TEST_SRCS	+= test_dce.cpp
+TEST_SRCS	+= test_dict.cpp
 TEST_SRCS	+= test_dtls.cpp
 TEST_SRCS	+= test_ecall.cpp
 TEST_SRCS	+= test_econn.cpp
 TEST_SRCS	+= test_engine.cpp
 TEST_SRCS	+= test_http.cpp
 TEST_SRCS	+= test_jzon.cpp
+TEST_SRCS	+= test_kase.cpp
 TEST_SRCS	+= test_libre.cpp
 TEST_SRCS	+= test_login.cpp
 TEST_SRCS	+= test_media.cpp
-TEST_SRCS	+= test_media_b2b.cpp
 TEST_SRCS	+= test_media_crypto.cpp
 TEST_SRCS	+= test_media_dual.cpp
 TEST_SRCS	+= test_mediastats.cpp
@@ -38,7 +41,6 @@ TEST_SRCS	+= test_nevent.cpp
 TEST_SRCS	+= test_packetqueue.cpp
 TEST_SRCS	+= test_resampler.cpp
 TEST_SRCS	+= test_rest.cpp
-TEST_SRCS	+= test_self.cpp
 TEST_SRCS	+= test_srtp.cpp
 TEST_SRCS	+= test_string.cpp
 TEST_SRCS	+= test_turn.cpp

@@ -124,6 +124,28 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 	case ECONN_GROUP_CHECK:
 		break;
 
+	case ECONN_DEVPAIR_PUBLISH:
+		err = zapi_iceservers_encode(jobj,
+					     msg->u.devpair_publish.turnv,
+					     msg->u.devpair_publish.turnc);
+		if (err)
+			goto out;
+
+		err = jzon_add_str(jobj, "sdp",
+				   msg->u.devpair_publish.sdp);
+		err |= jzon_add_str(jobj, "username",
+				    msg->u.devpair_publish.username);
+		if (err)
+			goto out;
+		break;
+
+	case ECONN_DEVPAIR_ACCEPT:
+		err = jzon_add_str(jobj, "sdp",
+				   msg->u.devpair_accept.sdp);
+		if (err)
+			goto out;
+		break;
+
 	default:
 		warning("econn: dont know how to encode %d\n", msg->msg_type);
 		err = EBADMSG;
@@ -291,7 +313,7 @@ int econn_message_decode(struct econn_message **msgp,
 		err = econn_props_decode(&msg->u.setup.props, jobj);
 		if (err)
 			info("econn: decode UPDATE: no props\n");
-	}	
+	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CANCEL))) {
 
 		msg->msg_type = ECONN_CANCEL;
@@ -319,6 +341,59 @@ int econn_message_decode(struct econn_message **msgp,
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_GROUP_CHECK))) {
 
 		msg->msg_type = ECONN_GROUP_CHECK;
+	}
+	else if (0 == str_casecmp(type,
+				  econn_msg_name(ECONN_DEVPAIR_PUBLISH))) {
+
+		struct json_object *jturns;
+		size_t srvc;
+
+		msg->msg_type = ECONN_DEVPAIR_PUBLISH;
+
+		err = jzon_array(&jturns, jobj, "ice_servers");
+		if (err) {
+			warning("econn: devpair_publish: no ICE servers\n");
+			goto out;
+		}
+
+		srvc = ARRAY_SIZE(msg->u.devpair_publish.turnv);
+		err = zapi_iceservers_decode(jturns,
+					     msg->u.devpair_publish.turnv,
+					     &srvc);
+		if (err) {
+			warning("econn: devpair_publish: "
+				"could not decode ICE servers (%m)\n", err);
+			goto out;
+		}
+		msg->u.devpair_publish.turnc = srvc;
+
+		err = jzon_strdup(&msg->u.devpair_publish.sdp,
+				  jobj, "sdp");
+		if (err) {
+			warning("econn: devpair_publish: "
+				"could not find SDP in message\n");
+			goto out;
+		}
+		err = jzon_strdup(&msg->u.devpair_publish.username,
+				  jobj, "username");
+		if (err) {
+			warning("econn: devpair_publish: "
+				"could not find username in message\n");
+			goto out;
+		}
+	}
+	else if (0 == str_casecmp(type,
+				  econn_msg_name(ECONN_DEVPAIR_ACCEPT))) {
+
+		msg->msg_type = ECONN_DEVPAIR_ACCEPT;
+
+		err = jzon_strdup(&msg->u.devpair_accept.sdp,
+				  jobj, "sdp");
+		if (err) {
+			warning("econn: devpair_accept: "
+				"could not find SDP in message\n");
+			goto out;
+		}
 	}
 	else {
 		warning("econn: decode: unknown message type '%s'\n", type);

@@ -128,9 +128,6 @@ int voe_set_packet_size(int packet_size_ms);
 void voe_register_adm(struct audio_io *aio);
 void voe_deregister_adm(void);
     
-void voe_enable_cbr(bool enabled);
-bool voe_have_cbr();
-    
 int voe_debug(struct re_printf *pf, void *unused);
 
 void voe_update_conf_parts(const struct audec_state *adsv[], size_t adsc);

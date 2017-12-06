@@ -29,14 +29,12 @@ MENG_SRCS += \
 	libyuv/source/rotate_argb.cc \
 	libyuv/source/rotate_common.cc \
 	libyuv/source/rotate_gcc.cc \
-	libyuv/source/rotate_mips.cc \
 	libyuv/source/rotate_neon.cc \
 	libyuv/source/rotate_neon64.cc \
 	libyuv/source/rotate_win.cc \
 	libyuv/source/row_any.cc \
 	libyuv/source/row_common.cc \
 	libyuv/source/row_gcc.cc \
-	libyuv/source/row_mips.cc \
 	libyuv/source/row_neon.cc \
 	libyuv/source/row_neon64.cc \
 	libyuv/source/row_win.cc \
@@ -45,7 +43,6 @@ MENG_SRCS += \
 	libyuv/source/scale_argb.cc \
 	libyuv/source/scale_common.cc \
 	libyuv/source/scale_gcc.cc \
-	libyuv/source/scale_mips.cc \
 	libyuv/source/scale_neon.cc \
 	libyuv/source/scale_neon64.cc \
 	libyuv/source/scale_win.cc \

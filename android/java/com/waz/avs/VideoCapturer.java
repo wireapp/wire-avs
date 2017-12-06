@@ -239,6 +239,11 @@ public class VideoCapturer implements PreviewCallback,
 					Log.e(TAG, "statCapture failed. No view");
 					return;
 				}
+
+				if (cameraInfo == null) {
+					Log.e(TAG, "statCapture failed. No cameraInfo");
+					return;
+				}
 				
 				int vrot = getViewRotation();
 				Log.d(TAG, "startCapture on main: " + vp + " rot:" + vrot +

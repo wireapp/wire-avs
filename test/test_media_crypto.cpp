@@ -31,10 +31,6 @@
 
 // step 1 get a back non-crypto case working
 
-
-#define CALL_DURATION 400
-
-
 struct test {
 	struct list aucodecl;
 	struct tmr tmr;
@@ -51,6 +47,7 @@ struct agent {
 	int err;
 
 	unsigned n_estab;
+	unsigned n_rtp_started;
 };
 
 
@@ -77,6 +74,20 @@ static bool agents_are_established(const struct agent *ag)
 		agent_is_established(ag->other);
 }
 
+static bool agent_has_rtp(const struct agent *ag)
+{
+	if (!ag)
+		return false;
+
+	return ag->n_rtp_started;
+}
+
+static bool agents_have_rtp(const struct agent *ag)
+{
+	return ag &&
+		agent_has_rtp(ag) &&
+		agent_has_rtp(ag->other);
+}
 
 static void hangup(void *arg)
 {
@@ -84,9 +95,24 @@ static void hangup(void *arg)
 	re_cancel();
 }
 
+static void rtp_start_handler(bool started, bool video_started, void *arg)
+{
+	if(!started){
+		return;
+	}
+    
+	struct agent *ag = static_cast<struct agent *>(arg);
+    
+	++ag->n_rtp_started;
+    
+	/* wait until both agents have RTP ( rcv + snd ) */
+	if (agents_have_rtp(ag)) {
+		tmr_start(&ag->test->tmr, 1, hangup, ag->test);
+	}
+}
+
 
 static void mediaflow_estab_handler(const char *crypto, const char *codec,
-				    const char *type, const struct sa *raddr,
 				    void *arg)
 {
 	struct agent *ag = static_cast<struct agent *>(arg);
@@ -122,8 +148,6 @@ static void mediaflow_estab_handler(const char *crypto, const char *codec,
 		ASSERT_EQ(0, err);
 		err = mediaflow_start_media(ag->other->mf);
 		ASSERT_EQ(0, err);
-
-		tmr_start(&ag->test->tmr, CALL_DURATION, hangup, ag->test);
 	}
 }
 
@@ -215,7 +239,8 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 		ASSERT_EQ(0, err);
 	}
 
-	err = mediaflow_alloc(&ag->mf, ag->dtls, &test->aucodecl, &laddr,
+	err = mediaflow_alloc(&ag->mf, name,
+			      ag->dtls, &test->aucodecl, &laddr,
 			      cryptos,
 			      mediaflow_estab_handler,
 			      mediaflow_close_handler,
@@ -224,6 +249,8 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 
 	mediaflow_set_tag(ag->mf, ag->name);
 
+	mediaflow_set_rtpstate_handler(ag->mf, rtp_start_handler);
+    
 	err = mediaflow_add_local_host_candidate(ag->mf, "en0", &laddr);
 	ASSERT_EQ(0, err);
 
@@ -269,6 +296,11 @@ static void test_b2b_base(enum tls_keytype a_cert,
 	ASSERT_TRUE(b != NULL);
 	a->other = b;
 	b->other = a;
+
+	err = mediaflow_set_remote_clientid(a->mf, b->name);
+	ASSERT_EQ(0, err);
+	err = mediaflow_set_remote_clientid(b->mf, a->name);
+	ASSERT_EQ(0, err);
 
 	err = mediaflow_set_setup(a->mf, a_setup);
 	ASSERT_EQ(0, err);
@@ -391,6 +423,13 @@ TEST(media_crypto, mix_ecdsa_ecdsa_dtlssrtp_and_dtlssrtp)
 {
 	test_b2b(TLS_KEYTYPE_EC, TLS_KEYTYPE_EC,
 		 CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP);
+}
+
+
+TEST(media_crypto, kase_and_kase)
+{
+	test_b2b(TLS_KEYTYPE_EC, TLS_KEYTYPE_EC,
+		 CRYPTO_KASE, CRYPTO_KASE, CRYPTO_KASE);
 }
 
 

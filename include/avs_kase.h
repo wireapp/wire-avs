@@ -16,24 +16,25 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <re.h>
-#include <avs.h>
-#include "fakes.hpp"
-#include "fixture.h"
+
+#define KASE_SESSIONKEY_SIZE 32
+#define KASE_CHANBIND_SIZE    8
 
 
-TEST_F(RestTest, get_self)
-{
-	request("GET", "/self");
-	ASSERT_EQ(200, scode);
-	ASSERT_EQ(1, jobjc);
+struct kase;
 
-	json_object *jobj = jobjv[0];
 
-	// TODO: the response is hardcoded on the fake-backend
+int kase_alloc(struct kase **kasep);
+const uint8_t *kase_public_key(const struct kase *kase);
+int kase_print_publickey(struct re_printf *pf, const struct kase *kase);
+int kase_get_sessionkeys(uint8_t *session_tx, uint8_t *session_rx,
+			 struct kase *kase,
+			 const uint8_t *publickey_remote,
+			 bool is_client,
+			 const char *clientid_local,
+			 const char *clientid_remote);
 
-	ASSERT_STREQ("blender@wearezeta.com", jzon_str(jobj, "email"));
-	ASSERT_STREQ("Test-Blender",          jzon_str(jobj, "name"));
-	ASSERT_STREQ("9cba9672-834b-45ac-924d-1af7a6425e0d",
-		     jzon_str(jobj, "id"));
-}
+
+int kase_channel_binding(uint8_t hash[KASE_CHANBIND_SIZE],
+			 const char *clientid_local,
+			 const char *clientid_remote);

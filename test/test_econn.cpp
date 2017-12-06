@@ -76,7 +76,7 @@ struct client {
 	struct backend *be;  /* pointer to parent */
 	struct econn *econn;
 	char userid[64];
-	char clientid[16];
+	char clientid[32];
 
 	/* The transport is common for all ECONN's */
 	struct econn_transp transp;
@@ -128,7 +128,8 @@ static void econn_update_req_handler(struct econn *econn,
 static void econn_update_resp_handler(struct econn *conn,
                                       const char *sdp,
                                       struct econn_props *props, void *arg);
-static void econn_close_handler(struct econn *econn, int err, uint32_t msg_time, void *arg);
+static void econn_close_handler(struct econn *econn, int err,
+				uint32_t msg_time, void *arg);
 static int transp_send_handler(struct econn *call,
 			       struct econn_message *msg, void *arg);
 static int datachannel_send(struct econn *conn,
@@ -287,6 +288,24 @@ static struct client *client_lookup(const struct list *clientl,
 }
 
 
+static struct client *client_other(const struct client *cli)
+{
+	struct backend *be = cli->be;
+	struct le *le;
+
+	for (le = list_head(&be->clientl) ; le; le = le->next) {
+
+		struct client *ocli = (struct client *)le->data;
+
+		if (0 != str_casecmp(ocli->userid, cli->userid)) {
+			return ocli;
+		}
+	}
+
+	return NULL;
+}
+
+
 static bool client_eq(const struct client *a, const struct client *b)
 {
 	if (!a || !b)
@@ -330,22 +349,20 @@ static void client_recv(struct client *cli,
 	if (!cli)
 		return;
 
-	// TODO: ignore messages from the same userid.
-	//       move into ecall/econn
-	//       this needs to be handlede differently, depending
-	//       on message-type
+	/* ignore messages from the same userid. */
 	if (0 == str_casecmp(cli->userid, userid_sender)) {
 
 		if (msg->msg_type == ECONN_SETUP && msg->resp) {
 
-			// Received SETUP(r) from other Client.
-			// We must stop the ringing.
+			/* Received SETUP(r) from other Client.
+			 * We must stop the ringing. */
 			info("other Client accepted -- stop ringtone\n");
 
 			if (cli->econn &&
 		   econn_current_state(cli->econn) == ECONN_PENDING_INCOMING) {
 
-				econn_close(cli->econn, ECANCELED, ECONN_MESSAGE_TIME_UNKNOWN);
+				econn_close(cli->econn, ECANCELED,
+					    ECONN_MESSAGE_TIME_UNKNOWN);
 			}
 			else {
 				info("no pending incoming econns\n");
@@ -383,7 +400,8 @@ static void client_recv(struct client *cli,
 }
 
 
-int client_send_spurious_cancel(struct client *cli, const char *sessid_sender)
+static int client_send_spurious_cancel(struct client *cli,
+				       const char *sessid_sender)
 {
 	struct econn_message msg;
 	int err;
@@ -631,6 +649,8 @@ static int transp_send_handler(struct econn *call,
 	struct client *cli = (struct client *)arg;
 	int err;
 
+	// todo: add function to resolve transport instead
+
 	switch (msg->msg_type) {
 
 	case ECONN_SETUP:
@@ -641,11 +661,15 @@ static int transp_send_handler(struct econn *call,
 
 	case ECONN_HANGUP:
 		err = datachannel_send(call, msg, cli);
+		if (err) {
+			warning("test: datachannel_send failed (%m)\n", err);
+		}
 		break;
 
 	default:
-		warning("transp_send_handler: message not supported (%s)\n",
-				econn_msg_name(msg->msg_type));
+		warning("test: transp_send_handler: message not supported"
+			" (%s)\n",
+			econn_msg_name(msg->msg_type));
 		err = EPROTO;
 		break;
 	}
@@ -667,7 +691,8 @@ static int datachannel_send(struct econn *conn,
 	struct client *cli_peer;
 	struct econn *conn_peer;
 
-	info("DataChannel: send %s\n", econn_msg_name(msg->msg_type));
+	info("DataChannel: send %s %s\n", econn_msg_name(msg->msg_type),
+	     msg->resp ? "Response" : "Request");
 
 	switch (msg->msg_type) {
 
@@ -676,6 +701,8 @@ static int datachannel_send(struct econn *conn,
 		break;
 
 	default:
+		warning("test: datachannel_send: unknown message %d\n",
+			msg->msg_type);
 		return EPROTO;
 	}
 
@@ -690,7 +717,7 @@ static int datachannel_send(struct econn *conn,
 	/* find the peer client */
 	cli_peer = backend_find_peer_client(cli->be, cli->userid);
 	if (!cli_peer) {
-		info("test: peer client not found\n");
+		info("test: datachannel_send: peer client not found\n");
 		return ENOENT;
 	}
 
@@ -781,6 +808,7 @@ static void econn_answer_handler(struct econn *conn,
 		re_cancel();
 }
 
+
 static void econn_update_req_handler(struct econn *econn,
 				     const char *userid_sender,
 				     const char *clientid_sender,
@@ -789,16 +817,22 @@ static void econn_update_req_handler(struct econn *econn,
 				     bool should_reset,
 				     void *arg)
 {
+	/* should not be called with the current testcases */
+	ASSERT_TRUE(false);
 }
+
 
 static void econn_update_resp_handler(struct econn *conn,
                                  const char *sdp,
                                  struct econn_props *props, void *arg)
 {
-    
+	/* should not be called with the current testcases */
+	ASSERT_TRUE(false);
 }
 
-static void econn_close_handler(struct econn *econn, int err, uint32_t msg_time, void *arg)
+
+static void econn_close_handler(struct econn *econn, int err,
+				uint32_t msg_time, void *arg)
 {
 	struct client *cli = (struct client *)arg;
 
@@ -974,42 +1008,6 @@ TEST_F(Econn, page12_a_calls_b_at_same_time_b_calls_a)
 	ASSERT_EQ(0, b2->n_close);
 	ASSERT_EQ(ECONN_PENDING_OUTGOING, econn_current_state(b2->econn));
 }
-
-
-#if 0
-TEST_F(Econn, page18_a_and_b_disconnect_without_hangup)
-{
-	struct client *a1, *a2;
-	struct client *b1, *b2;
-
-	client_register(&a1, be, "A", "1");
-	client_register(&a2, be, "A", "2");
-	client_register(&b1, be, "B", "1");
-	client_register(&b2, be, "B", "2");
-
-	b2->action = ACTION_ANSWER;
-	a1->fake_media = true;
-	b2->fake_media = true;
-
-	client_start(NULL, a1);
-
-	err = re_main_wait(5000);
-	ASSERT_EQ(0, err);
-
-	ASSERT_EQ(ECONN_DATACHAN_ESTABLISHED,
-		  econn_current_state(client_econn(a1)));
-	ASSERT_EQ(ECONN_TERMINATING,
-		  econn_current_state(client_econn(b1)));
-	ASSERT_EQ(ECONN_DATACHAN_ESTABLISHED,
-		  econn_current_state(client_econn(b2)));
-
-	/* Client 1 disconnect without HANGUP */
-	mem_deref(a1);
-
-	/* Client 2 disconnect without HANGUP */
-	mem_deref(b2);
-}
-#endif
 
 
 TEST_F(Econn, verify_initial_states)
@@ -1200,7 +1198,7 @@ TEST_F(Econn, timeout_a)
 	/* The client's econn should fail with a timeout error */
 	ASSERT_EQ(0, cli_a1->n_conn);
 	ASSERT_EQ(1, cli_a1->n_close);
-	ASSERT_EQ(ETIMEDOUT, cli_a1->close_err);
+	ASSERT_EQ(ETIMEDOUT_ECONN, cli_a1->close_err);
 
 	ASSERT_EQ(ECONN_TERMINATING, econn_current_state(cli_a1->econn));
 
@@ -1229,7 +1227,7 @@ TEST_F(Econn, flow005_timeout_b)
 	/* The client's econn should fail with a timeout error */
 	ASSERT_EQ(1, b1->n_conn);
 	ASSERT_EQ(1, b1->n_close);
-	ASSERT_EQ(ETIMEDOUT, b1->close_err);
+	ASSERT_EQ(ETIMEDOUT_ECONN, b1->close_err);
 	ASSERT_EQ(ECONN_TERMINATING, econn_current_state(b1->econn));
 
 	ASSERT_EQ(1, be->n_setup);
@@ -1335,4 +1333,12 @@ TEST(econn, message_is_creator)
 	ASSERT_FALSE(econn_is_creator(userid_b, userid_a, &msg_setup_resp));
 	ASSERT_FALSE(econn_is_creator(userid_a, userid_a, &msg_setup_req));
 	ASSERT_FALSE(econn_is_creator("n/a", "also n/a", &msg_cancel));
+}
+
+
+TEST(econn, transp_resolve)
+{
+	ASSERT_EQ(ECONN_TRANSP_BACKEND, econn_transp_resolve(ECONN_SETUP));
+	ASSERT_EQ(ECONN_TRANSP_BACKEND, econn_transp_resolve(ECONN_CANCEL));
+	ASSERT_EQ(ECONN_TRANSP_DIRECT, econn_transp_resolve(ECONN_HANGUP));
 }

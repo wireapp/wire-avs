@@ -249,12 +249,12 @@ TEST_F(MediamgrTest, catagory_change_new_states_callKit)
     struct ztime cur_time;
     
     ztime_get(&cur_time);
-    mediamgr_state state = MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS;
+    mediamgr_state state = MEDIAMGR_STATE_INCOMMING_CALL;
     mediamgr_set_call_state(mm, state);
     wait_for_event(&cat_ch_ss);
     int64_t t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
     COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_AUDIO_PERMISSIONS_READY);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_AUDIO_ACTIVATED);
     
     ztime_get(&cur_time);
     state = MEDIAMGR_STATE_CALL_ESTABLISHED;
@@ -280,12 +280,12 @@ TEST_F(MediamgrTest, catagory_change_new_states_callKit_1)
     mediamgr_set_user_starts_audio(mm, true);
     
     ztime_get(&cur_time);
-    mediamgr_state state = MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS;
+    mediamgr_state state = MEDIAMGR_STATE_INCOMMING_CALL;
     mediamgr_set_call_state(mm, state);
     wait_for_event(&cat_ch_ss);
     int64_t t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
     COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_INCOMMING_CALL);
     
     ztime_get(&cur_time);
     state = MEDIAMGR_STATE_CALL_ESTABLISHED;
@@ -296,7 +296,7 @@ TEST_F(MediamgrTest, catagory_change_new_states_callKit_1)
     ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_CALL_ESTABLISHED);
     
     ztime_get(&cur_time);
-    state = MEDIAMGR_STATE_AUDIO_PERMISSIONS_READY;
+    state = MEDIAMGR_STATE_AUDIO_ACTIVATED;
     mediamgr_set_call_state(mm, state);
     wait_for_event(&cat_ch_ss);
     t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
@@ -319,20 +319,20 @@ TEST_F(MediamgrTest, catagory_change_new_states_callKit_2)
     mediamgr_set_user_starts_audio(mm, true);
     
     ztime_get(&cur_time);
-    mediamgr_state state = MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS;
+    mediamgr_state state = MEDIAMGR_STATE_INCOMMING_CALL;
     mediamgr_set_call_state(mm, state);
     wait_for_event(&cat_ch_ss);
     int64_t t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
     COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_INCOMMING_CALL);
     
     ztime_get(&cur_time);
-    state = MEDIAMGR_STATE_AUDIO_PERMISSIONS_READY;
+    state = MEDIAMGR_STATE_AUDIO_ACTIVATED;
     mediamgr_set_call_state(mm, state);
     wait_for_event(&cat_ch_ss);
     t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
     COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_AUDIO_PERMISSIONS_READY);
+    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_AUDIO_ACTIVATED);
     
     ztime_get(&cur_time);
     state = MEDIAMGR_STATE_CALL_ESTABLISHED;

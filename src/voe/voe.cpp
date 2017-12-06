@@ -335,7 +335,7 @@ static struct aucodec voe_aucodecv[NUM_CODECS] = {
 		.srate     = 48000,
 		.ch        = 2,
 		.fmtp      = fmtp_no_cbr,
-		.has_rtp   = true,
+		.fmtp_cbr  = fmtp_cbr,
 
 		.enc_alloc = voe_enc_alloc,
 		.enc_start = voe_enc_start,
@@ -587,8 +587,6 @@ int voe_init(struct list *aucodecl)
 	gvoe.isMuted = false;
 	gvoe.isSilenced = false;
     
-	gvoe.cbr_enabled = false;
-    
 	gvoe.aio = NULL;
     
 	gvoe.state.chgh = NULL;
@@ -627,25 +625,6 @@ void voe_register_adm(struct audio_io *aio)
 void voe_deregister_adm()
 {
 	gvoe.aio = NULL;
-}
-
-void voe_enable_cbr(bool enabled)
-{
-	const char *fmtp_ptr = NULL;
-	gvoe.cbr_enabled = enabled;
-	if(enabled){
-		fmtp_ptr = fmtp_cbr;
-	} else {
-		fmtp_ptr = fmtp_no_cbr;
-	}
-	for(int i = 0; i < NUM_CODECS; i++){
-		voe_aucodecv[i].fmtp = fmtp_ptr;
-	}
-}
-
-bool voe_have_cbr()
-{
-	return gvoe.cbr_enabled;
 }
 
 int voe_invol(struct auenc_state *aes, double *invol)

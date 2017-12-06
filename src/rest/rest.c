@@ -364,14 +364,15 @@ static void http_resp_handler(int err, const struct http_msg *msg, void *arg)
 		return;
 
 	/* if msg==NULL then the request is complete */
-	if (msg == NULL) {
+	if (!err && msg == NULL) {
 
 		if (req->chunked) {
 
 			handle_final_chunk(req);
 		}
 		else {
-			req->mb_body->pos = 0;
+			if (req->mb_body)
+				req->mb_body->pos = 0;
 			response(req, req->msg, req->mb_body);
 		}
 

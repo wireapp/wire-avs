@@ -29,16 +29,12 @@
 
 #include "capture_router.h"
 
-#define PRINT_PERIODIC_FRAME_STATS 0
-
 static struct vie_capture_router {
 	webrtc::VideoCaptureInput *stream_input;
 	struct lock *lock;
 	bool buffer_rotate;
-#if PRINT_PERIODIC_FRAME_STATS
-	struct timeb fps_time;
+	uint64_t ts_fps;
 	uint32_t fps_count;
-#endif
 } router = {
 	.stream_input = NULL,
 	.lock = NULL,
@@ -57,10 +53,8 @@ int vie_capture_router_init(void)
 	if (err)
 		return err;
 
-#if PRINT_PERIODIC_FRAME_STATS
-	ftime(&router.fps_time);
+	router.ts_fps = tmr_jiffies();
 	router.fps_count = 0;
-#endif
 
 	return 0;
 }
@@ -114,26 +108,24 @@ void vie_capture_router_handle_frame(struct avs_vidframe *frame)
 	webrtc::VideoType rtc_type;
 	webrtc::VideoRotation rtc_rotation;
 	bool needs_convert = false;
+	bool log_convert = false;
 	int dw = frame->w;
 	int dh = frame->h;
 
-#if PRINT_PERIODIC_FRAME_STATS
-	struct timeb now;
-	ftime(&now);
+	uint64_t now = tmr_jiffies();
 
 	router.fps_count++;
-	int msec = (now.time - router.fps_time.time) * 1000 +
-		(now.millitm - router.fps_time.millitm) + 1;
-
+	uint64_t msec = now - router.ts_fps;
 	if (msec > 5000) {
 		if (msec < 6000) {
-			info("Capturer: res %dx%d fps: %0.2f\n", dw, dh,
+			info("%s: res: %dx%d fps: %0.2f\n", __FUNCTION__, dw, dh,
 				(float)router.fps_count * 1000.0f / msec); 
+			log_convert = true;
 		}
 		router.fps_count = 0;
-		router.fps_time = now;
+		router.ts_fps = now;
 	}
-#endif
+
 	if (!router.stream_input)
 		return;
 
@@ -200,13 +192,15 @@ void vie_capture_router_handle_frame(struct avs_vidframe *frame)
 		
 		rtc_frame.CreateEmptyFrame(dw, dh, dys, duvs, duvs);
 		rtc_frame.set_rotation(frot);
-		
-		debug("%s: convert src %dx%d str %zu/%zu dst %dx%d "
-		      "str %zu/%zu rot %d\n",
-		      __FUNCTION__, frame->w, frame->h,
-		      frame->ys, frame->us, dw, dh, dys,
-		      duvs, crot);
-		
+
+		if (log_convert) {
+			info("%s: convert src: %dx%d str: %zu/%zu dst: %dx%d "
+			      "str: %zu/%zu rot: %d\n",
+			      __FUNCTION__, frame->w, frame->h,
+			      frame->ys, frame->us, dw, dh, dys,
+			      duvs, crot);
+		}
+
 		err = webrtc::ConvertToI420(rtc_type, frame->y, 0, 0,
 					    frame->w, frame->h, 0, crot,
 					    &rtc_frame);

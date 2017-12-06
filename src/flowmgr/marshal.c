@@ -38,7 +38,6 @@ enum marshal_id {
 	MARSHAL_MEDIA_HANDLERS,
 	MARSHAL_MEDIA_ESTAB_HANDLER,
 	MARSHAL_CONF_POS_HANDLER,
-	MARSHAL_LOG_HANDLERS,
 	MARSHAL_RESP,
 	MARSHAL_EVENT,
 	MARSHAL_ACQUIRE,
@@ -56,7 +55,6 @@ enum marshal_id {
 	MARSHAL_GET_MUTE,
 	MARSHAL_CONVLOG,
 	MARSHAL_ENABLE_METRICS,
-	MARSHAL_ENABLE_LOGGING,
 	MARSHAL_SET_SESSID,
 	MARSHAL_INTERRUPTION,
 	MARSHAL_CAN_SEND_VIDEO,
@@ -64,7 +62,6 @@ enum marshal_id {
 	MARSHAL_SET_VIDEO_SEND_STATE,
 	MARSHAL_SET_VIDEO_HANDLERS,
 	MARSHAL_SET_AUDIO_STATE_HANDLER,
-	MARSHAL_SET_AUDIO_EFFECT,
 };
 
 struct marshal_elem {
@@ -105,13 +102,6 @@ struct marshal_conf_pos_handler_elem {
 	void *arg;
 };
 
-struct marshal_log_handlers_elem {
-	struct marshal_elem a;
-
-	flowmgr_log_append_h *appendh;
-	flowmgr_log_upload_h *uploadh;
-	void *arg;
-};
 
 struct marshal_resp_elem {
 	struct marshal_elem a;
@@ -282,10 +272,6 @@ struct marshal_audio_state_handler_elem {
 	void *arg;
 };
 
-struct marshal_set_audio_effect_elem {
-	struct marshal_elem a;
-	enum audio_effect effect;
-};
 
 static void mqueue_handler(int id, void *data, void *arg)
 {
@@ -333,14 +319,6 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 		flowmgr_set_conf_pos_handler(me->fm, cpe->conf_posh,
 					     cpe->arg);
-		break;
-	}
-		
-	case MARSHAL_LOG_HANDLERS: {
-		struct marshal_log_handlers_elem *mle = data;
-
-		flowmgr_set_log_handlers(me->fm, mle->appendh, mle->uploadh,
-					 mle->arg);
 		break;
 	}
 		
@@ -473,13 +451,6 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 	}
 
-	case MARSHAL_ENABLE_LOGGING: {
-		struct marshal_enable_elem *mee = data;
-
-		flowmgr_enable_logging(me->fm, mee->enable);
-		break;
-	}
-
 	case MARSHAL_SET_SESSID: {
 		struct marshal_sessid_elem *mse = data;
 
@@ -534,13 +505,6 @@ static void mqueue_handler(int id, void *data, void *arg)
 		flowmgr_set_audio_state_handler(me->fm,
 			mse->audio_state_change_handler,
 			mse->arg);
-		break;
-	}
-            
-	case MARSHAL_SET_AUDIO_EFFECT: {
-		struct marshal_set_audio_effect_elem *mie = data;
-		me->ret = flowmgr_set_audio_effect(me->fm, mie->effect);
-                
 		break;
 	}
             
@@ -674,24 +638,6 @@ void marshal_flowmgr_set_conf_pos_handler(struct flowmgr *fm,
 	me.a.fm = fm;
 
 	me.conf_posh = conf_posh;
-	me.arg = arg;
-
-	marshal_send(&me);
-}
-
-
-void marshal_flowmgr_set_log_handlers(struct flowmgr *fm,
-				      flowmgr_log_append_h *appendh,
-				      flowmgr_log_upload_h *uploadh,
-				      void *arg)
-{
-	struct marshal_log_handlers_elem me;
-
-	me.a.id = MARSHAL_LOG_HANDLERS;
-	me.a.fm = fm;
-
-	me.appendh = appendh;
-	me.uploadh = uploadh;
 	me.arg = arg;
 
 	marshal_send(&me);
@@ -968,19 +914,6 @@ void marshal_flowmgr_enable_metrics(struct flowmgr *fm, bool metrics)
 }
 
 
-void marshal_flowmgr_enable_logging(struct flowmgr *fm, bool logging)
-{
-	struct marshal_enable_elem me;
-
-	me.a.id = MARSHAL_ENABLE_LOGGING;
-	me.a.fm = fm;
-
-	me.enable = logging;
-	
-	marshal_send(&me);
-}
-
-
 void marshal_flowmgr_set_sessid(struct flowmgr *fm, const char *convid,
 				const char *sessid)
 {
@@ -1099,16 +1032,3 @@ void marshal_flowmgr_set_audio_state_handler(struct flowmgr *fm,
 	marshal_send(&me);
 }
 
-int marshal_flowmgr_set_audio_effect(struct flowmgr *fm, enum audio_effect effect)
-{
-	struct marshal_set_audio_effect_elem me;
-    
-	me.a.id = MARSHAL_SET_AUDIO_EFFECT;
-	me.a.fm = fm;
-    
-	me.effect = effect;
-    
-	marshal_send(&me);
-    
-	return me.a.ret;
-}

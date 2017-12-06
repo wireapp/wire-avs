@@ -53,3 +53,6 @@ struct econn {
 
 
 void econn_handle_event(struct econn *conn, int event);
+int  econn_transp_send(struct econn *conn, struct econn_message *msg);
+
+

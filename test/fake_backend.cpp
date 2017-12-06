@@ -245,7 +245,7 @@ void FakeBackend::handle_await(struct http_conn *conn,
 void FakeBackend::handle_self(struct http_conn *conn,
 			      const struct http_msg *msg)
 {
-	// TODO: incomplete JSON
+	// NOTE: incomplete JSON
 	static const char fake_self_json[] =
 		"{\"email\":\"blender@wearezeta.com\","
 		"\"phone\":null,"
@@ -272,8 +272,6 @@ void FakeBackend::handle_users(struct http_conn *conn,
 			       const struct http_msg *msg,
 			       const struct pl *userid)
 {
-	//re_printf("backend: TODO: got userid = %r\n", userid);
-
 	http_ereply(conn, 404, "Not Found");
 }
 

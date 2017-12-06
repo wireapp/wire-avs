@@ -8,4 +8,5 @@ AVS_SRCS += \
 	econn/econn_help.c \
 	econn/msg.c \
 	econn/props.c \
-	econn/state.c
+	econn/state.c \
+	econn/vector.c

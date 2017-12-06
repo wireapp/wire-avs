@@ -67,6 +67,7 @@ typedef void (ecall_propsync_h)(void *arg);
 typedef void (ecall_close_h)(int err, const char *metrics_json, struct ecall *ecall,
 	uint32_t msg_time, void *arg);
 
+
 struct ecall_conf {
 	struct econn_conf econf;
 	int trace;
@@ -88,8 +89,8 @@ int  ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		 ecall_transp_send_h *sendh, void *arg);
 int  ecall_set_turnserver(struct ecall *ecall, const struct sa *srv,
 			  const char *user, const char *pass);
-int  ecall_start(struct ecall *ecall);
-int  ecall_answer(struct ecall *ecall);
+int  ecall_start(struct ecall *ecall, bool audio_cbr);
+int  ecall_answer(struct ecall *ecall, bool audio_cbr);
 void ecall_transp_recv(struct ecall *ecall,
 		       uint32_t curr_time, /* in seconds */
 		       uint32_t msg_time, /* in seconds */
@@ -123,8 +124,48 @@ bool ecall_has_video(const struct ecall *ecall);
 int ecall_propsync_request(struct ecall *ecall);
 const char *ecall_props_get_local(struct ecall *ecall, const char *key);
 const char *ecall_props_get_remote(struct ecall *ecall, const char *key);
-void ecall_trace(const struct ecall *ecall, bool tx, const char *fmt, ...);
+void ecall_trace(struct ecall *ecall, const struct econn_message *msg,
+		 bool tx, enum econn_transport tp,
+		 const char *fmt, ...);
 int  ecall_restart(struct ecall *ecall);
 
 struct conf_part *ecall_get_conf_part(struct ecall *ecall);
 void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp);
+
+#define MAX_USER_DATA_SIZE (1024*64) // 64 kByte
+
+typedef void (ecall_user_data_ready_h)(int size, void *arg);
+typedef void (ecall_user_data_rcv_h)(uint8_t *data, size_t len, void *arg);
+typedef void (ecall_user_data_file_rcv_h)(const char *location, void *arg);
+typedef void (ecall_user_data_file_snd_h)(const char *name, bool success, void *arg);
+
+int ecall_add_user_data(struct ecall *ecall,
+                ecall_user_data_ready_h *ready_h,
+                ecall_user_data_rcv_h *rcv_h,
+                void *arg);
+
+int ecall_user_data_send(struct ecall *ecall,
+                const void *data,
+                size_t len);
+
+int ecall_user_data_send_file(struct ecall *ecall,
+                const char *file,
+                const char *name,
+                int speed_kbps);
+
+int ecall_user_data_register_ft_handlers(struct ecall *ecall,
+                const char *rcv_path,
+                ecall_user_data_file_rcv_h *f_rcv_h,
+                ecall_user_data_file_snd_h *f_snd_h);
+
+
+/* Device pairing */
+void ecall_set_devpair(struct ecall *ecall, bool devpair);
+int  ecall_devpair_start(struct ecall *ecall);
+int  ecall_devpair_answer(struct ecall *ecall,
+			  struct econn_message *msg,
+			  const char *pairid);
+int  ecall_devpair_ack(struct ecall *ecall,
+		       struct econn_message *msg,
+		       const char *pairid);
+

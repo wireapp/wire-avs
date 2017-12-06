@@ -133,6 +133,12 @@ static void engine_destructor(void *arg)
 }
 
 
+struct http_cli *engine_get_httpc(struct engine *engine)
+{
+	return engine ? engine->http : NULL;
+}
+
+
 static int dns_init(struct dnsc **dnscp)
 {
 	struct sa nsv[16];

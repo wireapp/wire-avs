@@ -13,13 +13,19 @@
 #include <re_json.h>
 
 
-static inline uint64_t mypower10(uint64_t e)
+static inline double mypower10(uint64_t e)
 {
-	uint64_t i, n = 1;
+	double n, p;
 
-	for (i=0; i<e; i++)
-		n *= 10;
-
+	n = 1.0;
+	p = 10.0;
+	while (e > 0) {
+		if (e & 1) {
+			n *= p;
+		}
+		p *= p;
+		e >>= 1;
+	}
 	return n;
 }
 

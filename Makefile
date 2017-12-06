@@ -25,7 +25,7 @@
 # Master version number
 #
 VER_MAJOR := 3
-VER_MINOR := 4
+VER_MINOR := 6
 
 ifeq ($(BUILD_NUMBER),)
 VER_PATCH := snapshot
@@ -98,28 +98,30 @@ distclean: clean
 include $(patsubst %,mk/%.mk,$(MK_COMPONENTS))
 
 info:
-	@echo "      AVS_OS: $(AVS_OS)"
-	@echo "    AVS_ARCH: $(AVS_ARCH)"
-	@echo "  AVS_FAMILY: $(AVS_FAMILY)"
-	@echo "     HOST_OS: $(HOST_OS)"
-	@echo "   HOST_ARCH: $(HOST_ARCH)"
-	@echo "      CCACHE: $(CCACHE)"
-	@echo "          CC: $(CC)"
-	@echo "         CXX: $(CXX)"
-	@echo "          LD: $(LD)"
-	@echo "          AR: $(AR)"
-	@echo "          AS: $(AS)"
-	@echo "      RANLIB: $(RANLIB)"
-	@echo "    CPPFLAGS: $(CPPFLAGS)"
-	@echo "      CFLAGS: $(CFLAGS)"
-	@echo "    CXXFLAGS: $(CXXFLAGS)"
-	@echo "      LFLAGS: $(LFLAGS)"
-	@echo "        LIBS: $(LIBS)"
-	@echo "    AVS_LIBS: $(AVS_LIBS)"
-	@echo "   BUILD_BIN: $(BUILD_BIN)"
-	@echo "BUILD_TARGET: $(BUILD_TARGET)"
-	@echo "         SDK: $(SDK)"
-	@echo "  HAVE_PROTOBUF: $(HAVE_PROTOBUF)"
+	@echo "        AVS_OS: $(AVS_OS)"
+	@echo "      AVS_ARCH: $(AVS_ARCH)"
+	@echo "    AVS_FAMILY: $(AVS_FAMILY)"
+	@echo "       HOST_OS: $(HOST_OS)"
+	@echo "     HOST_ARCH: $(HOST_ARCH)"
+	@echo "        CCACHE: $(CCACHE)"
+	@echo "            CC: $(CC)"
+	@echo "           CXX: $(CXX)"
+	@echo "            LD: $(LD)"
+	@echo "            AR: $(AR)"
+	@echo "            AS: $(AS)"
+	@echo "        RANLIB: $(RANLIB)"
+	@echo "      CPPFLAGS: $(CPPFLAGS)"
+	@echo "        CFLAGS: $(CFLAGS)"
+	@echo "      CXXFLAGS: $(CXXFLAGS)"
+	@echo "        LFLAGS: $(LFLAGS)"
+	@echo "          LIBS: $(LIBS)"
+	@echo "      AVS_LIBS: $(AVS_LIBS)"
+	@echo "      AVS_DEPS: $(AVS_DEPS)"
+	@echo "     BUILD_BIN: $(BUILD_BIN)"
+	@echo "  BUILD_TARGET: $(BUILD_TARGET)"
+	@echo "           SDK: $(SDK)"
+	@echo " HAVE_PROTOBUF: $(HAVE_PROTOBUF)"
+	@echo "HAVE_CRYPTOBOX: $(HAVE_CRYPTOBOX)"
 
 version:
 	@echo "$(AVS_VERSION)"

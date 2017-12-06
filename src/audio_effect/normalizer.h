@@ -63,6 +63,8 @@ extern "C"
 #define NE_ALPHA_MAX_UP 0.1f
 #define NE_ALPHA_MAX_DOWN 0.0025f
 
+#define NE_MAX_SQUELCH_GAIN_DB 9.0f
+
 struct normalizer_effect {
     int fs_khz;
     webrtc::PushResampler<int16_t> *resampler;
@@ -74,9 +76,13 @@ struct normalizer_effect {
     int frame_cnt;
     float Target_vol_db;
     float Target_gain_db;
+    float Squelch_gain_db;
     int prev_max_abs;
     float gain;
+    float speechLvl;
     float maxLvl;
+    
+    bool squelch_enabled;
 };
 
 #endif

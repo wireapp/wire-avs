@@ -125,6 +125,8 @@ int engine_start_sync(struct engine *engine);
 void engine_shutdown(struct engine *engine);
 
 
+struct http_cli *engine_get_httpc(struct engine *engine);
+
 /* Get the login token.
  */
 const char *engine_get_login_token(struct engine *engine);
@@ -203,44 +205,6 @@ int engine_update_conn(struct engine_user *user,
 		       engine_status_h *statush, void *arg);
 
 
-/************* Search ******************************************************/
-
-struct engine_user_search {
-	int took;
-	int found;
-	int returned;
-	struct list userl;
-};
-
-struct engine_found_user {
-	struct le le;
-
-	char *email;
-	char *phone;
-	bool connected;
-	int weight;
-	bool blocker;
-	char *name;
-	char *id;
-	int accent_id;
-	bool blocked;
-	int level;
-};
-
-typedef void (engine_user_search_h)(int err, struct engine_user_search *sp,
-				    void *arg);
-
-int engine_search_contacts(struct engine *engine, const char *query,
-			   int size, bool d, int l,
-			   engine_user_search_h *h, void *arg);
-int engine_search_top(struct engine *engine, int size,
-		      engine_user_search_h *h, void *arg);
-int engine_search_suggestions(struct engine *engine, int size, int l,
-			      engine_user_search_h *h, void *arg);
-int engine_search_common(struct engine *engine, struct engine_user *user,
-			 engine_user_search_h *h, void *arg);
-
-
 /************* Conversations ***********************************************/
 
 /* Conversation type.
@@ -265,13 +229,6 @@ struct engine_conv {
 	bool archived;
 	bool muted;
 
-	/* Call-related information
-	 */
-	int  others_in_call;
-	bool user_in_call;
-	bool device_in_call;
-	
-
 	/* Event-related information
 	 */
 	char *last_event;
@@ -292,8 +249,6 @@ struct engine_conv_member {
 	struct le le;
 	struct engine_user *user;	/* identifies the user  */
 	bool active;			/* currently a member?   */
-	bool in_call;			/* currently in a call here?  */
-	double quality;			/* connection quality  */
 };
 
 /* Get conversation from its ID.
@@ -333,12 +288,6 @@ enum engine_conv_changes {
 
 struct flowmgr *engine_get_flowmgr(struct engine *engine);
 
-int engine_join_call(struct engine_conv *conv, bool video_enabled);
-int engine_leave_call(struct engine_conv *conv);
-
-int engine_get_audio_mute(struct engine *engine, bool *muted);
-int engine_set_audio_mute(struct engine *engine, bool mute);
-
 
 /************* Messages ****************************************************
  *
@@ -348,51 +297,11 @@ int engine_set_audio_mute(struct engine *engine, bool mute);
  *
  */
 
-enum engine_msg_types {
-	ENGINE_MSG_UNKNOWN,
-	ENGINE_MSG_TEXT,
-	ENGINE_MSG_ASSET,
-	ENGINE_MSG_JOIN,
-	ENGINE_MSG_LEAVE,
-	ENGINE_MSG_RENAME,
-	ENGINE_MSG_VOICE_ACTIVE,
-	ENGINE_MSG_VOICE_DEACTIVE,
-	ENGINE_MSG_KNOCK,
-	ENGINE_MSG_HOT_KNOCK,
-	ENGINE_MSG_MEMBER_UPDATE,
-	ENGINE_MSG_CREATE,
-	ENGINE_MSG_CONNECT,
-	ENGINE_MSG_TYPING
-};
-
-struct engine_msg_text {
-	char *content;
-	char *nonce;
-};
-
-struct engine_msg {
-	struct le le;
-	struct engine_conv *conv;
-	struct engine_user *from;
-	char *id;
-	/* time_t time;  XXX Tricky to do, so we leave it out for now. */
-	enum engine_msg_types type;
-	union {
-		struct engine_msg_text text;
-		/* ...  */
-	} data;
-};
 
 /* Set last read message.
  */
 int engine_set_last_read(struct engine_conv *conv, const char *msg_id);
 
-/* Iterate over all messages in a conversation.
- */
-typedef bool (engine_msg_apply_h)(int err, struct engine_msg *msg, void *arg);
-int engine_apply_messages(struct engine_conv *conv, bool forward,
-			  const char *start, const char *end,
-			  engine_msg_apply_h *h, void *arg);
 
 struct client_msg {
 	char clientid[64];
@@ -420,6 +329,7 @@ int engine_send_otr_message(struct engine_conv *conv,
 			    const char *sender_clientid,
 			    struct list *msgl,
 			    bool transient,
+			    bool ignore_missing,
 			    engine_status_h *resph, void *arg);
 int engine_send_data(struct engine_conv *conv, const char *ctype,
 		     uint8_t *data, size_t len);
@@ -440,17 +350,7 @@ typedef void (engine_conn_ev_h)(struct engine_user *user,
 typedef void (engine_conv_add_h)(struct engine_conv *conv, void *arg);
 typedef void (engine_conv_update_h)(struct engine_conv *conv,
 				    enum engine_conv_changes, void *arg);
-typedef void (engine_conv_call_h)(struct engine_conv *conv, void *arg);
-typedef void (engine_call_participant_h)(struct engine_conv *conv,
-					 struct engine_user *user,
-					 bool joined, void *arg);
 
-/* XXX Provisional message handler. This is going to change.
- */
-typedef void (engine_add_msg_h)(struct engine_conv *conv,
-				struct engine_user *from,
-				const char *event_id,
-				const char *msg, void *arg);
 typedef void (engine_otr_add_msg_h)(struct engine_conv *conv,
 				    struct engine_user *from,
 				    const struct ztime *timestamp,
@@ -467,9 +367,6 @@ struct engine_lsnr {
 	engine_conn_ev_h *connh;
 	engine_conv_add_h *addconvh;
 	engine_conv_update_h *convupdateh;
-	engine_conv_call_h *callh;
-	engine_call_participant_h *callparth;
-	engine_add_msg_h *addmsgh;
 	engine_otr_add_msg_h *otraddmsgh;
 	engine_syncdone_h *syncdoneh;       /* sync done */
 	void *arg;

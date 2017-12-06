@@ -16,6 +16,7 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "openssl/sha.h"
 
 enum async_sdp {
 	ASYNC_NONE = 0,
@@ -36,6 +37,76 @@ enum async_sdp {
  */
 struct conf_part;
 
+#ifndef _WIN32
+#define ECALL_PACKED __attribute__((packed))
+#else
+#pragma pack (push, 1)
+#define ECALL_PACKED
+#endif
+
+#define USER_MESSAGE_DATA               0
+#define USER_MESSAGE_FILE_START         1
+#define USER_MESSAGE_FILE               2
+#define USER_MESSAGE_FILE_STATUS        3
+#define USER_MESSAGE_FILE_STATUS_ACK    4
+#define USER_MESSAGE_FILE_END           5
+#define USER_MESSAGE_FILE_END_ACK       6
+
+#define MAX_FILE_NAME_SIZE 128
+
+struct data_payload {
+	uint8_t data[MAX_USER_DATA_SIZE];
+};
+
+struct file_start_payload {
+	uint32_t nblocks;
+	char name[MAX_FILE_NAME_SIZE];
+	uint8_t data[MAX_USER_DATA_SIZE];
+};
+
+struct file_status_payload {
+	uint8_t data[MAX_USER_DATA_SIZE];
+	uint8_t sha[SHA256_DIGEST_LENGTH];
+};
+
+struct user_data_message{
+	uint8_t type;
+	union payload {
+		struct data_payload data_payload;
+		struct file_start_payload file_start_payload;
+		struct file_status_payload file_status_payload;
+	} payload;
+} ECALL_PACKED;
+
+struct file_status {
+	FILE *fp;
+	uint32_t nblocks;
+	uint32_t block_cnt;
+	uint32_t byte_cnt;
+	SHA256_CTX sha256_hash;
+	char path[MAX_FILE_NAME_SIZE];
+	char name[MAX_FILE_NAME_SIZE];
+	bool active;
+	struct ztime start_time;
+};
+
+struct user_data {
+	struct dce_channel *dce_ch;
+	ecall_user_data_ready_h *ready_h;
+	ecall_user_data_rcv_h *rcv_h;
+	ecall_user_data_file_rcv_h *f_rcv_h;
+	ecall_user_data_file_snd_h *f_snd_h;
+	void *arg;
+	bool channel_open;
+	struct tmr tmr;
+	struct tmr ft_tmr;
+	int32_t ft_chunk_size;
+	uint8_t pending_msg_buf[sizeof(struct user_data_message)];
+	size_t pending_msg_len;
+	struct file_status file_snd;
+	struct file_status file_rcv;
+};
+
 struct ecall {
 
 	struct le le;
@@ -46,7 +117,7 @@ struct ecall {
 	struct mediaflow *mf;
 	struct dce *dce;
 	struct dce_channel *dce_ch;
-	bool dce_open;
+	struct user_data *usrd;
 
 	struct tmr dc_tmr;
 	struct tmr media_start_tmr;
@@ -97,6 +168,13 @@ struct ecall {
 	uint32_t magic;
 
 	struct conf_part *conf_part;
+
+	struct list tracel;
+	uint64_t ts_start;
+
+	bool devpair;
+
+	bool audio_cbr;
 };
 
 
@@ -105,3 +183,23 @@ bool ecall_stats_prepare(struct ecall *ecall, struct json_object *jobj,
 
 struct conf_part *ecall_get_conf_part(struct ecall *ecall);
 void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp);
+
+int ecall_add_user_data_channel(struct ecall *ecall, bool should_open);
+int ecall_create_econn(struct ecall *ecall);
+void ecall_close(struct ecall *ecall, int err, uint32_t msg_time);
+
+/* Ecall trace */
+
+
+struct trace_entry {
+	struct le le;
+
+	uint64_t ts;
+	bool tx;
+	enum econn_transport tp;
+	enum econn_msg msg_type;
+	bool resp;
+	uint32_t age;
+};
+
+int ecall_show_trace(struct re_printf *pf, const struct ecall *ecall);

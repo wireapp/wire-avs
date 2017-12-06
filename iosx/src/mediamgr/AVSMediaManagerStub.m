@@ -260,6 +260,14 @@ static AVSMediaManager *_defaultMediaManager;
 {
 }
 
+- (void)audioActivated
+{
+}
+
+- (void)audioDeActivated
+{
+}
+
 - (void)setUiStartsAudio:(BOOL)ui_starts_audio
 {
 }

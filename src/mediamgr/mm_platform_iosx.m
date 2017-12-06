@@ -202,8 +202,11 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 
 		NSDictionary *interuptionDict = notification.userInfo;
 		NSInteger routeChangeReason = [[interuptionDict valueForKey:AVAudioSessionRouteChangeReasonKey] integerValue];
-
 		enum mediamgr_auplay route = mm_platform_get_route();
+		BOOL override = NO;
+
+        
+        AVAudioSession* session = [AVAudioSession sharedInstance];
         
 		switch (routeChangeReason) {
 			case AVAudioSessionRouteChangeReasonUnknown:
@@ -218,12 +221,27 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 				info("mediamgr: AVAudioSessionRouteChangeReasonOldDeviceUnavailable\n");
 				break;
 
-            case AVAudioSessionRouteChangeReasonCategoryChange:
-                info("mediamgr: AVAudioSessionRouteChangeReasonCategoryChange\n");
-                break;
+			case AVAudioSessionRouteChangeReasonCategoryChange:
+				if ([session category] == AVAudioSessionCategoryAmbient){
+					info("mediamgr: AVAudioSessionRouteChangeReasonCategoryChange: AVAudioSessionCategoryAmbient\n");
+				} else if ([session category] == AVAudioSessionCategorySoloAmbient){
+					info("mediamgr: AVAudioSessionRouteChangeReasonCategoryChange: AVAudioSessionCategorySoloAmbient\n");
+				} else if ([session category] == AVAudioSessionCategoryPlayback){
+					info("mediamgr: AVAudioSessionRouteChangeReasonCategoryChange: AVAudioSessionCategoryPlayback\n");
+				} else if ([session category] == AVAudioSessionCategoryRecord){
+					info("mediamgr: AVAudioSessionRouteChangeReasonCategoryChange: AVAudioSessionCategoryRecord\n");
+				} else if ([session category] == AVAudioSessionCategoryPlayAndRecord){
+					info("mediamgr: AVAudioSessionRouteChangeReasonCategoryChange: AVAudioSessionCategoryPlayAndRecord\n");
+				} else if ([session category] == AVAudioSessionCategoryMultiRoute){
+					info("mediamgr: AVAudioSessionRouteChangeReasonCategoryChange: AVAudioSessionCategoryMultiRoute\n");
+				} else {
+					info("mediamgr: AVAudioSessionRouteChangeReasonCategoryChange: Unknown \n");
+				}
+				break;
                 
 			case AVAudioSessionRouteChangeReasonOverride:
 				info("mediamgr: AVAudioSessionRouteChangeReasonOverride\n");
+				override = YES;
 				break;
                 
 			case AVAudioSessionRouteChangeReasonWakeFromSleep:
@@ -245,7 +263,6 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
         
 		info("mediamgr: route = %s \n", MMroute2Str(route));
         
-		AVAudioSession* session = [AVAudioSession sharedInstance];
 		debug("mediamgr: sample rate: %f \n", session.sampleRate);
 		debug("mediamgr: IO buffer duration: %f \n ", session.IOBufferDuration);
 		debug("mediamgr: output channels: %ld \n", session.outputNumberOfChannels);
@@ -254,9 +271,18 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 		debug("mediamgr: input latency: %f \n", session.inputLatency);
         
 		if(_mm){
-			mediamgr_device_changed(_mm);
-            
+			if (route == MEDIAMGR_AUPLAY_EARPIECE
+			    || route == MEDIAMGR_AUPLAY_SPEAKER) {
+				info("mediamgr: forcing: %s\n",
+				     route == MEDIAMGR_AUPLAY_EARPIECE
+				            ? "earpiece" : "speaker");
+				mediamgr_enable_speaker_mm(_mm,
+					     route == MEDIAMGR_AUPLAY_SPEAKER);
+			}
+
 			update_device_status(_mm);
+            
+			mediamgr_device_changed(_mm);
 		}
         
 		}];
@@ -540,8 +566,6 @@ void mm_platform_enter_call(void){
 		//	error("%s: couldn't set session's preferred sample rate: %ld",
 		//		__FUNCTION__, (long)err.code);
 		//}
-        
-		usleep(1000000);
 	}
 	in_call = true;
 }

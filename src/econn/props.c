@@ -19,6 +19,7 @@
 #include <string.h>
 #include <re.h>
 #include "avs_log.h"
+#include "avs_zapi.h"
 #include "avs_econn.h"
 #include "econn.h"
 

@@ -20,19 +20,25 @@ extern const char econn_proto_version[];
 
 enum econn_msg {
 	/* via backend: */
-	ECONN_SETUP  = 0x01,
-	ECONN_CANCEL = 0x02,
-	ECONN_UPDATE = 0x10,
+	ECONN_SETUP       = 0x01,
+	ECONN_CANCEL      = 0x02,
 
 	/* p2p via datachannel: */
-	ECONN_HANGUP = 3,
-	ECONN_PROPSYNC = 4,
+	ECONN_HANGUP      = 0x03,
+	ECONN_PROPSYNC    = 0x04,
 
 	/* Group call: */
-	ECONN_GROUP_START = 5,
-	ECONN_GROUP_LEAVE = 6,
-	ECONN_GROUP_CHECK = 7,
-	ECONN_GROUP_SETUP = 8,
+	ECONN_GROUP_START = 0x05,
+	ECONN_GROUP_LEAVE = 0x06,
+	ECONN_GROUP_CHECK = 0x07,
+	ECONN_GROUP_SETUP = 0x08,
+	
+	ECONN_UPDATE = 0x10,
+	
+	/* Device pairing messages */
+	ECONN_DEVPAIR_PUBLISH = 0x21,
+	ECONN_DEVPAIR_ACCEPT  = 0x22,
+
 };
 
 enum econn_state {
@@ -53,6 +59,11 @@ enum econn_dir {
 	ECONN_DIR_UNKNOWN = 0,
 	ECONN_DIR_OUTGOING,
 	ECONN_DIR_INCOMING
+};
+
+enum econn_transport {
+	ECONN_TRANSP_BACKEND = 0,
+	ECONN_TRANSP_DIRECT
 };
 
 #define ECONN_MESSAGE_TIME_UNKNOWN (0)
@@ -85,6 +96,7 @@ struct econn_message {
 	char dest_userid[64];
 	char dest_clientid[64];
 	bool resp;
+	bool transient;
 
 	uint32_t time; /* in seconds */
 	uint32_t age; /* in seconds */
@@ -99,6 +111,17 @@ struct econn_message {
 		struct propsync {
 			struct econn_props *props;
 		} propsync;
+
+		struct devpair_accept {
+			char *sdp;
+		} devpair_accept;
+		
+		struct devpair_publish {
+			struct zapi_ice_server turnv[8];
+			size_t turnc;
+			char *sdp;
+			char *username;
+		} devpair_publish;
 	} u;
 };
 
@@ -214,15 +237,18 @@ void econn_recv_message(struct econn *conn,
 		 const char *clientid_sender,
 		 const struct econn_message *msg);
 
+
 /* helper functions */
 
 const char *econn_msg_name(enum econn_msg msg);
 const char *econn_state_name(enum econn_state st);
 const char *econn_dir_name(enum econn_dir dir);
+const char *econn_transp_name(enum econn_transport tp);
 bool econn_iswinner(const char *userid_self, const char *clientid,
 		    const char *userid_remote, const char *clientid_remote);
 bool econn_is_creator(const char *userid_self, const char *userid_remote,
 		      const struct econn_message *msg);
+enum econn_transport econn_transp_resolve(enum econn_msg type);
 
 
 /* econn message */
@@ -249,6 +275,14 @@ const char *econn_props_get(const struct econn_props *props, const char *key);
 int  econn_props_print(struct re_printf *pf, const struct econn_props *props);
 
 
-bool econn_can_send_propsync(struct econn *econn);
+bool econn_can_send_propsync(const struct econn *econn);
 int econn_send_propsync(struct econn *conn, bool resp,
 			struct econn_props *props);
+
+
+struct vector {
+	uint8_t *bytes;
+	size_t len;
+};
+
+int vector_alloc(struct vector **vecp, const uint8_t *bytes, size_t len);

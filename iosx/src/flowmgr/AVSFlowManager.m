@@ -140,8 +140,6 @@ static void video_size_h(int width, int height, void *arg);
 
 - (void)mediaCategoryChanged:(NSString *)convId category:(enum AVSFlowManagerCategory)mcat;
 
-- (void)playbackRouteDidChangeInMediaManager:(AVSPlaybackRoute)play_back_route;
-
 - (void)applicationWillResignActive:(NSNotification *)notification;
 - (void)applicationDidBecomeActive:(NSNotification *)notification;
 
@@ -232,7 +230,7 @@ static void *avs_thread(void *arg)
 	/* Force the loading of wcall symbols! 
 	 * Can't this be done with a linker directive?
 	 */
-	wcall_get_members(NULL);
+	wcall_get_members(NULL, NULL);
 	
 	err = libre_init();
 	if (err) {
@@ -252,7 +250,7 @@ static void *avs_thread(void *arg)
 		return NULL;
 	}
 
-	err = flowmgr_init("voe", NULL, TLS_KEYTYPE_EC);
+	err = flowmgr_init("voe");
 	fmw.initialized = err == 0;
 	fmw.err = err;
 	if (err) {
@@ -448,55 +446,6 @@ static inline enum log_level convert_logl(AVSFlowManagerLogLevel logLevel)
 	}
 }
 #endif
-
-
-static inline enum flowmgr_ausrc convert_ausrc(AVSFlowManagerAudioSource ausrc)
-{
-	switch(ausrc) {
-	case FLOMANAGER_AUDIO_SOURCE_INTMIC:
-		return FLOWMGR_AUSRC_INTMIC;
-		
-	case FLOMANAGER_AUDIO_SOURCE_EXTMIC:
-		return FLOWMGR_AUSRC_EXTMIC;
-		
-	case FLOMANAGER_AUDIO_SOURCE_HEADSET:
-		return FLOWMGR_AUSRC_HEADSET;
-		
-	case FLOMANAGER_AUDIO_SOURCE_BT:
-		return FLOWMGR_AUSRC_BT;
-
-	case FLOMANAGER_AUDIO_SOURCE_LINEIN:
-		return FLOWMGR_AUSRC_LINEIN;
-
-	case FLOMANAGER_AUDIO_SOURCE_SPDIF:
-		return FLOWMGR_AUSRC_SPDIF;
-	}
-}
-
-
-static inline enum flowmgr_auplay convert_auplay(AVSFlowManagerAudioPlay auplay)
-{
-	switch(auplay) {
-	case FLOWMANAGER_AUDIO_PLAY_EARPIECE:
-		return FLOWMGR_AUPLAY_EARPIECE;
-
-	case FLOWMANAGER_AUDIO_PLAY_SPEAKER:
-		return FLOWMGR_AUPLAY_SPEAKER;
-
-	case FLOWMANAGER_AUDIO_PLAY_HEADSET:
-		return FLOWMGR_AUPLAY_HEADSET;
-
-	case FLOWMANAGER_AUDIO_PLAY_BT:
-		return FLOWMGR_AUPLAY_BT;
-
-	case FLOWMANAGER_AUDIO_PLAY_LINEOUT:
-		return FLOWMGR_AUPLAY_LINEOUT;
-
-	case FLOWMANAGER_AUDIO_PLAY_SPDIF:
-		return FLOWMGR_AUPLAY_SPDIF;
-	}
-}
-
 
 @implementation AVSFlowManager
 
@@ -849,29 +798,6 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 			     self.flowManager);
 }
 
-
-- (int)ausrcChanged:(enum AVSFlowManagerAudioSource)audioSource
-{
-	enum flowmgr_ausrc ausrc = convert_ausrc(audioSource);
-	int err;
-
-	FLOWMGR_MARSHAL_RET(fmw.tid, err, flowmgr_ausrc_changed, self.flowManager, ausrc);
-
-	return err;
-}
-
-
-- (int)auplayChanged:(enum AVSFlowManagerAudioPlay)audioPlay
-{
-	enum flowmgr_auplay auplay = convert_auplay(audioPlay);
-	int err;
-
-	FLOWMGR_MARSHAL_RET(fmw.tid, err, flowmgr_auplay_changed, self.flowManager, auplay);
-
-	return err;
-}
-
-
 - (BOOL)isReady
 {
 	int err;
@@ -1059,36 +985,9 @@ out:
 
 }
 
-- (void)playbackRouteDidChangeInMediaManager:(AVSPlaybackRoute)play_back_route
-{
-    AVSFlowManagerAudioPlay route = FLOWMANAGER_AUDIO_PLAY_SPEAKER;
-    
-    switch ( play_back_route ) {
-        case AVSPlaybackRouteBuiltIn:
-            route = FLOWMANAGER_AUDIO_PLAY_EARPIECE;
-            break;
-            
-        case AVSPlaybackRouteHeadset:
-            route = FLOWMANAGER_AUDIO_PLAY_HEADSET;
-            break;
-            
-        case AVSPlaybackRouteSpeaker:
-            route = FLOWMANAGER_AUDIO_PLAY_SPEAKER;
-            break;
-            
-        default:
-            break;
-    }
-    
-    //if ( self.collection.count ) { // SSJ think this is the only place the collection is used maybe remove
-        [self auplayChanged:route];
-    //}
-}
-
 - (void)setEnableLogging:(BOOL)enable
 {
-	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_enable_logging,
-			     self.flowManager, (bool)enable);
+	warning("NOT IMPLEMENTED: setEnableLogging\n");
 }
 
 
@@ -1230,7 +1129,7 @@ out:
 
 - (int)setAudioEffect:(AVSAudioEffectType) effect
 {
-    int ret;
+    int ret=0;
     
     enum audio_effect effect_type = AUDIO_EFFECT_CHORUS_MIN;
     if (effect == AVSAudioEffectTypeChorusMin) {
@@ -1291,7 +1190,7 @@ out:
         effect_type = AUDIO_EFFECT_NONE;
     }
     
-    FLOWMGR_MARSHAL_RET(fmw.tid, ret, flowmgr_set_audio_effect, self.flowManager, effect_type);
+    //    FLOWMGR_MARSHAL_RET(fmw.tid, ret, flowmgr_set_audio_effect, self.flowManager, effect_type);
     
     return ret;
 }

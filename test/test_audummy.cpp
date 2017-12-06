@@ -25,6 +25,9 @@ TEST(audummy, basic_init_close)
 	struct list aucodecl = LIST_INIT;
 	int err;
 
+	log_set_min_level(LOG_LEVEL_WARN);
+	log_enable_stderr(true);
+
 	err = audummy_init(&aucodecl);
 	ASSERT_EQ(0, err);
 	

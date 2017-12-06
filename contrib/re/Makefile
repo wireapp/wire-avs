@@ -7,10 +7,10 @@
 # Master version number
 VER_MAJOR := 0
 VER_MINOR := 5
-VER_PATCH := 1
+VER_PATCH := 3
 
 PROJECT   := re
-VERSION   := 0.5.1
+VERSION   := 0.5.3
 
 MK	:= mk/re.mk
 
@@ -35,9 +35,9 @@ MODULES += json
 
 INSTALL := install
 ifeq ($(DESTDIR),)
-PREFIX  := /usr/local
+PREFIX  ?= /usr/local
 else
-PREFIX  := /usr
+PREFIX  ?= /usr
 endif
 ifeq ($(LIBDIR),)
 LIBDIR  := $(PREFIX)/lib
@@ -85,6 +85,7 @@ libre.pc:
 	@echo 'Version: '$(VERSION) >> libre.pc
 	@echo 'URL: http://creytiv.com/re.html' >> libre.pc
 	@echo 'Libs: -L$${libdir} -lre' >> libre.pc
+	@echo 'Libs.private: -L$${libdir} -lre ${LIBS}' >> libre.pc
 	@echo 'Cflags: -I$${includedir}' >> libre.pc
 
 $(BUILD)/%.o: src/%.c $(BUILD) Makefile $(MK) $(MODMKS)

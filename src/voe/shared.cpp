@@ -276,10 +276,7 @@ static void ve_destructor(void *arg)
         
 		gvoe.base->Terminate();
         
-		if(gvoe.aio){
-			gvoe.aio = (struct audio_io *)mem_deref(gvoe.aio);
-		}
-		voe_stop_audio_test(&gvoe);        
+		voe_stop_audio_test(&gvoe);
 	}
     
 #if FORCE_AUDIO_RTP_RECORDING
@@ -329,11 +326,10 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 
 		webrtc::AudioDeviceModule* adm = NULL;
 		if(gvoe.aio){
-			mem_ref(gvoe.aio);
 			adm = (webrtc::AudioDeviceModule*)gvoe.aio->aioc;
 		}
 		if (avs_get_flags() & AVS_FLAG_AUDIO_TEST){
-			audio_io_alloc(&gvoe.autest.aio, AUDIO_IO_MODE_MOCK_REALTIME, NULL, NULL);
+			audio_io_alloc(&gvoe.autest.aio, AUDIO_IO_MODE_MOCK_REALTIME);
 			adm = (webrtc::AudioDeviceModule*)gvoe.autest.aio->aioc;
 		}
 		info("voe: First Channel created call voe.base->Init() gvoe.adm = %p \n", adm);

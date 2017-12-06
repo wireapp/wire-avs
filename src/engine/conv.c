@@ -163,11 +163,11 @@ int engine_save_conv(struct engine_conv *conv)
 		if (err)
 			goto out;
 
-		err = sobject_write_u8(so, mbr->active | (mbr->in_call << 1));
+		err = sobject_write_u8(so, mbr->active | (0 << 1));
 		if (err)
 			goto out;
 
-		err = sobject_write_dbl(so, mbr->quality);
+		err = sobject_write_dbl(so, .0);
 		if (err)
 			goto out;
 	}
@@ -175,9 +175,9 @@ int engine_save_conv(struct engine_conv *conv)
 	err = sobject_write_u8(so,   (conv->active)
 				   | (conv->archived << 1)
 				   | (conv->muted << 2)
-				   | ((conv->others_in_call & 0x03) << 3)
-			           | (conv->user_in_call << 5)
-				   | (conv->device_in_call << 6));
+				   | ((0 & 0x03) << 3)
+			           | (0 << 5)
+				   | (0 << 6));
 	if (err)
 		goto out;
 
@@ -205,6 +205,7 @@ static int load_member(struct engine_conv_member **mbrp,
 		       struct engine *engine, struct sobject *so)
 {
 	struct engine_conv_member *mbr;
+	double quality;
 	char *user_id;
 	uint8_t v8;
 	int err;
@@ -225,11 +226,9 @@ static int load_member(struct engine_conv_member **mbrp,
 	if (err)
 		goto out;
 	mbr->active = v8 & 0x01;
-	mbr->in_call = v8 & 0x02;
 
-	err = sobject_read_dbl(&mbr->quality, so);
-	if (err)
-		goto out;
+	(void)sobject_read_dbl(&quality, so);
+	(void)quality;
 
 	*mbrp = mbr;
 
@@ -284,9 +283,6 @@ static int load_conv(struct engine_conv *conv)
 	conv->active = v8 & (1 << 0);
 	conv->archived = v8 & (1 << 1);
 	conv->muted = v8 & (1 << 2);
-	conv->others_in_call = (v8 & (0x03 << 3)) >> 3;
-	conv->user_in_call = v8 & (1 << 5);
-	conv->device_in_call = v8 & (1 << 6);
 
 	err = sobject_read_lenstr(&dst, so);
 	if (err)
@@ -402,8 +398,7 @@ static int update_member(struct engine_conv *conv, struct json_object *jobj,
 			return ENOMEM;
 
 		mbr->user = user;
-		mbr->in_call = false;
-		mbr->quality = 0.;
+
 		list_append(&conv->memberl, &mbr->le, mbr);
 		*changes |= ENGINE_CONV_MEMBERS;
 	}
@@ -1259,8 +1254,8 @@ static void get_convlist_handler(int err, const struct http_msg *msg,
 
 		id = jzon_str(cobj, "id");
 		conv = import_conv(step->engine, cobj);
-		if (conv)
-			engine_call_post_conv_sync(conv);
+		//if (conv)
+		//engine_call_post_conv_sync(conv);
 	}
 
 	err = jzon_bool(&more, jobj, "has_more");
@@ -1473,8 +1468,6 @@ int engine_conv_debug(struct re_printf *pf, const struct engine_conv *conv)
 				  mbr->user->display_name);
 		if (!mbr->active)
 			err |= re_hprintf(pf, " [left]");
-		if (mbr->in_call)
-			err |= re_hprintf(pf, " [in call]");
 		err |= re_hprintf(pf, "\n");
 	}
 	if (!conv->active)
@@ -1483,26 +1476,7 @@ int engine_conv_debug(struct re_printf *pf, const struct engine_conv *conv)
 		err |= re_hprintf(pf, "You have archived the conversation.\n");
 	if (conv->muted)
 		err |= re_hprintf(pf, "You have muted the conversation.\n");
-	err |= re_hprintf(pf, "Call state:\n   device: ");
-	if (conv->device_in_call)
-		err |= re_hprintf(pf, "in call.\n");
-	else
-		err |= re_hprintf(pf, "not in call.\n");
-	err |= re_hprintf(pf, "   user:   ");
-	if (conv->user_in_call)
-		err |= re_hprintf(pf, "in call.\n");
-	else
-		err |= re_hprintf(pf, "not in call.\n");
-	err |= re_hprintf(pf, "   others: %i in call.\n",
-			  conv->others_in_call);
-	LIST_FOREACH(&conv->memberl, le) {
-		struct engine_conv_member *mbr = le->data;
 
-		if (mbr->in_call) {
-			err |= re_hprintf(pf, "      o %s\n",
-					  mbr->user->display_name);
-		}
-	}
 	err |= re_hprintf(pf, "Last event: %s\n", conv->last_event);
 	err |= re_hprintf(pf, "Last read:  %s\n", conv->last_read);
 

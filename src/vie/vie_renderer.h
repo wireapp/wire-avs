@@ -46,6 +46,8 @@ private:
 	lock *_lock;
 	struct tmr _timer;
 	uint64_t _ts_last;
+	uint64_t _ts_fps;
+	uint32_t _fps_count;
 };
 
 #endif

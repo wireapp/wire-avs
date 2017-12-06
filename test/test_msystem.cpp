@@ -27,7 +27,7 @@ TEST(msystem, 1)
 	struct msystem *msys = NULL;
 	int err;
 
-	err = msystem_get(&msys, "audummy", TLS_KEYTYPE_EC, NULL);
+	err = msystem_get(&msys, "audummy", NULL);
 	ASSERT_EQ(0, err);
 
 	ASSERT_TRUE(msystem_is_initialized(msys));

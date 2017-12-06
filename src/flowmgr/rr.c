@@ -49,8 +49,6 @@ static void rr_destructor(void *arg)
 	rr->magic = 0;
 
 	list_unlink(&rr->le);
-	if (rr->call)
-		list_unlink(&rr->call_le);
 
 	--fmstats.nrr;
 	debug("rr_destructor: %p nrr=%d\n", rr, fmstats.nrr);
@@ -77,13 +75,11 @@ int rr_alloc(struct rr_resp **rrp, struct flowmgr *fm, struct call *call,
 
 	rr->magic = RR_MAGIC;
 	rr->fm = fm;
-	rr->call = call;
+	//rr->call = call;
 	rr->resph = resph;
 	rr->arg = arg;
 
 	list_append(&fm->rrl, &rr->le, rr);
-	if (call)
-		list_append(&call->rrl, &rr->call_le, rr);
 
 	rr->ts_req = tmr_jiffies();
 
@@ -103,11 +99,11 @@ void rr_cancel(struct rr_resp *rr)
 		return;
 	}
 
-	if (rr->call)
-		list_unlink(&rr->call_le);
+	//if (rr->call)
+	//list_unlink(&rr->call_le);
 	list_unlink(&rr->le);
 	
-	rr->call = NULL;
+	//rr->call = NULL;
 	rr->resph = NULL;
 	
 }

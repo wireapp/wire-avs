@@ -162,11 +162,15 @@ namespace webrtc {
         int32_t SetLoudspeakerStatus(bool enable) { return 0; }
         int32_t GetLoudspeakerStatus(bool* enabled) const { return 0; }
         bool BuiltInAECIsAvailable() const { return false; }
+        bool BuiltInNSIsAvailable() const { return false; }
+        bool BuiltInAGCIsAvailable() const { return false; }
         int32_t EnableBuiltInAEC(bool enable) { return -1; }
+        int32_t EnableBuiltInNS(bool enable) { return -1; }
+        int32_t EnableBuiltInAGC(bool enable) { return -1; }
         bool BuiltInAECIsEnabled() const { return false; }
         
-        int32_t RegisterCommandHandler(audio_io_command_h *cmdh, void *arg) { return 0; }
-        int32_t HandleCommand(enum audio_io_command cmd) { return 0; }
+        int GetPlayoutAudioParameters(AudioParameters* params) const { return -1;}
+        int GetRecordAudioParameters(AudioParameters* params) const { return -1;}
         
         void* record_thread();
         void* playout_thread();

@@ -53,7 +53,7 @@ int  dce_connect(struct dce *dce, bool dtls_role_active);
 int  dce_open_chan(struct dce *dce, struct dce_channel *ch);
 int  dce_close_chan(struct dce *dce, struct dce_channel *ch);
 int  dce_status(struct re_printf *pf, struct dce *dce);
-int  dce_send(struct dce *dce, struct dce_channel *ch, const char *data, size_t len);
+int  dce_send(struct dce *dce, struct dce_channel *ch, const void *data, size_t len);
 void dce_recv_pkt(struct dce *dce, const uint8_t *pkt, size_t len);
 bool dce_snd_dry(struct dce *dce);
 bool dce_is_chan_open(const struct dce_channel *ch);

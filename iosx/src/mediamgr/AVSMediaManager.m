@@ -441,22 +441,34 @@ static AVSMediaManager *_defaultMediaManager;
 
 - (void)setupAudioDevice
 {
-    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS_FROM_UI);
+	mediamgr_enter_call(_mm);
+    //mediamgr_set_call_state(_mm, MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS);
 }
 
 - (void)resetAudioDevice
 {
-    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_NORMAL_FROM_UI);
+	mediamgr_exit_call(_mm);
+    //mediamgr_set_call_state(_mm, MEDIAMGR_STATE_NORMAL);
 }
 
 - (void)startAudio
 {
-    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_AUDIO_PERMISSIONS_READY);
+    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_AUDIO_ACTIVATED);
 }
 
 - (void)stopAudio
 {
-    //mediamgr_set_call_state(_mm, MEDIAMGR_STATE_NORMAL);
+    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_AUDIO_DEACTIVATED);
+}
+
+- (void)audioActivated
+{
+    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_AUDIO_ACTIVATED);
+}
+
+- (void)audioDeActivated
+{
+    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_AUDIO_DEACTIVATED);
 }
 
 - (void)setUiStartsAudio:(BOOL)ui_starts_audio

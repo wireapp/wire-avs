@@ -94,8 +94,7 @@ int voe_enc_alloc(struct auenc_state **aesp,
 	aes->pt = prm->pt;
 	aes->srate = prm->srate;
 	//aes->ch = prm
-	aes->cbr = gvoe.cbr_enabled || prm->cbr;
-    prm->cbr = aes->cbr;
+	aes->cbr = prm->cbr;
     
 	*aesp = aes;
 
@@ -103,12 +102,14 @@ int voe_enc_alloc(struct auenc_state **aesp,
 }
 
 
-int voe_enc_start(struct auenc_state *aes, struct media_ctx **mctxp)
+int voe_enc_start(struct auenc_state *aes, bool cbr, struct media_ctx **mctxp)
 {
 	int err = 0;
 	if (!aes || !mctxp)
 		return EINVAL;
 
+	aes->cbr = cbr;
+	
 	if (*mctxp) {
 		aes->ve = (struct voe_channel *)mem_ref(*mctxp);
 	} else {
@@ -161,3 +162,4 @@ void voe_enc_stop(struct auenc_state *aes)
 	}
 	aes->ve = (struct voe_channel *)mem_deref(aes->ve);
 }
+

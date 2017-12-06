@@ -43,17 +43,17 @@
  */
 
 
-#define MAX_CLIENTS 4
-#define MAX_CONVLOOPS 1024
-#define NUM_TURN_SERVERS 4
+#define MAX_CLIENTS         4
+#define MAX_CONVLOOPS    1024
+#define NUM_TURN_SERVERS    4
 
 
 class Ecall;
 
 enum estab_type {
-    ESTAB_MEDIA = 0,
-    ESTAB_DATA,
-    ESTAB_AUDIO,
+	ESTAB_MEDIA = 0,
+	ESTAB_DATA,
+	ESTAB_AUDIO,
 };
 
 enum action {
@@ -63,7 +63,7 @@ enum action {
 	ACTION_END,
 	ACTION_TEST_COMPLETE,
 	ACTION_DELAY_COMPLETE,
-    ACTION_RESTART,
+	ACTION_RESTART,
 };
 
 enum {
@@ -88,10 +88,9 @@ struct client {
 	const char *clientid;
 
 	enum action action_conn;
-    enum action action_mestab;
-    enum action action_destab;
-    enum action action_aestab;
-    
+	enum action action_mestab;
+	enum action action_destab;
+	enum action action_aestab;
 	enum action action_close;
 
 	unsigned n_conn = 0;
@@ -100,8 +99,16 @@ struct client {
 	unsigned n_datachan_estab = 0;
 	unsigned n_propsync = 0;
 	unsigned n_close = 0;
+	unsigned n_usr_data_ready = 0;
 	int err_close;
 	const char *metrics_json;
+	char user_data[MAX_USER_DATA_SIZE];
+	int user_data_snd_len;
+	int user_data_rcv_len;
+	int user_data_rcv_files;
+	int user_data_snd_files;
+	char user_data_snd_file[128];
+	char user_data_rcv_file[128];
 };
 
 struct conv_loop {
@@ -278,6 +285,65 @@ static unsigned total_close(const struct conv_loop *loop)
 }
 
 
+static unsigned total_usr_data_ready(const struct conv_loop *loop)
+{
+	unsigned n_usr_data_ready = 0;
+
+	for (unsigned i=0; i<loop->num_clients; i++) {
+
+		const struct client *cli = &loop->clients[i];
+
+		n_usr_data_ready += cli->n_usr_data_ready;
+	}
+
+	return n_usr_data_ready;
+}
+
+
+static unsigned total_usr_data_rcv(const struct conv_loop *loop)
+{
+	unsigned user_data_rcv_len = 0;
+
+	for (unsigned i=0; i<loop->num_clients; i++) {
+
+		const struct client *cli = &loop->clients[i];
+
+		user_data_rcv_len += cli->user_data_rcv_len;
+	}
+
+	return user_data_rcv_len;
+}
+
+
+static unsigned total_usr_data_rcv_files(const struct conv_loop *loop)
+{
+	unsigned user_data_rcv_files = 0;
+    
+	for (unsigned i=0; i<loop->num_clients; i++) {
+        
+		const struct client *cli = &loop->clients[i];
+        
+		user_data_rcv_files += cli->user_data_rcv_files;
+	}
+    
+	return user_data_rcv_files;
+}
+
+static unsigned total_usr_data_snd_files(const struct conv_loop *loop)
+{
+	unsigned user_data_snd_files = 0;
+    
+	for (unsigned i=0; i<loop->num_clients; i++) {
+        
+		const struct client *cli = &loop->clients[i];
+        
+		user_data_snd_files += cli->user_data_snd_files;
+	}
+    
+	return user_data_snd_files;
+}
+
+
 static void convloop_dump(const struct conv_loop *loop)
 {
 	re_fprintf(stderr,
@@ -349,8 +415,7 @@ public:
 
 		memset(loopv, 0, sizeof(loopv));
 
-		err = msystem_get(&msys, "audummy",
-				  TLS_KEYTYPE_EC, &config);
+		err = msystem_get(&msys, "audummy", &config);
 		ASSERT_EQ(0, err);
 		ASSERT_TRUE(msys != NULL);
 
@@ -390,7 +455,7 @@ public:
 			mem_deref(loopv[i]);
 		}
 	}
-    
+
 	void prepare_loops(size_t num_loops, size_t num_clients)
 	{
 		size_t i;
@@ -485,7 +550,7 @@ public:
 
 		conv->fix->test_complete(conv, 0);
 	}
-    
+
 	void handle_conn_action(struct client *cli)
 	{
 #if 0
@@ -496,10 +561,10 @@ public:
 		}
 #endif
 
-        switch (cli->action_conn) {
-                
+		switch (cli->action_conn) {
+
 		case ACTION_ANSWER:
-			err = ecall_answer(cli->ecall);
+			err = ecall_answer(cli->ecall, false);
 			ASSERT_EQ(0, err);
 			break;
 
@@ -508,7 +573,7 @@ public:
 			break;
 
 		case ACTION_ANSWER_AND_END:
-			err = ecall_answer(cli->ecall);
+			err = ecall_answer(cli->ecall, false);
 			ASSERT_EQ(0, err);
 
 			ecall_end(cli->ecall);
@@ -523,7 +588,6 @@ public:
 				  tmr_delay_handler, cli->loop);
 			break;
 
-                
 		default:
 			break;
 		}
@@ -569,7 +633,7 @@ public:
 		++cli->n_audio_estab;
 
 		ASSERT_TRUE(NULL != ecall_mediaflow(cli->ecall));
-        
+
 		if (fix->exp_total_audio_estab &&
 		    total_audio_estab(loop) >= fix->exp_total_audio_estab) {
 
@@ -594,10 +658,10 @@ public:
 		ASSERT_TRUE(NULL != ecall_mediaflow(cli->ecall));
 
 		int err = ecall_media_start(cli->ecall);
-		if(err){
+		if (err) {
 			ecall_end(cli->ecall);
 		}
-        
+
 		if (fix->exp_total_media_estab &&
 	    total_media_estab(loop) >= fix->exp_total_media_estab) {
 
@@ -622,6 +686,113 @@ public:
 		}
 	}
 
+	static void user_data_rcv_handler(uint8_t *data, size_t len, void *arg)
+	{
+		struct client *cli = (struct client *)arg;
+		struct conv_loop *loop = cli->loop;
+		Ecall *fix = cli->fix;
+
+		memcpy(cli->user_data, data, len);
+		cli->user_data_rcv_len = len;
+
+		if (total_usr_data_ready(loop) >= fix->exp_total_user_data_ready &&
+			total_usr_data_rcv(loop) >= fix->exp_total_user_data_rcv &&
+			total_usr_data_rcv_files(loop) >= fix->exp_total_user_data_rcv_files &&
+			total_usr_data_snd_files(loop) >= fix->exp_total_user_data_snd_files) {
+
+			fix->test_complete(loop, 0);
+		}
+	}
+
+	static void user_data_rcv_file_handler(const char *location, void *arg)
+	{
+		struct client *cli = (struct client *)arg;
+		struct conv_loop *loop = cli->loop;
+		Ecall *fix = cli->fix;
+
+		cli->user_data_rcv_files += 1;
+
+		if (total_usr_data_ready(loop) >= fix->exp_total_user_data_ready &&
+			total_usr_data_rcv(loop) >= fix->exp_total_user_data_rcv &&
+			total_usr_data_rcv_files(loop) >= fix->exp_total_user_data_rcv_files &&
+			total_usr_data_snd_files(loop) >= fix->exp_total_user_data_snd_files) {
+            
+			fix->test_complete(loop, 0);
+		}
+	}
+
+	static void snd_handler(void *arg)
+	{
+		struct client *cli = (struct client *)arg;
+
+		if (cli->user_data_snd_len) {
+			ecall_user_data_send(cli->ecall, cli->user_data,
+					     cli->user_data_snd_len);
+			cli->user_data_snd_len = 0;
+		}
+	}
+    
+	static void snd_file_handler(void *arg)
+	{
+		struct client *cli = (struct client *)arg;
+
+		if (str_isset(cli->user_data_snd_file)) {
+			ecall_user_data_send_file(cli->ecall,
+						  cli->user_data_snd_file,
+						  "dummy.dat", -1);
+			memset(cli->user_data_snd_file, 0,
+			       sizeof(cli->user_data_snd_file));
+		}
+	}
+    
+	static void user_data_snd_file_handler(const char *name,
+					       bool success, void *arg)
+	{
+		struct client *cli = (struct client *)arg;
+		struct conv_loop *loop = cli->loop;
+		Ecall *fix = cli->fix;
+        
+		if (success) {
+			cli->user_data_snd_files += 1;
+		}
+            
+		if (total_usr_data_ready(loop) >= fix->exp_total_user_data_ready &&
+			total_usr_data_rcv(loop) >= fix->exp_total_user_data_rcv &&
+			total_usr_data_rcv_files(loop) >= fix->exp_total_user_data_rcv_files &&
+			total_usr_data_snd_files(loop) >= fix->exp_total_user_data_snd_files) {
+            
+			fix->test_complete(loop, 0);
+		}
+	}
+    
+	static void user_data_ready_handler(int size, void *arg)
+	{
+		struct client *cli = (struct client *)arg;
+		struct conv_loop *loop = cli->loop;
+		Ecall *fix = cli->fix;
+
+		info("[%s.%s] User data ready\n", cli->userid, cli->clientid);
+
+		++cli->n_usr_data_ready;
+
+		if (str_isset(cli->user_data_snd_file)) {
+			tmr_start(&cli->fix->tmr_delay, 10,
+					snd_file_handler, cli);
+		}
+        
+		if (cli->user_data_snd_len) {
+			tmr_start(&cli->fix->tmr_delay, 10,
+					snd_handler, cli);
+		}
+		if (total_usr_data_ready(loop) >= fix->exp_total_user_data_ready &&
+			total_usr_data_rcv(loop) >= fix->exp_total_user_data_rcv &&
+			total_usr_data_rcv_files(loop) >= fix->exp_total_user_data_rcv_files &&
+			total_usr_data_snd_files(loop) >= fix->exp_total_user_data_snd_files) {
+            
+			fix->test_complete(loop, 0);
+		}
+	}
+
 	static void propsync_handler(void *arg)
 	{
 		struct client *cli = (struct client *)arg;
@@ -638,8 +809,9 @@ public:
 		}
 	}
 
-	static void close_handler(int err, const char *metrics_json, struct ecall* ecall, 
-		uint32_t msg_time, void *arg)
+	static void close_handler(int err, const char *metrics_json,
+				  struct ecall* ecall,
+				  uint32_t msg_time, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
 		Ecall *fix = cli->fix;
@@ -661,8 +833,7 @@ public:
 
 			switch (cli->action_close) {
 
-			case ACTION_ANSWER:
-				warning("close: answer not possible\n");
+			case ACTION_NOTHING:
 				break;
 
 			case ACTION_END:
@@ -672,8 +843,9 @@ public:
 			case ACTION_TEST_COMPLETE:
 				fix->test_complete(cli->loop, 0);
 				break;
-                    
+
 			default:
+				warning("close: action not possible\n");
 				break;
 			}
 		}
@@ -714,7 +886,7 @@ public:
 		err = econn_message_encode(&buf, msg);
 		if (err)
 			goto out;
-		
+
 		be_msg->msg = buf;
 
 		err |= str_dup(&be_msg->userid_sender, userid_sender);
@@ -777,7 +949,8 @@ public:
 		mem_deref(str);
 	}
 
-	void prepare_ecalls(struct conv_loop *loop)
+	void prepare_ecalls(struct conv_loop *loop,
+			    bool user_data_channel = false)
 	{
 		struct ecall_conf conf;
 		unsigned i;
@@ -787,7 +960,6 @@ public:
 		memset(&conf, 0, sizeof(conf));
 		conf.econf.timeout_setup = 60000;
 		conf.econf.timeout_term = 5000;
-		//conf.nat = nat;
 #if 0
 		conf.trace = 1;
 #endif
@@ -815,6 +987,18 @@ public:
 					  transp_send_handler, cli);
 			ASSERT_EQ(0, err);
 			ASSERT_TRUE(cli->ecall != NULL);
+
+			if (user_data_channel) {
+				err = ecall_add_user_data(cli->ecall,
+					  user_data_ready_handler,
+					  user_data_rcv_handler, cli);
+				ASSERT_EQ(0, err);
+				err = ecall_user_data_register_ft_handlers(
+					  cli->ecall, "./test/data",
+					  user_data_rcv_file_handler,
+					  user_data_snd_file_handler);
+				ASSERT_EQ(0, err);
+			}
 		}
 
 		/* Add a fake TURN-Server */
@@ -835,9 +1019,9 @@ public:
 		}
 	}
 
-	void test_base(struct conv_loop *loop)
+	void test_base(struct conv_loop *loop, bool user_data = false)
 	{
-		prepare_ecalls(loop);
+		prepare_ecalls(loop, user_data);
 
 #if 0
 		/* Send a "fake" CANCEL from B to A */
@@ -845,7 +1029,7 @@ public:
 #endif
 
 		/* Call from A to B */
-		err = ecall_start(loop->clients[0].ecall);
+		err = ecall_start(loop->clients[0].ecall, false);
 		ASSERT_EQ(0, err);
 
 		verify_debug(loop);
@@ -878,7 +1062,7 @@ public:
 
 public:
 	struct tmr tmr_restart;
-    
+
 protected:
 	TurnServer *turn_srvv[NUM_TURN_SERVERS] = {nullptr};
 	struct list lst = LIST_INIT;
@@ -897,6 +1081,10 @@ protected:
 	unsigned exp_total_datachan_estab = 0;
 	unsigned exp_total_propsyncs = 0;
 	unsigned exp_total_close = 0;
+	unsigned exp_total_user_data_ready = 0;
+	unsigned exp_total_user_data_rcv = 0;
+	unsigned exp_total_user_data_rcv_files = 0;
+	unsigned exp_total_user_data_snd_files = 0;
 
 	struct list pendingl = LIST_INIT;
 
@@ -904,43 +1092,50 @@ protected:
 	unsigned n_cancel = 0;
 };
 
+
 static void tmr_restart_handler(void *arg)
 {
 	struct ecall *ecall = (struct ecall *)arg;
-    
+
 	ecall_restart(ecall);
 }
+
 
 void handle_estab_action(struct conv_loop *loop, enum estab_type estabt)
 {
 	Ecall *fix = loop->fix;
 	unsigned i;
+	int err;
 
 	ASSERT_TRUE(fix != NULL);
 
 	for (i=0; i<loop->num_clients; i++) {
 
 		struct client *cli = &loop->clients[i];
+		enum action *action_estab = NULL;
 
-        enum action *action_estab = NULL;
-        switch (estabt) {
-            case ESTAB_MEDIA:
-                action_estab = &cli->action_mestab;
-                break;
-            case ESTAB_DATA:
-                action_estab = &cli->action_destab;
-                break;
-            case ESTAB_AUDIO:
-                action_estab = &cli->action_aestab;
-                break;
-            default:
-                break;
-        }
+		switch (estabt) {
 
-        if(!action_estab){
-            return;
-        }
-        
+		case ESTAB_MEDIA:
+			action_estab = &cli->action_mestab;
+			break;
+
+		case ESTAB_DATA:
+			action_estab = &cli->action_destab;
+			break;
+
+		case ESTAB_AUDIO:
+			action_estab = &cli->action_aestab;
+			break;
+
+		default:
+			break;
+		}
+
+		if (!action_estab) {
+			return;
+		}
+
 		switch (*action_estab) {
 
 		case ACTION_ANSWER:
@@ -955,12 +1150,12 @@ void handle_estab_action(struct conv_loop *loop, enum estab_type estabt)
 			fix->test_complete(loop, 0);
 			break;
 
-        case ACTION_RESTART:
-            tmr_start(&cli->fix->tmr_restart, 100,
-                          tmr_restart_handler, cli->ecall);
-            *action_estab = ACTION_NOTHING;
-            break;
-                
+		case ACTION_RESTART:
+			tmr_start(&cli->fix->tmr_restart, 100,
+				  tmr_restart_handler, cli->ecall);
+			*action_estab = ACTION_NOTHING;
+			break;
+
 		default:
 			break;
 		}
@@ -1021,10 +1216,109 @@ TEST_F(Ecall, check_audio_estabh)
 	ASSERT_EQ(1, b1->n_close);
 	ASSERT_TRUE( b1->metrics_json != NULL);
 
-	// B's second device should not generate metrics
-	ASSERT_TRUE( b2->metrics_json == NULL);
+	ASSERT_TRUE( b2->metrics_json != NULL);
 }
 
+
+TEST_F(Ecall, user_data)
+{
+	struct client *a1, *b1, *b2;
+
+	prepare_loops(1, 4);
+
+	struct conv_loop *conv = loopv[0];
+
+	prepare_clients(conv);
+
+	conv->clients[1].userid = "";
+
+	a1 = convloop_client(conv, "A", "1");
+	b1 = convloop_client(conv, "B", "1");
+	b2 = convloop_client(conv, "B", "2");
+	ASSERT_TRUE(a1 != NULL);
+	ASSERT_TRUE(b1 != NULL);
+	ASSERT_TRUE(b2 != NULL);
+
+	b1->action_conn = ACTION_ANSWER;
+
+	#define SND_BYTES 1024
+
+	a1->user_data_snd_len = SND_BYTES;
+	int16_t tmp = 5687;
+	for (int i = 0; i < a1->user_data_snd_len; i++) {
+		tmp = tmp * 5687;
+		a1->user_data[i] = (char)tmp;
+	}
+	exp_total_user_data_ready = 3;
+	exp_total_user_data_rcv = a1->user_data_snd_len;
+
+	test_base(conv, true);
+
+	/* Wait .. */
+	err = re_main_wait(30000);
+	ASSERT_EQ(0, err);
+
+	ASSERT_EQ(0, a1->n_conn);
+	ASSERT_EQ(2, a1->n_usr_data_ready);
+
+	ASSERT_EQ(1, b1->n_conn);
+	ASSERT_EQ(1, b1->n_usr_data_ready);
+
+	ASSERT_EQ(0, a1->user_data_snd_len);
+	ASSERT_EQ(SND_BYTES, b1->user_data_rcv_len);
+
+	tmp = 0;
+	for (int i = 0; i < b1->user_data_snd_len; i++) {
+		tmp = a1->user_data[i] - b1->user_data[i];
+		if (tmp) {
+			break;
+		}
+	}
+	ASSERT_EQ(0, tmp);
+}
+
+#if 1
+TEST_F(Ecall, user_data_file_transfer)
+{
+	struct client *a1, *b1, *b2;
+
+	prepare_loops(1, 4);
+    
+	struct conv_loop *conv = loopv[0];
+    
+	prepare_clients(conv);
+    
+	conv->clients[1].userid = "";
+    
+	a1 = convloop_client(conv, "A", "1");
+	b1 = convloop_client(conv, "B", "1");
+	b2 = convloop_client(conv, "B", "2");
+	ASSERT_TRUE(a1 != NULL);
+	ASSERT_TRUE(b1 != NULL);
+	ASSERT_TRUE(b2 != NULL);
+    
+	b1->action_conn = ACTION_ANSWER;
+    
+	sprintf(a1->user_data_snd_file, "./test/data/near16.pcm");
+
+	//exp_total_user_data_ready = 3;
+	exp_total_user_data_rcv_files = 1;
+	exp_total_user_data_snd_files = 1;
+	//exp_total_user_data_rcv = a1->user_data_snd_len;
+    
+	test_base(conv, true);
+    
+	/* Wait .. */
+	err = re_main_wait(10000);
+	ASSERT_EQ(0, err);
+    
+	ASSERT_EQ(0, a1->n_conn);
+	//ASSERT_EQ(2, a1->n_usr_data_ready);
+    
+	ASSERT_EQ(1, b1->n_conn);
+	//ASSERT_EQ(1, b1->n_usr_data_ready);
+}
+#endif
 
 TEST_F(Ecall, transport_error)
 {
@@ -1265,18 +1559,25 @@ TEST_F(Ecall, hundreds_of_calls_in_parallel)
 
 	prepare_loops(NUM_CONV, 4);
 
+	exp_total_datachan_estab = 2;
+
 	for (i=0; i<loopc; i++) {
 
 		struct conv_loop *conv = loopv[i];
+		struct client *a1, *b1;
 
 		prepare_clients(conv);
 
-		conv->clients[2].action_conn = ACTION_ANSWER;
+		a1 = convloop_client(conv, "A", "1");
+		b1 = convloop_client(conv, "B", "1");
+		ASSERT_TRUE(a1 != NULL);
+		ASSERT_TRUE(b1 != NULL);
 
-		exp_total_datachan_estab = 2;
-		conv->clients[0].action_destab = ACTION_END;
+		b1->action_conn = ACTION_ANSWER;
 
-		conv->clients[2].action_close = ACTION_TEST_COMPLETE;
+		a1->action_destab = ACTION_END;
+
+		b1->action_close = ACTION_TEST_COMPLETE;
 
 		test_base(conv);
 	}
@@ -1285,21 +1586,55 @@ TEST_F(Ecall, hundreds_of_calls_in_parallel)
 	err = re_main_wait(60000);
 	ASSERT_EQ(0, err);
 
+	/* XXX: should we wait for audio/datachan in this test? */
+
 	for (i=0; i<loopc; i++) {
 
 		struct conv_loop *conv = loopv[i];
+		struct client *a1, *a2, *b1, *b2;
 
-		ASSERT_EQ(0, conv->clients[0].n_conn);
-		ASSERT_EQ(1, conv->clients[0].n_datachan_estab);
-		//ASSERT_EQ(0, conv->clients[0].n_close);
+		a1 = convloop_client(conv, "A", "1");
+		a2 = convloop_client(conv, "A", "2");
+		b1 = convloop_client(conv, "B", "1");
+		b2 = convloop_client(conv, "B", "2");
+		ASSERT_TRUE(a1 != NULL);
+		ASSERT_TRUE(a2 != NULL);
+		ASSERT_TRUE(b1 != NULL);
+		ASSERT_TRUE(b2 != NULL);
 
-		ASSERT_EQ(1, conv->clients[2].n_conn);
-		ASSERT_EQ(1, conv->clients[2].n_datachan_estab);
-		ASSERT_EQ(1, conv->clients[2].n_close);
+		/* A1 -- Outgoing call */
+		ASSERT_EQ(0, a1->n_conn);
+		ASSERT_EQ(1, a1->n_media_estab);
+		ASSERT_EQ(1, a1->n_datachan_estab);
+		ASSERT_GE(a1->n_propsync, 1);
+		ASSERT_LE(a1->n_close, 1);     /* zero or one */
+		ASSERT_EQ(0, a1->err_close);
 
-		//ASSERT_EQ(0, conv->clients[3].n_conn);
-		//ASSERT_EQ(0, conv->clients[3].n_datachan_estab);
-		//ASSERT_EQ(0, conv->clients[3].n_close);
+		/* A2 -- ignore */
+		ASSERT_EQ(0, a2->n_conn);
+		ASSERT_EQ(0, a2->n_media_estab);
+		ASSERT_EQ(0, a2->n_audio_estab);
+		ASSERT_EQ(0, a2->n_datachan_estab);
+		ASSERT_EQ(0, a2->n_propsync);
+		ASSERT_EQ(0, a2->n_close);
+		ASSERT_EQ(0, a2->err_close);
+
+		/* B1 -- Answering the incoming call */
+		ASSERT_EQ(1, b1->n_conn);
+		ASSERT_EQ(1, b1->n_media_estab);
+		ASSERT_EQ(1, b1->n_datachan_estab);
+		ASSERT_GE(b1->n_propsync, 1);
+		ASSERT_EQ(1, b1->n_close);
+		ASSERT_EQ(0, b1->err_close);
+
+		/* B2 -- Incoming call, cancelled */
+		ASSERT_EQ(1, b2->n_conn);
+		ASSERT_EQ(0, b2->n_media_estab);
+		ASSERT_EQ(0, b2->n_audio_estab);
+		ASSERT_EQ(0, b2->n_datachan_estab);
+		ASSERT_EQ(0, b2->n_propsync);
+		ASSERT_EQ(1, b2->n_close);
+		ASSERT_EQ(EALREADY, b2->err_close);
 	}
 }
 
@@ -1669,6 +2004,13 @@ TEST_F(Ecall, flow007)
 {
 	struct client *a1, *b2;
 
+#if 1
+	/* silence 487 Role Conflict warnings */
+	log_set_min_level(LOG_LEVEL_ERROR);
+#endif
+
+	msystem_enable_kase(msys, true);
+
 	prepare_loops(1, 4);
 
 	struct conv_loop *conv = loopv[0];
@@ -1689,10 +2031,10 @@ TEST_F(Ecall, flow007)
 	prepare_ecalls(conv);
 
 	/* Call from A to B */
-	err = ecall_start(a1->ecall);
+	err = ecall_start(a1->ecall, false);
 	ASSERT_EQ(0, err);
 
-	err = ecall_start(b2->ecall);
+	err = ecall_start(b2->ecall, false);
 	ASSERT_EQ(0, err);
 
 	/* Wait .. */
@@ -1732,6 +2074,11 @@ TEST_F(Ecall, flow007_check_audio_estabh)
 {
 	struct client *a1, *b2;
 
+#if 1
+	/* silence 487 Role Conflict warnings */
+	log_set_min_level(LOG_LEVEL_ERROR);
+#endif
+
 	prepare_loops(1, 4);
 
 	struct conv_loop *conv = loopv[0];
@@ -1752,10 +2099,10 @@ TEST_F(Ecall, flow007_check_audio_estabh)
 	prepare_ecalls(conv);
 
 	/* Call from A to B */
-	err = ecall_start(a1->ecall);
+	err = ecall_start(a1->ecall, false);
 	ASSERT_EQ(0, err);
 
-	err = ecall_start(b2->ecall);
+	err = ecall_start(b2->ecall, false);
 	ASSERT_EQ(0, err);
 
 	/* Wait .. */
@@ -1826,7 +2173,7 @@ TEST_F(Ecall, flow008)
 	prepare_ecalls(conv);
 
 	/* Call from B to A */
-	err = ecall_start(b2->ecall);
+	err = ecall_start(b2->ecall, false);
 	ASSERT_EQ(0, err);
 
 	exp_total_conn = 4;
@@ -1920,7 +2267,7 @@ TEST_F(Ecall, flow014)
 	ASSERT_EQ(0, n_cancel);
 }
 
-#if 0
+
 TEST_F(Ecall, propsync)
 {
 	struct client *a1, *b1;
@@ -1950,17 +2297,17 @@ TEST_F(Ecall, propsync)
 	ASSERT_EQ(2, a1->n_propsync);
 	ASSERT_EQ(2, b1->n_propsync);
 
-	// change a local prop
+	/* change a local prop */
 
 	/* send UPDATE from A1 */
 	ASSERT_TRUE(a1->ecall != NULL);
 	err = ecall_propsync_request(a1->ecall);
 	ASSERT_EQ(0, err);
 
-	// expect change
+	/* expect change */
 
 	exp_total_propsyncs = 6;
-    
+
 	/* Wait again .. */
 	err = re_main_wait(5000);
 	ASSERT_EQ(0, err);
@@ -1968,7 +2315,7 @@ TEST_F(Ecall, propsync)
 	ASSERT_EQ(3, a1->n_propsync);
 	ASSERT_EQ(3, b1->n_propsync);
 }
-#endif
+
 
 TEST_F(Ecall, ice)
 {
@@ -1977,6 +2324,8 @@ TEST_F(Ecall, ice)
 #if 0
 	log_set_min_level(LOG_LEVEL_INFO);
 #endif
+
+	msystem_enable_kase(msys, true);
 
 	prepare_loops(1, 4);
 
@@ -2018,92 +2367,87 @@ TEST_F(Ecall, ice)
 TEST_F(Ecall, audio_io_error)
 {
 	struct client *a1, *b1, *b2;
-    
+
 	/* we dont want to see the warnings.. */
 	log_set_min_level(LOG_LEVEL_ERROR);
 
 	prepare_loops(1, 4);
-    
+
 	struct conv_loop *conv = loopv[0];
-    
+
 	prepare_clients(conv);
-    
+
 	audummy_force_error();
-    
+
 	conv->clients[1].userid = "";
-    
+
 	a1 = convloop_client(conv, "A", "1");
 	b1 = convloop_client(conv, "B", "1");
 	b2 = convloop_client(conv, "B", "2");
 	ASSERT_TRUE(a1 != NULL);
 	ASSERT_TRUE(b1 != NULL);
 	ASSERT_TRUE(b2 != NULL);
-    
+
 	b1->action_conn = ACTION_ANSWER;
-    
+
 	exp_total_close = 3;
 	a1->action_close = ACTION_TEST_COMPLETE;
 	b1->action_close = ACTION_TEST_COMPLETE;
 	b2->action_close = ACTION_TEST_COMPLETE;
-    
+
 	test_base(conv);
-    
+
 	/* Wait .. */
 	err = re_main_wait(10000);
 	ASSERT_EQ(0, err);
-    
+
 	ASSERT_EQ(0, a1->n_conn);
 	ASSERT_EQ(1, a1->n_close);
 	ASSERT_TRUE( a1->metrics_json != NULL);
-    
+
 	ASSERT_EQ(1, b1->n_conn);
 	ASSERT_EQ(1, b1->n_close);
 	ASSERT_TRUE( b1->metrics_json != NULL);
 }
 
-#if 1
+
 TEST_F(Ecall, restart)
 {
 	struct client *a1, *b2;
-    
-#if 0
-    log_set_min_level(LOG_LEVEL_INFO);
-#endif
-    
+
 	prepare_loops(1, 4);
-    
+
 	struct conv_loop *conv = loopv[0];
-    
+
 	prepare_clients(conv);
-    
+
 	conv->clients[1].userid = "";
 	conv->clients[2].userid = "";
-    
+
 	a1 = convloop_client(conv, "A", "1");
 	b2 = convloop_client(conv, "B", "2");
 	ASSERT_TRUE(a1 != NULL);
 	ASSERT_TRUE(b2 != NULL);
-    
+
 	b2->action_conn = ACTION_ANSWER;
-    
+
 	exp_total_audio_estab = 2;
 	a1->action_aestab = ACTION_RESTART;
 
 	exp_total_datachan_estab = 4;
 	a1->action_destab = ACTION_END;
-    
+
 	b2->action_close = ACTION_TEST_COMPLETE;
-    
+
 	test_base(conv);
-    
+
 	/* Wait .. */
 	err = re_main_wait(10000);
 	ASSERT_EQ(0, err);
-    
+
 	ASSERT_EQ(0, a1->n_conn);
 	ASSERT_EQ(2, a1->n_datachan_estab);
-    
+
 	ASSERT_EQ(1, b2->n_conn);
 	ASSERT_EQ(2, b2->n_datachan_estab);
 }
-#endif

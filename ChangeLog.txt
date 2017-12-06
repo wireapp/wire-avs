@@ -1,5 +1,50 @@
 ChangeLog for AVS -- latest on top!
 
+
+==============================================================================
+AVS Release 3.6
+
+Date:	    07. August 2017
+GIT:	    https://github.com/wearezeta/avs/tree/release-3.7
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:       - Support for multiple (team) accounts
+		- Make GROUPCHECK messages transient
+		- Make calling messages targeted messages
+		- Updated Opus to version 1.2.1
+
+Hotfixes:
+
+Sep 29, 2017 - Rollback of WebRTC to AVS 3.5 version
+             - Refactor of CBR handling
+
+==============================================================================
+AVS Release 3.5
+
+Date:	    04. May 2017
+GIT:	    https://github.com/wearezeta/avs/tree/release-3.4
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:       - Speed up of call setup time (Crypto KASE or DH-SDES)
+		- Provide API for privacy mode
+		- Improved tracking and metrics
+		- Move playing of some audio notifications into AVS (AUDIO-918)
+		- Bug fixes
+			- iOS: Audio routing (AUDIO-1278)
+			- iOS: Crash fix (AUDIO-1277)
+			- various more
+
+Hotfixes:
+
+Aug 04, 2017 - Add more robustness for "fake" group and 1:1 call mixup
+Jul 28, 2017 - Make "join" button more stable
+
 ==============================================================================
 AVS Release 3.4
 

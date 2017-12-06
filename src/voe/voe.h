@@ -93,7 +93,8 @@ int voe_enc_alloc(struct auenc_state **aesp,
 			auenc_err_h *errh,
 			void *arg);
 
-int  voe_enc_start(struct auenc_state *aes, struct media_ctx **mctxp);
+int  voe_enc_start(struct auenc_state *aes, bool cbr,
+		   struct media_ctx **mctxp);
 void voe_enc_stop(struct auenc_state *aes);
 
 /* decoder */

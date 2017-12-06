@@ -49,9 +49,7 @@ static void audio_io_destructor(void *arg)
 }
 
 int  audio_io_alloc(struct audio_io **aiop,
-                    enum audio_io_mode mode,
-                    audio_io_command_h *cmdh,
-                    void *arg)
+                    enum audio_io_mode mode)
 {
     if (!aiop)
         return EINVAL;
@@ -85,8 +83,6 @@ int  audio_io_alloc(struct audio_io **aiop,
     }
     if(aioc){
         aioc->InitInternal();
-        
-        aioc->RegisterCommandHandler(cmdh, arg);
     }
     aio->aioc = aioc;
     
@@ -115,30 +111,6 @@ int  audio_io_terminate(struct audio_io *aio)
     if(aio->aioc){
         webrtc::audio_io_class *aioc = (webrtc::audio_io_class *)aio->aioc;
         aioc->TerminateInternal();
-    }
-    return 0;
-}
-
-int  audio_io_restart(struct audio_io *aio)
-{
-    if(!aio)
-        return -1;
-    
-    if(aio->aioc){
-        webrtc::audio_io_class *aioc = (webrtc::audio_io_class *)aio->aioc;
-        aioc->ResetAudioDevice();
-    }
-    return 0;
-}
-
-int  audio_io_handle_command(struct audio_io *aio, enum audio_io_command cmd)
-{
-    if(!aio)
-        return -1;
-    
-    if(aio->aioc){
-        webrtc::audio_io_class *aioc = (webrtc::audio_io_class *)aio->aioc;
-        aioc->HandleCommand(cmd);
     }
     return 0;
 }

@@ -32,6 +32,8 @@
 
 #include "../audio_io_class.h"
 #include <pthread.h>
+#include <re.h>
+#include <atomic>
 
 #define FRAME_LEN_MS 10
 
@@ -49,7 +51,13 @@
 
 #define REC_BUFFERS                     20
 
-
+enum audio_io_command{
+    AUDIO_IO_COMMAND_START_RECORDING = 0,
+    AUDIO_IO_COMMAND_STOP_RECORDING,
+    AUDIO_IO_COMMAND_START_PLAYOUT,
+    AUDIO_IO_COMMAND_STOP_PLAYOUT,
+    AUDIO_IO_COMMAND_RESET,
+};
 
 namespace webrtc {
     class audio_io_ios : public audio_io_class {
@@ -187,8 +195,15 @@ namespace webrtc {
         int32_t SetLoudspeakerStatus(bool enable) { return 0; }
         int32_t GetLoudspeakerStatus(bool* enabled) const { return 0; }
         bool BuiltInAECIsAvailable() const;
+        bool BuiltInNSIsAvailable() const { return false; }
+        bool BuiltInAGCIsAvailable() const { return false; }
         int32_t EnableBuiltInAEC(bool enable) { return -1; }
+        int32_t EnableBuiltInNS(bool enable) { return -1; }
+        int32_t EnableBuiltInAGC(bool enable) { return -1; }
         bool BuiltInAECIsEnabled() const { return false; }
+        
+        int GetPlayoutAudioParameters(AudioParameters* params) const { return -1;}
+        int GetRecordAudioParameters(AudioParameters* params) const { return -1;}
         
         void* record_thread();
         
@@ -213,8 +228,7 @@ namespace webrtc {
         
         OSStatus play_process_impl(uint32_t inNumberFrames, AudioBufferList* ioData);
         
-        int32_t RegisterCommandHandler(audio_io_command_h *cmdh, void *arg);
-        int32_t HandleCommand(enum audio_io_command cmd);
+        static void mq_callback(int id, void *data, void *arg);
     private:
         int32_t init_play_or_record();
         int32_t shutdown_play_or_record();
@@ -263,12 +277,11 @@ namespace webrtc {
         
         AudioTransport* audioCallback_;
         pthread_t rec_tid_ = 0;
-        volatile bool is_recording_;
-        volatile bool is_playing_;
+        std::atomic<bool> is_recording_;
+        std::atomic<bool> is_playing_;
         volatile bool is_recording_initialized_;
         volatile bool is_playing_initialized_;
 
-        pthread_mutex_t mutex_;
         pthread_mutex_t cond_mutex_;
         pthread_cond_t cond_;
         bool is_running_;
@@ -282,8 +295,7 @@ namespace webrtc {
         
         bool want_stereo_playout_;
         bool using_stereo_playout_;
-        
-        audio_io_command_h *cmdh_;
-        void *arg_;
+                
+        struct mqueue *mq_;
     };
 }

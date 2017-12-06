@@ -22,12 +22,11 @@
 #include <gtest/gtest.h>
 
 
-TEST(wcall, init_and_no_close)
+TEST(wcall, double_close)
 {
 	int err;
 
-	err = wcall_init("abc", "123", NULL, NULL, NULL,
-			 NULL, NULL, NULL, NULL, NULL, NULL);
+	err = wcall_init();
 	ASSERT_EQ(0, err);
 
 	wcall_close();
@@ -42,5 +41,25 @@ TEST(wcall, only_close)
 	wcall_close();
 	wcall_close();
 	wcall_close();
+	wcall_close();
+}
+
+TEST(wcall, create_multiple)
+{
+	int err;
+
+	err = wcall_init();
+	ASSERT_EQ(0, err);
+
+	void *wuser1 = wcall_create("abc", "123", NULL, NULL, NULL, NULL, NULL,
+		NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+
+	void *wuser2 = wcall_create("abd", "234", NULL, NULL, NULL, NULL, NULL,
+		NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+
+
+	wcall_destroy(wuser1);
+	wcall_destroy(wuser2);
+
 	wcall_close();
 }

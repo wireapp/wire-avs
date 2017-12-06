@@ -44,7 +44,8 @@ typedef NS_ENUM (NSUInteger, AVSPlaybackRoute) {
     AVSPlaybackRouteUnknown,
     AVSPlaybackRouteBuiltIn,
     AVSPlaybackRouteHeadset,
-    AVSPlaybackRouteSpeaker
+    AVSPlaybackRouteSpeaker,
+    AVSPlaybackRouteBluetooth
 };
 
 typedef NS_ENUM (NSUInteger, AVSRecordingMode){

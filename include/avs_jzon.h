@@ -64,7 +64,8 @@ int jzon_decode(struct json_object **jobjp, const char *buf, size_t len);
 struct json_object *jzon_apply(struct json_object *jobj,
 			       jzon_apply_h *ah, void *arg);
 
-int jzon_add_str(struct json_object *jobj, const char *key, const char *val);
+int jzon_add_str(struct json_object *jobj, const char *key,
+		 const char *fmt, ...);
 int jzon_add_int(struct json_object *jobj, const char *key, int32_t val);
 int jzon_add_bool(struct json_object *jobj, const char *key, bool val);
 int jzon_add_base64(struct json_object *jobj, const char *key,

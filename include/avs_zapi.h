@@ -140,126 +140,12 @@ struct zapi_ice_server {
 	char credential[128];  /* optional */
 };
 
-#define MAX_ICESERVERS 4
-struct zapi_flow {
-	bool active;
-	char id[UUID_SZ];
-	struct zapi_ice_server srvv[MAX_ICESERVERS];  /* optional, for now */
-	size_t srvc;
-	char sdp_step[32];       /* pending, answering, offered */
-	char remote_user[UUID_SZ];
-	char creator[UUID_SZ];
-};
-
-int zapi_flow_encode(struct json_object *jobj,
-		     const struct zapi_flow *flow);
-int zapi_flow_decode(struct json_object *jobj, struct zapi_flow *flow);
-
-
-int zapi_flows_encode(struct json_object *jobj,
-		      const struct zapi_flow *flowv, size_t flowc);
-int zapi_flows_decode(struct json_object *jobj,
-		      struct zapi_flow *flowv, size_t *flowc);
-
-
-int zapi_flowadd_encode(struct json_object *jobj,
-			const char *convid,
-			const struct zapi_flow *flowv, size_t flowc);
 
 int zapi_iceservers_encode(struct json_object *jobj,
 			   const struct zapi_ice_server *srvv,
 			   size_t srvc);
 int zapi_iceservers_decode(struct json_object *jobj,
 			   struct zapi_ice_server *srvv, size_t *srvc);
-
-
-/*
- * Usage: PUT /conversations/$CONVID/call/flows/$FLOWID/local_sdp
- */
-struct zapi_local_sdp {
-	const char *type;  /* offer, answer, ... */
-	const char *sdp;
-};
-
-int zapi_local_sdp_encode(struct json_object *jobj,
-			  const struct zapi_local_sdp *lsdp);
-int zapi_local_sdp_decode(struct zapi_local_sdp *lsdp,
-			  struct json_object *jobj);
-
-
-/*
- * Usage: call.remote-sdp event
- */
-struct zapi_remote_sdp {
-	const char *state;
-	const char *sdp;
-	const char *flow;
-	const char *conv;
-	/* .type = call.remote-sdp */
-};
-
-int zapi_remote_sdp_encode(struct json_object *jobj,
-			   const struct zapi_remote_sdp *rsdp);
-int zapi_remote_sdp_decode(struct zapi_remote_sdp *rsdp,
-			   struct json_object *jobj);
-
-
-/*
- * Usage: PUT /conversations/$CONVID/call/flows/$FLOWID/local_candidates
- */
-struct zapi_candidate {
-	const char *mid;  /* sdp_mid         */
-	int mline_index;  /* sdp_mline_index */
-	const char *sdp;  /* sdp             */
-};
-
-int zapi_candidate_encode(struct json_object *jobj,
-			  const struct zapi_candidate *cand);
-int zapi_candidate_decode(struct zapi_candidate *cand,
-			  struct json_object *jobj);
-
-
-/*
- * Usage: PUT /conversations/%s/call/state
- */
-struct zapi_call_state {
-	const char *state;
-	double quality;
-};
-
-int zapi_call_state_encode(struct json_object *jobj,
-			   const struct zapi_call_state *cs);
-int zapi_call_state_decode(struct zapi_call_state *cs,
-			   struct json_object *jobj);
-
-
-/*
- * call.state event
- */
-
-struct zapi_call_state_event {
-	char convid[UUID_SZ];
-	char cause[16];
-
-#define MAX_PARTICIPANTS 16
-	struct zapi_participant {
-		char userid[UUID_SZ];
-		char state[16];
-	} participantv[MAX_PARTICIPANTS];
-	size_t participantc;
-	uint32_t sequence;
-	char type[16];
-	char session[UUID_SZ];
-	struct {
-		char reason[64];
-		char state[16];
-	} self;
-};
-
-int zapi_call_state_event_encode(struct json_object *jobj,
-				 const struct zapi_call_state_event *cs);
-int zapi_call_state_event_decode(struct zapi_call_state_event *cs,
-				 struct json_object *jobj);
 
 
 /************* Assets *******************************************************/

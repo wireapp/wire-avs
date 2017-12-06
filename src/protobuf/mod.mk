@@ -4,6 +4,7 @@
 
 AVS_SRCS += \
 	protobuf/wrap.c \
+	protobuf/protobuf.c \
 	protobuf/proto/messages.pb-c.c
 
 AVS_CPPFLAGS	+= -Isrc/protobuf

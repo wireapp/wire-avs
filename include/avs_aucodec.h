@@ -53,7 +53,9 @@ typedef int  (auenc_alloc_h)(struct auenc_state **aesp,
 			     auenc_err_h *errh,
 			     void *arg);
 
-typedef int  (auenc_start_h)(struct auenc_state *aes, struct media_ctx **mctxp);
+typedef int  (auenc_start_h)(struct auenc_state *aes,
+			     bool cbr,
+			     struct media_ctx **mctxp);
 typedef void (auenc_stop_h)(struct auenc_state *aes);
 
 typedef void (audec_err_h)(int err, const char *msg, void *arg);
@@ -80,7 +82,7 @@ struct aucodec {
 	uint32_t srate;
 	uint8_t ch;
 	const char *fmtp;
-	bool has_rtp;
+	const char *fmtp_cbr;
 
 	auenc_alloc_h *enc_alloc;
 	auenc_start_h *enc_start;

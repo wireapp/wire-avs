@@ -168,29 +168,5 @@ void flowmgr_silencing(bool silenced)
 
 int flowmgr_update_conf_parts(struct list *partl)
 {
-	const struct audec_state **adsv;
-	struct le *le;
-	size_t i, adsc = list_count(partl);
-
-	adsv = mem_zalloc(sizeof(*adsv) * adsc, NULL);
-	if (!adsv)
-		return ENOMEM;
-
-	/* convert the participant list to a vector */
-	for (le = list_head(partl), i=0; le; le = le->next, i++) {
-
-		struct conf_part *part = le->data;
-		struct flow *flow = part->data;
-		struct userflow *uf = flow ? flow->userflow : NULL;
-		struct mediaflow *mf = userflow_mediaflow(uf);
-		struct audec_state *ads = mediaflow_decoder(mf);
-
-		adsv[i] = ads;
-	}
-
-	voe_update_conf_parts(adsv, adsc);
-
-	mem_deref(adsv);
-
-	return 0;
+	return ENOSYS;
 }

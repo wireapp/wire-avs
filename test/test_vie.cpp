@@ -312,7 +312,6 @@ TEST_F(Vie, encode_decode_loop)
 	//ASSERT_TRUE(vc->pt == NULL); XXX should be dynamic ?
 	ASSERT_STREQ("VP8", vc->name);
 	ASSERT_TRUE(vc->fmtp == NULL);
-	ASSERT_TRUE(vc->has_rtp);
 	ASSERT_TRUE(vc->data != NULL);
 
 	err = vc->enc_alloch(&ves,

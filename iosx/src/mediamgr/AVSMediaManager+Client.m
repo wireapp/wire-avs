@@ -44,15 +44,13 @@ void avsmm_on_route_changed(enum mediamgr_auplay new_route, void *arg)
             break;
 
         case MEDIAMGR_AUPLAY_HEADSET:
-        case MEDIAMGR_AUPLAY_BT:
             route = AVSPlaybackRouteHeadset;
+            break;
+        case MEDIAMGR_AUPLAY_BT:
+            route = AVSPlaybackRouteBluetooth;
             break;
     }
 
-    dispatch_async(dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-	    [[AVSFlowManager getInstance] playbackRouteDidChangeInMediaManager: route];
-    });
-    
     [mm routeChanged:route];
 }
 

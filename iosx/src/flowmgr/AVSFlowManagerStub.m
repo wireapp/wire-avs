@@ -146,18 +146,6 @@
 	// XXX Implement a call to flowmgr
 }
 
-
-- (int)ausrcChanged:(enum AVSFlowManagerAudioSource)ausrc
-{
-	return 0;
-}
-
-
-- (int)auplayChanged:(enum AVSFlowManagerAudioPlay)aplay
-{
-	return 0;
-}
-
 - (BOOL)isMuted
 {
 	return NO;
@@ -187,11 +175,6 @@
 
 
 - (void)mediaCategoryChanged:(NSString *)convId category:(AVSFlowManagerCategory)category
-{
-    
-}
-
-- (void)playbackRouteDidChangeInMediaManager:(AVSPlaybackRoute)play_back_rout
 {
     
 }

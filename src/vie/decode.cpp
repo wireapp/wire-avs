@@ -195,7 +195,7 @@ int vie_render_start(struct viddec_state *vds)
 	// TODO: find the new version of this flag
 	//receive_config.enable_vqi = (avs_get_flags() & AVS_FLAG_EXPERIMENTAL);
     
-	vie->receive_stream = vie->call->CreateVideoReceiveStream(receive_config);
+	vie->receive_stream = vie->call->CreateVideoReceiveStream(std::move(receive_config));
 
 	vie->receive_stream->Start();
 

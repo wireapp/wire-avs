@@ -17,6 +17,7 @@
 */
 #include <openssl/crypto.h>
 #include <re.h>
+#include <sodium.h>
 
 #include "avs_log.h"
 #include "avs_base.h"
@@ -79,6 +80,11 @@ static void debug_handler(int level, const char *p, size_t len, void *arg)
 
 int avs_init(uint64_t flags)
 {
+	if (sodium_init() == -1) {
+		warning("init: could not init libsodium\n");
+		return ENOSYS;
+	}
+
 	base.flags = flags;
 	base.inited = true;
 
@@ -89,10 +95,7 @@ int avs_init(uint64_t flags)
 	info("init: using async polling method '%s'\n",
 	     poll_method_name(poll_method_best()));
 
-	info("init: libre:    %s\n", sys_libre_version_get());
-	info("init: openssl:  %s (%s)\n",
-	     SSLeay_version(SSLEAY_VERSION),
-	     SSLeay_version(SSLEAY_PLATFORM));
+	avs_print_versions();
 
 	return 0;
 }
@@ -134,4 +137,15 @@ uint64_t avs_get_flags(void)
 const char *avs_get_token(void)
 {
 	return base.token;
+}
+
+
+void avs_print_versions(void)
+{
+	info("init: avs:      %s\n", avs_software);
+	info("init: libre:    %s\n", sys_libre_version_get());
+	info("init: openssl:  %s (%s)\n",
+	     SSLeay_version(SSLEAY_VERSION),
+	     SSLeay_version(SSLEAY_PLATFORM));
+	info("init: sodium:   %s\n", sodium_version_string());
 }

@@ -31,7 +31,6 @@ static struct vidcodec dummy_vp8 = {
 	.le        = LE_INIT,
 	.pt        = "110",
 	.name      = "VP8",
-	.has_rtp   = true,
 };
 
 
@@ -58,7 +57,7 @@ public:
 		err = create_dtls_srtp_context(&dtls, TLS_KEYTYPE_EC);
 		ASSERT_EQ(0, err);
 
-		err = mediaflow_alloc(&mf, dtls, &aucodecl, &laddr,
+		err = mediaflow_alloc(&mf, "1", dtls, &aucodecl, &laddr,
 				      CRYPTO_DTLS_SRTP,
 				      mediaflow_estab_handler,
 				      mediaflow_close_handler,
@@ -88,8 +87,6 @@ public:
 
 	static void mediaflow_estab_handler(const char *crypto,
 					    const char *codec,
-					    const char *type,
-					    const struct sa *sa,
 					    void *arg)
 	{
 		TestMedia *tm = static_cast<TestMedia *>(arg);
@@ -720,4 +717,330 @@ TEST_F(TestMedia, sdp_offer_with_bandwidth_attr)
 
 	/* verify video */
 	ASSERT_TRUE(find_in_sdp(sdp, "b=AS:800"));
+}
+
+
+TEST_F(TestMedia, interop_chrome58)
+{
+	char answer[4096];
+	uint32_t ssrc, lssrc;
+	char ssrc_buf[64];
+	int err;
+
+	static const char *sdp_offer =
+
+"v=0\r\n"
+"o=- 8864089298047563573 2 IN IP4 127.0.0.1\r\n"
+"s=-\r\n"
+"t=0 0\r\n"
+"a=tool:webapp 2017.05.03.1029 (Chrome 58)\r\n"
+"a=group:BUNDLE audio video data\r\n"
+"a=msid-semantic: WMS 42vu1BX8k03clCtn6DN6ifZBeodrqKgm4tX8\r\n"
+"m=audio 35211 RTP/SAVPF 111 103 104 9 0 8 106 105 13 110 112 113 126\r\n"
+"c=IN IP4 136.243.148.68\r\n"
+"a=rtcp:9 IN IP4 0.0.0.0\r\n"
+"a=candidate:3180703989 1 udp 2122260223 192.168.10.235 62110 typ host generation 0 network-id 1 network-cost 10\r\n"
+"a=candidate:1897434982 1 udp 1686052607 62.96.148.44 62110 typ srflx raddr 192.168.10.235 rport 62110 generation 0 network-id 1 network-cost 10\r\n"
+"a=candidate:4078324741 1 tcp 1518280447 192.168.10.235 9 typ host tcptype active generation 0 network-id 1 network-cost 10\r\n"
+"a=candidate:3457621084 1 udp 41885695 136.243.148.68 35211 typ relay raddr 62.96.148.44 rport 62110 generation 0 network-id 1 network-cost 10\r\n"
+"a=candidate:3871270044 1 udp 41885439 136.243.146.209 42583 typ relay raddr 62.96.148.44 rport 62110 generation 0 network-id 1 network-cost 10\r\n"
+"a=ice-ufrag:O76e\r\n"
+"a=ice-pwd:A6X+Cq/YFSEyhh17rzIc0Kox\r\n"
+"a=fingerprint:sha-256 2C:3F:16:7F:F8:2C:0B:29:05:1E:48:BB:25:84:5D:1B:25:04:19:DF:3F:B4:7C:D0:21:88:EF:4C:FD:25:85:D5\r\n"
+"a=setup:actpass\r\n"
+"a=mid:audio\r\n"
+"a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level\r\n"
+"a=sendrecv\r\n"
+"a=rtcp-mux\r\n"
+"a=rtpmap:111 opus/48000/2\r\n"
+"a=rtcp-fb:111 transport-cc\r\n"
+"a=fmtp:111 minptime=10;useinbandfec=1\r\n"
+"a=rtpmap:103 ISAC/16000\r\n"
+"a=rtpmap:104 ISAC/32000\r\n"
+"a=rtpmap:9 G722/8000\r\n"
+"a=rtpmap:0 PCMU/8000\r\n"
+"a=rtpmap:8 PCMA/8000\r\n"
+"a=rtpmap:106 CN/32000\r\n"
+"a=rtpmap:105 CN/16000\r\n"
+"a=rtpmap:13 CN/8000\r\n"
+"a=rtpmap:110 telephone-event/48000\r\n"
+"a=rtpmap:112 telephone-event/32000\r\n"
+"a=rtpmap:113 telephone-event/16000\r\n"
+"a=rtpmap:126 telephone-event/8000\r\n"
+"a=ssrc:3049611564 cname:Q0bDnIoJX+Bu4JqQ\r\n"
+"a=ssrc:3049611564 msid:42vu1BX8k03clCtn6DN6ifZBeodrqKgm4tX8 23c9d682-641e-45b1-828c-1f5fd5258149\r\n"
+"a=ssrc:3049611564 mslabel:42vu1BX8k03clCtn6DN6ifZBeodrqKgm4tX8\r\n"
+"a=ssrc:3049611564 label:23c9d682-641e-45b1-828c-1f5fd5258149\r\n"
+"m=video 9 RTP/SAVPF 96 98 100 102 127 97 99 101 125\r\n"
+"c=IN IP4 0.0.0.0\r\n"
+"a=rtcp:9 IN IP4 0.0.0.0\r\n"
+"a=ice-ufrag:O76e\r\n"
+"a=ice-pwd:A6X+Cq/YFSEyhh17rzIc0Kox\r\n"
+"a=fingerprint:sha-256 2C:3F:16:7F:F8:2C:0B:29:05:1E:48:BB:25:84:5D:1B:25:04:19:DF:3F:B4:7C:D0:21:88:EF:4C:FD:25:85:D5\r\n"
+"a=setup:actpass\r\n"
+"a=mid:video\r\n"
+"a=extmap:2 urn:ietf:params:rtp-hdrext:toffset\r\n"
+"a=extmap:3 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\n"
+"a=extmap:4 urn:3gpp:video-orientation\r\n"
+"a=extmap:5 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\r\n"
+"a=extmap:6 http://www.webrtc.org/experiments/rtp-hdrext/playout-delay\r\n"
+"a=recvonly\r\n"
+"a=rtcp-mux\r\n"
+"a=rtcp-rsize\r\n"
+"a=rtpmap:96 VP8/90000\r\n"
+"a=rtcp-fb:96 ccm fir\r\n"
+"a=rtcp-fb:96 nack\r\n"
+"a=rtcp-fb:96 nack pli\r\n"
+"a=rtcp-fb:96 goog-remb\r\n"
+"a=rtcp-fb:96 transport-cc\r\n"
+"a=rtpmap:98 VP9/90000\r\n"
+"a=rtcp-fb:98 ccm fir\r\n"
+"a=rtcp-fb:98 nack\r\n"
+"a=rtcp-fb:98 nack pli\r\n"
+"a=rtcp-fb:98 goog-remb\r\n"
+"a=rtcp-fb:98 transport-cc\r\n"
+"a=rtpmap:100 H264/90000\r\n"
+"a=rtcp-fb:100 ccm fir\r\n"
+"a=rtcp-fb:100 nack\r\n"
+"a=rtcp-fb:100 nack pli\r\n"
+"a=rtcp-fb:100 goog-remb\r\n"
+"a=rtcp-fb:100 transport-cc\r\n"
+"a=fmtp:100 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f\r\n"
+"a=rtpmap:102 red/90000\r\n"
+"a=rtpmap:127 ulpfec/90000\r\n"
+"a=rtpmap:97 rtx/90000\r\n"
+"a=fmtp:97 apt=96\r\n"
+"a=rtpmap:99 rtx/90000\r\n"
+"a=fmtp:99 apt=98\r\n"
+"a=rtpmap:101 rtx/90000\r\n"
+"a=fmtp:101 apt=100\r\n"
+"a=rtpmap:125 rtx/90000\r\n"
+"a=fmtp:125 apt=102\r\n"
+"m=application 9 DTLS/SCTP 5000\r\n"
+"c=IN IP4 0.0.0.0\r\n"
+"a=ice-ufrag:O76e\r\n"
+"a=ice-pwd:A6X+Cq/YFSEyhh17rzIc0Kox\r\n"
+"a=fingerprint:sha-256 2C:3F:16:7F:F8:2C:0B:29:05:1E:48:BB:25:84:5D:1B:25:04:19:DF:3F:B4:7C:D0:21:88:EF:4C:FD:25:85:D5\r\n"
+"a=setup:actpass\r\n"
+"a=mid:data\r\n"
+"a=sctpmap:5000 webrtc-datachannel 1024\r\n"
+
+		;
+
+	err = mediaflow_add_video(mf, &vidcodecl);
+	ASSERT_EQ(0, err);
+
+	err = mediaflow_add_data(mf);
+	ASSERT_EQ(0, err);
+
+	err = mediaflow_offeranswer(mf, answer, sizeof(answer), sdp_offer);
+	ASSERT_EQ(0, err);
+
+	ASSERT_EQ(CRYPTO_DTLS_SRTP, mediaflow_crypto(mf));
+	ASSERT_TRUE(mediaflow_has_video(mf));
+	ASSERT_TRUE(mediaflow_has_data(mf));
+
+	/* verify bundle? */
+	ASSERT_TRUE(find_in_sdp(answer, "a=group:BUNDLE audio video data"));
+
+	/* verify audio */
+	ASSERT_FALSE(find_in_sdp(answer, "audio 0"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=sendrecv"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=rtcp-mux"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=ice-ufrag"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=ice-pwd"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=mid:audio"));
+	ASSERT_TRUE(find_in_sdp(answer, "fingerprint:sha-256"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=setup:active"));
+
+	re_snprintf(ssrc_buf, sizeof(ssrc_buf), "a=ssrc:%u",
+		    mediaflow_get_local_ssrc(mf, MEDIA_AUDIO));
+	ASSERT_TRUE(find_in_sdp(answer, ssrc_buf));
+
+	err = mediaflow_get_remote_ssrc(mf, MEDIA_AUDIO, &ssrc);
+	ASSERT_EQ(0, err);
+
+	/* verify video */
+	ASSERT_TRUE(find_in_sdp(answer, "m=video"));
+	ASSERT_FALSE(find_in_sdp(answer, "video 0"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=mid:video"));
+
+	re_snprintf(ssrc_buf, sizeof(ssrc_buf), "a=ssrc:%u",
+		    mediaflow_get_local_ssrc(mf, MEDIA_VIDEO));
+	ASSERT_TRUE(find_in_sdp(answer, ssrc_buf));
+
+	/* verify data-channel */
+	ASSERT_TRUE(find_in_sdp(answer, "m=application"));
+	ASSERT_FALSE(find_in_sdp(answer, "application 0"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=mid:data"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=sctpmap"));
+	ASSERT_TRUE(find_in_sdp(answer, "webrtc-datachannel"));
+
+	ASSERT_TRUE(mediaflow_got_sdp(mf));
+	ASSERT_TRUE(mediaflow_sdp_is_complete(mf));
+}
+
+
+TEST_F(TestMedia, interop_firefox53)
+{
+	char answer[4096];
+	uint32_t ssrc, lssrc;
+	char ssrc_buf[64];
+	int err;
+
+	static const char *sdp_offer =
+
+"v=0\r\n"
+"o=mozilla...THIS_IS_SDPARTA-53.0.2 1390806557739865573 0 IN IP4 0.0.0.0\r\n"
+"s=-\r\n"
+"t=0 0\r\n"
+"a=tool:webapp 2017.05.03.1029 (Firefox 53)\r\n"
+"a=sendrecv\r\n"
+"a=fingerprint:sha-256 6B:6B:F0:91:1D:AB:E4:1E:37:40:F0:DF:99:BF:7C:97:C8:11:4C:58:66:80:80:E9:7F:C7:E4:20:57:AC:DC:D8\r\n"
+"a=group:BUNDLE sdparta_0 sdparta_1 sdparta_2\r\n"
+"a=ice-options:trickle\r\n"
+"a=msid-semantic:WMS *\r\n"
+"m=audio 47333 RTP/SAVPF 109 9 0 8 101\r\n"
+"c=IN IP4 136.243.146.209\r\n"
+"a=candidate:0 1 UDP 2122252543 192.168.10.235 56306 typ host\r\n"
+"a=candidate:0 2 UDP 2122252542 192.168.10.235 55075 typ host\r\n"
+"a=candidate:1 1 UDP 1686052863 62.96.148.44 56306 typ srflx raddr 192.168.10.235 rport 56306\r\n"
+"a=candidate:2 1 UDP 92217343 136.243.146.209 47333 typ relay raddr 136.243.146.209 rport 47333\r\n"
+"a=candidate:4 1 UDP 92217087 136.243.148.68 39485 typ relay raddr 136.243.148.68 rport 39485\r\n"
+"a=candidate:1 2 UDP 1686052862 62.96.148.44 55075 typ srflx raddr 192.168.10.235 rport 55075\r\n"
+"a=candidate:2 2 UDP 92217342 136.243.146.209 47830 typ relay raddr 136.243.146.209 rport 47830\r\n"
+"a=candidate:4 2 UDP 92217086 136.243.148.68 35468 typ relay raddr 136.243.148.68 rport 35468\r\n"
+"a=sendrecv\r\n"
+"a=end-of-candidates\r\n"
+"a=extmap:1/sendonly urn:ietf:params:rtp-hdrext:ssrc-audio-level\r\n"
+"a=fmtp:109 maxplaybackrate=48000;stereo=1;useinbandfec=1\r\n"
+"a=fmtp:101 0-15\r\n"
+"a=ice-pwd:a74e27f4705ef9f238335fe6de5bf2c2\r\n"
+"a=ice-ufrag:799e869a\r\n"
+"a=mid:sdparta_0\r\n"
+"a=msid:{6c859790-2ac3-9842-9d0a-0fe2260441c8} {995c8314-7cd9-484e-84c4-f0f028a64eb1}\r\n"
+"a=rtcp:47830 IN IP4 136.243.146.209\r\n"
+"a=rtcp-mux\r\n"
+"a=rtpmap:109 opus/48000/2\r\n"
+"a=rtpmap:9 G722/8000/1\r\n"
+"a=rtpmap:0 PCMU/8000\r\n"
+"a=rtpmap:8 PCMA/8000\r\n"
+"a=rtpmap:101 telephone-event/8000\r\n"
+"a=setup:actpass\r\n"
+"a=ssrc:3954353111 cname:{123f69e3-ebc5-7a42-8ae3-e8838212a84c}\r\n"
+"m=video 45947 RTP/SAVPF 120 121 126 97\r\n"
+"c=IN IP4 136.243.146.209\r\n"
+"a=bundle-only\r\n"
+"a=candidate:0 1 UDP 2122252543 192.168.10.235 57533 typ host\r\n"
+"a=candidate:0 2 UDP 2122252542 192.168.10.235 52142 typ host\r\n"
+"a=candidate:1 1 UDP 1686052863 62.96.148.44 57533 typ srflx raddr 192.168.10.235 rport 57533\r\n"
+"a=candidate:2 1 UDP 92217343 136.243.146.209 45947 typ relay raddr 136.243.146.209 rport 45947\r\n"
+"a=candidate:4 1 UDP 92217087 136.243.148.68 50266 typ relay raddr 136.243.148.68 rport 50266\r\n"
+"a=candidate:1 2 UDP 1686052862 62.96.148.44 52142 typ srflx raddr 192.168.10.235 rport 52142\r\n"
+"a=candidate:2 2 UDP 92217342 136.243.146.209 50497 typ relay raddr 136.243.146.209 rport 50497\r\n"
+"a=candidate:4 2 UDP 92217086 136.243.148.68 56372 typ relay raddr 136.243.148.68 rport 56372\r\n"
+"a=sendrecv\r\n"
+"a=end-of-candidates\r\n"
+"a=fmtp:126 profile-level-id=42e01f;level-asymmetry-allowed=1;packetization-mode=1\r\n"
+"a=fmtp:97 profile-level-id=42e01f;level-asymmetry-allowed=1\r\n"
+"a=fmtp:120 max-fs=12288;max-fr=60\r\n"
+"a=fmtp:121 max-fs=12288;max-fr=60\r\n"
+"a=ice-pwd:a74e27f4705ef9f238335fe6de5bf2c2\r\n"
+"a=ice-ufrag:799e869a\r\n"
+"a=mid:sdparta_1\r\n"
+"a=msid:{6c859790-2ac3-9842-9d0a-0fe2260441c8} {285282c6-a660-094a-833a-cdd4305a8f32}\r\n"
+"a=rtcp:50497 IN IP4 136.243.146.209\r\n"
+"a=rtcp-fb:120 nack\r\n"
+"a=rtcp-fb:120 nack pli\r\n"
+"a=rtcp-fb:120 ccm fir\r\n"
+"a=rtcp-fb:120 goog-remb\r\n"
+"a=rtcp-fb:121 nack\r\n"
+"a=rtcp-fb:121 nack pli\r\n"
+"a=rtcp-fb:121 ccm fir\r\n"
+"a=rtcp-fb:121 goog-remb\r\n"
+"a=rtcp-fb:126 nack\r\n"
+"a=rtcp-fb:126 nack pli\r\n"
+"a=rtcp-fb:126 ccm fir\r\n"
+"a=rtcp-fb:126 goog-remb\r\n"
+"a=rtcp-fb:97 nack\r\n"
+"a=rtcp-fb:97 nack pli\r\n"
+"a=rtcp-fb:97 ccm fir\r\n"
+"a=rtcp-fb:97 goog-remb\r\n"
+"a=rtcp-mux\r\n"
+"a=rtpmap:120 VP8/90000\r\n"
+"a=rtpmap:121 VP9/90000\r\n"
+"a=rtpmap:126 H264/90000\r\n"
+"a=rtpmap:97 H264/90000\r\n"
+"a=setup:actpass\r\n"
+"a=ssrc:979262585 cname:{123f69e3-ebc5-7a42-8ae3-e8838212a84c}\r\n"
+"m=application 59399 DTLS/SCTP 5000\r\n"
+"c=IN IP4 136.243.146.209\r\n"
+"a=bundle-only\r\n"
+"a=candidate:0 1 UDP 2122252543 192.168.10.235 61110 typ host\r\n"
+"a=candidate:1 1 UDP 1686052863 62.96.148.44 61110 typ srflx raddr 192.168.10.235 rport 61110\r\n"
+"a=candidate:2 1 UDP 92217343 136.243.146.209 59399 typ relay raddr 136.243.146.209 rport 59399\r\n"
+"a=candidate:4 1 UDP 92217087 136.243.148.68 43603 typ relay raddr 136.243.148.68 rport 43603\r\n"
+"a=sendrecv\r\n"
+"a=end-of-candidates\r\n"
+"a=ice-pwd:a74e27f4705ef9f238335fe6de5bf2c2\r\n"
+"a=ice-ufrag:799e869a\r\n"
+"a=mid:sdparta_2\r\n"
+"a=sctpmap:5000 webrtc-datachannel 256\r\n"
+"a=setup:actpass\r\n"
+"a=ssrc:3707822951 cname:{123f69e3-ebc5-7a42-8ae3-e8838212a84c}\r\n"
+
+		;
+
+	err = mediaflow_add_video(mf, &vidcodecl);
+	ASSERT_EQ(0, err);
+
+	err = mediaflow_add_data(mf);
+	ASSERT_EQ(0, err);
+
+	err = mediaflow_offeranswer(mf, answer, sizeof(answer), sdp_offer);
+	ASSERT_EQ(0, err);
+
+	ASSERT_EQ(CRYPTO_DTLS_SRTP, mediaflow_crypto(mf));
+	ASSERT_TRUE(mediaflow_has_video(mf));
+	ASSERT_TRUE(mediaflow_has_data(mf));
+
+	/* verify bundle? */
+	ASSERT_TRUE(find_in_sdp(answer,
+			"a=group:BUNDLE sdparta_0 sdparta_1 sdparta_2"));
+
+	/* verify audio */
+	ASSERT_FALSE(find_in_sdp(answer, "audio 0"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=sendrecv"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=rtcp-mux"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=ice-ufrag"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=ice-pwd"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=mid:sdparta_0"));
+	ASSERT_TRUE(find_in_sdp(answer, "fingerprint:sha-256"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=setup:active"));
+
+	re_snprintf(ssrc_buf, sizeof(ssrc_buf), "a=ssrc:%u",
+		    mediaflow_get_local_ssrc(mf, MEDIA_AUDIO));
+	ASSERT_TRUE(find_in_sdp(answer, ssrc_buf));
+
+	err = mediaflow_get_remote_ssrc(mf, MEDIA_AUDIO, &ssrc);
+	ASSERT_EQ(0, err);
+
+	/* verify video */
+	ASSERT_TRUE(find_in_sdp(answer, "m=video"));
+	ASSERT_FALSE(find_in_sdp(answer, "video 0"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=mid:sdparta_1"));
+
+	re_snprintf(ssrc_buf, sizeof(ssrc_buf), "a=ssrc:%u",
+		    mediaflow_get_local_ssrc(mf, MEDIA_VIDEO));
+	ASSERT_TRUE(find_in_sdp(answer, ssrc_buf));
+
+	/* verify data-channel */
+	ASSERT_TRUE(find_in_sdp(answer, "m=application"));
+	ASSERT_FALSE(find_in_sdp(answer, "application 0"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=mid:sdparta_2"));
+	ASSERT_TRUE(find_in_sdp(answer, "a=sctpmap"));
+	ASSERT_TRUE(find_in_sdp(answer, "webrtc-datachannel"));
+
+	ASSERT_TRUE(mediaflow_got_sdp(mf));
+	ASSERT_TRUE(mediaflow_sdp_is_complete(mf));
 }

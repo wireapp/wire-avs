@@ -16,6 +16,7 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 #include <re.h>
+#include <rew.h>
 #include <avs.h>
 #include <gtest/gtest.h>
 #include "fakes.hpp"
@@ -32,16 +33,13 @@
 #define DATACHAN true
 
 
-struct test {
-	struct list aucodecl;
-	bool privacy;
-};
+class MediaDual;
 
 
 struct agent {
 	TurnServer *turn_srvv[2];
 	size_t turn_srvc;
-	struct test *test;
+	MediaDual *fix;              /* pointer to parent */
 	struct tls *dtls;
 	struct mediaflow *mf;
 	struct dce *dce;
@@ -125,24 +123,56 @@ static bool are_we_complete(const struct agent *ag)
 
 
 static void mediaflow_estab_handler(const char *crypto, const char *codec,
-				    const char *rtype, const struct sa *sa,
 				    void *arg)
 {
 	struct agent *ag = static_cast<struct agent *>(arg);
+	struct ice_candpair *pair;
 
 	++ag->n_estab;
 
 #if 1
-	info("[ %s ] -- established [rtype=%s]\n",
-		  ag->name, rtype);
+	info("[ %s ] -- established\n", ag->name);
 #endif
 
 	ASSERT_TRUE(mediaflow_is_ready(ag->mf));
 
 	ASSERT_TRUE(mediaflow_dtls_peer_isset(ag->mf));
 
+#if 0
+	re_printf("[ %s ] selected pair: %H\n", ag->name,
+		  trice_candpair_debug,
+		  mediaflow_selected_pair(ag->mf)
+		  );
+#endif
+
+	/* verify the selected pair */
+	pair = mediaflow_selected_pair(ag->mf);
+	ASSERT_TRUE(pair != NULL);
+	ASSERT_EQ(ICE_CANDPAIR_SUCCEEDED, pair->state);
+	ASSERT_TRUE(pair->pprio > 0);
+	ASSERT_TRUE(pair->valid);
+	ASSERT_TRUE(pair->estab);
+	ASSERT_EQ(0, pair->err);
+	ASSERT_EQ(0, pair->scode);
+
 	if (agents_are_established(ag) && !ag->datachan) {
 
+		struct ice_candpair *opair;
+
+		/* wait until both are established */
+		opair = mediaflow_selected_pair(ag->other->mf);
+
+		/* cross-check local and remote candidate */
+
+		ASSERT_EQ(pair->lcand->attr.type, opair->rcand->attr.type);
+		ASSERT_EQ(pair->rcand->attr.type, opair->lcand->attr.type);
+
+		ASSERT_TRUE(sa_cmp(&pair->lcand->attr.addr,
+				   &opair->rcand->attr.addr, SA_ALL));
+		ASSERT_TRUE(sa_cmp(&pair->rcand->attr.addr,
+				   &opair->lcand->attr.addr, SA_ALL));
+
+		/* stop the test */
 		re_cancel();
 	}
 }
@@ -223,12 +253,52 @@ static void mediaflow_gather_handler(void *arg)
 			ASSERT_FALSE(mediaflow_has_data(b->mf));
 		}
 #endif
-
-		/* start ICE connectivity check for the Trickle agents */
-		start_ice(ag);
-		start_ice(ag->other);
 	}
 }
+
+
+class MediaDual : public ::testing::Test {
+
+public:
+	virtual void SetUp() override
+	{
+		int err;
+
+		tmr_init(&tmr_sdp);
+
+#if 1
+		log_set_min_level(LOG_LEVEL_WARN);
+		log_enable_stderr(true);
+#endif
+
+		err = dce_init();
+		ASSERT_EQ(0, err);
+
+		err = audummy_init(&aucodecl);
+		ASSERT_EQ(0, err);
+	}
+
+	virtual void TearDown() override
+	{
+		audummy_close();
+
+		dce_close();
+
+		tmr_cancel(&tmr_sdp);
+	}
+
+	void test_b2b(int a_turn_proto,
+		      bool a_turn_secure,
+		      bool datachan, size_t turn_srvc);
+
+public:
+	struct tmr tmr_sdp;
+	struct list aucodecl = LIST_INIT;
+	enum ice_role role = ICE_ROLE_UNKNOWN;
+	uint16_t sim_error = 0;
+	bool privacy = false;
+	bool delay_sdp = false;
+};
 
 
 static void destructor(void *arg)
@@ -248,7 +318,7 @@ static void destructor(void *arg)
 }
 
 
-static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
+static void agent_alloc(struct agent **agp, MediaDual *fix, bool offerer,
 			const char *name,
 			int turn_proto, bool turn_secure, bool datachan,
 			size_t turn_srvc)
@@ -260,7 +330,7 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 	ag = (struct agent *)mem_zalloc(sizeof(*ag), destructor);
 	ASSERT_TRUE(ag != NULL);
 
-	ag->test = test;
+	ag->fix = fix;
 
 	ag->offerer = offerer;
 	str_ncpy(ag->name, name, sizeof(ag->name));
@@ -274,7 +344,8 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 	err = create_dtls_srtp_context(&ag->dtls, TLS_KEYTYPE_EC);
 	ASSERT_EQ(0, err);
 
-	err = mediaflow_alloc(&ag->mf, ag->dtls, &test->aucodecl, &laddr,
+	err = mediaflow_alloc(&ag->mf, name,
+			      ag->dtls, &fix->aucodecl, &laddr,
 			      CRYPTO_DTLS_SRTP,
 
 			      mediaflow_estab_handler,
@@ -282,10 +353,16 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 			      ag);
 	ASSERT_EQ(0, err);
 
-	mediaflow_enable_privacy(ag->mf, test->privacy);
+	if (fix->role != ICE_ROLE_UNKNOWN) {
+		mediaflow_set_ice_role(ag->mf, fix->role);
+	}
 
-	/* NOTE: gathering is ALWAYS used */
-	mediaflow_set_gather_handler(ag->mf, mediaflow_gather_handler);
+	mediaflow_enable_privacy(ag->mf, fix->privacy);
+
+	if (turn_srvc) {
+		/* NOTE: gathering is ALWAYS used */
+		mediaflow_set_gather_handler(ag->mf, mediaflow_gather_handler);
+	}
 
 	ASSERT_FALSE(mediaflow_is_ready(ag->mf));
 
@@ -304,11 +381,9 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 
 	mediaflow_set_tag(ag->mf, ag->name);
 
-	if (1) {
+	if (turn_srvc) {
 
 		size_t i;
-
-		ASSERT_TRUE(turn_srvc > 0);
 
 		for (i=0; i<turn_srvc; i++) {
 			ag->turn_srvv[i] = new TurnServer;
@@ -318,6 +393,9 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 			ag->n_lcand_expect += (2 * turn_srvc);  /* SRFLX and RELAY */
 		else
 			ag->n_lcand_expect += (1 * turn_srvc);  /* RELAY */
+	}
+	else {
+		ASSERT_TRUE(mediaflow_is_gathered(ag->mf));
 	}
 
 	if (datachan) {
@@ -347,9 +425,9 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 }
 
 
-static void sdp_exchange(struct agent *a, struct agent *b)
+static void sdp_exchange_offer(struct agent *a, struct agent *b)
 {
-	char offer[4096], answer[4096];
+	char offer[4096];
 	int err;
 
 	/* Create an SDP offer from "A" and then send it to "B" */
@@ -362,7 +440,20 @@ static void sdp_exchange(struct agent *a, struct agent *b)
 	printf("------------------------------------------\n");
 #endif
 
-	err = mediaflow_offeranswer(b->mf, answer, sizeof(answer), offer);
+	err = mediaflow_handle_offer(b->mf, offer);
+	ASSERT_EQ(0, err);
+
+	/* start ICE connectivity check for the Trickle agents */
+	start_ice(b);
+}
+
+
+static void sdp_exchange_answer(struct agent *a, struct agent *b)
+{
+	char answer[4096];
+	int err;
+
+	err = mediaflow_generate_answer(b->mf, answer, sizeof(answer));
 	ASSERT_EQ(0, err);
 
 #if 0
@@ -374,6 +465,29 @@ static void sdp_exchange(struct agent *a, struct agent *b)
 	/* Create an SDP answer from "B" and send it to "A" */
 	err = mediaflow_handle_answer(a->mf, answer);
 	ASSERT_EQ(0, err);
+
+	start_ice(a);
+}
+
+
+static void tmr_sdp_handler(void *arg)
+{
+	struct agent *a = (struct agent *)arg;
+
+	sdp_exchange_answer(a, a->other);
+}
+
+
+static void sdp_exchange(struct agent *a, struct agent *b)
+{
+	sdp_exchange_offer(a, b);
+
+	if (a->fix->delay_sdp) {
+		tmr_start(&a->fix->tmr_sdp, 500, tmr_sdp_handler, a);
+	}
+	else {
+		sdp_exchange_answer(a, b);
+	}
 }
 
 
@@ -421,36 +535,17 @@ static void start_ice(struct agent *ag)
 }
 
 
-static void test_b2b(int a_turn_proto,
-		     bool a_turn_secure,
-		     bool datachan, size_t turn_srvc, bool privacy,
-		     uint16_t sim_error)
+void MediaDual::test_b2b(int a_turn_proto,
+			 bool a_turn_secure,
+			 bool datachan, size_t turn_srvc)
 {
-	struct test test;
 	struct agent *a = NULL, *b = NULL;
 	int err;
 
-#if 1
-	log_set_min_level(LOG_LEVEL_WARN);
-	log_enable_stderr(true);
-#endif
-
-	memset(&test, 0, sizeof(test));
-
-	test.privacy = privacy;
-
-	err = audummy_init(&test.aucodecl);
-	ASSERT_EQ(0, err);
-
-	if (datachan) {
-		err = dce_init();
-		ASSERT_EQ(0, err);
-	}
-
 	/* initialization */
-	agent_alloc(&a, &test, true, "A", a_turn_proto, a_turn_secure,
+	agent_alloc(&a, this, true, "A", a_turn_proto, a_turn_secure,
 		    datachan, turn_srvc);
-	agent_alloc(&b, &test, false, "B", IPPROTO_UDP, false,
+	agent_alloc(&b, this, false, "B", IPPROTO_UDP, false,
 		    datachan, turn_srvc);
 	ASSERT_TRUE(a != NULL);
 	ASSERT_TRUE(b != NULL);
@@ -459,14 +554,20 @@ static void test_b2b(int a_turn_proto,
 
 	/* The first TURN-server should fail */
 	if (sim_error) {
+
 		/* silence warnings .. */
 		log_set_min_level(LOG_LEVEL_ERROR);
 
-		a->turn_srvv[0]->set_sim_error(sim_error);
+		a->turn_srvv[0]->set_sim_error(441);
 	}
 
-	start_gathering(a);
-	start_gathering(b);
+	if (turn_srvc) {
+		start_gathering(a);
+		start_gathering(b);
+	}
+	else {
+		sdp_exchange(a, b);
+	}
 
 	/* start the main loop -- wait for network traffic */
 	err = re_main_wait(10000);
@@ -480,9 +581,20 @@ static void test_b2b(int a_turn_proto,
 	ASSERT_EQ(0, a->err);
 	ASSERT_EQ(0, b->err);
 
+#if 0
+	re_printf("%H\n", mediaflow_print_ice, a->mf);
+	re_printf("%H\n", mediaflow_print_ice, b->mf);
+#endif
+
 	/* verify results after traffic is complete */
-	ASSERT_EQ(1, a->n_gather);
-	ASSERT_EQ(1, b->n_gather);
+	if (turn_srvc) {
+		ASSERT_EQ(1, a->n_gather);
+		ASSERT_EQ(1, b->n_gather);
+	}
+	else {
+		ASSERT_EQ(0, a->n_gather);
+		ASSERT_EQ(0, b->n_gather);
+	}
 
 	ASSERT_EQ(1, a->n_estab);
 	ASSERT_EQ(1, b->n_estab);
@@ -561,81 +673,122 @@ static void test_b2b(int a_turn_proto,
 
 	}
 	else {
-		// TODO: fix all these cases
+		const size_t exp_relay = turn_srvc > 0 ? 1 : 0;
+
+		/* NOTE: if everything works as expected, we should have
+		 *       zero PRFLX candidates.
+		 */
 
 		/* verify local candidates */
 		ASSERT_EQ(1, mediaflow_candc(a->mf, 1, ICE_CAND_TYPE_HOST));
 		//ASSERT_EQ(0, mediaflow_candc(a->mf, 1, ICE_CAND_TYPE_SRFLX));
 		ASSERT_EQ(0, mediaflow_candc(a->mf, 1, ICE_CAND_TYPE_PRFLX));
-		ASSERT_EQ(1, mediaflow_candc(a->mf, 1, ICE_CAND_TYPE_RELAY));
+		ASSERT_EQ(exp_relay,
+			  mediaflow_candc(a->mf, 1, ICE_CAND_TYPE_RELAY));
 
 		/* verify remote candidates */
 		ASSERT_EQ(1, mediaflow_candc(a->mf, 0, ICE_CAND_TYPE_HOST));
 		//ASSERT_EQ(0, mediaflow_candc(a->mf, 0, ICE_CAND_TYPE_SRFLX));
 		ASSERT_EQ(0, mediaflow_candc(a->mf, 0, ICE_CAND_TYPE_PRFLX));
-		ASSERT_EQ(1, mediaflow_candc(a->mf, 0, ICE_CAND_TYPE_RELAY));
-
+		ASSERT_EQ(exp_relay,
+			  mediaflow_candc(a->mf, 0, ICE_CAND_TYPE_RELAY));
 	}
 
+	/* verify ICE roles after test */
+	enum ice_role role_a, role_b;
+
+	role_a = mediaflow_local_role(a->mf);
+	role_b = mediaflow_local_role(b->mf);
+
+	switch (role_a) {
+
+	case ICE_ROLE_CONTROLLING:
+		ASSERT_EQ(ICE_ROLE_CONTROLLED, role_b);
+		break;
+
+	case ICE_ROLE_CONTROLLED:
+		ASSERT_EQ(ICE_ROLE_CONTROLLING, role_b);
+		break;
+
+	default:
+		ASSERT_TRUE(false);
+		break;
+	}
+
+	/* cleanup */
 	mem_deref(a);
 	mem_deref(b);
-
-	audummy_close();
-
-	dce_close();
 }
 
 
-TEST(media_dual, trickledual_and_trickle)
+TEST_F(MediaDual, trickledual_and_trickle)
 {
-	test_b2b(IPPROTO_UDP, false,
-		 false, 1, false, 0);
+	test_b2b(IPPROTO_UDP, false, false, 1);
 }
 
 
-TEST(media_dual, trickledual_and_trickledual)
+TEST_F(MediaDual, trickledual_and_trickledual)
 {
-	test_b2b(IPPROTO_UDP, false,
-		 false, 1, false, 0);
+	test_b2b(IPPROTO_UDP, false, false, 1);
 }
 
 
-TEST(media_dual, trickledual_turntcp_and_lite)
+TEST_F(MediaDual, trickledual_turntcp_and_lite)
 {
-	test_b2b(IPPROTO_TCP, false,
-		 false, 1, false, 0);
+	test_b2b(IPPROTO_TCP, false, false, 1);
 }
 
 
-TEST(media_dual, trickledual_turntls_and_lite)
+TEST_F(MediaDual, trickledual_turntls_and_lite)
 {
-	test_b2b(IPPROTO_TCP, true,
-		 false, 1, false, 0);
+	test_b2b(IPPROTO_TCP, true, false, 1);
 }
 
 
-TEST(media_dual, data_channels)
+TEST_F(MediaDual, data_channels)
 {
-	test_b2b(IPPROTO_UDP, false,
-		 true, 1, false, 0);
+	test_b2b(IPPROTO_UDP, false, true, 1);
 }
 
 
-TEST(media_dual, trickle_with_2_turn_servers)
+TEST_F(MediaDual, trickle_with_2_turn_servers)
 {
-	test_b2b(IPPROTO_UDP, false,
-		 false, 2, false, 0);
+	test_b2b(IPPROTO_UDP, false, false, 2);
 }
 
 
-TEST(media_dual, ice_and_privacy)
+TEST_F(MediaDual, ice_and_privacy)
 {
-	test_b2b(IPPROTO_UDP, false, false, 1, PRIVACY, 0);
+	privacy = PRIVACY;
+
+	test_b2b(IPPROTO_UDP, false, false, 1);
 }
 
 
-TEST(media_dual, ice_and_turn_failover)
+TEST_F(MediaDual, ice_and_turn_failover)
 {
-	test_b2b(IPPROTO_UDP, false,
-		 false, 2, PRIVACY, 441);
+	privacy = PRIVACY;
+
+	sim_error = 441;
+
+	test_b2b(IPPROTO_UDP, false, false, 2);
+}
+
+
+TEST_F(MediaDual, ice_role_conflict)
+{
+	/* silence warnings .. */
+	log_set_min_level(LOG_LEVEL_ERROR);
+
+	role = ICE_ROLE_CONTROLLING;
+
+	test_b2b(IPPROTO_UDP, false, true, 0);
+}
+
+
+TEST_F(MediaDual, ice_upgrade_prflx_to_host)
+{
+	delay_sdp = true;
+
+	test_b2b(IPPROTO_UDP, false, true, 0);
 }

@@ -59,8 +59,7 @@ import org.json.JSONException;
 import android.view.TextureView;
 
 public class FlowManager
-	implements VideoCapturerCallback,
-		   MediaManagerListener {
+	implements VideoCapturerCallback {
 
   static {
 	  AVSystem.load();
@@ -149,7 +148,6 @@ public class FlowManager
       sharedFm = this;
       
       attach(context, flags);
-      this.getMediaManager().addListener(this);
 
       File fileDir = context.getFilesDir();      
       setFilePath(fileDir.getAbsolutePath());
@@ -301,24 +299,6 @@ public class FlowManager
       FlowManagerListener listener = iterator.next();
 
       listener.volumeChanged(convId, partId, volume);
-    }
-  }
-
-  public void onPlaybackRouteChanged ( int route ) {
-    if ( route == AudioRouter.ROUTE_EARPIECE ) {
-      this.audioPlayDeviceChanged(FlowManager.AUPLAY_EARPIECE);
-    }
-
-    if ( route == AudioRouter.ROUTE_HEADSET ) {
-      this.audioPlayDeviceChanged(FlowManager.AUPLAY_HEADSET);
-    }
-
-    if ( route == AudioRouter.ROUTE_SPEAKER ) {
-      this.audioPlayDeviceChanged(FlowManager.AUPLAY_SPEAKER);
-    }
-      
-    if ( route == AudioRouter.ROUTE_BT ) {
-      this.audioPlayDeviceChanged(FlowManager.AUPLAY_BT);
     }
   }
 

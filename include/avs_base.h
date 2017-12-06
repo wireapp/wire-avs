@@ -31,5 +31,14 @@ int  avs_start(const char *token);
 void avs_close(void);
 uint64_t  avs_get_flags(void);
 const char *avs_get_token(void);
+void avs_print_versions(void);
+
+
+/* Special error codes for AVS */
+#define ETIMEDOUT_ECONN    (-1000)
+#define ETIMEDOUT_OTR      (-1001)
+#define ETIMEDOUT_CRYPTO   (-1002)
+#define EDATACHANNEL       (-1003)
+
 
 #endif //#ifndef AVS_BASE_H

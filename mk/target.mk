@@ -152,7 +152,7 @@
 # Here's all the AVS_OS and AVS_ARCH values we support
 #
 ALL_AVS_OS := android ios linux osx
-ALL_AVS_ARCH := armv7 armv7s arm64 i386 x86_64
+ALL_AVS_ARCH := armv7 arm64 i386 x86_64
 
 
 # Start by auto-determining host system and arch.

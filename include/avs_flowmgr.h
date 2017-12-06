@@ -25,7 +25,7 @@ struct flowmgr;
 struct rr_resp;
 
 
-int  flowmgr_init(const char *msysname, const char *log_url, int cert_type);
+int  flowmgr_init(const char *msysname);
 int  flowmgr_start(void);
 void flowmgr_close(void);
 int  flowmgr_is_ready(struct flowmgr *fm, bool *is_ready);
@@ -59,8 +59,6 @@ typedef int (flowmgr_req_h)(struct rr_resp *ctx,
 			    const char *ctype,
 			    const char *content, size_t clen, void *arg);
 
-typedef void (flowmgr_log_append_h)(const char *msg, void *arg);
-typedef void (flowmgr_log_upload_h)(void *arg);
 
 typedef const char *(flowmgr_username_h)(const char *userid, void *arg);
 
@@ -222,10 +220,6 @@ int flowmgr_alloc(struct flowmgr **fmp, flowmgr_req_h *reqh,
 void flowmgr_set_media_handlers(struct flowmgr *fm, flowmgr_mcat_chg_h *cath,
 				     flowmgr_volume_h *volh, void *arg);
 
-void flowmgr_set_log_handlers(struct flowmgr *fm,
-			      flowmgr_log_append_h *appendh,
-			      flowmgr_log_upload_h *uploadh,
-			      void *arg);
 
 void flowmgr_set_media_estab_handler(struct flowmgr *fm,
 				     flowmgr_media_estab_h *mestabh,
@@ -255,14 +249,6 @@ int  flowmgr_interruption(struct flowmgr *fm, const char *convid,
 			  bool interrupted);
 
 
-struct call *flowmgr_call(struct flowmgr *fm, const char *convid);
-
-int  call_count_flows(struct call *call);
-uint32_t flowmgr_call_count_active_flows(const struct call *call);
-const char *flowmgr_call_sessid(const struct call *call);
-struct flow *call_best_flow(const struct call *call);
-struct userflow *flow_get_userflow(struct flow *flow);
-struct mediaflow *userflow_mediaflow(struct userflow *uf);
 
 
 /**
@@ -275,29 +261,9 @@ struct mediaflow *userflow_mediaflow(struct userflow *uf);
 struct flowmgr *flowmgr_free(struct flowmgr *fm);
 
 
-void flowmgr_enable_trace(struct flowmgr *fm, int trace);
-
 const char *flowmgr_get_username(struct flowmgr *fm, const char *userid);
 
 
-/* Call events we know of */
-enum flowmgr_event {
-	FLOWMGR_EVENT_FLOW_ADD,
-	FLOWMGR_EVENT_FLOW_DEL,
-	FLOWMGR_EVENT_FLOW_ACT,
-	FLOWMGR_EVENT_CAND_ADD,
-	FLOWMGR_EVENT_CAND_UPD,
-	FLOWMGR_EVENT_SDP,
-	FLOWMGR_EVENT_MAX    /* Keep last for count */
-};
-
-typedef void (flowmgr_event_h)(enum flowmgr_event ev,
-			       const char *convid, const char *flowid,
-			       void *jobj,
-			       void *arg);
-
-int flowmgr_set_event_handler(struct flowmgr *fm, flowmgr_event_h *evh,
-			      void *arg);
 
 
 /* Pass a (websocket) event to flow manager *fm*.
@@ -326,28 +292,6 @@ int flowmgr_resp(struct flowmgr *fm, int status, const char *reason,
 		 struct rr_resp *rr);
 
 
-/*
- * Call config
- */
-
-struct call_config {
-	struct zapi_ice_server iceserverv[4];
-	size_t iceserverc;
-
-	struct {
-		double ver_one_to_one;
-	} features;
-};
-
-typedef void (call_config_h)(struct call_config *cfg, void *arg);
-
-int  flowmgr_config_start(struct flowmgr *fm);
-int  flowmgr_config_starth(struct flowmgr *fm,
-			   call_config_h *config, void *arg);
-void flowmgr_config_stop(struct flowmgr *fm);
-struct zapi_ice_server *flowmgr_config_iceservers(struct flowmgr *fm,
-						  size_t *count);
-
 
 /* Advice the flow manager *fm* to acquire flows for *convid.*
  *
@@ -367,7 +311,6 @@ int flowmgr_acquire_flows(struct flowmgr *fm, const char *convid,
 
 int flowmgr_user_add(struct flowmgr *fm, const char *convid,
 		     const char *userid, const char *username);
-size_t flowmgr_users_count(const struct flowmgr *fm, const char *convid);
 
 void flowmgr_set_self_userid(struct flowmgr *fm, const char *userid);
 const char *flowmgr_get_self_userid(struct flowmgr *fm);
@@ -391,8 +334,6 @@ void flowmgr_mcat_changed(struct flowmgr *fm,
 
 int flowmgr_has_media(struct flowmgr *fm, const char *convid,
 		      bool *has_media);
-
-int flowmgr_debug(struct re_printf *pf, const struct flowmgr *fm);
 
 void flowmgr_network_changed(struct flowmgr *fm);
 
@@ -440,10 +381,6 @@ int flowmgr_append_convlog(struct flowmgr *fm, const char *convid,
 			   const char *msg);
 
 void flowmgr_enable_metrics(struct flowmgr *fm, bool metrics);
-void flowmgr_enable_logging(struct flowmgr *fm, bool logging);
-
-int flowmgr_send_metrics(struct flowmgr *fm, const char *convid,
-			 const char *path);
 
 bool flowmgr_can_send_video(struct flowmgr *fm, const char *convid);
 bool flowmgr_is_sending_video(struct flowmgr *fm,
@@ -452,8 +389,6 @@ void flowmgr_set_video_send_state(struct flowmgr *fm, const char *convid, enum f
 
 void flowmgr_set_video_view(struct flowmgr *fm, const char *convid, const char *partid, void *view);
 
-int flowmgr_set_audio_effect(struct flowmgr *fm, enum audio_effect effect);
-enum audio_effect flowmgr_get_audio_effect(struct flowmgr *fm);
 
 struct avs_vidframe;
 void flowmgr_handle_frame(struct avs_vidframe *frame);
@@ -470,10 +405,6 @@ void marshal_flowmgr_set_media_handlers(struct flowmgr *fm,
 void marshal_flowmgr_set_media_estab_handler(struct flowmgr *fm,
 					     flowmgr_media_estab_h *mestabh,
 					     void *arg);
-void marshal_flowmgr_set_log_handlers(struct flowmgr *fm,
-				      flowmgr_log_append_h *appendh,
-				      flowmgr_log_upload_h *uploadh,
-				      void *arg);
 void marshal_flowmgr_set_conf_pos_handler(struct flowmgr *fm,
 					  flowmgr_conf_pos_h *conf_posh,
 					  void *arg);
@@ -502,7 +433,6 @@ int  marshal_flowmgr_get_mute(struct flowmgr *fm, bool *muted);
 int  marshal_flowmgr_append_convlog(struct flowmgr *fm, const char *convid,
 				    const char *msg);
 void marshal_flowmgr_enable_metrics(struct flowmgr *fm, bool metrics);
-void marshal_flowmgr_enable_logging(struct flowmgr *fm, bool logging);
 void marshal_flowmgr_set_sessid(struct flowmgr *fm, const char *convid,
 				const char *sessid);
 int  marshal_flowmgr_interruption(struct flowmgr *fm, const char *convid,
@@ -530,7 +460,6 @@ int marshal_flowmgr_is_sending_video(struct flowmgr *fm,
 				     const char *convid, const char *partid);
 void marshal_flowmgr_set_video_send_state(struct flowmgr *fm, const char *convid, enum flowmgr_video_send_state state);
 
-int marshal_flowmgr_set_audio_effect(struct flowmgr *fm, enum audio_effect effect);
 
 /* Wrap flow manager calls into these macros if you want to call them
  * from outside the re thread.
