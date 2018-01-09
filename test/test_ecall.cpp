@@ -377,25 +377,6 @@ static void msg_destructor(void *data)
 }
 
 
-static int set_ulimit(unsigned num)
-{
-	struct rlimit limit;
-	int err;
-
-	getrlimit(RLIMIT_NOFILE, &limit);
-
-	limit.rlim_cur = num;  /* Soft limit */
-
-	if (setrlimit(RLIMIT_NOFILE, &limit) != 0) {
-		err = errno;
-		warning("setrlimit() failed with errno %m\n", err);
-		return err;
-	}
-
-	return 0;
-}
-
-
 class Ecall : public ::testing::Test {
 
 public:
@@ -564,7 +545,7 @@ public:
 		switch (cli->action_conn) {
 
 		case ACTION_ANSWER:
-			err = ecall_answer(cli->ecall, false);
+			err = ecall_answer(cli->ecall, false, NULL);
 			ASSERT_EQ(0, err);
 			break;
 
@@ -573,7 +554,7 @@ public:
 			break;
 
 		case ACTION_ANSWER_AND_END:
-			err = ecall_answer(cli->ecall, false);
+			err = ecall_answer(cli->ecall, false, NULL);
 			ASSERT_EQ(0, err);
 
 			ecall_end(cli->ecall);
@@ -593,7 +574,8 @@ public:
 		}
 	}
 
-	static void conn_handler(uint32_t msg_time, const char *userid_sender,
+	static void conn_handler(struct ecall *ecall,
+				 uint32_t msg_time, const char *userid_sender,
 				 bool video_call, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
@@ -669,7 +651,8 @@ public:
 		}
 	}
 
-	static void datachan_estab_handler(void *arg, bool update)
+	static void datachan_estab_handler(struct ecall *ecall,
+					   bool update, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
 		struct conv_loop *loop = cli->loop;
@@ -1011,7 +994,7 @@ public:
 
 			for (unsigned j=0; j<ARRAY_SIZE(turn_srvv); j++) {
 
-				err = ecall_set_turnserver(cli->ecall,
+				err = ecall_add_turnserver(cli->ecall,
 							   &turn_srvv[j]->addr,
 							   "user", "pass");
 				ASSERT_EQ(0, err);
@@ -1029,7 +1012,7 @@ public:
 #endif
 
 		/* Call from A to B */
-		err = ecall_start(loop->clients[0].ecall, false);
+		err = ecall_start(loop->clients[0].ecall, false, NULL);
 		ASSERT_EQ(0, err);
 
 		verify_debug(loop);
@@ -1255,7 +1238,7 @@ TEST_F(Ecall, user_data)
 	test_base(conv, true);
 
 	/* Wait .. */
-	err = re_main_wait(30000);
+	err = re_main_wait(60000);
 	ASSERT_EQ(0, err);
 
 	ASSERT_EQ(0, a1->n_conn);
@@ -1277,7 +1260,7 @@ TEST_F(Ecall, user_data)
 	ASSERT_EQ(0, tmp);
 }
 
-#if 1
+
 TEST_F(Ecall, user_data_file_transfer)
 {
 	struct client *a1, *b1, *b2;
@@ -1309,7 +1292,7 @@ TEST_F(Ecall, user_data_file_transfer)
 	test_base(conv, true);
     
 	/* Wait .. */
-	err = re_main_wait(10000);
+	err = re_main_wait(60000);
 	ASSERT_EQ(0, err);
     
 	ASSERT_EQ(0, a1->n_conn);
@@ -1318,7 +1301,7 @@ TEST_F(Ecall, user_data_file_transfer)
 	ASSERT_EQ(1, b1->n_conn);
 	//ASSERT_EQ(1, b1->n_usr_data_ready);
 }
-#endif
+
 
 TEST_F(Ecall, transport_error)
 {
@@ -1554,7 +1537,7 @@ TEST_F(Ecall, hundreds_of_calls_in_parallel)
 	size_t i;
 
 	/* This is needed for multiple-calls test */
-	err = set_ulimit(512);
+	err = ztest_set_ulimit(512);
 	ASSERT_EQ(0, err);
 
 	prepare_loops(NUM_CONV, 4);
@@ -2031,10 +2014,10 @@ TEST_F(Ecall, flow007)
 	prepare_ecalls(conv);
 
 	/* Call from A to B */
-	err = ecall_start(a1->ecall, false);
+	err = ecall_start(a1->ecall, false, NULL);
 	ASSERT_EQ(0, err);
 
-	err = ecall_start(b2->ecall, false);
+	err = ecall_start(b2->ecall, false, NULL);
 	ASSERT_EQ(0, err);
 
 	/* Wait .. */
@@ -2099,10 +2082,10 @@ TEST_F(Ecall, flow007_check_audio_estabh)
 	prepare_ecalls(conv);
 
 	/* Call from A to B */
-	err = ecall_start(a1->ecall, false);
+	err = ecall_start(a1->ecall, false, NULL);
 	ASSERT_EQ(0, err);
 
-	err = ecall_start(b2->ecall, false);
+	err = ecall_start(b2->ecall, false, NULL);
 	ASSERT_EQ(0, err);
 
 	/* Wait .. */
@@ -2173,7 +2156,7 @@ TEST_F(Ecall, flow008)
 	prepare_ecalls(conv);
 
 	/* Call from B to A */
-	err = ecall_start(b2->ecall, false);
+	err = ecall_start(b2->ecall, false, NULL);
 	ASSERT_EQ(0, err);
 
 	exp_total_conn = 4;
@@ -2442,7 +2425,7 @@ TEST_F(Ecall, restart)
 	test_base(conv);
 
 	/* Wait .. */
-	err = re_main_wait(10000);
+	err = re_main_wait(60000);
 	ASSERT_EQ(0, err);
 
 	ASSERT_EQ(0, a1->n_conn);

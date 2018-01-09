@@ -30,6 +30,8 @@ import com.waz.media.manager.player.MediaSource;
 import com.waz.media.manager.player.MediaSourceListener;
 import com.waz.media.manager.player.MediaPlayerListener;
 
+import android.util.Log;
+
 
 public class MediaPlayer implements MediaSourceListener {
   private MediaSource _source = null;
@@ -93,7 +95,8 @@ public class MediaPlayer implements MediaSourceListener {
   }
 
 
-  public void play ( ) {
+  public void play (boolean sync) {
+	  //Log.d("avs", "MediaPlayer::play sync=" + sync);
     this.setTimestamp(new Date().getTime());
 
     // this.setVolume(0);
@@ -102,6 +105,16 @@ public class MediaPlayer implements MediaSourceListener {
       this._source.play();
         
       _is_playing = true;
+    }
+    if (sync) {
+	    while (_is_playing)	{
+		    try {
+			    Thread.sleep(40);
+		    }
+		    catch (Exception e) {
+		    }
+			    
+	    }
     }
   }
 
@@ -118,8 +131,11 @@ public class MediaPlayer implements MediaSourceListener {
   }
 
   public void onFinishedPlaying ( MediaSource source ) {
+
+	  //Log.d("avs", "MediaPlayer:onFinishedPlaying");
     this.setTimestamp(new Date().getTime());
 
+    
     // this.setVolume(0);
     if(this._listener != null){
       this._listener.onFinishedPlaying(this);

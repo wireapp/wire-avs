@@ -20,11 +20,19 @@
 #include "avs.h"
 #include "mm_platform.h"
 
-static enum mediamgr_auplay current_route = MEDIAMGR_AUPLAY_EARPIECE;
+static struct {
+	struct mm *mm;
+	enum mediamgr_auplay current_route;
+} dummy = {
+	.mm = NULL,
+	.current_route = MEDIAMGR_AUPLAY_EARPIECE,
+};
+
 
 int mm_platform_init(struct mm *mm, struct dict *sounds)
 {
-	(void)mm;
+	dummy.mm = mm;
+	
 	(void)sounds;
 	return 0;
 }
@@ -34,7 +42,7 @@ int mm_platform_free(struct mm *mm)
 	return 0;
 }
 
-void mm_platform_play_sound(struct sound *snd)
+void mm_platform_play_sound(struct sound *snd, bool sync)
 {
 	(void)snd;
 }
@@ -62,39 +70,50 @@ bool mm_platform_is_sound_playing(struct sound *snd)
 
 int mm_platform_enable_speaker(void)
 {
-    current_route = MEDIAMGR_AUPLAY_SPEAKER;
+    dummy.current_route = MEDIAMGR_AUPLAY_SPEAKER;
+
     return 0;
 }
 
 int mm_platform_enable_bt_sco(void)
 {
-    current_route = MEDIAMGR_AUPLAY_BT;
+    dummy.current_route = MEDIAMGR_AUPLAY_BT;
+
     return 0;
 }
 
 int mm_platform_enable_earpiece(void)
 {
-    current_route = MEDIAMGR_AUPLAY_EARPIECE;
+    dummy.current_route = MEDIAMGR_AUPLAY_EARPIECE;
+
     return 0;
 }
 
 int mm_platform_enable_headset(void)
 {
-    current_route = MEDIAMGR_AUPLAY_HEADSET;
+    dummy.current_route = MEDIAMGR_AUPLAY_HEADSET;
+
     return 0;
 }
 
 enum mediamgr_auplay mm_platform_get_route(void)
 {
-    return(current_route);
+    return dummy.current_route;
+}
+
+void mm_platform_incoming(void){
+    info("mm_platform_dummy: enter_call()\n");
+    mediamgr_sys_incoming(dummy.mm);
 }
 
 void mm_platform_enter_call(void){
-    info("mm_platform_enter_call() \n");
+    info("mm_platform_dummy: enter_call()\n");
+    mediamgr_sys_entered_call(dummy.mm);
 }
 
 void mm_platform_exit_call(void){
-    info("mm_platform_exit_call() \n");
+    info("mm_platform_dummy: exit_call()\n");
+    mediamgr_sys_left_call(dummy.mm);
 }
 
 void mm_platform_set_active(void){
@@ -129,4 +148,10 @@ void mm_platform_registerMedia(struct dict *sounds,
 
 void mm_platform_unregisterMedia(struct dict *sounds, const char *name){
     dict_remove(sounds, name);
+}
+
+
+void mm_platform_reset_sound(struct sound *snd)
+{
+	(void)snd;
 }

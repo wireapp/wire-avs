@@ -28,7 +28,16 @@
 
 #define MM_USE_THREAD   1
 
-typedef enum {
+enum mm_sys_state {
+	MM_SYS_STATE_UNKNOWN,
+	MM_SYS_STATE_NORMAL,
+	MM_SYS_STATE_INCOMING,
+	MM_SYS_STATE_ENTERING_CALL,
+	MM_SYS_STATE_INCALL,
+	MM_SYS_STATE_EXITING_CALL,
+};
+
+enum mm_route_update_event {
 	MM_HEADSET_PLUGGED = 0,
 	MM_HEADSET_UNPLUGGED,
 	MM_BT_DEVICE_CONNECTED,
@@ -36,18 +45,13 @@ typedef enum {
 	MM_DEVICE_CHANGED,
 	MM_SPEAKER_ENABLE_REQUEST,
 	MM_SPEAKER_DISABLE_REQUEST,
-	MM_CALL_START,
-	MM_CALL_STOP,
-	MM_VIDEO_CALL_START,
-	MM_VIDEO_CALL_STOP
-} mm_route_update_event;
+ };
 
 struct mm_route_state_machine {
 	bool prefer_loudspeaker;
 	bool bt_device_is_connected;
 	bool wired_hs_is_connected;
 	enum mediamgr_auplay cur_route;
-	enum mediamgr_auplay route_before_call;
 };
 
 typedef enum {
@@ -71,11 +75,18 @@ typedef enum {
 	MM_MARSHAL_SET_INTENSITY,
 	MM_MARSHAL_SET_USER_START_AUDIO,
 	MM_MARSHAL_ENTER_CALL,
-	MM_MARSHAL_EXIT_CALL
+	MM_MARSHAL_EXIT_CALL,
+	MM_MARSHAL_AUDIO_ALLOC,
+	MM_MARSHAL_AUDIO_RELEASE,
+	MM_MARSHAL_AUDIO_RESET,
+	MM_MARSHAL_SYS_INCOMING,
+	MM_MARSHAL_SYS_ENTERED_CALL,
+	MM_MARSHAL_SYS_LEFT_CALL,
+	MM_MARSHAL_INVOKE_INCOMINGH,
 } mm_marshal_id;
 
 struct mm_message {
-	union{
+	union {
 		struct {
 			char media_name[128];
 		} media_elem;
@@ -97,16 +108,25 @@ struct mm_message {
 		struct {
 			int intensity;
 		} set_intensity_elem;
+		struct {
+			mediamgr_incoming_h *incomingh;
+			char *convid;
+			char *userid;
+			uint32_t msg_time;
+			int video_call;
+			int should_ring;
+			void *arg;
+		} incomingh;
 	};
 };
-
 
 struct mm {
 	struct mqueue *mq;
 	struct dict *sounds;
 
-	enum mediamgr_state prev_call_state;
 	enum mediamgr_state call_state;
+	enum mediamgr_state hold_state;
+	enum mm_sys_state sys_state;
 	volatile bool started;
 
 	pthread_t thread;
@@ -138,45 +158,335 @@ static struct mm *g_mm = NULL;
 
 /* prototypes */
 static void *mediamgr_thread(void *arg);
-static void enter_call(struct mm *mm, struct dict *sounds);
-static void exit_call(struct mm *mm, struct dict *sounds);
+static void enter_call(struct mm *mm);
+static void exit_call(struct mm *mm);
+static void enable_speaker(struct mm *mm, bool enable);
 
 
-const char *MMroute2Str(enum mediamgr_auplay route)
+
+const char *mediamgr_route_name(enum mediamgr_auplay route)
 {
-    switch (route) {
-            
-        case MEDIAMGR_AUPLAY_EARPIECE:		return "Earpiece";
-        case MEDIAMGR_AUPLAY_SPEAKER:		return "Speakerphone";
-        case MEDIAMGR_AUPLAY_HEADSET:		return "Headset";
-        case MEDIAMGR_AUPLAY_BT:			return "Bluetooth";
-        case MEDIAMGR_AUPLAY_LINEOUT:		return "LINE";
-        case MEDIAMGR_AUPLAY_SPDIF:			return "SPDIF";
-        default: return "Unknown";
+	switch (route) {            
+        case MEDIAMGR_AUPLAY_EARPIECE:	return "Earpiece";
+        case MEDIAMGR_AUPLAY_SPEAKER:	return "Speakerphone";
+        case MEDIAMGR_AUPLAY_HEADSET:	return "Headset";
+        case MEDIAMGR_AUPLAY_BT:	return "Bluetooth";
+        case MEDIAMGR_AUPLAY_LINEOUT:	return "Line";
+        case MEDIAMGR_AUPLAY_SPDIF:	return "SPDif";
+        default:                        return "???";
     }
 }
 
-static const char *MMstate2Str(enum mediamgr_state st)
+static const char *mm_sys_state_name(enum mm_sys_state st)
 {
-	switch (st) {
-            
-		case MEDIAMGR_STATE_NORMAL:                  return "Normal";
-		case MEDIAMGR_STATE_OUTGOING_AUDIO_CALL:     return "Outgoing-Audio-Call";
-		case MEDIAMGR_STATE_OUTGOING_VIDEO_CALL:     return "Outgoing-Vide-Call";
-		case MEDIAMGR_STATE_INCOMMING_CALL:          return "Incommig-Call";
-		case MEDIAMGR_STATE_AUDIO_ACTIVATED:         return "Audio-Activated";
-		case MEDIAMGR_STATE_AUDIO_DEACTIVATED:       return "Audio-Deactivated";
-		case MEDIAMGR_STATE_INCALL:                  return "Incall";
-		case MEDIAMGR_STATE_INVIDEOCALL:             return "Invideocall";
-		case MEDIAMGR_STATE_CALL_ESTABLISHED:        return "Call-Established";
-		case MEDIAMGR_STATE_VIDEOCALL_ESTABLISHED:   return "Videocall-Established";
-        case MEDIAMGR_STATE_TWO_WAY_AUDIO:           return "Two-Way-Audio";
-		case MEDIAMGR_STATE_HOLD:                    return "Hold";
-		case MEDIAMGR_STATE_RESUME:                  return "Resume";
-            
-		default: return "???";
+	switch(st) {
+	case MM_SYS_STATE_UNKNOWN:
+		return "Unknown";
+
+	case MM_SYS_STATE_NORMAL:
+		return "Normal";
+		
+	case MM_SYS_STATE_ENTERING_CALL:
+		return "Entering-Call";
+
+	case MM_SYS_STATE_INCOMING:
+		return "Incoming";
+		
+	case MM_SYS_STATE_INCALL:
+		return "In-Call";
+		
+	case MM_SYS_STATE_EXITING_CALL:
+		return "Exiting-Call";
+
+	default:
+		return "???";
 	}
 }
+
+static const char *mmstate_name(enum mediamgr_state st)
+{
+	switch (st) {            
+	case MEDIAMGR_STATE_NORMAL:
+		return "Normal";
+
+	case MEDIAMGR_STATE_OUTGOING_AUDIO_CALL:
+		return "Outgoing-Audio-Call";
+
+	case MEDIAMGR_STATE_OUTGOING_VIDEO_CALL:
+		return "Outgoing-Video-Call";
+
+	case MEDIAMGR_STATE_INCOMING_AUDIO_CALL:
+		return "Incoming-Audio-Call";
+
+	case MEDIAMGR_STATE_INCOMING_VIDEO_CALL:
+		return "Incoming-Video-Call";
+		
+	case MEDIAMGR_STATE_INCALL:
+		return "In-Call";
+
+	case MEDIAMGR_STATE_INVIDEOCALL:
+		return "In-VideoCall";
+
+	case MEDIAMGR_STATE_HOLD:
+		return "Hold";
+
+	case MEDIAMGR_STATE_RESUME:
+		return "Resume";
+		
+	default:
+		return "???";
+	}
+}
+
+static const char *event_name(enum mm_route_update_event event)
+{
+	switch (event) {
+	case MM_HEADSET_PLUGGED:
+		return "Headset-PlugIn";
+
+	case MM_HEADSET_UNPLUGGED:
+		return "Headset-PlugOut";
+		
+	case MM_BT_DEVICE_CONNECTED:
+		return "Bluetooth-PlugIn";
+		
+	case MM_BT_DEVICE_DISCONNECTED:
+		return "Bluetooth-PlugOut";
+		
+	case MM_DEVICE_CHANGED:
+		return "System-DeviceChange";
+		
+	case MM_SPEAKER_ENABLE_REQUEST:
+		return "Speaker-On";
+
+	case MM_SPEAKER_DISABLE_REQUEST:
+		return "Speaker-Off";
+
+	default:
+		return "???";
+	}
+}
+
+static void fire_callback(struct mm *mm)
+{
+	struct le *le;	
+
+	info("mediamgr: fire_callback\n");
+	
+	LIST_FOREACH(&g_mm->mml, le) {
+		struct mediamgr *mgr = le->data;
+
+		info("mediamgr: fire_callback: firing callback for mm=%p\n",
+		     mgr);
+		
+		if (mgr->mcat_changed_h)
+			mgr->mcat_changed_h(mm->call_state, mgr->arg);
+	}
+}
+
+static bool stop_playing_media(char *key, void *val, void *arg)
+{
+	struct sound *snd = (struct sound *)val;
+	bool is_playing;
+
+	(void)key;
+	(void)arg;
+
+	is_playing = mm_platform_is_sound_playing(snd);
+
+	if (is_playing)
+	    mm_platform_stop_sound(snd);
+
+	return false;
+}
+
+
+static void stop_all_media(struct mm *mm)
+{
+	dict_apply(mm->sounds, stop_playing_media, NULL);
+	
+}
+
+
+static bool check_play_mode(char *key, void *val, void *arg)
+{
+	struct sound* snd = (struct sound*)val;
+	mm_playback_mode *mode = (mm_playback_mode*)arg;
+
+	(void)key;
+
+	if (mm_platform_is_sound_playing(snd)) {
+		if (snd->mixing) {
+			*mode = MM_PLAYBACK_MIXING;
+		}
+		else {
+			*mode = MM_PLAYBACK_EXCLUSIVE;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+static bool mediamgr_can_play_sound(struct mm *mm,
+				    struct dict *sounds,
+				    struct sound *to_play)
+{
+	mm_playback_mode mode = MM_PLAYBACK_NONE;
+	bool incall = (mm->call_state == MEDIAMGR_STATE_INCALL ||
+		       mm->call_state == MEDIAMGR_STATE_INVIDEOCALL);
+
+	info("mediamgr: can_play_sound: incall=%d(%d) intensity=%d(%d) "
+	     "prio=%d\n",
+	     to_play->incall, incall,
+	     to_play->intensity, mm->intensity_thres,
+	     to_play->priority);
+	
+	/* Check intensity setting */
+	if (to_play->intensity > mm->intensity_thres) {
+		return false;
+	}
+
+	/* Some sounds are not allowed in-call */
+	if (!to_play->incall && incall) {
+		return false;
+	}
+
+	if (to_play->priority > 0) {
+		return true;
+	}
+
+	dict_apply(sounds, check_play_mode, &mode);
+
+	/* Only allow 1 exclusive or many mixings */
+	switch (mode) {
+
+	case MM_PLAYBACK_NONE:
+		return true;
+
+	case MM_PLAYBACK_EXCLUSIVE:
+		return false;
+
+	case MM_PLAYBACK_MIXING:
+		return to_play->mixing;
+	}
+
+	return false;
+}
+
+#if 0
+static bool stop_play(char *key, void *val, void *arg)
+{
+	struct sound *snd = (struct sound *)val;
+
+	(void)key;
+	(void)arg;
+
+	if (mm_platform_is_sound_playing(snd)) {
+		mm_platform_stop_sound(snd);
+	}
+
+	return false;
+}
+#endif
+
+static void play_sound(struct mm *mm, const char *mname, bool sync)
+{
+	struct sound *snd;
+	
+	snd = dict_lookup(mm->sounds, mname);
+	if (!snd) {
+		error("mediamgr: play_sound: %s not found\n", mname);
+		return;
+	}
+
+	info("mediamgr: play_sound: %s\n", mname);
+
+	if (mediamgr_can_play_sound(mm, mm->sounds, snd)) {
+#if 0
+		if (snd->priority > 0) {
+			debug("mediamgr: play_sound: priority audio\n");
+			dict_apply(mm->sounds, stop_play, NULL);
+		}
+#endif
+			
+		mm_platform_play_sound(snd, sync);
+	}
+}
+
+static int mediamgr_post_media_cmd(struct mm *mm,
+				   mm_marshal_id cmd,
+				   const char* media_name)
+{
+	struct mm_message *elem = NULL;
+	
+	if (media_name) {
+		elem = mem_zalloc(sizeof(struct mm_message), NULL);
+		if (!elem) {
+			return ENOMEM;
+		}
+
+		str_ncpy(elem->media_elem.media_name,
+			 media_name,
+			 sizeof(elem->media_elem.media_name));
+	}
+
+	return mqueue_push(mm->mq, cmd, elem);
+}
+
+
+static void incall_action(struct mm *mm)
+{
+	info("mediamgr: incall_action\n");
+	
+	stop_all_media(mm);
+
+	if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL) {
+		enum mediamgr_auplay route;
+
+		route = mm_platform_get_route();
+		switch(route) {
+		case MEDIAMGR_AUPLAY_HEADSET:
+		case MEDIAMGR_AUPLAY_BT:
+		case MEDIAMGR_AUPLAY_LINEOUT:
+		case MEDIAMGR_AUPLAY_SPDIF:
+			break;
+
+		default:
+			enable_speaker(mm, true);
+			break;
+		}
+	}
+
+	play_sound(mm, "ready_to_talk", true);
+
+	mediamgr_post_media_cmd(mm, MM_MARSHAL_AUDIO_ALLOC, NULL);
+}
+
+
+static void handle_incall(struct mm *mm)
+{
+	info("mediamgr: handle_incall: call_state=%s sys_state=%s\n",
+	     mmstate_name(mm->call_state), mm_sys_state_name(mm->sys_state));
+
+	if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
+		mm->router.prefer_loudspeaker = true;
+	
+	switch(mm->sys_state) {
+	case MM_SYS_STATE_INCALL:
+		incall_action(mm);
+		break;
+
+	case MM_SYS_STATE_ENTERING_CALL:
+		break;
+
+	default:
+		enter_call(mm);
+		break;
+	}
+}
+
 
 static void mm_destructor(void *arg)
 {
@@ -210,9 +520,9 @@ static void mediamgr_destructor(void *arg)
 }
 
 
-struct mm *mediamgr_get(struct mediamgr *mm)
+struct mm *mediamgr_get(struct mediamgr *mediamgr)
 {
-	return mm ? mm->mm : NULL;
+	return mediamgr ? mediamgr->mm : NULL;
 }
 
 
@@ -300,297 +610,218 @@ int mediamgr_alloc(struct mediamgr **mmp,
 	return err;
 }
 
-
-static bool stop_playing_during_call(char *key, void *val, void *arg)
-{
-	struct sound *snd = (struct sound *)val;
-
-	(void)key;
-	(void)arg;
-
-	if (!snd->incall) {
-		if (mm_platform_is_sound_playing(snd)) {
-			mm_platform_stop_sound(snd);
-		}
-	}
-
-	return false;
-}
-
 static enum mediamgr_auplay get_wanted_route(struct mm *mm)
 {
 	enum mediamgr_auplay wanted_route = MEDIAMGR_AUPLAY_EARPIECE;
-	if (mm->router.wired_hs_is_connected) {
-		wanted_route = MEDIAMGR_AUPLAY_HEADSET;
-	} else if (mm->router.bt_device_is_connected) {
-		wanted_route = MEDIAMGR_AUPLAY_BT;
-	}else if(mm->router.prefer_loudspeaker) {
+	
+	if (mm->router.prefer_loudspeaker)
 		wanted_route = MEDIAMGR_AUPLAY_SPEAKER;
-	}
+	else if (mm->router.wired_hs_is_connected)
+		wanted_route = MEDIAMGR_AUPLAY_HEADSET;
+	else if (mm->router.bt_device_is_connected)
+		wanted_route = MEDIAMGR_AUPLAY_BT;
+
 	return wanted_route;
 }
 
-static void update_route(struct mm *mm, mm_route_update_event event)
+static void satisfy_route(enum mediamgr_auplay route)
 {
-	struct le *le;
-	int ret = 0;
+	switch (route) {
+	case MEDIAMGR_AUPLAY_HEADSET:
+		mm_platform_enable_headset();
+		break;
 
+	case MEDIAMGR_AUPLAY_EARPIECE:
+		mm_platform_enable_earpiece();
+		break;
+
+	case MEDIAMGR_AUPLAY_SPEAKER:
+		mm_platform_enable_speaker();
+		break;
+
+	case MEDIAMGR_AUPLAY_BT:
+		mm_platform_enable_bt_sco();
+		break;
+
+	default:
+		warning("mediamgr: satisfy_route: unsupported route: %s\n",
+			mediamgr_route_name(route));
+		break;
+	}
+}
+
+
+static void enable_speaker(struct mm *mm, bool enable)
+{
 	enum mediamgr_auplay cur_route = mm_platform_get_route();
-	enum mediamgr_auplay wanted_route = cur_route;
+	enum mediamgr_auplay wanted_route = MEDIAMGR_AUPLAY_UNKNOWN;
 
-	if (!mm)
+	info("enable_speaker: enable=%d\n", enable);
+	
+	mm->router.prefer_loudspeaker = enable;
+	
+	wanted_route = get_wanted_route(mm);
+
+	info("mediamgr: enable_speaker: enable=%s "
+	     "wanted_route=%s cur_route=%s\n",
+	     enable ? "yes" : "no",
+	     mediamgr_route_name(wanted_route),
+	     mediamgr_route_name(cur_route));
+
+	if (wanted_route != cur_route)
+		satisfy_route(wanted_route);
+}
+
+
+static void update_route(struct mm *mm, enum mm_route_update_event event)
+{
+	enum mediamgr_auplay cur_route = mm_platform_get_route(); 
+	enum mediamgr_auplay wanted_route = MEDIAMGR_AUPLAY_UNKNOWN;
+	struct le *le;
+	
+	if (!mm) {
+		warning("mediamgr: update_route: no mm\n");
 		return;
+	}
 
+	info("mediamgr: update_route mm=%p event=%s cur_route=%s "
+	     "loudspeaker=%s\n",
+	     mm, event_name(event), mediamgr_route_name(cur_route),
+	     mm->router.prefer_loudspeaker ? "yes" : "no");
+	
 	switch (event) {
-
 	case MM_HEADSET_PLUGGED:
-		/* Always switch to HS when plugged in */
-		wanted_route = MEDIAMGR_AUPLAY_HEADSET;
 		mm->router.wired_hs_is_connected = true;
-		info("mm: prefer_loudspeaker set to false from HEADSET_PLUGGED\n");
 		mm->router.prefer_loudspeaker = false;
+		wanted_route = MEDIAMGR_AUPLAY_HEADSET;
 		break;
 
 	case MM_HEADSET_UNPLUGGED:
+		mm->router.wired_hs_is_connected = false;
 		if(mm->call_state == MEDIAMGR_STATE_INVIDEOCALL){
-			info("mm: prefer_loudspeaker set to true from HEADSET_UNPLUGGED\n");
 			mm->router.prefer_loudspeaker = true;
 		}
-		if(cur_route == MEDIAMGR_AUPLAY_SPEAKER) {
-			wanted_route = MEDIAMGR_AUPLAY_SPEAKER;
-		}
-		else if (mm->router.bt_device_is_connected) {
-			wanted_route = MEDIAMGR_AUPLAY_BT;
-		}
-		else if (mm->router.prefer_loudspeaker) {
-			wanted_route = MEDIAMGR_AUPLAY_SPEAKER;
-		}
-		else {
-			wanted_route = MEDIAMGR_AUPLAY_EARPIECE;
-		}
-		mm->router.wired_hs_is_connected = false;
 		break;
 
 	case MM_BT_DEVICE_CONNECTED:
+		mm->router.bt_device_is_connected = true;
 		if (mm->call_state == MEDIAMGR_STATE_INCALL ||
-			mm->call_state == MEDIAMGR_STATE_INVIDEOCALL){
+		    mm->call_state == MEDIAMGR_STATE_INVIDEOCALL){
             
 			/* Always switch to BT when plugged in */
 			wanted_route = MEDIAMGR_AUPLAY_BT;
 		}
-		mm->router.bt_device_is_connected = true;
+		mm->router.prefer_loudspeaker = false;
 		break;
 
 	case MM_BT_DEVICE_DISCONNECTED:
 		mm->router.bt_device_is_connected = false;
-		wanted_route = get_wanted_route(mm);
+		if(mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
+			mm->router.prefer_loudspeaker = true;
 		break;
 
-	case MM_SPEAKER_ENABLE_REQUEST:
-		wanted_route = MEDIAMGR_AUPLAY_SPEAKER;
-		info("mm: prefer_loudspeaker set to true from ENABLE_SPEAKER\n");
-		mm->router.prefer_loudspeaker = true;
-		break;
-
-	case MM_SPEAKER_DISABLE_REQUEST:
-		info("mm: prefer_loudspeaker set to false from DISABLE_SPEAKER\n");
-		mm->router.prefer_loudspeaker = false;
-		wanted_route = get_wanted_route(mm);
-		break;
-
-	case MM_CALL_START:
-		mm->router.route_before_call = cur_route;
-		wanted_route = get_wanted_route(mm);
-		break;
-
-	case MM_VIDEO_CALL_START:
-		mm->router.route_before_call = cur_route;
-		info("mm: prefer_loudspeaker set to true from VIDEO_CALL_START\n");
-		mm->router.prefer_loudspeaker = true;
-		wanted_route = get_wanted_route(mm);
-		break;
-            
-	case MM_CALL_STOP:
-	case MM_VIDEO_CALL_STOP:
-		info("mm: prefer_loudspeaker set to false from (VIDEO_)CALL_STOP\n");
-		mm->router.prefer_loudspeaker = false;
-		wanted_route = MEDIAMGR_AUPLAY_EARPIECE;
-		break;
-            
 	case MM_DEVICE_CHANGED:
-		wanted_route = get_wanted_route(mm);
-		if (wanted_route == cur_route) {
-			info("Device Changed and is in our wanted route = %s \n", MMroute2Str(wanted_route));
-		} else {
-			info("Device Changed and is not in our wanted route \n");
+		if (cur_route == MEDIAMGR_AUPLAY_SPEAKER &&
+		    !mm->router.prefer_loudspeaker) {
+			wanted_route = MEDIAMGR_AUPLAY_EARPIECE;
 		}
-		return;
-	}
-
-	info("mm: wanted_route = %s cur_route = %s \n",
-		MMroute2Str(wanted_route), MMroute2Str(cur_route));
-    
-	if (wanted_route != cur_route) {
-
-		switch (wanted_route) {
-
-		case MEDIAMGR_AUPLAY_HEADSET:
-			ret = mm_platform_enable_headset();
-			break;
-
-		case MEDIAMGR_AUPLAY_EARPIECE:
-			ret = mm_platform_enable_earpiece();
-			break;
-
-		case MEDIAMGR_AUPLAY_SPEAKER:
-			ret = mm_platform_enable_speaker();
-			break;
-
-		case MEDIAMGR_AUPLAY_BT:
-			ret = mm_platform_enable_bt_sco();
-			break;
-
-		default:
-			error("mediamgr: Unsupported device");
-			break;
+		else if (cur_route == MEDIAMGR_AUPLAY_EARPIECE &&
+			 mm->router.prefer_loudspeaker) {
+			wanted_route = MEDIAMGR_AUPLAY_SPEAKER;
 		}
-	}
-
-	/* Check that we got what we asked for */
-	cur_route = mm_platform_get_route();
-    
-	if (wanted_route != cur_route && ret >= 0) {
-		if (mm->call_state != MEDIAMGR_STATE_INCALL &&
-			mm->call_state != MEDIAMGR_STATE_INVIDEOCALL) {
-            
-			cur_route = wanted_route;
-		} else {
-			error("mediamgr: Route Change didnt happen (wanted=%d, current=%d) (ret=%d)\n", wanted_route, cur_route, ret);
-		}
-		// SSJ waybe wait 100 ms and try again ??
-		//     Android and BT dosnt change immidiatly
-	}
-
-	LIST_FOREACH(&g_mm->mml, le) {
-		struct mediamgr *mgr = le->data;
+		else
+			wanted_route = cur_route;
+		break;
 		
-		if (mgr->route_changed_h) {
-			mgr->route_changed_h(cur_route,
-					     mgr->route_changed_arg);
-		}
-	}
-}
-
-
-static void enter_call(struct mm *mm, struct dict *sounds)
-{
-	dict_apply(sounds, stop_playing_during_call, NULL);
-
-	mm_platform_enter_call();
-}
-
-
-static void exit_call(struct mm *mm, struct dict *sounds)
-{
-	mm_platform_exit_call();
-}
-
-
-static bool check_play_mode(char *key, void *val, void *arg)
-{
-	struct sound* snd = (struct sound*)val;
-	mm_playback_mode *mode = (mm_playback_mode*)arg;
-
-	(void)key;
-
-	if (mm_platform_is_sound_playing(snd)) {
-		if (snd->mixing) {
-			*mode = MM_PLAYBACK_MIXING;
-		}
-		else {
-			*mode = MM_PLAYBACK_EXCLUSIVE;
-			return true;
-		}
+	default:
+		warning("mediamgr: illegal event: %d for system route\n",
+			event);
+		break;
 	}
 
-	return false;
-}
-
-
-static bool stop_play(char *key, void *val, void *arg)
-{
-	struct sound *snd = (struct sound *)val;
-
-	(void)key;
-	(void)arg;
-
-	if (mm_platform_is_sound_playing(snd)) {
-		mm_platform_stop_sound(snd);
-	}
-
-	return false;
-}
-
-
-static bool mediamgr_can_play_sound(struct mm *mm,
-				    struct dict *sounds,
-				    struct sound *to_play)
-{
-	mm_playback_mode mode = MM_PLAYBACK_NONE;
-
-	/* Check intensity setting */
-	if (to_play->intensity > mm->intensity_thres) {
-		return false;
-	}
-
-	/* Some sounds are not allowed in-call */
-	bool incall = (mm->call_state == MEDIAMGR_STATE_INCALL ||
-		       mm->call_state == MEDIAMGR_STATE_INVIDEOCALL);
-	if (!to_play->incall && incall) {
-		return false;
-	}
-
-	if (to_play->priority > 0) {
-		return true;
-	}
-
-	dict_apply(sounds, check_play_mode, &mode);
-
-	/* Only allow 1 exclusive or many mixings */
-	switch (mode) {
-
-	case MM_PLAYBACK_NONE:
-		return true;
-
-	case MM_PLAYBACK_EXCLUSIVE:
-		return false;
-
-	case MM_PLAYBACK_MIXING:
-		return to_play->mixing;
-	}
-
-	return false;
-}
-
-
-static int mediamgr_post_media_cmd(struct mm *mm,
-				   mm_marshal_id cmd,
-				   const char* media_name)
-{
-	struct mm_message *elem = NULL;
+	mm->router.cur_route = cur_route;
 	
-	if (media_name) {
-		elem = mem_zalloc(sizeof(struct mm_message), NULL);
-		if (!elem) {
-			return ENOMEM;
+	if (wanted_route == MEDIAMGR_AUPLAY_UNKNOWN)
+		wanted_route = get_wanted_route(mm);
+
+	if (cur_route != wanted_route)
+		satisfy_route(wanted_route);
+	else {
+		LIST_FOREACH(&g_mm->mml, le) {
+			struct mediamgr *mgr = le->data;
+			enum mediamgr_auplay route = cur_route;
+
+			if (mgr->route_changed_h) {
+				mgr->route_changed_h(route,
+						     mgr->route_changed_arg);
+			}
 		}
-
-		str_ncpy(elem->media_elem.media_name,
-			 media_name,
-			 sizeof(elem->media_elem.media_name));
 	}
+}
 
-	return mqueue_push(mm->mq, cmd, elem);
+
+static void set_sys_state(struct mm *mm, enum mm_sys_state state)
+{
+	enum mm_sys_state old_state = mm->sys_state;
+
+	info("mediamgr: set_sys_state: %s -> %s\n",
+	     mm_sys_state_name(old_state), mm_sys_state_name(state));
+
+	mm->sys_state = state;
+}
+
+
+static void enter_incoming(struct mm *mm)
+{
+	info("mediamgr: enter_incoming: sys_state=%s\n",
+	     mm_sys_state_name(mm->sys_state));
+	
+	switch (mm->sys_state) {
+	case MM_SYS_STATE_NORMAL:
+		mm_platform_incoming();
+		break;
+
+	default:
+		break;
+	}
+}
+
+
+static void enter_call(struct mm *mm)
+{
+	info("mediamgr: enter_call: sys_state=%s\n",
+	     mm_sys_state_name(mm->sys_state));
+	
+	switch (mm->sys_state) {
+	case MM_SYS_STATE_NORMAL:
+	case MM_SYS_STATE_INCOMING:
+	case MM_SYS_STATE_EXITING_CALL:
+		set_sys_state(mm, MM_SYS_STATE_ENTERING_CALL);
+		mm_platform_enter_call();
+		break;
+
+	default:
+		break;
+	}
+}
+
+
+static void exit_call(struct mm *mm)
+{
+	info("mediamgr: exit_call: sys_state=%s\n",
+	     mm_sys_state_name(mm->sys_state));
+	
+	switch (mm->sys_state) {
+	case MM_SYS_STATE_INCALL:
+	case MM_SYS_STATE_INCOMING:
+	case MM_SYS_STATE_ENTERING_CALL:
+		set_sys_state(mm, MM_SYS_STATE_EXITING_CALL);
+		mm_platform_exit_call();
+		break;
+
+	default:
+		break;
+	}
 }
 
 
@@ -611,24 +842,32 @@ void mediamgr_exit_call(struct mediamgr *mediamgr)
 	mediamgr_post_media_cmd(mediamgr->mm, MM_MARSHAL_EXIT_CALL, NULL);
 }
 
+static bool is_internal(const char *name)
+{
+	return streq("ringing_from_me", name) ||
+		streq("ringing_from_me_video", name) ||
+		streq("ready_to_talk", name) ||
+		streq("talk_later", name);
+}
 
 void mediamgr_play_media(struct mediamgr *mediamgr, const char *media_name)
-{	
+{
+	int err = 0;
+	
 	if (!mediamgr)
 		return;
 
-	if(strcmp("ringing_from_me", media_name)==0 ||
-		strcmp("ringing_from_me_video", media_name)==0 ||
-		strcmp("ready_to_talk", media_name)==0){
-		info("mediamgr_play_media ignoring media %s \n", media_name);
-		// Some sounds we dont let the UI control
+	if (is_internal(media_name)) {		
+		info("mediamgr_play_media: ignoring internal media %s\n",
+		     media_name);
 		return;
 	}
-    
-	if (mediamgr_post_media_cmd(mediamgr->mm, MM_MARSHAL_PLAY_MEDIA,
-				    media_name) != 0) {
-		error("mediamgr_play_media failed \n");
-	}
+
+	err = mediamgr_post_media_cmd(mediamgr->mm,
+				      MM_MARSHAL_PLAY_MEDIA,
+				      media_name);
+	if (err)
+		error("mediamgr_play_media failed: %m\n", err);
 }
 
 
@@ -636,12 +875,10 @@ void mediamgr_pause_media(struct mediamgr *mediamgr, const char *media_name)
 {
 	if (!mediamgr)
 		return;
-	
-	if(strcmp("ringing_from_me", media_name)==0 ||
-		strcmp("ringing_from_me_video", media_name)==0 ||
-		strcmp("ready_to_talk", media_name)==0){
-		info("mediamgr_pause_media ignoring media %s \n", media_name);
-		// Some sounds we dont let the UI control
+
+	if (is_internal(media_name)) {
+		info("mediamgr_pause_media: ignoring internal media %s\n",
+		     media_name);
 		return;
 	}
     
@@ -656,12 +893,10 @@ void mediamgr_stop_media(struct mediamgr *mediamgr, const char *media_name)
 {
 	if (!mediamgr)
 		return;
-	
-	if(strcmp("ringing_from_me", media_name)==0 ||
-		strcmp("ringing_from_me_video", media_name)==0 ||
-		strcmp("ready_to_talk", media_name)==0){
-		info("mediamgr_stop_media ignoring media %s \n", media_name);
-		// Some sounds we dont let the UI control
+
+	if (is_internal(media_name)) {
+		info("mediamgr_stop_media: ignoring internal media %s\n",
+		     media_name);
 		return;
 	}
     
@@ -671,16 +906,15 @@ void mediamgr_stop_media(struct mediamgr *mediamgr, const char *media_name)
 	}
 }
 
-
-void mediamgr_set_call_state(struct mediamgr *mediamgr,
-			     enum mediamgr_state state)
+void mediamgr_set_call_state_mm(struct mm *mm, enum mediamgr_state state)
 {
 	struct mm_message *elem;
 
-	if (!mediamgr)
+	if (!mm)
 		return;
-	
-	info("mediamgr_set_call_state to %s \n", MMstate2Str(state));
+
+	info("mediamgr_set_call_state: %s->%s\n",
+	     mmstate_name(mm->call_state), mmstate_name(state));
     
 	elem = mem_zalloc(sizeof(struct mm_message), NULL);
 	if (!elem) {
@@ -688,9 +922,16 @@ void mediamgr_set_call_state(struct mediamgr *mediamgr,
 		return;
 	}
 	elem->state_elem.state = state;
-	if (mqueue_push(mediamgr->mm->mq, MM_MARSHAL_CALL_STATE, elem) != 0) {
+	if (mqueue_push(mm->mq, MM_MARSHAL_CALL_STATE, elem) != 0) {
 		error("mediamgr_set_call_state failed \n");
 	}
+}
+
+
+void mediamgr_set_call_state(struct mediamgr *mediamgr,
+			     enum mediamgr_state state)
+{
+	mediamgr_set_call_state_mm(mediamgr_get(mediamgr), state);
 }
 
 void mediamgr_register_route_change_h(struct mediamgr *mediamgr,
@@ -710,6 +951,7 @@ void mediamgr_register_route_change_h(struct mediamgr *mediamgr,
 void mediamgr_enable_speaker_mm(struct mm *mm, bool enable)
 {
 	struct mm_message *elem;
+	int err = 0;
 
 	if (!mm)
 		return;
@@ -720,8 +962,9 @@ void mediamgr_enable_speaker_mm(struct mm *mm, bool enable)
 		return;
 	}
 	elem->bool_elem.val = enable;
-	if (mqueue_push(mm->mq, MM_MARSHAL_ENABLE_SPEAKER, elem) != 0) {
-		error("mediamgr_enable_speaker failed \n");
+	err = mqueue_push(mm->mq, MM_MARSHAL_ENABLE_SPEAKER, elem); 
+	if (err) {
+		error("mediamgr_enable_speaker: failed: %m\n", err);
 	}
 }
 
@@ -730,7 +973,9 @@ void mediamgr_enable_speaker(struct mediamgr *mediamgr, bool enable)
 	if (!mediamgr)
 		return;
 
-	info("mediamgr_enable_speaker called, enable=%s\n", enable ? "true" : "false");
+	info("mediamgr_enable_speaker: enable=%s\n",
+	     enable ? "true" : "false");
+
 	mediamgr_enable_speaker_mm(mediamgr->mm, enable);
 }
 
@@ -800,8 +1045,9 @@ void mediamgr_register_media(struct mediamgr *mediamgr,
 		error("mediamgr_register_media failed \n");
 		return;
 	}
-	debug("%s: \n", __FUNCTION__);
-	strncpy(elem->register_media_elem.media_name, media_name, sizeof(elem->register_media_elem.media_name) - 1);
+	str_ncpy(elem->register_media_elem.media_name,
+		 media_name,
+		 sizeof(elem->register_media_elem.media_name));
 	elem->register_media_elem.media_object = media_object;
 	elem->register_media_elem.mixing = mixing;
 	elem->register_media_elem.incall = incall;
@@ -849,6 +1095,8 @@ void mediamgr_set_sound_mode(struct mediamgr *mediamgr,
 	if (!mediamgr)
 		return;
 
+	info("mediamgr: set_sound_mode: set mode to %u\n", intensity);
+	
 	mm = mediamgr->mm;
 	switch (mode) {
 
@@ -870,7 +1118,6 @@ void mediamgr_set_sound_mode(struct mediamgr *mediamgr,
 		error("mediamgr_set_sound_mode failed \n");
 		return;
 	}
-	debug("%s: set mode to %u\n", __FUNCTION__, intensity);
 	elem->set_intensity_elem.intensity = intensity;
 	if (mqueue_push(mm->mq, MM_MARSHAL_SET_INTENSITY, elem) != 0) {
 		error("mediamgr_set_sound_mode failed \n");
@@ -903,18 +1150,7 @@ enum mediamgr_auplay mediamgr_get_route(const struct mediamgr *mediamgr)
 	return mm_platform_get_route();
 }
 
-static void play_media(struct mm *mm, const char *mname)
-{
-	struct sound *curr_sound;
-    
-	curr_sound = dict_lookup(mm->sounds, mname);
-	if (!curr_sound) {
-		error("%s: couldn't find media %s\n", __FUNCTION__, mname);
-	} else {
-		mm_platform_play_sound(curr_sound);
-	}
-}
-
+#if 0
 static void stop_media(struct mm *mm, const char *mname)
 {
 	struct sound *curr_sound;
@@ -939,199 +1175,293 @@ static bool is_media_playing(struct mm *mm, const char *mname)
 		return mm_platform_is_sound_playing(curr_sound);
 	}
 }
+#endif
+
+
+static void set_state(struct mm *mm, enum mediamgr_state state)
+{
+	enum mediamgr_state old_state = mm->call_state;
+
+	info("mediamgr: set_state: %s -> %s\n",
+	     mmstate_name(old_state), mmstate_name(state));
+
+	mm->call_state = state;
+}
+
+
+static void sys_incoming_handler(struct mm *mm)
+{
+	info("mediamgr: sys_incoming: call_state=%s\n",
+	     mmstate_name(mm->call_state));
+
+	set_sys_state(mm, MM_SYS_STATE_INCOMING);
+	
+	switch (mm->call_state) {
+	case MEDIAMGR_STATE_INCOMING_AUDIO_CALL:
+		/* Let "ringing_from_them" be played by UI
+		 * play_sound(mm, "ringing_from_them", false);
+		 */
+		break;
+		
+	case MEDIAMGR_STATE_INCOMING_VIDEO_CALL:
+		/* Let "ringing_from_them" be played by UI
+		 * play_sound(mm, "ringing_from_them_video", false);
+		 */
+		break;
+
+	default:
+		break;
+	}	
+}
+
+
+static void sys_entered_call_handler(struct mm *mm)
+{
+	info("mediamgr: sys_entered_call: sys_state=%s call_state=%s\n",
+	     mm_sys_state_name(mm->sys_state), mmstate_name(mm->call_state));
+
+	if (mm->sys_state == MM_SYS_STATE_INCALL
+	    && mm->call_state != MEDIAMGR_STATE_RESUME) {		
+		info("mediamgr: already INCALL and not resuming\n");
+		return;
+	}
+
+	if (mm->sys_state != MM_SYS_STATE_ENTERING_CALL) {
+		info("mediamgr: not requested to enter call, ignoring\n");
+		return;
+	}
+
+	set_sys_state(mm, MM_SYS_STATE_INCALL);
+	
+	switch (mm->call_state) {
+	case MEDIAMGR_STATE_OUTGOING_AUDIO_CALL:
+		play_sound(mm, "ringing_from_me", false);
+		break;
+		
+	case MEDIAMGR_STATE_OUTGOING_VIDEO_CALL:
+		enable_speaker(mm, true);
+		play_sound(mm, "ringing_from_me_video", false);
+		break;
+
+	case MEDIAMGR_STATE_INCALL:
+	case MEDIAMGR_STATE_INVIDEOCALL:
+		incall_action(mm);
+		break;
+
+	case MEDIAMGR_STATE_RESUME:
+		if (mm->aio)
+			fire_callback(mm);
+		else {
+			mediamgr_post_media_cmd(mm,
+						MM_MARSHAL_AUDIO_ALLOC, NULL);
+		}
+		set_state(mm, mm->hold_state);
+		break;
+
+	case MEDIAMGR_STATE_NORMAL:
+		exit_call(mm);
+		break;
+
+	default:
+		break;
+	}	
+}
+
+static void sys_left_call_handler(struct mm *mm)
+{
+	info("mediamgr: sys_left_call: call_state=%s sys_state=%s\n",
+	     mmstate_name(mm->call_state), mm_sys_state_name(mm->sys_state));
+
+	set_sys_state(mm, MM_SYS_STATE_NORMAL);
+	if (mm->call_state == MEDIAMGR_STATE_NORMAL) {
+		mm->router.prefer_loudspeaker = false;
+		update_route(mm, MM_DEVICE_CHANGED);
+	}
+}
+
+
+static void audio_alloc(struct mm *mm)
+{
+
+	if (mm->aio) {
+		voe_deregister_adm();
+		mm->aio = mem_deref(mm->aio);
+	}
+	if (mm->aio) {
+		info("mediamgr: audio already allocated\n");
+		return;
+	}
+	
+	info("mediamgr: allocating audio\n");
+	audio_io_alloc(&mm->aio, AUDIO_IO_MODE_NORMAL);
+	voe_register_adm(mm->aio);
+
+	info("mediamgr: audio_alloc: fire_callback\n");	
+	fire_callback(mm);
+}
+
+
+static void audio_release(struct mm *mm)
+{
+	info("mediamgr: audio_release: aio=%p\n", mm->aio);
+	
+	if (mm->aio) {
+		voe_deregister_adm();
+		mm->aio = mem_deref(mm->aio);
+	}
+}
+
+
+void mediamgr_audio_release_mm(struct mm *mm)
+{
+	mediamgr_post_media_cmd(mm, MM_MARSHAL_AUDIO_RELEASE, NULL);
+}
+
+
+void mediamgr_audio_release(struct mediamgr *mediamgr)
+{
+	if (!mediamgr)
+		return;
+	
+	mediamgr_audio_release_mm(mediamgr->mm);
+}
+
+
+static void audio_reset(struct mm *mm)
+{
+	info("mediamgr: audio_reset: aio=%p\n", mm->aio);
+	
+	if (mm->aio) {
+		audio_io_reset(mm->aio);
+	}
+}
+
+void mediamgr_audio_reset_mm(struct mm *mm)
+{
+	mediamgr_post_media_cmd(mm, MM_MARSHAL_AUDIO_RESET, NULL);
+}
+
 
 static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 {
-	mm_route_update_event event = MM_CALL_START;
-	bool has_changed = false;
-	bool fire_callback = false;
-	bool create_audio_device = false;
-
 	enum mediamgr_state old_state = mm->call_state;
 
+	info("mediamgr: call_state_handler: %s->%s\n",
+	     mmstate_name(old_state), mmstate_name(new_state));
+
+	if (new_state == old_state) {
+		if (new_state == MEDIAMGR_STATE_INVIDEOCALL ||
+		    new_state == MEDIAMGR_STATE_INCALL) {
+			if (mm->aio)
+				fire_callback(mm);
+		}
+
+		return;
+	}
+
 	switch (new_state) {
-		case MEDIAMGR_STATE_OUTGOING_VIDEO_CALL:
-			event = MM_VIDEO_CALL_START;
-			has_changed = true;
-		case MEDIAMGR_STATE_OUTGOING_AUDIO_CALL:
-		case MEDIAMGR_STATE_INCOMMING_CALL:
-			if(old_state == MEDIAMGR_STATE_NORMAL){
-				mm->call_state = new_state;
-				enter_call(mm, mm->sounds);
-				if(!mm->user_starts_audio){
-					if(mm->call_state != MEDIAMGR_STATE_INCOMMING_CALL){
-						play_media(mm, "ringing_from_me");// Play Ringback
-					}
-					mm->call_state = MEDIAMGR_STATE_AUDIO_ACTIVATED;
-					create_audio_device = true;
-				}
-			} else {
-				has_changed = false;
+	case MEDIAMGR_STATE_NORMAL:
+		set_state(mm, new_state);
+		stop_all_media(mm);
+		audio_release(mm);
+		switch (mm->sys_state) {
+		case MM_SYS_STATE_NORMAL:
+			break;
+			
+		case MM_SYS_STATE_INCALL:
+			if (old_state == MEDIAMGR_STATE_INCALL ||
+			    old_state == MEDIAMGR_STATE_INVIDEOCALL) {
+				play_sound(mm, "talk_later", true);
 			}
+			exit_call(mm);
 			break;
 
-		case MEDIAMGR_STATE_AUDIO_ACTIVATED:
-			create_audio_device = true;
-			if(mm->call_state == MEDIAMGR_STATE_OUTGOING_AUDIO_CALL ||
-				mm->call_state == MEDIAMGR_STATE_OUTGOING_VIDEO_CALL){
-				mm->call_state = MEDIAMGR_STATE_AUDIO_ACTIVATED;
-				play_media(mm, "ringing_from_me");// Play Ringback
-            } else if(mm->call_state == MEDIAMGR_STATE_INCOMMING_CALL){
-				mm->call_state = MEDIAMGR_STATE_AUDIO_ACTIVATED;
-			} else if(mm->call_state == MEDIAMGR_STATE_CALL_ESTABLISHED){
-				mm->call_state = MEDIAMGR_STATE_INCALL;
-			} else if(mm->call_state == MEDIAMGR_STATE_VIDEOCALL_ESTABLISHED){
-				mm->call_state = MEDIAMGR_STATE_INVIDEOCALL;
-			}
-			break;
-
-		case MEDIAMGR_STATE_CALL_ESTABLISHED:
-			if(mm->call_state == MEDIAMGR_STATE_AUDIO_ACTIVATED){
-				mm->call_state = MEDIAMGR_STATE_INCALL;
-			} else if(mm->call_state == MEDIAMGR_STATE_INCALL ||
-				mm->call_state == MEDIAMGR_STATE_INVIDEOCALL){
-				mm->call_state = MEDIAMGR_STATE_INCALL;
-				fire_callback = true;
-			} else {
-				mm->call_state = MEDIAMGR_STATE_CALL_ESTABLISHED;
-				info("mediamgr: waiting for audio permissions \n");
-				mm_platform_set_active(); // CallKit workaround
-			}
-			event = MM_CALL_START;
-			has_changed = true;
-			break;
-        
-		case MEDIAMGR_STATE_VIDEOCALL_ESTABLISHED:
-			if(mm->call_state == MEDIAMGR_STATE_AUDIO_ACTIVATED){
-				mm->call_state = MEDIAMGR_STATE_INVIDEOCALL;
-			} else if(mm->call_state == MEDIAMGR_STATE_INCALL){
-				mm->call_state = MEDIAMGR_STATE_INVIDEOCALL;
-			} else if(mm->call_state == MEDIAMGR_STATE_INCALL ||
-				mm->call_state == MEDIAMGR_STATE_INVIDEOCALL){
-				mm->call_state = MEDIAMGR_STATE_INVIDEOCALL;
-				fire_callback = true;
-			}else {
-				mm->call_state = MEDIAMGR_STATE_VIDEOCALL_ESTABLISHED;
-				info("mediamgr: waiting for audio permissions \n");
-				mm_platform_set_active(); // CallKit workaround
-			}
-			event = MM_VIDEO_CALL_START;
-			has_changed = true;
-			break;
-        
-		case MEDIAMGR_STATE_INCALL: // With Flowmanager gone we will not need this
-			if(mm->call_state == MEDIAMGR_STATE_AUDIO_ACTIVATED){ // Only needed for calling2 FM
-				mm->call_state = MEDIAMGR_STATE_INCALL;
-			}else if(mm->call_state == MEDIAMGR_STATE_NORMAL){ // Only needed for calling2 FM
-				enter_call(mm, mm->sounds);
-				mm->call_state = MEDIAMGR_STATE_INCALL;
-			}
-			event = MM_CALL_START;
-			has_changed = true;
-			break;
-        
-		case MEDIAMGR_STATE_INVIDEOCALL: // With Flowmanager gone we will not need this
-			if(mm->call_state == MEDIAMGR_STATE_AUDIO_ACTIVATED){ // Only needed for calling2 FM
-				mm->call_state = MEDIAMGR_STATE_INVIDEOCALL;
-			}else if(mm->call_state == MEDIAMGR_STATE_NORMAL){ // Only needed for calling2 FM
-				enter_call(mm, mm->sounds);
-				mm->call_state = MEDIAMGR_STATE_INVIDEOCALL;
-			} else if(mm->call_state == MEDIAMGR_STATE_INCALL){
-				mm->call_state = MEDIAMGR_STATE_INVIDEOCALL;
-			}
-			event = MM_VIDEO_CALL_START;
-			has_changed = true;
-			break;
-        
-		case MEDIAMGR_STATE_TWO_WAY_AUDIO:
-			stop_media(mm, "ringing_from_me");
-			play_media(mm, "ready_to_talk");
-			break;
-            
-		case MEDIAMGR_STATE_ROAMING:
-			if(mm->call_state == MEDIAMGR_STATE_INCALL ||
-				mm->call_state == MEDIAMGR_STATE_INVIDEOCALL){
-				mm->call_state = MEDIAMGR_STATE_AUDIO_ACTIVATED;
-			}
-			break;
-        
-		case MEDIAMGR_STATE_NORMAL:
-			mm->call_state = MEDIAMGR_STATE_NORMAL;
-			exit_call(mm, mm->sounds);
-			event = MM_CALL_STOP;
-			has_changed = true;
-			fire_callback = true;
-			break;
-        
-		case MEDIAMGR_STATE_HOLD:
-			if(mm->call_state == MEDIAMGR_STATE_INCALL ||
-				mm->call_state == MEDIAMGR_STATE_INVIDEOCALL) {
-				info("%s: putting call on hold\n", __FUNCTION__);
-				mm->prev_call_state = mm->call_state;
-				mm->call_state = MEDIAMGR_STATE_HOLD;
-				event = MM_CALL_STOP;
-				has_changed = true;
-				fire_callback = true;
-			}
-			break;
-        
-		case MEDIAMGR_STATE_RESUME:
-			if(mm->call_state == MEDIAMGR_STATE_HOLD) {
-				info("%s: resuming call\n", __FUNCTION__);
-				event = MM_CALL_START;
-				has_changed = true;
-				fire_callback = true;
-				mm->call_state =  mm->prev_call_state;
-				enter_call(mm, mm->sounds);
-			}
-			break;
-        
 		default:
+			exit_call(mm);			
 			break;
-	}
-
-	if (has_changed) {
-		update_route(g_mm, event);
-	}
-
-	if(old_state != mm->call_state){
-		info("mediamgr: state changed from %s to %s \n", MMstate2Str(old_state), MMstate2Str(mm->call_state));
-		if(create_audio_device && mm->aio == NULL){
-			// To Do have the adm owned by mm not voe. Pass it in the callback
-			audio_io_alloc(&mm->aio, AUDIO_IO_MODE_NORMAL);
-			voe_register_adm(mm->aio);
 		}
-		if(mm->call_state == MEDIAMGR_STATE_NORMAL){
-			voe_deregister_adm();
-			mem_deref(mm->aio);
-			mm->aio = NULL;
-			if(is_media_playing(mm, "ringing_from_me")){
-				stop_media(mm, "ringing_from_me");
+		mm->router.prefer_loudspeaker = false;
+		break;
+
+	case MEDIAMGR_STATE_OUTGOING_AUDIO_CALL:
+		if (old_state == MEDIAMGR_STATE_NORMAL) {
+			set_state(mm, new_state);
+			enter_call(mm);
+		}
+		break;
+
+	case MEDIAMGR_STATE_OUTGOING_VIDEO_CALL:
+		mm->router.prefer_loudspeaker = true;
+		if (old_state == MEDIAMGR_STATE_NORMAL) {
+			set_state(mm, new_state);
+			enter_call(mm);
+		}
+		break;
+		
+	case MEDIAMGR_STATE_INCOMING_AUDIO_CALL:
+		if (old_state == MEDIAMGR_STATE_NORMAL) {
+			set_state(mm, new_state);
+			enter_incoming(mm);
+		}
+		else if (old_state == MEDIAMGR_STATE_RESUME) {
+			mm->hold_state = MEDIAMGR_STATE_INCOMING_AUDIO_CALL;
+			enter_incoming(mm);
+		}
+		break;
+
+	case MEDIAMGR_STATE_INCOMING_VIDEO_CALL:
+		if (old_state == MEDIAMGR_STATE_NORMAL)
+			set_state(mm, new_state);
+		else if (old_state == MEDIAMGR_STATE_RESUME)
+			mm->hold_state = MEDIAMGR_STATE_INCOMING_VIDEO_CALL;
+		enter_incoming(mm);
+		break;
+		
+	case MEDIAMGR_STATE_INCALL:
+	case MEDIAMGR_STATE_INVIDEOCALL:
+		set_state(mm, new_state);
+		handle_incall(mm);
+		break;
+
+	case MEDIAMGR_STATE_ROAMING:
+		break;
+
+	case MEDIAMGR_STATE_HOLD:
+		mm->hold_state = old_state;
+		set_state(mm, new_state);
+		fire_callback(mm);
+		break;
+
+	case MEDIAMGR_STATE_RESUME:
+		if (old_state == MEDIAMGR_STATE_HOLD) {
+			set_state(mm, new_state);
+			if (mm->hold_state == MEDIAMGR_STATE_INCALL
+			    || mm->hold_state == MEDIAMGR_STATE_INVIDEOCALL) {
+				if (mm->sys_state == MM_SYS_STATE_INCALL) {
+					if (mm->aio)
+						fire_callback(mm);
+					set_state(mm, mm->hold_state);
+				}
+				else {
+					enter_call(mm);
+				}
 			}
 		}
-		fire_callback = true;
+		break;
+		
+	case MEDIAMGR_STATE_UNKNOWN:
+		break;
+
+	default:
+		break;
 	}
-
-	if(fire_callback){
-		struct le *le;
-
-		debug("mediamgr: mqueue_handler: calling "
-		      "mcat changed %d\n", mm->call_state);
-    
-		LIST_FOREACH(&g_mm->mml, le) {
-			struct mediamgr *mgr = le->data;
-        
-			if (mgr->mcat_changed_h) {
-				mgr->mcat_changed_h(mm->call_state, mgr->arg);
-			}
-		}
-    }
 }
+
 
 static void mqueue_handler(int id, void *data, void *arg)
 {
 	struct mm *mm = arg;
-	struct mm_marshal_elem *marshal = (struct mm_marshal_elem*)data;
+	struct mm_message *msg = data;
 	struct sound *curr_sound;
     
 	switch ((mm_marshal_id)id) {
@@ -1140,41 +1470,12 @@ static void mqueue_handler(int id, void *data, void *arg)
 		re_cancel();
 		break;
 
-	case MM_MARSHAL_PLAY_MEDIA: {
-		const char *mname = ((struct mm_message*)marshal)->media_elem.media_name;
-
-		curr_sound = dict_lookup(mm->sounds, mname);
-		if (!curr_sound) {
-			error("%s: couldn't find media %s\n",
-			      __FUNCTION__, mname);
-		}
-		else {
-			debug("%s: want to play media %s \n",
-			      __FUNCTION__, mname);
-
-			if (mediamgr_can_play_sound(mm, mm->sounds,
-						    curr_sound)) {
-				if (curr_sound->priority > 0) {
-					debug("%s: stop other media\n",
-					      __FUNCTION__);
-					dict_apply(mm->sounds, stop_play, NULL);
-				}
-				debug("%s: play media %s \n",
-				      __FUNCTION__, mname);
-
-				if (curr_sound->is_call_media
-					&& mm->call_state == MEDIAMGR_STATE_NORMAL) {
-					mm_platform_enter_call();
-					update_route(g_mm, MM_CALL_START);
-				}
-				mm_platform_play_sound(curr_sound);
-			}
-		}
-    }
+	case MM_MARSHAL_PLAY_MEDIA:
+		play_sound(mm, msg->media_elem.media_name, false);
 		break;
-
+		
 	case MM_MARSHAL_PAUSE_MEDIA: {
-		const char *mname = ((struct mm_message*)marshal)->media_elem.media_name;
+		const char *mname = msg->media_elem.media_name;
 
 		curr_sound = dict_lookup(mm->sounds, mname);
 		if (!curr_sound) {
@@ -1188,113 +1489,126 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case MM_MARSHAL_STOP_MEDIA: {
-		const char *mname = ((struct mm_message*)marshal)->media_elem.media_name;
+		const char *mname = msg->media_elem.media_name;
 
 		curr_sound = dict_lookup(mm->sounds, mname);
 		if (!curr_sound) {
-			error("%s: couldn't find media %s\n", __FUNCTION__, mname);
+			error("%s: couldn't find media %s\n",
+			      __FUNCTION__, mname);
 		}
 		else {
 			mm_platform_stop_sound(curr_sound);
-			if (curr_sound->is_call_media
-				&& (mm->call_state == MEDIAMGR_STATE_NORMAL)) {
-				mm_platform_exit_call();
-				update_route(g_mm, MM_CALL_STOP);
-			}
 		}
 	}
 		break;
 
 	case MM_MARSHAL_CALL_STATE: {
-        call_state_handler(mm, ((struct mm_message*)marshal)->state_elem.state);
+		call_state_handler(mm, msg->state_elem.state);
 	}
 	break;
             
 	case MM_MARSHAL_ENABLE_SPEAKER: {
-		bool enable = ((struct mm_message*)marshal)->bool_elem.val;
+		bool enable = msg->bool_elem.val;
 
-		mm_route_update_event event;
-		if (enable) {
-			event = MM_SPEAKER_ENABLE_REQUEST;
-		}
-		else {
-			event = MM_SPEAKER_DISABLE_REQUEST;
-		}
-		update_route(g_mm, event);
+		enable_speaker(g_mm, enable);
 	}
 	break;
 
 	case MM_MARSHAL_HEADSET_CONNECTED: {
-		bool connected = ((struct mm_message*)marshal)->bool_elem.val;
+		bool connected = msg->bool_elem.val;
 
-		mm_route_update_event event;
-		if (connected) {
-			event = MM_HEADSET_PLUGGED;
-		}
-		else {
-			event = MM_HEADSET_UNPLUGGED;
-		}
-		update_route(g_mm, event);
+		update_route(g_mm, connected ? MM_HEADSET_PLUGGED
+			                     : MM_HEADSET_UNPLUGGED);
 	}
 	break;
 
 	case MM_MARSHAL_BT_DEVICE_CONNECTED: {
-		bool connected = ((struct mm_message*)marshal)->bool_elem.val;
-
-		mm_route_update_event event;
-		if (connected) {
-			event = MM_BT_DEVICE_CONNECTED;
-		}
-		else {
-			event = MM_BT_DEVICE_DISCONNECTED;
-		}
-		update_route(g_mm, event);
+		bool connected = msg->bool_elem.val;
+		
+		update_route(g_mm, connected ? MM_BT_DEVICE_CONNECTED
+			                     : MM_BT_DEVICE_DISCONNECTED);
 	}
 	break;
-
+	
 	case MM_MARSHAL_DEVICE_CHANGED: {
 		update_route(g_mm, MM_DEVICE_CHANGED);
 	}
 	break;
             
 	case MM_MARSHAL_REGISTER_MEDIA: {
-		const char *mname = ((struct mm_message*)marshal)->register_media_elem.media_name;
-		void *mobject = ((struct mm_message*)marshal)->register_media_elem.media_object;
-		bool mixing = ((struct mm_message*)marshal)->register_media_elem.mixing;
-		bool incall = ((struct mm_message*)marshal)->register_media_elem.incall;
-		int intensity = ((struct mm_message*)marshal)->register_media_elem.intensity;
-		int priority = ((struct mm_message*)marshal)->register_media_elem.priority;
-		int is_call_media = ((struct mm_message*)marshal)->register_media_elem.is_call_media;
+		const char *mname = msg->register_media_elem.media_name;
+		void *mobject = msg->register_media_elem.media_object;
+		bool mixing = msg->register_media_elem.mixing;
+		bool incall = msg->register_media_elem.incall;
+		int intensity = msg->register_media_elem.intensity;
+		int priority = msg->register_media_elem.priority;
+		int is_call_media = msg->register_media_elem.is_call_media;
 
-		mm_platform_registerMedia(mm->sounds, mname, mobject, mixing, incall, intensity, priority, is_call_media);
+		mm_platform_registerMedia(mm->sounds, mname, mobject, mixing,
+					  incall, intensity, priority,
+					  is_call_media);
 	}
 	break;
 
 	case MM_MARSHAL_DEREGISTER_MEDIA: {
-		const char *mname = ((struct mm_message*)marshal)->register_media_elem.media_name;
+		const char *mname = msg->register_media_elem.media_name;
 
 		mm_platform_unregisterMedia(mm->sounds, mname);
 	}
 	break;
             
 	case MM_MARSHAL_SET_INTENSITY: {
-		mm->intensity_thres = ((struct mm_message*)marshal)->set_intensity_elem.intensity;
+		mm->intensity_thres = msg->set_intensity_elem.intensity;
 	}
 	break;
             
 	case MM_MARSHAL_SET_USER_START_AUDIO: {
-		mm->user_starts_audio = ((struct mm_message*)marshal)->bool_elem.val;
+		mm->user_starts_audio = msg->bool_elem.val;
 	}
 	break;
 
 	case MM_MARSHAL_ENTER_CALL:
-		enter_call(mm, mm->sounds);
+		enter_call(mm);
 		break;
 
-	case MM_MARSHAL_EXIT_CALL:
-		exit_call(mm, mm->sounds);
+	case MM_MARSHAL_AUDIO_ALLOC:
+		audio_alloc(mm);
+		break;
+
+	case MM_MARSHAL_AUDIO_RELEASE:
+		audio_release(mm);
+		break;
+
+	case MM_MARSHAL_AUDIO_RESET:
+		audio_reset(mm);
 		break;
 		
+	case MM_MARSHAL_EXIT_CALL:
+		exit_call(mm);
+		break;
+
+	case MM_MARSHAL_SYS_INCOMING:
+		sys_incoming_handler(mm);
+		break;
+		
+	case MM_MARSHAL_SYS_ENTERED_CALL:
+		sys_entered_call_handler(mm);
+		break;
+
+	case MM_MARSHAL_SYS_LEFT_CALL:
+		sys_left_call_handler(mm);
+		break;
+
+	case MM_MARSHAL_INVOKE_INCOMINGH:
+		if (msg->incomingh.incomingh) {
+			msg->incomingh.incomingh(msg->incomingh.convid,
+						 msg->incomingh.msg_time,
+						 msg->incomingh.userid,
+						 msg->incomingh.video_call,
+						 msg->incomingh.should_ring,
+						 msg->incomingh.arg);
+		}
+		break;
 	}
     
 	mem_deref(data);
@@ -1306,41 +1620,165 @@ static void *mediamgr_thread(void *arg)
 	struct mm *mm = arg;
 	int err;
 
+	mm->started = true;
+	
 #ifdef MM_USE_THREAD
+	info("mediamgr: thread started\n");
 	err = re_thread_init();
 	if (err) {
 		warning("mediamgr_thread: re_thread_init failed (%m)\n", err);
 		goto out;
 	}
 #else
-	//re_thread_enter();
+	info("mediamgr: NO thread started\n");
+	re_thread_enter();
 #endif
 
 	err = mqueue_alloc(&mm->mq, mqueue_handler, mm);
-#ifndef MM_USE_THREAD
-	//re_thread_leave();
-#endif
 	if (err) {
 		error("mediamgr_thread: cannot allocate mqueue (%m)\n", err);
 		goto out;
 	}
 
-	debug("%s: read %d sounds\n", __FUNCTION__, dict_count(mm->sounds));
+	info("mediamgr_thread: read %d sounds\n", dict_count(mm->sounds));
 
+	mm->sys_state = MM_SYS_STATE_NORMAL;
 	if (mm_platform_init(mm, mm->sounds) != 0) {
-		error("%s: failed to load init media manager platform\n", __FUNCTION__);
+		error("mediamgr_thread: failed to init platform\n");
 		goto out;
 	}
-
-	mm->started = true;
+	     
 #ifdef MM_USE_THREAD
 	re_main(NULL);
-	info("%s thread exiting\n", __FUNCTION__);
+	info("mediamgr_thread: thread exiting\n");
 
 	re_thread_close();
+#else
+	re_tread_leave();
 #endif
 
 out:
 	return NULL;
 }
 
+
+void mediamgr_sys_entered_call(struct mm *mm)
+{
+	if (mm->sys_state == MM_SYS_STATE_INCALL) {
+		info("mediamgr: sys_entered_call already in-call\n");
+		return;
+	}
+	else
+		info("mediamgr: posting entered_call\n");
+	mediamgr_post_media_cmd(mm, MM_MARSHAL_SYS_ENTERED_CALL, NULL);
+}
+
+
+void mediamgr_sys_incoming(struct mm *mm)
+{
+	mediamgr_post_media_cmd(mm, MM_MARSHAL_SYS_INCOMING, NULL);
+}
+
+
+void mediamgr_sys_left_call(struct mm *mm)
+{
+	mediamgr_post_media_cmd(mm, MM_MARSHAL_SYS_LEFT_CALL, NULL);
+}
+
+
+static void invoke_destructor(void *arg)
+{
+	struct mm_message *elem = arg;
+	
+	mem_deref(elem->incomingh.convid);
+	mem_deref(elem->incomingh.userid);
+}
+
+
+int mediamgr_invoke_incomingh(struct mediamgr *mediamgr,
+			      mediamgr_incoming_h *incomingh,
+			      const char *convid, uint32_t msg_time,
+			      const char *userid, int video_call,
+			      int should_ring,
+			      void *arg)
+{
+
+	struct mm_message *elem = NULL;
+
+	elem = mem_zalloc(sizeof(*elem), invoke_destructor);
+	if (!elem)
+		return ENOMEM;
+
+	str_dup(&elem->incomingh.convid, convid);
+	str_dup(&elem->incomingh.userid, userid);
+	elem->incomingh.incomingh = incomingh;
+	elem->incomingh.msg_time = msg_time;
+	elem->incomingh.video_call = video_call;
+	elem->incomingh.should_ring = should_ring;
+	elem->incomingh.arg = arg;
+
+	return mqueue_push(mediamgr->mm->mq, MM_MARSHAL_INVOKE_INCOMINGH, elem);
+}
+
+void mediamgr_hold_and_resume(struct mm *mm)
+{
+	if (!mm)
+		return;
+	
+	if (mm->call_state == MEDIAMGR_STATE_INCALL
+	    || mm->call_state == MEDIAMGR_STATE_INVIDEOCALL) {
+		mediamgr_set_call_state_mm(mm,
+					   MEDIAMGR_STATE_HOLD);
+		mediamgr_set_call_state_mm(mm,
+					   MEDIAMGR_STATE_RESUME);
+	}
+}
+
+
+bool mediamgr_get_speaker(struct mm *mm)
+{
+	bool speaker;
+
+	speaker = mm ? mm->router.prefer_loudspeaker : false;
+
+	info("mediamgr(%p): get_speaker: speaker=%s\n",
+	     mm, speaker ? "yes": "no");
+
+	return speaker;
+}
+
+
+void mediamgr_override_speaker_mm(struct mm *mm, bool speaker)
+{
+	info("mediamgr(%p): override_speaker: speaker=%s\n",
+	     mm, speaker ? "yes" : "no");
+	
+	if (!mm)
+		return;
+
+	mm->router.prefer_loudspeaker = speaker;
+}
+
+static bool reset_sound_handler(char *key, void *val, void *arg)
+{
+	struct mm *mm = arg;	
+	struct sound *snd = val;
+
+	if (!snd)
+		return false;
+
+	(void)mm;
+
+	mm_platform_reset_sound(snd);
+
+	return false;
+}
+
+
+void mediamgr_reset_sounds(struct mm *mm)
+{
+	if (!mm)
+		return;
+
+	dict_apply(mm->sounds, reset_sound_handler, mm);
+}

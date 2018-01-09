@@ -306,6 +306,7 @@ TEST_F(TestTurn, allocation_permission_send)
 	ASSERT_EQ(1, turnc->n_permh);
 	ASSERT_TRUE(n_udp_peer > 0);
 	ASSERT_TRUE(n_udp_cli > 0);
+	ASSERT_FALSE(turnc->failed);
 
 	/* verify TURN server */
 	ASSERT_GE(srv.nrecv, 3);
@@ -380,6 +381,7 @@ TEST_F(TestTurn, allocation_failure_441)
 	ASSERT_EQ(0, turnc->n_permh);
 	ASSERT_EQ(0, n_udp_peer);
 	ASSERT_EQ(0, n_udp_cli);
+	ASSERT_TRUE(turnc->failed);
 
 	/* verify TURN server */
 	ASSERT_GE(srv.nrecv, 1);

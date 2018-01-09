@@ -16,37 +16,17 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef AVS_AUDIO_IO_H
-#define AVS_AUDIO_IO_H
 
-enum audio_io_mode{
-    AUDIO_IO_MODE_NORMAL = 0,
-    AUDIO_IO_MODE_MOCK,
-    AUDIO_IO_MODE_MOCK_REALTIME,
-};
+/* Codecs should be registered before module is initialized */
+int  extcodec_audio_register(struct aucodec *ac);
+void extcodec_audio_unregister(struct aucodec *ac);
 
-struct audio_io{
-    //webrtc::audio_io_class *aioc;
-    void *aioc;
-};
+int  extcodec_video_register(struct vidcodec *vc);
+void extcodec_video_unregister(struct vidcodec *vc);
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 
-int  audio_io_alloc(struct audio_io **aiop,
-               enum audio_io_mode mode);
+int  extcodec_audio_init(struct list *aucodecl);
+int  extcodec_video_init(struct list *vidcodecl);
+void extcodec_audio_close(void);
+void extcodec_video_close(void);
 
-int  audio_io_init(struct audio_io *aio);
-    
-int  audio_io_terminate(struct audio_io *aio);
-    
-int  audio_io_enable_sine(struct audio_io *aio);
-
-int  audio_io_reset(struct audio_io *aio);
-	
-#ifdef __cplusplus
-    }
-#endif
-    
-#endif // AVS_AUDIO_IO_H

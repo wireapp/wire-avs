@@ -207,32 +207,9 @@ static AVSMediaManager *_defaultMediaManager;
 		mediamgr_alloc(&_mm, on_mcat_changed, (__bridge void *)(self));
 		_convId = nil;
 		_intensity = AVSIntensityLevelFull;
+		self.playbackRoute = AVSPlaybackRouteBuiltIn;
+		self.sysUpdated = NO;
 		mediamgr_register_route_change_h(_mm, avsmm_on_route_changed, (__bridge void *)(self));
-
-#if TARGET_OS_IPHONE
-			[[NSNotificationCenter defaultCenter] addObserverForName:AVAudioSessionInterruptionNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock: ^(NSNotification *notification) {
-
-			       NSLog(@"Interruption Notification");
-				     
-				NSInteger type = [[notification.userInfo valueForKey:AVAudioSessionInterruptionTypeKey] integerValue];    
-				
-				switch ( type ) {
-				    case AVAudioSessionInterruptionTypeBegan:
-					mediamgr_set_call_state(_mm, MEDIAMGR_STATE_HOLD);
-					//NSLog(@"Interruption Began - Audio Session Highjack");
-					break;
-					     
-				    case AVAudioSessionInterruptionTypeEnded:
-					//NSLog(@"Interruption Ended - Audio Session Returned");
-					[[AVAudioSession sharedInstance] setActive:YES error:nil];
-					mediamgr_set_call_state(_mm, MEDIAMGR_STATE_RESUME);
-					break;
-					     
-				    default:
-					break;
-				}
-			}];
-#endif
 	}
 
 	return self;
@@ -429,51 +406,41 @@ static AVSMediaManager *_defaultMediaManager;
 
 - (void)setCallState:(BOOL)inCall forConversation:(NSString *)convId
 {
-	_convId = convId;
-	mediamgr_set_call_state(_mm, inCall ? MEDIAMGR_STATE_INCALL :MEDIAMGR_STATE_NORMAL);
 }
 
 - (void)setVideoCallState:(NSString *)convId;
 {
-    _convId = convId;
-    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_INVIDEOCALL);
 }
 
 - (void)setupAudioDevice
 {
+	info("AVSMediaManager: setupAudioDevice\n");
 	mediamgr_enter_call(_mm);
-    //mediamgr_set_call_state(_mm, MEDIAMGR_STATE_SETUP_AUDIO_PERMISSIONS);
 }
 
 - (void)resetAudioDevice
 {
-	mediamgr_exit_call(_mm);
-    //mediamgr_set_call_state(_mm, MEDIAMGR_STATE_NORMAL);
+	//mediamgr_exit_call(_mm);
 }
 
 - (void)startAudio
 {
-    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_AUDIO_ACTIVATED);
 }
 
 - (void)stopAudio
 {
-    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_AUDIO_DEACTIVATED);
 }
 
 - (void)audioActivated
 {
-    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_AUDIO_ACTIVATED);
 }
 
 - (void)audioDeActivated
 {
-    mediamgr_set_call_state(_mm, MEDIAMGR_STATE_AUDIO_DEACTIVATED);
 }
 
 - (void)setUiStartsAudio:(BOOL)ui_starts_audio
 {
-    mediamgr_set_user_starts_audio(_mm, ui_starts_audio ? true : false);
 }
 
 - (void)mcatChanged:(enum mediamgr_state)state

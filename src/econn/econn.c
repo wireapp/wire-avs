@@ -565,6 +565,9 @@ void econn_recv_message(struct econn *conn,
 		recv_hangup(conn, msg);
 		break;
 
+	case ECONN_REJECT:
+		break;
+
 	case ECONN_DEVPAIR_PUBLISH:
 		break;
 

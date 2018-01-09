@@ -19,9 +19,6 @@
 [submodule "mediaengine/libyuv"]
 	path = mediaengine/libyuv
 	url = https://chromium.googlesource.com/libyuv/libyuv
-[submodule "contrib/openssl"]
-	path = contrib/openssl
-	url = https://github.com/openssl/openssl
 [submodule "contrib/usrsctp"]
 	path = contrib/usrsctp
 	url = git@github.com:sctplab/usrsctp.git
@@ -37,3 +34,6 @@
 [submodule "contrib/sodium"]
 	path = contrib/sodium
 	url = https://github.com/jedisct1/libsodium.git
+[submodule "contrib/openssl"]
+	path = contrib/openssl
+        url = git@github.com:alfredhz/openssl.git

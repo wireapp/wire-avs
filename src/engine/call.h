@@ -20,8 +20,6 @@
  * Calling
  */
 
-void engine_call_post_conv_load(struct engine_conv *conv);
-void engine_call_post_conv_sync(struct engine_conv *conv);
 
 /* Module
  */

@@ -36,6 +36,7 @@ LOCAL_LDLIBS    := \
 		-lifaddrs \
 		-lre \
 		-lrew \
+		-lsodium \
 		-lssl \
 		-lcrypto \
 		-lcpufeatures \

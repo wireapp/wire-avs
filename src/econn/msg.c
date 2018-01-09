@@ -123,6 +123,9 @@ int econn_message_print(struct re_printf *pf, const struct econn_message *msg)
 	case ECONN_HANGUP:
 		break;
 
+	case ECONN_REJECT:
+		break;
+
 	default:
 		break;
 	}

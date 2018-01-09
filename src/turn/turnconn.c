@@ -132,6 +132,7 @@ static void turnc_handler(int err, uint16_t scode, const char *reason,
 	return;
 
  error:
+	tc->failed = true;
 	tc->errorh(err ? err : EPROTO, tc->arg);
 }
 
@@ -163,7 +164,7 @@ static void tmr_delay_handler(void *arg)
        return;
 
  error:
-       if(conn->errorh)
+       if (conn->errorh)
 	       conn->errorh(err ? err : EPROTO, conn->arg);
 }
 
@@ -566,6 +567,24 @@ bool turnconn_are_all_allocated(const struct list *turnconnl)
 		struct turn_conn *conn = le->data;
 
 		if (!conn->turn_allocated)
+			return false;
+	}
+
+	return true;
+}
+
+
+bool turnconn_are_all_failed(const struct list *turnconnl)
+{
+	struct le *le;
+
+	if (list_isempty(turnconnl))
+		return false;
+
+	for (le = list_head(turnconnl); le; le = le->next) {
+		struct turn_conn *conn = le->data;
+
+		if (!conn->failed)
 			return false;
 	}
 

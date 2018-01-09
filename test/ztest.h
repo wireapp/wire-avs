@@ -21,3 +21,4 @@ int create_http_resp(struct http_msg **msgp, const char *str);
 int re_main_wait(uint32_t timeout_ms);
 int dns_init(struct dnsc **dnscp);
 int create_dtls_srtp_context(struct tls **dtlsp, enum tls_keytype cert_type);
+int ztest_set_ulimit(unsigned num);

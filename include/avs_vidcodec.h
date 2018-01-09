@@ -50,6 +50,7 @@ typedef int (videnc_alloc_h)(struct videnc_state **vesp,
 			     videnc_rtp_h *rtph,
 			     videnc_rtcp_h *rtcph,
 			     videnc_err_h *errh,
+			     void *extcodec_arg,
 			     void *arg);
 
 
@@ -71,6 +72,7 @@ typedef int (viddec_alloc_h)(struct viddec_state **vdsp,
 			     struct sdp_media *sdpm,
 			     struct vidcodec_param *prm,
 			     viddec_err_h *errh,
+			     void *extcodec_arg,
 			     void *arg);
 
 typedef void (viddec_rtp_h)(struct viddec_state *vds,
@@ -87,6 +89,7 @@ typedef uint32_t (viddec_bwalloc_h)(struct viddec_state *vds);
 
 struct vidcodec {
 	struct le le;
+	struct le ext_le; /* member of external codec list */
 	const char *pt;
 	const char *name;
 	const char *variant;

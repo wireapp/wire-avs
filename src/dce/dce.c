@@ -563,7 +563,7 @@ send_open_request_message(struct socket *sock, uint16_t o_stream, uint8_t unorde
 			  sizeof(req.fixed) + var_len, NULL, 0,
 			  &sndinfo, (socklen_t)sizeof(struct sctp_sndinfo),
 			  SCTP_SENDV_SNDINFO, 0) < 0) {
-		warning("dce: sctp_sendv failed\n");
+		warning("dce: open_request: sctp_sendv failed (%m)\n", errno);
 		return 0;
 	}
 	else {
@@ -590,7 +590,7 @@ send_open_ack_message(struct socket *sock, uint16_t o_stream)
 	                  NULL, 0,
 	                  &sndinfo, (socklen_t)sizeof(struct sctp_sndinfo),
 	                  SCTP_SENDV_SNDINFO, 0) < 0) {
-		warning("dce: sctp_sendv \n");
+		warning("dce: open_ack: sctp_sendv failed (%m)\n", errno);
 		return 0;
 	} else {
 		return 1;
@@ -732,7 +732,7 @@ send_user_message(struct peer_connection *pc, struct channel *channel, const voi
 	                  NULL, 0,
 	                  &spa, (socklen_t)sizeof(struct sctp_sendv_spa),
 	                  SCTP_SENDV_SPA, 0) < 0) {
-		warning("dce: sctp_sendv failed \n");
+		warning("dce: user: sctp_sendv (%zu bytes) failed (%m)\n", length, errno);
 		return -1;
 	} else {
 		return 0;
@@ -2053,6 +2053,7 @@ void dce_close(void)
 		return;
 
 	while (usrsctp_finish() != 0 && tries--) {
+		re_printf("dce: close: usrsctp_finish failed (%m)\n", errno);
 		usleep(500000);
 	}
 

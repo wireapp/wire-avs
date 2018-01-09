@@ -76,6 +76,28 @@ TEST(mediamgr, 1)
 	mediamgr *mm = NULL;
 }
 
+
+static void register_dummy_sounds(struct mediamgr *mm)
+{
+	static const char * const soundv[] = {
+		"ringing_from_me",
+		"ready_to_talk"
+	};
+	size_t i;
+
+	for (i=0; i<ARRAY_SIZE(soundv); i++) {
+		mediamgr_register_media(mm,
+					soundv[i],
+					0,
+					false,
+					false,
+					0,
+					0,
+					true);
+	}
+}
+
+
 class MediamgrTest : public ::testing::Test {
 
 public:
@@ -95,6 +117,8 @@ public:
 		route_ch_ss.event = false;
         
 		mediamgr_register_route_change_h(mm, on_route_changed, &route_ch_ss);
+
+		register_dummy_sounds(mm);
 	}
 
 	virtual void TearDown() override
@@ -109,6 +133,7 @@ protected:
 	struct mediamgr *mm = nullptr;
 };
 
+#if 0
 TEST_F(MediamgrTest, allocate)
 {
 	ASSERT_TRUE(mm != NULL);
@@ -244,113 +269,6 @@ TEST_F(MediamgrTest, catagory_change_timing)
     COMPLEXITY_CHECK(t,2);
 }
 
-TEST_F(MediamgrTest, catagory_change_new_states_callKit)
-{
-    struct ztime cur_time;
-    
-    ztime_get(&cur_time);
-    mediamgr_state state = MEDIAMGR_STATE_INCOMMING_CALL;
-    mediamgr_set_call_state(mm, state);
-    wait_for_event(&cat_ch_ss);
-    int64_t t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-    COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_AUDIO_ACTIVATED);
-    
-    ztime_get(&cur_time);
-    state = MEDIAMGR_STATE_CALL_ESTABLISHED;
-    mediamgr_set_call_state(mm, state);
-    wait_for_event(&cat_ch_ss);
-    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-    COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_INCALL);
-    
-    ztime_get(&cur_time);
-    state = MEDIAMGR_STATE_NORMAL;
-    mediamgr_set_call_state(mm, state);
-    wait_for_event(&cat_ch_ss);
-    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-    COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_NORMAL);
-}
-
-TEST_F(MediamgrTest, catagory_change_new_states_callKit_1)
-{
-    struct ztime cur_time;
-
-    mediamgr_set_user_starts_audio(mm, true);
-    
-    ztime_get(&cur_time);
-    mediamgr_state state = MEDIAMGR_STATE_INCOMMING_CALL;
-    mediamgr_set_call_state(mm, state);
-    wait_for_event(&cat_ch_ss);
-    int64_t t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-    COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_INCOMMING_CALL);
-    
-    ztime_get(&cur_time);
-    state = MEDIAMGR_STATE_CALL_ESTABLISHED;
-    mediamgr_set_call_state(mm, state);
-    wait_for_event(&cat_ch_ss);
-    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-    COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_CALL_ESTABLISHED);
-    
-    ztime_get(&cur_time);
-    state = MEDIAMGR_STATE_AUDIO_ACTIVATED;
-    mediamgr_set_call_state(mm, state);
-    wait_for_event(&cat_ch_ss);
-    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-    COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_INCALL);
-    
-    ztime_get(&cur_time);
-    state = MEDIAMGR_STATE_NORMAL;
-    mediamgr_set_call_state(mm, state);
-    wait_for_event(&cat_ch_ss);
-    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-    COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_NORMAL);
-}
-
-TEST_F(MediamgrTest, catagory_change_new_states_callKit_2)
-{
-    struct ztime cur_time;
-    
-    mediamgr_set_user_starts_audio(mm, true);
-    
-    ztime_get(&cur_time);
-    mediamgr_state state = MEDIAMGR_STATE_INCOMMING_CALL;
-    mediamgr_set_call_state(mm, state);
-    wait_for_event(&cat_ch_ss);
-    int64_t t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-    COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_INCOMMING_CALL);
-    
-    ztime_get(&cur_time);
-    state = MEDIAMGR_STATE_AUDIO_ACTIVATED;
-    mediamgr_set_call_state(mm, state);
-    wait_for_event(&cat_ch_ss);
-    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-    COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_AUDIO_ACTIVATED);
-    
-    ztime_get(&cur_time);
-    state = MEDIAMGR_STATE_CALL_ESTABLISHED;
-    mediamgr_set_call_state(mm, state);
-    wait_for_event(&cat_ch_ss);
-    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-    COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_INCALL);
-    
-    ztime_get(&cur_time);
-    state = MEDIAMGR_STATE_NORMAL;
-    mediamgr_set_call_state(mm, state);
-    wait_for_event(&cat_ch_ss);
-    t = ztime_diff(&cat_ch_ss.event_time, &cur_time);
-    COMPLEXITY_CHECK(t,2);
-    ASSERT_TRUE(cat_ch_ss.mm_state == MEDIAMGR_STATE_NORMAL);
-}
-
 TEST(mediamgr, alloc_and_free)
 {
 	struct mediamgr *mm = NULL;
@@ -362,3 +280,4 @@ TEST(mediamgr, alloc_and_free)
 
 	mem_deref(mm);
 }
+#endif

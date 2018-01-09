@@ -21,7 +21,13 @@
 
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
-#import "AVSFlowManager.h"
+#if TARGET_OS_IPHONE
+#import <UIKit/UIKit.h>
+#else
+#import <Cocoa/Cocoa.h>
+typedef NSView UIView;
+#endif
+
 
 #ifndef AVS_EXPORT
 #define AVS_EXPORT __attribute__((visibility("default")))

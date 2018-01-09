@@ -35,28 +35,10 @@ enum marshal_id {
 	MARSHAL_ALLOC,
 	MARSHAL_START,
 	MARSHAL_FREE,
-	MARSHAL_MEDIA_HANDLERS,
 	MARSHAL_MEDIA_ESTAB_HANDLER,
-	MARSHAL_CONF_POS_HANDLER,
-	MARSHAL_RESP,
-	MARSHAL_EVENT,
-	MARSHAL_ACQUIRE,
-	MARSHAL_RELEASE,
-	MARSHAL_SET_ACTIVE,
-	MARSHAL_USER_ADD,
-	MARSHAL_ACCESS_TOKEN,
-	MARSHAL_SELF_USERID,
-	MARSHAL_MCAT,
-	MARSHAL_HAS_MEDIA,
-	MARSHAL_AUSRC,
 	MARSHAL_AUPLAY,
-	MARSHAL_NETWORK,
 	MARSHAL_SET_MUTE,
 	MARSHAL_GET_MUTE,
-	MARSHAL_CONVLOG,
-	MARSHAL_ENABLE_METRICS,
-	MARSHAL_SET_SESSID,
-	MARSHAL_INTERRUPTION,
 	MARSHAL_CAN_SEND_VIDEO,
 	MARSHAL_IS_SENDING_VIDEO,
 	MARSHAL_SET_VIDEO_SEND_STATE,
@@ -80,14 +62,6 @@ struct marshal_alloc_elem {
 	void *arg;
 };
 
-struct marshal_media_handlers_elem {
-	struct marshal_elem a;
-
-	flowmgr_mcat_chg_h *cath;
-	flowmgr_volume_h *volh;
-	void *arg;
-};
-
 struct marshal_media_estab_handler_elem {
 	struct marshal_elem a;
 
@@ -95,75 +69,11 @@ struct marshal_media_estab_handler_elem {
 	void *arg;
 };
 
-struct marshal_conf_pos_handler_elem {
-	struct marshal_elem a;
-
-	flowmgr_conf_pos_h *conf_posh;
-	void *arg;
-};
-
-
-struct marshal_resp_elem {
-	struct marshal_elem a;
-
-	int status;
-	const char *reason;
-	const char *ctype;
-	const char *content;
-	size_t clen;
-	struct rr_resp *rr;
-};
-
-struct marshal_event_elem {
-	struct marshal_elem a;
-
-	bool *hp;
-	const char *ctype;
-	const char *content;
-	size_t clen;
-};
-
-struct marshal_acquire_elem {
-	struct marshal_elem a;
-
-	struct flowmgr *fm;
-	const char *convid;
-	const char *sessid;
-	flowmgr_netq_h *qh;
-	void *arg;
-};
-
-struct marshal_release_elem {
-	struct marshal_elem a;
-
-	const char *convid;
-};
-
 struct marshal_setactive_elem {
 	struct marshal_elem a;
 
 	const char *convid;
 	bool active;
-};
-
-struct marshal_mcat_elem {
-	struct marshal_elem a;
-	
-	const char *convid;
-	enum flowmgr_mcat cat;
-};
-
-struct marshal_has_media {
-	struct marshal_elem a;
-	
-	const char *convid;
-	bool has_media;
-};
-
-struct marshal_ausrc_elem {
-	struct marshal_elem a;
-
-	enum flowmgr_ausrc asrc;
 };
 
 struct marshal_auplay_elem {
@@ -179,13 +89,6 @@ struct marshal_mute_elem {
 };
 
 
-struct marshal_convlog {
-	struct marshal_elem a;
-	
-	const char *convid;
-	const char *msg;
-};
-
 struct marshal_enable_elem {
 	struct marshal_elem a;
 	
@@ -197,13 +100,6 @@ struct marshal_sessid_elem {
 	
 	const char *convid;
 	const char *sessid;
-};
-
-struct marshal_interruption_elem {
-	struct marshal_elem a;
-
-	const char *convid;
-	bool interrupted;
 };
 
 struct marshal_useradd_elem {
@@ -298,121 +194,11 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 	}
 
-	case MARSHAL_MEDIA_HANDLERS: {
-		struct marshal_media_handlers_elem *mhe = data;
-
-		flowmgr_set_media_handlers(me->fm, mhe->cath,
-					   mhe->volh, mhe->arg);
-		break;
-	}
-
 	case MARSHAL_MEDIA_ESTAB_HANDLER: {
 		struct marshal_media_estab_handler_elem *mme = data;
 
 		flowmgr_set_media_estab_handler(me->fm, mme->mestabh,
 						mme->arg);
-		break;
-	}
-
-	case MARSHAL_CONF_POS_HANDLER: {
-		struct marshal_conf_pos_handler_elem *cpe = data;
-
-		flowmgr_set_conf_pos_handler(me->fm, cpe->conf_posh,
-					     cpe->arg);
-		break;
-	}
-		
-	case MARSHAL_RESP: {
-		struct marshal_resp_elem *mre = data;
-
-		me->ret = flowmgr_resp(me->fm, mre->status, mre->reason,
-				       mre->ctype, mre->content, mre->clen,
-				       mre->rr);
-		break;
-	}
-
-	case MARSHAL_EVENT: {
-		struct marshal_event_elem *mee = data;
-
-		me->ret = flowmgr_process_event(mee->hp, me->fm,
-						mee->ctype, mee->content,
-						mee->clen);		
-		break;
-	}
-
-	case MARSHAL_ACQUIRE: {
-		struct marshal_acquire_elem *mae = data;
-
-		me->ret = flowmgr_acquire_flows(me->fm,
-						mae->convid,
-						mae->sessid,
-						mae->qh, mae->arg);
-		break;
-	}
-	
-	case MARSHAL_RELEASE: {
-		struct marshal_release_elem *mre = data;
-		
-		flowmgr_release_flows(me->fm, mre->convid);
-		break;
-	}
-
-	case MARSHAL_SET_ACTIVE: {
-		struct marshal_setactive_elem *mre = data;
-
-		flowmgr_set_active(me->fm, mre->convid, mre->active);
-		break;
-	}
-
-	case MARSHAL_MCAT: {
-		struct marshal_mcat_elem *mme = data;
-
-		flowmgr_mcat_changed(me->fm, mme->convid, mme->cat);
-		break;
-	}
-
-	case MARSHAL_USER_ADD: {
-		struct marshal_useradd_elem *mue = data;
-
-		flowmgr_user_add(me->fm, mue->convid, mue->userid, mue->name);
-		break;
-	}
-
-		
-	case MARSHAL_ACCESS_TOKEN: {
-		struct marshal_accesstoken_elem *mae = data;
-
-		flowmgr_refresh_access_token(me->fm, mae->token, mae->type);
-		break;
-	}
-
-		
-	case MARSHAL_SELF_USERID: {
-		struct marshal_selfuserid_elem *mse = data;
-
-		flowmgr_set_self_userid(me->fm, mse->userid);
-		break;
-	}
-		
-
-	case MARSHAL_HAS_MEDIA: {
-		struct marshal_has_media *mhm = data;
-
-		me->ret = flowmgr_has_media(me->fm, mhm->convid,
-					    &mhm->has_media);
-		break;
-	}
-
-
-	case MARSHAL_NETWORK: {
-		flowmgr_network_changed(me->fm);
-		break;
-	}
-		
-	case MARSHAL_AUSRC: {
-		struct marshal_ausrc_elem *mae = data;
-		
-		me->ret = flowmgr_ausrc_changed(me->fm, mae->asrc);
 		break;
 	}
 
@@ -434,35 +220,6 @@ static void mqueue_handler(int id, void *data, void *arg)
 		struct marshal_mute_elem *mme = data;
 
 		me->ret = flowmgr_get_mute(me->fm, mme->mute);
-		break;
-	}
-
-	case MARSHAL_CONVLOG: {
-		struct marshal_convlog *mcl = data;
-		
-		me->ret = flowmgr_append_convlog(me->fm, mcl->convid, mcl->msg);
-		break;
-	}
-		
-	case MARSHAL_ENABLE_METRICS: {
-		struct marshal_enable_elem *mee = data;
-
-		flowmgr_enable_metrics(me->fm, mee->enable);
-		break;
-	}
-
-	case MARSHAL_SET_SESSID: {
-		struct marshal_sessid_elem *mse = data;
-
-		flowmgr_set_sessid(me->fm, mse->convid, mse->sessid);
-		break;
-	}
-
-	case MARSHAL_INTERRUPTION: {
-		struct marshal_interruption_elem *mie = data;
-
-		me->ret = flowmgr_interruption(me->fm, mie->convid,
-					       mie->interrupted);
 		break;
 	}
 
@@ -594,24 +351,6 @@ int marshal_flowmgr_start(void)
 }
 
 
-
-void marshal_flowmgr_set_media_handlers(struct flowmgr *fm,
-					flowmgr_mcat_chg_h *cath,  
-					flowmgr_volume_h *volh, void *arg)
-{
-	struct marshal_media_handlers_elem me;
-
-	me.a.id = MARSHAL_MEDIA_HANDLERS;
-	me.a.fm = fm;
-
-	me.cath = cath;
-	me.volh = volh;
-	me.arg = arg;
-
-	marshal_send(&me);
-}
-
-
 void marshal_flowmgr_set_media_estab_handler(struct flowmgr *fm,
 					     flowmgr_media_estab_h *mestabh,
 					     void *arg)
@@ -628,22 +367,6 @@ void marshal_flowmgr_set_media_estab_handler(struct flowmgr *fm,
 }
 
 
-void marshal_flowmgr_set_conf_pos_handler(struct flowmgr *fm,
-					  flowmgr_conf_pos_h *conf_posh,
- 					  void *arg)
-{
-	struct marshal_conf_pos_handler_elem me;
-
-	me.a.id = MARSHAL_CONF_POS_HANDLER;
-	me.a.fm = fm;
-
-	me.conf_posh = conf_posh;
-	me.arg = arg;
-
-	marshal_send(&me);
-}
-
-
 void marshal_flowmgr_free(struct flowmgr *fm)
 {
 	struct marshal_elem me;
@@ -654,189 +377,6 @@ void marshal_flowmgr_free(struct flowmgr *fm)
 	marshal_send(&me);
 }
 
-
-int marshal_flowmgr_resp(struct flowmgr *fm, int status, const char *reason,
-			 const char *ctype, const char *content, size_t clen,
-			 struct rr_resp *rr)
-{
-	struct marshal_resp_elem me;
-
-	me.a.id = MARSHAL_RESP;
-	me.a.fm = fm;
-
-	me.status = status;
-	me.reason = reason;
-	me.ctype = ctype;
-	me.content = content;
-	me.clen = clen;
-	me.rr = rr;
-
-	marshal_send(&me);
-
-	return me.a.ret;
-}
-
-
-int marshal_flowmgr_process_event(bool *hp, struct flowmgr *fm,
-				  const char *ctype, const char *content,
-				  size_t clen)
-{
-	struct marshal_event_elem me;
-
-	me.a.id = MARSHAL_EVENT;
-	me.a.fm = fm;
-
-	me.hp = hp;
-	me.ctype = ctype;
-	me.content = content;
-	me.clen = clen;
-
-	marshal_send(&me);
-
-	return me.a.ret;
-}
-
-
-int marshal_flowmgr_acquire_flows(struct flowmgr *fm, const char *convid,
-				  const char *sessid,
-				  flowmgr_netq_h *qh, void *arg)
-{
-	struct marshal_acquire_elem me;
-
-	me.a.id = MARSHAL_ACQUIRE;
-	me.a.fm = fm;
-
-	me.convid = convid;
-	me.sessid = sessid;
-	me.qh = qh;
-	me.arg = arg;
-
-	marshal_send(&me);
-
-	return me.a.ret;	
-}
-
-
-void marshal_flowmgr_release_flows(struct flowmgr *fm, const char *convid)
-{
-	struct marshal_release_elem me;
-
-	me.a.id = MARSHAL_RELEASE;
-	me.a.fm = fm;
-
-	me.convid = convid;
-
-	marshal_send(&me);
-}
-
-
-void marshal_flowmgr_set_active(struct flowmgr *fm, const char *convid,
-				bool active)
-{
-	struct marshal_setactive_elem me;
-
-	me.a.id = MARSHAL_SET_ACTIVE;
-	me.a.fm = fm;
-
-	me.convid = convid;
-	me.active = active;
-
-	marshal_send(&me);
-}
-
-
-void marshal_flowmgr_user_add(struct flowmgr *fm, const char *convid,
-			      const char *userid, const char *name)
-{
-	struct marshal_useradd_elem me;
-
-	me.a.id = MARSHAL_USER_ADD;
-	me.a.fm = fm;
-
-	me.convid = convid;
-	me.userid = userid;
-	me.name = name;
-
-	marshal_send(&me);
-}
-
-
-void marshal_flowmgr_refresh_access_token(struct flowmgr *fm,
-					  const char *token,
-					  const char *type)
-{
-	struct marshal_accesstoken_elem me;
-
-	me.a.id = MARSHAL_ACCESS_TOKEN;
-	me.a.fm = fm;
-
-	me.token = token;
-	me.type = type;
-
-	marshal_send(&me);
-}
-
-
-void marshal_flowmgr_set_self_userid(struct flowmgr *fm,
-				     const char *userid)
-{
-	struct marshal_selfuserid_elem me;
-
-	me.a.id = MARSHAL_SELF_USERID;
-	me.a.fm = fm;
-
-	me.userid = userid;
-
-	marshal_send(&me);
-}
-
-
-void marshal_flowmgr_mcat_changed(struct flowmgr *fm, const char *convid,
-				  enum flowmgr_mcat cat)
-{
-	struct marshal_mcat_elem me;
-
-	me.a.id = MARSHAL_MCAT;
-	me.a.fm = fm;
-
-	me.convid = convid;
-	me.cat = cat;
-	
-	marshal_send(&me);
-}
-
-
-bool marshal_flowmgr_has_media(struct flowmgr *fm, const char *convid,
-			       bool *has_media)
-{
-	struct marshal_has_media me;
-
-	me.a.id = MARSHAL_HAS_MEDIA;
-	me.a.fm = fm;
-
-	me.convid = convid;
-	
-	marshal_send(&me);
-
-	*has_media = me.has_media;
-	
-	return me.a.ret;
-}
-
-
-int marshal_flowmgr_ausrc_changed(struct flowmgr *fm, enum flowmgr_ausrc asrc)
-{
-	struct marshal_ausrc_elem me;
-
-	me.a.id = MARSHAL_AUSRC;
-	me.a.fm = fm;
-
-	me.asrc = asrc;
-	
-	marshal_send(&me);
-
-	return me.a.ret;
-}
 
 int marshal_flowmgr_auplay_changed(struct flowmgr *fm,
 				   enum flowmgr_auplay aplay)
@@ -883,76 +423,6 @@ int marshal_flowmgr_get_mute(struct flowmgr *fm, bool *muted)
 	return me.a.ret;
 }
 
-
-int  marshal_flowmgr_append_convlog(struct flowmgr *fm, const char *convid,
-				    const char *msg)
-{
-	struct marshal_convlog me;
-
-	me.a.id = MARSHAL_CONVLOG;
-	me.a.fm = fm;
-
-	me.convid = convid;
-	me.msg = msg;
-
-	marshal_send(&me);
-
-	return me.a.ret;
-}
-
-
-void marshal_flowmgr_enable_metrics(struct flowmgr *fm, bool metrics)
-{
-	struct marshal_enable_elem me;
-
-	me.a.id = MARSHAL_ENABLE_METRICS;
-	me.a.fm = fm;
-
-	me.enable = metrics;
-	
-	marshal_send(&me);	
-}
-
-
-void marshal_flowmgr_set_sessid(struct flowmgr *fm, const char *convid,
-				const char *sessid)
-{
-	struct marshal_sessid_elem me;
-
-	me.a.id = MARSHAL_SET_SESSID;
-	me.a.fm = fm;
-
-	me.convid = convid;
-	me.sessid = sessid;
-
-	marshal_send(&me);
-}
-
-int marshal_flowmgr_interruption(struct flowmgr *fm, const char *convid,
-				  bool interrupted)
-{
-	struct marshal_interruption_elem me;
-
-	me.a.id = MARSHAL_INTERRUPTION;
-	me.a.fm = fm;
-
-	me.convid = convid;
-	me.interrupted = interrupted;
-
-	marshal_send(&me);
-
-	return me.a.ret;	
-}
-
-void marshal_flowmgr_network_changed(struct flowmgr *fm)
-{
-	struct marshal_elem me;
-
-	me.id = MARSHAL_NETWORK;
-	me.fm = fm;
-
-	marshal_send(&me);
-}
 
 void marshal_flowmgr_set_video_send_state(struct flowmgr *fm, const char *convid, enum flowmgr_video_send_state state)
 {

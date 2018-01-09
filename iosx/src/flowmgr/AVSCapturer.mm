@@ -38,8 +38,7 @@
 #include "common_video/libyuv/include/webrtc_libyuv.h"
 #include <re/re.h>
 #include <avs.h>
-
-#include "avs_vie.h"
+#include <avs_wcall.h>
 
 #if TARGET_OS_IPHONE
 
@@ -513,7 +512,7 @@ enum AVSDeviceOrientation {
 	}
 	
 	//printf("%s: sending frame %dx%d ts: %u\n", __FUNCTION__, frame.w, frame.h, frame.ts);
-	flowmgr_handle_frame(&frame);
+	wcall_handle_frame(&frame);
 
 out:
 	CVPixelBufferUnlockBaseAddress(videoFrame, kFlags);

@@ -32,6 +32,8 @@
 - (void)pause;
 - (void)resume;
 
+- (void)reset;
+
 @property (nonatomic, copy) NSString *name;
 
 @property (nonatomic, weak) id<AVSMediaDelegate> delegate;

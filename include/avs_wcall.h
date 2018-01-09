@@ -28,16 +28,7 @@ struct wcall;
 
 #define WCALL_VERSION_3 3
 
-#if 0 // To Be removed
- #ifdef __APPLE__
- #       include "TargetConditionals.h"
- #endif
-    
- #if TARGET_OS_IPHONE || defined(ANDROID)
-  #define USE_OLD_API // Temporar so we can test clients before SE/UI is updated
- #endif
-#endif
-    
+
 struct wcall_member {
 	char *userid;
 	int audio_estab;
@@ -56,18 +47,12 @@ struct wcall_members {
 typedef void (wcall_ready_h)(int version, void *arg);
 
 /* Send calling message otr data */
-#ifdef USE_OLD_API // Temporar so we can test clients before SE/UI is updated
-typedef int (wcall_send_h)(void *ctx, const char *convid, const char *userid,
-			   const char *clientid,
-			   const uint8_t *data, size_t len,
-			   void *arg);
-#else
 typedef int (wcall_send_h)(void *ctx, const char *convid,
 			   const char *userid_self, const char *clientid_self,
 			   const char *userid_dest, const char *clientid_dest,
 			   const uint8_t *data, size_t len, int transient /*bool*/,
 			   void *arg);
-#endif
+
 /* Incoming call */
 typedef void (wcall_incoming_h)(const char *convid, uint32_t msg_time,
 				const char *userid, int video_call /*bool*/,
@@ -92,10 +77,6 @@ typedef void (wcall_answered_h)(const char *convid, void *arg);
 typedef void (wcall_estab_h)(const char *convid,
 			   const char *userid, void *arg);
 
-/* Data channel established */
-typedef void (wcall_data_chan_estab_h)(const char *convid,
-				       const char *userid, void *arg);
-
 /** 
  * Callback used to inform the user that the participant list
  * in a group call has changed. Use the wcall_get_members to get the list.
@@ -107,6 +88,11 @@ typedef void (wcall_data_chan_estab_h)(const char *convid,
 
 typedef void (wcall_group_changed_h)(const char *convid, void *arg);
 
+/* Data channel established */
+typedef void (wcall_data_chan_estab_h)(const char *convid,
+				       const char *userid, void *arg);
+
+	
 
 #define WCALL_REASON_NORMAL             0
 #define WCALL_REASON_ERROR              1
@@ -118,6 +104,7 @@ typedef void (wcall_group_changed_h)(const char *convid, void *arg);
 #define WCALL_REASON_STILL_ONGOING      7
 #define WCALL_REASON_TIMEOUT_ECONN      8
 #define WCALL_REASON_DATACHANNEL        9
+#define WCALL_REASON_REJECTED          10
     
 const char *wcall_reason_name(int reason);
 
@@ -129,6 +116,14 @@ typedef void (wcall_close_h)(int reason, const char *convid, uint32_t msg_time,
 /* Call metrics */
 typedef void (wcall_metrics_h)(const char *convid,
     const char *metrics_json, void *arg);
+
+/* Log handler */
+#define WCALL_LOG_LEVEL_DEBUG 0
+#define WCALL_LOG_LEVEL_INFO  1
+#define WCALL_LOG_LEVEL_WARN  2
+#define WCALL_LOG_LEVEL_ERROR 3
+
+typedef void (wcall_log_h)(int level, const char *msg, void *arg);
     
 /* Video receive state */
 #define	WCALL_VIDEO_RECEIVE_STOPPED  0
@@ -169,6 +164,23 @@ void *wcall_create(const char *userid,
 	       wcall_video_state_change_h *vstateh,
 	       void *arg);
 
+void *wcall_create_ex(const char *userid,
+		      const char *clientid,
+		      int use_mediamgr /*bool*/,
+		      wcall_ready_h *readyh,
+		      wcall_send_h *sendh,
+		      wcall_incoming_h *incomingh,
+		      wcall_missed_h *missedh,
+		      wcall_answered_h *answerh,
+		      wcall_estab_h *estabh,
+		      wcall_close_h *closeh,
+		      wcall_metrics_h *metricsh,
+		      wcall_config_req_h *cfg_reqh,
+		      wcall_audio_cbr_change_h *acbrh,
+		      wcall_video_state_change_h *vstateh,
+		      void *arg);
+
+
 void wcall_destroy(void *wuser);
 
 void wcall_set_trace(void *wuser, int trace);
@@ -182,9 +194,19 @@ int wcall_start(void *wuser, const char *convid,
 		int group /*bool*/,
 		int audio_cbr /*bool*/);
 
+int wcall_start_ex(void *wuser, const char *convid,
+		   int is_video_call /*bool*/,
+		   int group /*bool*/,
+		   int audio_cbr /*bool*/,
+		   void *extcodec_arg);
+	
 /* Returns 0 if successfull */
 int wcall_answer(void *wuser, const char *convid,
 		 int audio_cbr /*bool*/);
+
+int wcall_answer_ex(void *wuser, const char *convid,
+		    int audio_cbr /*bool*/, void *extcodec_arg);
+
 
 /* Async response from send handler.
  * The ctx parameter MUST be the same context provided in the
@@ -228,8 +250,10 @@ void wcall_network_changed(void *wuser);
 void wcall_set_group_changed_handler(void *wuser, wcall_group_changed_h *chgh,
 				     void *arg);
 
+void wcall_set_log_handler(wcall_log_h *logh, void *arg);
+
 struct re_printf;
-int  wcall_debug(struct re_printf *pf, void *ignored);
+int  wcall_debug(struct re_printf *pf, const void *id);
 
 
 #define WCALL_STATE_NONE         0 /* There is no call */
@@ -265,6 +289,7 @@ struct ecall *wcall_ecall(void *wuser, const char *convid);
 
 void wcall_propsync_request(void *wuser, const char *convid);
 
+
 /**
  * Returns the members of a group conversation.
  *
@@ -280,6 +305,9 @@ void wcall_free_members(struct wcall_members *members);
 void wcall_enable_privacy(void *wuser, int enabled);
 
 struct mediamgr *wcall_mediamgr(void *wuser);
+
+struct avs_vidframe;
+void wcall_handle_frame(struct avs_vidframe *frame);
 
 
 #ifdef __cplusplus

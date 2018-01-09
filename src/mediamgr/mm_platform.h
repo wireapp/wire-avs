@@ -30,11 +30,12 @@ extern "C" {
 int mm_platform_init(struct mm *mm, struct dict *sounds);
 int mm_platform_free(struct mm *mm);
 	
-void mm_platform_play_sound(struct sound *snd);
+void mm_platform_play_sound(struct sound *snd, bool sync);
 void mm_platform_pause_sound(struct sound *snd);
 void mm_platform_resume_sound(struct sound *snd);
 void mm_platform_stop_sound(struct sound *snd);
 bool mm_platform_is_sound_playing(struct sound *snd);
+void mm_platform_reset_sound(struct sound *snd);	
 
 /* Audio Routing */
 int mm_platform_enable_speaker(void);
@@ -54,7 +55,8 @@ void mm_platform_registerMedia(struct dict *sounds,
 	bool is_call_media);
 	
 void mm_platform_unregisterMedia(struct dict *sounds, const char *name);
-		
+
+void mm_platform_incoming(void);
 void mm_platform_enter_call(void);
 void mm_platform_exit_call(void);
 

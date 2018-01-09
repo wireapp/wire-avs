@@ -29,6 +29,14 @@
 #define EGCALL_ACTIVE_ROSTER_RAND      (30000)
 #define EGCALL_PASSIVE_ROSTER_TIMEOUT (120000)
 
+struct turn_srv {
+	struct sa addr;
+	char *username;
+	char *credential;
+
+	struct le le; /* member of turn server list */
+};
+
 struct egcall {
 	struct list ecalll;
 	enum egcall_state state;
@@ -44,9 +52,7 @@ struct egcall {
 	} conf_pos;
 
 	struct {
-		struct sa addr;
-		char *username;
-		char *credential;
+		struct list srvl;
 	} turn;
 
 	ecall_transp_send_h *sendh;
@@ -167,16 +173,14 @@ static void roster_remove(struct egcall *egcall, const char* userid,
 
 	dict_remove(egcall->roster, userclient);
 
-	info("egcall(%p): roster_remove %s len=%u\n", egcall, userclient, dict_count(egcall->roster));
+	info("egcall(%p): roster_remove %s len=%u\n",
+	     egcall, userclient, dict_count(egcall->roster));
 
 	ecall = ecall_find_userid(&egcall->ecalll, userid);
 	if (ecall) {
-		struct conf_part *cp;
-
-		cp = ecall_get_conf_part(ecall);
-		ecall_set_conf_part(ecall, mem_deref(cp));
+		ecall_set_conf_part(ecall, NULL);
+		update_conf_pos(egcall);
 	}
-	update_conf_pos(egcall);
 	
 out:
 	mem_deref(userclient);
@@ -219,8 +223,7 @@ static void destructor(void *arg)
 	dict_flush(egcall->roster);
 	mem_deref(egcall->roster);
 
-	mem_deref(egcall->turn.username);
-	mem_deref(egcall->turn.credential);
+	list_flush(&egcall->turn.srvl);
 }
 
 const char *egcall_state_name(enum egcall_state state)
@@ -473,23 +476,42 @@ out:
 	return err;
 }
 
+static void turn_srv_destructor(void *arg)
+{
+	struct turn_srv *turn = arg;
+
+	list_unlink(&turn->le);
+
+	mem_deref(turn->username);
+	mem_deref(turn->credential);
+}
 
 int egcall_set_turnserver(struct egcall *egcall,
-			   struct sa *addr,
-			   const char *username,
-			   const char *credential)
+			  struct sa *addr,
+			  const char *username,
+			  const char *credential)
 {
+	struct turn_srv *turn;
 	int err = 0;
-	
+
 	if (!egcall)
 		return EINVAL;
-
-	egcall->turn.addr = *addr;
 	
-	egcall->turn.username = mem_deref(egcall->turn.username);
-	egcall->turn.credential = mem_deref(egcall->turn.credential);
-	err = str_dup(&egcall->turn.username, username);
-	err |= str_dup(&egcall->turn.credential, credential);
+	turn = mem_zalloc(sizeof(*turn), turn_srv_destructor);
+	if (!turn)
+		return ENOMEM;
+
+	turn->addr = *addr;
+	err = str_dup(&turn->username, username);
+	err |= str_dup(&turn->credential, credential);
+	if (err)
+		goto out;
+
+	list_append(&egcall->turn.srvl, &turn->le, turn);
+	
+ out:
+	if (err)
+		mem_deref(turn);
 
 	return err;
 }
@@ -616,20 +638,24 @@ void egcall_end(struct egcall *egcall)
 	egcall_end_with_err(egcall, 0);
 }
 
-static void ecall_setup_handler(uint32_t msg_time,
+static void ecall_setup_handler(struct ecall *ecall,
+				uint32_t msg_time,
 			        const char *userid_sender,
 			        bool video_call,
 			        void *arg)
 {
 	struct egcall *egcall = arg;
-	struct ecall *ecall = NULL;
+	struct ecall *ecall0 = NULL;
 
 	(void)msg_time;
+	(void)ecall; /* not really used, revise code below and use directly */
 
-	ecall = ecall_find_userid(&egcall->ecalll, userid_sender);
-	info("ecall_setup_h uid: %s ecall %p\n", userid_sender, ecall);
-	if (ecall) {
-		ecall_answer(ecall, egcall->audio_cbr);
+	ecall0 = ecall_find_userid(&egcall->ecalll, userid_sender);
+	
+	info("ecall_setup_h uid: %s ecall=%p ecall0=%p\n",
+	     userid_sender, ecall, ecall0);
+	if (ecall0) {
+		ecall_answer(ecall0, egcall->audio_cbr, NULL);
 	}
 }
 
@@ -668,23 +694,29 @@ static void ecall_audio_estab_handler(struct ecall *ecall, bool update,
 	if (ecall) {
 		struct mediaflow *mf;
 		struct roster_item *ri;
-
+		struct conf_part *cp;
+		
 		ri = roster_lookup(egcall, ecall);
 		if (ri)
 			ri->audio_estab = true;
 
+		cp = ecall_get_conf_part(ecall);
 		mf = ecall_mediaflow(ecall);
-		if (mf) {
-			struct conf_part *cp;
+		/* Add conf_part only if there is no conf_part already,
+		 * otherwise we might end up with multiple conf_parts
+		 */
+		if (cp == NULL && mf) {
 			int err;
 
-			err = conf_part_add(&cp, &egcall->conf_pos.partl,
+			err = conf_part_add(&cp,
+					    &egcall->conf_pos.partl,
 					    ecall_get_peer_userid(ecall),
 					    mf);
-			if (!err)
+			if (!err) {
 				ecall_set_conf_part(ecall, cp);
+				update_conf_pos(egcall);
+			}
 		}
-		update_conf_pos(egcall);
 	}
 
 	
@@ -693,12 +725,13 @@ static void ecall_audio_estab_handler(struct ecall *ecall, bool update,
 }
 
 
-static void ecall_datachan_estab_handler(void *arg, bool update)
+static void ecall_datachan_estab_handler(struct ecall *ecall, bool update,
+					 void *arg)
 {
 	struct egcall *egcall = arg;
 
 	if (egcall->dcestabh)
-		egcall->dcestabh(egcall->arg, update);
+		egcall->dcestabh(ecall, update, egcall->arg);
 }
 
 
@@ -715,7 +748,6 @@ static void ecall_close_handler(int err, const char *metrics_json,
 				void *arg)
 {
 	struct egcall *egcall = arg;
-	struct conf_part *cp;
 	const char *uid = ecall_get_peer_userid(ecall);
 	const char *cid = ecall_get_peer_clientid(ecall);
 
@@ -726,11 +758,9 @@ static void ecall_close_handler(int err, const char *metrics_json,
 		egcall->metricsh(metrics_json, egcall->arg);
 	}
 
-	cp = ecall_get_conf_part(ecall);
-	if (cp)
-		ecall_set_conf_part(ecall, mem_deref(cp));
-
+	ecall_set_conf_part(ecall, NULL);
 	update_conf_pos(egcall);
+
 	if ((err != 0 || egcall->state != EGCALL_STATE_TERMINATING)
 	    && uid
 	    && cid) {
@@ -779,6 +809,7 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 {
 	struct ecall *ecall;
 	struct msystem *msys;
+	struct le *le;
 	int err = 0;
 
 	ecall = ecall_find_userid(&egcall->ecalll,
@@ -812,12 +843,17 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 
 	ecall_set_peer_userid(ecall, userid_peer);
 	ecall_set_peer_clientid(ecall, clientid_peer);
-	err = ecall_set_turnserver(ecall,
-				   &egcall->turn.addr,
-				   egcall->turn.username,
-				   egcall->turn.credential);
-	if (err)
-		goto out;
+
+	LIST_FOREACH(&egcall->turn.srvl, le) {
+		struct turn_srv *turn = le->data;
+
+		err = ecall_add_turnserver(ecall,
+					   &turn->addr,
+					   turn->username,
+					   turn->credential);
+		if (err)
+			goto out;
+	}
 	
  out:
 	if (err)
@@ -878,14 +914,22 @@ static void recv_start(struct egcall *egcall,
 	case EGCALL_STATE_OUTGOING:
 	case EGCALL_STATE_ANSWERED:
 	case EGCALL_STATE_ACTIVE:
+		if (strcaseeq(userid_sender, egcall->userid_self)) {
+			info("egcall(%p): ignore message %s from same user (%s)\n",
+			     egcall, econn_msg_name(msg->msg_type), userid_sender);
+			break;
+		}
+
 		ecall = ecall_find_userid(&egcall->ecalll, userid_sender);
 		if (!ecall) {
 			err = add_ecall(&ecall, egcall, userid_sender, clientid_sender);
-			if (err)
+			if (err) {
+				warning("egcall(%p): add_ecall failed %m\n", egcall, err);
 				goto out;
+			}
 		}
 
-		err = ecall_start(ecall, egcall->audio_cbr);
+		err = ecall_start(ecall, egcall->audio_cbr, NULL);
 		if (EALREADY == err) {
 			err = 0;
 		}
@@ -957,7 +1001,23 @@ static void recv_check(struct egcall* egcall,
 			egcall_passive_roster_timeout, egcall);
 	}
 }
-		
+
+static void recv_reject(struct egcall* egcall,
+			const char *userid_sender,
+			const char *clientid_sender,
+			const struct econn_message *msg)
+{
+	info("egcall(%p): recv_reject u: %s c: %s r: %s\n", egcall,
+		userid_sender, clientid_sender, msg->resp ? "yes" : "no");
+
+	/* Handle REJECT from ourselves but remain in INCOMING */
+	if (0 == str_casecmp(egcall->userid_self, userid_sender) && 
+		egcall->state == EGCALL_STATE_INCOMING && egcall->leaveh) {
+
+		egcall->leaveh(EGCALL_REASON_REJECTED, ECONN_MESSAGE_TIME_UNKNOWN, egcall->arg);
+	}
+}
+
 bool egcall_msg_recv(struct egcall *egcall,
 		     uint32_t curr_time,
 		     uint32_t msg_time,
@@ -986,17 +1046,29 @@ bool egcall_msg_recv(struct egcall *egcall,
 		recv_check(egcall, userid_sender, clientid_sender, msg);
 		return true;
 
+	case ECONN_REJECT:
+		recv_reject(egcall, userid_sender, clientid_sender, msg);
+		return true;
+
 	default:
 		if (!str_isset(msg->dest_userid) || !str_isset(msg->dest_clientid)) {
 			info("egcall(%p): ignoring message as user & dest arent set\n", egcall);
 			return false;
 		}
 
-		if (msg->msg_type == ECONN_GROUP_SETUP)
-			msg->msg_type = ECONN_SETUP;
-
 		if (strcaseeq(msg->dest_userid, egcall->userid_self) &&
 			strcaseeq(msg->dest_clientid, egcall->clientid_self)) {
+
+			if (msg->msg_type == ECONN_GROUP_SETUP &&
+				strcaseeq(userid_sender, egcall->userid_self)) {
+
+				info("egcall(%p): ignore message %s from same user (%s)\n",
+				     egcall, econn_msg_name(msg->msg_type), userid_sender);
+				return true;
+			}
+
+			if (msg->msg_type == ECONN_GROUP_SETUP)
+				msg->msg_type = ECONN_SETUP;
 
 			ecall = ecall_find_userid(&egcall->ecalll,
 						  userid_sender);

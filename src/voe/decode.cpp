@@ -64,10 +64,13 @@ int voe_dec_alloc(struct audec_state **adsp,
 		  const char *fmtp,
 		  struct aucodec_param *prm,
 		  audec_err_h *errh,
+		  void *extcodec_arg,
 		  void *arg)
 {
 	struct audec_state *ads;
 	int err = 0;
+
+	(void)extcodec_arg; /* Not an external codec */
 
 	if (!adsp || !ac) {
 		return EINVAL;

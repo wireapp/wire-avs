@@ -25,14 +25,13 @@
 #include "avs_zapi.h"
 #include "avs_media.h"
 #include "avs_flowmgr.h"
+#include "avs_version.h"
 
 
 #define DEBUG_MODULE ""
 #define DEBUG_LEVEL 0
 #include <re/re_dbg.h>
 
-
-static const char *avs_software = AVS_PROJECT " " AVS_VERSION " (" ARCH "/" OS ")";
 
 
 static struct {
@@ -90,7 +89,7 @@ int avs_init(uint64_t flags)
 
 	dbg_handler_set(debug_handler, NULL);
 
-	info("AVS inited with flags=0x%llx [%s]\n", flags, avs_software);
+	info("AVS inited with flags=0x%llx [%s]\n", flags, avs_version_str());
 
 	info("init: using async polling method '%s'\n",
 	     poll_method_name(poll_method_best()));
@@ -142,7 +141,7 @@ const char *avs_get_token(void)
 
 void avs_print_versions(void)
 {
-	info("init: avs:      %s\n", avs_software);
+	info("init: avs:      %s\n", avs_version_str());
 	info("init: libre:    %s\n", sys_libre_version_get());
 	info("init: openssl:  %s (%s)\n",
 	     SSLeay_version(SSLEAY_VERSION),

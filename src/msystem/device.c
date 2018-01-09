@@ -16,37 +16,39 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef AVS_AUDIO_IO_H
-#define AVS_AUDIO_IO_H
+#include <string.h>
+#include <re/re.h>
+#include "avs_aucodec.h"
+#include "avs_msystem.h"
+#include "avs_voe.h"
 
-enum audio_io_mode{
-    AUDIO_IO_MODE_NORMAL = 0,
-    AUDIO_IO_MODE_MOCK,
-    AUDIO_IO_MODE_MOCK_REALTIME,
-};
 
-struct audio_io{
-    //webrtc::audio_io_class *aioc;
-    void *aioc;
-};
+int msystem_start_mic_file_playout(const char fileNameUTF8[1024], int fs)
+{
+	int err = 0;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+	err = voe_start_playing_PCM_file_as_microphone(fileNameUTF8, fs);
 
-int  audio_io_alloc(struct audio_io **aiop,
-               enum audio_io_mode mode);
+	return err;
+}
 
-int  audio_io_init(struct audio_io *aio);
-    
-int  audio_io_terminate(struct audio_io *aio);
-    
-int  audio_io_enable_sine(struct audio_io *aio);
 
-int  audio_io_reset(struct audio_io *aio);
-	
-#ifdef __cplusplus
-    }
-#endif
-    
-#endif // AVS_AUDIO_IO_H
+void msystem_stop_mic_file_playout(void)
+{
+	voe_stop_playing_PCM_file_as_microphone();
+}
+
+
+void msystem_set_bitrate(int rate_bps)
+{
+	voe_set_bitrate(rate_bps);
+}
+
+
+void msystem_set_packet_size(int packet_size_ms)
+{
+	voe_set_packet_size(packet_size_ms);
+}
+
+
+

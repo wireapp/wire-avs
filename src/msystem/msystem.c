@@ -20,6 +20,7 @@
 
 #include "re.h"
 #include "avs.h"
+#include "avs_extcodec.h"
 #include "avs_voe.h"
 #include "avs_vie.h"
 
@@ -86,6 +87,10 @@ static void msystem_destructor(void *data)
 	if (msys->name) {
 		if (streq(msys->name, "audummy"))
 			audummy_close();
+		else if (streq(msys->name, "extcodec")) {
+			extcodec_audio_close();
+			extcodec_video_close();
+		}
 		else if (streq(msys->name, "voe")) {
 			vie_close();
 			voe_close();
@@ -186,9 +191,24 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 
 	tmr_init(&msys->vol_tmr);
 
+	info("msystem: initializing for msys: %s\n", msysname);
+	
 	err = str_dup(&msys->name, msysname);
 	if (streq(msys->name, "audummy"))
 		err = audummy_init(&msys->aucodecl);
+	else if (streq(msys->name, "extcodec")) {
+		err = extcodec_audio_init(&msys->aucodecl);
+		if (err) {
+			warning("msystem: extcodec audio init failed (%m)\n",
+				err);
+			goto out;
+		}
+		err = extcodec_video_init(&msys->vidcodecl);
+		if (err) {
+			warning("flowmgr: vie init failed (%m)\n", err);
+			goto out;
+		}
+	}
 	else if (streq(msys->name, "voe")) {
 		err = voe_init(&msys->aucodecl);
 		if (err) {
@@ -556,5 +576,47 @@ int msystem_update_conf_parts(struct list *partl)
 	mem_deref(adsv);
 
 	return 0;
+}
+
+void msystem_set_auplay(const char *dev)
+{
+	if (!g_msys)
+		return;
+
+	if (streq(g_msys->name, "voe")) {
+		voe_set_auplay(dev);
+	}
+}
+
+void msystem_stop_silencing(void)
+{
+	if (!g_msys)
+		return;
+
+	if (streq(g_msys->name, "voe")) {
+		voe_stop_silencing();
+	}
+}
+
+bool msystem_get_muted(void)
+{
+	bool muted = false;
+
+	if (g_msys) {		
+		if (streq(g_msys->name, "voe")) {
+			voe_get_mute(&muted);
+		}
+	}
+
+	return muted;
+}
+
+void msystem_set_muted(bool muted)
+{
+	if (g_msys) {		
+		if (streq(g_msys->name, "voe")) {
+			voe_set_mute(muted);
+		}
+	}
 }
 

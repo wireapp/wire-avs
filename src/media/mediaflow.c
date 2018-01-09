@@ -53,6 +53,7 @@
 
 enum {
 	RTP_TIMEOUT_MS = 20000,
+	RTP_FIRST_PKT_TIMEOUT_MS = 20000,
 	DTLS_MTU       = 1480,
 	SSRC_MAX       = 4,
 	ICE_INTERVAL   = 50,    /* milliseconds */
@@ -116,6 +117,7 @@ struct mediaflow {
 	struct aucodec_stats codec_stats;
 
 	struct tmr tmr_rtp;
+	struct tmr tmr_got_rtp;
 	uint32_t lssrcv[MEDIA_NUM];
 	char cname[16];             /* common for audio+video */
 	char msid[36];
@@ -232,7 +234,6 @@ struct mediaflow {
 		} tx, rx;
 
 		size_t n_sdp_recv;
-		size_t n_cand_recv;
 		size_t n_srtp_dropped;
 		size_t n_srtp_error;
 	} stat;
@@ -245,8 +246,12 @@ struct mediaflow {
 	struct mediaflow_stats mf_stats;
 	bool privacy_mode;
 
+	struct {
+		void *arg;
+	} extcodec;
+	
 	/* magic number check at the end of the struct */
-	uint32_t magic;
+	uint32_t magic;	
 };
 
 struct vid_ref {
@@ -598,6 +603,21 @@ static int voenc_rtcp_handler(const uint8_t *pkt, size_t len, void *arg)
 	return mediaflow_send_raw_rtcp(mf, pkt, len);
 }
 
+static void regen_lssrc(struct mediaflow *mf)
+{
+	uint32_t lssrc;
+
+	/* Generate a new local ssrc that is DIFFERENT,
+	 * to what we already have...
+	 */
+	
+	do {
+		lssrc = rand_u32();
+	}
+	while(lssrc == mf->lssrcv[MEDIA_AUDIO]);
+
+	mf->lssrcv[MEDIA_AUDIO] = lssrc;
+}
 
 /* XXX: Move to mediamanager */
 
@@ -638,7 +658,10 @@ static int start_codecs(struct mediaflow *mf)
 
 	if (fmt->params) {
 		if (0 == re_regex(fmt->params, strlen(fmt->params), "cbr=1")) {
+
 			mf->audio.remote_cbr = true;
+
+			info("mediaflow: remote side asking us to send CBR\n");
 		}
 	}
 	if (mf->audio.remote_cbr) {
@@ -653,6 +676,7 @@ static int start_codecs(struct mediaflow *mf)
 				    voenc_rtp_handler,
 				    voenc_rtcp_handler,
 				    auenc_error_handler,
+				    mf->extcodec.arg,
 				    mf);
 		if (err) {
 			warning("mediaflow: encoder failed (%m)\n", err);
@@ -660,8 +684,11 @@ static int start_codecs(struct mediaflow *mf)
 		}
 
 		if (mf->started && ac->enc_start) {
-			error("mediaflow: unexpected start of audio encoder \n"); // SSJ does this ever happen ?
-			ac->enc_start(mf->aes, mf->audio.local_cbr, &mf->mctx);
+			// SSJ does this ever happen ?
+			error("mediaflow: unexpected start of audio enc\n"); 
+
+			ac->enc_start(mf->aes, mf->audio.local_cbr,
+				      NULL, &mf->mctx);
 		}        
 	}
 	mediastats_rtp_stats_init(&mf->audio_stats_snd, fmt->pt, 2000);
@@ -670,6 +697,7 @@ static int start_codecs(struct mediaflow *mf)
 		err = ac->dec_alloc(&mf->ads, ac, NULL,
 				    &prm,
 				    audec_error_handler,
+				    mf->extcodec.arg,
 				    mf);
 		if (err) {
 			warning("mediaflow: decoder failed (%m)\n", err);
@@ -908,6 +936,7 @@ static int start_video_codecs(struct mediaflow *mf)
 				     videnc_rtp_handler,
 				     videnc_rtcp_handler,
 				     vidcodec_error_handler,
+				     mf->extcodec.arg,
 				     mf);
 		if (err) {
 			warning("mediaflow: video encoder failed (%m)\n", err);
@@ -930,6 +959,7 @@ static int start_video_codecs(struct mediaflow *mf)
 				     fmt->params, fmt->pt,
 				     mf->video.sdpm, &prm,
 				     vidcodec_error_handler,
+				     mf->extcodec.arg,
 				     mf);
 		if (err) {
 			warning("mediaflow: video decoder failed (%m)\n", err);
@@ -976,6 +1006,15 @@ static void timeout_rtp(void *arg)
 				mf->closeh(ETIMEDOUT, mf->arg);
 		}
 	}
+}
+
+
+static void tmr_got_rtp_handler(void *arg)
+{
+	struct mediaflow *mf = arg;
+	
+	if (mf->closeh)
+		mf->closeh(ETIMEDOUT, mf->arg);
 }
 
 
@@ -1172,7 +1211,9 @@ static bool udp_helper_send_handler_trice(int *err, struct sa *dst,
 
 		lerr = udp_send(sock, &mf->sel_pair->rcand->attr.addr, mb);
 		if (lerr) {
-			warning("mediaflow: send helper error (%m)\n",
+			warning("mediaflow: helper: udp_send failed"
+				" rcand=[%H] (%m)\n",
+				trice_cand_print, mf->sel_pair->rcand,
 				lerr);
 		}
 	}
@@ -1946,6 +1987,7 @@ static void external_rtp_recv(struct mediaflow *mf,
 		info("mediaflow: first RTP packet received (%zu bytes)\n",
 		     mbuf_get_left(mb));
 		mf->got_rtp = true;
+		tmr_cancel(&mf->tmr_got_rtp);
 		check_rtpstart(mf);
 	}
 
@@ -2122,7 +2164,6 @@ int mediaflow_summary(struct re_printf *pf, const struct mediaflow *mf)
 
 	err |= re_hprintf(pf, "\n");
 	err |= re_hprintf(pf, "SDP recvd:       %zu\n", mf->stat.n_sdp_recv);
-	err |= re_hprintf(pf, "ICE cand recvd:  %zu\n", mf->stat.n_cand_recv);
 	err |= re_hprintf(pf, "SRTP dropped:    %zu\n",
 			  mf->stat.n_srtp_dropped);
 	err |= re_hprintf(pf, "SRTP errors:     %zu\n",
@@ -2281,6 +2322,7 @@ int mediaflow_rtp_summary(struct re_printf *pf, const struct mediaflow *mf)
 static void destructor(void *arg)
 {
 	struct mediaflow *mf = arg;
+	void *p;
 
 	if (MAGIC != mf->magic) {
 		warning("mediaflow: destructor: bad magic (0x%08x)\n",
@@ -2305,6 +2347,7 @@ static void destructor(void *arg)
 	}
 
 	tmr_cancel(&mf->tmr_rtp);
+	tmr_cancel(&mf->tmr_got_rtp);	
 	tmr_cancel(&mf->tmr_error);
 
 	/* XXX: voe is calling to mediaflow_xxx here */
@@ -2312,11 +2355,21 @@ static void destructor(void *arg)
 	 * and callback in here...
 	 * Remove decoder first as webrtc might still send RTCP packets
 	 */
-	mf->ads = mem_deref(mf->ads);
-	mf->aes = mem_deref(mf->aes);
+	p = mf->ads;
+	mf->ads = NULL;	
+	mem_deref(p);
 
-	mf->video.ves = mem_deref(mf->video.ves);
-	mf->video.vds = mem_deref(mf->video.vds);
+	p = mf->aes;
+	mf->aes = NULL;
+	mem_deref(p);
+
+	p = mf->video.ves;
+	mf->video.ves = NULL;
+	mem_deref(p);
+
+	p = mf->video.vds;
+	mf->video.vds = NULL;
+	mem_deref(p);
 
 	mf->data.dce = mem_deref(mf->data.dce);
 
@@ -2397,6 +2450,14 @@ static void mq_callback(int id, void *data, void *arg)
 		if (!mf->sent_rtp) {
 			info("mediaflow: first RTP packet sent\n");
 			mf->sent_rtp = true;
+			if (!mf->got_rtp) {
+				if (!tmr_isrunning(&mf->tmr_got_rtp)) {
+					tmr_start(&mf->tmr_got_rtp,
+						  RTP_FIRST_PKT_TIMEOUT_MS,
+						  tmr_got_rtp_handler,
+						  mf);
+				}
+			}
 			check_rtpstart(mf);
 		}
 		break;
@@ -2435,6 +2496,7 @@ static void rtp_recv_handler(const struct sa *src,
 static int init_ice(struct mediaflow *mf)
 {
 	struct trice_conf conf = {
+		.nom = ICE_NOMINATION_AGGRESSIVE,
 		.debug = false,
 		.trace = false,
 #if TARGET_OS_IPHONE
@@ -2537,6 +2599,10 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 	mf->mf_stats.dtls_estab = -1;
 	mf->mf_stats.dce_estab  = -1;
 
+	tmr_init(&mf->tmr_rtp);
+	tmr_init(&mf->tmr_got_rtp);
+	tmr_init(&mf->tmr_error);
+	
 	if (!str_isset(clientid_local)) {
 		warning("mediaflow: alloc: missing local clientid\n");
 		err = EINVAL;
@@ -2610,8 +2676,7 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 	if (err)
 		goto out;
 
-	mf->lssrcv[MEDIA_AUDIO] = rand_u32();
-
+	regen_lssrc(mf);
 	debug("mediaflow: local SSRC is %u\n", mf->lssrcv[MEDIA_AUDIO]);
 
 	err = sdp_media_set_lattr(mf->audio.sdpm, false, "ssrc", "%u cname:%s",
@@ -3283,6 +3348,49 @@ static void interface_destructor(void *data)
 }
 
 
+/*
+ * Calculate the local preference for ICE
+ *
+ * - The interface type takes precedence over address family
+ * - IPv4 takes precedence over IPv6, due to stability
+ *
+ */
+static uint16_t calc_local_preference(const char *ifname, int af)
+{
+	uint16_t lpref_af, lpref_ifc;
+
+	/* VPN */
+	if (0 == re_regex(ifname, str_len(ifname), "ipsec") ||
+	    0 == re_regex(ifname, str_len(ifname), "utun")) {
+
+		lpref_ifc = 1;
+	}
+	/* GPRS */
+	else if (0 == re_regex(ifname, str_len(ifname), "pdp_ip")) {
+
+		lpref_ifc = 2;
+	}
+	/* Normal interface */
+	else {
+		lpref_ifc = 3;
+	}
+
+	switch (af) {
+
+	default:
+	case AF_INET:
+		lpref_af = 2;
+		break;
+
+	case AF_INET6:
+		lpref_af = 1;
+		break;
+	}
+
+	return lpref_ifc<<8 | lpref_af;
+}
+
+
 /* NOTE: only ADDRESS portion of 'addr' is used */
 int mediaflow_add_local_host_candidate(struct mediaflow *mf,
 				       const char *ifname,
@@ -3290,8 +3398,8 @@ int mediaflow_add_local_host_candidate(struct mediaflow *mf,
 {
 	struct ice_lcand *lcand = NULL;
 	struct interface *ifc;
-	// XXX: adjust local-preference here for v4/v6
-	uint32_t prio = ice_cand_calc_prio(ICE_CAND_TYPE_HOST, 0, 1);
+	const uint16_t lpref = calc_local_preference(ifname, sa_af(addr));
+	const uint32_t prio = ice_cand_calc_prio(ICE_CAND_TYPE_HOST, lpref, 1);
 	int err = 0;
 
 	if (!mf || !addr)
@@ -3306,6 +3414,9 @@ int mediaflow_add_local_host_candidate(struct mediaflow *mf,
 		return EINVAL;
 	}
 
+	info("mediaflow: add_local_host_cand: "
+	     " %s:%j  (lpref=0x%04x prio=0x%08x)\n",
+	     ifname, addr, lpref, prio);
 
 	ifc = mem_zalloc(sizeof(*ifc), interface_destructor);
 	if (!ifc)
@@ -3371,17 +3482,11 @@ void mediaflow_set_ice_role(struct mediaflow *mf, enum ice_role role)
 		role = ICE_ROLE_CONTROLLING;
 	}
 
-	if (ICE_ROLE_UNKNOWN == trice_local_role(mf->trice)) {
-
-		err = trice_set_role(mf->trice, role);
-		if (err) {
-			warning("mediaflow: trice_set_role failed (%m)\n",
-				err);
-			return;
-		}
-	}
-	else {
-		info("mediaflow: ice role already set\n");
+	err = trice_set_role(mf->trice, role);
+	if (err) {
+		warning("mediaflow: trice_set_role failed (%m)\n",
+			err);
+		return;
 	}
 }
 
@@ -4204,87 +4309,12 @@ int mediaflow_start_ice(struct mediaflow *mf)
 	     list_count(trice_rcandl(mf->trice)));
 
 	err = trice_checklist_start(mf->trice, mf->trice_stun,
-				    ICE_INTERVAL, true,
+				    ICE_INTERVAL,
 				    trice_estab_handler,
 				    trice_failed_handler,
 				    mf);
 	if (err) {
 		warning("could not start ICE checklist (%m)\n", err);
-		return err;
-	}
-
-	return 0;
-}
-
-
-int mediaflow_add_rcand(struct mediaflow *mf, const char *sdp,
-			const char *mid, int idx)
-{
-	struct ice_cand_attr rcand;
-	struct le *le;
-	struct pl pl;
-	char attr[256];
-	int err;
-
-	if (!mf)
-		return EINVAL;
-
-	if (0 == str_casecmp(sdp, "a=end-of-candidates")) {
-		mf->ice_remote_eoc = true;
-		return 0;
-	}
-
-	if (re_regex(sdp, strlen(sdp), "candidate:[^\r\n]+", &pl)) {
-		pl_set_str(&pl, sdp);
-	}
-
-	pl_strcpy(&pl, attr, sizeof(attr));
-
-	/* ignore candidates that we cannot decode */
-	if (ice_cand_attr_decode(&rcand, attr) ||
-	    rcand.compid != ICE_COMPID_RTP ||
-	    rcand.proto != IPPROTO_UDP)
-		return 0;
-
-	++mf->stat.n_cand_recv;
-
-	info("mediaflow: new remote candidate (%H)\n",
-	     trice_cand_print, &rcand);
-
-	err = trice_rcand_add(NULL, mf->trice, rcand.compid,
-			      rcand.foundation, rcand.proto,
-			      rcand.prio,
-			      &rcand.addr, rcand.type, rcand.tcptype);
-	if (err) {
-		warning("mediaflow: add_rcand: trice_rcand_add failed"
-			" [%J] (%m)\n",
-			&rcand.addr, err);
-	}
-
-	/* add permission for ALL TURN-Clients */
-	for (le = mf->turnconnl.head; le; le = le->next) {
-		struct turn_conn *tc = le->data;
-
-		if (tc->turnc && tc->turn_allocated)
-			add_turn_permission(mf, tc, &rcand);
-	}
-
-	/* NOTE: checklist must be re-started for every new
-	 *       remote candidate
-	 */
-
-	info("mediaflow: start_ice: starting ICE checklist with"
-	     " %u remote candidates\n",
-	     list_count(trice_rcandl(mf->trice)));
-
-	err = trice_checklist_start(mf->trice, mf->trice_stun,
-				    ICE_INTERVAL, true,
-				    trice_estab_handler,
-				    trice_failed_handler,
-				    mf);
-	if (err) {
-		warning("could not start ICE checklist (%m)\n",
-			err);
 		return err;
 	}
 
@@ -4300,9 +4330,20 @@ static int start_audio(struct mediaflow *mf)
 	if (mf->aes == NULL)
 		return ENOSYS;
 
+	regen_lssrc(mf);
+
 	ac = auenc_get(mf->aes);
-	if (ac && ac->enc_start)
-		err = ac->enc_start(mf->aes, mf->audio.local_cbr, &mf->mctx);
+	if (ac && ac->enc_start) {
+		struct aucodec_param prm;
+
+		debug("mediaflow: local SSRC is %u\n",
+		      mf->lssrcv[MEDIA_AUDIO]);
+
+		memset(&prm, 0, sizeof(prm));
+		prm.local_ssrc = mf->lssrcv[MEDIA_AUDIO];
+		err = ac->enc_start(mf->aes, mf->audio.local_cbr,
+				    &prm, &mf->mctx);
+	}
 
 	ac = audec_get(mf->ads);
 	if (ac && ac->dec_start)
@@ -4320,6 +4361,7 @@ static int stop_audio(struct mediaflow *mf)
 		return EINVAL;
 
 	/* audio */
+	mf->mctx = NULL;	
 	ac = auenc_get(mf->aes);
 	if (ac && ac->enc_stop)
 		ac->enc_stop(mf->aes);
@@ -4329,6 +4371,7 @@ static int stop_audio(struct mediaflow *mf)
 		ac->get_stats(mf->ads, &mf->codec_stats);
 	if (ac && ac->dec_stop)
 		ac->dec_stop(mf->ads);
+
 
 	return 0;
 }
@@ -4485,6 +4528,7 @@ void mediaflow_stop_media(struct mediaflow *mf)
 	mf->started = false;
 
 	/* audio */
+	mf->mctx = NULL;	
 	ac = auenc_get(mf->aes);
 	if (ac && ac->enc_stop)
 		ac->enc_stop(mf->aes);
@@ -4517,15 +4561,30 @@ void mediaflow_stop_media(struct mediaflow *mf)
 
 void mediaflow_reset_media(struct mediaflow *mf)
 {
+	void *p;
+	
 	if (!mf)
 		return;
 
-	mf->ads = mem_deref(mf->ads);
-	mf->aes = mem_deref(mf->aes);
 	mf->mctx = NULL;
+	
+	p = mf->ads;
+	mf->ads = NULL;
+	mem_deref(p);
 
-	mf->video.ves = mem_deref(mf->video.ves);
-	mf->video.vds = mem_deref(mf->video.vds);
+	p = mf->aes;
+	mf->aes = NULL;
+	mem_deref(p);
+
+
+	p = mf->video.ves;
+	mf->video.ves = NULL;
+	mem_deref(p);
+
+	p = mf->video.vds;
+	mf->video.vds = NULL;
+	mem_deref(p);
+
 	mf->video.mctx = NULL;
 }
 
@@ -4950,17 +5009,27 @@ static void turnconn_data_handler(struct turn_conn *conn, const struct sa *src,
 static void turnconn_error_handler(int err, void *arg)
 {
 	struct mediaflow *mf = arg;
+	bool one_allocated;
+	bool all_failed;
 
-	warning("mediaflow: turnconn_error:  turnconnl=%u  (%m)\n",
-		list_count(&mf->turnconnl), err);
+	one_allocated = turnconn_is_one_allocated(&mf->turnconnl);
+	all_failed = turnconn_are_all_failed(&mf->turnconnl);
+
+	warning("mediaflow: turnconn_error:  turnconnl=%u"
+		"  [one_allocated=%d, all_failed=%d]  (%m)\n",
+		list_count(&mf->turnconnl), one_allocated, all_failed, err);
+
+	if (all_failed)
+		goto fail;
 
 	if (list_count(&mf->turnconnl) > 1 ||
-	    turnconn_is_one_allocated(&mf->turnconnl)) {
+	    one_allocated) {
 
 		info("mediaflow: ignoring turn error, already have 1\n");
 		return;
 	}
 
+ fail:
 	/* NOTE: only flag an error if ICE is not established yet */
 	if (!mf->ice_ready)
 		ice_error(mf, err ? err : EPROTO);
@@ -5535,4 +5604,15 @@ enum ice_role mediaflow_local_role(const struct mediaflow *mf)
 		return ICE_ROLE_UNKNOWN;
 
 	return trice_local_role(mf->trice);
+}
+
+
+int mediaflow_set_extcodec(struct mediaflow *mf, void *arg)
+{
+	if (!mf || !arg)
+		return EINVAL;
+
+	mf->extcodec.arg = arg;
+
+	return 0;
 }

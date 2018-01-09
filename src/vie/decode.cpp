@@ -51,14 +51,18 @@ int vie_dec_alloc(struct viddec_state **vdsp,
 		  struct sdp_media *sdpm,
 		  struct vidcodec_param *prm,
 		  viddec_err_h *errh,
+		  void *extcodec_arg,
 		  void *arg)
 {
 	struct viddec_state *vds;
 	int err = 0;
 
+	(void)extcodec_arg; /* not an external codec */
+	
 	if (!vdsp || !vc || !mctxp)
 		return EINVAL;
 
+	
 	info("%s: allocating codec:%s(%d)\n", __FUNCTION__, vc->name, pt);
 
 	vds = (struct viddec_state *)mem_zalloc(sizeof(*vds), vds_destructor);

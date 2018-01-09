@@ -37,7 +37,7 @@
 #include <avs_vie.h>
 
 #ifdef ANDROID
-#ifdef USE_BREAKPAD
+#if 0//USE_BREAKPAD
 #include "breakpad/dumpcall.h"
 #endif
 #endif
@@ -167,7 +167,7 @@ static void jni_re_enter()
 	}
 }
 
-static void jni_log_handler(uint32_t lve, const char *msg)
+static void jni_log_handler(uint32_t lve, const char *msg, void *arg)
 {
 #ifdef ANDROID
 	int alp;
@@ -327,12 +327,6 @@ static void audio_change_state_handler(enum flowmgr_audio_receive_state state)
 	jint jstate = 0;
 	int err = 0;
     
-	err = jni_attach(&je);
-	if (err) {
-		warning("%s: cannot attach JNI: %m\n", __func__, err);
-		goto out;
-	}
-    
 	switch(state) {
 		case FLOWMGR_AUDIO_INTERRUPTION_STARTED:
 			jstate = com_waz_call_FlowManager_AUDIO_INTERRUPTION_STARTED;
@@ -343,11 +337,17 @@ static void audio_change_state_handler(enum flowmgr_audio_receive_state state)
 			break;
 	}
     
-	debug("change_state_handler: state=%d \n", jstate);
+	err = jni_attach(&je);
+	if (err) {
+		warning("%s: cannot attach JNI: %m\n", __func__, err);
+		goto out;
+	}
+    
 	je.env->CallVoidMethod(jfm->self, java.acsmid, jstate);
     
 out:
 	jni_detach(&je);
+	debug("change_state_handler: state=%d \n", jstate);
 }
 
 static void change_state_handler(enum flowmgr_video_receive_state state,
@@ -358,12 +358,6 @@ static void change_state_handler(enum flowmgr_video_receive_state state,
 	jint jstate = 0;
 	jint jreason = 0;
 	int err = 0;
-
-	err = jni_attach(&je);
-	if (err) {
-		warning("%s: cannot attach JNI: %m\n", __func__, err);
-		goto out;
-	}
 
 	switch(state) {
 	case FLOWMGR_VIDEO_RECEIVE_STOPPED:
@@ -385,11 +379,17 @@ static void change_state_handler(enum flowmgr_video_receive_state state,
 		break;
 	}
 
-	debug("change_state_handler: state=%d reason=%d\n", jstate, jreason);
+	err = jni_attach(&je);
+	if (err) {
+		warning("%s: cannot attach JNI: %m\n", __func__, err);
+		goto out;
+	}
+
 	je.env->CallVoidMethod(jfm->self, java.csmid, jstate, jreason);
 
  out:
 	jni_detach(&je);	
+	debug("change_state_handler: state=%d reason=%d\n", jstate, jreason);
 }
 
 void *flowmgr_thread(void *arg)
@@ -443,7 +443,7 @@ void *flowmgr_thread(void *arg)
 
 
 #ifdef ANDROID
-#ifdef USE_BREAKPAD
+#if 0 //USE_BREAKPAD
 static int setup_breakpad(JNIEnv *env, jobject ctx)
 {	
         jclass clsCtx;
@@ -503,7 +503,7 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 	int err = 0;
 
 	log_set_min_level(LOG_LEVEL_DEBUG);
-	log_register_handler(&log);
+	//log_register_handler(&log);
 
 	info("jni: init\n");
     
@@ -586,7 +586,7 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 
 	java.context = env->NewGlobalRef(ctx);
 
-#ifdef USE_BREAKPAD	
+#if 0//USE_BREAKPAD	
 	setup_breakpad(env, ctx);
 #endif
 #endif
@@ -676,6 +676,8 @@ static void media_estab_handler(const char *convid, bool estab, void *arg)
 	jstring jconvid;
 	int err = 0;
 
+	debug("media_estab_handler: convid=%s estab=%d\n", convid, estab);
+	
 	err = jni_attach(&je);
 	if (err) {
 		warning("media_established: cannot attach JNI: %m\n", err);
@@ -684,7 +686,6 @@ static void media_estab_handler(const char *convid, bool estab, void *arg)
 
 	jconvid = je.env->NewStringUTF(convid);
 
-	debug("media_estab_handler: convid=%s estab=%d\n", convid, estab);
 	//jni_re_leave();
 	je.env->CallVoidMethod(jfm->self, java.mestabmid, jconvid);
 	//	jni_re_enter();
@@ -730,38 +731,6 @@ static void conf_pos_handler(const char *convid, struct list *partl, void *arg)
 }	
 
 
-static void mcat_handler(const char *convid, enum flowmgr_mcat cat, void *arg)
-{
-	struct jfm *jfm = (struct jfm *)arg;
-	struct jni_env je;
-	jclass cls;
-	jstring jconvid;
-	jmethodID mid;
-	int err = 0;
-
-#ifndef ANDROID // Android simulator dosnt set this...
-	flowmgr_mcat_changed(jfm->fm, convid, cat);
-	return;
-#endif
-	
-	err = jni_attach(&je);
-	if (err) {
-		warning("media_established: cannot attach JNI: %m\n", err);
-		goto out;
-	}
-
-	jconvid = je.env->NewStringUTF(convid);
-
-        jni_re_leave();
-	je.env->CallVoidMethod(jfm->self, java.ummid, jconvid, (jint)cat);
-        jni_re_enter();
-
-
- out:
-	jni_detach(&je);
-}
-
-
 void err_handler(int err, const char *convid, void *arg)
 {
 	struct jfm *jfm = (struct jfm *)arg;
@@ -785,45 +754,6 @@ void err_handler(int err, const char *convid, void *arg)
 
  out:
 	jni_detach(&je);
-}
-
-
-void volume_handler(const char *convid,
-		    const char *userid,
-		    double invol, double outvol, void *arg)
-{
-	struct jfm *jfm = (struct jfm *)arg;
-	struct jni_env je;
-	jclass cls;
-	jstring jconvid;
-	jstring juserid;
-	jstring jself;
-	jmethodID mid;
-	int err = 0;
-
-	err = jni_attach(&je);
-	if (err) {
-		warning("volume_handler: cannot attach JNI: %m\n", err);
-		goto out;
-	}
-
-	jconvid = je.env->NewStringUTF(convid);
-	juserid = je.env->NewStringUTF(userid);
-	jself = je.env->NewStringUTF("self");
-
-        jni_re_leave();
-        je.env->CallVoidMethod(jfm->self, java.uvmid, jconvid, jself, invol);
-        je.env->CallVoidMethod(jfm->self, java.uvmid,
-			       jconvid, juserid, outvol);
-        jni_re_enter();
-    
-    je.env->DeleteLocalRef(jconvid);
-    je.env->DeleteLocalRef(juserid);
-    je.env->DeleteLocalRef(jself);
-    
- out:
-	jni_detach(&je);
-
 }
 
 
@@ -979,14 +909,8 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_attach
 		goto out;
 	}
     
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_media_handlers,
-			     jfm->fm, mcat_handler, volume_handler, jfm);
-
 	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_media_estab_handler,
 			     jfm->fm, media_estab_handler, jfm);
-
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_conf_pos_handler,
-			     jfm->fm, conf_pos_handler, jfm);
 
 	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_video_handlers, jfm->fm,
 			     video_state_handler,
@@ -1029,166 +953,45 @@ JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_acquireFlows
 (JNIEnv *env, jobject self, jstring jconvid, jstring jsessid)
 {
 	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	const char *convid = env->GetStringUTFChars(jconvid, 0);
-	const char *sessid = env->GetStringUTFChars(jsessid, 0);
-	int err;
 
-	debug("jni: acquire_flows: convid=%s sessid=%s\n", convid, sessid);
+	warning("NOT IMPLEMENTED: acquireFlows\n");
 
-	if (fm == NULL) {
-		warning("jni: acquireFlows: no flowmgr\n");
-		return false;
-	}
-
-	FLOWMGR_MARSHAL_RET(java.tid, err, flowmgr_acquire_flows, fm,
-			    convid, sessid, NULL, NULL);
-			    //netq_handler, jfm); // Enable when 
-	                                          // networkQuality exists
-
- out:
-	if (convid)
-		env->ReleaseStringUTFChars(jconvid, convid);
-	if (sessid)
-		env->ReleaseStringUTFChars(jconvid, sessid);
-
-	if (err) {
-		warning("jni: acquireFlows: failed: %m\n", err);
-	}
-		
-	return err == 0;
+	return false;
 }
 
 
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_releaseFlowsNative
 (JNIEnv *env, jobject self, jstring jconvid)
 {
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	const char *convid = env->GetStringUTFChars(jconvid, 0);
-	void *vjcb;
-	int err;
-
-	if (fm == NULL) {
-		warning("jni: releaseFlows: no flowmgr\n");
-		return;
-	}
-
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_release_flows, fm, convid);
-
-	if (convid)
-		env->ReleaseStringUTFChars(jconvid, convid);
+	warning("NOT IMPLEMENTED: releaseFlowsNative\n");
 }
 
 
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_addUser
 (JNIEnv *env, jobject self, jstring jconvid, jstring juserid, jstring jname)
 {
-
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	const char *convid = NULL;
-	const char *userid = NULL;
-	const char *name = NULL;
-	int err;
-
-	if (fm == NULL) {
-		warning("jni: addUser: no flowmgr\n");
-		return;
-	}
-
-	if (jconvid)
-		convid = env->GetStringUTFChars(jconvid, 0);
-	if (juserid)
-		userid = env->GetStringUTFChars(juserid, 0);
-	if (jname)
-		name = env->GetStringUTFChars(jname, 0);
-	
-	
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_user_add,
-			     fm, convid, userid, name);
-
-	if (convid)
-		env->ReleaseStringUTFChars(jconvid, convid);
-	if (userid)
-		env->ReleaseStringUTFChars(jconvid, userid);
-	if (name)
-		env->ReleaseStringUTFChars(jconvid, name);
+	warning("NOT IMPLEMENTED: addUser\n");
 }
 
 
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_refreshAccessToken
 (JNIEnv *env, jobject self, jstring jtoken, jstring jtype)
 {
-
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	const char *token = NULL;
-	const char *type = NULL;
-	int err;
-
-	if (fm == NULL) {
-		warning("jni: refreshAccessToken: no flowmgr\n");
-		return;
-	}
-
-	if (jtoken)
-		token = env->GetStringUTFChars(jtoken, 0);
-	if (jtype)
-		type = env->GetStringUTFChars(jtype, 0);
-
-
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_refresh_access_token,
-			     fm, token, type);
-	
-	if (token)
-		env->ReleaseStringUTFChars(jtoken, token);
-	if (type)
-		env->ReleaseStringUTFChars(jtype, type);
+	warning("NOT IMPLEMENTED: refreshAccessToken\n");
 }
 
 
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setSelfUser
 (JNIEnv *env, jobject self, jstring juserid)
 {
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	const char *userid = NULL;
-	int err;
-
-	if (fm == NULL) {
-		warning("jni: setSelfUser: no flowmgr\n");
-		return;
-	}
-
-	if (juserid)
-		userid = env->GetStringUTFChars(juserid, 0);
-	
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_self_userid, fm, userid);
-
-	if (userid)
-		env->ReleaseStringUTFChars(juserid, userid);
+	warning("NOT IMPLEMENTED: setSelfUser\n");
 }
 
 
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setActive
 (JNIEnv *env, jobject self, jstring jconvid, jboolean active)
 {
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	const char *convid = env->GetStringUTFChars(jconvid, 0);
-	void *vjcb;
-	int err;
-
-	if (fm == NULL) {
-		warning("jni: setActive: no flowmgr\n");
-		return;
-	}
-
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_active, fm, convid, active);
-
-	if (convid)
-		env->ReleaseStringUTFChars(jconvid, convid);
+	warning("NOT IMPLEMENTED: setActive\n");
 }
 
 
@@ -1196,16 +999,8 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_networkChanged
 (JNIEnv *env, jobject self)
 {
 	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	
-	if (fm == NULL) {
-		warning("jni: networkChanged: no flowmgr\n");
-		return;
-	}
 
-	info("jni: netwrokChanged\n");
-	
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_network_changed, fm);
+	warning("NOT IMPLEMENTED: networkChanged\n");
 }
 
 
@@ -1213,78 +1008,25 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_response
 (JNIEnv *env, jobject self, jint status, jstring jctype,
  jbyteArray jcontent, jlong jctx)
 {
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	jboolean iscpy = JNI_FALSE;
-	jbyte *content = NULL;
-	const char *ctype = NULL;
-	const char *reason = NULL;
-	size_t clen = 0;
-	
-	if (fm == NULL) {
-		warning("jni: response: no flowmgr\n");
-		return;
-	}
-
-	if (jcontent) {
-		clen = (size_t)env->GetArrayLength(jcontent);
-		content = env->GetByteArrayElements(jcontent, &iscpy);
-	}
-	if (jctype)
-		ctype = env->GetStringUTFChars(jctype, 0);
-
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_resp, fm, (int)status, "",
-			     ctype, (const char *)content, (size_t)clen,
-			     (struct rr_resp *)jctx);
-
-	if (content) {
-		env->ReleaseByteArrayElements(jcontent, content, JNI_ABORT);
-	}
-	if (ctype) {
-		env->ReleaseStringUTFChars(jctype, ctype);
-	}
+	warning("NOT IMPLEMENTED: response\n");
 }
 
 
 JNIEXPORT jint JNICALL Java_com_waz_call_FlowManager_mediaCategoryChanged
 (JNIEnv *env, jobject self, jstring jconvid, jint mcat)
 {
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	const char *convid;
-	int err = 0;
+	warning("NOT IMPLEMENTED: mediaCategoryChanged\n");
 
-	if (!jconvid)
-		return EINVAL;
-
-	if (fm == NULL) {
-		warning("jni: releaseFlows: no flowmgr\n");
-		return ENOSYS;
-	}
-
-	convid = env->GetStringUTFChars(jconvid, 0);
-
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_mcat_changed, fm, convid,
-			     (enum flowmgr_mcat)mcat);
-
-	if (convid)
-		env->ReleaseStringUTFChars(jconvid, convid);
-
-	return err;
+	return 0;
 }
 
 
 JNIEXPORT jint JNICALL Java_com_waz_call_FlowManager_audioSourceDeviceChanged
 (JNIEnv *env, jobject self, jint ausrc)
 {
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	int err;
+	warning("NOT IMPLEMENTED: audioSourceDeviceChanged\n");
 
-	FLOWMGR_MARSHAL_RET(java.tid, err, flowmgr_ausrc_changed, fm,
-			    (enum flowmgr_ausrc)ausrc);
-
-	return err;
+	return 0;
 }
 
 
@@ -1342,33 +1084,9 @@ JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_getMute
 JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_event
 (JNIEnv *env, jobject self, jstring jctype, jbyteArray jcontent)
 {
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	jboolean iscpy = JNI_FALSE;
-	jbyte *content;
-	const char *ctype;
-	bool handled;
-	size_t clen;
-	int err = 0;
+	warning("NOT IMPLEMENTED: FlowManager_event\n");
 
-	if (fm == NULL) {
-		warning("jni: event: no flowmgr\n");
-		return JNI_FALSE;
-	}
-
-	clen = (size_t)env->GetArrayLength(jcontent);
-	content = env->GetByteArrayElements(jcontent, &iscpy);
-	ctype = env->GetStringUTFChars(jctype, 0);
-
-	FLOWMGR_MARSHAL_RET(java.tid, err, flowmgr_process_event, &handled,
-			    fm, ctype, (const char *)content, (size_t)clen);
-
-	if (content) 
-		env->ReleaseByteArrayElements(jcontent, content, JNI_ABORT);
-	if (ctype)
-		env->ReleaseStringUTFChars(jctype, ctype);
-
-	return (!err && handled) ? JNI_TRUE : JNI_FALSE;
+	return JNI_FALSE;
 }
 
 
@@ -1386,39 +1104,23 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setEnableMetrics
 {
 	struct jfm *jfm = self2fm(env, self);
 
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_enable_metrics,
-			     jfm->fm, (bool)jenable);
+	warning("NOT IMPLEMENTED: setEnableMetrics\n");
 }
 
 
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setSessionId
 (JNIEnv *env, jobject self, jstring jconvid, jstring jsessid)
 {
-	const char *convid = env->GetStringUTFChars(jconvid, 0);
-	const char *sessid = env->GetStringUTFChars(jsessid, 0);
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-
-	flowmgr_set_sessid(fm, convid, sessid);
-
-	if (convid)
-		env->ReleaseStringUTFChars(jconvid, convid);
-	if (sessid)
-		env->ReleaseStringUTFChars(jsessid, sessid);
+	warning("NOT IMPLEMENTED: setSessionId\n");
 }
 
 
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_callInterruption
 (JNIEnv *env, jobject self, jstring jconvid, jboolean interrupted)
 {
-	const char *convid = env->GetStringUTFChars(jconvid, 0);	
 	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
 
-	flowmgr_interruption(fm, convid, (bool)interrupted);
-
-	if (convid)
-		env->ReleaseStringUTFChars(jconvid, convid);		
+	warning("NOT IMPLEMENTED: callInterruption\n");
 }
 
 
@@ -1463,7 +1165,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_waz_call_FlowManager_sortConferenceParti
 			goto out;
 	}	
 
-	err = flowmgr_sort_participants(&partl);
+	err = ENOSYS;//flowmgr_sort_participants(&partl);
 	if (err)
 		goto out;
 
@@ -1688,7 +1390,6 @@ static int vie_jni_get_view_size_handler(const void *view, int *w, int *h)
 	wmid = je.env->GetMethodID(cls, "getWidth", "()I");
 	hmid = je.env->GetMethodID(cls, "getHeight", "()I");
 	if (!wmid || !hmid) {
-		warning("vie: %s: no width or height\n", __func__);
 		err = ENOSYS;
 		goto out;
 	}
@@ -1699,6 +1400,9 @@ static int vie_jni_get_view_size_handler(const void *view, int *w, int *h)
  out:
 	jni_detach(&je);
 
+	if (err == ENOSYS)
+		warning("vie: %s: no width or height\n", __func__);
+		
 	return err;
 }
 
@@ -1750,7 +1454,7 @@ JNIEXPORT void JNICALL Java_com_waz_avs_VideoCapturer_handleCameraFrame
 	vf.rotation = (int)(360 - degrees);
 	vf.ts = (uint32_t)jts;
 	
-	flowmgr_handle_frame(&vf);
+	wcall_handle_frame(&vf);
 
  out:
 	if (y) 

@@ -38,7 +38,7 @@ int ecall_devpair_start(struct ecall *ecall)
 	if (!ecall)
 		return EINVAL;
 
-	return ecall_start(ecall, 0);
+	return ecall_start(ecall, false, NULL);
 }
 
 

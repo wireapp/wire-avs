@@ -90,7 +90,7 @@ static int set_turnservers(struct devpair_entry *dpe,
 		err = stun_uri_decode(&uri, turnv[i].url);
 
 		if (0 == err) {
-			err = ecall_set_turnserver(dpe->ecall,
+			err = ecall_add_turnserver(dpe->ecall,
 						   &uri.addr,
 						   turnv[i].username,
 						   turnv[i].credential);
@@ -120,7 +120,8 @@ static void dpe_destructor(void *arg)
 }
 
 
-static void ecall_datachan_estab_handler(void *arg, bool update)
+static void ecall_datachan_estab_handler(struct ecall *ecall, bool update,
+					 void *arg)
 {
 	struct devpair_entry *dpe = arg;
 
@@ -227,7 +228,8 @@ static int ecall_send_handler(const char *userid_sender,
 }
 
 
-static void ecall_conn_handler(uint32_t msg_time, const char *userid_sender,
+static void ecall_conn_handler(struct ecall *ecall,
+			       uint32_t msg_time, const char *userid_sender,
 			       bool video_call, void *arg)
 {
 	struct devpair_entry *dpe = arg;
@@ -235,7 +237,7 @@ static void ecall_conn_handler(uint32_t msg_time, const char *userid_sender,
 	info("devpair: conn_handler: ecall=%p\n", dpe->ecall);
 
 	/* Auto-answer */
-	ecall_answer(dpe->ecall, 0);
+	ecall_answer(ecall, false, NULL);
 }
 
 

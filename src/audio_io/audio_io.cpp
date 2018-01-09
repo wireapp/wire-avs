@@ -126,3 +126,17 @@ int  audio_io_enable_sine(struct audio_io *aio)
     }
     return 0;
 }
+
+int audio_io_reset(struct audio_io *aio)
+{
+	int res;
+	
+	if(aio->aioc) {
+		webrtc::audio_io_class *aioc;
+
+		aioc = (webrtc::audio_io_class *)aio->aioc;
+		res = aioc->ResetAudioDevice();
+	}
+
+	return res;
+}

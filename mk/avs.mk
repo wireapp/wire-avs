@@ -76,13 +76,13 @@ AVS_MODULES += egcall
 AVS_MODULES += audio_io
 AVS_MODULES += audio_effect
 AVS_MODULES += audummy
+AVS_MODULES += extcodec
 AVS_MODULES += rtpdump
 AVS_MODULES += zapi
 AVS_MODULES += ztime
 AVS_MODULES += mediastats
 
 AVS_MODULES += engine
-AVS_MODULES += mill
 AVS_MODULES += $(EXTRA_MODULES)
 
 

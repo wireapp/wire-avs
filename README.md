@@ -59,6 +59,8 @@ $ sudo apt-get install \
   libasound2-dev \
   libc++-dev \
   libc++abi-dev \
+  libevent-dev \
+  libprotobuf-c-dev \
   libreadline-dev \
   libsodium-dev \
   libtool \
@@ -93,9 +95,7 @@ $ ./prepare.sh
 Patches for webrtc are under mediaengine/webrtc_patches. Run apply_patches.sh to apply them
 
 If you simply say ``make``, a selection of tools is being built for your
-host machine. You probably want ``zcall``, the AVS command line client.
-You can only build that by saying ``make zcall``. Similarly, you can
-build any other tool by giving its name to make.
+host machine.
 
 The deliverables are being built by saying ``make dist``. You can limit
 this to only select target platforms through ``make dist_android``,

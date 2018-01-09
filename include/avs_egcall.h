@@ -31,6 +31,7 @@ enum egcall_state {
 #define EGCALL_REASON_NORMAL             0
 #define EGCALL_REASON_ANSWERED_ELSEWHERE 5
 #define EGCALL_REASON_STILL_ONGOING      7
+#define EGCALL_REASON_REJECTED          10
 
 struct egcall;
 

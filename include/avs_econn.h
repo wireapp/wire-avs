@@ -34,6 +34,7 @@ enum econn_msg {
 	ECONN_GROUP_SETUP = 0x08,
 	
 	ECONN_UPDATE = 0x10,
+	ECONN_REJECT = 0x11,
 	
 	/* Device pairing messages */
 	ECONN_DEVPAIR_PUBLISH = 0x21,

@@ -17,8 +17,8 @@
 */
 
 #import "AVSSound.h"
-
-
+#include <re.h>
+#include <avs.h>
 @interface AVSSound ( )
 
 - (void)updateVolume;
@@ -50,12 +50,12 @@
 
 - (BOOL)looping
 {
-    return self.player.numberOfLoops < 0;
+	return self.player.numberOfLoops < 0;	
 }
 
 - (void)setLooping:(BOOL)looping
 {
-    self.player.numberOfLoops = looping ? -1 : 0;
+	self.player.numberOfLoops = looping ? -1 : 0;
 }
 
 
@@ -80,51 +80,91 @@
 - (instancetype)initWithName:(NSString *)name andAudioPlayer:(AVAudioPlayer *)player
 {
     self = [super init];
-    
+
     if ( self ) {
         self.name = name;
         self.player = player;
-        
+ 
         player.delegate = self;
+	[player prepareToPlay];
     }
-    
+
     return name && player ? self : nil;
 }
 
 
 - (void)play
 {
-    dispatch_sync(dispatch_get_main_queue(),^{
-        [self.player setCurrentTime:0];
-        [self.player play];
-    });
-    [self.delegate didStartPlayingMedia:self];
+	info("AVSSound: play %s\n", [self.name UTF8String]);
+	
+	if (![self.delegate canStartPlayingMedia:self])
+		return;
+	
+	dispatch_sync(dispatch_get_main_queue(), ^{
+		[self.player setCurrentTime:0];
+		[self.player play];
+	});
+
+	int n = 100;
+	while (!self.player.playing && n-- > 0) {
+		usleep(20000);
+	}
+	if (n <= 0)
+		info("AVSSound playing did not start\n");
+	else
+		[self.delegate didStartPlayingMedia:self];
+     
+	info("AVSSound: %s playing=%s\n",
+	     [self.name UTF8String],
+	     self.player.playing ? "yes" : "no");
 }
 
 - (void)stop
 {
-    dispatch_sync(dispatch_get_main_queue(),^{
-        [self.player stop];
-        [self.player setCurrentTime:0];
-    });
-    [self.delegate didFinishPlayingMedia:self];
+	int n;
+	
+	info("AVSSound: stop: %s\n", [_name UTF8String]);
+			
+	dispatch_sync(dispatch_get_main_queue(), ^{
+		[self.player stop];
+		[self.player setCurrentTime:0];
+	});
+
+	n = 10;
+	while (self.player.playing && n-- > 0) {
+		usleep(50000);
+		info("AVSSound: stop: %s playing=%s\n",
+		     [_name UTF8String], self.player.playing ? "yes" : "no");
+	}
+
+	[self.delegate didFinishPlayingMedia:self];
 }
 
 
 - (void)pause
 {
-    dispatch_sync(dispatch_get_main_queue(),^{
-        [self.player pause];
-    });
-    [self.delegate didPausePlayingMedia:self];
+	[self.player pause];
+	[self.delegate didPausePlayingMedia:self];
 }
 
 - (void)resume
 {
-    dispatch_sync(dispatch_get_main_queue(),^{
         [self.player play];
-    });
-    [self.delegate didResumePlayingMedia:self];
+	[self.delegate didResumePlayingMedia:self];
+}
+
+
+- (void)reset
+{
+	AVAudioPlayer *player;
+	player = [[AVAudioPlayer alloc]
+				 initWithContentsOfURL:self.player.url
+						 error:nil];
+	player.delegate = self;
+	player.numberOfLoops = self.player.numberOfLoops;
+	[player prepareToPlay];
+
+	self.player = player;
 }
 
 
@@ -134,9 +174,22 @@
 }
 
 
-- (void)audioPlayerDidFinishPlaying:(AVAudioPlayer *)player successfully:(BOOL)flag
+- (void)audioPlayerDecodeErrorDidOccur:(AVAudioPlayer *)player 
+                                 error:(NSError *)err
 {
-    [self.delegate didFinishPlayingMedia:self];
+	info("AVSSound: %s audioPlayerDecodeErrorDidOccur: error=%s\n",
+	     [_name UTF8String],
+	     [err.localizedDescription UTF8String]);
+}
+
+
+- (void)audioPlayerDidFinishPlaying:(AVAudioPlayer *)player 
+                       successfully:(BOOL)flag
+{
+	info("AVSSound: %s audioPlayerDidFinishPlaying\n",
+	     [_name UTF8String]);
+
+	[self.delegate didFinishPlayingMedia:self];
 }
 
 @end

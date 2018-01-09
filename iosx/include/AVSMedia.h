@@ -24,6 +24,7 @@
 
 @protocol AVSMediaDelegate <NSObject>
 
+- (BOOL)canStartPlayingMedia:(id<AVSMedia>)media;
 - (void)didStartPlayingMedia:(id<AVSMedia>)media;
 - (void)didPausePlayingMedia:(id<AVSMedia>)media;
 - (void)didResumePlayingMedia:(id<AVSMedia>)media;
@@ -38,6 +39,8 @@
 
 - (void)pause;
 - (void)resume;
+
+- (void)reset;
 
 @property (nonatomic, copy) NSString *name;
 

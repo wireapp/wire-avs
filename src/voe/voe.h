@@ -86,14 +86,16 @@ struct auenc_state {
 };
 
 int voe_enc_alloc(struct auenc_state **aesp,
-			const struct aucodec *ac, const char *fmtp,
-			struct aucodec_param *prm,
-			auenc_rtp_h *rtph,
-			auenc_rtcp_h *rtcph,
-			auenc_err_h *errh,
-			void *arg);
+		  const struct aucodec *ac, const char *fmtp,
+		  struct aucodec_param *prm,
+		  auenc_rtp_h *rtph,
+		  auenc_rtcp_h *rtcph,
+		  auenc_err_h *errh,
+		  void *extcodec_arg,
+		  void *arg);
 
 int  voe_enc_start(struct auenc_state *aes, bool cbr,
+		   const struct aucodec_param *prm,
 		   struct media_ctx **mctxp);
 void voe_enc_stop(struct auenc_state *aes);
 
@@ -114,11 +116,12 @@ struct audec_state {
 };
 
 int  voe_dec_alloc(struct audec_state **adsp,
-			const struct aucodec *ac,
-			const char *fmtp,
-			struct aucodec_param *prm,
-			audec_err_h *errh,
-			void *arg);
+		   const struct aucodec *ac,
+		   const char *fmtp,
+		   struct aucodec_param *prm,
+		   audec_err_h *errh,
+		   void *extcodec_arg,
+		   void *arg);
 
 int  voe_dec_start(struct audec_state *ads, struct media_ctx **mctxp);
 int  voe_get_stats(struct audec_state *ads, struct aucodec_stats *new_stats);

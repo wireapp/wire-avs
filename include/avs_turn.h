@@ -52,6 +52,7 @@ struct turn_conn {
 	int proto;
 	bool secure;
 	bool turn_allocated;
+	bool failed;
 	int layer_stun;
 	int layer_turn;
 	uint32_t delay;
@@ -82,6 +83,7 @@ struct turn_conn *turnconn_find_allocated(const struct list *turnconnl,
 const char *turnconn_proto_name(const struct turn_conn *conn);
 bool turnconn_is_one_allocated(const struct list *turnconnl);
 bool turnconn_are_all_allocated(const struct list *turnconnl);
+bool turnconn_are_all_failed(const struct list *turnconnl);
 int turnconn_debug(struct re_printf *pf, const struct turn_conn *conn);
 
 

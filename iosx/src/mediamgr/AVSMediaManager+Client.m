@@ -17,7 +17,6 @@
 */
 
 #import "AVSMediaManager+Client.h"
-#import "AVSFlowManager.h"
 
 #include "re.h"
 #include "avs.h"
@@ -31,6 +30,7 @@ void avsmm_on_route_changed(enum mediamgr_auplay new_route, void *arg)
     AVSMediaManager *mm = (__bridge AVSMediaManager*)arg;
     AVSPlaybackRoute route;
 
+    
     switch(new_route) {
         case MEDIAMGR_AUPLAY_EARPIECE:
         case MEDIAMGR_AUPLAY_LINEOUT:
@@ -51,6 +51,9 @@ void avsmm_on_route_changed(enum mediamgr_auplay new_route, void *arg)
             break;
     }
 
+    info("avsmm_on_route_changed: tid=%p route=%d mapped=%d\n",
+	 pthread_self(), new_route, (int)route);
+    
     [mm routeChanged:route];
 }
 
@@ -169,7 +172,6 @@ void avsmm_on_route_changed(enum mediamgr_auplay new_route, void *arg)
 
 @end
 
-
 @implementation AVSMediaManager (Client)
 
 
@@ -274,14 +276,26 @@ void avsmm_on_route_changed(enum mediamgr_auplay new_route, void *arg)
 
 - (BOOL)isSpeakerEnabled
 {
-    return self.playbackRoute == AVSPlaybackRouteSpeaker;
+	BOOL enabled;
+
+	enabled = self.playbackRoute == AVSPlaybackRouteSpeaker;
+
+	info("AVSMediaManager:isSpeakerEnabled: route=%d speaker=%d "
+	     "enabled=%s\n",
+	     (int)self.playbackRoute, (int)AVSPlaybackRouteSpeaker,
+	     enabled?"yes":"no");
+	
+	return self.sysUpdated && enabled;
 }
 
 - (void)setSpeakerEnabled:(BOOL)speakerEnabled
 {
-    if(speakerEnabled != self.isSpeakerEnabled) {
+	info("AVSMediaManager:spaekerEnabled=%s\n", speakerEnabled?"yes":"no");
+
+	self.playbackRoute = speakerEnabled ? AVSPlaybackRouteSpeaker
+		                            : AVSPlaybackRouteBuiltIn;
+
     	[self enableSpeaker:speakerEnabled];
-    }
 }
 
 
@@ -298,35 +312,43 @@ void avsmm_on_route_changed(enum mediamgr_auplay new_route, void *arg)
 
 - (BOOL)isMicrophoneMuted
 {
-	return [[AVSFlowManager getInstance] isMuted];
+	bool muted;
+
+	info("AVSMediaManager: isMicrophoneMuted\n");
+	voe_get_mute(&muted);
+	info("AVSMediaManager: isMicrophoneMuted: muted=%d\n", muted);
+
+	return muted ? YES : NO;
 }
 
 - (void)setMicrophoneMuted:(BOOL)microphoneMuted
 {
-	if(microphoneMuted == self.isMicrophoneMuted) {
-		return;
-	}
+	info("AVSMediaManager: setMicrophoneMuted: muted=%s\n",
+	     microphoneMuted ? "yes" : "no");
 
-	[[AVSFlowManager getInstance] setMute: microphoneMuted];
+	voe_set_mute(microphoneMuted ? true : false);
 	dispatch_async(dispatch_get_main_queue(),^{
-		AVSMediaManagerClientChangeNotification *notification =
-			[AVSMediaManagerClientChangeNotification notificationWithMediaManager:self];
+			AVSMediaManagerClientChangeNotification *notification =
+				[AVSMediaManagerClientChangeNotification notificationWithMediaManager:self];
 
-		notification.microphoneMuteDidChange = YES;
-		[[NSNotificationCenter defaultCenter] postNotification:notification];
-	});
+			notification.microphoneMuteDidChange = YES;
+			[[NSNotificationCenter defaultCenter] postNotification:notification];
+		});
 }
 
 - (void)routeChanged:(AVSPlaybackRoute)route
 {
-	dispatch_async(dispatch_get_main_queue(),^{
-		self.playbackRoute = route;
-		AVSMediaManagerClientChangeNotification *notification =
-			[AVSMediaManagerClientChangeNotification notificationWithMediaManager:self];
+	info("AVSMediaManage: route_changed: %d->%d\n",
+	     (int)self.playbackRoute, (int)route);
+	self.playbackRoute = route;
+	self.sysUpdated = YES;
+	dispatch_sync(dispatch_get_main_queue(),^{	
+			AVSMediaManagerClientChangeNotification *notification =
+				[AVSMediaManagerClientChangeNotification notificationWithMediaManager:self];
 
-		notification.speakerEnableDidChange = YES;
-		[[NSNotificationCenter defaultCenter] postNotification:notification];
-	});
+			notification.speakerEnableDidChange = YES;
+			[[NSNotificationCenter defaultCenter] postNotification:notification];
+		});
 }
 
 @end

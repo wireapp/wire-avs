@@ -33,7 +33,6 @@ TEST_SRCS	+= test_media.cpp
 TEST_SRCS	+= test_media_crypto.cpp
 TEST_SRCS	+= test_media_dual.cpp
 TEST_SRCS	+= test_mediastats.cpp
-TEST_SRCS	+= test_mill.cpp
 TEST_SRCS	+= test_msystem.cpp
 TEST_SRCS	+= test_netprobe.cpp
 TEST_SRCS	+= test_network.cpp

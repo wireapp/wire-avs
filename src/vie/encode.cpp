@@ -168,6 +168,7 @@ int vie_enc_alloc(struct videnc_state **vesp,
 		  videnc_rtp_h *rtph,
 		  videnc_rtcp_h *rtcph,
 		  viddec_err_h *errh,
+		  void *extcodec_arg,
 		  void *arg)
 {
 	struct videnc_state *ves;
@@ -176,6 +177,8 @@ int vie_enc_alloc(struct videnc_state **vesp,
 	if (!vesp || !vc || !mctxp)
 		return EINVAL;
 
+	(void)extcodec_arg; /* not an external codec */
+	
 	info("%s: allocating codec:%s(%d)\n", __FUNCTION__, vc->name, pt);
 
 	ves = (struct videnc_state *)mem_zalloc(sizeof(*ves), ves_destructor);

@@ -27,7 +27,8 @@ typedef int  (ecall_transp_send_h)(const char *userid_sender,
 /**
  * Incoming call, may be called multiple times
  */
-typedef void (ecall_conn_h)(uint32_t msg_time, const char *userid_sender,
+typedef void (ecall_conn_h)(struct ecall *ecall,
+			    uint32_t msg_time, const char *userid_sender,
 			    bool video_call, void *arg);
 
 
@@ -53,7 +54,8 @@ typedef void (ecall_audio_estab_h)(struct ecall *ecall, bool update, void *arg);
 /**
  * The Data-Channel was established, called after every UPDATE.
  */
-typedef void (ecall_datachan_estab_h)(void *arg, bool update);
+typedef void (ecall_datachan_estab_h)(struct ecall *ecall, bool update,
+				      void *arg);
 
 /**
  * We received a PROPSYNC from remote side, called multiple times.
@@ -87,10 +89,10 @@ int  ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		 ecall_propsync_h *propsynch,
 		 ecall_close_h *closeh,
 		 ecall_transp_send_h *sendh, void *arg);
-int  ecall_set_turnserver(struct ecall *ecall, const struct sa *srv,
+int  ecall_add_turnserver(struct ecall *ecall, const struct sa *srv,
 			  const char *user, const char *pass);
-int  ecall_start(struct ecall *ecall, bool audio_cbr);
-int  ecall_answer(struct ecall *ecall, bool audio_cbr);
+int  ecall_start(struct ecall *ecall, bool audio_cbr, void *extcodec_arg);
+int  ecall_answer(struct ecall *ecall, bool audio_cbr, void *extcodec_arg);
 void ecall_transp_recv(struct ecall *ecall,
 		       uint32_t curr_time, /* in seconds */
 		       uint32_t msg_time, /* in seconds */

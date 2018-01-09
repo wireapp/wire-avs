@@ -74,5 +74,21 @@ void msystem_set_tid(struct msystem *msys, pthread_t tid);
 void msystem_enter(struct msystem *msys);
 void msystem_leave(struct msystem *msys);
 
+void msystem_set_auplay(const char *dev);
+void msystem_stop_silencing(void);
+
+
+
+/*
+ * Device
+ */
+
+int  msystem_start_mic_file_playout(const char fileNameUTF8[1024], int fs);
+void msystem_stop_mic_file_playout(void);
+void msystem_set_bitrate(int rate_bps);
+void msystem_set_packet_size(int packet_size_ms);
+bool msystem_get_muted(void);
+void msystem_set_muted(bool muted);
+
 
 #endif

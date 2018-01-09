@@ -105,6 +105,9 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 	case ECONN_HANGUP:
 		break;
 
+	case ECONN_REJECT:
+		break;
+
 	case ECONN_PROPSYNC:
 
 		/* props is mandatory for PROPSYNC */
@@ -321,6 +324,10 @@ int econn_message_decode(struct econn_message **msgp,
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_HANGUP))) {
 
 		msg->msg_type = ECONN_HANGUP;
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_REJECT))) {
+
+		msg->msg_type = ECONN_REJECT;
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_PROPSYNC))) {
 

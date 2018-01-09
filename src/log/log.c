@@ -108,7 +108,7 @@ void vlog(enum log_level level, const char *fmt, va_list ap)
 		le = le->next;
 
 		if (log->h)
-			log->h(level, msg);
+			log->h(level, msg, log->arg);
 	}
 
 	mem_deref(msg);

@@ -391,7 +391,8 @@ struct zapi_prekey;
 
 typedef void (engine_prekey_h)(const char *userid,
 			       const uint8_t *key, size_t key_len,
-			       uint16_t id, const char *clientid, void *arg);
+			       uint16_t id, const char *clientid,
+			       bool last, void *arg);
 
 struct prekey_handler {
 	engine_prekey_h *prekeyh;

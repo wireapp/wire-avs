@@ -48,9 +48,9 @@ int voe_set_mute(bool mute)
 {
 	int err = 0;
     
-    gvoe.isMuted = mute;
+	gvoe.isMuted = mute;
     
-    return voe_update_mute(&gvoe);
+	return voe_update_mute(&gvoe);
 }
 
 
@@ -59,25 +59,8 @@ int voe_get_mute(bool *muted)
 	int err;
 	bool enabled;
 
-    if (!gvoe.volume){
-        return ENOSYS;
-    }
-    
-    if(gvoe.nch == 0){
-        /* return the cashed value */
-        *muted = gvoe.isMuted;
-        return 0;
-    }
-    
-	err = gvoe.volume->GetInputMute(-1, enabled);
-	if (err) {
-		warning("voe_get_mute: GetInputMute failed\n");
-		return ENOSYS;
-	}
-
-	debug("voe_get_mute: muted=%d\n", enabled);
-
-	*muted = enabled;
+	/* return the cached value */
+	*muted = gvoe.isMuted;
 	return 0;
 }
 

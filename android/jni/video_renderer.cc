@@ -148,7 +148,7 @@ struct video_renderer {
 
 static void check_gl(const char* op) {
 	for (GLint error = glGetError(); error; error = glGetError()) {
-		warning("glError(0x%x) after %s()\n", error, op);
+		//warning("glError(0x%x) after %s()\n", error, op);
 	}
 }
 
@@ -156,8 +156,9 @@ static void check_gl(const char* op) {
 static void print_gl(const char *name, GLenum s)
 {
 	const char *v = (const char *) glGetString(s);
-	
-	debug("avs-video_renderer: GL %s = %s\n", name, v);
+
+	(void)v;
+	//debug("avs-video_renderer: GL %s = %s\n", name, v);
 }
 
 
@@ -216,8 +217,8 @@ static GLuint load_shader(GLenum shader_type, const char* src)
 		char* buf = (char*) malloc(infolen);
 		if (buf) {
 			glGetShaderInfoLog(shader, infolen, NULL, buf);
-			warning("%s: Could not compile shader %d: %s",
-				__FUNCTION__, shader_type, buf);
+			//warning("%s: Could not compile shader %d: %s",
+			//	__FUNCTION__, shader_type, buf);
 			free(buf);
 		}
 		glDeleteShader(shader);
@@ -258,8 +259,8 @@ static GLuint create_program(const char *vertex_src,
 		char* buf = (char*) malloc(buflen);
 		if (buf) {
 			glGetProgramInfoLog(program, buflen, NULL, buf);
-			warning("%s: failed link program: %s",
-				__FUNCTION__, buf);
+			//warning("%s: failed link program: %s",
+			//	__FUNCTION__, buf);
 			free(buf);
 		}
 	}
@@ -304,8 +305,10 @@ static int setup_vertices(struct video_renderer *vr, int rotation)
 		xscale *= fa / va;
 	}
 
+#if 0
 	info("setup_vertices: view(%fx%f)%f frame(%fx%f)%f scale(%fx%f) fill %s\n",
 	      vw, vh, va, fw, fh, fa, xscale, yscale, vr->should_fill ? "YES" : "NO");
+#endif
 
 
 	switch (rotation) {
@@ -351,7 +354,7 @@ static int setup_vertices(struct video_renderer *vr, int rotation)
 	pos = glGetAttribLocation(vr->program, "aPosition");
 	check_gl("glGetAttribLocation aPosition");
 	if (pos == -1) {
-		warning("%s: Could not get aPosition handle", __FUNCTION__);
+		//warning("%s: Could not get aPosition handle", __FUNCTION__);
 		err = EBADF;
 		goto out;
 	}
@@ -359,8 +362,8 @@ static int setup_vertices(struct video_renderer *vr, int rotation)
 	tex = glGetAttribLocation(vr->program, "aTextureCoord");
 	check_gl("glGetAttribLocation aTextureCoord");
 	if (tex == -1) {
-		warning("%s: Could not get aTextureCoord handle",
-			__FUNCTION__);
+		//warning("%s: Could not get aTextureCoord handle",
+		//	__FUNCTION__);
 		err = EBADF;
 		goto out;
 	}
@@ -437,9 +440,11 @@ int video_renderer_alloc(struct video_renderer **vrp,  int w, int h,
 {
 	struct video_renderer *vr;
 	int err = 0;
-	
+
+#if 0
 	debug("%s: width %d, height %d rounded %d",
 	      __FUNCTION__, w, h, rounded);
+#endif
 
 	if (!vir.inited)
 		init();
@@ -488,8 +493,10 @@ static int renderer_init(struct video_renderer *vr)
 	glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, max_tex_units);
 	glGetIntegerv(GL_MAX_TEXTURE_SIZE, max_tex_sizes);
 
+#if 0
 	debug("%s: number of textures %d, size %d", __FUNCTION__,
 	      (int)max_tex_units[0], (int)max_tex_sizes[0]);
+#endif
 	
 	if (vr->rounded) {
 		vr->use_mask = true;
@@ -503,7 +510,7 @@ static int renderer_init(struct video_renderer *vr)
 	}
   
 	if (!vr->program) {
-		warning("%s: Could not create program", __FUNCTION__);
+		//warning("%s: Could not create program", __FUNCTION__);
 		err = ENOSYS;
 		goto out;
 	}
@@ -645,8 +652,10 @@ static void setup_textures(struct video_renderer *vr, struct avs_vidframe *vf)
 	const GLsizei w = (GLsizei)vf->w;
 	const GLsizei h = (GLsizei)vf->h;
 
+#if 0
 	debug("%s: width %d, height %d rot=%d",
 	      __FUNCTION__, w, h, vf->rotation);
+#endif
 
 	vr->tex.w = vf->w;
 	vr->tex.h = vf->h;

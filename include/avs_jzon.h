@@ -99,6 +99,3 @@ const char * json_object_get_string(struct json_object *obj);
 int32_t      json_object_get_int(struct json_object *obj);
 double       json_object_get_double(struct json_object *obj);
 bool         json_object_get_boolean(struct json_object *obj);
-
-//struct json_object *json_object_get(struct json_object *obj);
-//int  json_object_put(struct json_object *obj);

@@ -323,6 +323,7 @@ TEST_F(Vie, encode_decode_loop)
 			     videnc_rtp_handler,
 			     videnc_rtcp_handler,
 			     videnc_err_handler,
+			     NULL,
 			     this);
 	ASSERT_EQ(0, err);
 	ASSERT_TRUE(ves != NULL);
@@ -336,6 +337,7 @@ TEST_F(Vie, encode_decode_loop)
 			     NULL,
 			     &param_dec,
 			     viddec_err_handler,
+			     NULL,
 			     this);
 	ASSERT_EQ(0, err);
 	ASSERT_TRUE(vds != NULL);

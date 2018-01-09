@@ -344,6 +344,8 @@ $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL).framework.zip: \
 	mkdir -p $(BUILD_DIST_BASE)/$*/Carthage/Build/iOS/avs.framework
 	cp -R $(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/* \
 		$(BUILD_DIST_BASE)/$*/Carthage/Build/iOS/avs.framework
+	dsymutil -o $(BUILD_DIST_BASE)/$*/Carthage/Build/iOS/avs.framework.dSYM \
+		$(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 	@( cd $(BUILD_DIST_BASE)/$* && \
 		zip --symlinks -r $@ Carthage )
 
@@ -429,6 +431,7 @@ $(BUILD_DIST_BASE)/%/avscore.tar.bz2:
 	       $(BUILD_BASE)/$*-x86_64/include \
 		$(dir $@)/avscore
 	@cp -a include $(dir $@)/avscore/include/avs
+	@cp -R src/protobuf/proto $(dir $@)/avscore/include
 	@( cd $(dir $@) && tar cfj $@ avscore)
 
 

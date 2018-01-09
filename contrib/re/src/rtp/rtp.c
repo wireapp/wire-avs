@@ -349,6 +349,7 @@ int rtp_listen(struct rtp_sock **rsp, int proto, const struct sa *ip,
  * Encode a new RTP header into the beginning of the buffer
  *
  * @param rs     RTP Socket
+ * @param ext    Extension bit
  * @param marker Marker bit
  * @param pt     Payload type
  * @param ts     Timestamp
@@ -358,8 +359,8 @@ int rtp_listen(struct rtp_sock **rsp, int proto, const struct sa *ip,
  *
  * @note The buffer must have enough space for the RTP header
  */
-int rtp_encode(struct rtp_sock *rs, bool marker, uint8_t pt, uint32_t ts,
-	       struct mbuf *mb)
+int rtp_encode(struct rtp_sock *rs, bool ext, bool marker, uint8_t pt,
+	       uint32_t ts, struct mbuf *mb)
 {
 	struct rtp_header hdr;
 
@@ -368,7 +369,7 @@ int rtp_encode(struct rtp_sock *rs, bool marker, uint8_t pt, uint32_t ts,
 
 	hdr.ver  = RTP_VERSION;
 	hdr.pad  = false;
-	hdr.ext  = false;
+	hdr.ext  = ext;
 	hdr.cc   = 0;
 	hdr.m    = marker ? 1 : 0;
 	hdr.pt   = pt;
@@ -414,6 +415,7 @@ int rtp_decode(struct rtp_sock *rs, struct mbuf *mb,
  *
  * @param rs     RTP Socket
  * @param dst    Destination address
+ * @param ext    Extension bit
  * @param marker Marker bit
  * @param pt     Payload type
  * @param ts     Timestamp
@@ -421,7 +423,7 @@ int rtp_decode(struct rtp_sock *rs, struct mbuf *mb,
  *
  * @return 0 for success, otherwise errorcode
  */
-int rtp_send(struct rtp_sock *rs, const struct sa *dst,
+int rtp_send(struct rtp_sock *rs, const struct sa *dst, bool ext,
 	     bool marker, uint8_t pt, uint32_t ts, struct mbuf *mb)
 {
 	size_t pos;
@@ -441,7 +443,7 @@ int rtp_send(struct rtp_sock *rs, const struct sa *dst,
 
 	pos = mb->pos;
 
-	err = rtp_encode(rs, marker, pt, ts, mb);
+	err = rtp_encode(rs, ext, marker, pt, ts, mb);
 	if (err)
 		return err;
 

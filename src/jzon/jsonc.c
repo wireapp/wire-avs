@@ -268,23 +268,6 @@ void json_object_object_add(struct json_object *jobj, const char *key,
 }
 
 
-#if 0  // Deprecated, use mem_ref instead
-struct json_object* json_object_get(struct json_object *obj)
-{
-	return mem_ref(obj);
-}
-#endif
-
-
-#if 0  // Deprecated, use mem_deref instead
-int json_object_put(struct json_object *obj)
-{
-	mem_deref(obj);
-	return 1;
-}
-#endif
-
-
 /* return 0 for success, -1 for errors */
 int json_object_array_add(struct json_object *jobj, struct json_object *val)
 {

@@ -46,12 +46,6 @@ struct engine_call_data {
 };
 
 
-struct engine_ctx {
-	struct engine *engine;
-	struct rr_resp *ctx;
-};
-
-
 /*** engine_get_flowmgr
  */
 
@@ -61,119 +55,6 @@ struct flowmgr *engine_get_flowmgr(struct engine *engine)
 		return NULL;
 
 	return engine->call->flowmgr;
-}
-
-
-/*** engine_call_post_conv_load
- */
-
-void engine_call_post_conv_load(struct engine_conv *conv)
-{
-	//conv->device_in_call = false;
-}
-
-
-void engine_call_post_conv_sync(struct engine_conv *conv)
-{
-	warning("no-op: %s\n", __FUNCTION__);
-}
-
-
-/*** flowmgr interface
- */
-
-static void flow_response_handler(int err, const struct http_msg *msg,
-				  struct mbuf *mb, struct json_object *jobj,
-				  void *arg)
-{
-	struct engine_ctx *etx = arg;
-	struct rr_resp *rr = etx->ctx;
-	struct flowmgr *fm = flowmgr_rr_flowmgr(rr);
-	int status;
-	const char *jstr;
-	char reason[256]="";
-	char *x = NULL;
-
-	if (!rr)
-		goto out;
-
-	if (err) {
-
-		if (err == ECONNABORTED)
-			return;
-
-		status = -1;
-	}
-	else {
-		if (msg == NULL)
-			status = 200;
-		else
-			status = msg->scode;
-
-		if (msg)
-			pl_strcpy(&msg->reason, reason, sizeof(reason));
-	}
-
-	if (jobj) {
-		err = jzon_encode(&x, jobj);
-		if (err)
-			goto out;
-	}
-	jstr = jobj ? x : "[]";
-
-	trace_write(engine_get_trace(etx->engine), "RESP(%p) %d %s -- %s\n",
-		    rr, status, reason, jstr);
-
-	if (jobj == NULL) {
-		err = flowmgr_resp(fm, status, "", NULL, NULL, 0, rr);
-	}
-	else {
-		err = flowmgr_resp(fm, status, reason, "application/json",
-				   jstr, strlen(jstr), rr);
-	}
-	if (err) {
-		warning("conv: flowmgr_resp failed (%m)\n", err);
-	}
-
- out:
-	mem_deref(etx);
-	mem_deref(x);
-}
-
-
-static int flow_request_handler(struct rr_resp *ctx,
-			        const char *path, const char *method,
-			        const char *ctype, const char *content,
-			        size_t clen, void *arg)
-{
-	struct engine *engine = arg;
-	struct engine_ctx *etx = NULL;
-
-	trace_write(engine_get_trace(engine), "REQ(%p) %s %s %b\n",
-		    ctx, method, path, content, clen);
-
-	(void) ctype; /* XXX This should probably be checked.  */
-
-	if (ctx) {
-		etx = mem_zalloc(sizeof(*etx), NULL);
-		etx->engine = engine;
-		etx->ctx = ctx;
-	}
-
-#if 0
-	re_printf("   @@@ REQ @@@ %s %s [%s %zu bytes]\n",
-		  method, path, ctype, clen);
-#endif
-
-	return rest_request(NULL, engine->rest, 0, method,
-			    ctx ? flow_response_handler : NULL, etx,
-			    path,
-			    (content && clen) ? "%b" : NULL, content, clen);
-}
-
-
-static void flow_err_handler(int err, const char *convid, void *arg)
-{
 }
 
 
@@ -206,18 +87,6 @@ static void engine_call_data_destructor(void *arg)
 }
 
 
-static const char *username_handler(const char *userid, void *arg)
-{
-	struct engine *engine = arg;
-	struct engine_user *user;
-	int err;
-
-	err = engine_lookup_user(&user, engine, userid, true);
-
-	return err ? NULL : user->display_name;
-}
-
-
 static int alloc_handler(struct engine *engine,
 			 struct engine_module_state *state)
 {
@@ -228,17 +97,13 @@ static int alloc_handler(struct engine *engine,
 	if (!data)
 		return ENOMEM;
 
-	err = flowmgr_alloc(&data->flowmgr, flow_request_handler,
-			    flow_err_handler, engine);
+	err = flowmgr_alloc(&data->flowmgr, NULL,
+			    NULL, engine);
 	if (err)
 		goto out;
 
-	flowmgr_enable_metrics(data->flowmgr, true);
-
 	engine->call = data;
 	list_append(&engine->modulel, &state->le, state);
-
-	flowmgr_set_username_handler(data->flowmgr, username_handler, engine);
 
  out:
 	if (err) {

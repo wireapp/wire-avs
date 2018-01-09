@@ -31,11 +31,12 @@ enum log_level {
 	LOG_LEVEL_ERROR = 3,
 };
 
-typedef void (log_h)(uint32_t level, const char *msg);
+typedef void (log_h)(uint32_t level, const char *msg, void *arg);
 
 struct log {
 	struct le le;
 	log_h *h;
+	void *arg;
 };
 
 void log_register_handler(struct log *log);

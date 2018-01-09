@@ -31,9 +31,10 @@ static void aueffect_destructor(void *arg)
 {
     struct aueffect *aue = (struct aueffect *)arg;
     
-    debug("aueffect_destructor: %p \n",aue);
-    
-    aue->e_free_h(aue->effect);
+    debug("aueffect_destructor: %p free_h: %p\n",aue, aue->e_free_h);
+
+    if (aue->e_free_h)
+	    aue->e_free_h(aue->effect);
 }
 
 int aueffect_alloc(struct aueffect **auep,

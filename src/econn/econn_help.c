@@ -33,6 +33,7 @@ const char *econn_msg_name(enum econn_msg msg)
 	case ECONN_CANCEL:		return "CANCEL";
 	case ECONN_UPDATE:		return "UPDATE";
 	case ECONN_HANGUP:		return "HANGUP";
+	case ECONN_REJECT:		return "REJECT";
 	case ECONN_PROPSYNC:		return "PROPSYNC";
 	case ECONN_GROUP_START:		return "GROUPSTART";
 	case ECONN_GROUP_LEAVE:		return "GROUPLEAVE";
@@ -125,6 +126,7 @@ enum econn_transport econn_transp_resolve(enum econn_msg type)
 	case ECONN_CANCEL:		return ECONN_TRANSP_BACKEND;
 	case ECONN_UPDATE:		return ECONN_TRANSP_BACKEND;
 	case ECONN_HANGUP:		return ECONN_TRANSP_DIRECT;
+	case ECONN_REJECT:		return ECONN_TRANSP_BACKEND;
 	case ECONN_PROPSYNC:		return ECONN_TRANSP_DIRECT;
 	case ECONN_GROUP_START:		return ECONN_TRANSP_BACKEND;
 	case ECONN_GROUP_LEAVE:		return ECONN_TRANSP_BACKEND;

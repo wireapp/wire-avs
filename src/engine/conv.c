@@ -298,8 +298,6 @@ static int load_conv(struct engine_conv *conv)
 
 	engine_update_conv_unread(conv);
 
-	engine_call_post_conv_load(conv);
-
  out:
 	mem_deref(so);
 	return err;
@@ -1254,8 +1252,6 @@ static void get_convlist_handler(int err, const struct http_msg *msg,
 
 		id = jzon_str(cobj, "id");
 		conv = import_conv(step->engine, cobj);
-		//if (conv)
-		//engine_call_post_conv_sync(conv);
 	}
 
 	err = jzon_bool(&more, jobj, "has_more");

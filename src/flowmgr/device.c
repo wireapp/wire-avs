@@ -30,39 +30,6 @@
 #include "flowmgr.h"
 
 
-int flowmgr_ausrc_changed(struct flowmgr *fm, enum flowmgr_ausrc asrc)
-{
-	const char *dev;
-
-	(void)fm;
-
-	switch (asrc) {
-
-	case FLOWMGR_AUSRC_INTMIC:
-		dev = "intmic";
-		break;
-
-	case FLOWMGR_AUSRC_EXTMIC:
-		dev = "extmic";
-		break;
-
-	case FLOWMGR_AUSRC_LINEIN:
-		dev = "linein";
-		break;
-
-	case FLOWMGR_AUSRC_SPDIF:
-		dev = "spdif";
-		break;
-
-	default:
-		return EINVAL;
-	}
-
-	warning("flowmgr: set_ausrc(%s) should not be called!\n", dev);
-	return ENOSYS;
-}
-
-
 int flowmgr_auplay_changed(struct flowmgr *fm, enum flowmgr_auplay aplay)
 {
 	const char *dev;
@@ -127,46 +94,3 @@ int flowmgr_get_mute(struct flowmgr *fm, bool *muted)
 }
 
 
-int flowmgr_start_mic_file_playout(const char fileNameUTF8[1024], int fs)
-{
-	int err = 0;
-
-	err = voe_start_playing_PCM_file_as_microphone(fileNameUTF8, fs);
-
-	return err;
-}
-
-
-void flowmgr_stop_mic_file_playout(void)
-{
-	voe_stop_playing_PCM_file_as_microphone();
-}
-
-void flowmgr_set_bitrate(int rate_bps)
-{
-	voe_set_bitrate(rate_bps);
-}
-
-
-void flowmgr_set_packet_size(int packet_size_ms)
-{
-	voe_set_packet_size(packet_size_ms);
-}
-
-
-void flowmgr_silencing(bool silenced)
-{
-	if (!flowmgr_is_using_voe())
-		return;
-
-	if (silenced)
-		voe_start_silencing();
-	else
-		voe_stop_silencing();
-}
-
-
-int flowmgr_update_conf_parts(struct list *partl)
-{
-	return ENOSYS;
-}

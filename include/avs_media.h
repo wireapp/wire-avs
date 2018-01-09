@@ -125,8 +125,6 @@ void mediaflow_set_tag(struct mediaflow *mf, const char *tag);
 int mediaflow_add_local_host_candidate(struct mediaflow *mf,
 				       const char *ifname,
 				       const struct sa *addr);
-int mediaflow_add_rcand(struct mediaflow *mf, const char *rcand,
-			const char *mid, int idx);
 int mediaflow_generate_offer(struct mediaflow *mf, char *sdp, size_t sz);
 int mediaflow_generate_answer(struct mediaflow *mf, char *sdp, size_t sz);
 int mediaflow_handle_offer(struct mediaflow *mf, const char *sdp);
@@ -220,3 +218,5 @@ void mediaflow_set_ice_role(struct mediaflow *mf, enum ice_role role);
 struct ice_candpair *mediaflow_selected_pair(const struct mediaflow *mf);
 enum ice_role mediaflow_local_role(const struct mediaflow *mf);
 int mediaflow_print_ice(struct re_printf *pf, const struct mediaflow *mf);
+
+int mediaflow_set_extcodec(struct mediaflow *mf, void *arg);

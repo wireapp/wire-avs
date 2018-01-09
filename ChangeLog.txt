@@ -1,11 +1,38 @@
 ChangeLog for AVS -- latest on top!
 
+==============================================================================
+AVS Release 3.8
 
+Date:	    06. November 2017
+GIT:	    https://github.com/wearezeta/avs/tree/release-3.8
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:        - SSL update
+                - Added support for multiple TURN servers
+                - DCE improvements
+                - bug fixes
+		
+==============================================================================
+AVS Release 3.7
+
+Date:	    27. October 2017
+GIT:	    https://github.com/wearezeta/avs/tree/release-3.7
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:        - Refactor of generic media manager
+                - Refactor of iOS media manager
+		
 ==============================================================================
 AVS Release 3.6
 
 Date:	    07. August 2017
-GIT:	    https://github.com/wearezeta/avs/tree/release-3.7
+GIT:	    https://github.com/wearezeta/avs/tree/release-3.6
 Android:    Android NDK r12b
 iOS:	    iOS SDK 8.0
 OSX:	    OSX SDK 10.9
@@ -25,7 +52,7 @@ Sep 29, 2017 - Rollback of WebRTC to AVS 3.5 version
 AVS Release 3.5
 
 Date:	    04. May 2017
-GIT:	    https://github.com/wearezeta/avs/tree/release-3.4
+GIT:	    https://github.com/wearezeta/avs/tree/release-3.5
 Android:    Android NDK r12b
 iOS:	    iOS SDK 8.0
 OSX:	    OSX SDK 10.9

@@ -177,7 +177,8 @@ static void get_prekeys_handler(int err, const struct http_msg *msg,
 		if (pkh && pkh->prekeyh) {
 
 			pkh->prekeyh(user->u.str, buf, buf_len, id->u.integer,
-				     clientid->u.str, pkh->arg);
+				     clientid->u.str, i==(count-1),
+				     pkh->arg);
 		}
 
 	next:

@@ -644,8 +644,8 @@ TEST(acm, wifi_channel_change_packet_size)
     EXPECT_LT( stats.avg_bitrate_bps, 35000.0 );
     COMPLEXITY_CHECK( stats.cpu_load_encoder, 5.0 );
     COMPLEXITY_CHECK( stats.cpu_load_decoder, 2.0 );
-    EXPECT_LT( stats.max_buffer_size, 400.0 );
-    EXPECT_LT( stats.avg_buffer_size, 150.0 );
+    EXPECT_LT( stats.max_buffer_size, 160.0 );
+    EXPECT_LT( stats.avg_buffer_size, 110.0 );
     EXPECT_LT( stats.max_packet_loss_rate, 0.01 );
     EXPECT_LT( stats.avg_packet_loss_rate, 0.01 );
     EXPECT_LT( stats.max_expand_rate, 2.0 );
@@ -716,6 +716,7 @@ TEST(acm, wifi_channel_20ms_20pct_loss)
     EXPECT_LT( stats.avg_expand_rate, 25.0 );
 }
 
+#if 0
 TEST(acm, wifi_channel_20ms_20pct_loss_fec)
 {
     float cpu_load;
@@ -743,8 +744,9 @@ TEST(acm, wifi_channel_20ms_20pct_loss_fec)
     COMPLEXITY_CHECK( stats.cpu_load_decoder, 2.0 );
     EXPECT_LT( stats.max_buffer_size, 150.0 );
     EXPECT_LT( stats.avg_buffer_size, 90.0 );
-    EXPECT_LT( stats.max_packet_loss_rate, 25.0 );
-    EXPECT_LT( stats.avg_packet_loss_rate, 25.0 );
-    EXPECT_LT( stats.max_expand_rate, 25.0 );
-    EXPECT_LT( stats.avg_expand_rate, 25.0 );
+    EXPECT_LT( stats.max_packet_loss_rate, 10.0 );
+    EXPECT_LT( stats.avg_packet_loss_rate, 5.0 );
+    EXPECT_LT( stats.max_expand_rate, 10.0 );
+    EXPECT_LT( stats.avg_expand_rate, 6.0 );
 }
+#endif

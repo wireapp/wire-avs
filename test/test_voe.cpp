@@ -146,14 +146,14 @@ TEST_F(Voe, enc_dec_alloc)
 
 	if (ac->enc_alloc){
 		err = ac->enc_alloc(&aesp, ac, NULL, &prm,
-				    NULL, NULL, NULL, NULL);
+				    NULL, NULL, NULL, NULL, NULL);
 		ASSERT_EQ(0, err);
 		ASSERT_TRUE(aesp != NULL);
 	}
 
 	if (ac->dec_alloc){
 		err = ac->dec_alloc(&adsp, ac, NULL, &prm,
-				    NULL, NULL);
+				    NULL, NULL, NULL);
 		ASSERT_EQ(0, err);
 		ASSERT_TRUE(adsp != NULL);
 	}
@@ -179,13 +179,13 @@ TEST_F(Voe, unmute_after_call)
 
 	if (ac->enc_alloc){
 		err = ac->enc_alloc(&aesp, ac, NULL, &prm,
-                            NULL, NULL, NULL, NULL);
+				    NULL, NULL, NULL, NULL, NULL);
 		ASSERT_EQ(0, err);
 	}
 
 	if (ac->dec_alloc){
 		err = ac->dec_alloc(&adsp, ac, NULL, &prm,
-				    NULL, NULL);
+				    NULL, NULL, NULL);
 		ASSERT_EQ(0, err);
 	}
 
@@ -293,18 +293,18 @@ TEST_F(Voe, enc_dec_alloc_start_stop)
 	ac = aucodec_find(&aucodecl, "opus", 48000, 2);
 	if (ac->enc_alloc){
 		err = ac->enc_alloc(&aesp, ac, NULL, &prm,
-				    send_rtp_handler, NULL, NULL, &ss);
+				    send_rtp_handler, NULL, NULL, NULL, &ss);
 		ASSERT_EQ(0, err);
 	}
 
 	if (ac->dec_alloc){
 		err = ac->dec_alloc(&adsp, ac, NULL, &prm,
-				    NULL, NULL);
+				    NULL, NULL, NULL);
 		ASSERT_EQ(0, err);
 	}
 
 	if (ac->enc_start){
-		ac->enc_start(aesp, false, &mctxp);
+		ac->enc_start(aesp, false, NULL, &mctxp);
 	}
 
 	if (ac->dec_start){
@@ -335,72 +335,6 @@ TEST_F(Voe, enc_dec_alloc_start_stop)
 }
 
 
-TEST_F(Voe, packet_size_40)
-{
-	struct auenc_state *aesp = NULL;
-	struct audec_state *adsp = NULL;
-	struct media_ctx *mctxp = NULL;
-	const struct aucodec *ac;
-	int pt = 96;
-	int srate = 48000;
-	struct sync_state ss;
-	struct aucodec_param prm;
-	int err;
-
-	init_sync_state(&ss);
-
-	memset(&prm, 0, sizeof(prm));
-	prm.local_ssrc = 0x12345678;
-	prm.pt = 96;
-	prm.srate = 48000;
-	prm.ch = 2;
-
-	ac = aucodec_find(&aucodecl, "opus", 48000, 2);
-	if (ac->enc_alloc){
-		err = ac->enc_alloc(&aesp, ac, NULL, &prm,
-				    send_rtp_handler, NULL, NULL, &ss);
-		ASSERT_EQ(0, err);
-	}
-
-	if (ac->dec_alloc){
-		err = ac->dec_alloc(&adsp, ac, NULL, &prm,
-				    NULL, NULL);
-		ASSERT_EQ(0, err);
-	}
-
-	if (ac->enc_start){
-		ac->enc_start(aesp, false, &mctxp);
-	}
-
-	if (ac->dec_start){
-		ac->dec_start(adsp, &mctxp);
-	}
-
-	voe_set_packet_size(40);
-
-	err = re_main_wait(30000);
-	ASSERT_EQ(0, err);
-
-	ASSERT_GE(ss.n_packet, EXPECTED_PACKETS);
-	ASSERT_EQ(pt, ss.pt);
-	ASSERT_EQ(prm.local_ssrc, ss.ssrc);
-	ASSERT_EQ(1, ss.seq_diff);
-	ASSERT_EQ(2*960, ss.timestamp_diff);
-
-	if (ac->enc_stop){
-		ac->enc_stop(aesp);
-	}
-
-	if (ac->dec_stop){
-		ac->dec_stop(adsp);
-	}
-
-	mem_deref(aesp);
-	mem_deref(adsp);
-
-	mem_deref(ss.mq);
-}
-
 #if 0
 TEST_F(Voe, cbr_off)
 {
@@ -425,13 +359,13 @@ TEST_F(Voe, cbr_off)
     ac = aucodec_find(&aucodecl, "opus", 48000, 2);
     if (ac->enc_alloc){
         err = ac->enc_alloc(&aesp, ac, NULL, &prm,
-                            send_rtp_handler, NULL, NULL, &ss);
+                            send_rtp_handler, NULL, NULL, NULL, &ss);
         ASSERT_EQ(0, err);
     }
     
     if (ac->dec_alloc){
         err = ac->dec_alloc(&adsp, ac, NULL, &prm,
-                            NULL, NULL);
+                            NULL, NULL, NULL);
         ASSERT_EQ(0, err);
     }
     
@@ -494,13 +428,13 @@ TEST_F(Voe, cbr_on)
     ac = aucodec_find(&aucodecl, "opus", 48000, 2);
     if (ac->enc_alloc){
         err = ac->enc_alloc(&aesp, ac, NULL, &prm,
-                            send_rtp_handler, NULL, NULL, &ss);
+                            send_rtp_handler, NULL, NULL, NULL, &ss);
         ASSERT_EQ(0, err);
     }
     
     if (ac->dec_alloc){
         err = ac->dec_alloc(&adsp, ac, NULL, &prm,
-                            NULL, NULL);
+                            NULL, NULL, NULL);
         ASSERT_EQ(0, err);
     }
     

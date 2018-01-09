@@ -95,7 +95,7 @@ int cert_tls_set_selfsigned_ecdsa(struct tls *tls, const char *curve_name)
 
 	if (!X509_NAME_add_entry_by_txt(subj, "CN", MBSTRING_ASC,
 					(unsigned char *)cn,
-					(int)strlen(cn), -1, 0))
+					(int)str_len(cn), -1, 0))
 		goto out;
 
 	if (!X509_set_issuer_name(cert, subj) ||
@@ -159,10 +159,18 @@ int cert_tls_set_selfsigned_ecdsa(struct tls *tls, const char *curve_name)
  */
 int cert_enable_ecdh(struct tls *tls)
 {
+	SSL_CTX *ctx;
+
 	if (!tls)
 		return EINVAL;
 
-	if (!SSL_CTX_set_ecdh_auto(tls->ctx, 1)) {
+	ctx = tls_openssl_context(tls);
+	if (!ctx) {
+		warning("cert: no openssl context\n");
+		return ENOENT;
+	}
+
+	if (!SSL_CTX_set_ecdh_auto(ctx, 1)) {
 		warning("cert: failed to enable ECDH auto\n");
 		ERR_clear_error();
 		return EPROTO;

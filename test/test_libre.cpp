@@ -17,6 +17,7 @@
 */
 #include "gtest/gtest.h"
 #include <re.h>
+#include "ztest.h"
 
 
 TEST(libre, socket_address_v4)
@@ -67,4 +68,82 @@ TEST(libre, verify_dtls_support)
 	ASSERT_EQ(0, err);
 	ASSERT_TRUE(tls != NULL);
 	mem_deref(tls);
+}
+
+
+struct test {
+	unsigned n_estab;
+	unsigned n_httpreq;
+};
+
+
+/* Client */
+static void tcp_estab_handler(void *arg)
+{
+	struct test *test = (struct test *)arg;
+
+	++test->n_estab;
+
+	re_cancel();
+}
+
+
+/* Server */
+static void http_req_handler(struct http_conn *conn,
+			     const struct http_msg *msg, void *arg)
+{
+	struct test *test = (struct test *)arg;
+
+	++test->n_httpreq;
+}
+
+
+/*
+ * Verify that TLS connections can be used with a deleted TLS context
+ */
+TEST(libre, openssl_context)
+{
+	struct test test = {0,0};
+	struct sa addr;
+	struct http_sock *httpsock;
+	struct tls *tls;
+	struct tcp_conn *tc;
+	struct tls_conn *sc;
+	int err;
+
+	/* Create the HTTPS Server */
+	err = sa_set_str(&addr, "127.0.0.1", 0);
+	ASSERT_EQ(0, err);
+
+	err = https_listen(&httpsock, &addr, "test/data/cert_rsa.pem",
+			   http_req_handler, &test);
+	ASSERT_EQ(0, err);
+
+	err = tcp_sock_local_get(http_sock_tcp(httpsock), &addr);
+	ASSERT_EQ(0, err);
+
+	/* Create the TLS Client */
+	err = tls_alloc(&tls, TLS_METHOD_SSLV23, NULL, NULL);
+	ASSERT_EQ(0, err);
+	ASSERT_TRUE(tls != NULL);
+
+	err = tcp_connect(&tc, &addr, tcp_estab_handler, NULL, NULL, &test);
+	ASSERT_EQ(0, err);
+
+	err = tls_start_tcp(&sc, tls, tc, 0);
+	ASSERT_EQ(0, err);
+
+	err = re_main_wait(5000);
+	ASSERT_EQ(0, err);
+
+	ASSERT_EQ(1, test.n_estab);
+	ASSERT_EQ(0, test.n_httpreq);
+
+	/* clean up*/
+	/* NOTE: destroy TLS context first to provoke crash */
+	tls = (struct tls *)mem_deref(tls);
+
+	mem_deref(sc);
+	mem_deref(tc);
+	mem_deref(httpsock);
 }

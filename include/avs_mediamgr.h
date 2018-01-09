@@ -37,17 +37,14 @@ enum mediamgr_state {
 	MEDIAMGR_STATE_NORMAL = 0,
 	MEDIAMGR_STATE_OUTGOING_AUDIO_CALL,
 	MEDIAMGR_STATE_OUTGOING_VIDEO_CALL,
-	MEDIAMGR_STATE_INCOMMING_CALL,
-	MEDIAMGR_STATE_AUDIO_ACTIVATED,
-	MEDIAMGR_STATE_AUDIO_DEACTIVATED,
-	MEDIAMGR_STATE_CALL_ESTABLISHED,
-	MEDIAMGR_STATE_VIDEOCALL_ESTABLISHED,
+	MEDIAMGR_STATE_INCOMING_AUDIO_CALL,
+	MEDIAMGR_STATE_INCOMING_VIDEO_CALL,
 	MEDIAMGR_STATE_INCALL,
 	MEDIAMGR_STATE_INVIDEOCALL,
-	MEDIAMGR_STATE_TWO_WAY_AUDIO,
 	MEDIAMGR_STATE_ROAMING,
 	MEDIAMGR_STATE_HOLD,
-	MEDIAMGR_STATE_RESUME, // not really a state, goes to INCALL if held, otherwise NORMAL
+	MEDIAMGR_STATE_RESUME,
+	MEDIAMGR_STATE_UNKNOWN,
 };
 
 enum mediamgr_sound_mode {
@@ -73,6 +70,7 @@ void mediamgr_pause_media(struct mediamgr *mm, const char *media_name);
 void mediamgr_stop_media(struct mediamgr *mm, const char *media_name);
 
 void mediamgr_set_call_state(struct mediamgr *mm, enum mediamgr_state state);
+void mediamgr_incall(struct mediamgr *mm, bool incall, bool video);
 
 void mediamgr_enable_speaker(struct mediamgr *mm, bool enable);
 enum mediamgr_auplay mediamgr_get_route(const struct mediamgr *mm);
@@ -99,6 +97,21 @@ void mediamgr_set_user_starts_audio(struct mediamgr *mediamgr, bool enable);
 
 void mediamgr_enter_call(struct mediamgr *mediamgr);
 void mediamgr_exit_call(struct mediamgr *mediamgr);
+void mediamgr_audio_release(struct mediamgr *mediamgr);
+	
+
+typedef void (mediamgr_incoming_h)(const char *convid, uint32_t msg_time,
+				   const char *userid, int video_call /*bool*/,
+				   int should_ring /*bool*/,
+				   void *arg);
+	
+int mediamgr_invoke_incomingh(struct mediamgr *mm,
+			      mediamgr_incoming_h *incomingh,
+			      const char *convid, uint32_t msg_time,
+			      const char *userid, int video_call,
+			      int should_ring,
+			      void *arg);
+	
 
     /* Global functions */
 struct mm;

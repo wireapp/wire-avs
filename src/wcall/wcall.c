@@ -22,12 +22,33 @@
 #include <avs.h>
 
 #include <avs_wcall.h>
+#include <avs_vie.h>
 
 #include "wcall.h"
 
+
 #define AUDIO_CBR_STATE_UNSET (-1)
 
+#define APITAG "WAPI "
+
+
+static struct {
+	struct list logl;
+} calling;
+
+
+struct log_entry {
+	struct log logger;
+
+	wcall_log_h *logh;
+	void *arg;
+
+	struct le le;
+};
+
+
 struct calling_instance {
+	struct wcall_marshal *marshal;
 	struct mediamgr *mm;
 	char *userid;
 	char *clientid;
@@ -61,6 +82,7 @@ struct calling_instance {
 		wcall_group_changed_h *chgh;
 		void *arg;
 	} group;
+	
 	void *arg;
 
 	struct tmr tmr_roam;
@@ -73,8 +95,6 @@ static struct list instances = LIST_INIT;
 struct wcall {
 	struct calling_instance *inst;
 	char *convid;
-	char *userid;
-	char *clientid;
 
 	struct ecall *ecall;
 
@@ -104,6 +124,9 @@ struct wcall_ctx {
 
 	struct le le; /* member of ctxl */
 };
+
+
+static bool wcall_has_calls(struct calling_instance *inst);
 
 
 static struct sa *url2sa(struct sa *sa, const char *url)
@@ -195,11 +218,12 @@ static void *cfg_wait_thread(void *arg)
 
 	(void)arg;
 
-	debug("wcall(%p): starting config wait\n");	
+	debug("wcall(%p): starting config wait\n", inst);	
 	while (inst->call_config == NULL && inst->thread_run) {
 		sys_msleep(500);
 	}
-	debug("wcall(%p): config ready!\n");
+	if (inst->call_config)
+		debug("wcall(%p): config ready!\n", inst);
 
 	return NULL;
 }
@@ -246,6 +270,32 @@ struct wcall *wcall_lookup(void *id, const char *convid)
 	return found ? wcall : NULL;
 }
 
+
+static void invoke_incoming_handler(const char *convid,
+				    uint32_t msg_time,
+				    const char *userid,
+				    int video_call,
+				    int should_ring,
+				    void *arg)
+{
+	struct calling_instance *inst = arg;
+	uint64_t now = tmr_jiffies();
+
+
+	info(APITAG "wcall(%p): calling incomingh: %p\n",
+	     inst, inst->incomingh);
+
+	if (inst->incomingh) {
+		inst->incomingh(convid, msg_time, userid,
+				video_call, should_ring, inst->arg);
+	}
+		
+	info(APITAG "wcall(%p): inst->incomingh took %ld ms \n",
+	     inst, tmr_jiffies() - now);
+}
+
+
+
 static void ecall_propsync_handler(void *arg);
 
 static void egcall_start_handler(uint32_t msg_time,
@@ -258,26 +308,37 @@ static void egcall_start_handler(uint32_t msg_time,
 
 	set_state(wcall, WCALL_STATE_INCOMING);
 
-	info("wcall(%p): call incomingh(%p) group:yes video:no ring:%s\n",
+	info(APITAG "wcall(%p): incomingh(%p) group:yes video:no ring:%s\n",
 		wcall, wcall->inst->incomingh, should_ring ? "yes" : "no");
 
-	if (inst->incomingh) {
-		uint64_t now = tmr_jiffies();
-		wcall->inst->incomingh(wcall->convid, msg_time, userid_sender,
-				  0, should_ring ? 1 : 0, wcall->inst->arg);
-		
-		info("wcall(%p): inst->incomingh took %ld ms \n",
-		     wcall, tmr_jiffies() - now);
-	}
 #ifndef ANDROID // Breaks ringtone for Android. Speeds up call setup for ios ...
 	if (inst->mm) {
-		mediamgr_set_call_state(inst->mm, MEDIAMGR_STATE_INCOMMING_CALL);
+		mediamgr_set_call_state(inst->mm,
+					MEDIAMGR_STATE_INCOMING_AUDIO_CALL);
 	}
 #endif
+	
+	if (inst->incomingh) {
+		if (inst->mm) {
+			mediamgr_invoke_incomingh(inst->mm,
+						  invoke_incoming_handler,
+						  wcall->convid, msg_time,
+						  userid_sender,
+						  0,
+						  should_ring ? 1 : 0,
+						  inst);
+		}
+		else {
+			invoke_incoming_handler(wcall->convid, msg_time,
+						userid_sender, 0,
+						should_ring ? 1 : 0, inst);
+		}
+	}
 }
-				 
 
-static void ecall_conn_handler(uint32_t msg_time,
+
+static void ecall_conn_handler(struct ecall *ecall,
+			       uint32_t msg_time,
 			       const char *userid_sender,
 			       bool video_call,
 			       void *arg)
@@ -289,24 +350,38 @@ static void ecall_conn_handler(uint32_t msg_time,
 
 	wcall->video.video_call = video_call && ecall_has_video(wcall->ecall);
 
-	info("wcall(%p): call incomingh(%p) group:no video:%s ring:yes\n",
+	info(APITAG "wcall(%p): incomingh(%p) group:no video:%s ring:yes\n",
 		 wcall, inst->incomingh, video_call ? "yes" : "no");
 
 	set_state(wcall, WCALL_STATE_INCOMING);
 
 #ifndef ANDROID // Breaks ringtone for Android. Speeds up call setup for ios ...
 	if (inst->mm) {
-		mediamgr_set_call_state(inst->mm, MEDIAMGR_STATE_INCOMMING_CALL);
+		enum mediamgr_state state;
+
+		state = wcall->video.video_call ?
+			MEDIAMGR_STATE_INCOMING_VIDEO_CALL :
+			MEDIAMGR_STATE_INCOMING_AUDIO_CALL;
+
+		mediamgr_set_call_state(inst->mm, state);
 	}
 #endif
     
 	if (inst->incomingh) {
-		uint64_t now = tmr_jiffies();
-		inst->incomingh(wcall->convid, msg_time, wcall->userid,
-				  video_call ? 1 : 0, 1, inst->arg);
-		
-		info("wcall(%p): inst->incomingh took %ld ms \n",
-		     wcall, tmr_jiffies() - now);
+		if (inst->mm) {
+			mediamgr_invoke_incomingh(inst->mm,
+						  invoke_incoming_handler,
+						  wcall->convid, msg_time,
+						  userid_sender,
+						  video_call ? 1 : 0, 1, inst);
+		}
+		else {
+			invoke_incoming_handler(wcall->convid, msg_time,
+						userid_sender,
+						video_call ? 1 : 0,
+						1,
+						inst);
+		}
 	}
 
 	ecall_propsync_handler(arg);
@@ -318,79 +393,106 @@ static void ecall_answer_handler(void *arg)
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall->inst;
 
-	info("wcall(%p): answer_handler on convid=%s\n", wcall, wcall->convid);
-	if (inst->answerh)
+	info(APITAG "wcall(%p): answerh(%p) convid=%s\n", wcall, inst->answerh, wcall->convid);
+	if (inst->answerh) {
+		uint64_t now = tmr_jiffies();
 		inst->answerh(wcall->convid, inst->arg);
 
+		info(APITAG "wcall(%p): answerh took %ld ms \n",
+		     wcall, tmr_jiffies() - now);
+	}
 	set_state(wcall, WCALL_STATE_ANSWERED);
 	ecall_propsync_handler(arg);
 }
 
+
 static void ecall_media_estab_handler(struct ecall *ecall, bool update,
 				      void *arg)
 {
+	int err;
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall->inst;
-	enum mediamgr_state mmst;
+	const char *peer_userid = ecall_get_peer_userid(ecall);
 
 	(void)ecall;
-	
+
 	info("wcall(%p): media established(video=%d): "
-	     "convid=%s userid=%s update=%d\n",
+	     "convid=%s peer_userid=%s update=%d\n",
 	     wcall, wcall->video.video_call,
-	     wcall->convid, wcall->userid, update);
+	     wcall->convid, peer_userid, update);
 	
-	if (wcall->video.video_call)
-		mmst = MEDIAMGR_STATE_VIDEOCALL_ESTABLISHED;
-	else
-		mmst = MEDIAMGR_STATE_CALL_ESTABLISHED;
-    
 	set_state(wcall, WCALL_STATE_MEDIA_ESTAB);
     
 	if (inst->mm) {
-		mediamgr_set_call_state(inst->mm, mmst);
+		enum mediamgr_state state;
+
+		state = wcall->video.video_call ? MEDIAMGR_STATE_INVIDEOCALL
+			                        : MEDIAMGR_STATE_INCALL;
+		mediamgr_set_call_state(inst->mm, state);
+	}
+	else {
+		err = ecall_media_start(ecall);
+		if (err) {
+			warning("wcall(%p): ecall_media_start failed (%m)\n",
+				wcall, err);
+		}
 	}
 }
+
 
 static void ecall_audio_estab_handler(struct ecall *ecall, bool update,
 				      void *arg)
 {
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall->inst;
+	const char *peer_userid = ecall_get_peer_userid(ecall);
 
 	(void)ecall;
 	
-	info("wcall(%p): audio established(video=%d): convid=%s userid=%s\n",
-	     wcall, wcall->video.video_call, wcall->convid, wcall->userid);
+	info("wcall(%p): audio established(video=%d): "
+	     "convid=%s peer_userid=%s inst=%p mm=%p\n",
+	     wcall, wcall->video.video_call, wcall->convid, peer_userid,
+	     inst, inst->mm);
     
 	// TODO: check this, it should not be necessary
-	voe_stop_silencing();
+	msystem_stop_silencing();
+	
     
-	info("wcall(%p): call estabh(%p) \n", wcall, inst->estabh);
+	info(APITAG "wcall(%p): estabh(%p) peer_userid=%s\n",
+	     wcall, inst->estabh, peer_userid);
+
 	if (!update && inst->estabh) {
 		uint64_t now = tmr_jiffies();
-		inst->estabh(wcall->convid, wcall->userid, inst->arg);
-		info("wcall(%p): inst->estabh took %ld ms \n",
+		inst->estabh(wcall->convid, peer_userid, inst->arg);
+
+		info(APITAG "wcall(%p): estabh took %ld ms \n",
 		     wcall, tmr_jiffies() - now);
-        
-		if (inst->mm) {
-			mediamgr_set_call_state(inst->mm, MEDIAMGR_STATE_TWO_WAY_AUDIO);
-		}
 	}
 }
 
-static void ecall_datachan_estab_handler(void *arg, bool update)
+static void ecall_datachan_estab_handler(struct ecall *ecall, bool update,
+					 void *arg)
 {
 	struct wcall *wcall = arg;
+	const char *peer_userid = ecall_get_peer_userid(ecall);
 
 	info("wcall(%p): data channel established for conversation %s "
 	     "update=%d\n",
 	     wcall, wcall->convid, update);
 
+	info(APITAG "wcall(%p): dcestabh(%p) "
+	     "conv=%s peer_userid=%s update=%d\n",
+	     wcall, wcall->inst ? wcall->inst->dcestabh : NULL,
+	     wcall->convid, peer_userid, update);
+
 	if (wcall->inst && wcall->inst->dcestabh) {
+		uint64_t now = tmr_jiffies();
 		wcall->inst->dcestabh(wcall->convid,
-				      wcall->userid,
+				      peer_userid,
 				      wcall->inst->arg);
+
+		info(APITAG "wcall(%p): dcestabh took %ld ms \n",
+		     wcall, tmr_jiffies() - now);
 	}
 }
 
@@ -411,8 +513,8 @@ static void ecall_propsync_handler(void *arg)
 	}
 
 	if (!wcall->ecall) {
-		warning("wcall: propsyc_handler ecall is NULL, "
-			"ignoring props\n");
+		warning("wcall(%p): propsyc_handler ecall is NULL, "
+			"ignoring props\n", wcall);
 		return;
 	}
 
@@ -442,12 +544,12 @@ static void ecall_propsync_handler(void *arg)
 		     wcall->video.recv_state ? "true" : "false",
 		     state ? "true" : "false");
 		wcall->video.recv_state = state;
-		info("wcall(%p): propsync_handler call vstateh(%p) \n",
-		     wcall, inst->vstateh);
+		info(APITAG "wcall(%p): vstateh(%p) state=%d\n",
+		     wcall, inst->vstateh, state);
 		if (inst->vstateh) {
 			uint64_t now = tmr_jiffies();
 			inst->vstateh(state, inst->arg);
-			info("wcall(%p): inst->vstateh took %ld ms\n",
+			info(APITAG "wcall(%p): vstateh took %ld ms\n",
 			     wcall, tmr_jiffies() - now);
 		}
 	}
@@ -503,6 +605,9 @@ static int err2reason(int err)
 	case EDATACHANNEL:
 		return WCALL_REASON_DATACHANNEL;
 
+	case EREMOTE:
+		return WCALL_REASON_REJECTED;
+
 	default:
 		/* TODO: please convert new errors */
 		warning("wcall: default reason (%d) (%m)\n", err, err);
@@ -511,18 +616,18 @@ static int err2reason(int err)
 }
 
 
-static void ecall_close_handler(int err, const char *metrics_json, struct ecall *ecall,
-	uint32_t msg_time, void *arg)
+static void ecall_close_handler(int err, const char *metrics_json,
+				struct ecall *ecall, uint32_t msg_time,
+				void *arg)
 {
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall->inst;
 	const char *userid;
 	int reason;
 	
-	(void)ecall;
 	reason = err2reason(err);
 
-	info("wcall(%p): closeh(%p) called state=%s (reason=%s)\n",
+	info(APITAG "wcall(%p): closeh(%p) group=no state=%s reason=%s\n",
 	     wcall, inst->closeh, wcall_state_name(wcall->state),
 	     wcall_reason_name(reason));
 
@@ -536,15 +641,24 @@ static void ecall_close_handler(int err, const char *metrics_json, struct ecall 
 		userid = inst->userid;
 	else {
 		wcall->state = WCALL_STATE_TERM_REMOTE;
-		userid = wcall->userid ? wcall->userid : inst->userid;
+		userid = ecall ? ecall_get_peer_userid(ecall) : inst->userid;
 	}
 
 	set_state(wcall, WCALL_STATE_NONE);
 	if (inst->closeh) {
+		uint64_t now = tmr_jiffies();
 		inst->closeh(reason, wcall->convid, msg_time, userid, inst->arg);
+		info(APITAG "wcall(%p): closeh took %ld ms\n",
+		     wcall, tmr_jiffies() - now);
 	}
+
+	info(APITAG "wcall(%p): metricsh(%p) json=%p\n", wcall, inst->metricsh, metrics_json);
+
 	if (inst->metricsh && metrics_json) {
+		uint64_t now = tmr_jiffies();
 		inst->metricsh(wcall->convid, metrics_json, inst->arg);
+		info(APITAG "wcall(%p): metricsh took %ld ms\n",
+		     wcall, tmr_jiffies() - now);
 	}
 out:
 	mem_deref(wcall);
@@ -556,8 +670,10 @@ static void egcall_leave_handler(int reason, uint32_t msg_time, void *arg)
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall->inst;
 
-	info("wcall(%p): left group call in conv: %s reason: %d\n", wcall, wcall->convid,
-		reason);
+	info(APITAG "wcall(%p): closeh(%p) group=yes state=%s reason=%s\n",
+	     wcall, inst->closeh, wcall_state_name(wcall->state),
+	     wcall_reason_name(reason));
+
 	set_state(wcall, WCALL_STATE_INCOMING);
 	if (inst->closeh) {
 		int wreason = WCALL_REASON_NORMAL;
@@ -569,11 +685,17 @@ static void egcall_leave_handler(int reason, uint32_t msg_time, void *arg)
 		case EGCALL_REASON_ANSWERED_ELSEWHERE:
 			wreason = WCALL_REASON_ANSWERED_ELSEWHERE;
 			break;
+		case EGCALL_REASON_REJECTED:
+			wreason = WCALL_REASON_REJECTED;
+			break;
 		default:
 			wreason = WCALL_REASON_NORMAL;
 			break;
 		}
+		uint64_t now = tmr_jiffies();
 		inst->closeh(wreason, wcall->convid, msg_time, inst->userid, inst->arg);
+		info(APITAG "wcall(%p): closeh took %ld ms\n",
+		     wcall, tmr_jiffies() - now);
 	}
 }
 
@@ -643,17 +765,18 @@ static int ecall_send_handler(const char *userid,
 	void *context = wcall;
 	char *str = NULL;
 	int err = 0;
-
+	
 	if (inst->sendh == NULL)
 		return ENOSYS;
-
+       
 	err = ctx_alloc(&ctx, wcall->inst, context);
 	if (err)
-		return err;
+		return err;	
 
 	err = econn_message_encode(&str, msg);
 	if (err)
 		return err;
+
 	
 	info("wcall(%p): c3_message_send: convid=%s from=%s.%s to=%s.%s "
 	     "msg=%H ctx=%p\n",
@@ -662,12 +785,8 @@ static int ecall_send_handler(const char *userid,
 	     strlen(msg->dest_clientid) > 0 ? msg->dest_clientid : "ALL",
 	     econn_message_brief, msg, ctx);
 
-#ifdef USE_OLD_API
-    err = inst->sendh(ctx, wcall->convid, userid, inst->clientid,
-                        (uint8_t *)str, strlen(str), inst->arg);
-#else
-    char *dest_user = NULL;
-    char *dest_client = NULL;    
+	char *dest_user = NULL;
+	char *dest_client = NULL;    
 	if (strlen(msg->dest_userid) > 0) {
 		dest_user = msg->dest_userid;
 	}
@@ -678,7 +797,6 @@ static int ecall_send_handler(const char *userid,
 	err = inst->sendh(ctx, wcall->convid, userid, inst->clientid,
 			    dest_user, dest_client, (uint8_t *)str, strlen(str),
 			    msg->transient ? 1 : 0, inst->arg);
-#endif
     
 	mem_deref(str);
 
@@ -706,9 +824,8 @@ static void destructor(void *arg)
 		}
 	}
 
-	mem_deref(wcall->ecall);	
+	mem_deref(wcall->ecall);
 	mem_deref(wcall->group.call);
-	mem_deref(wcall->userid);
 	mem_deref(wcall->convid);
 
 	info("wcall(%p): dtor -- done\n", wcall);
@@ -732,7 +849,7 @@ int wcall_add(void *id,
 
 	wcall = wcall_lookup(id, convid);
 	if (wcall) {
-		warning("wcall: call_add: already have wcall=%p "
+		warning("wcall(%p): call_add: already have wcall "
 			"for convid=%s\n", wcall, convid);
 
 		return EALREADY;
@@ -744,16 +861,14 @@ int wcall_add(void *id,
 
 	wcall->inst = inst;
 
-	info("wcall(%p): added for convid=%s\n", wcall, convid);
+	info(APITAG "wcall(%p): added for convid=%s inst=%p\n", wcall, convid, inst);
 	str_dup(&wcall->convid, convid);
 
 	lock_write_get(inst->lock);
 
 	turnv = config_get_iceservers(inst->cfg, &turnc);
-	if (!turnv) {
-		warning("wcall: no turn servers\n");
-		err = ENOSYS;
-		goto out;
+	if (turnc == 0) {
+		info("wcall(%p): no turn servers\n", wcall);
 	}
 
 	if (group) {
@@ -794,8 +909,8 @@ int wcall_add(void *id,
 				  ecall_send_handler,
 				  wcall);
 		if (err) {
-			warning("wcall: call_add: ecall_alloc "
-				"failed: %m\n", err);
+			warning("wcall(%p): call_add: ecall_alloc "
+				"failed: %m\n", wcall, err);
 			goto out;
 		}
 	}
@@ -812,7 +927,7 @@ int wcall_add(void *id,
 				goto out;
 		}
 		else {
-			err = ecall_set_turnserver(wcall->ecall,
+			err = ecall_add_turnserver(wcall->ecall,
 						   url2sa(&sa, turn->url),
 						   turn->username,
 						   turn->credential);
@@ -843,7 +958,7 @@ int wcall_add(void *id,
 static void mm_mcat_changed(enum mediamgr_state state, void *arg)
 {
 	struct calling_instance *inst = arg;
-	
+
 	wcall_mcat_changed(inst, state);
 }
 
@@ -853,7 +968,7 @@ void wcall_i_mcat_changed(void *id, enum mediamgr_state state)
 	struct le *le;
 	struct calling_instance *inst = id;
 	
-	info("wcall: mcat changed to: %d\n", state);
+	info("wcall: mcat changed to: %d inst=%p\n", state, inst);
 
 	if (!inst) {
 		warning("wcall_i mcat_changed: no instance\n");
@@ -896,9 +1011,9 @@ void wcall_i_mcat_changed(void *id, enum mediamgr_state state)
 
 static void mm_audio_route_changed(enum mediamgr_auplay new_route, void *arg)
 {
-	(void)arg;
-    
-	wcall_audio_route_changed(new_route);
+	struct calling_instance *inst = arg;
+
+	wcall_audio_route_changed(inst, new_route);
 }
 
 void wcall_i_audio_route_changed(enum mediamgr_auplay new_route)
@@ -931,10 +1046,10 @@ void wcall_i_audio_route_changed(enum mediamgr_auplay new_route)
 			break;
 
 		default:
-			warning("Unknown Audio route %d \n", new_route);
+			warning("wcall: Unknown Audio route %d \n", new_route);
 			return;
 	}
-	voe_set_auplay(dev);
+	msystem_set_auplay(dev);
 }
 
 AVS_EXPORT
@@ -943,18 +1058,22 @@ int wcall_init(void)
 	int err = 0;
 	debug("wcall: init\n");
 
-	err = wcall_marshal_init();
-	if (err)
-		goto out;
+	list_init(&calling.logl);
 
-out:
 	return err;
 }
 
 AVS_EXPORT
 void wcall_close(void)
 {
-	wcall_marshal_close();
+	struct le *le;
+
+	LIST_FOREACH(&calling.logl, le) {
+		struct log_entry *loge = le->data;
+		
+		log_unregister_handler(&loge->logger);
+	}
+	list_flush(&calling.logl);
 }
 
 
@@ -1004,41 +1123,87 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 
 AVS_EXPORT
 void *wcall_create(const char *userid,
-	       const char *clientid,
-	       wcall_ready_h *readyh,
-	       wcall_send_h *sendh,
-	       wcall_incoming_h *incomingh,
-	       wcall_missed_h *missedh,
-	       wcall_answered_h *answerh,
-	       wcall_estab_h *estabh,
-	       wcall_close_h *closeh,
-	       wcall_metrics_h *metricsh,
-	       wcall_config_req_h *cfg_reqh,
-	       wcall_audio_cbr_change_h *acbrh,
-	       wcall_video_state_change_h *vstateh,
-	       void *arg)
+		   const char *clientid,
+		   wcall_ready_h *readyh,
+		   wcall_send_h *sendh,
+		   wcall_incoming_h *incomingh,
+		   wcall_missed_h *missedh,
+		   wcall_answered_h *answerh,
+		   wcall_estab_h *estabh,
+		   wcall_close_h *closeh,
+		   wcall_metrics_h *metricsh,
+		   wcall_config_req_h *cfg_reqh,
+		   wcall_audio_cbr_change_h *acbrh,
+		   wcall_video_state_change_h *vstateh,
+		   void *arg)
 {
+	return wcall_create_ex(userid,
+			       clientid,
+			       true,
+			       readyh,
+			       sendh,
+			       incomingh,
+			       missedh,
+			       answerh,
+			       estabh,
+			       closeh,
+			       metricsh,
+			       cfg_reqh,
+			       acbrh,
+			       vstateh,
+			       arg);
+}
+
+
+AVS_EXPORT
+void *wcall_create_ex(const char *userid,
+		      const char *clientid,
+		      int use_mediamgr,
+		      wcall_ready_h *readyh,
+		      wcall_send_h *sendh,
+		      wcall_incoming_h *incomingh,
+		      wcall_missed_h *missedh,
+		      wcall_answered_h *answerh,
+		      wcall_estab_h *estabh,
+		      wcall_close_h *closeh,
+		      wcall_metrics_h *metricsh,
+		      wcall_config_req_h *cfg_reqh,
+		      wcall_audio_cbr_change_h *acbrh,
+		      wcall_video_state_change_h *vstateh,
+		      void *arg)
+{
+
 	struct calling_instance *inst = NULL;
 	int err;
 
 	if (!str_isset(userid) || !str_isset(clientid))
 		return NULL;
 
-	debug("wcall: create\n");
+	info(APITAG "wcall: create userid=%s clientid=%s\n", userid, clientid);
 
 	inst = mem_zalloc(sizeof(*inst), NULL);
 	if (inst == NULL) {
 		return NULL;
 	}
 
-	err = mediamgr_alloc(&inst->mm, mm_mcat_changed, inst);
+	err = wcall_marshal_alloc(&inst->marshal);
 	if (err) {
-		warning("wcall: init: cannot allocate mediamgr\n");
+		warning("wcall_create: could not allocate marshal\n");
 		goto out;
 	}
-	mediamgr_register_route_change_h(inst->mm,
-					 mm_audio_route_changed, NULL);
-    
+
+	if (use_mediamgr != 0) {
+		err = mediamgr_alloc(&inst->mm, mm_mcat_changed, inst);
+		if (err) {
+			warning("wcall: init: cannot allocate mediamgr inst=%p\n",
+				inst);
+			goto out;
+		}
+		debug("wcall: mediamgr=%p\n", inst->mm);
+		mediamgr_register_route_change_h(inst->mm, mm_audio_route_changed,
+						 inst);
+	}
+
 	err = str_dup(&inst->userid, userid);
 	if (err)
 		goto out;
@@ -1102,7 +1267,9 @@ out:
 		return NULL;
 	}
 
+	info(APITAG "wcall: create return inst=%p\n", inst);
 	return inst;
+
 }
 
 
@@ -1110,7 +1277,8 @@ AVS_EXPORT
 void wcall_destroy(void *id)
 {
 	struct calling_instance *inst = id;
-	debug("wcall: destroy %p\n", id);
+
+	info(APITAG "wcall: destroy inst=%p\n", inst);
 
 	if (!inst) {
 		warning("wcall_destroy: no instance\n");
@@ -1127,6 +1295,10 @@ void wcall_destroy(void *id)
 	}
 
 	tmr_cancel(&inst->tmr_roam);
+	debug("wcall: derefing marshal\n");
+	inst->marshal = mem_deref(inst->marshal);
+	debug("wcall: derefing marshal...DONE\n");
+	
 
 	list_flush(&inst->wcalls);	
 
@@ -1164,7 +1336,7 @@ void wcall_destroy(void *id)
 
 AVS_EXPORT
 int wcall_i_start(struct wcall *wcall, int is_video_call, int group,
-		  int audio_cbr)
+		  int audio_cbr, void *extcodec_arg)
 {
 	int err = 0;
 	struct calling_instance *inst = wcall->inst;
@@ -1185,7 +1357,7 @@ int wcall_i_start(struct wcall *wcall, int is_video_call, int group,
 			if (err)
 				goto out;
 
-			err = ecall_answer(wcall->ecall, cbr);
+			err = ecall_answer(wcall->ecall, cbr, extcodec_arg);
 			if (!err)
 				set_state(wcall, WCALL_STATE_ANSWERED);
 				
@@ -1205,7 +1377,7 @@ int wcall_i_start(struct wcall *wcall, int is_video_call, int group,
 		else {
 			ecall_set_video_send_active(wcall->ecall,
 						    (bool)is_video_call);
-			err = ecall_start(wcall->ecall, cbr);
+			err = ecall_start(wcall->ecall, cbr, extcodec_arg);
 		}
 		if (err)
 			goto out;
@@ -1214,22 +1386,24 @@ int wcall_i_start(struct wcall *wcall, int is_video_call, int group,
 
     
 	if (inst->mm) {
-		if(is_video_call){
-			mediamgr_set_call_state(inst->mm, MEDIAMGR_STATE_OUTGOING_VIDEO_CALL);
-		} else {
-			mediamgr_set_call_state(inst->mm, MEDIAMGR_STATE_OUTGOING_AUDIO_CALL);
-		}
+		enum mediamgr_state state;
+
+		state = is_video_call ? MEDIAMGR_STATE_OUTGOING_VIDEO_CALL
+			              : MEDIAMGR_STATE_OUTGOING_AUDIO_CALL;
+		mediamgr_set_call_state(inst->mm, state);
 	}
  out:
 	return err;
 }
 
 
-int wcall_i_answer(struct wcall *wcall, int audio_cbr)
+int wcall_i_answer(struct wcall *wcall, int audio_cbr, void *extcodec_arg)
 {
 	int err = 0;
 	struct calling_instance *inst;
 	bool cbr = audio_cbr != 0;
+
+	info(APITAG "wcall(%p): answer\n", wcall);
 
 	if (!wcall)
 		return EINVAL;
@@ -1248,13 +1422,9 @@ int wcall_i_answer(struct wcall *wcall, int audio_cbr)
 	}
 	else { // ecall
 		set_state(wcall, WCALL_STATE_ANSWERED);
-		err = ecall_answer(wcall->ecall, cbr);
+		err = ecall_answer(wcall->ecall, cbr, extcodec_arg);
 	}
 
-	if (inst->mm) {
-		mediamgr_set_call_state(inst->mm, MEDIAMGR_STATE_INCOMMING_CALL);
-	}
-    
 	return err;
 }
 
@@ -1324,11 +1494,11 @@ void wcall_i_recv_msg(void *id,
 	wcall = wcall_lookup(id, convid);
 	
 	info("wcall(%p): c3_message_recv: convid=%s from=%s.%s to=%s.%s "
-	     "msg=%H age=%u seconds\n",
+	     "msg=%H age=%u seconds inst=%p\n",
 	     wcall, convid, userid, clientid,
 	     strlen(msg->dest_userid) > 0 ? msg->dest_userid : "ALL",
 	     strlen(msg->dest_clientid) > 0 ? msg->dest_clientid : "ALL",
-	     econn_message_brief, msg, msg->age);
+	     econn_message_brief, msg, msg->age, inst);
 
 	if (econn_is_creator(inst->userid, userid, msg) &&
 	    (msg->age * 1000) > inst->conf.econf.timeout_setup) {
@@ -1369,8 +1539,8 @@ void wcall_i_recv_msg(void *id,
 			err = wcall_add(id, &wcall, convid, false);
 
 			if (err) {
-				warning("wcall: recv_msg: could not add call: "
-					"%m\n", err);
+				warning("wcall(%p): recv_msg: could not add call: "
+					"%m\n", wcall, err);
 				goto out;
 			}
 		}
@@ -1379,15 +1549,12 @@ void wcall_i_recv_msg(void *id,
 			goto out;
 		}
 		if (err) {
-			warning("wcall: recv_msg: could not add call: "
-				"%m\n", err);
+			warning("wcall(%p): recv_msg: could not add call: "
+				"%m\n", wcall, err);
 			goto out;
 		}
 	}
 
-	if (!wcall->userid)
-		str_dup(&wcall->userid, userid);
-	
 
 	handled = egcall_msg_recv(wcall->group.call,
 				  curr_time, msg_time,
@@ -1396,6 +1563,16 @@ void wcall_i_recv_msg(void *id,
 		err = 0;
 	}
 	else {
+		const char *peer_userid =
+			ecall_get_peer_userid(wcall->ecall);
+		const char *peer_clientid =
+			ecall_get_peer_clientid(wcall->ecall);
+
+		if (!peer_userid)
+			ecall_set_peer_userid(wcall->ecall, userid);
+		if (!peer_clientid)
+			ecall_set_peer_clientid(wcall->ecall, clientid);
+
 		ecall_msg_recv(wcall->ecall,
 			       curr_time,
 			       msg_time,
@@ -1406,6 +1583,27 @@ void wcall_i_recv_msg(void *id,
 
  out:
 	return;
+}
+
+
+static bool wcall_has_calls(struct calling_instance *inst)
+{
+	struct le *le;
+	
+	LIST_FOREACH(&inst->wcalls, le) {
+		struct wcall *wcall = le->data;
+
+		switch(wcall->state) {
+		case WCALL_STATE_NONE:
+		case WCALL_STATE_TERM_LOCAL:
+		case WCALL_STATE_TERM_REMOTE:
+			break;
+
+		default:
+			return true;
+		}
+	}
+	return false;
 }
 
 
@@ -1432,8 +1630,12 @@ static void wcall_end_internal(struct wcall *wcall)
 
 		ecall_end(wcall->ecall);
 	}
-	if (wcall->inst->mm) {
-		mediamgr_set_call_state(wcall->inst->mm, MEDIAMGR_STATE_NORMAL);
+
+	if (!wcall_has_calls(wcall->inst)) {
+		if (wcall->inst->mm) {
+			mediamgr_set_call_state(wcall->inst->mm,
+						MEDIAMGR_STATE_NORMAL);
+		}
 	}
 }
 
@@ -1442,12 +1644,21 @@ int wcall_i_reject(struct wcall *wcall)
 {
 	struct calling_instance *inst;
 
+	info(APITAG "wcall(%p): reject convid=%s\n", wcall, wcall ? wcall->convid : "");
+
 	if (!wcall)
 		return EINVAL;
 
 	inst = wcall->inst;
 
 	info("wcall(%p): reject: convid=%s\n", wcall, wcall->convid);
+
+	if (!wcall_has_calls(wcall->inst)) {
+		if (wcall->inst->mm) {
+			mediamgr_set_call_state(wcall->inst->mm,
+						MEDIAMGR_STATE_NORMAL);
+		}
+	}
 
 	/* XXX Do nothing for now?
 	 * Later, send REJECT message to all of your own devices
@@ -1464,10 +1675,8 @@ int wcall_i_reject(struct wcall *wcall)
 
 void wcall_i_end(struct wcall *wcall)
 {
-	if (!wcall)
-		return;
-	
-	info("wcall(%p): end: convid=%s\n", wcall, wcall->convid);
+	info(APITAG "wcall(%p): end convid=%s\n", wcall, wcall ? wcall->convid : "");
+
 	if (wcall)
 		wcall_end_internal(wcall);
 }
@@ -1533,6 +1742,7 @@ void wcall_i_network_changed(void)
 {
 	/* Reset the previous timer */
 	//tmr_start(&inst->tmr_roam, 500, tmr_roaming_handler, NULL);
+	info(APITAG "wcall: network_changed\n");
 }
 
 
@@ -1540,6 +1750,8 @@ AVS_EXPORT
 void wcall_set_state_handler(void *id, wcall_state_change_h *stateh)
 {
 	struct calling_instance *inst = id;
+
+	info(APITAG "wcall: set_state_handler %p inst=%p\n", stateh, inst);
 
 	if (!inst) {
 		warning("wcall_set_state_handler: no instance\n");
@@ -1554,7 +1766,7 @@ void wcall_i_set_video_send_active(struct wcall *wcall, bool active)
 	if (!wcall)
 		return;
 
-	info("wcall(%p): set_video_send_active: convid=%s active=%d\n",
+	info(APITAG "wcall(%p): set_video_send_active convid=%s active=%d\n",
 	     wcall, wcall->convid, active);
 
 	ecall_set_video_send_active(wcall->ecall, active);	
@@ -1568,25 +1780,25 @@ int wcall_is_video_call(void *id, const char *convid)
 
 	wcall = wcall_lookup(id, convid);
 	if (wcall) {
-		info("wcall(%p): is_video_call: convid=%s is_video=%s\n", wcall, convid,
+		info(APITAG "wcall(%p): is_video_call convid=%s is_video=%s\n", wcall, convid,
 			wcall->video.video_call ? "yes" : "no");	
 		return wcall->video.video_call;
 	}
 
-	info("wcall(%p): is_video_call: convid=%s is_video=no\n", wcall, convid);	
+	info(APITAG "wcall(%p): is_video_call convid=%s is_video=no\n", wcall, convid);	
 	return 0;
 }
 
 
 AVS_EXPORT
-int wcall_debug(struct re_printf *pf, void *id)
+int wcall_debug(struct re_printf *pf, const void *id)
 {
 	struct msystem_turn_server *turnv = NULL;
 	size_t turnc = 0;
 	struct le *le;	
 	int err = 0;
 
-	struct calling_instance *inst = id;
+	const struct calling_instance *inst = id;
 
 	if (!inst) {
 		re_hprintf(pf, "\n");
@@ -1694,6 +1906,8 @@ void wcall_set_group_changed_handler(void *id, wcall_group_changed_h *chgh,
 {
 	struct calling_instance *inst = id;
 
+	info(APITAG "wcall: set_group_changed_handler %p inst=%p\n", chgh, inst);
+
 	if (!inst) {
 		warning("wcall_set_group_changed_handler: no instance\n");
 		return;
@@ -1739,6 +1953,8 @@ void wcall_enable_privacy(void *id, int enabled)
 {
 	struct calling_instance *inst = id;
 
+	info(APITAG "wcall: enable_privacy enabled=%d inst=%p\n", enabled, inst);
+
 	if (!inst) {
 		warning("wcall: enable_privacy -- no instance\n");
 		return;
@@ -1767,6 +1983,7 @@ const char *wcall_reason_name(int reason)
 	case WCALL_REASON_STILL_ONGOING:      return "Ongoing";
 	case WCALL_REASON_TIMEOUT_ECONN:      return "TimeoutEconn";
 	case WCALL_REASON_DATACHANNEL:        return "DataChannel";
+	case WCALL_REASON_REJECTED:           return "Rejected";
 
 	default: return "???";
 	}
@@ -1788,3 +2005,72 @@ struct mediamgr *wcall_mediamgr(void *id)
 	return inst->mm;
 }
 
+
+void wcall_handle_frame(struct avs_vidframe *frame)
+{
+	if (frame) {
+		vie_capture_router_handle_frame(frame);
+	}
+}
+
+
+struct wcall_marshal *wcall_get_marshal(void *wuser)
+{
+	struct calling_instance *inst = wuser;
+
+	return inst ? inst->marshal : NULL;
+}
+
+
+static void wcall_log_handler(uint32_t level, const char *msg, void *arg)
+{
+	struct log_entry *loge = arg;
+	int wlvl;
+
+	switch (level) {
+	case LOG_LEVEL_DEBUG:
+		wlvl = WCALL_LOG_LEVEL_DEBUG;
+		break;
+		
+	case LOG_LEVEL_INFO:
+		wlvl = WCALL_LOG_LEVEL_INFO;
+		break;
+		
+	case LOG_LEVEL_WARN:
+		wlvl = WCALL_LOG_LEVEL_WARN;		
+		break;
+
+	case LOG_LEVEL_ERROR:
+		wlvl = WCALL_LOG_LEVEL_ERROR;		
+		break;
+
+	default:
+		wlvl = WCALL_LOG_LEVEL_ERROR;
+		break;
+	}
+	
+	
+	if (loge->logh)
+		loge->logh(wlvl, msg, loge->arg);
+}
+
+
+AVS_EXPORT
+void wcall_set_log_handler(wcall_log_h *logh, void *arg)
+{
+	struct log_entry *loge;
+		
+	loge = mem_zalloc(sizeof(*loge), NULL);
+	if (!loge)
+		return;
+
+	loge->logh = logh;
+	loge->arg = arg;
+
+	loge->logger.h = wcall_log_handler;
+	loge->logger.arg = loge;
+
+	log_register_handler(&loge->logger);
+
+	list_append(&calling.logl, &loge->le, loge);
+}

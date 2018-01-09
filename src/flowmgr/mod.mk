@@ -6,5 +6,4 @@
 AVS_SRCS += \
 	flowmgr/device.c \
 	flowmgr/flowmgr.c \
-	flowmgr/marshal.c \
-	flowmgr/rr.c
+	flowmgr/marshal.c

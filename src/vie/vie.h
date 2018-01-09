@@ -120,6 +120,7 @@ int  vie_enc_alloc(struct videnc_state **vesp,
 		   videnc_rtp_h *rtph,
 		   videnc_rtcp_h *rtcph,
 		   videnc_err_h *errh,
+		   void *extcodec_arg,
 		   void *arg);
 int  vie_capture_start(struct videnc_state *ves);
 void vie_capture_stop(struct videnc_state *ves);
@@ -154,6 +155,7 @@ int  vie_dec_alloc(struct viddec_state **vdsp,
 		   struct sdp_media *sdpm,
 		   struct vidcodec_param *prm,
 		   viddec_err_h *errh,
+		   void *extcodec_arg,
 		   void *arg);
 int  vie_render_start(struct viddec_state *vds);
 void vie_render_stop(struct viddec_state *vds);

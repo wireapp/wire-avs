@@ -109,6 +109,7 @@ AVS_EXPORT @interface AVSMediaManagerChangeNotification : NSNotification
 AVS_EXPORT @interface AVSMediaManager : NSObject
 
 @property (nonatomic) AVSPlaybackRoute playbackRoute;
+@property (nonatomic, assign) BOOL sysUpdated;
 
 + (instancetype)defaultMediaManager;
 - (void)playMediaByName:(NSString *)name;

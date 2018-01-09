@@ -15,6 +15,11 @@
 * You should have received a copy of the GNU General Public License
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
+
+#define _GNU_SOURCE 1
+#include <sys/time.h>
+#include <sys/resource.h>
+
 #include <re.h>
 #include <avs.h>
 #include "ztest.h"
@@ -154,4 +159,23 @@ int create_dtls_srtp_context(struct tls **dtlsp, enum tls_keytype cert_type)
 		*dtlsp = dtls;
 
 	return err;
+}
+
+
+int ztest_set_ulimit(unsigned num)
+{
+	struct rlimit limit;
+	int err;
+
+	getrlimit(RLIMIT_NOFILE, &limit);
+
+	limit.rlim_cur = num;  /* Soft limit */
+
+	if (setrlimit(RLIMIT_NOFILE, &limit) != 0) {
+		err = errno;
+		warning("setrlimit() failed with errno %m\n", err);
+		return err;
+	}
+
+	return 0;
 }
