@@ -41,9 +41,19 @@ struct session {
 	/* aka "sid" or Session-ID: */
 	char *remote_userid;
 	char *remote_clientid;
+	char *local_clientid;
 
 	CBoxSession *cbox_sess;
 };
+
+
+static void mk_sessid(char *sessid, size_t sz,
+		      const char *remote_userid,
+		      const char *remote_clientid,
+		      const char *local_clientid)
+{
+	re_snprintf(sessid, sz, "%s_%s_%s", local_clientid, remote_userid, remote_clientid);
+}
 
 
 static void cryptobox_destructor(void *data)
@@ -142,6 +152,7 @@ static void session_destructor(void *data)
 	struct session *sess = data;
 
 	list_unlink(&sess->le);
+	mem_deref(sess->local_clientid);
 	mem_deref(sess->remote_clientid);
 	mem_deref(sess->remote_userid);
 
@@ -153,6 +164,7 @@ static void session_destructor(void *data)
 int cryptobox_session_add_recv(struct cryptobox *cb,
 			       const char *remote_userid,
 			       const char *remote_clientid,
+			       const char *local_clientid,
 			       uint8_t *plain, size_t *plain_len,
 			       const uint8_t *cipher, size_t cipher_len)
 {
@@ -167,17 +179,18 @@ int cryptobox_session_add_recv(struct cryptobox *cb,
 
 	assert(cb->cbox != NULL);
 
-	if (!str_isset(remote_userid) || !str_isset(remote_clientid))
+	if (!str_isset(remote_userid) || !str_isset(remote_clientid) || !str_isset(local_clientid))
 		return EINVAL;
 
 	sess = mem_zalloc(sizeof(*sess), session_destructor);
 
 	err  = str_dup(&sess->remote_userid, remote_userid);
 	err |= str_dup(&sess->remote_clientid, remote_clientid);
+	err |= str_dup(&sess->local_clientid, local_clientid);
 	if (err)
 		goto out;
 
-	re_snprintf(sid, sizeof(sid), "%s%s", remote_userid, remote_clientid);
+	mk_sessid(sid, sizeof(sid), remote_userid, remote_clientid, local_clientid);
 
 	r = cbox_session_init_from_message(cb->cbox,
 					   sid,
@@ -193,8 +206,8 @@ int cryptobox_session_add_recv(struct cryptobox *cb,
 	}
 
 	info("cryptobox: New cryptobox session created for remote"
-		  " userid=%s clientid=%s\n",
-		  remote_userid, remote_clientid);
+		  " userid=%s clientid=%s local_cid=%s\n",
+		  remote_userid, remote_clientid, local_clientid);
 
 	/*
 	 * Save the session. (ignore any errors)
@@ -233,6 +246,7 @@ int cryptobox_session_add_recv(struct cryptobox *cb,
 int cryptobox_session_add_send(struct cryptobox *cb,
 			       const char *remote_userid,
 			       const char *remote_clientid,
+			       const char *local_clientid,
 			       const uint8_t *peer_key, size_t peer_key_len)
 {
 	struct session *sess;
@@ -245,7 +259,7 @@ int cryptobox_session_add_send(struct cryptobox *cb,
 
 	assert(cb->cbox != NULL);
 
-	if (!str_isset(remote_userid) || !str_isset(remote_clientid) ||
+	if (!str_isset(remote_userid) || !str_isset(remote_clientid) || !str_isset(local_clientid) ||
 	    !peer_key || !peer_key_len)
 		return EINVAL;
 
@@ -253,10 +267,11 @@ int cryptobox_session_add_send(struct cryptobox *cb,
 
 	err = str_dup(&sess->remote_userid, remote_userid);
 	err = str_dup(&sess->remote_clientid, remote_clientid);
+	err = str_dup(&sess->local_clientid, local_clientid);
 	if (err)
 		goto out;
 
-	re_snprintf(sid, sizeof(sid), "%s%s", remote_userid, remote_clientid);
+	mk_sessid(sid, sizeof(sid), remote_userid, remote_clientid, local_clientid);
 
 	r = cbox_session_init_from_prekey(cb->cbox,
 					  sid,
@@ -282,17 +297,10 @@ int cryptobox_session_add_send(struct cryptobox *cb,
 }
 
 
-static void mk_sessid(char *sessid, size_t sz,
-		      const char *remote_userid,
-		      const char *remote_clientid)
-{
-	re_snprintf(sessid, sz, "%s%s", remote_userid, remote_clientid);
-}
-
-
 struct session *cryptobox_session_find(struct cryptobox *cb,
 				       const char *remote_userid,
-				       const char *remote_clientid)
+				       const char *remote_clientid,
+				       const char *local_clientid)
 {
 	struct session *sess = NULL;
 	struct le *le;
@@ -310,11 +318,14 @@ struct session *cryptobox_session_find(struct cryptobox *cb,
 		sess = le->data;
 
 		if (0 == str_casecmp(sess->remote_userid, remote_userid) &&
-		    0 == str_casecmp(sess->remote_clientid, remote_clientid))
+		    0 == str_casecmp(sess->remote_clientid, remote_clientid) &&
+		    0 == str_casecmp(sess->local_clientid, local_clientid))
+		{
 			return sess;
+		}
 	}
 
-	mk_sessid(sessid, sizeof(sessid), remote_userid, remote_clientid);
+	mk_sessid(sessid, sizeof(sessid), remote_userid, remote_clientid, local_clientid);
 
 	r = cbox_session_load(cb->cbox, sessid, &cbox_sess);
 	if (CBOX_SUCCESS != r) {
@@ -327,6 +338,7 @@ struct session *cryptobox_session_find(struct cryptobox *cb,
 
 	err = str_dup(&sess->remote_userid, remote_userid);
 	err = str_dup(&sess->remote_clientid, remote_clientid);
+	err = str_dup(&sess->local_clientid, local_clientid);
 	if (err)
 		goto out;
 
@@ -442,8 +454,10 @@ void cryptobox_dump(const struct cryptobox *cb)
 	for (le = cb->sessionl.head; le; le = le->next) {
 		struct session *sess = le->data;
 
-		re_printf("....user=%s  cli=%s  %p\n",
+		re_printf("....user=%s  cli=%s lcli=%s %p\n",
 			  sess->remote_userid,
-			  sess->remote_clientid, sess->cbox_sess);
+			  sess->remote_clientid,
+			  sess->local_clientid,
+			  sess->cbox_sess);
 	}
 }

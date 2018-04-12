@@ -21,9 +21,12 @@ struct {
 	bool active;
 	bool hs_connected;
 	bool bt_connected;
+	bool recording;
 #if !TARGET_OS_IPHONE
 	enum mediamgr_auplay cur_route;
 #endif
+	struct tmr tmr_play;
+	struct tmr tmr_rec;
 
 } mm_ios = {
 	.mm = NULL,
@@ -33,6 +36,7 @@ struct {
 	.interrupted = false,
 	.hs_connected = false,
 	.bt_connected = false,
+	.recording = false,
 #if !TARGET_OS_IPHONE
 	.cur_route = MEDIAMGR_AUPLAY_EARPIECE,
 #endif
@@ -141,10 +145,10 @@ static void set_active(bool active)
 #if !TARGET_IPHONE_SIMULATOR
 	NSString *cname = NSStringFromClass([media class]);
 
-	info("mm_platform_ios: didStartPlaying: class=%s\n",
-	     [cname UTF8String]);
+	info("mm_platform_ios: didStartPlaying: class=%s %s\n",
+	     [cname UTF8String], mm_ios.recording ? "recording" : "");
 
-	if (![cname isEqualToString:@"AVSSound"]) {
+	if (![cname isEqualToString:@"AVSSound"] && !mm_ios.recording) {
 		mediamgr_override_speaker_mm(mm_ios.mm, true);
 		set_category_sync(AVAudioSessionCategoryPlayback,
 				  true);
@@ -164,7 +168,7 @@ static void set_active(bool active)
 	info("mm_platform_ios: didPausePlaying: class=%s\n",
 	     [cname UTF8String]);
 
-	if (![cname isEqualToString:@"AVSSound"]) {
+	if (![cname isEqualToString:@"AVSSound"] && !mm_ios.recording) {
 		mediamgr_override_speaker_mm(mm_ios.mm, false);
 		mm_platform_enable_earpiece();
 	}
@@ -181,7 +185,7 @@ static void set_active(bool active)
 	info("mm_platform_ios: didResumePlaying: class=%s\n",
 	     [cname UTF8String]);
 
-	if (![cname isEqualToString:@"AVSSound"]) {
+	if (![cname isEqualToString:@"AVSSound"] && !mm_ios.recording) {
 		mediamgr_override_speaker_mm(mm_ios.mm, true);
 		set_category_sync(AVAudioSessionCategoryPlayback, true);
 		set_active_sync(true);
@@ -205,7 +209,8 @@ static void set_active(bool active)
 	info("mm_platform_ios: didFinishPlaying: class=%s\n",
 	     [cname UTF8String]);
 	
-	if (![cname isEqualToString:@"AVSSound"])
+	if (![cname isEqualToString:@"AVSSound"] && !mm_ios.incall
+	    && !mm_ios.recording)
 		default_category(true);
 #endif
 	
@@ -220,7 +225,7 @@ static void set_active(bool active)
 
 	info("mm_ios: still playing: %u\n", n);
 	
-	if (!mm_ios.incall && n == 0)
+	if (!mm_ios.incall && !mm_ios.recording && n == 0)
 		set_active_sync(false);
 }
 
@@ -281,6 +286,7 @@ static bool set_category_sync(NSString *cat, bool speaker)
 						error:nil];
 		}
 		options = AVAudioSessionCategoryOptionAllowBluetooth;
+		options |= AVAudioSessionCategoryOptionAllowBluetoothA2DP;
 	}
 	
 	success = [sess setCategory:cat
@@ -312,27 +318,42 @@ static void leave_call(void)
 	mediamgr_sys_left_call(mm_ios.mm);
 }
 
-static void update_device_status(struct mm *mm)
+static bool has_bluetooth(void)
 {
 	AVAudioSession *sess = [AVAudioSession sharedInstance]; 
 	NSArray *routes = [sess availableInputs];
+
+	for (AVAudioSessionPortDescription *route in routes ) {
+		if ([g_bt_routes containsObject:route.portType]) {
+			return true;
+		}
+	}
+	return false;
+}
+
+
+static bool has_headset(void)
+{
+	AVAudioSession *sess = [AVAudioSession sharedInstance]; 
 	NSArray *outputs = [sess currentRoute].outputs;
+
+	for (AVAudioSessionPortDescription *route in outputs ) {
+		if ([route.portType
+			isEqualToString:AVAudioSessionPortHeadphones]) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static void update_device_status(struct mm *mm)
+{
 	bool bt_available = false;
 	bool hs_available = false;
 	bool updated = false;
 
-	for (AVAudioSessionPortDescription *route in routes ) {
-		if ([g_bt_routes containsObject:route.portType]) {
-			bt_available = true;
-		}
-	}
-	
-	for (AVAudioSessionPortDescription *route in outputs ) {
-		if ([route.portType
-			isEqualToString:AVAudioSessionPortHeadphones]) {
-			hs_available = true;
-		}
-	}
+	bt_available = has_bluetooth();
+	hs_available = has_headset();
 
 	info("mm_platform_ios: device_status: bt=%d(%d) hs=%d(%d)\n",
 	     bt_available, mm_ios.bt_connected,
@@ -472,6 +493,16 @@ static void handle_audio_notification(NSNotification *notification)
 	     mediamgr_route_name(route),
 	     mm_ios.route_override);
 
+	if (route == MEDIAMGR_AUPLAY_EARPIECE
+	    && reason != AVAudioSessionRouteChangeReasonOverride) {
+		if (has_bluetooth()) {
+			set_category_sync(cat, false);
+			mm_platform_enable_bt_sco();
+		}
+		else if (has_headset())
+			mm_platform_enable_headset();
+	}
+
 	if (reason != AVAudioSessionRouteChangeReasonRouteConfigurationChange) {
 		if (mm_ios.route_override) {
 			mediamgr_override_speaker_mm(mm_ios.mm,
@@ -569,8 +600,8 @@ static void handle_audio_notification(NSNotification *notification)
 #if !TARGET_IPHONE_SIMULATOR
 static void default_category(bool sync)
 {
-	info("mm_platform_ios: default_category: %s\n",
-	     cat_name(DEFAULT_CATEGORY));
+	info("mm_platform_ios: default_category: %s recording: %s\n",
+	     cat_name(DEFAULT_CATEGORY), mm_ios.recording);
 		
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
 	
@@ -619,6 +650,7 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 	NSLog(@"mm_platform_ios: init for mm=%p\n", mm);
 	
 	mm_ios.mm = mm;
+	tmr_init(&mm_ios.tmr_play);
 	g_playingTracker = [[PlayingTracker alloc] init];
 
 	g_bt_routes = @[AVAudioSessionPortBluetoothA2DP,
@@ -723,32 +755,49 @@ void mm_platform_reset_sound(struct sound *snd)
 		[media reset];
 }
 
-void mm_platform_play_sound(struct sound *snd, bool sync)
+static void play_handler(void *arg)
+{
+	struct sound *snd = arg;
+	id<AVSMedia> media = snd->arg;
+	int n = 10;
+
+	[media play];
+	if (snd->sync) {
+		while(mm_platform_is_sound_playing(snd) && n-- > 0) {
+			usleep(200000);
+		}
+	}
+	
+}
+
+void mm_platform_play_sound(struct sound *snd, bool sync, bool delayed)
 {
 
 	info("mm_platform_ios: play_sound: %s %s\n",
 	     snd->path, snd->is_call_media ? "(call)" : "");
 
+	if (mm_ios.recording)
+		return;
+
+	if (!snd->arg)
+		return;
+
 	if (!mm_ios.active && !mm_ios.incall) {
 		if (snd->mixing)
 			set_category_sync(AVAudioSessionCategoryAmbient, true);
-		else
-			set_category_sync(AVAudioSessionCategorySoloAmbient, true);
-
+		else {
+			set_category_sync(AVAudioSessionCategorySoloAmbient,
+					  true);
+		}
+		
 		set_active_sync(true);
 	}
 
-	if (snd->arg) {
-		id<AVSMedia> media = snd->arg;
-		int n = 10;
-
-		[media play];
-		if (sync) {
-			while(mm_platform_is_sound_playing(snd) && n-- > 0) {
-				usleep(200000);
-			}
-		}
-	}
+	snd->sync = sync;
+	if (delayed)
+		tmr_start(&mm_ios.tmr_play, 1000, play_handler, snd);
+	else
+		play_handler(snd);
 }
 
 void mm_platform_pause_sound(struct sound *snd)
@@ -785,6 +834,7 @@ void mm_platform_stop_sound(struct sound *snd)
 	info("mm_platform_ios: stop_sound: %s %s\n",
 	     snd->path, snd->is_call_media ? "(call)" : "");
 
+	tmr_cancel(&mm_ios.tmr_play);
 	if (snd->arg != NULL) {
 		id<AVSMedia> media = snd->arg;
 		
@@ -1033,3 +1083,50 @@ void mm_platform_unregisterMedia(struct dict *sounds, const char *name){
 }
 
 
+#if !TARGET_IPHONE_SIMULATOR
+static void rec_start_handler(void *arg)
+{
+	struct mm_platform_start_rec *rec_elem = arg;
+
+	if (rec_elem->rech)
+		rec_elem->rech(rec_elem->arg);
+
+	mem_deref(rec_elem);
+}
+#endif
+
+void mm_platform_start_recording(struct mm_platform_start_rec *rec_elem)
+{
+	info("mm_platform_ios: start_recording incall=%d\n", mm_ios.incall);
+
+	if (mm_ios.incall) {
+		mem_deref(rec_elem);
+		return;
+	}
+	
+	mm_ios.recording = true;
+#if !TARGET_IPHONE_SIMULATOR
+	set_category(AVAudioSessionCategoryPlayAndRecord, false);
+	set_active(true);
+	
+	tmr_start(&mm_ios.tmr_rec, 1000, rec_start_handler, rec_elem);
+	
+	//set_category_sync(AVAudioSessionCategoryPlayAndRecord, false);
+	//set_active_sync(true);
+#else
+	mem_deref(rec_elem);
+#endif
+}
+
+void mm_platform_stop_recording(void)
+{
+	info("mm_platform_ios: stop_recording incall=%d\n", mm_ios.incall);
+
+	mm_ios.recording = false;
+#if !TARGET_IPHONE_SIMULATOR
+	if (!mm_ios.incall) {
+		default_category(true);
+		set_active_sync(false);
+	}		
+#endif
+}

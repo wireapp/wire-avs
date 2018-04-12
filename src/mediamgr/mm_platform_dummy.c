@@ -42,7 +42,7 @@ int mm_platform_free(struct mm *mm)
 	return 0;
 }
 
-void mm_platform_play_sound(struct sound *snd, bool sync)
+void mm_platform_play_sound(struct sound *snd, bool sync, bool delayed)
 {
 	(void)snd;
 }
@@ -155,3 +155,14 @@ void mm_platform_reset_sound(struct sound *snd)
 {
 	(void)snd;
 }
+
+
+void mm_platform_start_recording(struct mm_platform_start_rec *rec_elem)
+{
+}
+
+
+void mm_platform_stop_recording(void)
+{
+}
+

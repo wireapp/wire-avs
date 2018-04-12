@@ -81,26 +81,7 @@ const char indices[] = {0, 1, 2, 3};
 	NSLock *_lock;
 	BOOL _newFrame;	
 	BOOL _firstFrame;
-}
-
-- (void)drawRect:(NSRect)dirtyRect
-{
-	[_lock lock];
-	[super drawRect:dirtyRect];
-
-	glClearColor(0.0, 0.0, 0.0, 1.0);
-	glClear(GL_COLOR_BUFFER_BIT);
-
-	if (_forceRecalc) {
-		[self setupVertices];
-		_forceRecalc = NO;
-	}
-
-	glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, indices);
-
-	glSwapAPPLE();
-	_newFrame = NO;
-	[_lock unlock];
+	CVDisplayLinkRef _displayLink;
 }
 
 - (GLuint) loadShader:(GLenum) shader_type fromSource:(const char*) shader_source
@@ -307,7 +288,7 @@ const char indices[] = {0, 1, 2, 3};
 	
 	[_lock lock];
 	if (_firstFrame) {
-		info("AVSVideoView handleFrame firstFrame run: %s bg: %s sz: %dx%d\n",
+		warning("AVSVideoView handleFrame firstFrame run: %s bg: %s sz: %dx%d\n",
 			_running ? "yes" : "no", _backgrounded ? "yes" : "no",
 			frame->w, frame->h);
 		_firstFrame = NO;
@@ -345,7 +326,6 @@ const char indices[] = {0, 1, 2, 3};
 		(const GLvoid*)frame->v);
 
 	_rotation = frame->rotation;
-	[self setNeedsDisplay:YES];
 	_newFrame = YES;
 	[_lock unlock];
 
@@ -363,6 +343,64 @@ const char indices[] = {0, 1, 2, 3};
 - (BOOL) shouldFill
 {
 	return _shouldFill;
+}
+
+-(void)render:(NSTimer *)timer {
+
+	if (_newFrame) {
+		[self setNeedsDisplay:YES];
+	}
+}
+
+- (void)startRunning
+{
+	CVDisplayLinkStart(_displayLink);
+	_running = YES;
+	_firstFrame = NO;
+}
+
+- (void)stopRunning
+{
+	_running = NO;
+	CVDisplayLinkStop(_displayLink);
+}
+
+static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp* now,
+	const CVTimeStamp* outputTime, CVOptionFlags flagsIn, CVOptionFlags* flagsOut, void* displayLinkContext)
+{
+	CVReturn result = [(__bridge AVSVideoViewOSX*)displayLinkContext getFrameForTime:outputTime];
+	return result;
+}
+
+- (CVReturn)getFrameForTime:(const CVTimeStamp*)outputTime
+{
+	[_lock lock];
+
+	if (!_running || !_newFrame) {
+		goto out;
+	}
+
+	[_context makeCurrentContext];
+
+	if (_forceRecalc) {
+		NSRect frameRect = self.frame;
+		glViewport(0, 0, frameRect.size.width, frameRect.size.height);
+		[self setupVertices];
+		_forceRecalc = NO;
+	}
+
+	glClearColor(0.0, 0.0, 0.0, 1.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, indices);
+
+	glSwapAPPLE();
+	_newFrame = NO;
+
+out:
+	[_lock unlock];
+
+	return kCVReturnSuccess;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect
@@ -389,8 +427,37 @@ const char indices[] = {0, 1, 2, 3};
 	[self setupProgram];
 	glViewport(0, 0, frameRect.size.width, frameRect.size.height);
 	_firstFrame = YES;
+
+	CVDisplayLinkCreateWithActiveCGDisplays(&_displayLink);
+	CVDisplayLinkSetOutputCallback(_displayLink, &displayLinkCallback, (__bridge void *)self);
+
 	[_lock unlock];
 	return [super initWithFrame:frameRect pixelFormat:pf];
+}
+
+- (void)reshape
+{
+	_forceRecalc = YES;
+}
+
+- (void)viewDidMoveToWindow
+{
+	if (self.window) {
+		[self startRunning];
+	}
+	else {
+		[self stopRunning];
+	}
+
+	[super viewDidMoveToWindow];
+}
+- (void)dealloc
+{
+	CVDisplayLinkStop(_displayLink);
+	CVDisplayLinkRelease(_displayLink);
+#if !__has_feature(objc_arc)
+	[super dealloc];
+#endif
 }
 
 @end

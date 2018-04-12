@@ -32,6 +32,7 @@ struct wcall;
 struct wcall_member {
 	char *userid;
 	int audio_estab;
+	int video_recv;
 };
 
 struct wcall_members {
@@ -70,6 +71,8 @@ typedef void (wcall_missed_h)(const char *convid, uint32_t msg_time,
  *
  * @param convid   Conversation id on which call was answered
  * @param arg      User context passed to wcall_init
+ *
+ * NOTE: Only relevant for one-to-one calls
  */
 typedef void (wcall_answered_h)(const char *convid, void *arg);
 	
@@ -137,12 +140,12 @@ typedef void (wcall_log_h)(int level, const char *msg, void *arg);
  * @param reason   Reason (when stopping), normal/low bandwidth etc.
  * @param arg      The handler argument passed to flowmgr_alloc().
  */
-typedef void (wcall_video_state_change_h)(int state, void *arg);
+typedef void (wcall_video_state_change_h)(const char *userid, int state, void *arg);
 
 /**
  * Callback used to inform user that call uses CBR (in both directions)
  */
-typedef void (wcall_audio_cbr_change_h)(int enabled, void *arg);
+typedef void (wcall_audio_cbr_change_h)(const char *userid, int enabled, void *arg);
 
 typedef int (wcall_config_req_h)(void *wuser, void *arg);	
 

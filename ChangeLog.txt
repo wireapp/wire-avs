@@ -1,6 +1,46 @@
 ChangeLog for AVS -- latest on top!
 
 ==============================================================================
+AVS Release 4.1
+
+Date:	    29. January 2018
+GIT:	    https://github.com/wearezeta/avs/tree/release-4.1
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:        - Improved BT handling (both iOS and Android)
+		- Increased ptime for group calling (also with Webapp)
+                - bug fixes
+
+Hotfixes:
+
+==============================================================================
+AVS Release 4.0
+
+Date:	    08. January 2018
+GIT:	    https://github.com/wearezeta/avs/tree/release-4.0
+Android:    Android NDK r12b
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:        - Hydra
+                - ALERT method added
+                - Improvements to video handling
+                - openssl update
+                - usrsctp update
+                - generic-message-proto update
+                - libre update
+                - bug fixes
+
+Hotfixes:
+
+Jan 16, 2018 - Increase ptime for group calls
+Jan 10, 2018 - iOS: Recording API added for audio messages
+		
+==============================================================================
 AVS Release 3.8
 
 Date:	    06. November 2017

@@ -96,6 +96,71 @@ int engine_get_clients(struct engine *eng, const struct client_handler *clih)
 }
 
 
+static void get_client_prekeys_handler(int err, const struct http_msg *msg,
+				struct mbuf *mb, struct json_object *jobj,
+				void *arg)
+{
+	const struct prekey_handler *pkh = arg;
+	struct odict *dict;
+	const struct odict_entry *prekey, *clientid, *key, *id;
+	uint8_t *buf = NULL;
+	size_t buf_len;
+
+	if (err) {
+		warning("engine: get prekeys failed (%m)\n", err);
+		return;
+	}
+
+	if (msg->scode >= 300) {
+		warning("engine: get prekeys failed (%u %r)\n",
+			msg->scode, &msg->reason);
+		return;
+	}
+
+#if 0
+	re_printf("get prekeys response:\n");
+	re_printf("%H\n", jzon_encode_odict_pretty, jzon_get_odict(jobj));
+#endif
+
+	dict = jzon_get_odict(jobj);
+
+	prekey   = odict_lookup(dict, "prekey");
+	clientid = odict_lookup(dict, "client");
+	if (!prekey || !clientid) {
+		warning("engine: get prekeys missing fields"
+			" \"prekey\" or \"client\"\n");
+		goto out;
+	}
+
+	key = odict_lookup(prekey->u.odict, "key");
+	id  = odict_lookup(prekey->u.odict, "id");
+	if (!key || !id) {
+		warning("engine: get prekeys missing fields"
+			" \"key\" or \"id\"\n");
+		goto out;
+	}
+	buf_len = str_len(key->u.str) * 3 / 4;
+	buf = mem_alloc(buf_len, NULL);
+
+	err = base64_decode(key->u.str, str_len(key->u.str),
+			    buf, &buf_len);
+	if (err) {
+		warning("engine: get prekeys: base64_decode failed\n");
+		goto out;
+	}
+
+	if (pkh && pkh->prekeyh) {
+
+		pkh->prekeyh(NULL, buf, buf_len, id->u.integer,
+			     clientid->u.str, true,
+			     pkh->arg);
+	}
+
+out:
+	mem_deref(buf);
+}
+
+
 static void get_prekeys_handler(int err, const struct http_msg *msg,
 				struct mbuf *mb, struct json_object *jobj,
 				void *arg)
@@ -198,6 +263,20 @@ int engine_get_prekeys(struct engine *eng, const char *userid,
 	return rest_get(NULL, eng->rest, priority,
 			get_prekeys_handler, (void *)pkh,
 			"/users/%s/prekeys", userid);
+}
+
+
+int engine_get_client_prekeys(struct engine *eng, const char *userid, const char *clientid,
+		       const struct prekey_handler *pkh)
+{
+	int priority = 0;
+
+	if (!eng || !str_isset(userid))
+		return EINVAL;
+
+	return rest_get(NULL, eng->rest, priority,
+			get_client_prekeys_handler, (void *)pkh,
+			"/users/%s/prekeys/%s", userid, clientid);
 }
 
 

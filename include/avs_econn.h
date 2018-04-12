@@ -35,6 +35,7 @@ enum econn_msg {
 	
 	ECONN_UPDATE = 0x10,
 	ECONN_REJECT = 0x11,
+	ECONN_ALERT  = 0x12,
 	
 	/* Device pairing messages */
 	ECONN_DEVPAIR_PUBLISH = 0x21,
@@ -65,6 +66,11 @@ enum econn_dir {
 enum econn_transport {
 	ECONN_TRANSP_BACKEND = 0,
 	ECONN_TRANSP_DIRECT
+};
+
+enum econn_alert_level {
+	ECONN_ALERT_LEVEL_WARNING = 1,
+	ECONN_ALERT_LEVEL_FATAL   = 2,
 };
 
 #define ECONN_MESSAGE_TIME_UNKNOWN (0)
@@ -123,6 +129,11 @@ struct econn_message {
 			char *sdp;
 			char *username;
 		} devpair_publish;
+
+		struct alert {
+			uint32_t level;
+			char *descr;
+		} alert;
 	} u;
 };
 
@@ -168,6 +179,10 @@ typedef void (econn_update_req_h)(struct econn *econn,
 typedef void (econn_update_resp_h)(struct econn *econn, const char *sdp,
 				   struct econn_props *props, void *arg);
 
+typedef void (econn_alert_h)(struct econn *econn, uint32_t level,
+			     const char *descr, void *arg);
+
+
 /**
  * Indicates that this ECONN was closed, locally or by remote peer
  * Should only be called once per ECONN.
@@ -206,7 +221,8 @@ int  econn_alloc(struct econn **econnp,
 		 econn_conn_h *connh,
 		 econn_answer_h *answerh,
 		 econn_update_req_h *update_reqh,
-		 econn_update_resp_h *update_resph,		 
+		 econn_update_resp_h *update_resph,
+		 econn_alert_h *alerth,
 		 econn_close_h *closeh, void *arg);
 int  econn_start(struct econn *conn, const char *sdp,
 		 const struct econn_props *props);
@@ -224,6 +240,7 @@ void econn_close(struct econn *conn, int err, uint32_t msg_time);
 void econn_set_state(struct econn *conn, enum econn_state state);
 enum econn_state econn_current_state(const struct econn *conn);
 enum econn_dir econn_current_dir(const struct econn *conn);
+const char *econn_userid_remote(const struct econn *conn);
 const char *econn_clientid_remote(const struct econn *conn);
 const char *econn_sessid_local(const struct econn *conn);
 const char *econn_sessid_remote(const struct econn *conn);
@@ -232,6 +249,7 @@ int  econn_debug(struct re_printf *pf, const struct econn *econn);
 void econn_set_datachan_established(struct econn *conn);
 
 void econn_set_error(struct econn *conn, int err);
+int  econn_send_alert(struct econn *conn, uint32_t level, const char *descr);
 
 void econn_recv_message(struct econn *conn,
 		 const char *userid_sender,

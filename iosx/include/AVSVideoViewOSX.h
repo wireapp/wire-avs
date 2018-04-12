@@ -24,6 +24,7 @@ struct avs_vidframe;
 AVS_EXPORT @interface AVSVideoViewOSX : NSOpenGLView
 
 @property (nonatomic) BOOL shouldFill;
+@property (copy) NSString *userid;
 
 - (BOOL) handleFrame:(struct avs_vidframe*) frame;
 

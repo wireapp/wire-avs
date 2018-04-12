@@ -65,6 +65,10 @@ enum {
 	VIDEO_BANDWIDTH = 800,  /* kilobits/second */
 };
 
+enum {
+	GROUP_PTIME = 60
+};
+
 
 enum sdp_state {
 	SDP_IDLE = 0,
@@ -102,6 +106,7 @@ struct mediaflow {
 	/* common stuff */
 	char *clientid_local;
 	char *clientid_remote;
+	char *userid_remote;
 	struct sa laddr_default;
 	char tag[32];
 	bool terminated;
@@ -245,6 +250,7 @@ struct mediaflow {
 
 	struct mediaflow_stats mf_stats;
 	bool privacy_mode;
+	bool group_mode;
 
 	struct {
 		void *arg;
@@ -944,7 +950,7 @@ static int start_video_codecs(struct mediaflow *mf)
 		}
 
 		if (mf->started && vc->enc_starth) {
-			err = vc->enc_starth(mf->video.ves);
+			err = vc->enc_starth(mf->video.ves, mf->group_mode);
 			if (err) {
 				warning("mediaflow: could not start"
 					" video encoder (%m)\n", err);
@@ -967,7 +973,7 @@ static int start_video_codecs(struct mediaflow *mf)
 		}
 
 		if (mf->started && vc->dec_starth) {
-			err = vc->dec_starth(mf->video.vds);
+			err = vc->dec_starth(mf->video.vds, mf->userid_remote);
 			if (err) {
 				warning("mediaflow: could not start"
 					" video decoder (%m)\n", err);
@@ -1369,10 +1375,18 @@ static void dtls_estab_handler(void *arg)
 
 	check_data_channel(mf);
 
+	/* Wipe the keys from memory */
+	memset(cli_key, 0, sizeof(cli_key));
+	memset(srv_key, 0, sizeof(srv_key));
+
 	return;
 
  error:
 	warning("mediaflow: DTLS-SRTP error (%m)\n", err);
+
+	/* Wipe the keys from memory */
+	memset(cli_key, 0, sizeof(cli_key));
+	memset(srv_key, 0, sizeof(srv_key));
 
 	if (mf->closeh)
 		mf->closeh(err, mf->arg);
@@ -2404,6 +2418,7 @@ static void destructor(void *arg)
 	mem_deref(mf->peer_software);
 
 	mem_deref(mf->mq);
+	mem_deref(mf->userid_remote);
 	mem_deref(mf->clientid_remote);
 	mem_deref(mf->clientid_local);
 }
@@ -2592,6 +2607,7 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 
 	mf->magic = MAGIC;
 	mf->privacy_mode = false;
+	mf->group_mode = false;
 	mf->af = sa_af(laddr_sdp);
 
 	mf->mf_stats.turn_alloc = -1;
@@ -4447,7 +4463,7 @@ int mediaflow_start_media(struct mediaflow *mf)
 			info("mediaflow: start_media: starting"
 			     " video decoder (%s)\n", vc->name);
 
-			err = vc->dec_starth(mf->video.vds);
+			err = vc->dec_starth(mf->video.vds, mf->userid_remote);
 			if (err) {
 				warning("mediaflow: could not start"
 					" video decoder (%m)\n", err);
@@ -4481,7 +4497,7 @@ int mediaflow_set_video_send_active(struct mediaflow *mf, bool video_active)
 			info("mediaflow: start_media: starting"
 			     " video encoder (%s)\n", vc->name);
 
-			err = vc->enc_starth(mf->video.ves);
+			err = vc->enc_starth(mf->video.ves, mf->group_mode);
 			if (err) {
 				warning("mediaflow: could not start"
 					" video encoder (%m)\n", err);
@@ -5193,7 +5209,12 @@ struct auenc_state *mediaflow_encoder(const struct mediaflow *mf)
 
 struct audec_state *mediaflow_decoder(const struct mediaflow *mf)
 {
-	return mf ? mf->ads : NULL;
+	if (!mf)
+		return NULL;
+
+	MAGIC_CHECK(mf);
+
+	return mf->ads;
 }
 
 
@@ -5490,6 +5511,22 @@ void mediaflow_enable_privacy(struct mediaflow *mf, bool enabled)
 }
 
 
+void mediaflow_enable_group_mode(struct mediaflow *mf, bool enabled)
+{
+	if (!mf)
+		return;
+
+	mf->group_mode = enabled;
+
+	if (mf->group_mode) {
+		sdp_media_set_lattr(mf->audio.sdpm, true, "ptime", "%u", GROUP_PTIME);
+	}
+	else {
+		sdp_media_del_lattr(mf->audio.sdpm, "ptime");
+	}
+}
+
+
 const char *mediaflow_lcand_name(const struct mediaflow *mf)
 {
 	struct ice_lcand *lcand;
@@ -5578,17 +5615,41 @@ bool mediaflow_get_audio_cbr(const struct mediaflow *mf, bool local)
 
 
 /* NOTE: Remote clientid can only be set once. */
-int mediaflow_set_remote_clientid(struct mediaflow *mf, const char *clientid)
+int mediaflow_set_remote_userclientid(struct mediaflow *mf,
+				      const char *userid, const char *clientid) 
 {
-	if (!mf || !str_isset(clientid))
+	int err = 0;
+
+	if (!mf || !str_isset(clientid) || !str_isset(userid))
 		return EINVAL;
+
+	if (str_isset(mf->userid_remote)) {
+		warning("mediaflow: remote userid is already set\n");
+		return EALREADY;
+	}
 
 	if (str_isset(mf->clientid_remote)) {
 		warning("mediaflow: remote clientid is already set\n");
 		return EALREADY;
 	}
 
-	return str_dup(&mf->clientid_remote, clientid);
+	err = str_dup(&mf->userid_remote, userid);
+	if (err) {
+		goto out;
+	}
+
+	err =  str_dup(&mf->clientid_remote, clientid);
+	if (err) {
+		goto out;
+	}
+
+out:
+	if (err) {
+		mf->userid_remote = mem_deref(mf->userid_remote);
+		mf->clientid_remote = mem_deref(mf->clientid_remote);
+	}
+
+	return err;
 }
 
 

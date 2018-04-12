@@ -59,6 +59,8 @@ int egcall_alloc(struct egcall **egcallp,
 		 egcall_leave_h *leaveh,
 		 egcall_close_h *closeh,
 		 egcall_metrics_h *metricsh,
+		 ecall_video_state_change_h *vstateh,
+		 ecall_audio_cbr_change_h *acbrh,
 		 void *arg);
 
 int egcall_set_turnserver(struct egcall *egcall,
@@ -81,6 +83,8 @@ bool egcall_msg_recv(struct egcall* egcall,
 
 int egcall_media_start(struct egcall *egcall);
 void egcall_media_stop(struct egcall *egcall);
+
+int egcall_set_video_send_active(struct egcall *egcall, bool active);
 
 struct wcall_members;
 int egcall_get_members(struct wcall_members **mmp, struct egcall *egcall);

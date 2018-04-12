@@ -134,13 +134,6 @@ int flowmgr_alloc(struct flowmgr **fmp, flowmgr_req_h *reqh,
 }
 
 
-void flowmgr_set_media_estab_handler(struct flowmgr *fm,
-				     flowmgr_media_estab_h *mestabh,
-				     void *arg)
-{
-}
-
-
 void flowmgr_set_video_handlers(struct flowmgr *fm, 
 				flowmgr_video_state_change_h *state_change_h,
 				flowmgr_render_frame_h *render_frame_h,
@@ -154,12 +147,6 @@ void flowmgr_set_video_handlers(struct flowmgr *fm,
 struct flowmgr *flowmgr_free(struct flowmgr *fm)
 {
 	return mem_deref(fm);
-}
-
-
-int flowmgr_has_active(struct flowmgr *fm, bool *has_active)
-{
-	return ENOSYS;
 }
 
 

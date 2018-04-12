@@ -293,6 +293,8 @@ static int alloc_dpe(struct devpair_entry **dpep, const char *pairid)
 			  NULL, NULL, NULL,
 			  ecall_datachan_estab_handler,
 			  NULL,
+			  NULL,
+			  NULL,
 			  ecall_close_handler,
 			  ecall_send_handler,
 			  dpe);

@@ -32,15 +32,18 @@ int  cryptobox_generate_prekey(struct cryptobox *cb,
 int  cryptobox_session_add_send(struct cryptobox *cb,
 				const char *remote_userid,
 				const char *remote_clientid,
+				const char *local_clientid,
 				const uint8_t *peer_key, size_t peer_key_len);
 int  cryptobox_session_add_recv(struct cryptobox *cb,
 				const char *remote_userid,
 				const char *remote_clientid,
+				const char *local_clientid,
 				uint8_t *plain, size_t *plain_len,
 				const uint8_t *cipher, size_t cipher_len);
 struct session *cryptobox_session_find(struct cryptobox *cb,
 				       const char *remote_userid,
-				       const char *remote_clientid);
+				       const char *remote_clientid,
+				       const char *local_clientid);
 int cryptobox_session_encrypt(struct cryptobox *cb, struct session *sess,
 			      uint8_t *cipher, size_t *cipher_len,
 			      const uint8_t *plain, size_t plain_len);

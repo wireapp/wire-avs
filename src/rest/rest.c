@@ -47,7 +47,6 @@ struct rest_req {
 	struct rest_cli *rest_cli;
 	struct rest_req **reqp;
 	struct http_req *http_req;
-	struct chunk_decoder *chunk_dec;
 	struct http_msg *msg;
 	struct mbuf *mb_body;  /* size contains the expected content-length */
 	char *method;
@@ -56,7 +55,6 @@ struct rest_req {
 	char *header;
 	char *ctype;
 	struct mbuf *req_body;
-	bool chunked;
 	bool json;
 	bool raw;
 	int prio;
@@ -189,7 +187,6 @@ static void req_destructor(void *arg)
 
 	list_unlink(&req->le);
 	mem_deref(req->http_req);
-	mem_deref(req->chunk_dec);
 	mem_deref(req->method);
 	mem_deref(req->path);
 	mem_deref(req->uri);
@@ -210,7 +207,6 @@ static void req_close(struct rest_req *req, int err,
 	debug("rest: [%s %s] request closed\n", req->method, req->path);
 
 	req->http_req  = mem_deref(req->http_req);
-	req->chunk_dec = mem_deref(req->chunk_dec);
 
 	if (req->reqp) {
 		*req->reqp = NULL;
@@ -261,94 +257,40 @@ static void response(struct rest_req *req, const struct http_msg *msg,
 }
 
 
-static int handle_chunk(struct rest_req *req, const struct http_msg *msg,
-			const uint8_t *p, size_t n)
-{
-	int err;
-
-	err = chunk_decoder_append_data(req->chunk_dec, p, n);
-	if (err) {
-		warning("rest: chunk_decoder_append %zu bytes failed (%m)\n",
-			n, err);
-		return err;
-	}
-
-	debug("rest: [%s %s] append %zu bytes, %zu chunks,"
-		  " total_length=%zu [%s]\n",
-		  req->method, req->path, n,
-	     chunk_decoder_count_chunks(req->chunk_dec),
-	     chunk_decoder_length(req->chunk_dec),
-	     chunk_decoder_is_final(req->chunk_dec) ? "Final" : "");
-
-	return err;
-}
-
-
-static int handle_final_chunk(struct rest_req *req)
-{
-	int err = 0;
-
-	if (chunk_decoder_is_final(req->chunk_dec)) {
-
-		struct mbuf *mb = mbuf_alloc(1024);
-
-		err = chunk_decoder_unchunk(req->chunk_dec, mb);
-		if (err) {
-			warning("rest: chunk_decoder unchunk failed (%m)\n",
-				err);
-			return err;
-		}
-
-		mb->pos = 0;
-		response(req, req->msg, mb);
-
-		mem_deref(mb);
-	}
-
-	return err;
-}
-
-
 /* NOTE: dont call response_complete() from here! */
-static void http_data_handler(struct mbuf *mb, void *arg)
+static int http_data_handler(const uint8_t *buf, size_t size,
+			     const struct http_msg *msg, void *arg)
 {
 	struct rest_req *req = arg;
+	bool chunked;
 	int err = 0;
 
 	assert(REST_MAGIC == req->magic);
 
-	if (req->chunked) {
-
-		if (!req->chunk_dec) {
-			err = chunk_decoder_alloc(&req->chunk_dec);
-			if (err) {
-				warning("rest: chunk decoder alloc (%m)\n",
-					err);
-				goto out;
-			}
-		}
-
-		handle_chunk(req, req->msg, mbuf_buf(mb), mbuf_get_left(mb));
-
-		handle_final_chunk(req);
-	}
-	else {
+	chunked = http_msg_hdr_has_value(msg, HTTP_HDR_TRANSFER_ENCODING,
+					 "chunked");
+	
+	if (!req->mb_body) {
+		req->mb_body = mbuf_alloc(1024);
 		if (!req->mb_body) {
-			req->mb_body = mbuf_alloc(mbuf_get_left(mb));
-			if (!req->mb_body) {
-				err = ENOMEM;
-				goto out;
-			}
+			err = ENOMEM;
+			goto out;
 		}
-
-		/* append data to the body-buffer */
-		mbuf_write_mem(req->mb_body,
-			       mbuf_buf(mb), mbuf_get_left(mb));
 	}
+
+	/* append data to the body-buffer */
+	err = mbuf_write_mem(req->mb_body, buf, size);
+	if (err)
+		return err;
+
+	debug("rest: [%s %s] chunked=%d append %zu bytes, "
+	      " total_length=%zu\n",
+	      req->method, req->path,
+	      chunked,
+	      size, req->mb_body ? req->mb_body->end : 0);
 
  out:
-	if (err)
-		req_close(req, err, NULL, NULL, NULL);
+	return err;
 }
 
 
@@ -366,15 +308,9 @@ static void http_resp_handler(int err, const struct http_msg *msg, void *arg)
 	/* if msg==NULL then the request is complete */
 	if (!err && msg == NULL) {
 
-		if (req->chunked) {
-
-			handle_final_chunk(req);
-		}
-		else {
-			if (req->mb_body)
-				req->mb_body->pos = 0;
-			response(req, req->msg, req->mb_body);
-		}
+		if (req->mb_body)
+			req->mb_body->pos = 0;
+		response(req, req->msg, req->mb_body);
 
 		return;
 	}
@@ -415,41 +351,22 @@ static void http_resp_handler(int err, const struct http_msg *msg, void *arg)
 	}
 #endif
 
-	req->chunked = http_msg_hdr_has_value(msg, HTTP_HDR_TRANSFER_ENCODING,
-					      "chunked");
-	if (req->chunked) {
+	/* verify content-length, if we need to buffer */
 
-		err = chunk_decoder_alloc(&req->chunk_dec);
-		if (err) {
-			warning("rest: chunk decoder alloc (%m)\n", err);
-			goto out;
-		}
+	info("rest: response [json=%u]"
+	     " -- clen %zu\n",
+	     req->json, msg->clen);
 
-		req->msg = mem_ref((struct http_msg *)msg);
+	req->msg = mem_ref((struct http_msg *)msg);
 
-		return; /* More data is coming */
-	}
-	else {
-		/* verify content-length, if we need to buffer */
+	/* the raw data is handled in http_data_handler()
+	 */
 
-		info("rest: non-chunked response [json=%u]"
-		     " -- clen %zu\n",
-		     req->json, msg->clen);
+	if (req->mb_body)
+		req->mb_body->pos = 0;
+	response(req, req->msg, req->mb_body);
 
-		req->msg = mem_ref((struct http_msg *)msg);
-
-		if (msg->clen == 0) {
-			response(req, req->msg, NULL);
-			return;
-		}
-
-		req->mb_body = mbuf_alloc(msg->clen);
-
-		/* the raw data is handled in http_data_handler()
-		 */
-
-		return; /* More data is coming */
-	}
+	return;
 
  out:
 	if (err)

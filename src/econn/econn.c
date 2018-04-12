@@ -302,6 +302,23 @@ static void recv_setup(struct econn *econn,
 	if (!econn || !msg)
 		return;
 
+	/* check if the Remote UserID is set */
+	if (str_isset(econn->userid_remote)) {
+
+		if (0 != str_casecmp(econn->userid_remote,
+				     userid_sender)) {
+
+			info("econn: recv_setup:"
+			     " remote UserID already set to `%s'"
+			     " - dropping message with `%s'\n",
+			     econn->userid_remote, userid_sender);
+			return;
+		}
+	}
+	else {
+		str_ncpy(econn->userid_remote, userid_sender,
+			 sizeof(econn->userid_remote));
+	}
 	/* check if the Remote ClientID is set */
 	if (str_isset(econn->clientid_remote)) {
 
@@ -537,6 +554,22 @@ static void recv_hangup(struct econn *conn, const struct econn_message *msg)
 }
 
 
+static void recv_alert(struct econn *econn,
+		       const char *userid_sender,
+		       const char *clientid_sender,
+		       const struct econn_message *msg)
+{
+	if (econn->alerth) {
+		econn->alerth(econn, msg->u.alert.level,
+			      msg->u.alert.descr, econn->arg);
+	}
+	else {
+		warning("econn: received ALERT from %s.%s (%s)\n",
+			userid_sender, clientid_sender, msg->u.alert.descr);
+	}
+}
+
+
 void econn_recv_message(struct econn *conn,
 			const char *userid_sender,
 			const char *clientid_sender,
@@ -574,6 +607,10 @@ void econn_recv_message(struct econn *conn,
 	case ECONN_DEVPAIR_ACCEPT:
 		break;
 
+	case ECONN_ALERT:
+		recv_alert(conn, userid_sender, clientid_sender, msg);
+		break;
+
 	default:
 		warning("econn: recv: message not supported (%s)\n",
 			econn_msg_name(msg->msg_type));
@@ -596,6 +633,7 @@ int  econn_alloc(struct econn **connp,
 		 econn_answer_h *answerh,
 		 econn_update_req_h *update_reqh,
 		 econn_update_resp_h *update_resph,
+		 econn_alert_h *alerth,
 		 econn_close_h *closeh,
 		 void *arg)
 {
@@ -624,6 +662,7 @@ int  econn_alloc(struct econn **connp,
 	conn->answerh      = answerh;
 	conn->update_reqh  = update_reqh;
 	conn->update_resph = update_resph;
+	conn->alerth       = alerth;
 	conn->closeh       = closeh;
 	conn->arg          = arg;
 
@@ -891,6 +930,11 @@ enum econn_dir econn_current_dir(const struct econn *conn)
 }
 
 
+const char *econn_userid_remote(const struct econn *conn)
+{
+	return conn ? conn->userid_remote : NULL;
+}
+
 const char *econn_clientid_remote(const struct econn *conn)
 {
 	return conn ? conn->clientid_remote : NULL;
@@ -1028,4 +1072,33 @@ void econn_set_error(struct econn *econn, int err)
 		return;
 
 	econn->err = err;
+}
+
+
+int econn_send_alert(struct econn *conn, uint32_t level, const char *descr)
+{
+	struct econn_message msg;
+	int err = 0;
+
+	if (!conn)
+		return EINVAL;
+
+	err = econn_message_init(&msg, ECONN_ALERT, conn->sessid_local);
+	if (err)
+		return err;
+
+	msg.transient = true;
+	msg.u.alert.level = level;
+	err = str_dup(&msg.u.alert.descr, descr);
+	if (err)
+		goto out;
+
+	err = econn_transp_send(conn, &msg);
+	if (err)
+		goto out;
+
+ out:
+	econn_message_reset(&msg);
+
+	return err;
 }

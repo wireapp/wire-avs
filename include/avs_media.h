@@ -202,6 +202,7 @@ const struct mediaflow_stats *mediaflow_stats_get(const struct mediaflow *mf);
 void mediaflow_set_local_eoc(struct mediaflow *mf);
 bool mediaflow_have_eoc(const struct mediaflow *mf);
 void mediaflow_enable_privacy(struct mediaflow *mf, bool enabled);
+void mediaflow_enable_group_mode(struct mediaflow *mf, bool enabled);
 
 const char *mediaflow_lcand_name(const struct mediaflow *mf);
 const char *mediaflow_rcand_name(const struct mediaflow *mf);
@@ -213,7 +214,8 @@ uint32_t mediaflow_candc(const struct mediaflow *mf, bool local,
 			 enum ice_cand_type typ);
 bool mediaflow_get_audio_cbr(const struct mediaflow *mf, bool local);
 void mediaflow_set_audio_cbr(struct mediaflow *mf, bool enabled);
-int mediaflow_set_remote_clientid(struct mediaflow *mf, const char *clientid);
+int mediaflow_set_remote_userclientid(struct mediaflow *mf,
+				      const char *userid, const char *clientid);
 void mediaflow_set_ice_role(struct mediaflow *mf, enum ice_role role);
 struct ice_candpair *mediaflow_selected_pair(const struct mediaflow *mf);
 enum ice_role mediaflow_local_role(const struct mediaflow *mf);

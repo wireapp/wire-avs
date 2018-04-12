@@ -961,7 +961,8 @@ out:
             }
             if( rec_fs_hz_ > 0 && tot_rec_delivered_ >= rec_fs_hz_){
                 // every second check how many
-                #define THRES_MAX_CALLS_PER_MS_Q10 154 // 150/sec
+		// Allow for 5ms frames
+                #define THRES_MAX_CALLS_PER_MS_Q10 205 // 200/sec
                 int32_t thres = ((int32_t)((1000*tot_rec_delivered_)/rec_fs_hz_) * THRES_MAX_CALLS_PER_MS_Q10) >> 10;
                 if(num_capture_worker_calls_ > thres){
                     if(mq_){

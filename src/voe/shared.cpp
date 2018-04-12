@@ -302,7 +302,6 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 	webrtc::CodecInst c;
 	int err = 0;
 	int bitrate_bps;
-	int packet_size_ms;
 	bool test_mode = false;
 
 	ve = (struct voe_channel *)mem_zalloc(sizeof(*ve), ve_destructor);
@@ -362,8 +361,6 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 	}
     
 	bitrate_bps = gvoe.manual_bitrate_bps ? gvoe.manual_bitrate_bps : gvoe.bitrate_bps;
-	packet_size_ms = gvoe.manual_packet_size_ms ? gvoe.manual_packet_size_ms :
-        std::max( gvoe.packet_size_ms, gvoe.min_packet_size_ms );
     
 	ve->ch = gvoe.base->CreateChannel();
 	if (ve->ch == -1) {
@@ -379,7 +376,8 @@ int voe_ve_alloc(struct voe_channel **vep, const struct aucodec *ac,
 
 	voe_setup_opus( ZETA_OPUS_USE_STEREO, ZETA_OPUS_BITRATE_HI_BPS, &c);
     
-	c.pacsize = (c.plfreq * packet_size_ms) / 1000;
+	/* AUDIO-1450 - start with 20ms packets, will be updated later */
+	c.pacsize = (c.plfreq * 20) / 1000;
 	c.rate = bitrate_bps;
     
 	gvoe.codec->SetSendCodec(ve->ch, c);

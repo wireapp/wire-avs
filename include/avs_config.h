@@ -23,13 +23,6 @@
 struct call_config {
        struct zapi_ice_server iceserverv[4];
        size_t iceserverc;
-
-       struct {
-
-               /* On/Off toggle is needed, to prevent downgrade
-                * attack from compromised Backend */
-               bool kase;
-       } features;
 };
 
 typedef int (config_req_h)(void *arg);

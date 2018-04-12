@@ -27,10 +27,15 @@ struct mm;
 extern "C" {
 #endif
 
+struct mm_platform_start_rec {
+	mediamgr_start_rec_h *rech;
+	void *arg;
+};
+	
 int mm_platform_init(struct mm *mm, struct dict *sounds);
 int mm_platform_free(struct mm *mm);
 	
-void mm_platform_play_sound(struct sound *snd, bool sync);
+void mm_platform_play_sound(struct sound *snd, bool sync, bool delayed);
 void mm_platform_pause_sound(struct sound *snd);
 void mm_platform_resume_sound(struct sound *snd);
 void mm_platform_stop_sound(struct sound *snd);
@@ -61,7 +66,11 @@ void mm_platform_enter_call(void);
 void mm_platform_exit_call(void);
 
 void mm_platform_set_active(void);
-    
+
+
+void mm_platform_start_recording(struct mm_platform_start_rec *rec_elem);
+void mm_platform_stop_recording(void);
+	
 #ifdef __cplusplus__
 };
 #endif

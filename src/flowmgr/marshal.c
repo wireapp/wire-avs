@@ -35,7 +35,6 @@ enum marshal_id {
 	MARSHAL_ALLOC,
 	MARSHAL_START,
 	MARSHAL_FREE,
-	MARSHAL_MEDIA_ESTAB_HANDLER,
 	MARSHAL_AUPLAY,
 	MARSHAL_SET_MUTE,
 	MARSHAL_GET_MUTE,
@@ -59,13 +58,6 @@ struct marshal_alloc_elem {
 	struct flowmgr **fmp;
 	flowmgr_req_h *reqh;
 	flowmgr_err_h *errh;
-	void *arg;
-};
-
-struct marshal_media_estab_handler_elem {
-	struct marshal_elem a;
-
-	flowmgr_media_estab_h *mestabh;
 	void *arg;
 };
 
@@ -191,14 +183,6 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 	case MARSHAL_FREE: {
 		flowmgr_free(me->fm);
-		break;
-	}
-
-	case MARSHAL_MEDIA_ESTAB_HANDLER: {
-		struct marshal_media_estab_handler_elem *mme = data;
-
-		flowmgr_set_media_estab_handler(me->fm, mme->mestabh,
-						mme->arg);
 		break;
 	}
 
@@ -348,22 +332,6 @@ int marshal_flowmgr_start(void)
 	marshal_send(&me);
 
 	return me.ret;
-}
-
-
-void marshal_flowmgr_set_media_estab_handler(struct flowmgr *fm,
-					     flowmgr_media_estab_h *mestabh,
-					     void *arg)
-{
-	struct marshal_media_estab_handler_elem me;
-
-	me.a.id = MARSHAL_MEDIA_ESTAB_HANDLER;
-	me.a.fm = fm;
-
-	me.mestabh = mestabh;
-	me.arg = arg;
-
-	marshal_send(&me);
 }
 
 

@@ -669,31 +669,6 @@ int fm_request(struct rr_resp *ctx, const char *path, const char *method,
 	return err;
 }
 
-static void media_estab_handler(const char *convid, bool estab, void *arg)
-{
-	struct jfm *jfm = (struct jfm *)arg;
-	struct jni_env je;
-	jstring jconvid;
-	int err = 0;
-
-	debug("media_estab_handler: convid=%s estab=%d\n", convid, estab);
-	
-	err = jni_attach(&je);
-	if (err) {
-		warning("media_established: cannot attach JNI: %m\n", err);
-		goto out;
-	}
-
-	jconvid = je.env->NewStringUTF(convid);
-
-	//jni_re_leave();
-	je.env->CallVoidMethod(jfm->self, java.mestabmid, jconvid);
-	//	jni_re_enter();
-
- out:
-	jni_detach(&je);
-}
-
 static void conf_pos_handler(const char *convid, struct list *partl, void *arg)
 {
 	struct jfm *jfm = (struct jfm *)arg;
@@ -816,7 +791,7 @@ static void video_state_handler(enum flowmgr_video_receive_state state,
 }
 
 
-static int render_frame_handler(struct avs_vidframe *vf, void *arg)
+static int render_frame_handler(struct avs_vidframe *vf, const char *userid, void *arg)
 {
 	struct video_renderer *vr = java.video.renderer;
 	struct jni_env je;
@@ -864,7 +839,7 @@ static void audio_state_handler(enum flowmgr_audio_receive_state state,
 	audio_change_state_handler(state);
 }
 
-static void video_size_handler(int w, int h, void *arg)
+static void video_size_handler(int w, int h, const char *userid, void *arg)
 {
 	struct jfm *jfm = java.jfm;	
 	struct jni_env je;
@@ -909,9 +884,6 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_attach
 		goto out;
 	}
     
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_media_estab_handler,
-			     jfm->fm, media_estab_handler, jfm);
-
 	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_video_handlers, jfm->fm,
 			     video_state_handler,
 			     render_frame_handler,

@@ -153,22 +153,6 @@ int config_update(struct config *cfg, int err,
 		}
 	}
 
-	/* Features config */
-	{
-		struct json_object *jfeat;
-
-		cfg->config.features.kase = true;
-
-		err = jzon_object(&jfeat, jobj, "features");
-		if (err) {
-			info("config(%p): could not find features\n", cfg);
-			err = 0;
-		}
-		else {
-			jzon_bool(&cfg->config.features.kase,
-				 jfeat, "kase");
-		}
-	}
  out:
 	if (err) {
 		warning("config(%p): config error (%m)\n", cfg, err);

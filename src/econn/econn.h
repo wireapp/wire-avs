@@ -36,6 +36,7 @@ struct econn {
 
 	char sessid_local[64];
 	char sessid_remote[64];
+	char userid_remote[64];
 	char clientid_remote[32];
 	int setup_err;
 	int conflict;
@@ -44,6 +45,7 @@ struct econn {
 	econn_answer_h *answerh;
 	econn_update_req_h *update_reqh;
 	econn_update_resp_h *update_resph;
+	econn_alert_h *alerth;
 	econn_close_h *closeh;
 	void *arg;
 	int err;

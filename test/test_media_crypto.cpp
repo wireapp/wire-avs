@@ -297,9 +297,9 @@ static void test_b2b_base(enum tls_keytype a_cert,
 	a->other = b;
 	b->other = a;
 
-	err = mediaflow_set_remote_clientid(a->mf, b->name);
+	err = mediaflow_set_remote_userclientid(a->mf, b->name, b->name);
 	ASSERT_EQ(0, err);
-	err = mediaflow_set_remote_clientid(b->mf, a->name);
+	err = mediaflow_set_remote_userclientid(b->mf, a->name, a->name);
 	ASSERT_EQ(0, err);
 
 	err = mediaflow_set_setup(a->mf, a_setup);

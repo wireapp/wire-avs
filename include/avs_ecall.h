@@ -62,6 +62,22 @@ typedef void (ecall_datachan_estab_h)(struct ecall *ecall, bool update,
  */
 typedef void (ecall_propsync_h)(void *arg);
 
+/**
+ * Callback used to inform user that received video has started or stopped
+ *
+ * @param state    New video state start/stopped
+ * @param reason   Reason (when stopping), normal/low bandwidth etc.
+ * @param arg      The handler argument passed to flowmgr_alloc().
+ */
+typedef void (ecall_video_state_change_h)(struct ecall *ecall, const char *userid, int state, void *arg);
+
+/**
+ * Callback used to inform user that call uses CBR (in both directions)
+ */
+typedef void (ecall_audio_cbr_change_h)(struct ecall *ecall, const char *userid, int enabled, void *arg);
+
+typedef void (ecall_alert_h)(uint32_t level, const char *descr, void *arg);
+
 
 /**
  * The call was terminated, called once.
@@ -87,6 +103,8 @@ int  ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		 ecall_audio_estab_h *audio_estabh,
 		 ecall_datachan_estab_h *datachan_estabh,
 		 ecall_propsync_h *propsynch,
+		ecall_video_state_change_h *vstateh,
+		ecall_audio_cbr_change_h *audiocbrh,
 		 ecall_close_h *closeh,
 		 ecall_transp_send_h *sendh, void *arg);
 int  ecall_add_turnserver(struct ecall *ecall, const struct sa *srv,
@@ -121,6 +139,7 @@ enum econn_state ecall_state(const struct ecall *ecall);
 int ecall_media_start(struct ecall *ecall);
 void ecall_media_stop(struct ecall *ecall);
 int ecall_set_video_send_active(struct ecall *ecall, bool active);
+int ecall_set_group_mode(struct ecall *ecall, bool active);
 bool ecall_is_answered(const struct ecall *ecall);
 bool ecall_has_video(const struct ecall *ecall);
 int ecall_propsync_request(struct ecall *ecall);
@@ -133,6 +152,10 @@ int  ecall_restart(struct ecall *ecall);
 
 struct conf_part *ecall_get_conf_part(struct ecall *ecall);
 void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp);
+
+int  ecall_send_alert(struct ecall *ecall, uint32_t level, const char *descr);
+void ecall_set_alert_handler(struct ecall *ecall, ecall_alert_h *alerth);
+
 
 #define MAX_USER_DATA_SIZE (1024*64) // 64 kByte
 

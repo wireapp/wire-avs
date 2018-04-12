@@ -1,7 +1,0 @@
-#!/bin/bash -ex
-
-valgrind --leak-check=yes --error-exitcode=42 \
-    --track-origins=yes \
-    --num-callers=100 \
-    --suppressions=toys/avs.supp \
-    ./ztest $@

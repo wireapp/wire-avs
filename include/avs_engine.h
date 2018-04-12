@@ -52,6 +52,14 @@ typedef void (engine_ping_h)(void *arg);
 typedef void (engine_status_h)(int err, void *arg);
 
 
+/* Missing client from OTR handler.
+ *
+ * This type is used to inform the user that an OTR message was missing
+ * a recipient client (412 precondition failed).
+ */
+typedef void (engine_missing_client_h)(const char *userid, const char *clientid, void *arg);
+
+
 /************* House Keeping ***********************************************/
 
 /* Initialize the engine module.
@@ -330,7 +338,9 @@ int engine_send_otr_message(struct engine_conv *conv,
 			    struct list *msgl,
 			    bool transient,
 			    bool ignore_missing,
-			    engine_status_h *resph, void *arg);
+			    engine_status_h *resph,
+			    engine_missing_client_h *missingh,
+			    void *arg);
 int engine_send_data(struct engine_conv *conv, const char *ctype,
 		     uint8_t *data, size_t len);
 int engine_send_file(struct engine_conv *conv, const char *ctype,
@@ -417,6 +427,8 @@ typedef void (engine_user_clients_h)(int err, const char *clientidv[],
 int engine_get_clients(struct engine *eng,
 		       const struct client_handler *clih);
 int engine_get_prekeys(struct engine *eng, const char *userid,
+		       const struct prekey_handler *pkh);
+int engine_get_client_prekeys(struct engine *eng, const char *userid, const char *clientid,
 		       const struct prekey_handler *pkh);
 int engine_get_user_clients(struct engine *eng, const char *userid,
 			    engine_user_clients_h *uch, void *arg);

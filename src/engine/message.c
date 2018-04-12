@@ -65,9 +65,47 @@ int engine_set_last_read(struct engine_conv *conv, const char *msg_id)
  */
 
 struct otr_context {
+	engine_missing_client_h *missingh;
 	engine_status_h *resph;
 	void *arg;
 };
+
+
+static bool missing_user_handler(struct le *le, void *arg)
+{
+	const struct odict_entry *ue;
+	struct otr_context *ctx = arg;
+	const char *userid;
+	size_t count, i;
+
+	if (!ctx || !ctx->missingh) {
+		return true;
+	}
+	ue = (const struct odict_entry*)le->data;
+	if (!ue) {
+		warning("engine: missing_user_handler user has no data\n");
+		return false;
+	}
+	userid = ue->key;
+
+	count = odict_count(ue->u.odict, false);
+
+	for (i=0; i<count; i++) {
+		const struct odict_entry *ce;
+		char key[16];
+
+		re_snprintf(key, sizeof(key), "%zu", i);
+
+		ce = odict_lookup(ue->u.odict, key);
+		if (!ce || ce->type != ODICT_STRING)
+			continue;
+
+		ctx->missingh(userid, ce->u.str, ctx->arg);
+		
+	}
+
+	return false;
+}
 
 static void otr_resp_handler(int err, const struct http_msg *msg,
 			     struct mbuf *mb, struct json_object *jobj,
@@ -80,7 +118,24 @@ static void otr_resp_handler(int err, const struct http_msg *msg,
 		goto out;
 	}
 
-	if (msg->scode >= 300) {
+	if (msg->scode == 412) {
+		struct odict *dict;
+		const struct odict_entry *missing;
+
+		dict = jzon_get_odict(jobj);
+		missing  = odict_lookup(dict, "missing");
+
+		list_apply(&missing->u.odict->lst, true, missing_user_handler, ctx);
+
+		err = EAGAIN;
+	}
+	else if (msg->scode == 408 || (msg->scode >= 500 && msg->scode < 600)) {
+		/* Server error, retry */
+		warning("engine: otr message failed (%u %r) retrying\n",
+			msg->scode, &msg->reason);
+		err = EAGAIN;
+	}
+	else if (msg->scode >= 300) {
 		warning("engine: otr message failed (%u %r)\n",
 			msg->scode, &msg->reason);
 
@@ -166,7 +221,9 @@ int engine_send_otr_message(struct engine_conv *conv,
 			    struct list *msgl,
 			    bool transient,
 			    bool ignore_missing,
-			    engine_status_h *resph, void *arg)
+			    engine_status_h *resph,
+			    engine_missing_client_h *missingh,
+			    void *arg)
 {
 	struct json_object *jobj, *recipients, *map;
 	struct otr_context *ctx;
@@ -179,6 +236,7 @@ int engine_send_otr_message(struct engine_conv *conv,
 
 	ctx = mem_zalloc(sizeof(*ctx), NULL);
 	ctx->resph = resph;
+	ctx->missingh = missingh;
 	ctx->arg = arg;
 
 	jobj       = json_object_new_object();

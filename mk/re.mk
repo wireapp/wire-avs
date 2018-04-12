@@ -71,6 +71,9 @@ endif
 ifeq ($(AVS_ARCH),armv7s)
 	AVS_CFLAGS += -DARCH=\"arm\"
 endif
+ifeq ($(AVS_ARCH),armv7l)
+	AVS_CFLAGS += -DARCH=\"arm\"
+endif
 ifeq ($(AVS_ARCH),arm64)
 	AVS_CFLAGS += -DARCH=\"arm64\"
 endif

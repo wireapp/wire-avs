@@ -64,6 +64,7 @@ void econn_message_reset(struct econn_message *msg)
 
 	case ECONN_SETUP:
 	case ECONN_UPDATE:
+	case ECONN_GROUP_SETUP:
 		msg->u.setup.sdp_msg = mem_deref(msg->u.setup.sdp_msg);
 		msg->u.setup.props = mem_deref(msg->u.setup.props);
 		break;
@@ -82,6 +83,10 @@ void econn_message_reset(struct econn_message *msg)
 	case ECONN_DEVPAIR_ACCEPT:
 		msg->u.devpair_accept.sdp =
 			mem_deref(msg->u.devpair_accept.sdp);
+		break;
+
+	case ECONN_ALERT:
+		msg->u.alert.descr = mem_deref(msg->u.alert.descr);
 		break;
 
 	default:

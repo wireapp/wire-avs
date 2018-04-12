@@ -98,6 +98,12 @@ void mediamgr_set_user_starts_audio(struct mediamgr *mediamgr, bool enable);
 void mediamgr_enter_call(struct mediamgr *mediamgr);
 void mediamgr_exit_call(struct mediamgr *mediamgr);
 void mediamgr_audio_release(struct mediamgr *mediamgr);
+
+/* Recording of audio messages */
+typedef void (mediamgr_start_rec_h)(void *arg);	
+void mediamgr_start_recording(struct mediamgr *mm,
+			      mediamgr_start_rec_h *rech, void *arg);
+void mediamgr_stop_recording(struct mediamgr *mm);
 	
 
 typedef void (mediamgr_incoming_h)(const char *convid, uint32_t msg_time,
@@ -111,6 +117,8 @@ int mediamgr_invoke_incomingh(struct mediamgr *mm,
 			      const char *userid, int video_call,
 			      int should_ring,
 			      void *arg);
+
+	
 	
 
     /* Global functions */
@@ -120,6 +128,7 @@ void mediamgr_bt_device_connected(struct mm *mm, bool connected);
 
 void mediamgr_device_changed(struct mm *mm);	
 
+	
 #ifdef __cplusplus
 }
 #endif

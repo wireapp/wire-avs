@@ -63,6 +63,8 @@ struct egcall {
 	egcall_leave_h *leaveh;
 	egcall_close_h *closeh;
 	egcall_metrics_h *metricsh;
+	ecall_video_state_change_h *vstateh;
+	ecall_audio_cbr_change_h *acbrh;
 
 	/* TODO replace this with an ONGOING state */
 	bool is_call_answered;
@@ -70,7 +72,11 @@ struct egcall {
 	struct tmr roster_timer;
 
 	bool audio_cbr;
-	
+
+	struct {
+		bool send_active;
+	} video;
+
 	void *arg;
 };
 
@@ -79,6 +85,7 @@ struct roster_item {
 	char *key;
 
 	bool audio_estab;
+	int video_recv;
 };
 
 static void egcall_start_timeout(void *arg);
@@ -110,9 +117,17 @@ static int get_userclient(char** userclient,
 
 static void update_conf_pos(struct egcall *egcall)
 {
+	int err;
+
 	info("egcall(%p): update_conf_pos called\n", egcall );
+
 	conf_pos_sort(&egcall->conf_pos.partl);
-	msystem_update_conf_parts(&egcall->conf_pos.partl);
+
+	err = msystem_update_conf_parts(&egcall->conf_pos.partl);
+	if (err) {
+		warning("egcall: msystem_update_conf_parts error (%m)\n", err);
+	}
+
 	if (egcall->conf_pos.chgh) {
 		uint64_t now = tmr_jiffies();
 		info("egcall(%p): update_conf_pos chgh called\n");
@@ -421,6 +436,8 @@ int egcall_alloc(struct egcall **egcallp,
 		 egcall_leave_h *leaveh,
 		 egcall_close_h *closeh,
 		 egcall_metrics_h *metricsh,
+		 ecall_video_state_change_h *vstateh,
+		 ecall_audio_cbr_change_h *acbrh,
 		 void *arg)
 {
 	struct egcall *egcall = NULL;
@@ -458,6 +475,8 @@ int egcall_alloc(struct egcall **egcallp,
 	egcall->leaveh = leaveh;
 	egcall->closeh = closeh;
 	egcall->metricsh = metricsh;
+	egcall->vstateh = vstateh,
+	egcall->acbrh = acbrh,
 	egcall->arg = arg;
 
 	list_init(&egcall->conf_pos.partl);
@@ -695,17 +714,20 @@ static void ecall_audio_estab_handler(struct ecall *ecall, bool update,
 		struct mediaflow *mf;
 		struct roster_item *ri;
 		struct conf_part *cp;
-		
+
 		ri = roster_lookup(egcall, ecall);
 		if (ri)
 			ri->audio_estab = true;
 
 		cp = ecall_get_conf_part(ecall);
 		mf = ecall_mediaflow(ecall);
+
+
 		/* Add conf_part only if there is no conf_part already,
 		 * otherwise we might end up with multiple conf_parts
 		 */
 		if (cp == NULL && mf) {
+
 			int err;
 
 			err = conf_part_add(&cp,
@@ -742,6 +764,19 @@ static void ecall_propsync_handler(void *arg)
 	(void)egcall;	
 }
 
+
+static void ecall_vstate_handler(struct ecall *ecall, const char *userid, int state, void *arg)
+{
+}
+
+
+static void ecall_audiocbr_handler(struct ecall *ecall, const char *userid, int enabled, void *arg)
+{
+	struct egcall *egcall = arg;
+
+	if (egcall->acbrh)
+		egcall->acbrh(ecall, userid, enabled, egcall->arg);
+}
 
 static void ecall_close_handler(int err, const char *metrics_json,
 				struct ecall *ecall, uint32_t msg_time,
@@ -832,6 +867,8 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 			  ecall_audio_estab_handler,
 			  ecall_datachan_estab_handler,
 			  ecall_propsync_handler,
+			  ecall_vstate_handler,
+			  ecall_audiocbr_handler,
 			  ecall_close_handler,
 			  ecall_transp_send_handler,
 			  egcall);
@@ -843,6 +880,7 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 
 	ecall_set_peer_userid(ecall, userid_peer);
 	ecall_set_peer_clientid(ecall, clientid_peer);
+	ecall_set_group_mode(ecall, true);
 
 	LIST_FOREACH(&egcall->turn.srvl, le) {
 		struct turn_srv *turn = le->data;
@@ -1180,6 +1218,7 @@ static bool roster_members_handler(char *key, void *val, void *arg)
 
 	str_dup(&memb->userid, ri->userid);
 	memb->audio_estab = (int)ri->audio_estab;
+	memb->video_recv = 0;
 
 	(mm->membc)++;
 
@@ -1237,6 +1276,14 @@ int egcall_get_members(struct wcall_members **mmp, struct egcall *egcall)
 		if (mmp)
 			*mmp = mm;
 	}
+
+	return err;
+}
+
+
+int egcall_set_video_send_active(struct egcall *egcall, bool active)
+{
+	int err = 0;
 
 	return err;
 }

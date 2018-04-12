@@ -117,7 +117,7 @@ static bool sdp_has_remb(struct viddec_state *vds){
 	return goog_remb ? true : false;
 }
 
-int vie_render_start(struct viddec_state *vds)
+int vie_render_start(struct viddec_state *vds, const char* userid_remote)
 {
   	webrtc::VideoReceiveStream::Decoder decoder;
 	struct vie *vie = vds ? vds->vie : NULL;
@@ -187,7 +187,7 @@ int vie_render_start(struct viddec_state *vds)
 	receive_config.rtp.extensions.push_back(
 		webrtc::RtpExtension(webrtc::RtpExtension::kVideoRotation,
 		kVideoRotationRtpExtensionId));
-	vie->receive_renderer = new ViERenderer();
+	vie->receive_renderer = new ViERenderer(userid_remote);
 	receive_config.renderer = vie->receive_renderer;
 
 	decoder.payload_type = vds->pt;
@@ -360,8 +360,13 @@ void vie_dec_rtcp_handler(struct viddec_state *vds,
 			vie->stats_rx.rtcp.bitrate_limit);
 	}
 
-	delstat = vie->call->Receiver()->DeliverPacket(webrtc::MediaType::VIDEO, pkt, len, pt);
+	delstat = vie->call->Receiver()->DeliverPacket(webrtc::MediaType::VIDEO,
+						       pkt, len, pt);
+	if (delstat != webrtc::PacketReceiver::DELIVERY_OK) {
+		warning("vie: RTCP DeliverPacket error %d\n", delstat);
+	}
 }
+
 
 uint32_t vie_dec_getbw(struct viddec_state *vds)
 {

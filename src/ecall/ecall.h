@@ -162,6 +162,9 @@ struct ecall {
 	ecall_audio_estab_h *audio_estabh;
 	ecall_datachan_estab_h *datachan_estabh;
 	ecall_propsync_h *propsynch;
+	ecall_video_state_change_h *vstateh;
+	ecall_audio_cbr_change_h *audiocbrh;
+	ecall_alert_h *alerth;
 	ecall_close_h *closeh;
 	void *arg;
 
@@ -175,6 +178,15 @@ struct ecall {
 	bool devpair;
 
 	bool audio_cbr;
+	bool group_mode;
+
+	struct {
+		int recv_state;
+	} video;
+
+	struct {
+		int cbr_state;
+	} audio;
 };
 
 

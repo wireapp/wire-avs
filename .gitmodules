@@ -36,4 +36,4 @@
 	url = https://github.com/jedisct1/libsodium.git
 [submodule "contrib/openssl"]
 	path = contrib/openssl
-        url = git@github.com:alfredhz/openssl.git
+	url = git@github.com:openssl/openssl.git

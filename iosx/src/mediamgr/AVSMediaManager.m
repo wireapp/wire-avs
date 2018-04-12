@@ -166,7 +166,6 @@ void AVSError ( NSString *message, ... )
 
 @end
 
-
 @interface AVSMediaManager()
 {
 	struct mediamgr *_mm;
@@ -179,6 +178,8 @@ void AVSError ( NSString *message, ... )
 - (void)registerMedia:(NSString*)name withUrl:(NSURL*)url;
 
 @end
+
+
 
 static void on_mcat_changed(enum mediamgr_state new_mcat, void *arg)
 {
@@ -441,6 +442,28 @@ static AVSMediaManager *_defaultMediaManager;
 
 - (void)setUiStartsAudio:(BOOL)ui_starts_audio
 {
+}
+
+
+static void start_rec_handler(void *arg)
+{
+	dispatch_block_t blk = (__bridge dispatch_block_t)arg;
+
+	dispatch_async(dispatch_get_main_queue(), blk);
+
+	CFRelease((__bridge void *)blk);
+}
+
+
+- (void)startRecordingWhenReady:(dispatch_block_t)blk
+{
+	mediamgr_start_recording(_mm, start_rec_handler,
+				 (void*)CFRetain((__bridge void *)blk));
+}
+
+- (void)stopRecording
+{
+	mediamgr_stop_recording(_mm);
 }
 
 - (void)mcatChanged:(enum mediamgr_state)state

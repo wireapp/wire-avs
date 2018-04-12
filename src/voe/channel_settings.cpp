@@ -84,17 +84,21 @@ void voe_set_channel_load(struct voe *voe)
         struct channel_data *cd = (struct channel_data *)le->data;
         
         gvoe.codec->GetSendCodec(cd->channel_number, c);
-        c.pacsize = (c.plfreq * packet_size_ms) / 1000;
-        c.rate = bitrate_bps;
-        gvoe.codec->SetSendCodec(cd->channel_number, c);
+        int tgt_pacsize = (c.plfreq * packet_size_ms) / 1000;
+
+        if (c.pacsize != tgt_pacsize || c.rate != bitrate_bps) {
+            c.pacsize = (c.plfreq * packet_size_ms) / 1000;
+            c.rate = bitrate_bps;
+            gvoe.codec->SetSendCodec(cd->channel_number, c);
         
-        info("voe: Changing codec settings parameters for channel %d\n", cd->channel_number);
-        info("voe: pltype = %d \n", c.pltype);
-        info("voe: plname = %s \n", c.plname);
-        info("voe: plfreq = %d \n", c.plfreq);
-        info("voe: pacsize = %d (%d ms)\n", c.pacsize, c.pacsize * 1000 / c.plfreq);
-        info("voe: channels = %d \n", c.channels);
-        info("voe: rate = %d \n", c.rate);
+            info("voe: Changing codec settings parameters for channel %d\n", cd->channel_number);
+            info("voe: pltype = %d \n", c.pltype);
+            info("voe: plname = %s \n", c.plname);
+            info("voe: plfreq = %d \n", c.plfreq);
+            info("voe: pacsize = %d (%d ms)\n", c.pacsize, c.pacsize * 1000 / c.plfreq);
+            info("voe: channels = %d \n", c.channels);
+            info("voe: rate = %d \n", c.rate);
+        }
     }
 }
 
@@ -116,13 +120,8 @@ void voe_multi_party_packet_rate_control(struct voe *voe)
         min_packet_size_ms = 40;
     }
     
-    if ( std::max( voe->packet_size_ms,     min_packet_size_ms ) !=
-        std::max( voe->packet_size_ms, voe->min_packet_size_ms ) ) {
-        voe->min_packet_size_ms = min_packet_size_ms;
-        voe_set_channel_load(voe);
-    }
-    
     voe->min_packet_size_ms = min_packet_size_ms;
+    voe_set_channel_load(voe);
 }
 
 #define SWITCH_TO_SHORTER_PACKETS_RTT_MS  500

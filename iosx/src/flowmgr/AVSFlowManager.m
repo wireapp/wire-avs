@@ -76,15 +76,11 @@ static NSComparisonResult (^conferenceComparator)(id, id) =
 			return (NSComparisonResult)NSOrderedSame;	
         };
 
-static void video_state_change_h(enum flowmgr_video_receive_state state,
-	enum flowmgr_video_reason reason, void *arg);
-
-static int render_frame_h(struct avs_vidframe *frame, void *arg);
+static int render_frame_h(struct avs_vidframe * frame, const char *userid, void *arg);
 
 static void audio_state_change_h(enum flowmgr_audio_receive_state state, void *arg);
 
-static void video_size_h(int width, int height, void *arg);
-
+static void video_size_h(int width, int height, const char *userid, void *arg);
 
 @implementation AVSVideoCaptureDevice
 
@@ -135,7 +131,8 @@ static void video_size_h(int width, int height, void *arg);
 @interface AVSFlowManager() <AVSMediaManagerObserver>
 {
 	AVSCapturer *_capturer;
-	AVSVideoView *_videoView;
+	NSMutableArray *_videoViews;
+	NSLock *_viewLock;
 }
 
 - (void)mediaCategoryChanged:(NSString *)convId category:(enum AVSFlowManagerCategory)mcat;
@@ -309,19 +306,6 @@ static int req_handler(struct rr_resp *ctx,
 }
 
 
-static void media_estab_handler(const char *convid, bool estab, void *arg)
-{
-	AVSFlowManager *fm = (__bridge AVSFlowManager *)arg;
-
-	debug("AVSFlowManager::media_estab_handler convid=%s estab=%d\n",
-	      convid, estab);
-
-	dispatch_async(DISPATCH_Q, ^{
-		[fm mediaEstablishedInConversation:avsString(convid)];
-	});
-}
-
-
 #if 0 // Enable when networkQuality is enabled
 static void netq_handler(int err, const char *convid, float q, void *arg)
 {
@@ -447,12 +431,8 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 	if (err)
 		return nil;
 
-	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_media_estab_handler, fm,
-			     media_estab_handler,
-			     (__bridge void *)(self));
-
 	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_video_handlers, fm,
-			     video_state_change_h,
+			     NULL,
 			     render_frame_h,
 			     video_size_h,
 			     (__bridge void *)(self));
@@ -469,6 +449,8 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 
 		[AVSMediaManagerChangeNotification addObserver:self];
 		_AVSFlowManagerInstance = self;
+		_videoViews = [[NSMutableArray alloc] init];
+		_viewLock = [[NSLock alloc] init];
 
 #if TARGET_OS_IPHONE
 		[[NSNotificationCenter defaultCenter] addObserver:self
@@ -503,7 +485,8 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
         g_Fm = self;
         _AVSFlowManagerInstance = self;
 
-	_videoView = nil;
+	_videoViews = [[NSMutableArray alloc] init];
+	_viewLock = [[NSLock alloc] init];
         
         FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_start);
     }
@@ -522,7 +505,8 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 		self.delegate = delegate;
 		g_Fm = self;
 		_AVSFlowManagerInstance = self;
-		_videoView = nil;
+		_videoViews = [[NSMutableArray alloc] init];
+		_viewLock = [[NSLock alloc] init];
 
 		FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_start);
 	}
@@ -548,7 +532,8 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 	if ( self ) {
 		self.delegate = delegate;
 		_AVSFlowManagerInstance = self;
-		_videoView = nil;
+		_videoViews = [[NSMutableArray alloc] init];
+		_viewLock = [[NSLock alloc] init];
 		FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_start);
 	}
 
@@ -908,25 +893,32 @@ out:
 
 - (void)attachVideoView:(UIView *)view
 {
-	_videoView = (AVSVideoView*)view;
+	[_viewLock lock];
+	[_videoViews removeAllObjects];
+	[_videoViews addObject: view];
+	[_viewLock unlock];
 }
 
 - (void)detachVideoView:(UIView *)view
 {
-	if (view == _videoView) {
-		_videoView = nil;
-	}
+	[_viewLock lock];
+	[_videoViews removeObject: view];
+	[_viewLock unlock];
 }
 
-- (BOOL)renderFrame:(struct avs_vidframe *)frame
+- (BOOL)renderFrame:(struct avs_vidframe *)frame forUser:(NSString *)userid
 {
 	BOOL sizeChanged = NO;
 	
 #if TARGET_OS_IPHONE
-	
-	if (_videoView) {
-		sizeChanged = [_videoView handleFrame:frame];
+	[_viewLock lock];
+	for (unsigned int v = 0; v < _videoViews.count; v++) {
+		AVSVideoView *view = [_videoViews objectAtIndex: v];
+
+		sizeChanged = [view handleFrame:frame];
+		break;
 	}
+	[_viewLock unlock];
 #endif
 
 	return sizeChanged;
@@ -1049,39 +1041,6 @@ static void avs_flow_manager_send_notification(NSString *name, id object)
 	});
 }
 
-static void video_state_change_h(enum flowmgr_video_receive_state state,
-	enum flowmgr_video_reason reason, void *arg)
-{
-	(void)arg;
-
-	AVSFlowManagerVideoReceiveState st;
-	AVSFlowManagerVideoReason re;
-
-	switch(state) {
-		case FLOWMGR_VIDEO_RECEIVE_STARTED:
-			st = FLOWMANAGER_VIDEO_RECEIVE_STARTED;
-			break;
-
-		case FLOWMGR_VIDEO_RECEIVE_STOPPED:
-			st = FLOWMANAGER_VIDEO_RECEIVE_STOPPED;
-			break;
-	}
-
-	switch(reason) {
-		case FLOWMGR_VIDEO_NORMAL:
-			re = FLOWMANAGER_VIDEO_NORMAL;
-			break;
-
-		case FLOWMGR_VIDEO_BAD_CONNECTION:
-			re = FLOWMANAGER_VIDEO_BAD_CONNECTION;
-			break;
-	}
-
-	AVSVideoStateChangeInfo *info = [[AVSVideoStateChangeInfo alloc]
-		initWithState:st reason:re];
-	avs_flow_manager_send_notification(FlowManagerVideoReceiveStateNotification, info);
-}
-
 static void audio_state_change_h(enum flowmgr_audio_receive_state state,
                                  void *arg)
 {
@@ -1104,17 +1063,18 @@ static void audio_state_change_h(enum flowmgr_audio_receive_state state,
 	avs_flow_manager_send_notification(FlowManagerAudioReceiveStateNotification, info);
 }
 
-static void video_size_h(int width, int height, void *arg)
+static void video_size_h(int width, int height, const char *userid, void *arg)
 {
 	/* Send notification about video size change here ... */
 }
 
 
-static int render_frame_h(struct avs_vidframe *frame, void *arg)
+static int render_frame_h(struct avs_vidframe * frame, const char *userid, void *arg)
 {
 	BOOL sizeChanged;
+	NSString *uid = [NSString stringWithUTF8String: userid];
 
-	sizeChanged = [[AVSFlowManager getInstance] renderFrame:frame];
+	sizeChanged = [[AVSFlowManager getInstance] renderFrame:frame forUser:uid];
 
 	return sizeChanged ? ERANGE : 0;
 }

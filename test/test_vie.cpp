@@ -248,7 +248,7 @@ public:
 		}
 	}
 
-	static int render_frame_handler(struct avs_vidframe *frame, void *arg)
+	static int render_frame_handler(struct avs_vidframe *frame, const char *userid, void *arg)
 	{
 		render_frame(frame, arg);
 
@@ -343,10 +343,10 @@ TEST_F(Vie, encode_decode_loop)
 	ASSERT_TRUE(vds != NULL);
 	ASSERT_TRUE(mctx2 != NULL);
 
-	err = vc->enc_starth(ves);
+	err = vc->enc_starth(ves, false);
 	ASSERT_EQ(0, err);
 
-	err = vc->dec_starth(vds);
+	err = vc->dec_starth(vds, "A");
 	ASSERT_EQ(0, err);
 
 	vie_set_video_handlers(video_state_change_handler,

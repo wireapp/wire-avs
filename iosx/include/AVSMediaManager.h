@@ -141,5 +141,7 @@ AVS_EXPORT @interface AVSMediaManager : NSObject
 - (void)startAudio;
 - (void)stopAudio;
 - (void)setUiStartsAudio:(BOOL)ui_starts_audio;
+- (void)startRecordingWhenReady:(dispatch_block_t)block;
+- (void)stopRecording;
 
 @end

@@ -266,6 +266,10 @@ ifeq ($(AVS_RELEASE),1)
  endif
 endif
 
+ifeq ($(ENABLE_HYDRA),1)
+  CFLAGS += -DENABLE_HYDRA=1
+endif
+
 # XXX Does just -MD do the right thing in clang?
 #
 #DFLAGS = -MD -MF $(@:.o=.d) -MT $@
@@ -549,6 +553,10 @@ LIBS += -lunwind
 endif
 
 ifeq ($(AVS_ARCH),armv7)
+LIBS += -lunwind
+endif
+
+ifeq ($(AVS_ARCH),armv7l)
 LIBS += -lunwind
 endif
 

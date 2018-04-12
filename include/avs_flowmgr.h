@@ -34,25 +34,6 @@ struct msystem *flowmgr_msystem(void);
 int  flowmgr_wakeup(void);
 
 
-/**
- * Defines the HTTP Request handler for sending REST-requests. The
- * application must implement this callback handler, and send the real
- * HTTP request to the backend server and wait for the response.
- * When the response arrives the application must call the function
- * flowmgr_resp() with the same context (void *ctx).
- *
- * @param ctx     HTTP Request context, must be passed to flowmgr_resp() (can be NULL)
- * @param path    URL path (e.g. /conversations/9a088c8f-.../
- * @param method  HTTP Method
- * @param ctype   Content-type (e.g. application/json)
- * @param content The actual content (not zero-terminated)
- * @param clen    Number of bytes in the content
- * @param arg     Handler argument
- *
- * @return 0 if success, otherwise errorcode
- *
- * @note ctx might be NULL if flow-manager is not interested in a response.
- */
 typedef int (flowmgr_req_h)(struct rr_resp *ctx,
 			    const char *path, const char *method,
 			    const char *ctype,
@@ -66,8 +47,6 @@ typedef int (flowmgr_req_h)(struct rr_resp *ctx,
  */
 typedef void (flowmgr_err_h)(int err, const char *convid, void *arg);
 
-
-typedef void (flowmgr_netq_h)(int err, const char *convid, float q, void *arg);
 
 /**
  * Audio categories define requirements a conversation has towards the
@@ -114,32 +93,6 @@ enum flowmgr_audio_receive_state {
 	FLOWMGR_AUDIO_INTERRUPTION_STARTED
 };
 
-/**
- * Defines the audio category handler. This function is called when the
- * flow managers needs the audio category to change for a conversation.
- *
- * This is not part of the public flow manager interface. Native bindings
- * need to provide this handler and forward a call to their audio manager.
- *
- * @param convid   A string uniquely identifying the conversation.
- * @param cat      The audio category this conversation needs to be
- *                 switched to.
- * @param arg      The handler argument passed to flowmgr_alloc().
- */
-typedef void (flowmgr_mcat_chg_h)(const char *convid,
-				  enum flowmgr_mcat cat, void *arg);
-
-typedef void (flowmgr_volume_h)(const char *convid,
-				const char *userid,
-				double invol, double outvol,
-				void *arg);
-
-typedef void (flowmgr_media_estab_h)(const char *convid, bool estab,
-				     void *arg);
-
-typedef void (flowmgr_conf_pos_h)(const char *convid,
-				  struct list *partl, void *arg);
-
 
 /**
  * Callback used to inform user that received audio is interrupted
@@ -175,7 +128,7 @@ typedef void (flowmgr_video_state_change_h)(
  * Callback used to inform user that received video frame has
  * changed size.
  */
-typedef void (flowmgr_video_size_h)(int w, int h, void *arg);
+typedef void (flowmgr_video_size_h)(int w, int h, const char *userid, void *arg);
 	
 
 /**
@@ -190,7 +143,7 @@ typedef void (flowmgr_video_size_h)(int w, int h, void *arg);
  * @param partid   Participant id for the participant whose video has started/stopped
  * @param arg      The handler argument passed to flowmgr_alloc().
  */
-typedef int (flowmgr_render_frame_h)(struct avs_vidframe *frame, void *arg);
+typedef int (flowmgr_render_frame_h)(struct avs_vidframe *frame, const char *userid, void *arg);
 
 /**
  * Create a flow manager.
@@ -214,10 +167,6 @@ int flowmgr_alloc(struct flowmgr **fmp, flowmgr_req_h *reqh,
  *
  */
 
-
-void flowmgr_set_media_estab_handler(struct flowmgr *fm,
-				     flowmgr_media_estab_h *mestabh,
-				     void *arg);
 
 void flowmgr_set_video_handlers(struct flowmgr *fm, 
 				flowmgr_video_state_change_h *state_change_h,
@@ -255,8 +204,6 @@ int flowmgr_set_mute(struct flowmgr *fm, bool mute);
 int flowmgr_get_mute(struct flowmgr *fm, bool *muted);
 
 
-int flowmgr_has_active(struct flowmgr *fm, bool *has_active);
-
 bool flowmgr_can_send_video(struct flowmgr *fm, const char *convid);
 bool flowmgr_is_sending_video(struct flowmgr *fm,
 			      const char *convid, const char *partid);
@@ -271,9 +218,6 @@ int  marshal_flowmgr_alloc(struct flowmgr **fmp, flowmgr_req_h *reqh,
 int  marshal_flowmgr_start(void);
 
 void marshal_flowmgr_free(struct flowmgr *fm);
-void marshal_flowmgr_set_media_estab_handler(struct flowmgr *fm,
-					     flowmgr_media_estab_h *mestabh,
-					     void *arg);
 int  marshal_flowmgr_auplay_changed(struct flowmgr *fm,
 				    enum flowmgr_auplay aplay);
 int  marshal_flowmgr_set_mute(struct flowmgr *fm, bool mute);

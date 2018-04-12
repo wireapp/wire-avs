@@ -91,6 +91,14 @@ int  stats_print(struct re_printf *pf, const struct transp_stats *stats);
 
 /* encode */
 
+struct resolution_info {
+	uint32_t width;
+	uint32_t height;
+	uint32_t max_fps;
+	uint32_t min_br;
+	uint32_t max_br;
+};
+
 struct videnc_state {
 	const struct vidcodec *vc;  /* base class (inheritance) */
 
@@ -99,10 +107,13 @@ struct videnc_state {
 
 	int pt;
 	
-	size_t res_idx;
+	const struct resolution_info *curr_res;
+	uint64_t ts_res_changed;
 	bool rtp_rotation;
 	size_t max_bandwidth;
+	bool group_mode;
 
+	enum flowmgr_video_send_state send_state;
 	videnc_rtp_h *rtph;
 	videnc_rtcp_h *rtcph;
 	videnc_err_h *errh;
@@ -122,7 +133,7 @@ int  vie_enc_alloc(struct videnc_state **vesp,
 		   videnc_err_h *errh,
 		   void *extcodec_arg,
 		   void *arg);
-int  vie_capture_start(struct videnc_state *ves);
+int  vie_capture_start(struct videnc_state *ves, bool group_mode);
 void vie_capture_stop(struct videnc_state *ves);
 void vie_capture_hold(struct videnc_state *ves, bool hold);
 uint32_t vie_capture_getbw(struct videnc_state *ves);
@@ -157,7 +168,7 @@ int  vie_dec_alloc(struct viddec_state **vdsp,
 		   viddec_err_h *errh,
 		   void *extcodec_arg,
 		   void *arg);
-int  vie_render_start(struct viddec_state *vds);
+int  vie_render_start(struct viddec_state *vds, const char* userid_remote);
 void vie_render_stop(struct viddec_state *vds);
 void vie_render_hold(struct viddec_state *vds, bool hold);
 void vie_dec_rtp_handler(struct viddec_state *vds,

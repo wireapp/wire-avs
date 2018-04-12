@@ -272,6 +272,18 @@ static AVSMediaManager *_defaultMediaManager;
 {
 }
 
+
+- (void)startRecordingWhenReady:(dispatch_block_t)block
+{
+}
+
+
+- (void)stopRecording
+{
+}
+
+
+
 @end
 
 #import "AVSMediaManager+Client.h"
@@ -460,6 +472,7 @@ static AVSMediaManager *_defaultMediaManager;
 - (void)routeChanged:(AVSPlaybackRoute)route
 {
 }
+
 
 @end
 

@@ -26,7 +26,7 @@ int str_wordexp(struct str_wordexp *we, const char *str)
 	struct pl plv[MAX_WORDS];
 	struct pl input;
 	size_t i = 0;
-	int err;
+	int err = 0;
 
 	if (!we || !str)
 		return EINVAL;

@@ -31,6 +31,7 @@ struct avs_vidframe;
 AVS_EXPORT @interface AVSVideoView : UIView
 
 @property (nonatomic) BOOL shouldFill;
+@property (copy) NSString *userid;
 
 - (BOOL) handleFrame:(struct avs_vidframe*) frame;
 

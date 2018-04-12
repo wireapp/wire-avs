@@ -83,6 +83,8 @@ typedef enum {
 	MM_MARSHAL_SYS_ENTERED_CALL,
 	MM_MARSHAL_SYS_LEFT_CALL,
 	MM_MARSHAL_INVOKE_INCOMINGH,
+	MM_MARSHAL_START_RECORDING,
+	MM_MARSHAL_STOP_RECORDING,
 } mm_marshal_id;
 
 struct mm_message {
@@ -117,6 +119,7 @@ struct mm_message {
 			int should_ring;
 			void *arg;
 		} incomingh;
+		struct mm_platform_start_rec *rec_elem;
 	};
 };
 
@@ -391,7 +394,8 @@ static bool stop_play(char *key, void *val, void *arg)
 }
 #endif
 
-static void play_sound(struct mm *mm, const char *mname, bool sync)
+static void play_sound(struct mm *mm, const char *mname, bool sync,
+		       bool delayed)
 {
 	struct sound *snd;
 	
@@ -411,7 +415,7 @@ static void play_sound(struct mm *mm, const char *mname, bool sync)
 		}
 #endif
 			
-		mm_platform_play_sound(snd, sync);
+		mm_platform_play_sound(snd, sync, delayed);
 	}
 }
 
@@ -459,7 +463,7 @@ static void incall_action(struct mm *mm)
 		}
 	}
 
-	play_sound(mm, "ready_to_talk", true);
+	play_sound(mm, "ready_to_talk", true, false);
 
 	mediamgr_post_media_cmd(mm, MM_MARSHAL_AUDIO_ALLOC, NULL);
 }
@@ -685,9 +689,11 @@ static void update_route(struct mm *mm, enum mm_route_update_event event)
 	}
 
 	info("mediamgr: update_route mm=%p event=%s cur_route=%s "
-	     "loudspeaker=%s\n",
+	     "loudspeaker=%s hs=%d bt=%d\n",
 	     mm, event_name(event), mediamgr_route_name(cur_route),
-	     mm->router.prefer_loudspeaker ? "yes" : "no");
+	     mm->router.prefer_loudspeaker ? "yes" : "no",
+	     mm->router.wired_hs_is_connected,
+	     mm->router.bt_device_is_connected);
 	
 	switch (event) {
 	case MM_HEADSET_PLUGGED:
@@ -1235,12 +1241,15 @@ static void sys_entered_call_handler(struct mm *mm)
 	
 	switch (mm->call_state) {
 	case MEDIAMGR_STATE_OUTGOING_AUDIO_CALL:
-		play_sound(mm, "ringing_from_me", false);
+		play_sound(mm, "ringing_from_me", false, true);
 		break;
 		
 	case MEDIAMGR_STATE_OUTGOING_VIDEO_CALL:
-		enable_speaker(mm, true);
-		play_sound(mm, "ringing_from_me_video", false);
+		if (!mm->router.bt_device_is_connected
+		    && !mm->router.wired_hs_is_connected) {
+			enable_speaker(mm, true);
+		}
+		play_sound(mm, "ringing_from_me_video", false, true);
 		break;
 
 	case MEDIAMGR_STATE_INCALL:
@@ -1371,7 +1380,7 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 		case MM_SYS_STATE_INCALL:
 			if (old_state == MEDIAMGR_STATE_INCALL ||
 			    old_state == MEDIAMGR_STATE_INVIDEOCALL) {
-				play_sound(mm, "talk_later", true);
+				play_sound(mm, "talk_later", true, false);
 			}
 			exit_call(mm);
 			break;
@@ -1471,7 +1480,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case MM_MARSHAL_PLAY_MEDIA:
-		play_sound(mm, msg->media_elem.media_name, false);
+		play_sound(mm, msg->media_elem.media_name, false, false);
 		break;
 		
 	case MM_MARSHAL_PAUSE_MEDIA: {
@@ -1569,7 +1578,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 	case MM_MARSHAL_ENTER_CALL:
 		enter_call(mm);
-		break;
+		break;		
 
 	case MM_MARSHAL_AUDIO_ALLOC:
 		audio_alloc(mm);
@@ -1608,6 +1617,14 @@ static void mqueue_handler(int id, void *data, void *arg)
 						 msg->incomingh.should_ring,
 						 msg->incomingh.arg);
 		}
+		break;
+
+	case MM_MARSHAL_START_RECORDING:
+		mm_platform_start_recording(msg->rec_elem);
+		break;
+
+	case MM_MARSHAL_STOP_RECORDING:
+		mm_platform_stop_recording();
 		break;
 	}
     
@@ -1781,4 +1798,50 @@ void mediamgr_reset_sounds(struct mm *mm)
 		return;
 
 	dict_apply(mm->sounds, reset_sound_handler, mm);
+}
+
+
+void mediamgr_start_recording(struct mediamgr *mediamgr,
+			      mediamgr_start_rec_h *rech, void *arg)
+{
+	struct mm_message *elem;
+	
+	if (!mediamgr || !mediamgr->mm)
+		return;
+
+#if 1
+	elem = mem_zalloc(sizeof(*elem), NULL);
+	if (!elem) {
+		error("mediamgr_start_recording: elem failed\n");
+		return;
+	}
+	elem->rec_elem = mem_zalloc(sizeof(*(elem->rec_elem)), NULL);
+	if (!elem->rec_elem) {
+		error("mediamgr_start_recording: elem->rech failed\n");
+		goto out;
+	}
+		
+	elem->rec_elem->rech = rech;
+	elem->rec_elem->arg = arg;
+	if (mqueue_push(mediamgr->mm->mq,
+			MM_MARSHAL_START_RECORDING, elem) != 0) {
+		error("mediamgr_set_call_state failed \n");
+		goto out;
+	}
+	return;
+
+ out:
+	mem_deref(elem->rec_elem);
+#endif
+	  
+	  //mm_platform_start_recording();
+}
+
+
+void mediamgr_stop_recording(struct mediamgr *mediamgr)
+{
+	if (!mediamgr)
+		return;
+
+	mediamgr_post_media_cmd(mediamgr->mm, MM_MARSHAL_STOP_RECORDING, NULL);
 }

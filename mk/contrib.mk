@@ -44,7 +44,7 @@ JOBS	:= -j8
 # Select what we build based on the target platform
 #
 CONTRIB_PARTS_android := \
-	GTEST LIBRE LIBREW OPENSSL AND_IFADDRS USRSCTP
+	GTEST LIBRE LIBREW OPENSSL USRSCTP
 CONTRIB_PARTS_ios := \
 	GTEST LIBRE LIBREW OPENSSL USRSCTP
 CONTRIB_PARTS_linux := \
@@ -73,6 +73,7 @@ CONTRIB_OPENSSL_OPTIONS := \
 	threads \
 	\
 	no-bf \
+	no-blake2 \
 	no-camellia \
 	no-capieng \
 	no-cast \
@@ -84,25 +85,21 @@ CONTRIB_OPENSSL_OPTIONS := \
 	no-heartbeats \
 	no-hw\
 	no-idea \
-	no-jpake \
-	no-krb5 \
 	no-md2 \
 	no-md4 \
 	no-mdc2 \
-	no-openssl \
 	no-psk \
 	no-rc2 \
 	no-rc4 \
 	no-rc5 \
-	no-ripemd \
 	no-sctp \
 	no-seed \
 	no-shared \
 	no-srp \
-	no-ssl2 \
 	no-ssl3 \
+	no-async \
 
-CONTRIB_OPENSSL_COMPILER_android_armv7 := android-armv7
+CONTRIB_OPENSSL_COMPILER_android_armv7 := android
 CONTRIB_OPENSSL_COMPILER_android_i386  := android-x86
 CONTRIB_OPENSSL_COMPILER_ios_armv7     := cc
 CONTRIB_OPENSSL_COMPILER_ios_armv7s    := cc
@@ -113,6 +110,7 @@ CONTRIB_OPENSSL_COMPILER_linux_x86_64  := linux-x86_64
 CONTRIB_OPENSSL_COMPILER_linux_i386    := linux-generic32
 CONTRIB_OPENSSL_COMPILER_linux_armv6   := cc
 CONTRIB_OPENSSL_COMPILER_linux_armv7   := cc
+CONTRIB_OPENSSL_COMPILER_linux_armv7l  := cc
 CONTRIB_OPENSSL_COMPILER_osx_x86_64    := darwin64-x86_64-cc
 
 CONTRIB_OPENSSL_OPTIONS_android        := --cross-compile-prefix=$(BIN_PATH)-
@@ -138,7 +136,9 @@ $(CONTRIB_OPENSSL_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_OPENSSL_FILES)
 		"$(CPPFLAGS) $(CFLAGS)" -DPURIFY
 	@$(MAKE) -C $(CONTRIB_OPENSSL_BUILD_PATH) clean
 	@$(MAKE) -C $(CONTRIB_OPENSSL_BUILD_PATH) depend
-	@$(MAKE) -C $(CONTRIB_OPENSSL_BUILD_PATH) build_libs build_apps
+	CROSS_SYSROOT="$(TOOLCHAIN_PATH)/sysroot/" \
+		$(MAKE) -C $(CONTRIB_OPENSSL_BUILD_PATH) \
+		build_libs build_apps
 	@$(MAKE) -C $(CONTRIB_OPENSSL_BUILD_PATH) install_sw
 	mkdir -p $(dir $@)
 	touch $@
@@ -273,7 +273,7 @@ $(CONTRIB_LIBRE_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_OPENSSL_TARGET) \
 		CC="$(CC)" \
 		AR="$(AR)" \
 		RANLIB="$(RANLIB)" \
-		EXTRA_CFLAGS="$(CPPFLAGS) $(CFLAGS) -DMAIN_DEBUG=0 -DTMR_DEBUG=0 -Dmbuf_init=_mbuf_init" \
+		EXTRA_CFLAGS="$(CPPFLAGS) $(CFLAGS) -DMAIN_DEBUG=0 -DTMR_DEBUG=0 " \
 		EXTRA_LFLAGS="$(LFLAGS) $(LIBS)" \
 		SYSROOT="$(SYSROOT)" \
 		SYSROOT_ALT="$(BUILD_TARGET)" \
@@ -425,6 +425,7 @@ $(CONTRIB_OPUS_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_OPUS_CONFIG_TARGET) $(CONT
 		CXXFLAGS="$(CPPFLAGS) $(CXXFLAGS)" \
 		$(CONTRIB_OPUS_PATH)/configure \
 			--disable-doc \
+			--disable-extra-programs \
 			$(CONTRIB_OPUS_OPTIONS) \
 			$(CONTRIB_OPUS_FAMILY_OPTIONS_$(AVS_FAMILY)) \
 			$(CONTRIB_OPUS_OS_OPTIONS_$(AVS_OS)) \
@@ -566,8 +567,8 @@ $(CONTRIB_CRYPTOBOX_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_CRYPTOBOX_FILES)
 		$(BUILD_TARGET)/include/.
 	cp $(CONTRIB_CRYPTOBOX_PATH)/target/debug/libcryptobox.a \
 		$(BUILD_TARGET)/lib/.
-	sed -i.bak s/staticlib/cdylib/g $(CONTRIB_CRYPTOBOX_PATH)/Cargo.toml
-	rm -f $(CONTRIB_CRYPTOBOX_PATH)/*.bak
+#	sed -i.bak s/staticlib/cdylib/g $(CONTRIB_CRYPTOBOX_PATH)/Cargo.toml
+#	rm -f $(CONTRIB_CRYPTOBOX_PATH)/*.bak
 
 
 .PHONY: contrib_cryptobox
@@ -579,32 +580,6 @@ contrib_cryptobox_clean:
 	$(MAKE) -C $(CONTRIB_CRYPTOBOX_PATH) clean
 
 
-#--- Android ifaddrs ---
-
-CONTRIB_AND_IFADDRS_PATH := contrib/android-ifaddrs
-CONTRIB_AND_IFADDRS_BUILD_PATH := $(BUILD_TARGET)/android-ifaddrs
-CONTRIB_AND_IFADDRS_TARGET := $(BUILD_TARGET)/lib/libifaddrs.a
-CONTRIB_AND_IFADDRS_DEPS := $(CONTRIB_AND_IFADDRS_TARGET)
-CONTRIB_AND_IFADDRS_FILES := $(shell git ls-files $(CONTRIB_AND_IFADDRS_PATH))
-
-CONTRIB_AND_IFADDRS_LIBS := -lifaddrs
-
-CONTRIB_AND_IFADDRS_LIB_FILES := $(CONTRIB_AND_IFADDRS_TARGET)
-
-$(CONTRIB_AND_IFADDRS_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_AND_IFADDRS_FILES)
-	@mkdir -p $(CONTRIB_AND_IFADDRS_BUILD_PATH)
-	cd $(CONTRIB_AND_IFADDRS_PATH) && \
-		$(CC) $(CFLAGS) -c -o \
-		$(CONTRIB_AND_IFADDRS_BUILD_PATH)/ifaddrs.o ifaddrs.c && \
-			$(AR) cr $(CONTRIB_AND_IFADDRS_TARGET) \
-				$(CONTRIB_AND_IFADDRS_BUILD_PATH)/ifaddrs.o
-	mkdir -p $(BUILD_TARGET)/include $(BUILD_TARGET)/lib
-	cp $(CONTRIB_AND_IFADDRS_PATH)/ifaddrs.h $(BUILD_TARGET)/include/.
-
-
-.PHONY: contrib_and_ifaddrs
-contrib_and_ifaddrs: $(CONTRIB_AND_IFADDRS_TARGET)
-
 #--- usrsctp ---
 
 CONTRIB_USRSCTP_PATH := $(CONTRIB_BASE)/usrsctp
@@ -615,11 +590,6 @@ CONTRIB_USRSCTP_FILES := $(shell git ls-files $(CONTRIB_USRSCTP_PATH))
 
 CONTRIB_USRSCTP_LIBS := -lusrsctp
 CONTRIB_USRSCTP_LIB_FILES := $(CONTRIB_USRSCTP_TARGET)
-
-ifeq ($(AVS_OS),android)
-CONTRIB_USRSCTP_LDFLAGS := -L$(BUILD_TARGET)/lib -lifaddrs
-CONTRIB_USRSCTP_DEPS := $(CONTRIB_AND_IFADDRS_TARGET)
-endif
 
 CONTRIB_USRSCTP_CFLAGS := -I$(CONTRIB_USRSCTP_PATH)
 ifeq ($(AVS_OS),ios)
@@ -656,8 +626,8 @@ $(CONTRIB_USRSCTP_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_USRSCTP_CONFIG_TARGET) 
 			--prefix="$(BUILD_TARGET)" \
 			$(HOST_OPTIONS)
 		$(MAKE) -C $(CONTRIB_USRSCTP_BUILD_PATH) clean
-	$(MAKE) $(JOBS) -C $(CONTRIB_USRSCTP_BUILD_PATH)
-	$(MAKE) -C $(CONTRIB_USRSCTP_BUILD_PATH) install
+	$(MAKE) $(JOBS) -C $(CONTRIB_USRSCTP_BUILD_PATH)/usrsctplib
+	$(MAKE) -C $(CONTRIB_USRSCTP_BUILD_PATH)/usrsctplib install
 	@mv $(BUILD_TARGET)/include/usrsctp.h \
 			$(BUILD_TARGET)/include/usrsctplib
 
@@ -685,6 +655,9 @@ $(CONTRIB_SODIUM_CONFIG_TARGET):	$(CONTRIB_SODIUM_PATH)/autogen.sh
 	./autogen.sh
 
 
+#
+# NOTE: cannot use --enable-minimal as wide api used by cryptobox
+#
 CONTRIB_SODIUM_OPTIONS := \
 	--enable-static \
 	--disable-shared \

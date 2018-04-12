@@ -34,7 +34,7 @@ enum ViERendererState {
 class ViERenderer : public rtc::VideoSinkInterface<webrtc::VideoFrame>
 {
 public:
-	ViERenderer();
+	ViERenderer(const char *userid_remote);
 	virtual ~ViERenderer();
     
 	void OnFrame(const webrtc::VideoFrame& video_frame);
@@ -48,6 +48,7 @@ private:
 	uint64_t _ts_last;
 	uint64_t _ts_fps;
 	uint32_t _fps_count;
+	char *_userid_remote;
 };
 
 #endif

@@ -23,6 +23,8 @@
 #include "vie_renderer.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
 
+#define STATS_DELAY 20000
+
 extern "C" {
 void frame_timeout_timer(void *arg)
 {
@@ -34,7 +36,7 @@ void frame_timeout_timer(void *arg)
 }
 };
 
-ViERenderer::ViERenderer()
+ViERenderer::ViERenderer(const char *userid_remote)
 	: _state(VIE_RENDERER_STATE_STOPPED)
 	, _ts_last(0)
 	, _fps_count(0)
@@ -42,6 +44,7 @@ ViERenderer::ViERenderer()
 	lock_alloc(&_lock);
 	tmr_init(&_timer);
 
+	str_dup(&_userid_remote, userid_remote);
 	_ts_fps = tmr_jiffies();
 	tmr_start(&_timer, VIE_RENDERER_TIMEOUT_LIMIT,
 		  frame_timeout_timer, this);
@@ -56,6 +59,7 @@ ViERenderer::~ViERenderer()
 				FLOWMGR_VIDEO_NORMAL, vid_eng.cb_arg);
 		}
 	}
+	mem_deref(_userid_remote);
 	mem_deref(_lock);
 }
 
@@ -84,8 +88,8 @@ void ViERenderer::OnFrame(const webrtc::VideoFrame& video_frame)
 
 	_fps_count++;
 	uint64_t msec = now - _ts_fps;
-	if (msec > 5000) {
-		if (msec < 6000) {
+	if (msec > STATS_DELAY) {
+		if (msec < STATS_DELAY + 1000) {
 			info("vie_renderer_handle_frame hndlr: %p res: %dx%d fps: %0.2f\n",
 				vid_eng.render_frame_h, video_frame.width(),
 				video_frame.height(), (float)_fps_count * 1000.0f / msec); 
@@ -128,9 +132,9 @@ void ViERenderer::OnFrame(const webrtc::VideoFrame& video_frame)
 		break;
 	}
 
-	err = vid_eng.render_frame_h(&avs_frame, vid_eng.cb_arg);
+	err = vid_eng.render_frame_h(&avs_frame, _userid_remote, vid_eng.cb_arg);
 	if (err == ERANGE && vid_eng.size_h)
-		vid_eng.size_h(avs_frame.w, avs_frame.h, vid_eng.cb_arg);
+		vid_eng.size_h(avs_frame.w, avs_frame.h, _userid_remote, vid_eng.cb_arg);
 		
 }
 

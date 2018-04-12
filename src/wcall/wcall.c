@@ -297,6 +297,8 @@ static void invoke_incoming_handler(const char *convid,
 
 
 static void ecall_propsync_handler(void *arg);
+static void ecall_vstate_handler(struct ecall *ecall, const char *userid, int state, void *arg);
+static void ecall_audiocbr_handler(struct ecall *ecall, const char *userid, int enabled, void *arg);
 
 static void egcall_start_handler(uint32_t msg_time,
 				 const char *userid_sender,
@@ -311,12 +313,10 @@ static void egcall_start_handler(uint32_t msg_time,
 	info(APITAG "wcall(%p): incomingh(%p) group:yes video:no ring:%s\n",
 		wcall, wcall->inst->incomingh, should_ring ? "yes" : "no");
 
-#ifndef ANDROID // Breaks ringtone for Android. Speeds up call setup for ios ...
 	if (inst->mm) {
 		mediamgr_set_call_state(inst->mm,
 					MEDIAMGR_STATE_INCOMING_AUDIO_CALL);
 	}
-#endif
 	
 	if (inst->incomingh) {
 		if (inst->mm) {
@@ -355,7 +355,6 @@ static void ecall_conn_handler(struct ecall *ecall,
 
 	set_state(wcall, WCALL_STATE_INCOMING);
 
-#ifndef ANDROID // Breaks ringtone for Android. Speeds up call setup for ios ...
 	if (inst->mm) {
 		enum mediamgr_state state;
 
@@ -365,7 +364,6 @@ static void ecall_conn_handler(struct ecall *ecall,
 
 		mediamgr_set_call_state(inst->mm, state);
 	}
-#endif
     
 	if (inst->incomingh) {
 		if (inst->mm) {
@@ -499,12 +497,13 @@ static void ecall_datachan_estab_handler(struct ecall *ecall, bool update,
 
 static void ecall_propsync_handler(void *arg)
 {
+	(void)arg;
+}
+
+static void ecall_vstate_handler(struct ecall *ecall, const char *userid, int state, void *arg)
+{
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall->inst;
-	int state = WCALL_VIDEO_RECEIVE_STOPPED;
-	bool vstate_changed = false;
-	const char *vr, *cr, *cl;
-	bool local_cbr, remote_cbr, cbr_enabled;
 
 	if (!wcall) {
 		warning("wcall(%p): propsyc_handler wcall is NULL, "
@@ -512,68 +511,26 @@ static void ecall_propsync_handler(void *arg)
 		return;
 	}
 
-	if (!wcall->ecall) {
+	if (!ecall) {
 		warning("wcall(%p): propsyc_handler ecall is NULL, "
 			"ignoring props\n", wcall);
 		return;
 	}
 
-	info("wcall(%p): propsync_handler, current recv_state %s \n",
-	     wcall, wcall->video.recv_state ? "true" : "false");
+	info(APITAG "wcall(%p): vstateh(%p) ecall=%p user=%s state=%d\n",
+	     wcall, inst->vstateh, ecall, userid, state);
 
-	vr = ecall_props_get_remote(wcall->ecall, "videosend");
-	if (vr) {
-		vstate_changed = true;
-		if (strcmp(vr, "true") == 0) {
-			state = WCALL_VIDEO_RECEIVE_STARTED;
-		}
+	if (inst->vstateh) {
+		uint64_t now = tmr_jiffies();
+		inst->vstateh(userid, state, inst->arg);
+		info(APITAG "wcall(%p): vstateh took %ld ms\n",
+		     wcall, tmr_jiffies() - now);
 	}
+}
 
-	vr = ecall_props_get_remote(wcall->ecall, "screensend");
-	if (vr) {
-		vstate_changed = true;
-		if (strcmp(vr, "true") == 0) {
-			state = WCALL_VIDEO_RECEIVE_STARTED;
-		}
-	}
-    
-	if (vstate_changed && state != wcall->video.recv_state) {
-		info("wcall(%p): propsync_handler updating recv_state "
-		     "%s -> %s\n",
-		     wcall,
-		     wcall->video.recv_state ? "true" : "false",
-		     state ? "true" : "false");
-		wcall->video.recv_state = state;
-		info(APITAG "wcall(%p): vstateh(%p) state=%d\n",
-		     wcall, inst->vstateh, state);
-		if (inst->vstateh) {
-			uint64_t now = tmr_jiffies();
-			inst->vstateh(state, inst->arg);
-			info(APITAG "wcall(%p): vstateh took %ld ms\n",
-			     wcall, tmr_jiffies() - now);
-		}
-	}
-    
-	cl = ecall_props_get_local(wcall->ecall, "audiocbr");
-	local_cbr = cl && streq(cl, "true");
 
-	cr = ecall_props_get_remote(wcall->ecall, "audiocbr");
-	remote_cbr = cr && streq(cr, "true");
-		
-	cbr_enabled = local_cbr && remote_cbr ? 1 : 0;
-
-	if (cbr_enabled != wcall->audio.cbr_state) {
-		info("wcall(%p): acbrh(%p) lcbr=%s rcbr=%s cbr=%d\n", wcall, inst->acbrh,
-			local_cbr ? "true" : "false", remote_cbr ? "true" : "false",
-			cbr_enabled);
-		if (inst->acbrh) {
-			uint64_t now = tmr_jiffies();
-			inst->acbrh(cbr_enabled, inst->arg);
-			info("wcall(%p): acbrh took %ld ms\n",
-			     wcall, tmr_jiffies() - now);
-			wcall->audio.cbr_state = cbr_enabled;
-		}
-	}
+static void ecall_audiocbr_handler(struct ecall *ecall, const char *userid, int enabled, void *arg)
+{
 }
 
 
@@ -886,6 +843,8 @@ int wcall_add(void *id,
 				   egcall_leave_handler,
 				   egcall_close_handler,
 				   egcall_metrics_handler,
+				   ecall_vstate_handler,
+				   ecall_audiocbr_handler,
 				   wcall);
 		if (err) {
 			warning("wcall(%p): add: could not alloc egcall: %m\n",
@@ -905,6 +864,8 @@ int wcall_add(void *id,
 				  ecall_audio_estab_handler,
 				  ecall_datachan_estab_handler,
 				  ecall_propsync_handler,
+				  ecall_vstate_handler,
+				  ecall_audiocbr_handler,
 				  ecall_close_handler,
 				  ecall_send_handler,
 				  wcall);
@@ -1108,11 +1069,6 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	debug("wcall(%p): call_config: %d ice servers\n",
 	      inst, cfg->iceserverc);
 	
-	debug("wcall(%p): call_config: KASE is %sabled\n",
-	      inst, cfg->features.kase ? "En" : "Dis");
-
-	msystem_enable_kase(inst->msys, cfg->features.kase);
-	
 	if (first && inst->readyh) {
 		int ver = WCALL_VERSION_3;
 
@@ -1240,6 +1196,9 @@ void *wcall_create_ex(const char *userid,
 		goto out;
 	}
 
+	/* Always enable Crypto-KASE for now .. */
+	msystem_enable_kase(inst->msys, true);
+
 	err = msystem_enable_datachannel(inst->msys, true);
 	if (err) {
 		warning("wcall(%p): create: enable datachannel failed (%m)\n",
@@ -1302,10 +1261,11 @@ void wcall_destroy(void *id)
 
 	list_flush(&inst->wcalls);	
 
+	list_flush(&inst->ctxl);
+
 	lock_write_get(inst->lock);
 	
 	list_flush(&inst->ecalls);
-	list_flush(&inst->ctxl);
 
 	inst->userid = mem_deref(inst->userid);
 	inst->clientid = mem_deref(inst->clientid);
@@ -1373,6 +1333,8 @@ int wcall_i_start(struct wcall *wcall, int is_video_call, int group,
 
 		if (group) {
 			err = egcall_start(wcall->group.call, cbr);
+			err = egcall_set_video_send_active(wcall->group.call,
+							  (bool)is_video_call);
 		}
 		else {
 			ecall_set_video_send_active(wcall->ecall,
@@ -1769,7 +1731,12 @@ void wcall_i_set_video_send_active(struct wcall *wcall, bool active)
 	info(APITAG "wcall(%p): set_video_send_active convid=%s active=%d\n",
 	     wcall, wcall->convid, active);
 
-	ecall_set_video_send_active(wcall->ecall, active);	
+	if (wcall->ecall) {
+		ecall_set_video_send_active(wcall->ecall, active);	
+	}
+	else if (wcall->group.call) {
+		egcall_set_video_send_active(wcall->group.call, active);
+	}
 }
 
 

@@ -149,6 +149,13 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 			goto out;
 		break;
 
+	case ECONN_ALERT:
+		err  = jzon_add_int(jobj, "level", msg->u.alert.level);
+		err |= jzon_add_str(jobj, "descr", msg->u.alert.descr);
+		if (err)
+			goto out;
+		break;
+
 	default:
 		warning("econn: dont know how to encode %d\n", msg->msg_type);
 		err = EBADMSG;
@@ -399,6 +406,25 @@ int econn_message_decode(struct econn_message **msgp,
 		if (err) {
 			warning("econn: devpair_accept: "
 				"could not find SDP in message\n");
+			goto out;
+		}
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_ALERT))) {
+
+		msg->msg_type = ECONN_ALERT;
+
+		err = jzon_u32(&msg->u.alert.level, jobj, "level");
+		if (err) {
+			warning("econn: alert: "
+				"could not find level in message\n");
+			goto out;
+		}
+
+		err = jzon_strdup(&msg->u.alert.descr,
+				  jobj, "descr");
+		if (err) {
+			warning("econn: alert: "
+				"could not find descr in message\n");
 			goto out;
 		}
 	}

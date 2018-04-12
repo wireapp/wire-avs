@@ -29,24 +29,35 @@
 
 #include "capture_router.h"
 
+#define STATS_DELAY 20000
+
+struct vie_enc_stream {
+	struct le le;
+	webrtc::VideoCaptureInput *input;
+};
+
 static struct vie_capture_router {
-	webrtc::VideoCaptureInput *stream_input;
+	struct list streaml;
 	struct lock *lock;
 	bool buffer_rotate;
 	uint64_t ts_fps;
 	uint32_t fps_count;
 } router = {
-	.stream_input = NULL,
 	.lock = NULL,
 	.buffer_rotate = false,
 };
 
+static void stream_destructor(void *arg)
+{
+	struct vie_enc_stream *es = (struct vie_enc_stream*)arg;
+
+	list_unlink(&es->le);
+}
 
 int vie_capture_router_init(void)
 {
 	int err;
 
-	router.stream_input = NULL;
 	router.buffer_rotate = false;
 
 	err = lock_alloc(&router.lock);
@@ -56,13 +67,17 @@ int vie_capture_router_init(void)
 	router.ts_fps = tmr_jiffies();
 	router.fps_count = 0;
 
+	list_init(&router.streaml);
+
 	return 0;
 }
 
 
 void vie_capture_router_deinit(void)
 {
-	router.stream_input = NULL;
+	lock_write_get(router.lock);
+	list_flush(&router.streaml);
+	lock_rel(router.lock);
 
 	mem_deref(router.lock);
 	router.lock = NULL;
@@ -72,30 +87,41 @@ void vie_capture_router_deinit(void)
 void vie_capture_router_attach_stream(webrtc::VideoCaptureInput *stream_input,
 	bool needs_buffer_rotation)
 {
+	struct vie_enc_stream *stream = NULL;
+
+	stream = (struct vie_enc_stream *)mem_zalloc(sizeof(*stream), stream_destructor);
+	if (!stream)
+		return; // TODO: report error
+
+	stream->input = stream_input;
+	debug("%s: attaching stream: %p rotate=%d clen=%d\n",
+	      __FUNCTION__, stream_input, needs_buffer_rotation, list_count(&router.streaml));
+
 	lock_write_get(router.lock);
-	
-	debug("%s: attaching stream: %p rotate=%d\n",
-	      __FUNCTION__, stream_input, needs_buffer_rotation);
-
-	if (router.stream_input) {
-		warning("%s: setting stream input when I already have one\n", __FUNCTION__);
-	}
-
-	router.stream_input = stream_input;
-	router.buffer_rotate = needs_buffer_rotation;
+	list_append(&router.streaml, &stream->le, stream);
+	router.buffer_rotate |= needs_buffer_rotation;
 
 	lock_rel(router.lock);
 }
 
 void vie_capture_router_detach_stream(webrtc::VideoCaptureInput *stream_input)
 {
+	struct vie_enc_stream *stream = NULL;
+	struct le *found = NULL;
+	struct le *le = NULL;
+
 	lock_write_get(router.lock);
-	if (router.stream_input == stream_input) {
-		router.stream_input = NULL;
+
+	LIST_FOREACH(&router.streaml, le) {
+		stream = (struct vie_enc_stream *)le->data;
+		
+		if (stream->input == stream_input) {
+			found = le;
+		}
 	}
-	else {
-		warning("%s: trying to detach stream input that isnt the current one\n", __FUNCTION__);
-	}
+
+	if (found)
+		mem_deref(found);
 
 	lock_rel(router.lock);
 }
@@ -112,21 +138,25 @@ void vie_capture_router_handle_frame(struct avs_vidframe *frame)
 	int dw = frame->w;
 	int dh = frame->h;
 
+	struct vie_enc_stream *stream = NULL;
+	struct le *le = NULL;
+
 	uint64_t now = tmr_jiffies();
 
 	router.fps_count++;
 	uint64_t msec = now - router.ts_fps;
-	if (msec > 5000) {
-		if (msec < 6000) {
-			info("%s: res: %dx%d fps: %0.2f\n", __FUNCTION__, dw, dh,
-				(float)router.fps_count * 1000.0f / msec); 
+	if (msec > STATS_DELAY) {
+		if (msec < STATS_DELAY + 1000) {
+			info("%s: res: %dx%d fps: %0.2f str: %u\n", __FUNCTION__, dw, dh,
+				(float)router.fps_count * 1000.0f / msec,
+				list_count(&router.streaml));
 			log_convert = true;
 		}
 		router.fps_count = 0;
 		router.ts_fps = now;
 	}
 
-	if (!router.stream_input)
+	if (list_count(&router.streaml) == 0)
 		return;
 
 	switch (frame->type) {
@@ -215,10 +245,12 @@ void vie_capture_router_handle_frame(struct avs_vidframe *frame)
 	}
 
 	lock_read_get(router.lock);
-	debug("handle_frame: stream_input=%p\n", router.stream_input);
-	if (router.stream_input) {
-		router.stream_input->IncomingCapturedFrame(rtc_frame);
-	} 
+
+	LIST_FOREACH(&router.streaml, le) {
+		stream = (struct vie_enc_stream *)le->data;
+
+		stream->input->IncomingCapturedFrame(rtc_frame);
+	}
 	lock_rel(router.lock);
 
 out:

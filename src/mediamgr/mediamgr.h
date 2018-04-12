@@ -33,6 +33,7 @@ struct sound {
 	int intensity;
 	int priority;
 	bool is_call_media;
+	bool sync; /* played synchronosuly */
 	void *arg;
 
 	struct le le; /* member of sounds list */
