@@ -332,15 +332,20 @@ struct recipient_msg {
 
 int engine_recipient_msg_alloc(struct recipient_msg **rmsgp);
 
+/* OTR high-level APIs */
 
-int engine_send_otr_message(struct engine_conv *conv,
-			    const char *sender_clientid,
-			    struct list *msgl,
+typedef void (otr_resp_h)(int err, void *arg);
+
+int engine_send_otr_message(struct engine *engine,
+			    void *cb,
+			    struct engine_conv *conv,
+			    const char *target_userid,
+			    const char *target_clientid,
+			    const char *local_clientid,
+			    const uint8_t *data, size_t data_len,
 			    bool transient,
 			    bool ignore_missing,
-			    engine_status_h *resph,
-			    engine_missing_client_h *missingh,
-			    void *arg);
+			    otr_resp_h *resph, void *arg);
 int engine_send_data(struct engine_conv *conv, const char *ctype,
 		     uint8_t *data, size_t len);
 int engine_send_file(struct engine_conv *conv, const char *ctype,

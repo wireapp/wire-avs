@@ -1,0 +1,16 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "bento/ubuntu-16.04"
+
+  config.vm.provision "shell", inline: <<-SHELL
+    apt update
+    apt install -y autoconf automake clang libasound2-dev libc++-dev libc++abi-dev
+    apt install -y libreadline-dev libsodium-dev libtool libx11-dev libxcomposite-dev
+    apt install -y libxdamage-dev libxrender-dev make pkgconf protobuf-c-compiler yasm
+    apt install -y zlib1g-dev -levent-dev zip curl git make pkg-config
+    apt install -y valgrind
+    curl -sSf https://static.rust-lang.org/rustup.sh | sh -s -- --channel=stable
+  SHELL
+end

@@ -25,6 +25,8 @@
 #include "avs_store.h"
 
 
+#ifndef ANDROID
+
 static int remove_ent(FTSENT *ent)
 {
 	switch(ent->fts_info) {
@@ -81,8 +83,14 @@ static int remove_path(const char *path)
 }
 
 
+#endif
+
+
 int store_remove_pathf(const char *fmt, ...)
 {
+#ifdef ANDROID
+	return ENOSYS;
+#else
 	char path[1024];
 	va_list ap;
 	int err;
@@ -94,6 +102,7 @@ int store_remove_pathf(const char *fmt, ...)
 		return EINVAL;
 
 	return remove_path(path);
+#endif
 }
 
 

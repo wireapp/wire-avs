@@ -28,4 +28,5 @@ TEST(android, print_release_version)
 	__system_property_get("ro.build.version.release", prop);
 
 	re_printf("Android device version: %s\n", prop);
+	re_printf("Android API level:      %d\n", __ANDROID_API__);
 }

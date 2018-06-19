@@ -33,6 +33,7 @@
 #include "avs_engine.h"
 #include "module.h"
 #include "engine.h"
+#include "message.h"
 #include "event.h"
 #include "user.h"
 #include "conv.h"
@@ -216,7 +217,7 @@ int engine_recipient_msg_alloc(struct recipient_msg **rmsgp)
 }
 
 
-int engine_send_otr_message(struct engine_conv *conv,
+int engine_send_message(struct engine_conv *conv,
 			    const char *sender_clientid,
 			    struct list *msgl,
 			    bool transient,

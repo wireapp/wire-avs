@@ -244,6 +244,7 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 			      cryptos,
 			      mediaflow_estab_handler,
 			      mediaflow_close_handler,
+			      NULL,
 			      ag);
 	ASSERT_EQ(0, err);
 
@@ -384,37 +385,7 @@ TEST(media_crypto, none_and_none)
 
 TEST(media_crypto, dtlssrtp_and_dtlssrtp)
 {
-	test_b2b(TLS_KEYTYPE_RSA, TLS_KEYTYPE_RSA,
-		 CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP);
-}
-
-
-TEST(media_crypto, sdesc_and_sdesc)
-{
-	test_b2b((enum tls_keytype)0, (enum tls_keytype)0,
-		 CRYPTO_SDESC, CRYPTO_SDESC, CRYPTO_SDESC);
-}
-
-
-TEST(media_crypto, both_and_both)
-{
-	test_b2b(TLS_KEYTYPE_RSA, TLS_KEYTYPE_RSA,
-		 (enum media_crypto)(CRYPTO_DTLS_SRTP|CRYPTO_SDESC),
-		 (enum media_crypto)(CRYPTO_DTLS_SRTP|CRYPTO_SDESC),
-		 CRYPTO_DTLS_SRTP);
-}
-
-
-TEST(media_crypto, mix_rsa_ecdsa_dtlssrtp_and_dtlssrtp)
-{
-	test_b2b(TLS_KEYTYPE_RSA, TLS_KEYTYPE_EC,
-		 CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP);
-}
-
-
-TEST(media_crypto, mix_ecdsa_rsa_dtlssrtp_and_dtlssrtp)
-{
-	test_b2b(TLS_KEYTYPE_EC, TLS_KEYTYPE_RSA,
+	test_b2b(TLS_KEYTYPE_EC, TLS_KEYTYPE_EC,
 		 CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP, CRYPTO_DTLS_SRTP);
 }
 

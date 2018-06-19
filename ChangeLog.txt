@@ -1,6 +1,69 @@
 ChangeLog for AVS -- latest on top!
 
 ==============================================================================
+AVS Release 4.4
+
+Date:	    27. April 2018
+GIT:	    https://github.com/wearezeta/avs/tree/release-4.4
+Android:    Android NDK r14b
+iOS:	    iOS SDK 11.0
+OSX:	    MacOS SDK 10.13
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:        - Signal video call at start of group call
+		- Support for audio only calls
+		- Support for DNS lookup of TURN severs
+		- Upgrade of libre
+
+Hotfixes:
+
+May 25, 2018	- Make protocol robust against join-leave-join in quick succession
+		- AUDIO-1474: UPDATE conflict is missed while gathering for UPDATE
+		- AUDIO-1515: GROUPSTART ignored for client when waiting for UPDATE response
+May 28, 2018	- Sending of DTLS packets to all peers
+
+==============================================================================
+AVS Release 4.3
+
+Date:	    12. April 2018
+GIT:	    https://github.com/wearezeta/avs/tree/release-4.3
+Android:    Android NDK r14b
+iOS:	    iOS SDK 11.0
+OSX:	    MacOS SDK 10.13
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:        - TURN via TLS enabled
+		- Handle unknown TURN schemes
+		- Remove support for SHA-1 dtls fingerprints
+		- Enable multiple SRTP cipher suites
+		- Update OpenSSL to 1.1.0h
+		- Update rew
+
+Hotfixes:	- Android: Support for multiple renderers
+		- iOS: Fix audio message recording issue on simulator
+		- Remove all private information from log files
+
+==============================================================================
+AVS Release 4.2
+
+Date:	    28. Febrary 2018
+GIT:	    https://github.com/wearezeta/avs/tree/release-4.2
+Android:    Android NDK r14b
+iOS:	    iOS SDK 11.0
+OSX:	    MacOS SDK 10.13
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:        - Roaming between different networks
+		- iOS: Support for different audio buffer sizes
+		- Android NDK update to r14b
+
+Hotfixes:
+
+Apr 09, 2018 	- Fix to failed calls reported to CS
+		- CBR is not enabled
+		- Potential crash while calling and cancelling quickly after
+
+==============================================================================
 AVS Release 4.1
 
 Date:	    29. January 2018

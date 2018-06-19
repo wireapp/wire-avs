@@ -20,8 +20,6 @@
 #include <avs.h>
 #include "avs_vie.h"
 
-#include <sys/timeb.h>
-
 #include "webrtc/common_types.h"
 #include "webrtc/common.h"
 #include "webrtc/video_frame.h"

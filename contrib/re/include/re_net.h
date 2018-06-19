@@ -3,7 +3,10 @@
  *
  * Copyright (C) 2010 Creytiv.com
  */
-#if defined(WIN32)
+#ifdef CYGWIN
+#include <ws2tcpip.h>
+#include <winsock2.h>
+#elif defined(WIN32)
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else

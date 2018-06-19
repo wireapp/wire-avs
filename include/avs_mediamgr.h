@@ -98,6 +98,7 @@ void mediamgr_set_user_starts_audio(struct mediamgr *mediamgr, bool enable);
 void mediamgr_enter_call(struct mediamgr *mediamgr);
 void mediamgr_exit_call(struct mediamgr *mediamgr);
 void mediamgr_audio_release(struct mediamgr *mediamgr);
+void mediamgr_audio_reset(struct mediamgr *mediamgr);
 
 /* Recording of audio messages */
 typedef void (mediamgr_start_rec_h)(void *arg);	

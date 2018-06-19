@@ -51,9 +51,13 @@
 	}
 
 
+#define MAX_SRTP_KEY_SIZE (32+14)  /* Master key and salt */
+
+
 enum {
 	RTP_TIMEOUT_MS = 20000,
 	RTP_FIRST_PKT_TIMEOUT_MS = 20000,
+	RTP_RESTART_TIMEOUT_MS = 2000,
 	DTLS_MTU       = 1480,
 	SSRC_MAX       = 4,
 	ICE_INTERVAL   = 50,    /* milliseconds */
@@ -97,6 +101,12 @@ struct auformat {
 	const struct aucodec *ac;
 	
 	struct le le; /* Member of audio format list */
+};
+
+struct dtls_peer {
+	struct le le;
+	size_t headroom;
+	struct sa addr;
 };
 
 struct mediaflow {
@@ -170,16 +180,14 @@ struct mediaflow {
 	struct dtls_sock *dtls_sock;
 	struct udp_helper *dtls_uh;   /* for outgoing DTLS-packet */
 	struct tls_conn *tls_conn;
-	struct {
-		size_t headroom;
-		struct sa addr;
-	} dtls_peer;
+	struct list dtls_peers;     /* list of DTLS-peers (struct dtls_peer) */
 	enum media_setup setup_local;
 	enum media_setup setup_remote;
 	bool crypto_ready;
 	bool crypto_verified;
 	uint64_t ts_dtls;
 	struct kase *kase;
+	enum srtp_suite srtp_suite;
 
 	/* Codec handling */
 	struct media_ctx *mctx;
@@ -227,6 +235,7 @@ struct mediaflow {
 	/* User callbacks */
 	mediaflow_estab_h *estabh;
 	mediaflow_close_h *closeh;
+	mediaflow_restart_h *restarth;
 	mediaflow_rtp_state_h *rtpstateh;
 	mediaflow_gather_h *gatherh;
 	void *arg;
@@ -305,6 +314,7 @@ static void add_permission_to_remotes_ds(struct mediaflow *mf,
 					 struct turn_conn *conn);
 static void external_rtp_recv(struct mediaflow *mf,
 			      const struct sa *src, struct mbuf *mb);
+static bool headroom_via_turn(size_t headroom);
 
 
 static void mf_log(const struct mediaflow *mf, enum log_level level,
@@ -325,16 +335,34 @@ static void mf_log(const struct mediaflow *mf, enum log_level level,
 }
 
 
+static struct dtls_peer *dtls_peer_find(struct mediaflow *mf,
+					size_t headroom, const struct sa *addr)
+{
+	struct le *le;
+
+	for (le = list_head(&mf->dtls_peers); le; le = le->next) {
+		struct dtls_peer *dtls_peer = le->data;
+		const bool t1 = headroom_via_turn(headroom);
+		const bool t2 = headroom_via_turn(dtls_peer->headroom);
+
+		if (t1 == t2 &&
+		    sa_cmp(addr, &dtls_peer->addr, SA_ALL))
+			return dtls_peer;
+	}
+
+	return NULL;
+}
+
+
 static const char *crypto_name(enum media_crypto crypto)
 {
 	switch (crypto) {
 
 	case CRYPTO_NONE:      return "None";
 	case CRYPTO_DTLS_SRTP: return "DTLS-SRTP";
-	case CRYPTO_SDESC:     return "SDESC";
 	case CRYPTO_KASE:      return "KASE";
 
-	case CRYPTO_BOTH:      return "SDESC + DTLS-SRTP";
+	case CRYPTO_BOTH:      return "KASE + DTLS-SRTP";
 	default:               return "???";
 	}
 }
@@ -349,9 +377,6 @@ int mediaflow_cryptos_print(struct re_printf *pf, enum media_crypto cryptos)
 
 	if (cryptos & CRYPTO_DTLS_SRTP) {
 		err |= re_hprintf(pf, "%s ", crypto_name(CRYPTO_DTLS_SRTP));
-	}
-	if (cryptos & CRYPTO_SDESC) {
-		err |= re_hprintf(pf, "%s ", crypto_name(CRYPTO_SDESC));
 	}
 	if (cryptos & CRYPTO_KASE) {
 		err |= re_hprintf(pf, "%s ", crypto_name(CRYPTO_KASE));
@@ -399,21 +424,29 @@ static bool headroom_via_turn(size_t headroom)
 
 bool mediaflow_dtls_peer_isset(const struct mediaflow *mf)
 {
+	struct dtls_peer *dtls_peer;
+
 	if (!mf)
 		return false;
 
-	return sa_isset(&mf->dtls_peer.addr, SA_ALL);
+	dtls_peer = list_ledata(mf->dtls_peers.head);
+	if (!dtls_peer)
+		return false;
+
+	return sa_isset(&dtls_peer->addr, SA_ALL);
 }
 
 
-static int dtls_peer_print(struct re_printf *pf, const struct mediaflow *mf)
+static int dtls_peer_print(struct re_printf *pf,
+			   const struct dtls_peer *dtls_peer)
 {
-	if (!mf)
+	if (!dtls_peer)
 		return 0;
 
-	return re_hprintf(pf, "%s|%J",
-			  sock_prefix(mf->dtls_peer.headroom),
-			  &mf->dtls_peer.addr);
+	return re_hprintf(pf, "%s|%zu|%J",
+			  sock_prefix(dtls_peer->headroom),
+			  dtls_peer->headroom,
+			  &dtls_peer->addr);
 }
 
 
@@ -471,7 +504,7 @@ static size_t get_headroom(const struct mediaflow *mf)
 
 static void ice_error(struct mediaflow *mf, int err)
 {
-	warning("mediaflow: error in ICE-transport (%m)\n", err);
+	warning("mediaflow(%p): error in ICE-transport (%m)\n", mf, err);
 
 	mf->ice_ready = false;
 	mf->err = err;
@@ -500,7 +533,7 @@ static void tmr_error_handler(void *arg)
 
 static void crypto_error(struct mediaflow *mf, int err)
 {
-	warning("mediaflow: error in DTLS (%m)\n", err);
+	warning("mediaflow(%p): error in DTLS (%m)\n", mf, err);
 
 	mf->crypto_ready = false;
 	mf->err = err;
@@ -559,7 +592,7 @@ static void auenc_error_handler(int err, const char *msg, void *arg)
 {
 	struct mediaflow *mf = arg;
 
-	error("auenc_error_handler: %s\n", msg);
+	error("mediaflow(%p): auenc_error_handler: %s\n", mf, msg);
 
 	mf->err = err;
 	if (mf->closeh) {
@@ -572,7 +605,7 @@ static void audec_error_handler(int err, const char *msg, void *arg)
 {
 	struct mediaflow *mf = arg;
 
-	error("audec_error_handler: %s\n", msg);
+	error("mediaflow(%p): audec_error_handler: %s\n", mf, msg);
 
 	mf->err = err;
 	if (mf->closeh) {
@@ -639,20 +672,20 @@ static int start_codecs(struct mediaflow *mf)
 
 	fmt = sdp_media_rformat(mf->audio.sdpm, NULL);
 	if (!fmt) {
-		warning("mediaflow: no common codec\n");
+		warning("mediaflow(%p): no common codec\n", mf);
 		err = ENOENT;
 		goto out;
 	}
 
 	ac = fmt->data;
 	if (!ac) {
-		warning("mediaflow: no aucodec in sdp data\n");
+		warning("mediaflow(%p): no aucodec in sdp data\n", mf);
 		err = EINVAL;
 		goto out;
 	}
 
-	debug("mediaflow: starting audio codecs (%s/%u/%d)\n",
-	      fmt->name, fmt->srate, fmt->ch);
+	debug("mediaflow(%p): starting audio codecs (%s/%u/%d)\n",
+	      mf, fmt->name, fmt->srate, fmt->ch);
 
 	rssrc = sdp_media_rattr(mf->audio.sdpm, "ssrc");
 
@@ -667,7 +700,7 @@ static int start_codecs(struct mediaflow *mf)
 
 			mf->audio.remote_cbr = true;
 
-			info("mediaflow: remote side asking us to send CBR\n");
+			info("mediaflow(%p): remote side asking for CBR\n", mf);
 		}
 	}
 	if (mf->audio.remote_cbr) {
@@ -685,13 +718,15 @@ static int start_codecs(struct mediaflow *mf)
 				    mf->extcodec.arg,
 				    mf);
 		if (err) {
-			warning("mediaflow: encoder failed (%m)\n", err);
+			warning("mediaflow(%p): encoder failed (%m)\n",
+				mf, err);
 			goto out;
 		}
 
 		if (mf->started && ac->enc_start) {
 			// SSJ does this ever happen ?
-			error("mediaflow: unexpected start of audio enc\n"); 
+			error("mediaflow(%p): unexpected start of "
+			      "audio encoder\n", mf); 
 
 			ac->enc_start(mf->aes, mf->audio.local_cbr,
 				      NULL, &mf->mctx);
@@ -706,12 +741,15 @@ static int start_codecs(struct mediaflow *mf)
 				    mf->extcodec.arg,
 				    mf);
 		if (err) {
-			warning("mediaflow: decoder failed (%m)\n", err);
+			warning("mediaflow(%p): decoder failed (%m)\n",
+				mf, err);
 			goto out;
 		}
 
 		if (mf->started && ac->dec_start) {
-			error("mediaflow: unexpected start of audio decoder \n"); // SSJ does this ever happen ?
+			// SSJ does this ever happen?			
+			error("mediaflow(%p): unexpected start of "
+			      "audio decoder\n", mf); 
 			ac->dec_start(mf->ads, &mf->mctx);
 		}
 	}
@@ -755,7 +793,7 @@ static void vidcodec_error_handler(int err, const char *msg, void *arg)
 {
 	struct mediaflow *mf = arg;
 
-	warning("mediaflow: video-codec error '%s' (%m)\n", msg, err);
+	warning("mediaflow(%p): video-codec error '%s' (%m)\n", mf, msg, err);
 
 	mf->err = err;
 	if (mf->closeh) {
@@ -815,13 +853,13 @@ static int send_rtcp_app(struct mediaflow *mf, const uint8_t *pkt, size_t len)
 
 	err = rtcp_encode(mb, RTCP_APP, 0, (uint32_t)0, app_label, pkt, len);
 	if (err) {
-		warning("mediaflow: rtcp_encode failed (%m)\n", err);
+		warning("mediaflow(%p): rtcp_encode failed (%m)\n", mf, err);
 		goto out;
 	}
 
 	err = mediaflow_send_raw_rtcp(mf, mb->buf, mb->end);
 	if (err) {
-		warning("mediaflow_send_raw_rtcp failed (%m)\n", err);
+		warning("mediaflow(%p): send_raw_rtcp failed (%m)\n", mf, err);
 	}
 
  out:
@@ -837,9 +875,9 @@ static int dce_send_data_handler(uint8_t *pkt, size_t len, void *arg)
 	int err = 0;
 
 	if (!mediaflow_is_ready(mf)) {
-		warning("mediaflow: send_data(%zu bytes): not ready"
+		warning("mediaflow(%p): send_data(%zu bytes): not ready"
 			" [ice=%d, crypto=%d]\n",
-			len, mf->ice_ready, mf->crypto_ready);
+			mf, len, mf->ice_ready, mf->crypto_ready);
 		return EINTR;
 	}
 
@@ -858,24 +896,24 @@ static int dce_send_data_handler(uint8_t *pkt, size_t len, void *arg)
 			err = dtls_send(mf->tls_conn, &mb);
 		}
 		else {
-			warning("mediaflow: dce_send_data:"
-				" no DTLS connection\n");
+			warning("mediaflow(%p): dce_send_data:"
+				" no DTLS connection\n", mf);
 			return ENOENT;
 		}
 		break;
 
-	case CRYPTO_SDESC:
 	case CRYPTO_KASE:
 		err = send_rtcp_app(mf, pkt, len);
 		if (err) {
-			warning("mediaflow: dce_send_data:"
-				" rtcp_send_app [%zu bytes] (%m)\n", len, err);
+			warning("mediaflow(%p): dce_send_data:"
+				" rtcp_send_app [%zu bytes] (%m)\n",
+				mf, len, err);
 		}
 		break;
 
 	default:
-		warning("mediaflow: dce_send_data: invalid crypto %d\n",
-			mf->crypto);
+		warning("mediaflow(%p): dce_send_data: invalid crypto %d\n",
+			mf, mf->crypto);
 		return EPROTO;
 	};
 
@@ -906,7 +944,7 @@ static int start_video_codecs(struct mediaflow *mf)
 
 	fmt = sdp_media_rformat(mf->video.sdpm, NULL);
 	if (!fmt) {
-		warning("mediaflow: no common video-codec\n");
+		warning("mediaflow(%p): no common video-codec\n", mf);
 		err = ENOENT;
 		goto out;
 	}
@@ -914,7 +952,7 @@ static int start_video_codecs(struct mediaflow *mf)
 	vr = fmt->data;
 	vc = vr->vc;
 	if (!vc) {
-		warning("mediaflow: no vidcodec in sdp data\n");
+		warning("mediaflow(%p): no vidcodec in sdp data\n", mf);
 		err = EINVAL;
 		goto out;
 	}
@@ -927,12 +965,12 @@ static int start_video_codecs(struct mediaflow *mf)
 	prm.remote_ssrcc = 0;
 	if (sdp_media_rattr_apply(mf->video.sdpm, "ssrc",
 				  rssrc_handler, &prm)) {
-		warning("mediaflow: too many remote SSRCs\n");
+		warning("mediaflow(%p): too many remote SSRCs\n", mf);
 	}
 
-	debug("mediaflow: starting video codecs (%s/%u/%d)"
+	debug("mediaflow(%p): starting video codecs (%s/%u/%d)"
 	      " [params=%s, rparams=%s]\n",
-	      fmt->name, fmt->srate, fmt->ch, fmt->params, fmt->rparams);
+	      mf, fmt->name, fmt->srate, fmt->ch, fmt->params, fmt->rparams);
 
 	if (vc->enc_alloch && !mf->video.ves) {
 
@@ -945,15 +983,16 @@ static int start_video_codecs(struct mediaflow *mf)
 				     mf->extcodec.arg,
 				     mf);
 		if (err) {
-			warning("mediaflow: video encoder failed (%m)\n", err);
+			warning("mediaflow(%p): video encoder failed (%m)\n",
+				mf, err);
 			goto out;
 		}
 
 		if (mf->started && vc->enc_starth) {
 			err = vc->enc_starth(mf->video.ves, mf->group_mode);
 			if (err) {
-				warning("mediaflow: could not start"
-					" video encoder (%m)\n", err);
+				warning("mediaflow(%p): could not start"
+					" video encoder (%m)\n", mf, err);
 				goto out;
 			}
 		}
@@ -968,15 +1007,16 @@ static int start_video_codecs(struct mediaflow *mf)
 				     mf->extcodec.arg,
 				     mf);
 		if (err) {
-			warning("mediaflow: video decoder failed (%m)\n", err);
+			warning("mediaflow(%p): video decoder failed (%m)\n",
+				mf, err);
 			goto out;
 		}
 
 		if (mf->started && vc->dec_starth) {
 			err = vc->dec_starth(mf->video.vds, mf->userid_remote);
 			if (err) {
-				warning("mediaflow: could not start"
-					" video decoder (%m)\n", err);
+				warning("mediaflow(%p): could not start"
+					" video decoder (%m)\n", mf, err);
 				return err;
 			}
 		}
@@ -993,7 +1033,7 @@ static void timeout_rtp(void *arg)
 {
 	struct mediaflow *mf = arg;
 
-	tmr_start(&mf->tmr_rtp, 5000, timeout_rtp, mf);
+	tmr_start(&mf->tmr_rtp, 2000, timeout_rtp, mf);
 
 	if (mediaflow_is_rtpstarted(mf)) {
 
@@ -1001,15 +1041,20 @@ static void timeout_rtp(void *arg)
 
 		if (diff > RTP_TIMEOUT_MS) {
 
-			warning("mediaflow: no RTP packets recvd for"
+			warning("mediaflow(%p): no RTP packets recvd for"
 				" %d ms -- stop\n",
-				diff);
+				mf, diff);
 
 			mf->terminated = true;
 			mf->ice_ready = false;
 
 			if (mf->closeh)
 				mf->closeh(ETIMEDOUT, mf->arg);
+		}
+		else if (diff > RTP_RESTART_TIMEOUT_MS) {
+			if (mf->restarth) {
+				mf->restarth(mf->arg);
+			}
 		}
 	}
 }
@@ -1032,7 +1077,7 @@ static void mediaflow_established_handler(struct mediaflow *mf)
 	if (!mediaflow_is_ready(mf))
 		return;
 
-	info("mediaflow: ICE+DTLS established\n");
+	info("mediaflow(%p): ICE+DTLS established\n", mf);
 
 	if (!tmr_isrunning(&mf->tmr_rtp))
 		tmr_start(&mf->tmr_rtp, 1000, timeout_rtp, mf);
@@ -1065,16 +1110,18 @@ static bool udp_helper_send_handler_srtp(int *err, struct sa *dst,
 
 			*err = srtcp_encrypt(mf->srtp_tx, mb);
 			if (*err) {
-				warning("srtcp_encrypt() failed (%m)\n",
-					*err);
+				warning("mediaflow(%p): srtcp_encrypt() failed"
+					"(%m)\n",
+					mf, *err);
 			}
 		}
 		else {
 			*err = srtp_encrypt(mf->srtp_tx, mb);
 			if (*err) {
-				warning("srtp_encrypt() [%zu bytes]"
-					" failed (%m)\n",
-					mbuf_get_left(mb), *err);
+				warning("mediaflow(%p): "
+					"srtp_encrypt() [%zu bytes] "
+					"failed (%m)\n",
+					mf, mbuf_get_left(mb), *err);
 			}
 		}
 	}
@@ -1094,8 +1141,8 @@ static int send_packet(struct mediaflow *mf, size_t headroom,
 	if (!mf)
 		return EINVAL;
 
-	info("mediaflow: send_packet `%s' (%zu bytes) via %s to %J\n",
-
+	info("mediaflow(%p): send_packet `%s' (%zu bytes) via %s to %J\n",
+	     mf,
 	     packet_classify_name(pkt),
 	     mbuf_get_left(mb_pkt),
 	     sock_prefix(headroom), raddr);
@@ -1118,8 +1165,9 @@ static int send_packet(struct mediaflow *mf, size_t headroom,
 
 		sock = trice_lcand_sock(mf->trice, mf->sel_pair->lcand);
 		if (!sock) {
-			warning("send: selected lcand %p"
+			warning("mediaflow(%p): send: selected lcand %p"
 				" has no sock [%H]\n",
+				mf,
 				mf->sel_pair->lcand,
 				trice_cand_print, mf->sel_pair->lcand);
 			err = ENOTCONN;
@@ -1131,23 +1179,23 @@ static int send_packet(struct mediaflow *mf, size_t headroom,
 						  ICE_CAND_TYPE_HOST,
 						  AF_INET6);
 			if (lcand) {
-				info("mediaflow: send_packet: \n",
-				     " using local IPv6 socket\n");
+				info("mediaflow(%p): send_packet: \n",
+				     " using local IPv6 socket\n", mf);
 				sock = lcand->us;
 			}
 		}
 
 		err = udp_send(sock, raddr, mb);
 		if (err) {
-			warning("mediaflow: send helper error"
+			warning("mediaflow(%p): send helper error"
 				" raddr=%J (%m)\n",
-				raddr, err);
+				mf, raddr, err);
 		}
 	}
 	else {
-		warning("mediaflow: send_packet: "
+		warning("mediaflow(%p): send_packet: "
 			"drop %zu bytes (ICE not ready)\n",
-			len);
+			mf, len);
 	}
 
  out:
@@ -1163,24 +1211,38 @@ static bool send_dtls_handler(int *err, struct sa *dst_unused,
 {
 	struct mediaflow *mf = arg;
 	const enum packet pkt = packet_classify_packet_type(mb_pkt);
+	const size_t start = mb_pkt->pos;
+	struct le *le;
 
 	if (pkt != PACKET_DTLS) {
-		warning("mediaflow: send_dtls: not a DTLS packet?\n");
+		warning("mediaflow(%p): send_dtls: not a DTLS packet?\n", mf);
 		return false;
 	}
 
 	++mf->mf_stats.dtls_pkt_sent;
 
-	info("mediaflow: dtls_helper: send DTLS packet #%u (%zu bytes)"
-	     " \n",
-	     mf->mf_stats.dtls_pkt_sent,
-	     mbuf_get_left(mb_pkt));
+	/*
+	 * Send packet to all DTLS peers for better robustness
+	 */
+	for (le = mf->dtls_peers.head; le; le = le->next) {
+		struct dtls_peer *dtls_peer = le->data;
 
-	*err = send_packet(mf, mf->dtls_peer.headroom,
-			   &mf->dtls_peer.addr, mb_pkt, pkt);
-	if (*err) {
-		warning("mediaflow: send_dtls_handler:"
-			" send_packet failed (%m)\n", *err);
+		mb_pkt->pos = start;
+
+		info("mediaflow(%p): dtls_helper: send DTLS packet #%u"
+		     " to %H (%zu bytes)"
+		     " \n",
+		     mf,
+		     mf->mf_stats.dtls_pkt_sent,
+		     dtls_peer_print, dtls_peer,
+		     mbuf_get_left(mb_pkt));
+
+		*err = send_packet(mf, dtls_peer->headroom,
+				   &dtls_peer->addr, mb_pkt, pkt);
+		if (*err) {
+			warning("mediaflow(%p): send_dtls_handler:"
+				" send_packet failed (%m)\n", mf, *err);
+		}
 	}
 
 	return true;
@@ -1198,7 +1260,8 @@ static bool udp_helper_send_handler_trice(int *err, struct sa *dst,
 
 	pkt = packet_classify_packet_type(mb);
 	if (pkt == PACKET_DTLS) {
-		warning("mediaflow: dont use this to send DTLS packets\n");
+		warning("mediaflow(%p): dont use this to send DTLS packets\n",
+			mf);
 	}
 
 	if (pkt == PACKET_STUN)
@@ -1210,23 +1273,24 @@ static bool udp_helper_send_handler_trice(int *err, struct sa *dst,
 
 		sock = trice_lcand_sock(mf->trice, mf->sel_pair->lcand);
 		if (!sock) {
-			warning("send: selected lcand %p has no sock [%H]\n",
-				mf->sel_pair,
+			warning("mediaflow(%p): send: selected lcand %p "
+				"has no sock [%H]\n",
+				mf, mf->sel_pair,
 				trice_cand_print, mf->sel_pair->lcand);
 		}
 
 		lerr = udp_send(sock, &mf->sel_pair->rcand->attr.addr, mb);
 		if (lerr) {
-			warning("mediaflow: helper: udp_send failed"
+			warning("mediaflow(%p): helper: udp_send failed"
 				" rcand=[%H] (%m)\n",
-				trice_cand_print, mf->sel_pair->rcand,
+				mf, trice_cand_print, mf->sel_pair->rcand,
 				lerr);
 		}
 	}
 	else {
-		warning("mediaflow: helper: cannot send"
+		warning("mediaflow(%p): helper: cannot send"
 			" %zu bytes to %J, ICE not ready! (packet=%s)\n",
-			mbuf_get_left(mb), dst,
+			mf, mbuf_get_left(mb), dst,
 			packet_classify_name(pkt));
 		*err = ENOTCONN;
 	}
@@ -1252,36 +1316,33 @@ static bool verify_fingerprint(struct mediaflow *mf,
 	if (sdp_fingerprint_decode(attr, &hash, md_sdp, &sz_sdp))
 		return false;
 
-	if (0 == pl_strcasecmp(&hash, "sha-1")) {
-		type = TLS_FINGERPRINT_SHA1;
-		sz_dtls = 20;
-	}
-	else if (0 == pl_strcasecmp(&hash, "sha-256")) {
+	if (0 == pl_strcasecmp(&hash, "sha-256")) {
 		type = TLS_FINGERPRINT_SHA256;
 		sz_dtls = 32;
 	}
 	else {
-		warning("mediaflow: dtls_srtp: unknown fingerprint"
-			" '%r'\n", &hash);
+		warning("mediaflow(%p): dtls_srtp: unknown fingerprint"
+			" '%r'\n", mf, &hash);
 		return false;
 	}
 
 	err = tls_peer_fingerprint(tc, type, md_dtls, sizeof(md_dtls));
 	if (err) {
-		warning("mediaflow: dtls_srtp: could not get"
-			" DTLS fingerprint (%m)\n", err);
+		warning("mediaflow(%p): dtls_srtp: could not get"
+			" DTLS fingerprint (%m)\n", mf, err);
 		return false;
 	}
 
 	if (sz_sdp != sz_dtls || 0 != memcmp(md_sdp, md_dtls, sz_sdp)) {
-		warning("mediaflow: dtls_srtp: %r fingerprint mismatch\n",
-			&hash);
+		warning("mediaflow(%p): dtls_srtp: %r fingerprint mismatch\n",
+			mf, &hash);
 		info("  SDP:  %w\n", md_sdp, sz_sdp);
 		info("  DTLS: %w\n", md_dtls, sz_dtls);
 		return false;
 	}
 
-	info("mediaflow: dtls_srtp: verified %r fingerprint OK\n", &hash);
+	info("mediaflow(%p): dtls_srtp: verified %r fingerprint OK\n",
+	     mf, &hash);
 
 	return true;
 }
@@ -1292,20 +1353,20 @@ static int check_data_channel(struct mediaflow *mf)
 	bool has_data = mediaflow_has_data(mf);
 	int err = 0;
 
-	info("mediaflow: dtls_estab_handler: has_data=%d active=%d\n",
-	     has_data, mf->setup_local == SETUP_ACTIVE);
+	info("mediaflow(%p): dtls_estab_handler: has_data=%d active=%d\n",
+	     mf, has_data, mf->setup_local == SETUP_ACTIVE);
 
 	if (has_data) {
-		info("mediaflow: dce: connecting.. (%p)\n",
-		     mf->data.dce);
+		info("mediaflow(%p): dce: connecting.. (%p)\n",
+		     mf, mf->data.dce);
 
 		mf->data.ts_connect = tmr_jiffies();
 
 		err = dce_connect(mf->data.dce,
 				  mf->setup_local == SETUP_ACTIVE);
 		if (err) {
-			warning("mediaflow: dce_connect failed (%m)\n",
-				err);
+			warning("mediaflow(%p): dce_connect failed (%m)\n",
+				mf, err);
 			return err;
 		}
 	}
@@ -1314,26 +1375,53 @@ static int check_data_channel(struct mediaflow *mf)
 }
 
 
+static size_t get_keylen(enum srtp_suite suite)
+{
+	switch (suite) {
+
+	case SRTP_AES_CM_128_HMAC_SHA1_32: return 16;
+	case SRTP_AES_CM_128_HMAC_SHA1_80: return 16;
+	case SRTP_AES_256_CM_HMAC_SHA1_32: return 32;
+	case SRTP_AES_256_CM_HMAC_SHA1_80: return 32;
+	default: return 0;
+	}
+}
+
+
+static size_t get_saltlen(enum srtp_suite suite)
+{
+	switch (suite) {
+
+	case SRTP_AES_CM_128_HMAC_SHA1_32: return 14;
+	case SRTP_AES_CM_128_HMAC_SHA1_80: return 14;
+	case SRTP_AES_256_CM_HMAC_SHA1_32: return 14;
+	case SRTP_AES_256_CM_HMAC_SHA1_80: return 14;
+	default: return 0;
+	}
+}
+
+
 static void dtls_estab_handler(void *arg)
 {
 	struct mediaflow *mf = arg;
 	enum srtp_suite suite;
-	uint8_t cli_key[30], srv_key[30];
+	uint8_t cli_key[MAX_SRTP_KEY_SIZE], srv_key[MAX_SRTP_KEY_SIZE];
+	size_t master_key_len;
 	int err;
 
 	if (mf->mf_stats.dtls_estab < 0 && mf->ts_dtls)
 		mf->mf_stats.dtls_estab = tmr_jiffies() - mf->ts_dtls;
 
-	info("mediaflow: DTLS established (%d ms)\n",
-	     mf->mf_stats.dtls_estab);
+	info("mediaflow(%p): DTLS established (%d ms)\n",
+	     mf, mf->mf_stats.dtls_estab);
 
 	info("           cipher %s\n",
 	     tls_cipher_name(mf->tls_conn));
 
 	if (mf->got_sdp) {
 		if (!verify_fingerprint(mf, mf->sdp, mf->audio.sdpm, mf->tls_conn)) {
-			warning("mediaflow: dtls_srtp: could not verify"
-				" remote fingerprint\n");
+			warning("mediaflow(%p): dtls_srtp: could not verify"
+				" remote fingerprint\n", mf);
 			err = EAUTH;
 			goto error;
 		}
@@ -1344,28 +1432,40 @@ static void dtls_estab_handler(void *arg)
 			       cli_key, sizeof(cli_key),
 			       srv_key, sizeof(srv_key));
 	if (err) {
-		warning("mediaflow: could not get SRTP keyinfo (%m)\n", err);
+		warning("mediaflow(%p): dtls: no SRTP keyinfo (%m)\n",
+			mf, err);
 		goto error;
 	}
 
-	info("mediaflow: DTLS established (%s)\n", srtp_suite_name(suite));
+	mf->srtp_suite = suite;
+
+	master_key_len = get_keylen(suite) + get_saltlen(suite);
+
+	info("mediaflow(%p): DTLS established (suite=%s, master_key=%zu)\n",
+	     mf, srtp_suite_name(suite), master_key_len);
+
+	if (master_key_len == 0) {
+		warning("mediaflow(%p): dtls: empty master key\n", mf);
+	}
 
 	mf->srtp_tx = mem_deref(mf->srtp_tx);
 	err = srtp_alloc(&mf->srtp_tx, suite,
 			 mf->setup_local == SETUP_ACTIVE ? cli_key : srv_key,
-			 sizeof(cli_key), 0);
+			 master_key_len, 0);
 	if (err) {
-		warning("mediaflow: failed to allocate SRTP for TX (%m)\n",
-			err);
+		warning("mediaflow(%p): dtls: failed to allocate SRTP for TX"
+			" (%m)\n",
+			mf, err);
 		goto error;
 	}
 
 	err = srtp_alloc(&mf->srtp_rx, suite,
 			 mf->setup_local == SETUP_ACTIVE ? srv_key : cli_key,
-			 sizeof(srv_key), 0);
+			 master_key_len, 0);
 	if (err) {
-		warning("mediaflow: failed to allocate SRTP for RX (%m)\n",
-			err);
+		warning("mediaflow(%p): dtls: failed to allocate SRTP for RX"
+			" (%m)\n",
+			mf, err);
 		goto error;
 	}
 
@@ -1382,7 +1482,7 @@ static void dtls_estab_handler(void *arg)
 	return;
 
  error:
-	warning("mediaflow: DTLS-SRTP error (%m)\n", err);
+	warning("mediaflow(%p): DTLS-SRTP error (%m)\n", mf, err);
 
 	/* Wipe the keys from memory */
 	memset(cli_key, 0, sizeof(cli_key));
@@ -1397,7 +1497,8 @@ static void dtls_recv_handler(struct mbuf *mb, void *arg)
 {
 	struct mediaflow *mf = arg;
 
-	info("mediaflow: dtls_recv_handler: %zu bytes\n", mbuf_get_left(mb));
+	info("mediaflow(%p): dtls_recv_handler: %zu bytes\n",
+	     mf, mbuf_get_left(mb));
 
 	if (mf->data.dce)
 		dce_recv_pkt(mf->data.dce, mbuf_buf(mb), mbuf_get_left(mb));
@@ -1410,7 +1511,7 @@ static void dtls_close_handler(int err, void *arg)
 
 	MAGIC_CHECK(mf);
 
-	info("mediaflow: dtls-connection closed (%m)\n", err);
+	info("mediaflow(%p): dtls-connection closed (%m)\n", mf, err);
 
 	mf->tls_conn = mem_deref(mf->tls_conn);
 	mf->err = err;
@@ -1434,23 +1535,24 @@ static void dtls_conn_handler(const struct sa *unused_peer, void *arg)
 	bool okay;
 	int err;
 
-	info("mediaflow: incoming DTLS connect\n");
+	info("mediaflow(%p): incoming DTLS connect\n", mf);
 
 	/* NOTE: The DTLS peer should be set in handle_dtls_packet */
 	if (!mediaflow_dtls_peer_isset(mf)) {
-		warning("mediaflow: dtls_conn_handler:"
-			" DTLS peer is not set\n");
+		warning("mediaflow(%p): dtls_conn_handler:"
+			" DTLS peer is not set\n", mf);
 	}
 
 	/* peer is a dummy address, must not be set/used */
 	if (sa_in(unused_peer) || sa_port(unused_peer)) {
-		warning("mediaflow: internal error, unused peer (%J)\n",
-			unused_peer);
+		warning("mediaflow(%p): internal error, unused peer (%J)\n",
+			mf, unused_peer);
 	}
 
 	if (mf->setup_local == SETUP_ACTPASS) {
-		info("mediaflow: dtls_conn: local setup not decided yet"
-		     ", drop packet\n");
+		info("mediaflow(%p): dtls_conn: local setup not decided yet"
+		     ", drop packet\n",
+		     mf);
 		return;
 	}
 
@@ -1463,14 +1565,15 @@ static void dtls_conn_handler(const struct sa *unused_peer, void *arg)
 	}
 
 	if (!okay) {
-		warning("mediaflow: ICE is not ready, cannot accept DTLS\n");
+		warning("mediaflow(%p): ICE is not ready. "
+			"cannot accept DTLS\n", mf);
 		return;
 	}
 
 	mf->ts_dtls = tmr_jiffies();
 
 	if (mf->tls_conn) {
-		warning("mediaflow: DTLS already accepted\n");
+		warning("mediaflow(%p): DTLS already accepted\n", mf);
 		return;
 	}
 
@@ -1478,11 +1581,11 @@ static void dtls_conn_handler(const struct sa *unused_peer, void *arg)
 			  dtls_estab_handler, dtls_recv_handler,
 			  dtls_close_handler, mf);
 	if (err) {
-		warning("mediaflow: dtls_accept failed (%m)\n", err);
+		warning("mediaflow(%p): dtls_accept failed (%m)\n", mf, err);
 		goto error;
 	}
 
-	info("mediaflow: dtls accepted\n");
+	info("mediaflow(%p): dtls accepted\n", mf);
 
 	return;
 
@@ -1491,27 +1594,42 @@ static void dtls_conn_handler(const struct sa *unused_peer, void *arg)
 }
 
 
-static void set_dtls_peer(struct mediaflow *mf, size_t headroom,
-			  const struct sa *peer)
+static void dtls_peer_destructor(void *data)
 {
-       if (!mf || !peer)
-               return;
+	struct dtls_peer *dtls_peer = data;
 
-       if (!mediaflow_dtls_peer_isset(mf)) {
-	       info("mediaflow: dtls_peer: setting to %s|%J\n",
-			 sock_prefix(headroom), peer);
-       }
-       else if (mf->dtls_peer.headroom != headroom ||
-		!sa_cmp(&mf->dtls_peer.addr, peer, SA_ALL)) {
+	list_unlink(&dtls_peer->le);
+}
 
-	       info("mediaflow: dtls peer: change from %s|%J --> %s|%J\n",
-		    sock_prefix(mf->dtls_peer.headroom),
-		    &mf->dtls_peer.addr,
-		    sock_prefix(headroom), peer);
-       }
 
-       mf->dtls_peer.headroom = headroom;
-       mf->dtls_peer.addr = *peer;
+static int add_dtls_peer(struct mediaflow *mf, size_t headroom,
+			 const struct sa *peer)
+{
+	struct dtls_peer *dtls_peer;
+
+	if (!mf || !peer)
+		return EINVAL;
+
+	info("mediaflow(%p): add_dtls_peer:"
+	     " headroom=%zu, peer=%J\n", mf, headroom, peer);
+
+	dtls_peer = dtls_peer_find(mf, headroom, peer);
+	if (dtls_peer) {
+		warning("mediaflow(%p): find: dtls peer already exist (%H)\n",
+			mf, dtls_peer_print, dtls_peer);
+		return EALREADY;
+	}
+
+	dtls_peer = mem_zalloc(sizeof(*dtls_peer), dtls_peer_destructor);
+	if (!dtls_peer)
+		return ENOMEM;
+
+	dtls_peer->headroom = headroom;
+	dtls_peer->addr = *peer;
+
+	list_append(&mf->dtls_peers, &dtls_peer->le, dtls_peer);
+
+	return 0;
 }
 
 
@@ -1520,7 +1638,7 @@ static int start_crypto(struct mediaflow *mf, const struct sa *peer)
 	int err = 0;
 
 	if (mf->crypto_ready) {
-		info("mediaflow: ice-estab: crypto already ready\n");
+		info("mediaflow(%p): ice-estab: crypto already ready\n", mf);
 		return 0;
 	}
 
@@ -1537,20 +1655,29 @@ static int start_crypto(struct mediaflow *mf, const struct sa *peer)
 			size_t headroom = 0;
 
 			if (mf->tls_conn) {
-				info("mediaflow: dtls_connect,"
-				     " already connecting ..\n");
+				info("mediaflow(%p): dtls_connect,"
+				     " already connecting ..\n", mf);
 				goto out;
 			}
 
 			/* NOTE: must be done before dtls_connect() */
 			headroom = get_headroom(mf);
 
-			info("mediaflow: dtls connect via %s to peer %J\n",
-			     sock_prefix(headroom), peer);
+			info("mediaflow(%p): dtls connect via %s to peer %J\n",
+			     mf, sock_prefix(headroom), peer);
 
 			mf->ts_dtls = tmr_jiffies();
 
-			set_dtls_peer(mf, headroom, peer);
+			if (!dtls_peer_find(mf, headroom, peer)) {
+
+				err = add_dtls_peer(mf, headroom, peer);
+				if (err) {
+					warning("mediaflow(%p): start_crypto:"
+						" could not add dtls peer"
+						" (%m)\n", mf, err);
+					return err;
+				}
+			}
 
 			err = dtls_connect(&mf->tls_conn, mf->dtls,
 					   mf->dtls_sock, &dummy_dtls_peer,
@@ -1558,17 +1685,11 @@ static int start_crypto(struct mediaflow *mf, const struct sa *peer)
 					   dtls_recv_handler,
 					   dtls_close_handler, mf);
 			if (err) {
-				warning("mediaflow: dtls_connect()"
-					" failed (%m)\n", err);
+				warning("mediaflow(%p): dtls_connect()"
+					" failed (%m)\n", mf, err);
 				return err;
 			}
 		}
-		break;
-
-	case CRYPTO_SDESC:
-		mf->crypto_ready = true;
-
-		check_data_channel(mf);
 		break;
 
 	case CRYPTO_KASE:
@@ -1578,8 +1699,9 @@ static int start_crypto(struct mediaflow *mf, const struct sa *peer)
 		break;
 
 	default:
-		warning("mediaflow: established: unknown crypto '%s' (%d)\n",
-			crypto_name(mf->crypto), mf->crypto);
+		warning("mediaflow(%p): established: "
+			"unknown crypto '%s' (%d)\n",
+			mf, crypto_name(mf->crypto), mf->crypto);
 		break;
 	}
 
@@ -1594,8 +1716,9 @@ static void ice_established_handler(struct mediaflow *mf,
 {
 	int err;
 
-	info("mediaflow: ICE-transport established [got_sdp=%d]"
+	info("mediaflow(%p): ICE-transport established [got_sdp=%d]"
 	     " (peer = %s.%J)\n",
+	     mf,
 	     mf->got_sdp,
 	     mf->sel_pair
 	      ? ice_cand_type2name(mf->sel_pair->rcand->attr.type)
@@ -1606,10 +1729,20 @@ static void ice_established_handler(struct mediaflow *mf,
 		mf->mf_stats.nat_estab = tmr_jiffies() - mf->ts_nat_start;
 	}
 
-	set_dtls_peer(mf, get_headroom(mf), peer);
+	if (!dtls_peer_find(mf, get_headroom(mf), peer)) {
+		err = add_dtls_peer(mf, get_headroom(mf), peer);
+		if (err) {
+			warning("mediaflow(%p): ice_estab:"
+				" could not add dtls peer"
+				" (%m)\n", mf, err);
+
+			crypto_error(mf, err);
+			return;
+		}
+	}
 
 	if (mf->crypto_ready) {
-		info("mediaflow: ice-estab: crypto already ready\n");
+		info("mediaflow(%p): ice-estab: crypto already ready\n", mf);
 		goto out;
 	}
 
@@ -1623,104 +1756,6 @@ static void ice_established_handler(struct mediaflow *mf,
 }
 
 
-static int handle_sdes_srtp_tx(struct mediaflow *mf)
-{
-       uint8_t key[30];
-       char buf[256];
-       size_t buf_len = sizeof(buf);
-       int err;
-
-       rand_bytes(key, sizeof(key));
-
-       err = srtp_alloc(&mf->srtp_tx, SRTP_AES_CM_128_HMAC_SHA1_80,
-			key, sizeof(key), 0);
-       if (err) {
-	       warning("mediaflow: failed to allocate SRTP for TX (%m)\n",
-		       err);
-	       return err;
-       }
-
-       err = base64_encode(key, sizeof(key), buf, &buf_len);
-       if (err)
-	       return err;
-
-       err = sdp_media_set_lattr(mf->audio.sdpm, true,
-				 "crypto",
-				 "1 AES_CM_128_HMAC_SHA1_80 inline:%b",
-				 buf, buf_len);
-       if (err)
-	       return err;
-
-       return 0;
-}
-
-
-static bool attrib_handler(const char *name, const char *val, void *arg)
-{
-       struct pl idx, suite, keyprm, sessprm, key, lifemki, keyprm2;
-       (void)name;
-       (void)arg;
-
-       if (!val)
-               return false;
-
-       if (re_regex(val, strlen(val),
-                    "[0-9]+[ \t]+[0-9a-z_]+[ \t]+inline:[^ \t]+[^]*",
-                    &idx, NULL, &suite, NULL, &keyprm, &sessprm))
-               return false;
-
-       if (re_regex(keyprm.p, keyprm.l, "[^|;]+[^;]*[;]*[^]*",
-                    &key, &lifemki, NULL, &keyprm2))
-               return false;
-
-       /* MKI or multi-key not supported */
-       if (pl_strchr(&lifemki, ':') || keyprm2.l > 0)
-               return false;
-
-       /* found */
-       if (0 == pl_strcasecmp(&suite, "AES_CM_128_HMAC_SHA1_80"))
-               return true;
-
-       return false;
-}
-
-
-static int handle_sdes_srtp_rx(struct mediaflow *mf)
-{
-       const char *crypto;
-       struct pl b;
-       uint8_t key[30];
-       size_t key_len = sizeof(key);
-       int err;
-
-       crypto = sdp_media_rattr_apply(mf->audio.sdpm, "crypto", attrib_handler, 0);
-       if (!crypto) {
-               warning("mediaflow: crypto parameter not found\n");
-               return ENOENT;
-       }
-
-       err = re_regex(crypto, str_len(crypto), "inline:[^]+", &b);
-       if (err) {
-               warning("mediaflow: could not get crypto key (%s)\n", crypto);
-               return err;
-       }
-
-       err = base64_decode(b.p, b.l, key, &key_len);
-       if (err)
-               return err;
-
-       err = srtp_alloc(&mf->srtp_rx, SRTP_AES_CM_128_HMAC_SHA1_80,
-                        key, key_len, 0);
-       if (err) {
-               warning("mediaflow: failed to allocate SRTP for RX (%m)\n",
-                       err);
-               return err;
-       }
-
-       return err;
-}
-
-
 static int handle_kase(struct mediaflow *mf)
 {
 	const char *rkase;
@@ -1731,7 +1766,7 @@ static int handle_kase(struct mediaflow *mf)
 	bool is_client;
 	int err;
 
-	info("mediaflow: using crypto KASE\n");
+	info("mediaflow(%p): using crypto KASE\n", mf);
 
 	switch (mf->setup_local) {
 
@@ -1744,53 +1779,56 @@ static int handle_kase(struct mediaflow *mf)
 		break;
 
 	default:
-		warning("mediaflow: kase: local setup not decided"
-			" -- abort\n");
+		warning("mediaflow(%p): kase: local setup not decided"
+			" -- abort\n", mf);
 		return EPROTO;
 	}
 
 	rkase = sdp_media_rattr(mf->audio.sdpm, "x-KASEv1");
 	if (!rkase) {
-		warning("mediaflow: kase: missing sdp attribute\n");
+		warning("mediaflow(%p): kase: missing sdp attribute\n", mf);
 		return ENOENT;
 	}
 
 	err = base64_decode(rkase, str_len(rkase), pubkey, &pubkey_len);
 	if (err) {
-		warning("mediaflow: kase: base64 decode failed (%m)\n", err);
+		warning("mediaflow(%p): kase: base64 decode failed (%m)\n",
+			mf, err);
 		return err;
 	}
-
-	info("mediaflow: kase: remote public key: %w\n", pubkey, pubkey_len);
 
 	err = kase_get_sessionkeys(session_tx, session_rx, mf->kase, pubkey,
 				   is_client,
 				   mf->clientid_local,
 				   mf->clientid_remote);
 	if (err) {
-		warning("mediaflow: kase: [%s] could not get"
+		warning("mediaflow(%p): kase: [%s] could not get"
 			" session keys (%m)\n",
-			is_client ? "Client" : "Server", err);
+			mf, is_client ? "Client" : "Server", err);
 		return err;
 	}
 
 	err = srtp_alloc(&mf->srtp_tx, SRTP_AES_CM_128_HMAC_SHA1_80,
 			 session_tx, 30, 0);
 	if (err) {
-		warning("mediaflow: failed to allocate SRTP for TX (%m)\n",
-			err);
+		warning("mediaflow(%p): kase: failed to allocate SRTP for TX"
+			" (%m)\n",
+			mf, err);
 		goto out;
 	}
 
 	err = srtp_alloc(&mf->srtp_rx, SRTP_AES_CM_128_HMAC_SHA1_80,
 			 session_rx, 30, 0);
 	if (err) {
-		warning("mediaflow: failed to allocate SRTP for RX (%m)\n",
-			err);
+		warning("mediaflow(%p): kase: failed to allocate SRTP for RX"
+			" (%m)\n",
+			mf, err);
 		goto out;
 	}
 
-	info("mediaflow: KASE established\n");
+	mf->srtp_suite = SRTP_AES_CM_128_HMAC_SHA1_80;
+
+	info("mediaflow(%p): KASE established\n", mf);
 
  out:
 	sodium_memzero(session_tx, sizeof(session_tx));
@@ -1804,47 +1842,51 @@ static void handle_dtls_packet(struct mediaflow *mf, const struct sa *src,
 			       struct mbuf *mb)
 {
 	size_t headroom = mb->pos;
+	struct dtls_peer *dtls_peer;
+	int err;
 
 	++mf->mf_stats.dtls_pkt_recv;
 
-	info("dtls: recv %zu bytes from %s|%J\n",
-	     mbuf_get_left(mb), sock_prefix(mb->pos), src);
+	info("mediaflow(%p): dtls: recv %zu bytes from %s|%J\n",
+	     mf, mbuf_get_left(mb), sock_prefix(mb->pos), src);
 
 	if (!mf->got_sdp) {
 
-		info("mediaflow: SDP is not ready --"
+		info("mediaflow(%p): SDP is not ready --"
 		     " drop DTLS packet from %J\n",
-		     src);
+		     mf, src);
 		return;
 	}
 
 	if (!mediaflow_ice_ready(mf)) {
 
-		info("mediaflow: ICE is not ready (%s) --"
+		info("mediaflow(%p): ICE is not ready (%s) --"
 		     " drop DTLS packet from %J\n",
 		     trice_checklist_isrunning(mf->trice)
 		     ? "Running" : "Not-Running",
-		     src);
+		     mf, src);
 		return;
 	}
 
 	if (!mediaflow_dtls_peer_isset(mf)) {
-		info("mediaflow: DTLS peer is not set --"
-			" drop DTLS packet from %J\n", src);
+		info("mediaflow(%p): DTLS peer is not set --"
+		     " drop DTLS packet from %J\n", mf, src);
 		return;
 	}
 
-	if (headroom_via_turn(mf->dtls_peer.headroom) !=
-	    headroom_via_turn(headroom)) {
+	dtls_peer = dtls_peer_find(mf, headroom, src);
+	if (!dtls_peer) {
 
-		info("dtls: via turn mismatch (peer=%s, packet=%s)\n",
-			sock_prefix(mf->dtls_peer.headroom),
-			sock_prefix(headroom));
-	}
-	if (!sa_cmp(src, &mf->dtls_peer.addr, SA_ALL)) {
-		info("dtls: source addr mismatch (%s|peer=%J, %s|packet=%J)\n",
-		     sock_prefix(mf->dtls_peer.headroom), &mf->dtls_peer.addr,
-		     sock_prefix(headroom), src);
+		info("mediaflow(%p): packet: dtls_peer not found"
+		     " -- adding (%s|%zu|%J)\n",
+		     mf, sock_prefix(headroom), headroom, src);
+
+		err = add_dtls_peer(mf, headroom, src);
+		if (err) {
+			warning("mediaflow(%p): packet:"
+				" could not add dtls peer"
+				" (%m)\n", mf, err);
+		}
 	}
 
 	dtls_recv_packet(mf->dtls_sock, &dummy_dtls_peer, mb);
@@ -1877,8 +1919,8 @@ static bool udp_helper_recv_handler_srtp(struct sa *src, struct mbuf *mb,
 			err = srtcp_decrypt(mf->srtp_rx, mb);
 			if (err) {
 				mf->stat.n_srtp_error++;
-				warning("mediaflow: srtcp_decrypt failed"
-					" [%zu bytes] (%m)\n", len, err);
+				warning("mediaflow(%p): srtcp_decrypt failed"
+					" [%zu bytes] (%m)\n", mf, len, err);
 				return true;
 			}
 		}
@@ -1887,10 +1929,10 @@ static bool udp_helper_recv_handler_srtp(struct sa *src, struct mbuf *mb,
 			if (err) {
 				mf->stat.n_srtp_error++;
 				if (err != EALREADY) {
-					warning("mediaflow: srtp_decrypt"
+					warning("mediaflow(%p): srtp_decrypt"
 						" failed"
 						" [%zu bytes from %J] (%m)\n",
-						len, src, err);
+						mf, len, src, err);
 				}
 				return true;
 			}
@@ -1905,9 +1947,9 @@ static bool udp_helper_recv_handler_srtp(struct sa *src, struct mbuf *mb,
 
 			r = rtcp_decode(&msg, mb);
 			if (r) {
-				warning("mediaflow: failed to decode"
+				warning("mediaflow(%p): failed to decode"
 					" incoming RTCP"
-					" packet (%m)\n", r);
+					" packet (%m)\n", mf, r);
 				goto done;
 			}
 			mb->pos = pos;
@@ -1917,8 +1959,9 @@ static bool udp_helper_recv_handler_srtp(struct sa *src, struct mbuf *mb,
 				if (0 != memcmp(msg->r.app.name,
 						app_label, 4)) {
 
-					warning("invalid app name '%b'\n",
-						msg->r.app.name, (size_t)4);
+					warning("mediaflow(%p): "
+						"invalid app name '%b'\n",
+						mf, msg->r.app.name, (size_t)4);
 					goto done;
 				}
 
@@ -1998,8 +2041,8 @@ static void external_rtp_recv(struct mediaflow *mf,
 	}
 
 	if (!mf->got_rtp) {
-		info("mediaflow: first RTP packet received (%zu bytes)\n",
-		     mbuf_get_left(mb));
+		info("mediaflow(%p): first RTP packet received (%zu bytes)\n",
+		     mf, mbuf_get_left(mb));
 		mf->got_rtp = true;
 		tmr_cancel(&mf->tmr_got_rtp);
 		check_rtpstart(mf);
@@ -2008,7 +2051,7 @@ static void external_rtp_recv(struct mediaflow *mf,
 	err = rtp_hdr_decode(&hdr, mb);
 	mb->pos = start;
 	if (err) {
-		warning("mediaflow: rtp header decode (%m)\n", err);
+		warning("mediaflow(%p): rtp header decode (%m)\n", mf, err);
 		goto out;
 	}
 
@@ -2050,8 +2093,8 @@ static void external_rtp_recv(struct mediaflow *mf,
 		goto out;
 	}
 
-	info("mediaflow: recv: no SDP format found"
-	     " for payload type %d\n", hdr.pt);
+	info("mediaflow(%p): recv: no SDP format found"
+	     " for payload type %d\n", mf, hdr.pt);
 
  out:
 	return;  /* stop packet here */
@@ -2097,6 +2140,9 @@ int mediaflow_summary(struct re_printf *pf, const struct mediaflow *mf)
 	struct le *le;
 	double dur_tx;
 	double dur_rx;
+	char cid_local_anon[ANON_CLIENT_LEN];
+	char cid_remote_anon[ANON_CLIENT_LEN];
+	char uid_remote_anon[ANON_ID_LEN];
 	int err = 0;
 
 	if (!mf)
@@ -2107,9 +2153,12 @@ int mediaflow_summary(struct re_printf *pf, const struct mediaflow *mf)
 
 	err |= re_hprintf(pf,
 			  "------------- mediaflow summary -------------\n");
-	err |= re_hprintf(pf, "tag:  %s\n", mf->tag);
-	err |= re_hprintf(pf, "clientid_local:  %s\n", mf->clientid_local);
-	err |= re_hprintf(pf, "clientid_remote: %s\n", mf->clientid_remote);
+	err |= re_hprintf(pf, "clientid_local:  %s\n",
+			  anon_client(cid_local_anon, mf->clientid_local));
+	err |= re_hprintf(pf, "clientid_remote: %s\n", 
+			  anon_client(cid_remote_anon, mf->clientid_remote));
+	err |= re_hprintf(pf, "userid_remote: %s\n", 
+			  anon_id(uid_remote_anon, mf->userid_remote));
 	err |= re_hprintf(pf, "\n");
 	err |= re_hprintf(pf, "sdp: state=%d, got_sdp=%d, sent_sdp=%d\n",
 			  mf->sdp_state, mf->got_sdp, mf->sent_sdp);
@@ -2144,9 +2193,17 @@ int mediaflow_summary(struct re_printf *pf, const struct mediaflow *mf)
 			  "        ready=%d\n", mf->crypto_ready);
 
 	if (mf->crypto == CRYPTO_DTLS_SRTP) {
-		err |= re_hprintf(pf,
-				  "        peer = %H\n",
-				  dtls_peer_print, mf);
+
+		err |= re_hprintf(pf, "        peers: (%u)\n",
+				  list_count(&mf->dtls_peers));
+		for (le = mf->dtls_peers.head; le; le = le->next) {
+			struct dtls_peer *dtls_peer = le->data;
+
+			err |= re_hprintf(pf,
+					  "        * peer = %H\n",
+					  dtls_peer_print, dtls_peer);
+		}
+
 		err |= re_hprintf(pf,
 				  "        verified=%d\n"
 				  "        setup_local=%s\n"
@@ -2162,6 +2219,8 @@ int mediaflow_summary(struct re_printf *pf, const struct mediaflow *mf)
 				  mf->mf_stats.dtls_pkt_sent,
 				  mf->mf_stats.dtls_pkt_recv);
 	}
+	err |= re_hprintf(pf, "        srtp  = %s\n",
+			  srtp_suite_name(mf->srtp_suite));
 	err |= re_hprintf(pf, "\n");
 
 	err |= re_hprintf(pf, "RTP packets:\n");
@@ -2339,19 +2398,20 @@ static void destructor(void *arg)
 	void *p;
 
 	if (MAGIC != mf->magic) {
-		warning("mediaflow: destructor: bad magic (0x%08x)\n",
-			mf->magic);
+		warning("mediaflow(%p): destructor: bad magic (0x%08x)\n",
+			mf, mf->magic);
 	}
 
 	mf->terminated = true;
 
 	mf->estabh = NULL;
 	mf->closeh = NULL;
+	mf->restarth = NULL;
 
 	if (mf->started)
 		mediaflow_stop_media(mf);
 
-	info("mediaflow: mediaflow %p destroyed (%H) got_sdp=%d\n",
+	info("mediaflow(%p): destroyed (%H) got_sdp=%d\n",
 	     mf, print_errno, mf->err, mf->got_sdp);
 
 	/* print a nice summary */
@@ -2390,6 +2450,7 @@ static void destructor(void *arg)
 	mf->tls_conn = mem_deref(mf->tls_conn);
 
 	list_flush(&mf->interfacel);
+	list_flush(&mf->dtls_peers);
 
 	mf->trice_uh = mem_deref(mf->trice_uh);  /* note: destroy first */
 	mf->sel_pair = mem_deref(mf->sel_pair);
@@ -2432,8 +2493,8 @@ static void stun_udp_recv_handler(const struct sa *src,
 	struct stun_unknown_attr ua;
 	struct stun_msg *msg = NULL;
 
-	debug("mediaflow: stun: receive %zu bytes from %J\n",
-	      mbuf_get_left(mb), src);
+	debug("mediaflow(%p): stun: receive %zu bytes from %J\n",
+	      mf, mbuf_get_left(mb), src);
 
 	if (0 == stun_msg_decode(&msg, mb, &ua) &&
 	    stun_msg_method(msg) == STUN_METHOD_BINDING) {
@@ -2463,7 +2524,7 @@ static void mq_callback(int id, void *data, void *arg)
 
 	case MQ_RTP_START:
 		if (!mf->sent_rtp) {
-			info("mediaflow: first RTP packet sent\n");
+			info("mediaflow(%p): first RTP packet sent\n", mf);
 			mf->sent_rtp = true;
 			if (!mf->got_rtp) {
 				if (!tmr_isrunning(&mf->tmr_got_rtp)) {
@@ -2488,9 +2549,6 @@ static const char *sdp_profile(enum media_crypto cryptos)
 	if (cryptos & CRYPTO_DTLS_SRTP)
 		return "UDP/TLS/RTP/SAVPF";
 
-	if (cryptos & CRYPTO_SDESC)
-		return "RTP/SAVPF";
-
 	return "RTP/SAVPF";
 }
 
@@ -2503,8 +2561,8 @@ static void rtp_recv_handler(const struct sa *src,
 	(void)src;
 	(void)mb;
 
-	info("mediaflow: nobody cared about incoming packet (%zu bytes)\n",
-	     mbuf_get_left(mb));
+	info("mediaflow(%p): nobody cared about incoming packet (%zu bytes)\n",
+	     mf, mbuf_get_left(mb));
 }
 
 
@@ -2529,8 +2587,8 @@ static int init_ice(struct mediaflow *mf)
 	err = trice_alloc(&mf->trice, &conf, role,
 			  mf->ice_ufrag, mf->ice_pwd);
 	if (err) {
-		warning("mediaflow: DUALSTACK trice error (%m)\n",
-			err);
+		warning("mediaflow(%p): DUALSTACK trice error (%m)\n",
+			mf, err);
 		goto out;
 	}
 
@@ -2587,6 +2645,7 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 		    enum media_crypto cryptos,
 		    mediaflow_estab_h *estabh,
 		    mediaflow_close_h *closeh,
+		    mediaflow_restart_h *restarth,
 		    void *arg)
 {
 	struct mediaflow *mf;
@@ -2620,7 +2679,7 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 	tmr_init(&mf->tmr_error);
 	
 	if (!str_isset(clientid_local)) {
-		warning("mediaflow: alloc: missing local clientid\n");
+		warning("mediaflow(%p): alloc: missing local clientid\n", mf);
 		err = EINVAL;
 		goto out;
 	}
@@ -2641,6 +2700,7 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 
 	mf->estabh = estabh;
 	mf->closeh = closeh;
+	mf->restarth = restarth;
 	mf->arg    = arg;
 
 	err = pthread_mutex_init(&mf->mutex_enc, NULL);
@@ -2656,7 +2716,7 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 
 	err = udp_listen(&mf->rtp, &laddr_rtp, rtp_recv_handler, mf);
 	if (err) {
-		warning("mediaflow: rtp_listen failed (%m)\n", err);
+		warning("mediaflow(%p): rtp_listen failed (%m)\n", mf, err);
 		goto out;
 	}
 
@@ -2693,7 +2753,8 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 		goto out;
 
 	regen_lssrc(mf);
-	debug("mediaflow: local SSRC is %u\n", mf->lssrcv[MEDIA_AUDIO]);
+	debug("mediaflow(%p): local SSRC is %u\n",
+	      mf, mf->lssrcv[MEDIA_AUDIO]);
 
 	err = sdp_media_set_lattr(mf->audio.sdpm, false, "ssrc", "%u cname:%s",
 				  mf->lssrcv[MEDIA_AUDIO], mf->cname);
@@ -2743,6 +2804,8 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 			    "%s", mf->ice_pwd);
 
 
+	mf->srtp_suite = (enum srtp_suite)-1;
+
 	/* we enable support for DTLS-SRTP by default, so that the
 	   SDP attributes are sent in the offer. the attributes
 	   might change later though, depending on the SDP answer */
@@ -2754,14 +2817,15 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 		sa_set_str(&laddr_dtls, "0.0.0.0", 0);
 
 		if (!mf->dtls) {
-			warning("mediaflow: dtls context is missing\n");
+			warning("mediaflow(%p): dtls context is missing\n", mf);
 		}
 
 		err = dtls_listen(&mf->dtls_sock, &laddr_dtls,
 				  NULL, 2, LAYER_DTLS,
 				  dtls_conn_handler, mf);
 		if (err) {
-			warning("mediaflow: dtls_listen failed (%m)\n", err);
+			warning("mediaflow(%p): dtls_listen failed (%m)\n",
+				mf, err);
 			goto out;
 		}
 
@@ -2785,12 +2849,6 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 
 		err = sdp_media_set_lattr(mf->audio.sdpm, true, "setup",
 					mediaflow_setup_name(mf->setup_local));
-		if (err)
-			goto out;
-	}
-	if (cryptos & CRYPTO_SDESC) {
-
-		err  = handle_sdes_srtp_tx(mf);
 		if (err)
 			goto out;
 	}
@@ -2827,17 +2885,18 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 				    dce_estab_handler,
 				    mf);
 		if (dce_err) {
-			info("mediaflow: dce_alloc failed (%m)\n", dce_err);
+			info("mediaflow(%p): dce_alloc failed (%m)\n",
+			     mf, dce_err);
 		}
 	}
 
 	mf->laddr_default = *laddr_sdp;
 	sa_set_port(&mf->laddr_default, lport);
 
-	info("mediaflow: created new mediaflow with"
+	info("mediaflow(%p): created new mediaflow with"
 	     " local port %u and %u audio-codecs"
 	     " \n",
-	     lport, list_count(aucodecl));
+	     mf, lport, list_count(aucodecl));
 
  out:
 	if (err)
@@ -2856,7 +2915,8 @@ int mediaflow_set_setup(struct mediaflow *mf, enum media_setup setup)
 	if (!mf)
 		return EINVAL;
 
-	info("mediaflow: local_setup: `%s' --> `%s'\n",
+	info("mediaflow(%p): local_setup: `%s' --> `%s'\n",
+	     mf,
 	     mediaflow_setup_name(mf->setup_local),
 	     mediaflow_setup_name(setup));
 
@@ -2867,9 +2927,9 @@ int mediaflow_set_setup(struct mediaflow *mf, enum media_setup setup)
 			mf->setup_local = setup;
 		}
 		else {
-			warning("mediaflow: set_setup: Illegal transition"
+			warning("mediaflow(%p): set_setup: Illegal transition"
 				" from `%s' to `%s'\n",
-				mediaflow_setup_name(mf->setup_local),
+				mf, mediaflow_setup_name(mf->setup_local),
 				mediaflow_setup_name(setup));
 			return EPROTO;
 		}
@@ -2968,7 +3028,8 @@ int mediaflow_add_video(struct mediaflow *mf, struct list *vidcodecl)
 	if (mf->video.sdpm)
 		return 0;
 
-	info("mediaflow: adding video-codecs (%u)\n", list_count(vidcodecl));
+	info("mediaflow(%p): adding video-codecs (%u)\n",
+	     mf, list_count(vidcodecl));
 
 	err = sdp_media_add(&mf->video.sdpm, mf->sdp, "video",
 			    PORT_DISCARD,
@@ -3022,7 +3083,7 @@ int mediaflow_add_video(struct mediaflow *mf, struct list *vidcodecl)
 		int k = 0;
 
 		if (ssrcc > SSRC_MAX) {
-			warning("mediaflow: max %d SSRC's\n", SSRC_MAX);
+			warning("mediaflow(%p): max %d SSRC's\n", mf, SSRC_MAX);
 			err = EOVERFLOW;
 			goto out;
 		}
@@ -3102,7 +3163,7 @@ int mediaflow_add_data(struct mediaflow *mf)
 	if (!mf)
 		return EINVAL;
 
-	info("mediaflow_add_data: adding data channel\n");
+	info("mediaflow(%p): add_data: adding data channel\n", mf);
 
 	err = sdp_media_add(&mf->data.sdpm, mf->sdp, "application",
 			    PORT_DISCARD,
@@ -3123,8 +3184,8 @@ int mediaflow_add_data(struct mediaflow *mf)
 					  dtls_print_sha256_fingerprint,
 					  mf->dtls);
 		if (err) {
-			warning("mediaflow_add_data: failed to lattr "
-				"'fingerprint': %m\n", err);
+			warning("mediaflow(%p): add_data: failed to lattr "
+				"'fingerprint': %m\n", mf, err);
 			goto out;
 		}
 
@@ -3132,8 +3193,8 @@ int mediaflow_add_data(struct mediaflow *mf)
 					"setup",
 					mediaflow_setup_name(mf->setup_local));
 		if (err) {
-			warning("mediaflow_add_data: failed to lattr "
-				"'setup': %m\n", err);
+			warning("mediaflow(%p): add_data: failed to lattr "
+				"'setup': %m\n", mf, err);
 			goto out;
 		}
 	}
@@ -3147,7 +3208,8 @@ int mediaflow_add_data(struct mediaflow *mf)
 	err = sdp_media_set_lattr(mf->data.sdpm, true,
 			      "sctpmap", "5000 webrtc-datachannel 16");
 	if (err) {
-		warning("mediaflow_add_data: failed to add lattr: %m\n", err);
+		warning("mediaflow(%p): add_data: failed to add lattr: %m\n",
+			mf, err);
 		goto out;
 	}
 
@@ -3173,7 +3235,7 @@ static int handle_setup(struct mediaflow *mf)
 
 	rsetup = sdp_media_session_rattr(mf->audio.sdpm, mf->sdp, "setup");
 
-	info("mediaflow: remote_setup=%s\n", rsetup);
+	info("mediaflow(%p): remote_setup=%s\n", mf, rsetup);
 
 	mf->setup_remote = setup_resolve(rsetup);
 
@@ -3196,12 +3258,13 @@ static int handle_setup(struct mediaflow *mf)
 		break;
 
 	default:
-		warning("mediaflow: illegal setup '%s' from remote\n", rsetup);
+		warning("mediaflow(%p): illegal setup '%s' from remote\n",
+			mf, rsetup);
 		return EPROTO;
 	}
 
-	info("mediaflow: local_setup=%s\n",
-	     mediaflow_setup_name(mf->setup_local));
+	info("mediaflow(%p): local_setup=%s\n",
+	     mf, mediaflow_setup_name(mf->setup_local));
 
 	mediaflow_set_setup(mf, setup_local);
 
@@ -3234,6 +3297,7 @@ static int handle_dtls_srtp(struct mediaflow *mf)
 {
 	const char *fingerprint;
 	struct pl fp_name;
+	re_printf_h *fp_printh;
 	int err;
 
 	fingerprint = sdp_media_session_rattr(mf->audio.sdpm, mf->sdp,
@@ -3242,22 +3306,20 @@ static int handle_dtls_srtp(struct mediaflow *mf)
 	err = re_regex(fingerprint, str_len(fingerprint),
 		       "[^ ]+ [0-9A-F:]*", &fp_name, NULL);
 	if (err) {
-		warning("mediaflow: could not parse fingerprint attr\n");
+		warning("mediaflow(%p): could not parse fingerprint attr\n",
+			mf);
 		return err;
 	}
 
-	debug("mediaflow: DTLS-SRTP fingerprint selected (%r)\n", &fp_name);
+	debug("mediaflow(%p): DTLS-SRTP fingerprint selected (%r)\n",
+	      mf, &fp_name);
 
-	re_printf_h *fp_printh;
-
-	if (0 == pl_strcasecmp(&fp_name, "sha-1")) {
-		fp_printh = (re_printf_h *)dtls_print_sha1_fingerprint;
-	}
-	else if (0 == pl_strcasecmp(&fp_name, "sha-256")) {
+	if (0 == pl_strcasecmp(&fp_name, "sha-256")) {
 		fp_printh = (re_printf_h *)dtls_print_sha256_fingerprint;
 	}
 	else {
-		warning("mediaflow: unsupported fingerprint (%r)\n", &fp_name);
+		warning("mediaflow(%p): unsupported fingerprint (%r)\n",
+			mf, &fp_name);
 		return EPROTO;
 	}
 
@@ -3269,21 +3331,21 @@ static int handle_dtls_srtp(struct mediaflow *mf)
 
 	err = handle_setup(mf);
 	if (err) {
-		warning("mediaflow: handle_setup failed (%m)\n", err);
+		warning("mediaflow(%p): handle_setup failed (%m)\n", mf, err);
 		return err;
 	}
 
-	debug("mediaflow: incoming SDP offer has DTLS fingerprint = '%s'\n",
-	      fingerprint);
+	debug("mediaflow(%p): incoming SDP offer has DTLS fingerprint = '%s'\n",
+	      mf, fingerprint);
 
 	/* DTLS has already been established, before SDP o/a */
 	if (mf->crypto_ready && mf->tls_conn && !mf->crypto_verified) {
 
-		info("mediaflow: sdp: verifying DTLS fp\n");
+		info("mediaflow(%p): sdp: verifying DTLS fp\n", mf);
 
 		if (!verify_fingerprint(mf, mf->sdp, mf->audio.sdpm, mf->tls_conn)) {
-			warning("mediaflow: dtls_srtp: could not verify"
-				" remote fingerprint\n");
+			warning("mediaflow(%p): dtls_srtp: could not verify"
+				" remote fingerprint\n", mf);
 			return EAUTH;
 		}
 
@@ -3312,11 +3374,11 @@ static void demux_packet(struct mediaflow *mf, const struct sa *src,
 		if (!trice_rcand_find(mf->trice, ICE_COMPID_RTP,
 				      IPPROTO_UDP, src)) {
 
-			debug("mediaflow: demux: unauthorized"
-				" %s packet from %J"
-				" (rcand-list=%u)\n",
-				packet_classify_name(pkt), src,
-				list_count(trice_rcandl(mf->trice)));
+			debug("mediaflow(%p): demux: unauthorized"
+			      " %s packet from %J"
+			      " (rcand-list=%u)\n",
+			      mf, packet_classify_name(pkt), src,
+			      list_count(trice_rcandl(mf->trice)));
 		}
 	}
 
@@ -3326,7 +3388,7 @@ static void demux_packet(struct mediaflow *mf, const struct sa *src,
 	case PACKET_RTCP:
 		hdld = udp_helper_recv_handler_srtp((struct sa *)src, mb, mf);
 		if (!hdld) {
-			warning("mediaflow: rtp packet not handled\n");
+			warning("mediaflow(%p): rtp packet not handled\n", mf);
 		}
 		break;
 
@@ -3339,8 +3401,8 @@ static void demux_packet(struct mediaflow *mf, const struct sa *src,
 		break;
 
 	default:
-		warning("   @@@ udp: dropping %zu bytes from %J\n",
-			  mbuf_get_left(mb), src);
+		warning("mediaflow(%p): @@@ udp: dropping %zu bytes from %J\n",
+			mf, mbuf_get_left(mb), src);
 		break;
 	}
 }
@@ -3361,6 +3423,45 @@ static void interface_destructor(void *data)
 
 	list_unlink(&ifc->le);
 	/*mem_deref(ifc->lcand);*/
+}
+
+
+static int interface_add(struct mediaflow *mf, struct ice_lcand *lcand,
+			 const char *ifname, const struct sa *addr)
+{
+	struct interface *ifc;
+
+	ifc = mem_zalloc(sizeof(*ifc), interface_destructor);
+	if (!ifc)
+		return ENOMEM;
+
+
+	ifc->lcand = lcand;
+	ifc->addr = *addr;
+	if (ifname)
+		str_ncpy(ifc->ifname, ifname, sizeof(ifc->ifname));
+	ifc->is_default = sa_cmp(addr, &mf->laddr_default, SA_ADDR);
+	ifc->mf = mf;
+
+	list_append(&mf->interfacel, &ifc->le, ifc);
+
+	return 0;
+}
+
+
+static struct interface *interface_find(const struct list *interfacel,
+					const struct sa *addr)
+{
+	struct le *le;
+
+	for (le = list_head(interfacel); le; le = le->next) {
+		struct interface *ifc = le->data;
+
+		if (sa_cmp(addr, &ifc->addr, SA_ADDR))
+			return ifc;
+	}
+
+	return NULL;
 }
 
 
@@ -3422,21 +3523,24 @@ int mediaflow_add_local_host_candidate(struct mediaflow *mf,
 		return EINVAL;
 
 	if (!sa_isset(addr, SA_ADDR)) {
-		warning("mediaflow: add_cand: address not set\n");
+		warning("mediaflow(%p): add_cand: address not set\n", mf);
 		return EINVAL;
 	}
 	if (sa_port(addr)) {
-		warning("mediaflow: add_local_host: Port should not be set\n");
+		warning("mediaflow(%p): add_local_host: "
+			"Port should not be set\n", mf);
 		return EINVAL;
 	}
 
-	info("mediaflow: add_local_host_cand: "
+	info("mediaflow(%p): add_local_host_cand: "
 	     " %s:%j  (lpref=0x%04x prio=0x%08x)\n",
-	     ifname, addr, lpref, prio);
+	     mf, ifname, addr, lpref, prio);
 
-	ifc = mem_zalloc(sizeof(*ifc), interface_destructor);
-	if (!ifc)
-		return ENOMEM;
+	ifc = interface_find(&mf->interfacel, addr);
+	if (ifc) {
+		info("mediaflow(%p): interface already added\n", mf);
+		return 0;
+	}
 
 	if (!mf->privacy_mode) {
 		err = trice_lcand_add(&lcand, mf->trice,
@@ -3447,9 +3551,9 @@ int mediaflow_add_local_host_candidate(struct mediaflow *mf,
 				      NULL,  /* sock */
 				      0);
 		if (err) {
-			warning("mediaflow: add_local_host[%j]"
+			warning("mediaflow(%p): add_local_host[%j]"
 				" failed (%m)\n",
-				addr, err);
+				mf, addr, err);
 			return err;
 		}
 
@@ -3472,13 +3576,9 @@ int mediaflow_add_local_host_candidate(struct mediaflow *mf,
 		}
 	}
 
-	list_append(&mf->interfacel, &ifc->le, ifc);
-	ifc->lcand = lcand;
-	ifc->addr = *addr;
-	if (ifname)
-		str_ncpy(ifc->ifname, ifname, sizeof(ifc->ifname));
-	ifc->is_default = sa_cmp(addr, &mf->laddr_default, SA_ADDR);
-	ifc->mf = mf;
+	err = interface_add(mf, lcand, ifname, addr);
+	if (err)
+		return err;
 
 	return err;
 }
@@ -3492,16 +3592,16 @@ void mediaflow_set_ice_role(struct mediaflow *mf, enum ice_role role)
 		return;
 
 	if (sdp_media_session_rattr(mf->audio.sdpm, mf->sdp, "ice-lite")) {
-		info("mediaflow: remote side is ice-lite"
-		     " -- force controlling\n");
+		info("mediaflow(%p): remote side is ice-lite"
+		     " -- force controlling\n", mf);
 
 		role = ICE_ROLE_CONTROLLING;
 	}
 
 	err = trice_set_role(mf->trice, role);
 	if (err) {
-		warning("mediaflow: trice_set_role failed (%m)\n",
-			err);
+		warning("mediaflow(%p): trice_set_role failed (%m)\n",
+			mf, err);
 		return;
 	}
 }
@@ -3517,8 +3617,8 @@ int mediaflow_generate_offer(struct mediaflow *mf, char *sdp, size_t sz)
 		return EINVAL;
 
 	if (mf->sdp_state != SDP_IDLE) {
-		warning("mediaflow: invalid sdp state %d (%s)\n",
-			mf->sdp_state, __func__);
+		warning("mediaflow(%p): invalid sdp state %d (%s)\n",
+			mf, mf->sdp_state, __func__);
 	}
 	mf->sdp_state = SDP_GOFF;
 
@@ -3546,7 +3646,8 @@ int mediaflow_generate_offer(struct mediaflow *mf, char *sdp, size_t sz)
 
 	err = sdp_encode(&mb, mf->sdp, offer);
 	if (err) {
-		warning("mediaflow: sdp encode(offer) failed (%m)\n", err);
+		warning("mediaflow(%p): sdp encode(offer) failed (%m)\n",
+			mf, err);
 		goto out;
 	}
 
@@ -3555,9 +3656,9 @@ int mediaflow_generate_offer(struct mediaflow *mf, char *sdp, size_t sz)
 		goto out;
 	}
 
-	debug("---------- generate SDP offer ---------\n");
+	debug("mediaflow(%p) --- generate SDP offer ---------\n", mf);
 	debug("%s", sdp);
-	debug("---------------------------------------\n");
+	debug("----------------------------------------------\n");
 
 	mf->sent_sdp = true;
 
@@ -3578,7 +3679,8 @@ int mediaflow_generate_answer(struct mediaflow *mf, char *sdp, size_t sz)
 		return EINVAL;
 
 	if (mf->sdp_state != SDP_HOFF) {
-		warning("mediaflow: invalid sdp state (%s)\n", __func__);
+		warning("mediaflow(%p): invalid sdp state (%s)\n",
+			mf, __func__);
 	}
 	mf->sdp_state = SDP_DONE;
 
@@ -3599,9 +3701,9 @@ int mediaflow_generate_answer(struct mediaflow *mf, char *sdp, size_t sz)
 		goto out;
 	}
 
-	debug("---------- generate SDP answer ---------\n");
+	debug("mediaflow(%p) -- generate SDP answer ---------\n", mf);
 	debug("%s", sdp);
-	debug("----------------------------------------\n");
+	debug("----------------------------------------------\n");
 
 	mf->sent_sdp = true;
 
@@ -3622,7 +3724,8 @@ static int post_sdp_decode(struct mediaflow *mf)
 	int err = 0;
 
 	if (0 == sdp_media_rport(mf->audio.sdpm)) {
-		warning("mediaflow: sdp medialine port is 0 - disabled\n");
+		warning("mediaflow(%p): sdp medialine port is 0 - disabled\n",
+			mf);
 		return EPROTO;
 	}
 
@@ -3640,8 +3743,8 @@ static int post_sdp_decode(struct mediaflow *mf)
 		rpwd   = sdp_media_session_rattr(mf->audio.sdpm, mf->sdp,
 						 "ice-pwd");
 		if (!rufrag || !rpwd) {
-			warning("mediaflow: post_sdp_decode: missing remote"
-				" ice-ufrag/ice-pwd\n");
+			warning("mediaflow(%p): post_sdp_decode: no remote"
+				" ice-ufrag/ice-pwd\n", mf);
 			warning("%H\n", sdp_session_debug, mf->sdp);
 		}
 
@@ -3656,13 +3759,13 @@ static int post_sdp_decode(struct mediaflow *mf)
 
 	mid = sdp_media_rattr(mf->audio.sdpm, "mid");
 	if (mid) {
-		debug("mediaflow: updating mid-value to '%s'\n", mid);
+		debug("mediaflow(%p): updating mid-value to '%s'\n", mf, mid);
 		sdp_media_set_lattr(mf->audio.sdpm, true, "mid", mid);
 	}
 
 	if (!sdp_media_rattr(mf->audio.sdpm, "rtcp-mux")) {
-		warning("mediaflow: no 'rtcp-mux' attribute in SDP"
-			" -- rejecting\n");
+		warning("mediaflow(%p): no 'rtcp-mux' attribute in SDP"
+			" -- rejecting\n", mf);
 		err = EPROTO;
 		goto out;
 	}
@@ -3672,8 +3775,8 @@ static int post_sdp_decode(struct mediaflow *mf)
 
 		mid = sdp_media_rattr(mf->video.sdpm, "mid");
 		if (mid) {
-			debug("mediaflow: updating video mid-value "
-			      "to '%s'\n", mid);
+			debug("mediaflow(%p): updating video mid-value "
+			      "to '%s'\n", mf, mid);
 			sdp_media_set_lattr(mf->video.sdpm,
 					    true, "mid", mid);
 		}
@@ -3687,16 +3790,16 @@ static int post_sdp_decode(struct mediaflow *mf)
 	if (mf->data.sdpm) {
 		mid = sdp_media_rattr(mf->data.sdpm, "mid");
 		if (mid) {
-			debug("mediaflow: updating data mid-value "
-			      "to '%s'\n", mid);
+			debug("mediaflow(%p): updating data mid-value "
+			      "to '%s'\n", mf, mid);
 			sdp_media_set_lattr(mf->data.sdpm,
 					    true, "mid", mid);
 		}
 	}
     
 	if (sdp_media_session_rattr(mf->audio.sdpm, mf->sdp, "ice-lite")) {
-		info("mediaflow: remote side is ice-lite"
-		     " -- force controlling\n");
+		info("mediaflow(%p): remote side is ice-lite"
+		     " -- force controlling\n", mf);
 		mediaflow_set_ice_role(mf, ICE_ROLE_CONTROLLING);
 	}
 
@@ -3712,7 +3815,7 @@ static int post_sdp_decode(struct mediaflow *mf)
 
 	if (sdp_media_rattr(mf->audio.sdpm, "crypto")) {
 
-		mf->cryptos_remote |= CRYPTO_SDESC;
+		warning("mediaflow(%p): remote peer supports SDESC\n", mf);
 	}
 
 	if (sdp_media_rattr(mf->audio.sdpm, "x-KASEv1")) {
@@ -3722,11 +3825,11 @@ static int post_sdp_decode(struct mediaflow *mf)
 
 	mf->crypto = mf->cryptos_local & mf->cryptos_remote;
 
-	info("mediaflow: negotiated crypto = %s\n",
-	     crypto_name(mf->crypto));
+	info("mediaflow(%p): negotiated crypto = %s\n",
+	     mf, crypto_name(mf->crypto));
 
 	if (mf->cryptos_local && !mf->cryptos_remote) {
-		warning("mediaflow: we offered crypto, but got none\n");
+		warning("mediaflow(%p): we offered crypto, but got none\n", mf);
 		return EPROTO;
 	}
 
@@ -3736,26 +3839,18 @@ static int post_sdp_decode(struct mediaflow *mf)
 
 		if (!mf->crypto) {
 
-			warning("mediaflow: no common crypto in SDP offer"
-				" -- rejecting\n");
+			warning("mediaflow(%p): no common crypto in SDP offer"
+				" -- rejecting\n", mf);
 			err = EPROTO;
 			goto out;
 		}
 	}
 
 	if (mf->crypto & CRYPTO_DTLS_SRTP &&
-	    mf->crypto & CRYPTO_SDESC) {
-
-		info("mediaflow: negotiated both cryptos, fallback to '%s'\n",
-		     crypto_name(mf->crypto_fallback));
-		mf->crypto = mf->crypto_fallback;
-	}
-
-	if (mf->crypto & CRYPTO_DTLS_SRTP &&
 	    mf->crypto & CRYPTO_KASE) {
 
-		info("mediaflow: negotiated both cryptos, fallback to '%s'\n",
-		     crypto_name(mf->crypto_fallback));
+		info("mediaflow(%p): negotiated cryptos, fallback to '%s'\n",
+		     mf, crypto_name(mf->crypto_fallback));
 		mf->crypto = mf->crypto_fallback;
 	}
 
@@ -3763,22 +3858,16 @@ static int post_sdp_decode(struct mediaflow *mf)
 
 		err = handle_dtls_srtp(mf);
 		if (err) {
-			warning("mediaflow: handle_dtls_srtp failed (%m)\n",
-				err);
+			warning("mediaflow(%p): handle_dtls_srtp failed (%m)\n",
+				mf, err);
 			goto out;
 		}
 	}
 
 	err = handle_setup(mf);
 	if (err) {
-		warning("mediaflow: handle_setup failed (%m)\n", err);
+		warning("mediaflow(%p): handle_setup failed (%m)\n", mf, err);
 		return err;
-	}
-
-	if (mf->crypto & CRYPTO_SDESC) {
-		err |= handle_sdes_srtp_rx(mf);
-		if (err)
-			goto out;
 	}
 
 	if (mf->crypto & CRYPTO_KASE) {
@@ -3801,8 +3890,8 @@ int mediaflow_handle_offer(struct mediaflow *mf, const char *sdp)
 		return EINVAL;
 
 	if (mf->sdp_state != SDP_IDLE) {
-		warning("mediaflow: invalid sdp state %d (%s)\n",
-			mf->sdp_state, __func__);
+		warning("mediaflow(%p): invalid sdp state %d (%s)\n",
+			mf, mf->sdp_state, __func__);
 		return EPROTO;
 	}
 	mf->sdp_state = SDP_HOFF;
@@ -3823,15 +3912,15 @@ int mediaflow_handle_offer(struct mediaflow *mf, const char *sdp)
 
 	mbo->pos = 0;
 
-	debug("---------- recv SDP offer ----------\n");
+	debug("mediaflow(%p) -- recv SDP offer ----------\n", mf);
 	debug("%s", sdp);
-	debug("------------------------------------\n");
+	debug("------------------------------------------\n");
 
 	err = sdp_decode(mf->sdp, mbo, true);
 	if (err) {
-		warning("mediaflow: could not parse SDP offer"
+		warning("mediaflow(%p): could not parse SDP offer"
 			" [%zu bytes] (%m)\n",
-			mbo->end, err);
+			mf, mbo->end, err);
 		goto out;
 	}
 
@@ -3851,17 +3940,17 @@ int mediaflow_handle_offer(struct mediaflow *mf, const char *sdp)
 
 	if (sdp_media_rformat(mf->video.sdpm, NULL)) {
 
-		info("mediaflow: SDP has video enabled\n");
+		info("mediaflow(%p): SDP has video enabled\n", mf);
 
 		mf->video.has_media = true;
 		start_video_codecs(mf);
 	}
 	else {
-		info("mediaflow: video is disabled\n");
+		info("mediaflow(%p): video is disabled\n", mf);
 	}
 
 	if (sdp_media_rformat(mf->data.sdpm, NULL)) {
-		info("mediaflow: SDP has data channel\n");
+		info("mediaflow(%p): SDP has data channel\n", mf);
 		mf->data.has_media = true;
 	}
 
@@ -3882,7 +3971,8 @@ int mediaflow_handle_answer(struct mediaflow *mf, const char *sdp)
 		return EINVAL;
 
 	if (mf->sdp_state != SDP_GOFF) {
-		warning("mediaflow: invalid sdp state (%s)\n", __func__);
+		warning("mediaflow(%p): invalid sdp state (%s)\n",
+			mf, __func__);
 	}
 	mf->sdp_state = SDP_DONE;
 
@@ -3898,14 +3988,14 @@ int mediaflow_handle_answer(struct mediaflow *mf, const char *sdp)
 
 	mb->pos = 0;
 
-	debug("---------- recv SDP answer ----------\n");
+	debug("mediaflow(%p) -- recv SDP answer ----------\n", mf);
 	debug("%s", sdp);
 	debug("------------------------------------\n");
 
 	err = sdp_decode(mf->sdp, mb, offer);
 	if (err) {
-		warning("mediaflow: could not parse SDP answer"
-			" [%zu bytes] (%m)\n", mb->end, err);
+		warning("mediaflow(%p): could not parse SDP answer"
+			" [%zu bytes] (%m)\n", mf, mb->end, err);
 		goto out;
 	}
 
@@ -3926,24 +4016,24 @@ int mediaflow_handle_answer(struct mediaflow *mf, const char *sdp)
 
 	if (sdp_media_rformat(mf->video.sdpm, NULL)) {
 
-		info("mediaflow: SDP has video enabled\n");
+		info("mediaflow(%p): SDP has video enabled\n", mf);
 
 		mf->video.has_media = true;
 		start_video_codecs(mf);
 	}
 	else {
-		info("mediaflow: video is disabled\n");
+		info("mediaflow(%p): video is disabled\n", mf);
 	}
 
 
 	if (sdp_media_rformat(mf->data.sdpm, NULL)) {
 
-		info("mediaflow: SDP has data channel\n");
+		info("mediaflow(%p): SDP has data channel\n", mf);
 
 		mf->data.has_media = true;
 	}
 	else {
-		info("mediaflow: no data channel\n");
+		info("mediaflow(%p): no data channel\n", mf);
 	}
 
  out:
@@ -4009,7 +4099,7 @@ int mediaflow_send_rtp(struct mediaflow *mf, const struct rtp_header *hdr,
 
 	/* check if media-stream is ready for sending */
 	if (!mediaflow_is_ready(mf)) {
-		warning("mediaflow: send_rtp: not ready\n");
+		warning("mediaflow(%p): send_rtp: not ready\n", mf);
 		return EINTR;
 	}
 
@@ -4055,9 +4145,9 @@ int mediaflow_send_raw_rtp(struct mediaflow *mf, const uint8_t *buf,
 
 	/* check if media-stream is ready for sending */
 	if (!mediaflow_is_ready(mf)) {
-		warning("mediaflow: send_raw_rtp(%zu bytes): not ready"
+		warning("mediaflow(%p): send_raw_rtp(%zu bytes): not ready"
 			" [ice=%d, crypto=%d]\n",
-			len, mf->ice_ready, mf->crypto_ready);
+			mf, len, mf->ice_ready, mf->crypto_ready);
 		return EINTR;
 	}
 
@@ -4106,9 +4196,9 @@ int mediaflow_send_raw_rtcp(struct mediaflow *mf,
 
 	/* check if media-stream is ready for sending */
 	if (!mediaflow_is_ready(mf)) {
-		warning("mediaflow: send_raw_rtcp(%zu bytes): not ready"
+		warning("mediaflow(%p): send_raw_rtcp(%zu bytes): not ready"
 			" [ice=%d, crypto=%d]\n",
-			len, mf->ice_ready, mf->crypto_ready);
+			mf, len, mf->ice_ready, mf->crypto_ready);
 		return EINTR;
 	}
 
@@ -4156,9 +4246,9 @@ static bool rcandidate_handler(const char *name, const char *val, void *arg)
 			      rcand.foundation, rcand.proto, rcand.prio,
 			      &rcand.addr, rcand.type, rcand.tcptype);
 	if (err) {
-		warning("mediaflow: rcand: trice_rcand_add failed"
+		warning("mediaflow(%p): rcand: trice_rcand_add failed"
 			" [%J] (%m)\n",
-			&rcand.addr, err);
+			mf, &rcand.addr, err);
 	}
 
  out:
@@ -4173,20 +4263,20 @@ static void trice_estab_handler(struct ice_candpair *pair,
 	void *sock;
 	int err;
 
-	info("mediaflow: ice pair established  %H\n",
-	     trice_candpair_debug, pair);
+	info("mediaflow(%p): ice pair established  %H\n",
+	     mf, trice_candpair_debug, pair);
 
 	/* verify local candidate */
 	sock = trice_lcand_sock(mf->trice, pair->lcand);
 	if (!sock) {
-		warning("mediaflow: estab: lcand has no sock [%H]\n",
-			trice_cand_print, pair->lcand);
+		warning("mediaflow(%p): estab: lcand has no sock [%H]\n",
+			mf, trice_cand_print, pair->lcand);
 		return;
 	}
 
 #if 0
 	if (!pair->nominated) {
-		warning("mediaflow: ICE pair is not nominated!\n");
+		warning("mediaflow(%p): ICE pair is not nominated!\n", mf);
 	}
 #endif
 
@@ -4205,8 +4295,8 @@ static void trice_estab_handler(struct ice_candpair *pair,
 			(void)str_dup(&mf->peer_software, attr->v.software);
 		}
 
-		info("mediaflow: trice: setting peer to %H [%s]\n",
-		     print_cand, pair->rcand,
+		info("mediaflow(%p): trice: setting peer to %H [%s]\n",
+		     mf, print_cand, pair->rcand,
 		     mf->peer_software);
 
 #if 1
@@ -4220,14 +4310,14 @@ static void trice_estab_handler(struct ice_candpair *pair,
 					       IPPROTO_UDP);
 		if (conn && AF_INET == sa_af(&pair->rcand->attr.addr)) {
 
-			info("mediaflow: adding TURN channel to %J\n",
-			     &pair->rcand->attr.addr);
+			info("mediaflow(%p): adding TURN channel to %J\n",
+			     mf, &pair->rcand->attr.addr);
 
 			err = turnconn_add_channel(conn,
 						   &pair->rcand->attr.addr);
 			if (err) {
-				warning("mediaflow: could not add TURN"
-					" channel (%m)\n", err);
+				warning("mediaflow(%p): could not add TURN"
+					" channel (%m)\n", mf, err);
 			}
 		}
 
@@ -4260,8 +4350,8 @@ static void trice_failed_handler(int err, uint16_t scode,
 {
 	struct mediaflow *mf = arg;
 
-	info("mediaflow: candpair not working [%H]\n",
-	     trice_candpair_debug, pair);
+	info("mediaflow(%p): candpair not working [%H]\n",
+	     mf, trice_candpair_debug, pair);
 
 	/* check if checklist is complete AND EOC */
 	if (mediaflow_have_eoc(mf)) {
@@ -4273,10 +4363,10 @@ static void trice_failed_handler(int err, uint16_t scode,
 
 			int to = (int)(tmr_jiffies() - mf->ts_nat_start);
 
-			warning("mediaflow: all pairs failed"
+			warning("mediaflow(%p): all pairs failed"
 				" after %d milliseconds"
 				" (checklist=%u, validlist=%u)\n",
-				to,
+				mf, to,
 				list_count(trice_checkl(mf->trice)),
 				list_count(trice_validl(mf->trice))
 				);
@@ -4320,9 +4410,9 @@ int mediaflow_start_ice(struct mediaflow *mf)
 		}
 	}
 
-	info("mediaflow: start_ice: starting ICE checklist with"
+	info("mediaflow(%p): start_ice: starting ICE checklist with"
 	     " %u remote candidates\n",
-	     list_count(trice_rcandl(mf->trice)));
+	     mf, list_count(trice_rcandl(mf->trice)));
 
 	err = trice_checklist_start(mf->trice, mf->trice_stun,
 				    ICE_INTERVAL,
@@ -4330,7 +4420,8 @@ int mediaflow_start_ice(struct mediaflow *mf)
 				    trice_failed_handler,
 				    mf);
 	if (err) {
-		warning("could not start ICE checklist (%m)\n", err);
+		warning("mediaflow(%p): could not start ICE checklist (%m)\n",
+			mf, err);
 		return err;
 	}
 
@@ -4352,8 +4443,8 @@ static int start_audio(struct mediaflow *mf)
 	if (ac && ac->enc_start) {
 		struct aucodec_param prm;
 
-		debug("mediaflow: local SSRC is %u\n",
-		      mf->lssrcv[MEDIA_AUDIO]);
+		debug("mediaflow(%p): local SSRC is %u\n",
+		      mf, mf->lssrcv[MEDIA_AUDIO]);
 
 		memset(&prm, 0, sizeof(prm));
 		prm.local_ssrc = mf->lssrcv[MEDIA_AUDIO];
@@ -4399,16 +4490,16 @@ static int hold_video(struct mediaflow *mf, bool hold)
 
 	vc = viddec_get(mf->video.vds);
 	if (vc && vc->dec_holdh) {
-		info("mediaflow: hold_media: holding"
-		     " video decoder (%s)\n", vc->name);
+		info("mediaflow(%p): hold_media: holding"
+		     " video decoder (%s)\n", mf, vc->name);
 
 		vc->dec_holdh(mf->video.vds, hold);
 	}
 
 	vc = videnc_get(mf->video.ves);
 	if (vc && vc->enc_holdh) {
-		info("mediaflow: hold_media: holding"
-		     " video encoder (%s)\n", vc->name);
+		info("mediaflow(%p): hold_media: holding"
+		     " video encoder (%s)\n", mf, vc->name);
 
 		vc->enc_holdh(mf->video.ves, hold);
 	}
@@ -4460,13 +4551,13 @@ int mediaflow_start_media(struct mediaflow *mf)
 
 		vc = viddec_get(mf->video.vds);
 		if (vc && vc->dec_starth) {
-			info("mediaflow: start_media: starting"
-			     " video decoder (%s)\n", vc->name);
+			info("mediaflow(%p): start_media: starting"
+			     " video decoder (%s)\n", mf, vc->name);
 
 			err = vc->dec_starth(mf->video.vds, mf->userid_remote);
 			if (err) {
-				warning("mediaflow: could not start"
-					" video decoder (%m)\n", err);
+				warning("mediaflow(%p): could not start"
+					" video decoder (%m)\n", mf, err);
 				err = 0;
 			}
 		}
@@ -4494,13 +4585,13 @@ int mediaflow_set_video_send_active(struct mediaflow *mf, bool video_active)
 	if (video_active) {
 		vc = videnc_get(mf->video.ves);
 		if (vc && vc->enc_starth) {
-			info("mediaflow: start_media: starting"
-			     " video encoder (%s)\n", vc->name);
+			info("mediaflow(%p): start_media: starting"
+			     " video encoder (%s)\n", mf, vc->name);
 
 			err = vc->enc_starth(mf->video.ves, mf->group_mode);
 			if (err) {
-				warning("mediaflow: could not start"
-					" video encoder (%m)\n", err);
+				warning("mediaflow(%p): could not start"
+					" video encoder (%m)\n", mf, err);
 				return err;
 			}
 			mf->video.started = true;
@@ -4510,8 +4601,8 @@ int mediaflow_set_video_send_active(struct mediaflow *mf, bool video_active)
 
 		vc = videnc_get(mf->video.ves);
 		if (vc && vc->enc_stoph) {
-			info("mediaflow: stop_media: stopping"
-			     " video encoder (%s)\n", vc->name);
+			info("mediaflow(%p): stop_media: stopping"
+			     " video encoder (%s)\n", mf, vc->name);
 			vc->enc_stoph(mf->video.ves);
 		}
 		mf->video.started = false;
@@ -4558,15 +4649,15 @@ void mediaflow_stop_media(struct mediaflow *mf)
 	/* video */
 	vc = videnc_get(mf->video.ves);
 	if (vc && vc->enc_stoph) {
-		info("mediaflow: stop_media: stopping"
-		     " video encoder (%s)\n", vc->name);
+		info("mediaflow(%p): stop_media: stopping"
+		     " video encoder (%s)\n", mf, vc->name);
 		vc->enc_stoph(mf->video.ves);
 	}
 
 	vc = viddec_get(mf->video.vds);
 	if (vc && vc->dec_stoph) {
-		info("mediaflow: stop_media: stopping"
-		     " video decoder (%s)\n", vc->name);
+		info("mediaflow(%p): stop_media: stopping"
+		     " video decoder (%s)\n", mf, vc->name);
 		vc->dec_stoph(mf->video.vds);
 	}
 
@@ -4661,8 +4752,8 @@ static void submit_local_candidate(struct mediaflow *mf,
 	}
 
 	if (!add) {
-		debug("mediaflow: NOT adding cand %s (privacy mode)\n",
-		      ice_cand_type2name(type));
+		debug("mediaflow(%p): NOT adding cand %s (privacy mode)\n",
+		      mf, ice_cand_type2name(type));
 		return;
 	}
 
@@ -4682,8 +4773,8 @@ static void submit_local_candidate(struct mediaflow *mf,
 			      0 /* tcptype */,
 			      sock, LAYER_ICE);
 	if (err) {
-		warning("mediaflow: add local cand failed (%m)\n",
-			err);
+		warning("mediaflow(%p): add local cand failed (%m)\n",
+			mf, err);
 		return;
 	}
 
@@ -4720,26 +4811,27 @@ static void gather_stun_resp_handler(int err, uint16_t scode,
 	struct stun_attr *map = NULL, *attr;
 
 	if (err) {
-		warning("mediaflow: stun_resp %m\n", err);
+		warning("mediaflow(%p): stun_resp %m\n", mf, err);
 		goto error;
 	}
 
 	if (scode) {
-		warning("mediaflow: stun_resp %u %s\n", scode, reason);
+		warning("mediaflow(%p): stun_resp %u %s\n", mf, scode, reason);
 		goto error;
 	}
 
 	map = stun_msg_attr(msg, STUN_ATTR_XOR_MAPPED_ADDR);
 	if (!map) {
-		warning("mediaflow: xor_mapped_addr attr missing\n");
+		warning("mediaflow(%p): xor_mapped_addr attr missing\n", mf);
 		goto error;
 	}
 
 	mf->stun_ok = true;
 
 	attr = stun_msg_attr(msg, STUN_ATTR_SOFTWARE);
-	info("mediaflow: STUN allocation OK"
+	info("mediaflow(%p): STUN allocation OK"
 	     " (mapped=%J) [%s]\n",
+	     mf,
 	     &map->v.xor_mapped_addr,
 	     attr ? attr->v.software : "");
 
@@ -4790,7 +4882,8 @@ int mediaflow_gather_stun(struct mediaflow *mf, const struct sa *stun_srv)
 	sock = mf->us_stun;
 
 	if (!stun || !sock) {
-		warning("mediaflow: gather_stun: no STUN/SOCK instance\n");
+		warning("mediaflow(%p): gather_stun: no STUN/SOCK instance\n",
+			mf);
 		return EINVAL;
 	}
 
@@ -4799,7 +4892,7 @@ int mediaflow_gather_stun(struct mediaflow *mf, const struct sa *stun_srv)
 			   STUN_METHOD_BINDING, NULL, 0, false,
 			   gather_stun_resp_handler, mf, 0);
 	if (err) {
-		warning("mediaflow: stun_request failed (%m)\n", err);
+		warning("mediaflow(%p): stun_request failed (%m)\n", mf, err);
 		return err;
 	}
 
@@ -4828,16 +4921,17 @@ static void add_turn_permission(struct mediaflow *mf,
 		add = true;
 
 	if (add) {
-		info("mediaflow: adding TURN permission"
+		info("mediaflow(%p): adding TURN permission"
 		     " to remote address %s.%j <turnconn=%p>\n",
+		     mf,
 		     ice_cand_type2name(rcand->type),
 		     &rcand->addr, conn);
 
 		err = turnconn_add_permission(conn, &rcand->addr);
 		if (err) {
-			warning("mediaflow: failed to"
+			warning("mediaflow(%p): failed to"
 				" add permission (%m)\n",
-				err);
+				mf, err);
 		}
 	}
 }
@@ -4922,7 +5016,7 @@ static void turnconn_estab_handler(struct turn_conn *conn,
 	int err;
 	(void)msg;
 
-	info("mediaflow: TURN established (%J)\n", relay_addr);
+	info("mediaflow(%p): TURN established (%J)\n", mf, relay_addr);
 
 	if (mf->mf_stats.turn_alloc < 0 &&
 	    conn->ts_turn_resp &&
@@ -4962,8 +5056,8 @@ static void turnconn_estab_handler(struct turn_conn *conn,
 		err = udp_register_helper(&conn->uh_app, sock, LAYER_TURN,
 					  turntcp_send_handler, NULL, conn);
 		if (err) {
-			warning("mediaflow: TURN failed to register UDP-helper"
-				" (%m)\n", err);
+			warning("mediaflow(%p): TURN failed to register "
+				"UDP-helper (%m)\n", mf, err);
 			goto error;
 		}
 	}
@@ -5000,7 +5094,7 @@ static void turnconn_data_handler(struct turn_conn *conn, const struct sa *src,
 
 	if (pkt == PACKET_STUN) {
 
-		debug("mediaflow: incoming STUN-packet via TURN\n");
+		debug("mediaflow(%p): incoming STUN-packet via TURN\n", mf);
 
 		// TODO: this supports only one TURN-client for now
 		//       add support for multiple clients
@@ -5012,7 +5106,8 @@ static void turnconn_data_handler(struct turn_conn *conn, const struct sa *src,
 			trice_lcand_recv_packet(lcand, src, mb);
 		}
 		else {
-			debug("mediaflow: turnconn: no local candidate\n");
+			debug("mediaflow(%p): turnconn: no local candidate\n",
+			      mf);
 			demux_packet(mf, src, mb);
 		}
 	}
@@ -5031,9 +5126,9 @@ static void turnconn_error_handler(int err, void *arg)
 	one_allocated = turnconn_is_one_allocated(&mf->turnconnl);
 	all_failed = turnconn_are_all_failed(&mf->turnconnl);
 
-	warning("mediaflow: turnconn_error:  turnconnl=%u"
+	warning("mediaflow(%p): turnconn_error:  turnconnl=%u"
 		"  [one_allocated=%d, all_failed=%d]  (%m)\n",
-		list_count(&mf->turnconnl), one_allocated, all_failed, err);
+		mf, list_count(&mf->turnconnl), one_allocated, all_failed, err);
 
 	if (all_failed)
 		goto fail;
@@ -5041,7 +5136,8 @@ static void turnconn_error_handler(int err, void *arg)
 	if (list_count(&mf->turnconnl) > 1 ||
 	    one_allocated) {
 
-		info("mediaflow: ignoring turn error, already have 1\n");
+		info("mediaflow(%p): ignoring turn error, already have 1\n",
+		     mf);
 		return;
 	}
 
@@ -5086,7 +5182,7 @@ int mediaflow_gather_turn(struct mediaflow *mf, const struct sa *turn_srv,
 		return EINVAL;
 
 	if (!sa_isset(turn_srv, SA_ALL)) {
-		warning("mediaflow: gather_turn: TURN server is not set\n");
+		warning("mediaflow(%p): gather_turn: no TURN server\n", mf);
 		return EINVAL;
 	}
 
@@ -5101,15 +5197,15 @@ int mediaflow_gather_turn(struct mediaflow *mf, const struct sa *turn_srv,
 
 		err = sa_translate_nat64(&turn_srv6, turn_srv);
 		if (err) {
-			warning("gather_turn: sa_translate_nat64(%j)"
-				" failed (%m)\n",
-				turn_srv, err);
+			warning("mediaflow(%p): gather_turn: "
+				"sa_translate_nat64(%j) failed (%m)\n",
+				mf, turn_srv, err);
 			return err;
 		}
 
-		info("mediaflow: Dualstack: TRANSLATE NAT64"
+		info("mediaflow(%p): Dualstack: TRANSLATE NAT64"
 		     " (%J ----> %J)\n",
-		     turn_srv, &turn_srv6);
+		     mf, turn_srv, &turn_srv6);
 
 		turn_srv = &turn_srv6;
 	}
@@ -5118,17 +5214,17 @@ int mediaflow_gather_turn(struct mediaflow *mf, const struct sa *turn_srv,
 	/* Reuse UDP-sockets from HOST interface */
 	ifc = default_interface(mf);
 	if (ifc) {
-		info("mediaflow: gather_turn: default interface"
+		info("mediaflow(%p): gather_turn: default interface"
 		     " is %s|%j (lcand=%p)\n",
-		     ifc->ifname, &ifc->addr, ifc->lcand);
+		     mf, ifc->ifname, &ifc->addr, ifc->lcand);
 
 		if (ifc->lcand)
 			sock = ifc->lcand->us;
 	}
 #endif
 
-	info("mediaflow: gather_turn: username='%s' srv=%J\n",
-	     username, turn_srv);
+	info("mediaflow(%p): gather_turn: srv=%J\n",
+	     mf, turn_srv);
 
 	err = turnconn_alloc(NULL, &mf->turnconnl,
 			     turn_srv, IPPROTO_UDP, false,
@@ -5140,7 +5236,7 @@ int mediaflow_gather_turn(struct mediaflow *mf, const struct sa *turn_srv,
 			     turnconn_error_handler, mf
 			     );
 	if (err) {
-		warning("mediaflow: turnc_alloc failed (%m)\n", err);
+		warning("mediaflow(%p): turnc_alloc failed (%m)\n", mf, err);
 		return err;
 	}
 
@@ -5160,6 +5256,8 @@ int mediaflow_gather_turn_tcp(struct mediaflow *mf, const struct sa *turn_srv,
 
 	if (!mf || !turn_srv)
 		return EINVAL;
+
+	info("mediaflow(%p): gather_turn_tcp\n", mf);
 
 	err = turnconn_alloc(&tc, &mf->turnconnl,
 			     turn_srv, IPPROTO_TCP, secure,
@@ -5349,7 +5447,8 @@ bool mediaflow_is_gathered(const struct mediaflow *mf)
 	if (!mf)
 		return false;
 
-	debug("mediaflow: is_gathered:  turnconnl=%u  stun=%d/%d\n",
+	debug("mediaflow(%p): is_gathered:  turnconnl=%u  stun=%d/%d\n",
+	      mf,
 	      list_count(&mf->turnconnl),
 	      mf->stun_server, mf->stun_ok);
 
@@ -5624,12 +5723,12 @@ int mediaflow_set_remote_userclientid(struct mediaflow *mf,
 		return EINVAL;
 
 	if (str_isset(mf->userid_remote)) {
-		warning("mediaflow: remote userid is already set\n");
+		warning("mediaflow(%p): remote userid is already set\n", mf);
 		return EALREADY;
 	}
 
 	if (str_isset(mf->clientid_remote)) {
-		warning("mediaflow: remote clientid is already set\n");
+		warning("mediaflow(%p): remote clientid is already set\n", mf);
 		return EALREADY;
 	}
 
@@ -5676,4 +5775,13 @@ int mediaflow_set_extcodec(struct mediaflow *mf, void *arg)
 	mf->extcodec.arg = arg;
 
 	return 0;
+}
+
+
+void mediaflow_video_set_disabled(struct mediaflow *mf, bool dis)
+{
+	if (!mf)
+		return;
+
+	sdp_media_set_disabled(mf->video.sdpm, dis);
 }

@@ -82,6 +82,17 @@ static void tmr_handler(void *arg)
 }
 
 
+static void tcp_estab(void *arg)
+{
+	struct conn *conn = arg;
+
+	if (conn->tlsc) {
+		re_printf("server:   TLS established with cipher %s\n",
+			  tls_cipher_name(conn->tlsc));
+	}
+}
+
+
 static void tcp_recv(struct mbuf *mb, void *arg)
 {
 	struct conn *conn = arg;
@@ -204,7 +215,7 @@ static void tcp_conn_handler(const struct sa *peer, void *arg)
 	conn->created = now;
 	conn->paddr = *peer;
 
-	err = tcp_accept(&conn->tc, tl->ts, NULL, tcp_recv, tcp_close, conn);
+	err = tcp_accept(&conn->tc, tl->ts, tcp_estab, tcp_recv, tcp_close, conn);
 	if (err)
 		goto out;
 
@@ -263,8 +274,10 @@ static int listen_handler(struct turnd *turnd, bool tls, const char *cert)
 		}
 
 		err = tls_set_certificate(tl->tls, cert, strlen(cert));
-		if (err)
+		if (err) {
+			warning("set certificate error: %m\n", err);
 			goto out;
+		}
 	}
 
 	sa_set_str(&tl->bnd_addr, "127.0.0.1", 0);

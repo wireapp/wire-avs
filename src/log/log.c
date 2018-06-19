@@ -18,6 +18,7 @@
 
 #include <re.h>
 #include "avs_log.h"
+#include <string.h>
 
 
 static struct {
@@ -85,6 +86,8 @@ void vlog(enum log_level level, const char *fmt, va_list ap)
 	err = re_vsdprintf(&msg, fmt, ap);
 	if (err)
 		return;
+
+	log_mask_ipaddr(msg);
 
 	if (lg.stder) {
 
@@ -174,4 +177,93 @@ void error(const char *fmt, ...)
 	va_start(ap, fmt);
 	vlog(LOG_LEVEL_ERROR, fmt, ap);
 	va_end(ap);
+}
+
+const char *anon_id(char *outid, const char *inid)
+{
+	if (outid) {
+		memset(outid, 0, ANON_ID_LEN);
+		if (inid) {
+			str_ncpy(outid, inid, ANON_ID_LEN);
+		}
+	}
+
+	return outid;
+}
+
+const char *anon_client(char *outid, const char *inid)
+{
+	if (outid) {
+		memset(outid, 0, ANON_CLIENT_LEN);
+		if (inid) {
+			str_ncpy(outid, inid, ANON_CLIENT_LEN);
+		}
+	}
+
+	return outid;
+}
+
+
+#define MASK_CHAR 'x'
+
+
+void log_mask_ipaddr(const char *msg)
+{
+	struct pl a, b, c, d, e, f, g, h;
+	const char *p = msg;
+	const char *pend = msg + str_len(msg);
+	size_t i;
+
+	while (p < pend) {
+
+		const size_t len = pend - p;
+
+		if (0 == re_regex(p, len,
+				  "[0-9]+.[0-9]+.[0-9]+.[0-9]+",
+				  &a, &b, &c, &d)) {
+
+			for (i=0; i<c.l; i++)
+				*(char *)&c.p[i] = MASK_CHAR;
+
+			for (i=0; i<d.l; i++)
+				*(char *)&d.p[i] = MASK_CHAR;
+
+			p = d.p + d.l;
+		}
+		else {
+			break;
+		}
+	}
+
+	p = msg;
+	while (p < pend) {
+
+		const size_t len = pend - p;
+
+		if (0 == re_regex(p, len,
+				  "[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+:"
+				  "[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+",
+				  &a, &b, &c, &d, &e, &f, &g, &h)) {
+
+			for (i=0; i<d.l; i++)
+				*(char *)&d.p[i] = MASK_CHAR;
+
+			for (i=0; i<e.l; i++)
+				*(char *)&e.p[i] = MASK_CHAR;
+
+			for (i=0; i<f.l; i++)
+				*(char *)&f.p[i] = MASK_CHAR;
+
+			for (i=0; i<g.l; i++)
+				*(char *)&g.p[i] = MASK_CHAR;
+
+			for (i=0; i<h.l; i++)
+				*(char *)&h.p[i] = MASK_CHAR;
+
+			p = h.p + h.l;
+		}
+		else {
+			break;
+		}
+	}
 }

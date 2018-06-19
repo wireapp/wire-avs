@@ -359,6 +359,13 @@ public class MediaManager implements OnAudioFocusChangeListener {
         this.audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
     }
 
+    public void onAudioFocus() {
+	    DoLog("onAudioFocus: mode=" + this.audioManager.getMode());
+
+	    this.audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+	    this.audioManager.requestAudioFocus(this, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN);
+    }
+
     public void onExitCall(){
         audioManager.abandonAudioFocus(this);
 	    DoLog("onExitCall prev_mode=" + this.prev_mode);

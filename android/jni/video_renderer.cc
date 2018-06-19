@@ -142,6 +142,8 @@ struct video_renderer {
 
 	GLfloat vertices[20];
 
+	char *userid;
+
 	void *arg;
 };
 
@@ -193,7 +195,8 @@ void vr_destructor(void *arg)
 {
 	struct video_renderer *vr = (struct video_renderer *)arg;
 
-	/* Do we need to dealloc anything here? */
+	vr->arg = NULL;
+	mem_deref(vr->userid);
 }
 
 static GLuint load_shader(GLenum shader_type, const char* src)
@@ -436,7 +439,8 @@ static int setup_vertices(struct video_renderer *vr, int rotation)
 
 
 int video_renderer_alloc(struct video_renderer **vrp,  int w, int h,
-			 bool rounded, void *arg)
+			 bool rounded,
+			 const char *userid, void *arg)
 {
 	struct video_renderer *vr;
 	int err = 0;
@@ -462,6 +466,7 @@ int video_renderer_alloc(struct video_renderer **vrp,  int w, int h,
 	vr->inited = false;
 	vr->w = w;
 	vr->h = h;
+	str_dup(&vr->userid, userid);
 	vr->arg = arg;
 
 	if (err)
@@ -472,6 +477,14 @@ int video_renderer_alloc(struct video_renderer **vrp,  int w, int h,
 	}
 
 	return err;
+}
+
+void video_renderer_detach(struct video_renderer *vr)
+{
+	if (!vr)
+		return;
+
+	vr->arg = NULL;
 }
 
 
@@ -722,6 +735,11 @@ void video_renderer_set_should_fill(struct video_renderer *vr,
 	}
 }
 
+const char *video_renderer_userid(struct video_renderer *vr)
+{
+	return vr ? vr->userid : NULL;
+}
+
 #else
 
 
@@ -761,6 +779,11 @@ void *video_renderer_arg(struct video_renderer *vr)
 void video_renderer_set_should_fill(struct video_renderer *vr,
 				    bool should_fill)
 {
+}
+
+const char *video_renderer_userid(struct video_renderer *vr)
+{
+	return NULL;
 }
 
 #endif

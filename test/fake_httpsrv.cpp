@@ -44,7 +44,7 @@ void HttpServer::init(bool secure)
 	ASSERT_EQ(0, err);
 
 	if (secure) {
-		err = https_listen(&sock, &addr, "test/data/cert_rsa.pem",
+		err = https_listen(&sock, &addr, "test/data/cert_ecdsa.pem",
 				   http_req_handler, this);
 		ASSERT_EQ(0, err);
 	}

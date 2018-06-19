@@ -43,7 +43,8 @@ typedef enum {
 }AVSCapturerState;
 
 
-AVS_EXPORT @interface AVSCapturer : NSObject<AVCaptureVideoDataOutputSampleBufferDelegate>
+AVS_EXPORT @interface AVSCapturer : NSObject<AVCaptureVideoDataOutputSampleBufferDelegate,
+	CALayerDelegate>
 
 - (id)init;
 - (int)startWithWidth:(uint32_t)width Height:(uint32_t)height MaxFps:(uint32_t)max_fps;
@@ -52,6 +53,8 @@ AVS_EXPORT @interface AVSCapturer : NSObject<AVCaptureVideoDataOutputSampleBuffe
 - (int)setCaptureDevice:(NSString*)devId;
 - (void)attachPreview:(UIView*)preview;
 - (void)detachPreview:(UIView*)preview;
+- (id<CAAction>)actionForLayer:(CALayer *)layer 
+                        forKey:(NSString *)event;
 
 @end
 

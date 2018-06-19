@@ -82,13 +82,15 @@ public class VideoRenderer extends TextureView implements TextureView.SurfaceTex
 	private long nativeObject = 0;
 
 	private int targetFps;
+	private String userId = null;
 
-	public VideoRenderer(Context context, boolean rounded) {
+	public VideoRenderer(Context context, String userId, boolean rounded) {
 		super(context);
 
 		Log.d(TAG, "Creating new VideoRenderer");
 		
 		isRounded = rounded;
+		this.userId = userId;
 		
 		init(context);
 	}
@@ -111,7 +113,7 @@ public class VideoRenderer extends TextureView implements TextureView.SurfaceTex
 		if (nativeObject != 0)
 			destroyRenderer();
 
-		nativeObject = createNative(width, height, isRounded);
+		nativeObject = createNative(userId, width, height, isRounded);
 		
 		nativeFunctionLock.unlock();
 	}
@@ -121,7 +123,11 @@ public class VideoRenderer extends TextureView implements TextureView.SurfaceTex
 						int width, int height) {
 		Log.d(TAG, "onSurfaceTextureSizeChanged: wxh="
 		      + width + " x " + height);
+
+		nativeFunctionLock.lock();
+		mSurface = surface;
 		setDimensions(width, height);
+		nativeFunctionLock.unlock();
 	}
 
 	@Override
@@ -140,8 +146,8 @@ public class VideoRenderer extends TextureView implements TextureView.SurfaceTex
 		surfaceWidth = width;
 		surfaceHeight = height;
 
-		destroyRenderer();
-		nativeObject = createNative(width, height, isRounded);
+		destroyNative(nativeObject);
+		nativeObject = createNative(userId, width, height, isRounded);
 	}
 
 	private void makeCurrent() {
@@ -277,14 +283,15 @@ public class VideoRenderer extends TextureView implements TextureView.SurfaceTex
 	public void onSurfaceTextureUpdated(SurfaceTexture surface) {
 	}
 
-	private void destroyRenderer() {
+	public void destroyRenderer() {
 		destroyNative(nativeObject);
 		nativeObject = 0;
 		
 		destroyGL();
 	}
 
-	private native long createNative(int width, int height,
+	private native long createNative(String userId,
+					 int width, int height,
 					 boolean rounded);
 	private native void destroyNative(long obj);
 

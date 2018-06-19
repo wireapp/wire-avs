@@ -61,6 +61,8 @@ enum AVSDeviceOrientation {
 	AVCaptureVideoPreviewLayer *_previewLayer;
 	AVCaptureConnection* _connection;
 	UIView *_preview;
+	dispatch_queue_t _cmdQueue;
+	dispatch_queue_t _frameQueue;
 
 	uint32_t _width;
 	uint32_t _height;
@@ -78,7 +80,6 @@ enum AVSDeviceOrientation {
 - (void)stopCapture;
 
 - (void)setState: (AVSCapturerState)state;
-- (void)waitForStableState;
 
 - (int)setCaptureDeviceInt:(NSString*)devid;
 
@@ -97,6 +98,12 @@ enum AVSDeviceOrientation {
 		//debug("%s\n", __FUNCTION__);
 		_state = AVS_CAPTURER_STATE_STOPPED;
 		_stateCondition = [[NSCondition alloc] init];
+		_cmdQueue = dispatch_queue_create(
+			"com.wire.avs_capture_cmd_queue",
+			DISPATCH_QUEUE_SERIAL);
+		_frameQueue = dispatch_queue_create(
+			"com.wire.avs_capture_frame_queue",
+			DISPATCH_QUEUE_SERIAL);
 
 		_captureSession = [[AVCaptureSession alloc] init];
 		if (!_captureSession) {
@@ -105,6 +112,10 @@ enum AVSDeviceOrientation {
 
 		_previewLayer = [AVCaptureVideoPreviewLayer layerWithSession:_captureSession];
 		[_previewLayer setVideoGravity:AVLayerVideoGravityResizeAspectFill];
+		[_previewLayer setDelegate: self];
+		for (CALayer *layer in _previewLayer.sublayers) {
+			[layer setDelegate: self];
+		}
 
 		NSArray *devArray = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
 		if (devArray && [devArray count] > 0) {
@@ -153,7 +164,6 @@ enum AVSDeviceOrientation {
 - (int)startWithWidth:(uint32_t)width Height:(uint32_t)height MaxFps:(uint32_t)max_fps
 {
 	info("%s: capsize: %ux%u fps: %u\n", __FUNCTION__, width, height, max_fps);
-	[self waitForStableState];
 	if (!_captureSession) {
 		error("%s: no capture session\n", __FUNCTION__);
 		return ENODEV;
@@ -173,29 +183,33 @@ enum AVSDeviceOrientation {
 
 	[self setState:AVS_CAPTURER_STATE_STARTING];
 
-	_width = width;
-	_height = height;
-	_maxFps = max_fps;
-	_firstFrame = YES;
-	AVCaptureVideoDataOutput* currentOutput = [[_captureSession outputs] firstObject];
+	dispatch_async(
+		_cmdQueue,
+		^(void) { 
+			_width = width;
+			_height = height;
+			_maxFps = max_fps;
+			_firstFrame = YES;
+			AVCaptureVideoDataOutput* currentOutput =
+				[[_captureSession outputs] firstObject];
 
-	[self directOutputToSelf];
+			[self directOutputToSelf];
+			[self startCaptureWithOutput:currentOutput];
 
 #if TARGET_OS_IPHONE
-	[self deviceOrientationDidChange:nil];
+			dispatch_async(
+				dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), 
+				^(void) { 
+					[self deviceOrientationDidChange:nil];
+			});
 #endif
-
-	dispatch_async(
-		dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
-			^(void) { [self startCaptureWithOutput:currentOutput]; });
-
+	});
 	return 0;
 }
 
 - (int)stop
 {
 	//debug("%s: stopping\n", __FUNCTION__);
-	[self waitForStableState];
 	[self directOutputToNil];
 
 	if (!_captureSession) {
@@ -203,8 +217,10 @@ enum AVSDeviceOrientation {
 	}
 
 	[self setState:AVS_CAPTURER_STATE_STOPPING];
-	dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
-		 ^(void) { [self stopCapture]; });
+	dispatch_async(
+		_cmdQueue,
+			 ^(void) { [self stopCapture];
+	});
 
 	return 0;
 }
@@ -272,8 +288,12 @@ enum AVSDeviceOrientation {
 
 - (int)setCaptureDevice:(NSString*)devid
 {
-	[self waitForStableState];
-	return [self setCaptureDeviceInt:devid];
+	dispatch_async(
+		_cmdQueue,
+		^(void) {[self setCaptureDeviceInt:devid];
+	});
+
+	return 0;
 }
 
 
@@ -370,47 +390,64 @@ enum AVSDeviceOrientation {
 	return err;
 }
 
+- (void)attachPreviewInt:(UIView*)preview
+{
+	dispatch_sync(
+		dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), 
+		^(void) {
+			if (_preview) {
+#if TARGET_OS_IPHONE
+				[_previewLayer removeFromSuperlayer];
+#else
+				[_preview setWantsLayer:NO];
+				[_preview setLayer:nil];
+#endif
+			}
+			_preview = preview;
+			if (_preview) {
+				_previewLayer.frame = _preview.bounds;
+#if TARGET_OS_IPHONE
+				[_preview.layer addSublayer:_previewLayer];
+				[self deviceOrientationDidChange:nil];
+#else
+				[_preview setLayer:(CALayer*)_previewLayer];
+				[_preview setWantsLayer:YES];
+#endif
+			}
+	});
+}
+
 - (void)attachPreview:(UIView*)preview
 {
-	[self waitForStableState];
+	dispatch_async(
+		_cmdQueue, 
+			^(void) { [self attachPreviewInt:preview];
+	});
+}
 
-	if (_preview) {
+- (void)detachPreviewInt:(UIView*)preview
+{
+	dispatch_sync(
+		dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), 
+		^(void) {
+			if (preview == _preview) {
 #if TARGET_OS_IPHONE
-		[_previewLayer removeFromSuperlayer];
+				[_previewLayer removeFromSuperlayer];
 #else
-		[_preview setWantsLayer:NO];
-		[_preview setLayer:nil];
+				[_preview setWantsLayer:NO];
+				[_preview setLayer:nil];
 #endif
-	}
-
-	_preview = preview;
-	if (_preview) {
-		
-		_previewLayer.frame = _preview.bounds;
-#if TARGET_OS_IPHONE
-		[_preview.layer addSublayer:_previewLayer];
-#else
-		[_preview setLayer:(CALayer*)_previewLayer];
-		[_preview setWantsLayer:YES];
-#endif
-		[self startWithWidth:640 Height:480 MaxFps:15];
-	}
+				_preview = nil;
+			}
+	});
 }
 
 - (void)detachPreview:(UIView*)preview
 {
-	[self waitForStableState];
-
-	if (preview == _preview) {
-#if TARGET_OS_IPHONE
-		[_previewLayer removeFromSuperlayer];
-#else
-		[_preview setWantsLayer:NO];
-		[_preview setLayer:nil];
-#endif
-		[self stop];
-		_preview = nil;
-	}
+	dispatch_async(
+		_cmdQueue, 
+			^(void) { [self detachPreviewInt:preview];
+	});
 }
 
 - (void)setState: (AVSCapturerState)state
@@ -521,13 +558,18 @@ out:
 - (void)directOutputToSelf {
 
 	AVCaptureVideoDataOutput* currentOutput = [[_captureSession outputs] firstObject];
-	[currentOutput setSampleBufferDelegate:self queue:dispatch_get_global_queue(
-		DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)];
+	[currentOutput setSampleBufferDelegate:self queue:_frameQueue];
 }
 
 - (void)directOutputToNil {
 	AVCaptureVideoDataOutput* currentOutput = [[_captureSession outputs] firstObject];
 	[currentOutput setSampleBufferDelegate:nil queue:NULL];
+}
+
+- (id<CAAction>)actionForLayer:(CALayer *)layer 
+                        forKey:(NSString *)event
+{
+	return NSNull.null;
 }
 
 #if TARGET_OS_IPHONE
@@ -583,14 +625,16 @@ out:
 		}
 	}
 
-	info("%s old: %d new: %d dev: %d ui: %d\n", __FUNCTION__, _orientation, newori,
-		devori, uiori);
+	if (newori != _orientation) {
+		info("%s old: %d new: %d dev: %d ui: %d ly: %p pv: %p\n", __FUNCTION__,
+			_orientation, newori, devori, uiori, _previewLayer, _preview);
+	}
 
-	_orientation = newori;
-
-	if (!_previewLayer) {
+	if (!_previewLayer || !_preview) {
 		return;
 	}
+
+	_orientation = newori;
 
 	switch (_orientation) {
 		case AVSDeviceOrientationPortrait:

@@ -217,6 +217,8 @@ AVS_EXPORT @interface AVSFlowManager : NSObject
 - (void)setVideoSendState:(AVSFlowManagerVideoSendState)state forConversation:(NSString *)convId;
 - (void)attachVideoPreview:(UIView *)view;
 - (void)detachVideoPreview:(UIView *)view;
+- (void)startVideoCapture;
+- (void)stopVideoCapture;
 
 - (void)attachVideoView:(UIView *)view;
 - (void)detachVideoView:(UIView *)view;

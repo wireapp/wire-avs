@@ -15,7 +15,7 @@ fi
 PLATFORM=$(uname -s | awk '{ print tolower($1) }')
 MACHINE=$(uname -m)
 
-ANDROID_NDK_VER=android-ndk-r12b
+ANDROID_NDK_VER=android-ndk-r14b
 ANDROID_NDK_PLAT=$PLATFORM-$MACHINE
 
 ANDROID_SDK_VER=android-sdk_r24.4.1

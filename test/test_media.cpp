@@ -61,6 +61,7 @@ public:
 				      CRYPTO_DTLS_SRTP,
 				      mediaflow_estab_handler,
 				      mediaflow_close_handler,
+				      NULL,
 				      this);
 		ASSERT_EQ(0, err);
 		ASSERT_TRUE(mf != NULL);
@@ -486,26 +487,6 @@ TEST_F(TestMedia, verify_sha256_fingerprint_in_offer)
 		ASSERT_TRUE(false);
 	}
 }
-
-
-#if 0
-TEST_F(TestMedia, verify_end_of_candidates)
-{
-	TurnServer srv;
-	int err;
-
-	candc_expected = 2;
-
-	err = mediaflow_gather_turn(mf, &srv.addr, "user", "pass");
-	ASSERT_EQ(0, err);
-
-	err = re_main_wait(10000);
-	ASSERT_EQ(0, err);
-
-	/* verify results after traffic is complete */
-	ASSERT_EQ(1, n_local_eoc);
-}
-#endif
 
 
 TEST_F(TestMedia, sdp_offer_with_audio_only)

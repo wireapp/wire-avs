@@ -891,6 +891,16 @@ out:
 	[_capturer detachPreview: view];
 }
 
+- (void)startVideoCapture
+{
+	[_capturer startWithWidth: 640 Height: 480 MaxFps: 15];
+}
+
+- (void)stopVideoCapture
+{
+	[_capturer stop];
+}
+
 - (void)attachVideoView:(UIView *)view
 {
 	[_viewLock lock];

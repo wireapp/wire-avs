@@ -30,6 +30,8 @@
 AVS_EXPORT @interface AVSVideoPreview: UIView
 
 - (void)didMoveToWindow;
+- (void)startVideoCapture;
+- (void)stopVideoCapture;
 
 @end
 

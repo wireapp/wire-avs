@@ -134,6 +134,10 @@ struct econn_message {
 			uint32_t level;
 			char *descr;
 		} alert;
+
+		struct groupstart {
+			struct econn_props *props;
+		} groupstart;
 	} u;
 };
 

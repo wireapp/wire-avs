@@ -57,6 +57,7 @@ void mediamgr_override_speaker_mm(struct mm *mm, bool speaker);
 void mediamgr_audio_release_mm(struct mm *mm);
 void mediamgr_audio_reset_mm(struct mm *mm);
 void mediamgr_reset_sounds(struct mm *mm);
+bool mediamgr_should_reset(struct mm *mm);
 
 
 #endif

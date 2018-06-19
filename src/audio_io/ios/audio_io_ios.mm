@@ -46,11 +46,11 @@ extern "C" {
     
     
 namespace webrtc {
-    static void *rec_thread(void *arg){
-        return static_cast<audio_io_ios*>(arg)->record_thread();
-    }
+static void *rec_thread(void *arg) {
+	return static_cast<audio_io_ios*>(arg)->record_thread();
+}
     
-    audio_io_ios::audio_io_ios() :
+audio_io_ios::audio_io_ios() :
         audioCallback_(nullptr),
         au_(nullptr),
         initialized_(false),
@@ -60,56 +60,74 @@ namespace webrtc {
         rec_fs_hz_(0),
         play_fs_hz_(0),
         rec_delay_(0),
-        play_buffer_used_(0),
-        rec_current_seq_(0),
-        rec_buffer_total_size_(0),
         num_capture_worker_calls_(0),
         tot_rec_delivered_(0),
         is_running_(false),
+	can_rec_(false),	
         rec_tid_(0),
         dig_mic_gain_(0),
         want_stereo_playout_(false),
-        using_stereo_playout_(false){
-            memset(play_buffer_, 0, sizeof(play_buffer_));
-            memset(rec_buffer_, 0, sizeof(rec_buffer_));
-            memset(rec_length_, 0, sizeof(rec_length_));
-            memset(rec_seq_, 0, sizeof(rec_seq_));
+        using_stereo_playout_(false)
+{
+	rec_buffer_size_ = sizeof(uint16_t) * MAX_FS_REC_HZ * 2;
+	rec_buffer_ = (uint8_t *)mem_zalloc(rec_buffer_size_, NULL);
+	rec_avail_ = 0;
+	rec_in_pos_ = 0;
+	rec_out_pos_ = 0;
 
-            is_recording_.store(false);
-            is_playing_.store(false);
+	play_buffer_size_ = MAX_FS_PLAY_HZ * 2;
+	play_buffer_ = (int16_t *)mem_zalloc(sizeof(*play_buffer_)
+					     * play_buffer_size_,
+					     NULL);
+	play_avail_ = 0;
+	play_in_pos_ = 0;
+	play_out_pos_ = 0;
+			    
+	is_recording_.store(false);
+	is_playing_.store(false);
 
-            pthread_mutex_init(&cond_mutex_,NULL);
-            pthread_cond_init(&cond_, NULL);
-            
-            mqueue_alloc(&mq_, mq_callback, this);
-    }
+	pthread_mutex_init(&cond_mutex_,NULL);
+	pthread_mutex_init(&lock_, NULL);
+	pthread_cond_init(&cond_, NULL);
 
-	audio_io_ios::~audio_io_ios() {
-		Terminate();
+	mqueue_alloc(&mq_, mq_callback, this);
+}
+
+audio_io_ios::~audio_io_ios()
+{
+        StopPlayoutInternal();
+        StopRecordingInternal();
+
+	TerminateInternal();
         
-		pthread_mutex_destroy(&cond_mutex_);
-		pthread_cond_destroy(&cond_);
-        
-		mem_deref(mq_);
-	}
+	pthread_mutex_destroy(&cond_mutex_);
+	pthread_cond_destroy(&cond_);
+
+	rec_buffer_ = (uint8_t *)mem_deref(rec_buffer_);
+	play_buffer_ = (int16_t *)mem_deref(play_buffer_);
+	
+	mem_deref(mq_);
+}
     
-	int32_t audio_io_ios::RegisterAudioCallback(AudioTransport* audioCallback) {
-		StopPlayout();
-		StopRecording(); // Stop the threads that uses audioCallback
-		audioCallback_ = audioCallback;
-		return 0;
-	}
+int32_t audio_io_ios::RegisterAudioCallback(AudioTransport* audioCallback)
+{
+	StopPlayout();
+	StopRecording(); // Stop the threads that uses audioCallback
+	audioCallback_ = audioCallback;
+	return 0;
+}
 
-    int32_t audio_io_ios::Init() {
+int32_t audio_io_ios::Init() {
         if (initialized_) {
-            return 0;
-        } else {
-            return -1;
+		return 0;
         }
-    }
+	else {
+		return -1;
+        }
+}
     
-    void audio_io_ios::mq_callback(int id, void *data, void *arg)
-    {
+void audio_io_ios::mq_callback(int id, void *data, void *arg)
+{
         audio_io_ios* ptrThis = static_cast<audio_io_ios*>(arg);
         
         switch (id) {
@@ -167,8 +185,10 @@ out:
         }
         assert(!is_playing_.load());
         
-        memset(play_buffer_, 0, sizeof(play_buffer_));
-        play_buffer_used_ = 0;
+	memset(play_buffer_, 0, sizeof(*play_buffer_) * play_buffer_size_);
+	play_avail_ = 0;
+	play_in_pos_ = 0;
+	play_out_pos_ = 0;
         
         if (!is_recording_.load()) {
             OSStatus result = AudioOutputUnitStart(au_);
@@ -204,14 +224,11 @@ out:
         }
         assert(!is_recording_.load());
         
-        memset(rec_buffer_, 0, sizeof(rec_buffer_));
-        memset(rec_length_, 0, sizeof(rec_length_));
-        memset(rec_seq_, 0, sizeof(rec_seq_));
-        
-        rec_current_seq_ = 0;
-        rec_buffer_total_size_ = 0;
-        rec_delay_ = 0;
-        
+        memset(rec_buffer_, 0, rec_buffer_size_);
+        rec_avail_ = 0;
+	rec_in_pos_ = 0;
+	rec_out_pos_ = 0;
+
         // Create and start capture thread
         if (!rec_tid_) {
             pthread_cond_init(&cond_, NULL);
@@ -322,7 +339,7 @@ out:
         if (!is_playing_.load()) {
             return 0;
         }
-        info("audio_io_ios: StopPlayoutInternal \n");
+        info("audio_io_ios: StopPlayoutInternal\n");
         
         if (!is_recording_.load()) {
             // Both playout and recording has stopped, shutdown the device.
@@ -339,7 +356,7 @@ out:
 	}
     
     int32_t audio_io_ios::StopPlayout() {
-        info("audio_io_ios: StopPlayout \n");
+        info("audio_io_ios: StopPlayout\n");
         if(mq_){
             mqueue_push(mq_, AUDIO_IO_COMMAND_STOP_PLAYOUT, NULL);
         } else {
@@ -364,7 +381,7 @@ out:
     }
     
 	int32_t audio_io_ios::TerminateInternal() {
-        info("audio_io_ios: Terminate \n");
+        info("audio_io_ios: Terminate\n");
         if (!initialized_) {
             return 0;
         }
@@ -379,7 +396,7 @@ out:
 	}
 
     int32_t audio_io_ios::ResetAudioDevice() {
-        info("audio_io_ios: ResetAudioDevice \n");
+        info("audio_io_ios: ResetAudioDevice\n");
         if(mq_){
             mqueue_push(mq_, AUDIO_IO_COMMAND_RESET, NULL);
         } else {
@@ -389,7 +406,7 @@ out:
     }
     
     int32_t audio_io_ios::ResetAudioDeviceInternal() {
-        info("audio_io_ios: ResetAudioDeviceInternal \n");
+        info("audio_io_ios: ResetAudioDeviceInternal\n");
         
         if (!is_playing_initialized_ && !is_recording_initialized_) {
             info("audio_io_ios: Playout or recording not initialized, doing nothing \n");
@@ -439,12 +456,12 @@ out:
     
     int32_t audio_io_ios::SetStereoPlayout(bool enable) {
         info("audio_io_ios: SetStereoPlayout to %d: \n", enable);
-        
+
         if(want_stereo_playout_ != enable){
             want_stereo_playout_ = enable;
             ResetAudioDevice();
         }
-        
+
         return 0;
     }
     
@@ -485,6 +502,7 @@ out:
         assert(!au_);
         
         OSStatus result = -1;
+	BOOL success;
         
         bool use_stereo_playout = false; // NB Only when a HS is plugged in
 #ifdef ZETA_IOS_STEREO_PLAYOUT
@@ -513,11 +531,13 @@ out:
         AudioComponent comp;
         
         desc.componentType = kAudioUnitType_Output;
+
         if(use_stereo_playout){
             desc.componentSubType = kAudioUnitSubType_RemoteIO;
             info("audio_io_ios: Use kAudioUnitSubType_RemoteIO !! \n");
             dig_mic_gain_ = 3;
-        } else {
+        }
+	else {
             desc.componentSubType = kAudioUnitSubType_VoiceProcessingIO;
             info("audio_io_ios: Use kAudioUnitSubType_VoiceProcessingIO !! \n");
             dig_mic_gain_ = 0;
@@ -544,12 +564,24 @@ out:
         
         // In order to recreate the sample rate after a call
         used_sample_rate_ = session.sampleRate;
-        
-        [session setPreferredSampleRate:preferredSampleRate error:&err];
+
+	err = nil;
+        [session setPreferredSampleRate:preferredSampleRate error:&err];	
         if (err != nil) {
             const char* errorString = [[err localizedDescription] UTF8String];
             error("audio_io_ios: setPreferredSampleRate failed %s \n", errorString);
         }
+
+	err = nil;
+	success = [session setPreferredIOBufferDuration:AUDIO_IO_BUF_DUR
+						  error:&err];
+	if (!success || err != nil) {
+            const char* errorString = [[err localizedDescription] UTF8String];
+            error("audio_io_ios: setPreferredIOBUfferDuration failed %s\n",
+		  errorString);
+	}
+	info("mm_platform_ios: IOBufferDuration=%dms\n",
+	     (int)(session.IOBufferDuration * 1000.0));
         
         UInt32 enableIO = 1;
         result = AudioUnitSetProperty(au_,
@@ -585,8 +617,13 @@ out:
         memset(&auCbS, 0, sizeof(auCbS));
         auCbS.inputProc = rec_process;
         auCbS.inputProcRefCon = this;
-        result = AudioUnitSetProperty(au_, kAudioOutputUnitProperty_SetInputCallback,
-                                      kAudioUnitScope_Global, 1, &auCbS, sizeof(auCbS));
+        result = AudioUnitSetProperty(
+		          au_,
+		          kAudioOutputUnitProperty_SetInputCallback,
+			  kAudioUnitScope_Global,
+			  1,
+			  &auCbS,
+			  sizeof(auCbS));
         if (0 != result) {
             error("audio_io_ios: Failed to set AU record callback \n ");
         }
@@ -595,8 +632,11 @@ out:
         memset(&auCbS, 0, sizeof(auCbS));
         auCbS.inputProc = play_process;
         auCbS.inputProcRefCon = this;
-        result = AudioUnitSetProperty(au_, kAudioUnitProperty_SetRenderCallback,
-                                      kAudioUnitScope_Global, 0, &auCbS, sizeof(auCbS));
+        result = AudioUnitSetProperty(
+			  au_,
+			  kAudioUnitProperty_SetRenderCallback,
+			  kAudioUnitScope_Global,
+			  0, &auCbS, sizeof(auCbS));
         if (0 != result) {
             error("audio_io_ios: Failed to set AU output callback:: %d \n", result);
         }
@@ -700,282 +740,286 @@ out:
         return 0;
     }
     
-    OSStatus audio_io_ios::play_process(void *inRefCon,
-                                        AudioUnitRenderActionFlags *ioActionFlags,
-                                        const AudioTimeStamp *inTimeStamp,
-                                        UInt32 inBusNumber,
-                                        UInt32 inNumberFrames,
-                                        AudioBufferList *ioData) {
-        audio_io_ios* ptrThis = static_cast<audio_io_ios*>(inRefCon);
+OSStatus audio_io_ios::play_process(
+		void *inRefCon,
+		AudioUnitRenderActionFlags *ioActionFlags,
+		const AudioTimeStamp *inTimeStamp,
+		UInt32 inBusNumber,
+		UInt32 inNumberFrames,
+		AudioBufferList *ioData)
+{
+	audio_io_ios* ptrThis = static_cast<audio_io_ios*>(inRefCon);
         
-        return ptrThis->play_process_impl(inNumberFrames, ioData);
-    }
-    
-    OSStatus audio_io_ios::play_process_impl(uint32_t inNumberFrames, AudioBufferList* ioData) {
-        int16_t* data = static_cast<int16_t*>(ioData->mBuffers[0].mData);
-        unsigned int dataSizeBytes = ioData->mBuffers[0].mDataByteSize;
-        unsigned int dataSize = dataSizeBytes / 2;  // Number of samples
-        assert(dataSize == inNumberFrames);
-        memset(data, 0, dataSizeBytes);  // Start with empty buffer
-        
-        int16_t* data2 = NULL;
-        if(ioData->mNumberBuffers == 2){
-            data2 = static_cast<int16_t*>(ioData->mBuffers[1].mData);
-            unsigned int dataSizeBytes2 = ioData->mBuffers[1].mDataByteSize;
-            unsigned int dataSize2 = dataSizeBytes2/2;  // Number of samples
-            assert(dataSize2 == inNumberFrames);
-            assert(dataSize ==  dataSize2);
-            memset(data2, 0, dataSizeBytes);
-        }
-        
-        // Get playout data from Audio Device Buffer
-        if (is_playing_) {
-            unsigned int noSamp10ms = play_fs_hz_ / 100;
-            int16_t dataTmp[2*noSamp10ms];
-            memset(dataTmp, 0, 2 * noSamp10ms);
-            unsigned int dataPos = 0;
-            size_t nSamplesOut = 0;
-            unsigned int nCopy = 0;
-            
-            // First insert data from playout buffer if any
-            if (play_buffer_used_ > 0) {
-                nCopy = (dataSize < play_buffer_used_) ? dataSize : play_buffer_used_;
-                assert(nCopy == play_buffer_used_);
-                if(ioData->mNumberBuffers == 2){
-                    for( unsigned int i = 0 ; i < nCopy; i++){
-                        data[i] = play_buffer_[2*i];
-                        data2[i] = play_buffer_[2*i+1];
-                    }
-                } else {
-                    memcpy(data, play_buffer_, 2 * nCopy);
-                }
-                dataPos = nCopy;
-                memset(play_buffer_, 0, sizeof(play_buffer_));
-                play_buffer_used_ = 0;
-            }
-            
-            // Now get the rest from Audio Device Buffer.
-            while (dataPos < dataSize) {
-                
-                if(audioCallback_){
-                    int64_t elapsed_time_ms, ntp_time_ms;
-                    int32_t ret = audioCallback_->NeedMorePlayData(noSamp10ms, 2, ioData->mNumberBuffers, play_fs_hz_,
-                                                                   (void*)dataTmp, nSamplesOut,
-                                                                   &elapsed_time_ms, &ntp_time_ms);
-                    
-                    assert(noSamp10ms == (unsigned int)nSamplesOut);
-                } else {
-                    memset(dataTmp, 0, sizeof(dataTmp));
-                }
-                // Insert as much as fits in data buffer
-                nCopy =
-                (dataSize - dataPos) > noSamp10ms ? noSamp10ms : (dataSize - dataPos);
-                if(ioData->mNumberBuffers == 2){
-                    for( unsigned int i = 0 ; i < nCopy; i++){
-                        data[dataPos + i] = dataTmp[2*i];
-                        data2[dataPos + i] = dataTmp[2*i+1];
-                    }
-                }else{
-                    memcpy(&data[dataPos], dataTmp, 2*nCopy);
-                }
-                
-                // Save rest in playout buffer if any
-                if (nCopy < noSamp10ms) {
-                    if(ioData->mNumberBuffers == 2){
-                        memcpy(play_buffer_, &dataTmp[2*nCopy], sizeof(int16_t) * 2 * (noSamp10ms-nCopy));
-                    } else {
-                        memcpy(play_buffer_, &dataTmp[nCopy], sizeof(int16_t) * (noSamp10ms-nCopy));
-                    }
-                    play_buffer_used_ = noSamp10ms - nCopy;
-                }
-                
-                // Update loop/index counter, if we copied less than noSamp10ms
-                // samples we shall quit loop anyway
-                dataPos += noSamp10ms;
-            }
-        }
-                
-        return 0;
-    }
-    
-    void audio_io_ios::update_rec_delay() {
-        const uint32_t noSamp10ms = rec_fs_hz_ / 100;
-        if (rec_buffer_total_size_ > noSamp10ms) {
-            rec_delay_ = (rec_buffer_total_size_ - noSamp10ms) / (rec_fs_hz_ / 1000);
-        }
-    }
+	return ptrThis->play_process_impl(inNumberFrames, ioData);
+}
 
-    OSStatus audio_io_ios::rec_process(
-                                           void* inRefCon,
-                                           AudioUnitRenderActionFlags* ioActionFlags,
-                                           const AudioTimeStamp* inTimeStamp,
-                                           UInt32 inBusNumber,
-                                           UInt32 inNumberFrames,
-                                           AudioBufferList* ioData) {
-        audio_io_ios* ptrThis = static_cast<audio_io_ios*>(inRefCon);
-        return ptrThis->rec_process_impl(ioActionFlags, inTimeStamp, inBusNumber,
-                                          inNumberFrames);
-    }
+
+OSStatus audio_io_ios::play_process_impl(
+		uint32_t inNumberFrames,
+		AudioBufferList* ioData)
+{
+	unsigned int nbytes = ioData->mBuffers[0].mDataByteSize;
+	unsigned int nsamps  = nbytes / 2;
+	unsigned int nsamp10ms = play_fs_hz_ / 100;
+	size_t nchans = ioData->mNumberBuffers;
+	size_t avail;
+	int64_t elapsed_time_ms;
+	int64_t ntp_time_ms;
+	int16_t* data;
+	int pos;
+	size_t needed = nchans * nsamps;
+	size_t i;
+	size_t j;
+#if 0
+	static uint64_t tt = tmr_jiffies();
+	uint64_t now;
+
+	now = tmr_jiffies();
+	info("audio_io_ios: srate=%d %llums play_process: nchans=%d "
+	     "needed=%dsamps have=%dsamps at pos=%d\n",
+	     (int)play_fs_hz_, now - tt,
+	     (int)nchans, (int)needed, (int)play_avail_,
+		(int)play_in_pos_);
+	tt = now;
+#endif
+	
+	while (play_avail_ < needed) {
+		avail = 0;
+		if (audioCallback_) {
+			audioCallback_->NeedMorePlayData(
+				nsamp10ms,
+				2,
+				nchans,
+				play_fs_hz_,
+				(void*)&play_buffer_[play_in_pos_],
+				avail,
+				&elapsed_time_ms,
+				&ntp_time_ms);
+
+			avail *= nchans;		
+		}
+#if 0
+		info("audio_io_ios: playdata avail=%dsamps\n", (int)avail);
+#endif
+		if (avail == 0) {
+			warning("audio_io_ios: filling in with silence\n");
+			memset(&play_buffer_[play_in_pos_],
+			       0,
+			       nsamp10ms * sizeof(int16_t) * nchans);
+			avail = nsamp10ms * nchans;
+		}
+
+		play_in_pos_ += avail;
+		play_avail_ += avail;
+	}
+
+	pos = 0;
+	for (i = 0; i < nsamps; ++i) {
+		for (j = 0; j < nchans; ++j) {
+			data = (int16_t*)ioData->mBuffers[j].mData;
+			data[pos] = play_buffer_[play_out_pos_];
+			++play_out_pos_;
+		}
+		++pos;
+	}
+	play_avail_ -= needed;
+	if (play_avail_ > 0) {
+		memmove(play_buffer_,
+			&play_buffer_[play_out_pos_],
+			play_avail_ * sizeof(int16_t));
+	}
+	play_in_pos_ = play_avail_;
+	play_out_pos_ = 0;
+
+	return 0;
+}
+
+
+OSStatus audio_io_ios::rec_process(
+		void* inRefCon,
+		AudioUnitRenderActionFlags* ioActionFlags,
+		const AudioTimeStamp* inTimeStamp,
+		UInt32 inBusNumber,
+		UInt32 inNumberFrames,
+		AudioBufferList* ioData)
+{
+	audio_io_ios* ptrThis = static_cast<audio_io_ios*>(inRefCon);
+
+	return ptrThis->rec_process_impl(ioActionFlags, inTimeStamp,
+					 inBusNumber,
+					 inNumberFrames);
+}
+
+
+static int16_t inline gain(int16_t d, int g)
+{
+	int32_t t = ((int32_t)d) << g;
+	    
+	return (int16_t) ((t > 32767) ? 32767 : ((t < -32767) ? -32767 : t));
+}
+	    
     
-    OSStatus audio_io_ios::rec_process_impl(
-                                               AudioUnitRenderActionFlags* ioActionFlags,
-                                               const AudioTimeStamp* inTimeStamp,
-                                               uint32_t inBusNumber,
-                                               uint32_t inNumberFrames) {
-        int16_t dataTmp[inNumberFrames];
-        memset(dataTmp, 0, 2 * inNumberFrames);
-        
-        AudioBufferList abList;
-        abList.mNumberBuffers = 1;
-        abList.mBuffers[0].mData = dataTmp;
-        abList.mBuffers[0].mDataByteSize = 2 * inNumberFrames;  // 2 bytes/sample
-        abList.mBuffers[0].mNumberChannels = 1;
-        
-        // Get data from mic
-        OSStatus res = AudioUnitRender(au_, ioActionFlags, inTimeStamp,
-                                       inBusNumber, inNumberFrames, &abList);
-        if (res != 0) {
-            return 0;
+OSStatus audio_io_ios::rec_process_impl(
+		AudioUnitRenderActionFlags* ioActionFlags,
+		const AudioTimeStamp* inTimeStamp,
+		uint32_t inBusNumber,
+		uint32_t inNumberFrames)
+{
+	uint32_t fsize = sizeof(uint16_t)*inNumberFrames;
+	uint32_t avail;
+	uint32_t space;
+	int fpos = 0;
+#if 0
+	static uint64_t tt = tmr_jiffies();
+	uint64_t now;
+
+	now = tmr_jiffies();
+
+	info("audio_ios: rec_process: %llums can_rec=%d fs=%d avail=%d "
+	     "inpos=%d outpos=%d rec_avail=%d\n",
+	     now - tt,
+	     can_rec_, rec_fs_hz_, avail,
+	     rec_in_pos_, rec_out_pos_, rec_avail_);
+#endif
+	
+	
+	if (!is_recording_)
+		return 0;	    
+
+	uint8_t *rec_data = (uint8_t *)malloc(fsize);
+	
+	AudioBufferList abList;
+	abList.mNumberBuffers = 1;
+	abList.mBuffers[0].mData = rec_data;
+	abList.mBuffers[0].mDataByteSize = fsize;
+	abList.mBuffers[0].mNumberChannels = 1;
+
+	// Get data from mic
+	OSStatus res = AudioUnitRender(au_, ioActionFlags, inTimeStamp,
+				       inBusNumber, inNumberFrames,
+				       &abList);
+	if (res != 0) {
+		goto out;
+	}
+
+	avail = fsize;
+	
+	while(avail > 0) {
+		
+		if (rec_in_pos_ + avail >= rec_buffer_size_)
+			space = rec_buffer_size_ - rec_in_pos_;
+		else
+			space = avail;
+
+		if (dig_mic_gain_ > 0) {
+			for(int i = 0; i < space; i += sizeof(int16_t)) {
+				*(int16_t *)(&rec_buffer_[rec_in_pos_ + i]) =
+					gain(*(int16_t *)(&rec_data[fpos + i]),
+					     dig_mic_gain_);
+			}
+		}
+		else {
+			memcpy(&rec_buffer_[rec_in_pos_],
+			       &rec_data[fpos],
+			       space);
+		}
+		fpos += space;
+		if (!can_rec_)
+			rec_out_pos_ = rec_in_pos_;
+		
+		rec_in_pos_ += space;
+		if (rec_in_pos_ >= rec_buffer_size_)
+			rec_in_pos_ = 0;
+		avail -= space;
         }
-        
-        if (is_recording_) {
-            const unsigned int noSamp10ms = rec_fs_hz_ / 100;
-            unsigned int dataPos = 0;
-            uint16_t bufPos = 0;
-            int16_t insertPos = -1;
-            unsigned int nCopy = 0;  // Number of samples to copy
-            
-            while (dataPos < inNumberFrames) {
-                // Loop over all recording buffers
-                bufPos = 0;
-                insertPos = -1;
-                nCopy = 0;
-                while (bufPos < REC_BUFFERS) {
-                    if ((rec_length_[bufPos] > 0) &&
-                        (rec_length_[bufPos] < noSamp10ms)) {
-                        insertPos = static_cast<int16_t>(bufPos);
-                        bufPos = REC_BUFFERS;
-                    } else if ((-1 == insertPos) && (0 == rec_length_[bufPos])) {
-                        insertPos = static_cast<int16_t>(bufPos);
-                    }
-                    ++bufPos;
-                }
-                
-                // Insert data into buffer
-                if (insertPos > -1) {
-                    unsigned int dataToCopy = inNumberFrames - dataPos;
-                    unsigned int currentRecLen = rec_length_[insertPos];
-                    unsigned int roomInBuffer = noSamp10ms - currentRecLen;
-                    nCopy = (dataToCopy < roomInBuffer ? dataToCopy : roomInBuffer);
-                    
-                    if(dig_mic_gain_ > 0){
-                        for(int i = 0; i < nCopy; i++){
-                            int32_t tmp = dataTmp[dataPos + i] << dig_mic_gain_;
-                            if(tmp > 32767){
-                                tmp = 32767;
-                            } else if(tmp < -32767){
-                                tmp = -32767;
-                            }
-                            rec_buffer_[insertPos][currentRecLen + i] = tmp;
-                        }
-                    } else {
-                        memcpy(&rec_buffer_[insertPos][currentRecLen], &dataTmp[dataPos],
-                               nCopy * sizeof(int16_t));
-                    }
-                    if (0 == currentRecLen) {
-                        rec_seq_[insertPos] = rec_current_seq_;
-                        ++rec_current_seq_;
-                    }
-                    rec_buffer_total_size_ += nCopy;
-                    rec_length_[insertPos] += nCopy;
-                    dataPos += nCopy;
-                } else {
-                    dataPos = inNumberFrames;  // Don't try to insert more
-                }
-            }
-        }
-        
-        /* wakeup the waiting thread */
-        pthread_cond_signal(&cond_);
+
+	pthread_mutex_lock(&lock_);
+	rec_avail_ = can_rec_ ? rec_avail_ + fsize : fsize;
+	pthread_mutex_unlock(&lock_);
+
+	pthread_cond_signal(&cond_);
+
+ out:
+	free(rec_data);
         
         return 0;
-    }
+}
     
-    void* audio_io_ios::record_thread(){
-        int16_t audio_buf[MAX_FS_REC_HZ*FRAME_LEN_MS] = {0};
-        uint32_t currentMicLevel = 10;
-        uint32_t newMicLevel = 0;
-        
-        while(1){
-            if(!is_running_){
-                break;
-            }
+void* audio_io_ios::record_thread()
+{
+	uint32_t currentMicLevel = 10;
+	uint32_t newMicLevel = 0;
+	int32_t ret;
+	uint32_t duration;
+	int tot_avail;
+	int avail;
+	int handled;
+	uint32_t nbytes10ms = (rec_fs_hz_ * sizeof(uint16_t)) / 100;
+	
+	while(is_running_) {
+		can_rec_ = true;
+
+		pthread_mutex_lock(&cond_mutex_);
+		pthread_cond_wait(&cond_, &cond_mutex_);
+		pthread_mutex_unlock(&cond_mutex_);
+
+		if(!is_running_)
+			break;
             
-            if(is_running_){
-                pthread_mutex_lock(&cond_mutex_);
-                pthread_cond_wait(&cond_, &cond_mutex_);
-                pthread_mutex_unlock(&cond_mutex_);
-            }
-            
-            num_capture_worker_calls_+=1;
-            
-            int bufPos = 0;
-            unsigned int lowestSeq = 0;
-            int lowestSeqBufPos = 0;
-            bool foundBuf = is_recording_;
-            const unsigned int noSamp10ms = rec_fs_hz_ / 100;
-            
-            while (foundBuf) {
-                foundBuf = false;
-                for (bufPos = 0; bufPos < REC_BUFFERS; ++bufPos) {
-                    if (noSamp10ms == rec_length_[bufPos]) {
-                        if (!foundBuf) {
-                            lowestSeq = rec_seq_[bufPos];
-                            lowestSeqBufPos = bufPos;
-                            foundBuf = true;
-                        } else if (rec_seq_[bufPos] < lowestSeq) {
-                            lowestSeq = rec_seq_[bufPos];
-                            lowestSeqBufPos = bufPos;
-                        }
-                    }
-                }
-                
-                // Insert data into the Audio Device Buffer if found any
-                if (foundBuf) {
-                    update_rec_delay();
-                    
-                    if(audioCallback_){
-                        int32_t ret = audioCallback_->RecordedDataIsAvailable(
-                                            (void*)rec_buffer_[lowestSeqBufPos],
-                                            rec_length_[lowestSeqBufPos], 2, 1,
-                                            rec_fs_hz_, rec_delay_, 0,
-                                            currentMicLevel, false, newMicLevel);
-                        
-                        tot_rec_delivered_ += noSamp10ms;
-                    }
-                    
-                    rec_seq_[lowestSeqBufPos] = 0;
-                    rec_buffer_total_size_ -= rec_length_[lowestSeqBufPos];
-                    rec_length_[lowestSeqBufPos] = 0;
-                }
-            }
-            if( rec_fs_hz_ > 0 && tot_rec_delivered_ >= rec_fs_hz_){
-                // every second check how many
-		// Allow for 5ms frames
-                #define THRES_MAX_CALLS_PER_MS_Q10 205 // 200/sec
-                int32_t thres = ((int32_t)((1000*tot_rec_delivered_)/rec_fs_hz_) * THRES_MAX_CALLS_PER_MS_Q10) >> 10;
-                if(num_capture_worker_calls_ > thres){
-                    if(mq_){
-                        error("audio_io_ios: %d captureworker calls in %d s run time error! \n",
-                              num_capture_worker_calls_, tot_rec_delivered_/rec_fs_hz_);
-                      
-                        mqueue_push(mq_, AUDIO_IO_COMMAND_RESET, NULL);
-                    }
-                }
-                tot_rec_delivered_ = 0;
-                num_capture_worker_calls_ = 0;
-            }
-        }
-        return NULL;
-    }
+		pthread_mutex_lock(&lock_);
+		tot_avail = rec_avail_;
+		pthread_mutex_unlock(&lock_);
+
+		handled = 0;
+		while (is_running_ && tot_avail >= nbytes10ms) {
+			uint32_t nsamps;
+
+			if (rec_out_pos_ + tot_avail >= rec_buffer_size_)
+				avail = rec_buffer_size_ - rec_out_pos_;
+			else
+				avail = tot_avail;
+			
+			if (avail > nbytes10ms)
+				avail = nbytes10ms;
+
+			nsamps = avail >> 1;
+			duration = (nsamps * 1000) / rec_fs_hz_;		
+#if 0
+			 info("audio_io_ios: record_thread: avail=%d "
+			      "handling=%d duration=%dms\n",
+			      tot_avail, avail, duration);
+#endif
+
+			 if (audioCallback_) {
+				 ret = audioCallback_->RecordedDataIsAvailable(
+					(void*)&rec_buffer_[rec_out_pos_],
+					nsamps,
+					2,
+					1,
+					rec_fs_hz_,
+					duration,
+					0,
+					currentMicLevel,
+					false,
+					newMicLevel);
+			 }
+
+			 rec_out_pos_ += avail;
+			 if (rec_out_pos_ >= rec_buffer_size_)
+				 rec_out_pos_ = 0;
+			 
+			 tot_avail -= avail;
+			 handled += avail;			
+		 }
+
+		 if (handled > 0) {
+			 pthread_mutex_lock(&lock_);
+			 rec_avail_ -= handled;
+			 pthread_mutex_unlock(&lock_);
+		 }
+	 }
+
+	 can_rec_ = false;
+	 return NULL;
+}
 }

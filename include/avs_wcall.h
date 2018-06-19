@@ -129,9 +129,10 @@ typedef void (wcall_metrics_h)(const char *convid,
 typedef void (wcall_log_h)(int level, const char *msg, void *arg);
     
 /* Video receive state */
-#define	WCALL_VIDEO_RECEIVE_STOPPED  0
-#define	WCALL_VIDEO_RECEIVE_STARTED  1
-#define	WCALL_VIDEO_RECEIVE_BAD_CONN 2
+#define	WCALL_VIDEO_STATE_STOPPED  0
+#define	WCALL_VIDEO_STATE_STARTED  1
+#define	WCALL_VIDEO_STATE_BAD_CONN 2
+#define	WCALL_VIDEO_STATE_PAUSED   3
 
 /**
  * Callback used to inform user that received video has started or stopped
@@ -189,26 +190,38 @@ void wcall_destroy(void *wuser);
 void wcall_set_trace(void *wuser, int trace);
 
 
+#define WCALL_CALL_TYPE_NORMAL          0
+#define WCALL_CALL_TYPE_VIDEO           1
+#define WCALL_CALL_TYPE_FORCED_AUDIO    2
+
+#define WCALL_CONV_TYPE_ONEONONE        0
+#define WCALL_CONV_TYPE_GROUP           1
+#define WCALL_CONV_TYPE_CONFERENCE      2
+
 /* Returns 0 if successfull
- * Set is_video_call to 0 for false, non-0 for true
+ * Set call_type and conv_type from defines above.
+ * Set audio_cbr to 0 for false, non-zero for true.
  */
 int wcall_start(void *wuser, const char *convid,
-		int is_video_call /*bool*/,
-		int group /*bool*/,
+		int call_type, /*WCALL_CALL_TYPE...*/
+		int conv_type, /*WCALL_CONV_TYPE...*/
 		int audio_cbr /*bool*/);
 
 int wcall_start_ex(void *wuser, const char *convid,
-		   int is_video_call /*bool*/,
-		   int group /*bool*/,
+		   int call_type, /*WCALL_CALL_TYPE...*/
+		   int conv_type, /*WCALL_CONV_TYPE...*/
 		   int audio_cbr /*bool*/,
 		   void *extcodec_arg);
 	
 /* Returns 0 if successfull */
 int wcall_answer(void *wuser, const char *convid,
+		 int call_type, /*WCALL_CALL_TYPE...*/
 		 int audio_cbr /*bool*/);
 
 int wcall_answer_ex(void *wuser, const char *convid,
-		    int audio_cbr /*bool*/, void *extcodec_arg);
+		    int call_type, /*WCALL_CALL_TYPE...*/
+		    int audio_cbr /*bool*/,
+		    void *extcodec_arg);
 
 
 /* Async response from send handler.
@@ -246,7 +259,7 @@ void wcall_set_data_chan_estab_handler(void *wuser,
 
 /* Start/stop sending video to the remote side.
  */
-void wcall_set_video_send_active(void *wuser, const char *convid, int active /*bool*/);
+void wcall_set_video_send_state(void *wuser, const char *convid, int state);
 
 void wcall_network_changed(void *wuser);
 

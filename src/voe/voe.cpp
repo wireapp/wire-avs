@@ -772,7 +772,8 @@ void voe_set_audio_state_handler(flowmgr_audio_state_change_h *state_chgh,
 
 void voe_set_file_path(const char *path)
 {
-    info("avs: setting path_to_files to %s \n", path);
+//    info("avs: setting path_to_files to %s \n", path);
+    info("avs: setting path_to_files\n");
     gvoe.path_to_files = (char *)mem_deref(gvoe.path_to_files);
     str_dup(&gvoe.path_to_files, path);
 }

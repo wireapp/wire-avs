@@ -8,6 +8,7 @@
 #include "avs.h"
 #include "mm_platform.h"
 #include "avs_mediamgr.h"
+#include "avs_audio_io.h"
 #include "../../iosx/include/AVSMedia.h"
 
 
@@ -150,8 +151,7 @@ static void set_active(bool active)
 
 	if (![cname isEqualToString:@"AVSSound"] && !mm_ios.recording) {
 		mediamgr_override_speaker_mm(mm_ios.mm, true);
-		set_category_sync(AVAudioSessionCategoryPlayback,
-				  true);
+		set_category_sync(AVAudioSessionCategoryPlayback, true);
 		set_active_sync(true);
 	}
 #endif
@@ -210,8 +210,11 @@ static void set_active(bool active)
 	     [cname UTF8String]);
 	
 	if (![cname isEqualToString:@"AVSSound"] && !mm_ios.incall
-	    && !mm_ios.recording)
+	    && !mm_ios.recording) {
+		mediamgr_override_speaker_mm(mm_ios.mm, false);
 		default_category(true);
+	}
+		
 #endif
 	
 	[_lock lock];
@@ -275,7 +278,11 @@ static bool set_category_sync(NSString *cat, bool speaker)
 	sess = [AVAudioSession sharedInstance];
 	
 	if (cat == AVAudioSessionCategoryPlayAndRecord) {
-		if (speaker) {
+		if (mm_ios.recording) {
+			options |=
+				AVAudioSessionCategoryOptionDefaultToSpeaker;
+		}
+		else if (speaker) {
 			[sess overrideOutputAudioPort:
 				      AVAudioSessionPortOverrideSpeaker
 						error:nil];
@@ -285,7 +292,7 @@ static bool set_category_sync(NSString *cat, bool speaker)
 				      AVAudioSessionPortOverrideNone
 						error:nil];
 		}
-		options = AVAudioSessionCategoryOptionAllowBluetooth;
+		options |= AVAudioSessionCategoryOptionAllowBluetooth;
 		options |= AVAudioSessionCategoryOptionAllowBluetoothA2DP;
 	}
 	
@@ -488,10 +495,11 @@ static void handle_audio_notification(NSNotification *notification)
 	cat = [sess category];
 
 	info("mediamgr: audio_notification: reason=%s category=%s(was=%s) "
-	     "route=%s route_override=%d\n",
+	     "route=%s route_override=%d rec=%d\n",
 	     reason_name(reason), cat_name(cat), cat_name(mm_ios.cat),
 	     mediamgr_route_name(route),
-	     mm_ios.route_override);
+	     mm_ios.route_override,
+	     mm_ios.recording);
 
 	if (route == MEDIAMGR_AUPLAY_EARPIECE
 	    && reason != AVAudioSessionRouteChangeReasonOverride) {
@@ -517,6 +525,9 @@ static void handle_audio_notification(NSNotification *notification)
 
 		update_device_status(mm_ios.mm);
 	}
+	else if (mediamgr_should_reset(mm_ios.mm)) {
+		mediamgr_audio_reset_mm(mm_ios.mm);
+	}
 
 	input_routes = sess.availableInputs;
 	
@@ -536,11 +547,14 @@ static void handle_audio_notification(NSNotification *notification)
 		}
 	}
 
-	debug("mediamgr: sample rate: %f\n", sess.sampleRate);
-	debug("mediamgr: IO buffer duration: %f\n", sess.IOBufferDuration);
-	debug("mediamgr: output channels: %ld\n", sess.outputNumberOfChannels);
-	debug("mediamgr: input channels: %ld\n", sess.inputNumberOfChannels);
-
+	debug("mm_platform_ios: sample rate: %dhz\n", (int)sess.sampleRate);
+	debug("mm_platform_ios: IOBufferDuration: %dms\n",
+	      (int)(sess.IOBufferDuration * 1000.0));
+	debug("mm_platform_ios: output channels: %ld\n",
+	      sess.outputNumberOfChannels);
+	debug("mm_platform_ios: input channels: %ld\n",
+	      sess.inputNumberOfChannels);
+		
 	for (AVAudioSessionPortDescription *ir in input_routes) {
 		debug("mediamgr:\tname=%s type=%s\n",
 		      [[ir portName] UTF8String],
@@ -552,11 +566,18 @@ static void handle_audio_notification(NSNotification *notification)
 
 	switch (reason) {
 	case AVAudioSessionRouteChangeReasonRouteConfigurationChange:
+		/* Previously this was necessary to reset audio device
+		 * after Callkit took over e.g. because of an incoming GSM call
+		 * but it seems to cause issues in some scenarios when the app
+		 * is stuck in this state ans cannot accept calls.
+		 */
+#if 0
 		if (mm_ios.incall) {
 			if (sess.inputNumberOfChannels == 1)
 				mediamgr_hold_and_resume(mm_ios.mm);
 			break;
 		}
+#endif
 		if (mm_ios.cat == cat)
 			break;
 		
@@ -567,9 +588,13 @@ static void handle_audio_notification(NSNotification *notification)
 
 	case AVAudioSessionRouteChangeReasonOverride:
 	case AVAudioSessionRouteChangeReasonCategoryChange:
-		info("mm_platform_ios: cat change: in:%s new=%s\n",
-		     cat_name(mm_ios.cat), cat_name(cat));		
+		info("mm_platform_ios: cat change: in:%s new=%s rec=%d\n",
+		     cat_name(mm_ios.cat), cat_name(cat), mm_ios.recording);
+		
 		if (mm_ios.cat == cat && !mm_ios.incall)
+			break;
+
+		if (mm_ios.recording)
 			break;
 
 		if (cat == AVAudioSessionCategoryPlayAndRecord) {
@@ -601,7 +626,7 @@ static void handle_audio_notification(NSNotification *notification)
 static void default_category(bool sync)
 {
 	info("mm_platform_ios: default_category: %s recording: %s\n",
-	     cat_name(DEFAULT_CATEGORY), mm_ios.recording);
+	     cat_name(DEFAULT_CATEGORY), mm_ios.recording ? "yes" : "no");
 		
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
 	
@@ -657,7 +682,7 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 			AVAudioSessionPortBluetoothLE,
 			AVAudioSessionPortBluetoothHFP];
 
-	DEFAULT_CATEGORY = AVAudioSessionCategorySoloAmbient;
+	DEFAULT_CATEGORY = AVAudioSessionCategoryAmbient;
 
 #if TARGET_OS_IPHONE
 	NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
@@ -684,7 +709,7 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 		     usingBlock: ^(NSNotification *notification) {
 
 			info("mediamgr: AVAudioSessionMediaServices"
-			     "WereLostNotification recieved \n");
+			     "WereLostNotification received \n");
 
 		     }];
 	
@@ -698,12 +723,12 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 			 * re-init session
 			 */
 			info("mediamgr: AVAudioSessionMediaServices"
-			     "WereResetNotification recieved\n");
+			     "WereResetNotification received\n");
 
-			mm_ios.route_override = false;			
+			mm_ios.route_override = false;
 			interrupt_action(true);
 			mediamgr_reset_sounds(mm_ios.mm);
-			interrupt_action(false);			
+			interrupt_action(false);
 			mediamgr_audio_reset_mm(mm_ios.mm);
 		}];
 
@@ -1083,7 +1108,6 @@ void mm_platform_unregisterMedia(struct dict *sounds, const char *name){
 }
 
 
-#if !TARGET_IPHONE_SIMULATOR
 static void rec_start_handler(void *arg)
 {
 	struct mm_platform_start_rec *rec_elem = arg;
@@ -1093,7 +1117,6 @@ static void rec_start_handler(void *arg)
 
 	mem_deref(rec_elem);
 }
-#endif
 
 void mm_platform_start_recording(struct mm_platform_start_rec *rec_elem)
 {
@@ -1109,12 +1132,9 @@ void mm_platform_start_recording(struct mm_platform_start_rec *rec_elem)
 	set_category(AVAudioSessionCategoryPlayAndRecord, false);
 	set_active(true);
 	
-	tmr_start(&mm_ios.tmr_rec, 1000, rec_start_handler, rec_elem);
-	
-	//set_category_sync(AVAudioSessionCategoryPlayAndRecord, false);
-	//set_active_sync(true);
+	tmr_start(&mm_ios.tmr_rec, 1000, rec_start_handler, rec_elem);	
 #else
-	mem_deref(rec_elem);
+	tmr_start(&mm_ios.tmr_rec, 1, rec_start_handler, rec_elem);	
 #endif
 }
 
@@ -1129,4 +1149,8 @@ void mm_platform_stop_recording(void)
 		set_active_sync(false);
 	}		
 #endif
+}
+
+void mm_platform_confirm_route(enum mediamgr_auplay route)
+{
 }

@@ -32,6 +32,8 @@ int kase_channel_binding(uint8_t hash[KASE_CHANBIND_SIZE],
 	uint8_t h2[crypto_shorthash_BYTES];
 	size_t i;
 	int r;
+    char clientid_anon1[ANON_CLIENT_LEN];
+    char clientid_anon2[ANON_CLIENT_LEN];
 
 	kase_assert(sizeof(h1) == KASE_CHANBIND_SIZE);
 	kase_assert(sizeof(h2) == KASE_CHANBIND_SIZE);
@@ -62,9 +64,9 @@ int kase_channel_binding(uint8_t hash[KASE_CHANBIND_SIZE],
 		hash[i] = h1[i] ^ h2[i];
 	}
 
-	debug("kase: channel binding:  \"%s\" \"%s\" -> %w\n",
-	      clientid_local, clientid_remote,
-	      hash, (size_t)KASE_CHANBIND_SIZE);
+	debug("kase: channel binding:  \"%s\" \"%s\"\n",
+	      anon_client(clientid_anon1, clientid_local),
+          anon_client(clientid_anon2, clientid_remote));
 
 	return 0;
 }

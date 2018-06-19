@@ -89,6 +89,10 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.alert.descr = mem_deref(msg->u.alert.descr);
 		break;
 
+	case ECONN_GROUP_START:
+		msg->u.groupstart.props = mem_deref(msg->u.groupstart.props);
+		break;
+
 	default:
 		break;
 	}

@@ -71,5 +71,23 @@
 	} 
 }
 
+- (void)startVideoCapture
+{
+	AVSFlowManager *fm = [AVSFlowManager getInstance];
+	if (fm) {
+		debug("preview startCapture\n");
+		[fm startVideoCapture];
+	}
+}
+
+- (void)stopVideoCapture
+{
+	AVSFlowManager *fm = [AVSFlowManager getInstance];
+	if (fm) {
+		debug("preview stopCapture\n");
+		[fm stopVideoCapture];
+	}
+}
+
 @end
 

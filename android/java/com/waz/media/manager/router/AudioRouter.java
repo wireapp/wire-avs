@@ -323,7 +323,7 @@ public class AudioRouter {
 	  else {
 		  if(hasEarpiece()) {
 			  route = ROUTE_EARPIECE;
-			  DoLog("GetAudioRoute() Eearpiece");
+			  DoLog("GetAudioRoute() Earpiece");
 		  }
 		  else {
 			  route = ROUTE_SPEAKER; /* Goes here if a tablet where iSpaekerPhoneOn dosnt tell the truth  */
@@ -403,6 +403,9 @@ public class AudioRouter {
                     case STATE_UNPLUGGED:
                         DoLog("Headset Unplugged");
                         _WiredHsState = STATE_WIRED_HS_UNPLUGGED;
+			if (btScoConnected) {
+				_audio_manager.setBluetoothScoOn(true);
+			}
 			if (route == ROUTE_SPEAKER)
 				EnableSpeaker();
                         nativeHeadsetConnected(false, _nativeMM);

@@ -87,7 +87,7 @@ void TurnServer::init()
 		goto out;
 	}
 
-	err = restund_tcp_init(turnd, fake_certificate_rsa);
+	err = restund_tcp_init(turnd, fake_certificate_ecdsa);
 	ASSERT_EQ(0, err);
 
 	addr_tcp = *restund_tcp_laddr(turnd, false);

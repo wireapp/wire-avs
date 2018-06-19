@@ -123,22 +123,15 @@ int create_dtls_srtp_context(struct tls **dtlsp, enum tls_keytype cert_type)
 	if (err)
 		goto out;
 
-	//err = tls_set_ciphers(dtls);
-	if (err)
-		goto out;
-
 	switch (cert_type) {
-
-	case TLS_KEYTYPE_RSA:  /* XXX: RSA is deprecated, remove */
-		err = tls_set_certificate(dtls, fake_certificate_rsa,
-					  strlen(fake_certificate_rsa));
-		break;
 
 	case TLS_KEYTYPE_EC:
 		err = cert_tls_set_selfsigned_ecdsa(dtls, "prime256v1");
 		break;
 
 	default:
+		warning("create_dtls_srtp_context: certificate type %d"
+			" not supported\n", cert_type);
 		err = ENOTSUP;
 		goto out;
 	}
@@ -148,7 +141,9 @@ int create_dtls_srtp_context(struct tls **dtlsp, enum tls_keytype cert_type)
 
 	tls_set_verify_client(dtls);
 
-	err = tls_set_srtp(dtls, "SRTP_AES128_CM_SHA1_80");
+	err = tls_set_srtp(dtls,
+			   "SRTP_AES128_CM_SHA1_80:"
+			   "SRTP_AES128_CM_SHA1_32");
 	if (err)
 		goto out;
 

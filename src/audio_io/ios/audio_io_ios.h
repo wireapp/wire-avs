@@ -250,14 +250,19 @@ namespace webrtc {
         uint16_t play_delay_warning_;
                 
         // Recording buffers
-        int16_t rec_buffer_[REC_BUFFERS][REC_BUF_SIZE_IN_SAMPLES];
-        uint32_t rec_length_[REC_BUFFERS];
-        uint32_t rec_seq_[REC_BUFFERS];
-        uint32_t rec_current_seq_;
+        uint8_t *rec_buffer_;
+	uint32_t rec_buffer_size_;
+        uint32_t rec_avail_;
+        uint32_t rec_in_pos_;
+        uint32_t rec_out_pos_;
         
         // Playout buffer
-        int16_t play_buffer_[2*PLAY_BUF_SIZE_IN_SAMPLES];
-        uint32_t play_buffer_used_;  // How much is filled
+        int16_t *play_buffer_;
+	uint32_t play_buffer_size_;
+	uint32_t play_avail_;
+	uint32_t play_in_pos_;
+	uint32_t play_out_pos_;
+	
         
         // Current total size all data in buffers, used for delay estimate
         uint32_t rec_buffer_total_size_;
@@ -284,7 +289,9 @@ namespace webrtc {
 
         pthread_mutex_t cond_mutex_;
         pthread_cond_t cond_;
+	pthread_mutex_t lock_;
         bool is_running_;
+	bool can_rec_;
         
         Float64 used_sample_rate_;
         

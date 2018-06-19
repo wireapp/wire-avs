@@ -62,6 +62,13 @@ typedef void (ecall_datachan_estab_h)(struct ecall *ecall, bool update,
  */
 typedef void (ecall_propsync_h)(void *arg);
 
+enum ecall_vstate {
+	ECALL_VIDEO_STATE_STOPPED  = 0,
+	ECALL_VIDEO_STATE_STARTED  = 1,
+	ECALL_VIDEO_STATE_BAD_CONN = 2,
+	ECALL_VIDEO_STATE_PAUSED   = 3,
+};
+
 /**
  * Callback used to inform user that received video has started or stopped
  *
@@ -69,7 +76,8 @@ typedef void (ecall_propsync_h)(void *arg);
  * @param reason   Reason (when stopping), normal/low bandwidth etc.
  * @param arg      The handler argument passed to flowmgr_alloc().
  */
-typedef void (ecall_video_state_change_h)(struct ecall *ecall, const char *userid, int state, void *arg);
+typedef void (ecall_video_state_change_h)(struct ecall *ecall, const char *userid,
+	enum ecall_vstate state, void *arg);
 
 /**
  * Callback used to inform user that call uses CBR (in both directions)
@@ -103,14 +111,15 @@ int  ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		 ecall_audio_estab_h *audio_estabh,
 		 ecall_datachan_estab_h *datachan_estabh,
 		 ecall_propsync_h *propsynch,
-		ecall_video_state_change_h *vstateh,
-		ecall_audio_cbr_change_h *audiocbrh,
+		 ecall_video_state_change_h *vstateh,
+		 ecall_audio_cbr_change_h *audiocbrh,
 		 ecall_close_h *closeh,
 		 ecall_transp_send_h *sendh, void *arg);
 int  ecall_add_turnserver(struct ecall *ecall, const struct sa *srv,
+			  int proto, bool secure,
 			  const char *user, const char *pass);
-int  ecall_start(struct ecall *ecall, bool audio_cbr, void *extcodec_arg);
-int  ecall_answer(struct ecall *ecall, bool audio_cbr, void *extcodec_arg);
+int  ecall_start(struct ecall *ecall, bool enable_video, bool audio_cbr, void *extcodec_arg);
+int  ecall_answer(struct ecall *ecall, bool enable_video, bool audio_cbr, void *extcodec_arg);
 void ecall_transp_recv(struct ecall *ecall,
 		       uint32_t curr_time, /* in seconds */
 		       uint32_t msg_time, /* in seconds */
@@ -138,7 +147,8 @@ struct econn *ecall_get_econn(const struct ecall *ecall);
 enum econn_state ecall_state(const struct ecall *ecall);
 int ecall_media_start(struct ecall *ecall);
 void ecall_media_stop(struct ecall *ecall);
-int ecall_set_video_send_active(struct ecall *ecall, bool active);
+int ecall_set_video_send_state(struct ecall *ecall, enum ecall_vstate vstate);
+const char *ecall_vstate_name(int vstate);
 int ecall_set_group_mode(struct ecall *ecall, bool active);
 bool ecall_is_answered(const struct ecall *ecall);
 bool ecall_has_video(const struct ecall *ecall);
@@ -193,4 +203,6 @@ int  ecall_devpair_answer(struct ecall *ecall,
 int  ecall_devpair_ack(struct ecall *ecall,
 		       struct econn_message *msg,
 		       const char *pairid);
+int ecall_remove(struct ecall *ecall);
+
 

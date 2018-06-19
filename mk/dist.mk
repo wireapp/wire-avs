@@ -22,12 +22,6 @@
 #    o  an iOS/OSX framework build/dist/{ios,osx}/avs.framework.zip with
 #       the release code of the iosx libraries,
 #
-#    o  an iOS/OSX framework build/dist/{ios,osx}/avsstub.framework.zip
-#       with the stub code of the iosx libraries,
-#
-#    o  a tar ball build/dist/{ios,osx}/avs.tar.bz2 with both the release
-#       and stub libraries.
-#
 # The targets "dist_linux" and "dist_osx" build the following:
 #
 #    o  a tar ball build/dist/{linux,osx}/avscore.tar.bz2 with all the
@@ -59,15 +53,12 @@ ifeq ($(DIST_ARCH),)
 endif
 
 DIST_ARCH_android := $(filter armv7 i386 osx,$(DIST_ARCH))
-DIST_ARCH_ios := $(filter armv7 arm64 i386 x86_64,$(DIST_ARCH))
+DIST_ARCH_ios := $(filter armv7 arm64 x86_64,$(DIST_ARCH))
 
 DIST_FMWK_VERSION := A
 DIST_BUNDLE_LIB_NAME := AVS Library
 DIST_BUNDLE_LIB_IDENTIFIER := com.wire.avs
 DIST_BUNDLE_LIB_INFO := $(DIST_BUNDLE_LIB_NAME)
-DIST_BUNDLE_STUB_NAME := AVS Library Stub
-DIST_BUNDLE_STUB_IDENTIFIER := com.wire.avsstub
-DIST_BUNDLE_STUB_INFO := $(DIST_BUNDLE_STUB_NAME)
 DIST_BUNDLE_VERSION := $(BUILDVERSION)
 DIST_BUNDLE_SIGNATURE := wavs
 DIST_BUNDLE_PACKAGE_TYPE := FMWK
@@ -80,10 +71,7 @@ BUILD_DIST_LINUX := $(BUILD_DIST_BASE)/linux
 
 BUILD_LIB_REL := avs
 BUILD_LIB_REL_V := $(BUILD_LIB_REL)/Versions/$(DIST_FMWK_VERSION)
-BUILD_STUB_REL := avsstub
-BUILD_STUB_REL_V := $(BUILD_STUB_REL)/Versions/$(DIST_FMWK_VERSION)
 BUILD_BALL_REL := avsball
-BUILD_STUBBALL_REL := avsstubball
 
 DIST_BUNDLE_LIB := \
 	{CFBundleName="$(DIST_BUNDLE_LIB_NAME)";\
@@ -112,35 +100,16 @@ DIST_BUNDLE_LIB := \
 	CFBundleInfoDictionaryVersion="6.0";}
 
 
-DIST_BUNDLE_STUB := \
-	{CFBundleName="$(DIST_BUNDLE_STUB_NAME)";\
-	CFBundleIdentifier="$(DIST_BUNDLE_STUB_IDENTIFIER)";\
-	CFBundleVersion="$(DIST_BUNDLE_VERSION)";\
-	CFBundleSignature="$(DIST_BUNDLE_SIGNATURE)";\
-	CFBundlePackageType="$(DIST_BUNDLE_PACKAGE_TYPE)";\
-	NSHumanReadableCopyright="$(DIST_BUNDLE_COPYRIGHT)";\
-	CFBundleGetInfoString="$(DIST_BUNDLE_STUB_INFO)";}
-
-
 #--- Target Definitions
 
-DIST_AND_TARGETS := $(BUILD_DIST_AND)/avs.aar \
-		    $(BUILD_DIST_AND)/avs.zip \
-		    $(BUILD_DIST_AND)/avs.tar.bz2
+DIST_AND_TARGETS := $(BUILD_DIST_AND)/avs.aar
 
 DIST_IOS_TARGETS := \
-	$(BUILD_DIST_IOS)/$(BUILD_LIB_REL).framework.zip \
-	$(BUILD_DIST_IOS)/$(BUILD_STUB_REL).framework.zip \
-	$(BUILD_DIST_IOS)/avs.tar.bz2 \
-	$(BUILD_DIST_IOS)/avsstub.tar.bz2
-
+	$(BUILD_DIST_IOS)/$(BUILD_LIB_REL).framework.zip
 
 
 DIST_OSX_TARGETS := \
 	$(BUILD_DIST_OSX)/$(BUILD_LIB_REL).framework.zip \
-	$(BUILD_DIST_OSX)/$(BUILD_STUB_REL).framework.zip \
-	$(BUILD_DIST_OSX)/avs.tar.bz2 \
-	$(BUILD_DIST_OSX)/avsstub.tar.bz2 \
 	$(BUILD_DIST_OSX)/avscore.tar.bz2
 
 DIST_LINUX_TARGETS := \
@@ -244,9 +213,6 @@ endif
 #		-o $(BUILD_DIST_AND)/zip/version.buildinfo
 	@( cd $(BUILD_DIST_AND)/zip && zip -r $@ * )
 
-$(BUILD_DIST_AND)/avs.tar.bz2: $(BUILD_DIST_AND)/avs.zip
-	@( cd $(BUILD_DIST_AND)/zip && tar cfj $@ * )
-
 
 #--- iOSX Frameworks ---
 
@@ -259,26 +225,11 @@ $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Info.plist:
 	@rm -f $@
 	@defaults write $@ '$(DIST_BUNDLE_LIB)'
 
-.SECONDARY: $(BUILD_DIST_IOS)/$(BUILD_STUB_REL_V)/Resources/Info.plist
-.SECONDARY: $(BUILD_DIST_OSX)/$(BUILD_STUB_REL_V)/Resources/Info.plist
-$(BUILD_DIST_BASE)/%/$(BUILD_STUB_REL_V)/Resources/Info.plist:
-	@mkdir -p $(dir $@)
-	@rm -f $@
-	@defaults write $@ '$(DIST_BUNDLE_STUB)'
-
 # Headers
 #
 .SECONDARY: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/Headers
-.SECONDARY: $(BUILD_DIST_IOS)/$(BUILD_STUB_REL_V)/Headers
 .SECONDARY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/Headers
-.SECONDARY: $(BUILD_DIST_OSX)/$(BUILD_STUB_REL_V)/Headers
 $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Headers:
-	@mkdir $@
-	@touch $@
-	@cp -a iosx/include/* $@
-	@cp -a include/avs_wcall.h $@
-
-$(BUILD_DIST_BASE)/%/$(BUILD_STUB_REL_V)/Headers:
 	@mkdir $@
 	@touch $@
 	@cp -a iosx/include/* $@
@@ -308,28 +259,12 @@ $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
 
 dist_test: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 
-.PHONY: $(BUILD_DIST_IOS)/$(BUILD_STUB_REL_V)/$(BUILD_STUB_REL)
-$(BUILD_DIST_IOS)/$(BUILD_STUB_REL_V)/$(BUILD_STUB_REL):
-	@for arch in $(DIST_ARCH_ios) ; do \
-		$(MAKE) iosx AVS_OS=ios AVS_ARCH=$$arch ; \
-	done
-	@mkdir -p $(dir $@)
-	@lipo -create -output $@ \
-		$(foreach arch,$(DIST_ARCH_ios),\
-		-arch $(arch) $(BUILD_BASE)/ios-$(arch)/lib/libavsobjcstub.dylib)
-
 .PHONY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
 	@$(MAKE) contrib AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) $(JOBS) mediaengine AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) iosx AVS_OS=osx AVS_ARCH=x86_64
-	@mkdir -p $(dir $@)
-	@cp $(BUILD_BASE)/osx-x86_64/lib/avs.framework/avs $@
-
-.PHONY: $(BUILD_DIST_OSX)/$(BUILD_STUB_REL_V)/$(BUILD_STUB_REL)
-$(BUILD_DIST_OSX)/$(BUILD_STUB_REL_V)/$(BUILD_STUB_REL):
-	@$(MAKE) iosx AVS_OS=osx AVS_ARCH=x86_64
 	@mkdir -p $(dir $@)
 	@cp $(BUILD_BASE)/osx-x86_64/lib/avs.framework/avs $@
 
@@ -349,26 +284,6 @@ $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL).framework.zip: \
 	@( cd $(BUILD_DIST_BASE)/$* && \
 		zip --symlinks -r $@ Carthage )
 
-$(BUILD_DIST_BASE)/%/$(BUILD_STUB_REL).framework.zip: \
-		$(BUILD_DIST_BASE)/%/$(BUILD_STUB_REL_V)/Resources/Info.plist \
-		$(BUILD_DIST_BASE)/%/$(BUILD_STUB_REL_V)/Headers \
-		$(BUILD_DIST_BASE)/%/$(BUILD_STUB_REL_V)/$(BUILD_STUB_REL)
-	@rm -f  $(BUILD_DIST_BASE)/$*/$(BUILD_STUB_REL)/Versions/Current \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_STUB_REL)/Headers \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_STUB_REL)/$(BUILD_STUB_REL) \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_STUB_REL)/Resources
-	@ln -s $(DIST_FMWK_VERSION) \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_STUB_REL)/Versions/Current
-	@ln -s Versions/Current/Headers \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_STUB_REL)/Headers
-	@ln -s Versions/Current/$(BUILD_STUB_REL) \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_STUB_REL)/$(BUILD_STUB_REL)
-	@ln -s Versions/Current/Resources \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_STUB_REL)/Resources
-	@( cd $(BUILD_DIST_BASE)/$*/$(BUILD_STUB_REL) && \
-		zip --symlinks -r $@ * )
-
-
 #--- iOSX Tarballs ---
 
 $(BUILD_DIST_IOS)/$(BUILD_BALL_REL)/lib/libavsobjc.a:
@@ -380,53 +295,19 @@ $(BUILD_DIST_IOS)/$(BUILD_BALL_REL)/lib/libavsobjc.a:
 		$(foreach arch,$(DIST_ARCH_ios),\
 		-arch $(arch) $(BUILD_BASE)/ios-$(arch)/lib/libavsobjc.a)
 
-$(BUILD_DIST_IOS)/$(BUILD_STUBBALL_REL)/lib/libavsobjcstub.a:
-	@for arch in $(DIST_ARCH_ios) ; do \
-		$(MAKE) iosx AVS_OS=ios AVS_ARCH=$$arch ; \
-	done
-	@mkdir -p $(dir $@)
-	@lipo -create -output $@ \
-		$(foreach arch,$(DIST_ARCH_ios),\
-		-arch $(arch) $(BUILD_BASE)/ios-$(arch)/lib/libavsobjcstub.a)
-
 $(BUILD_DIST_OSX)/$(BUILD_BALL_REL)/lib/libavsobjc.a:
 	@mkdir -p $(dir $@)
 	@cp $(BUILD_BASE)/osx-x86_64/lib/libavsobjc.a $@
 
-$(BUILD_DIST_OSX)/$(BUILD_STUBBALL_REL)/lib/libavsobjcstub.a:
-	@mkdir -p $(dir $@)
-	@cp $(BUILD_BASE)/osx-x86_64/lib/libavsobjcstub.a $@
-
 $(BUILD_DIST)/%/lib/libavsobjc.stripped.a: $(BUILD_DIST)/%/lib/libavsobjc.a
 	strip -S -o $@ $^
-
-$(BUILD_DIST_BASE)/%/avs.tar.bz2: \
-		$(BUILD_DIST_BASE)/%/$(BUILD_BALL_REL)/lib/libavsobjc.a \
-		$(BUILD_DIST_BASE)/%/$(BUILD_BALL_REL)/lib/libavsobjc.stripped.a
-	@mkdir -p $(dir $@)
-	@cp -a iosx/include $(BUILD_DIST_BASE)/$*/$(BUILD_BALL_REL)
-	@cp -a include/avs_wcall.h $(BUILD_DIST_BASE)/$*/$(BUILD_BALL_REL)
-	@genbuildinfo -b BUILDCONTROL \
-		-o $(BUILD_DIST_BASE)/$*/$(BUILD_BALL_REL)/version.buildinfo
-	@( cd $(BUILD_DIST_BASE)/$*/$(BUILD_BALL_REL) && tar cfj $@ * )
-
-$(BUILD_DIST_BASE)/%/avsstub.tar.bz2: \
-		$(BUILD_DIST_BASE)/%/$(BUILD_STUBBALL_REL)/lib/libavsobjcstub.a
-	@mkdir -p $(dir $@)
-	@cp -a iosx/include $(BUILD_DIST_BASE)/$*/$(BUILD_STUBBALL_REL)
-	@cp -a include/avs_wcall.h $(BUILD_DIST_BASE)/$*/$(BUILD_STUBBALL_REL)
-	@genbuildinfo -b BUILDCONTROL \
-		-o $(BUILD_DIST_BASE)/$*/$(BUILD_STUBBALL_REL)/version.buildinfo
-	@( cd $(BUILD_DIST_BASE)/$*/$(BUILD_STUBBALL_REL) && tar cfj $@ * )
-
 
 #--- avscore Tarballs ---
 
 $(BUILD_DIST_BASE)/%/avscore.tar.bz2:
 	$(MAKE) contrib_librem AVS_OS=$* AVS_ARCH=x86_64 DIST=1
 	@mkdir -p $(dir $@)/avscore
-	@cp -a $(BUILD_BASE)/$*-x86_64/bin \
-	       $(BUILD_BASE)/$*-x86_64/lib \
+	@cp -a $(BUILD_BASE)/$*-x86_64/lib \
 	       $(BUILD_BASE)/$*-x86_64/share \
 	       $(BUILD_BASE)/$*-x86_64/include \
 		$(dir $@)/avscore

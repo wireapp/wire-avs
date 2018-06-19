@@ -115,7 +115,7 @@ TEST(libre, openssl_context)
 	err = sa_set_str(&addr, "127.0.0.1", 0);
 	ASSERT_EQ(0, err);
 
-	err = https_listen(&httpsock, &addr, "test/data/cert_rsa.pem",
+	err = https_listen(&httpsock, &addr, "test/data/cert_ecdsa.pem",
 			   http_req_handler, &test);
 	ASSERT_EQ(0, err);
 

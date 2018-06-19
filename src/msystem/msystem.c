@@ -24,18 +24,18 @@
 #include "avs_voe.h"
 #include "avs_vie.h"
 
+#ifdef __APPLE__
+#       include <TargetConditionals.h>
+#endif
+
 struct msystem {
 	pthread_t tid;
 
 	struct msystem_config config;
-	struct call_config *call_config;
-
-	/* Turn servers derived from calls config */
-	struct msystem_turn_server *turnv;
-	size_t turnc;
 	
 	bool inited;
 	bool started;
+	struct dnsc *dnsc;
 	struct tls *dtls;
 	struct mqueue *mq;
 	struct tmr vol_tmr;
@@ -102,9 +102,7 @@ static void msystem_destructor(void *data)
 	msys->mq = mem_deref(msys->mq);
 	msys->dtls = mem_deref(msys->dtls);
 	msys->name = mem_deref(msys->name);
-	msys->call_config = mem_deref(msys->call_config);
-	msys->turnc = 0;
-	msys->turnv = mem_deref(msys->turnv);
+	msys->dnsc = mem_deref(msys->dnsc);
 	
 	dce_close();
 
@@ -121,6 +119,40 @@ static void wakeup_handler(int id, void *data, void *arg)
 	(void)id;
 	(void)data;
 	(void)arg;
+}
+
+
+static int dns_init(struct dnsc **dnscp)
+{
+	struct sa nsv[16];
+	uint32_t nsn, i;
+	int err;
+
+	nsn = ARRAY_SIZE(nsv);
+
+#if TARGET_OS_IPHONE	
+	err = dns_get_servers(NULL, 0, nsv, &nsn);
+#else
+	err = dns_srv_get(NULL, 0, nsv, &nsn);
+#endif
+	if (err) {
+		error("dns srv get: %m\n", err);
+		goto out;
+	}
+
+	err = dnsc_alloc(dnscp, NULL, nsv, nsn);
+	if (err) {
+		error("dnsc alloc: %m\n", err);
+		goto out;
+	}
+
+	info("msystem: DNS Servers: (%u)\n", nsn);
+	for (i=0; i<nsn; i++) {
+		info("dns[%u]:    %J\n", i, &nsv[i]);
+	}
+
+ out:
+	return err;
 }
 
 
@@ -159,30 +191,20 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 	if (err)
 		goto out;
 
-	{
-		uint64_t t1, t2;
-
-		t1 = tmr_jiffies();
-
-		info("msystem: generating ECDSA certificate\n");
-		err = cert_tls_set_selfsigned_ecdsa(msys->dtls,
-						    "prime256v1");
-		if (err) {
-			warning("msystem: failed to generate ECDSA"
-				" certificate"
-				" (%m)\n", err);
-			goto out;
-		}
-
-		t2 = tmr_jiffies();
-
-		info("flowmgr: generate certificate took %d ms\n",
-		     (int)(t2-t1));
+	info("msystem: generating ECDSA certificate\n");
+	err = cert_tls_set_selfsigned_ecdsa(msys->dtls, "prime256v1");
+	if (err) {
+		warning("msystem: failed to generate ECDSA"
+			" certificate"
+			" (%m)\n", err);
+		goto out;
 	}
 
 	tls_set_verify_client(msys->dtls);
 
-	err = tls_set_srtp(msys->dtls, "SRTP_AES128_CM_SHA1_80");
+	err = tls_set_srtp(msys->dtls,
+			   "SRTP_AES128_CM_SHA1_80:"
+			   "SRTP_AES128_CM_SHA1_32");
 	if (err) {
 		warning("flowmgr: failed to enable SRTP profile (%m)\n",
 			err);
@@ -232,6 +254,8 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 
 	if (err)
 		goto out;
+
+	dns_init(&msys->dnsc);
 
 	info("msystem: successfully initialized\n");
 
@@ -474,84 +498,6 @@ bool msystem_have_datachannel(const struct msystem *msys)
 }
 
 
-int msystem_set_call_config(struct msystem *msys, struct call_config *cfg)
-{
-	size_t i;
-	int err;
-
-	if (!msys || !cfg)
-		return EINVAL;
-
-	msys->call_config = mem_deref(msys->call_config);	
-	msys->call_config = mem_zalloc(sizeof(*cfg), NULL);
-	if (!msys->call_config)
-		return ENOMEM;
-
-	*msys->call_config = *cfg;
-
-	msys->turnc = cfg->iceserverc;
-	msys->turnv = mem_deref(msys->turnv);
-	msys->turnv = mem_zalloc(msys->turnc * sizeof(*(msys->turnv)), NULL);
-
-	for (i = 0; i < cfg->iceserverc; ++i) {
-		struct zapi_ice_server *srv = &cfg->iceserverv[i];
-		struct uri uri;
-		struct pl pl_uri;
-		
-		pl_set_str(&pl_uri, srv->url);
-		err = uri_decode(&uri, &pl_uri);
-		if (err) {
-			warning("cannot decode URI (%r)\n", &pl_uri);
-			goto out;
-		}
-
-		if (0 == pl_strcasecmp(&uri.scheme, "turn")) {
-			struct msystem_turn_server *ts = &msys->turnv[i];
-			
-			err = sa_set(&ts->srv, &uri.host, uri.port);
-			if (err)
-				goto out;
-
-			str_ncpy(ts->user, srv->username, sizeof(ts->user));
-			str_ncpy(ts->pass, srv->credential, sizeof(ts->pass));
-		}
-		else {
-			warning("msystem: get_turn_servers: unknown URI scheme"
-				" '%r'\n", &uri.scheme);
-			err = ENOTSUP;
-			goto out;
-		}
-	}
-
- out:
-	if (err) {
-		msys->turnv = mem_deref(msys->turnv);
-		msys->turnc = 0;
-	}
-	
-	return err;
-}
-
-
-size_t msystem_get_turn_servers(struct msystem_turn_server **turnvp,
-				struct msystem *msys)
-					     
-{
-	if (!msys || !turnvp)
-		return 0;
-	else {
-		*turnvp = msys->turnv;
-		return msys->turnc;
-	}
-}
-
-
-struct call_config *msystem_get_call_config(const struct msystem *msys)
-{
-	return msys ? msys->call_config : NULL;
-}
-
-
 int msystem_update_conf_parts(struct list *partl)
 {
 	const struct audec_state **adsv;
@@ -620,3 +566,8 @@ void msystem_set_muted(bool muted)
 	}
 }
 
+
+struct dnsc *msystem_dnsc(void)
+{
+	return g_msys ? g_msys->dnsc : NULL;
+}

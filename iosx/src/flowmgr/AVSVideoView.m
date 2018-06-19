@@ -35,6 +35,8 @@
 #import "AVSVideoView.h"
 #import "AVSFlowManager.h"
 
+#define DBG_BGCOLOR 0
+
 const char vertShader[] = {
 	"attribute vec4 aPosition;\n"
 	"attribute vec2 aTextureCoord;\n"
@@ -86,8 +88,13 @@ const char indices[] = {0, 1, 2, 3};
 	CADisplayLink* _displayLink;
 	BOOL _newFrame;
 	BOOL _firstFrame;
+	CGSize _videoSize;
+#if DBG_BGCOLOR
+	GLfloat _clearClr[4];
+#endif
 }
 
+@synthesize videoSize = _videoSize;
 
 + (Class)layerClass
 {
@@ -136,20 +143,34 @@ const char indices[] = {0, 1, 2, 3};
 - (void)render:(CADisplayLink*)displayLink
 {
 	[_lock lock];
-	if (!_running || _backgrounded || !_newFrame) {
+	if (!_running || _backgrounded) {
+		[_lock unlock];
+		return;
+	}
+
+	if (!_newFrame && !_forceRecalc) {
 		[_lock unlock];
 		return;
 	}
 
 	[EAGLContext setCurrentContext:_context];
+#if DBG_BGCOLOR
+	glClearColor(_clearClr[0], _clearClr[1], _clearClr[2], _clearClr[3]);
+#else
 	glClearColor(0.0, 0.0, 0.0, 1.0);
+#endif
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	if (_forceRecalc) {
+	//if (_forceRecalc)
+	{
+		int w = self.frame.size.width;
+		int h = self.frame.size.height;
+
+		glViewport(0, 0, w, h);
 		[self setupVertices];
 		_forceRecalc = NO;
 	}
-	
+
 	glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, indices);
 
 	[_context presentRenderbuffer:GL_RENDERBUFFER];
@@ -159,11 +180,15 @@ const char indices[] = {0, 1, 2, 3};
 
 - (void)startRunning
 {
+	[_lock lock];
+	_running = YES;
+	_firstFrame = NO;
+	_forceRecalc = YES;
+	[_lock unlock];
+
 	_displayLink =
 		[CADisplayLink displayLinkWithTarget:self selector:@selector(render:)];
 	[_displayLink addToRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
-	_running = YES;
-	_firstFrame = NO;
 }
 
 - (void)stopRunning
@@ -402,6 +427,20 @@ const char indices[] = {0, 1, 2, 3};
 		sizeChanged = YES;
 	}
 
+	if (sizeChanged) {
+		switch(frame->rotation) {
+		case 90:
+		case 270:
+			_videoSize = CGSizeMake(frame->h, frame->w);
+			break;
+		case 0:
+		case 180:
+		default:
+			_videoSize = CGSizeMake(frame->w, frame->h);
+			break;
+		}
+	}
+
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, _texIds[0]);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
@@ -419,8 +458,7 @@ const char indices[] = {0, 1, 2, 3};
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
 		(GLsizei)frame->vs, frame->h / 2, GL_LUMINANCE, GL_UNSIGNED_BYTE,
 		(const GLvoid*)frame->v);
-	
-	_rotation = frame->rotation;
+
 	_newFrame = YES;
 
 out:
@@ -431,13 +469,8 @@ out:
 
 - (void)layoutSubviews
 {
-	GLfloat scale = [UIScreen mainScreen].scale;
-	int w = self.frame.size.width * scale;
-	int h = self.frame.size.height * scale;
-	
 	[self setupRenderBuffer];
-	
-	glViewport(0, 0, w, h);
+
 	[_lock lock];
 	_forceRecalc = YES;
 	[_lock unlock];
@@ -487,6 +520,20 @@ out:
 		self.autoresizingMask =
 			UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 		_firstFrame = YES;
+#if DBG_BGCOLOR
+		static int cnt = 0;
+		GLfloat clrs[][4] = {
+			{1.0, 0.0, 0.0, 1.0},
+			{0.0, 1.0, 0.0, 1.0},
+			{0.0, 0.0, 1.0, 1.0},
+			{1.0, 1.0, 0.0, 1.0},
+			{1.0, 0.0, 1.0, 1.0},
+			{0.0, 1.0, 1.0, 1.0},
+			{1.0, 1.0, 1.0, 1.0}};
+
+		memcpy(_clearClr, &clrs[cnt % 7], 4 * sizeof(GLfloat));
+		cnt++;
+#endif
 		[_lock unlock];
 
 #if TARGET_OS_IPHONE

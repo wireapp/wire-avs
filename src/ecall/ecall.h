@@ -138,6 +138,8 @@ struct ecall {
 
 	struct turn_server {
 		struct sa srv;
+		int proto;
+		bool secure;
 		char *user;
 		char *pass;
 	} turnv[MAX_TURN_SERVERS];
@@ -178,6 +180,7 @@ struct ecall {
 	bool devpair;
 
 	bool audio_cbr;
+	bool enable_video;
 	bool group_mode;
 
 	struct {

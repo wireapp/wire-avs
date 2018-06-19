@@ -34,8 +34,11 @@ package com.waz.avs;
 
 import android.content.Context;
 
+import android.graphics.Matrix;
 import android.util.Log;
 import android.view.TextureView;
+
+import java.lang.Math;
 
 
 
@@ -63,37 +66,44 @@ public class VideoPreview extends TextureView
 		orientation = ori;
 		Log.d(TAG, "setVideoOrientation: ori: " + orientation);
 	}
-	
+
+
+
+
+	@Override
+	protected void onLayout(boolean changed,
+				int l, int t, int r, int b) {
+
+		final float aspectRatio = 4.0f/3.0f;
+
+		super.onLayout(changed, l, t, r, b);
+	  
+		Matrix m = new Matrix();
+		float vWidth = (float)(r - l);
+		float vHeight = (float)(b - t);
+		float vAspRatio = vWidth / vHeight;
+		float tAspRatio = aspectRatio;
+
+		if (orientation % 180 != 0)
+			tAspRatio = 1.0f/aspectRatio;
+		
+		float scaleX = Math.max(1.0f, tAspRatio / vAspRatio);
+		float scaleY = Math.max(1.0f, vAspRatio / tAspRatio);
+		float dx = - (scaleX * vWidth - vWidth) / 2.0f;
+		float dy = - (scaleY * vHeight - vHeight) / 2.0f;
+
+		m.postTranslate(dx, dy);
+		m.setScale(scaleX, scaleY);
+		setTransform(m);
+	}
+
 	@Override
 	protected void onMeasure(int wSpec, int hSpec) {
-		final int width;
-		final int height;
 		int w;
 		int h;
-		float ar = this.aspectRatio;
-
-		if (orientation == 90 || orientation == 270) {
-			ar = 1.0f / ar;
-		}
-
-		width = MeasureSpec.getSize(wSpec);
-		height = MeasureSpec.getSize(hSpec);
-		float vr = ((float)width) / height;
-		
-		Log.d(TAG, "onMeasure: ori: " + orientation + " ar: " + this.aspectRatio +
-			" ar2: " + ar +  " vr: " + vr + " fill: " + this.shouldFill +
-			" w: " + width + " h: " + height);
-
-		if ((shouldFill && (vr > ar))
-		 || (!shouldFill && (vr <= ar))) {
-			w = width;
-			h = (int)((float)width/ar);
-		}
-		else {
-			w = (int)(ar * (float)height);
-			h = height;
-		}
-
+	  
+		w = getDefaultSize(getSuggestedMinimumWidth(), wSpec);
+		h = getDefaultSize(getSuggestedMinimumHeight(), hSpec);
 		setMeasuredDimension(w, h);
 	}
 }

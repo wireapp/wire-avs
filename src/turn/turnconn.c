@@ -447,8 +447,8 @@ int turnconn_alloc(struct turn_conn **connp, struct list *connl,
 
 	tc->ts_turn_req = tmr_jiffies();
 
-	debug("turnconn: alloc: username='%s' srv=%J\n",
-	      username, turn_srv);
+	debug("turnconn: alloc: srv=%J\n",
+	      turn_srv);
 
 	list_append(connl, &tc->le, tc);
 
@@ -620,7 +620,7 @@ int turnconn_debug(struct re_printf *pf, const struct turn_conn *conn)
 	}
 
 	err |= re_hprintf(pf,
-			  "...[%c] delay=%ums af=%s  proto=%s srv=%J"
+			  "...[%c] delay=%3ums af=%s  proto=%s srv=%J"
 			  "  turnc=<%p>  (%d ms)\n",
 			  conn->turn_allocated ? 'A' : ' ',
 			  conn->delay,

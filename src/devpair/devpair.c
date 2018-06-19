@@ -92,6 +92,7 @@ static int set_turnservers(struct devpair_entry *dpe,
 		if (0 == err) {
 			err = ecall_add_turnserver(dpe->ecall,
 						   &uri.addr,
+						   IPPROTO_UDP, false,
 						   turnv[i].username,
 						   turnv[i].credential);
 			if (err) {
@@ -237,7 +238,7 @@ static void ecall_conn_handler(struct ecall *ecall,
 	info("devpair: conn_handler: ecall=%p\n", dpe->ecall);
 
 	/* Auto-answer */
-	ecall_answer(ecall, false, NULL);
+	ecall_answer(ecall, false, false, NULL);
 }
 
 
@@ -331,9 +332,6 @@ int devpair_publish(const char *pairid,
 		    void *arg)
 {
 	struct devpair_entry *dpe;
-	struct msystem_turn_server *turnv;
-	struct call_config *cfg;
-	size_t turnc;
 	int err = 0;
 
 	dpe = dict_lookup(devpair.pairings, pairid);
@@ -344,6 +342,8 @@ int devpair_publish(const char *pairid,
 	if (err)
 		goto out;
 
+	// TODO: use new config framework
+#if 0
 	cfg = msystem_get_call_config(devpair.msys);
 	if (!cfg)
 		return ENOSYS;
@@ -351,6 +351,7 @@ int devpair_publish(const char *pairid,
 	turnc = msystem_get_turn_servers(&turnv, devpair.msys);
 	if (turnc > 0)
 		set_turnservers(dpe, cfg->iceserverv, cfg->iceserverc);
+#endif
 
 	err = str_dup(&dpe->username, username);
 	if (err)

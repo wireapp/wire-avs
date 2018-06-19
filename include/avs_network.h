@@ -23,3 +23,5 @@ struct sa;
 
 int sa_translate_nat64(struct sa *sa6, const struct sa *sa4);
 bool sa_ipv4_is_private(const struct sa *sa);
+
+int dns_get_servers(char *domain, size_t dsize, struct sa *nsv, uint32_t *n);

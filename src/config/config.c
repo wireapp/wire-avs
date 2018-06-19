@@ -35,6 +35,7 @@ struct config {
 	struct call_config config;
 };
 
+
 static int do_request(struct config *cfg)
 {
 	int err = 0;
@@ -53,10 +54,14 @@ static int do_request(struct config *cfg)
 static void tmr_handler(void *arg)
 {
 	struct config *cfg = arg;
-	
+	int err;
+
 	info("config(%p): re-requesting call config\n", cfg);
 
-	do_request(cfg);
+	err = do_request(cfg);
+	if (err) {
+		warning("config: do_request failed (%m)\n", err);
+	}
 }
 
 

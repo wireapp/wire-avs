@@ -41,10 +41,9 @@ enum media_pt {
 enum media_crypto {
 	CRYPTO_NONE      = 0,
 	CRYPTO_DTLS_SRTP = 1<<0,
-	CRYPTO_SDESC     = 1<<1,
 	CRYPTO_KASE      = 1<<2,
 
-	CRYPTO_BOTH      = CRYPTO_DTLS_SRTP | CRYPTO_SDESC
+	CRYPTO_BOTH      = CRYPTO_DTLS_SRTP | CRYPTO_KASE
 };
 
 /* only valid for DTLS-SRTP */
@@ -86,6 +85,7 @@ typedef void (mediaflow_close_h)(int err, void *arg);
 typedef void (mediaflow_rtp_state_h)(bool started, bool video_started,
 				     void *arg);
 
+typedef void (mediaflow_restart_h)(void *arg);
 typedef void (mediaflow_gather_h)(void *arg);
 
 typedef void (mediaflow_data_estab_h)(void *arg);
@@ -100,6 +100,7 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 		    enum media_crypto cryptos,
 		    mediaflow_estab_h *estabh,
 		    mediaflow_close_h *closeh,
+		    mediaflow_restart_h *restarth,
 		    void *arg);
 
 int mediaflow_set_setup(struct mediaflow *mf, enum media_setup setup);
@@ -222,3 +223,4 @@ enum ice_role mediaflow_local_role(const struct mediaflow *mf);
 int mediaflow_print_ice(struct re_printf *pf, const struct mediaflow *mf);
 
 int mediaflow_set_extcodec(struct mediaflow *mf, void *arg);
+void mediaflow_video_set_disabled(struct mediaflow *mf, bool dis);

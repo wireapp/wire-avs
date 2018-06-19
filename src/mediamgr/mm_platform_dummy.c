@@ -166,3 +166,7 @@ void mm_platform_stop_recording(void)
 {
 }
 
+void mm_platform_confirm_route(enum mediamgr_auplay route)
+{
+}
+

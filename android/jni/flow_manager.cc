@@ -80,7 +80,8 @@ static struct {
 			jmethodID exit;
 		} mid;
 
-		struct video_renderer *renderer;
+		struct lock *lock;
+		struct dict *renderers;
 	} video;
 
 	pthread_t tid;
@@ -106,7 +107,7 @@ static struct {
 	.vszmid = NULL,
 
 	.video = {
-		.renderer = NULL,
+		.renderers = NULL,
 		.mid = {
 			.enter = NULL,
 			.exit = NULL,
@@ -138,7 +139,6 @@ struct jfm {
 
 	enum flowmgr_video_send_state video_state;
 };
-
 
 static int vie_jni_get_view_size_handler(const void *view, int *w, int *h);
 
@@ -591,6 +591,19 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 #endif
 #endif
 	java.avs_flags = avs_flags;
+
+	err = lock_alloc(&java.video.lock);
+	if (err) {
+		error("jni: init: cannot create lock: %m\n", err);
+		goto out;
+	}
+
+	err = dict_alloc(&java.video.renderers);
+	if (err) {
+		error("jni: init: cannot create renderers dictionary: %m\n",
+		      err);
+		goto out;
+	}
     
 	err = pthread_create(&java.tid, NULL, flowmgr_thread, NULL);
 	if (err) {
@@ -793,42 +806,62 @@ static void video_state_handler(enum flowmgr_video_receive_state state,
 
 static int render_frame_handler(struct avs_vidframe *vf, const char *userid, void *arg)
 {
-	struct video_renderer *vr = java.video.renderer;
+	struct video_renderer *vr;
 	struct jni_env je;
 	jobject jself;
 	jboolean entered;
-	int err;
+	bool attached = false;
+	int err = 0;
 	(void)arg;
+	
+	lock_write_get(java.video.lock);
+	vr = (struct video_renderer *)dict_lookup(java.video.renderers, userid);
+	if (!vr) {
+		warning("jni: no renderer found for user: %s\n",
+			userid);
+		err = ENOSYS;
+		goto out;
+	}
 
+	
 #if 0
 	debug("render_frame_handler: renderer=%p y/u/v=%p/%p/%p\n",
-	      java.video.renderer, vf->y, vf->u, vf->v);
+	      vr, vf->y, vf->u, vf->v);
 #endif
-	
-	if (!java.video.renderer) {
-		return ENOSYS;
-	}
 
 	err = jni_attach(&je);
 	if (err) {
 		warning("jni: fm_request: cannot attach to JNI\n");
-		return EFAULT;
+		err = EFAULT;
+		goto out;
 	}
-	
+	attached = true;
+	vr = (struct video_renderer *)mem_ref(vr);
 	jself = (jobject)video_renderer_arg(vr);
 	if (!jself) {
 		err = EIO;
 		goto out;
 	}
+	jself = je.env->NewGlobalRef(jself);
+	lock_rel(java.video.lock);
 	
 	entered = je.env->CallBooleanMethod(jself, java.video.mid.enter);
 	if (entered) {
 		err = video_renderer_handle_frame(vr, vf);
-		
+
 		je.env->CallVoidMethod(jself, java.video.mid.exit);
 	}
+
+	lock_write_get(java.video.lock);
+	
  out:
-	jni_detach(&je);
+	if (attached) {
+		mem_deref(vr);
+		if (jself)
+			je.env->DeleteGlobalRef(jself);
+		jni_detach(&je);
+	}
+	lock_rel(java.video.lock);
 
 	return err;
 }
@@ -849,13 +882,13 @@ static void video_size_handler(int w, int h, const char *userid, void *arg)
 	
 	err = jni_attach(&je);
 	if (err) {
-		warning("jni: video_size_handlert: cannot attach to JNI\n");
+		warning("jni: video_size_handler: cannot attach to JNI\n");
 		return;
 	}
 
 	je.env->CallVoidMethod(jfm->self, java.vszmid, w, h);
 	
-	jni_detach(&je);	
+	jni_detach(&je);
 }
 
 
@@ -1436,20 +1469,34 @@ JNIEXPORT void JNICALL Java_com_waz_avs_VideoCapturer_handleCameraFrame
 
 /* Video renderer */
 JNIEXPORT jlong JNICALL Java_com_waz_avs_VideoRenderer_createNative
-(JNIEnv *env, jobject jself, jint w, jint h, jboolean rounded)
+(JNIEnv *env, jobject jself, jstring juserid, jint w, jint h, jboolean rounded)
 {
-	struct video_renderer **vrp = &java.video.renderer;
+	struct video_renderer *vr;
 	int err;
+	const char *userid = NULL;	
 	jobject self = env->NewGlobalRef(jself);
 
-	if (*vrp)
-		*vrp = (struct video_renderer *)mem_deref((void *)(*vrp));
-		
-	err = video_renderer_alloc(vrp, w, h, rounded, (void *)self);
+	if (juserid)
+		userid = env->GetStringUTFChars(juserid, 0);
+
+	if (!userid) {
+		warning("jni: VideoRenderer_createNative: no userid\n");
+		ENOSYS;
+	}
+
+#ifdef ANDROID
+	err = video_renderer_alloc(&vr, w, h, rounded, userid, (void *)self);
 	if (err)
 		return 0;
+#endif
 
-	return (jlong)((void *)(*vrp));
+	lock_write_get(java.video.lock);
+	dict_add(java.video.renderers, userid, vr);
+	/* renderer is now owned by dictionary */
+	mem_deref(vr);
+	lock_rel(java.video.lock);
+
+	return (jlong)((void *)(vr));
 }
 
 
@@ -1459,12 +1506,13 @@ JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_destroyNative
 	struct video_renderer *vr = (struct video_renderer *)((void *)obj);
 	jobject self = (jobject)video_renderer_arg(vr);
 
+#ifdef ANDROID	
+	video_renderer_detach(vr);
+#endif
+	lock_write_get(java.video.lock);
+	dict_remove(java.video.renderers, video_renderer_userid(vr));
 	env->DeleteGlobalRef(self);
-	
-	if (java.video.renderer == vr)
-		java.video.renderer = NULL;
-	
-	mem_deref(vr);
+	lock_rel(java.video.lock);
 }
 
 JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_setShouldFill

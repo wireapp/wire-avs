@@ -19,6 +19,8 @@
 #ifndef AVS_AUDIO_IO_H
 #define AVS_AUDIO_IO_H
 
+#define AUDIO_IO_BUF_DUR ((double)0.02)
+
 enum audio_io_mode{
     AUDIO_IO_MODE_NORMAL = 0,
     AUDIO_IO_MODE_MOCK,

@@ -421,11 +421,14 @@ static AVSMediaManager *_defaultMediaManager;
 
 - (void)resetAudioDevice
 {
-	//mediamgr_exit_call(_mm);
+	info("AVSMediaManager: resetAudioDevice\n");
+	//mediamgr_audio_reset(_mm);
 }
 
 - (void)startAudio
 {
+	info("AVSMediaManager: startAudio\n");	
+	mediamgr_audio_reset(_mm);
 }
 
 - (void)stopAudio

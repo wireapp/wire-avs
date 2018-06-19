@@ -33,14 +33,12 @@ LOCAL_LDLIBS    := \
 		../build/android-armv7/lib/libavscore.a \
 		-lvpx \
 		-lusrsctp \
-		-lifaddrs \
 		-lre \
 		-lrew \
 		-lsodium \
 		-lssl \
 		-lcrypto \
 		-lcpufeatures \
-		-lbreakpad \
 		-llog -lz -lGLESv2 \
 		-latomic
 

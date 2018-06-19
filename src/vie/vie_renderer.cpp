@@ -69,6 +69,7 @@ ViERenderer::~ViERenderer()
 void ViERenderer::OnFrame(const webrtc::VideoFrame& video_frame)
 {
 	struct avs_vidframe avs_frame;
+	char userid_anon[ANON_ID_LEN];
 	int err;
 	
 	lock_write_get(_lock);
@@ -90,7 +91,9 @@ void ViERenderer::OnFrame(const webrtc::VideoFrame& video_frame)
 	uint64_t msec = now - _ts_fps;
 	if (msec > STATS_DELAY) {
 		if (msec < STATS_DELAY + 1000) {
-			info("vie_renderer_handle_frame hndlr: %p res: %dx%d fps: %0.2f\n",
+			info("vie_renderer_handle_frame user: %s hndlr: %p "
+				"res: %dx%d fps: %0.2f\n",
+				anon_id(userid_anon, _userid_remote),
 				vid_eng.render_frame_h, video_frame.width(),
 				video_frame.height(), (float)_fps_count * 1000.0f / msec); 
 		}

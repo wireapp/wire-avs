@@ -52,4 +52,15 @@ void info(const char *fmt, ...);
 void warning(const char *fmt, ...);
 void error(const char *fmt, ...);
 
+/* anonymous IDs */
+#define ANON_ID_LEN 9
+#define ANON_CLIENT_LEN 5
+
+const char *anon_id(char *outid, const char *inid);
+const char *anon_client(char *outid, const char *inid);
+
+
+void log_mask_ipaddr(const char *msg);
+
+
 #endif //#ifndef AVS_LOG_H

@@ -262,6 +262,14 @@
 {
 }
 
+- (void)startVideoCapture
+{
+}
+
+- (void)stopVideoCapture
+{
+}
+
 - (NSArray*)getVideoCaptureDevices
 {
 	return nil;

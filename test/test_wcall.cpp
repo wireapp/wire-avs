@@ -22,12 +22,20 @@
 #include <avs_wcall.h>
 #include <gtest/gtest.h>
 #include "ztest.h"
+#include "fakes.hpp"
 
 
 #define MAX_CLOSE 10
 
+enum testcase {
+	TESTCASE_START_ALL,
+	TESTCASE_CALL_ANSWER,
+	TESTCASE_NERVOUS_CLIENT,
+};
+
 
 struct client {
+	class Wcall *fixture;  /* parent */
 	struct le le;
 	struct list queue;
 	bool is_nervous;
@@ -39,10 +47,44 @@ struct client {
 	struct tmr tmr_answer;
 	uint32_t answer_delay;
 	int err;
+	unsigned n_ready;
 	unsigned n_datachan;
 	unsigned n_estab;
 	unsigned n_incoming;
 	unsigned n_closed;
+};
+
+
+class Wcall : public ::testing::Test {
+
+public:
+	virtual void SetUp() override
+	{
+		int err;
+
+		/* This is needed for multiple-calls test */
+		err = ztest_set_ulimit(512);
+		ASSERT_EQ(0, err);
+
+		err = flowmgr_init("audummy");
+		ASSERT_EQ(0, err);
+
+		msystem_enable_kase(flowmgr_msystem(), true);
+
+		err = wcall_init();
+		ASSERT_EQ(0, err);
+	}
+
+	virtual void TearDown() override
+	{
+		wcall_close();
+
+		flowmgr_close();
+	}
+
+public:
+	TurnServer turn_srv;
+	enum testcase testcase;
 };
 
 
@@ -96,6 +138,25 @@ bool clients_are_closed(const struct client *cli)
 		struct client *cli0 = (struct client *)le->data;
 
 		if (!cli0->n_closed)
+			return false;
+	}
+
+	return true;
+}
+
+
+bool clients_are_ready(const struct client *cli)
+{
+	struct list *clil = cli->le.list;
+	struct le *le;
+
+	if (list_isempty(clil))
+		return false;
+
+	for (le = clil->head; le; le = le->next) {
+		struct client *cli0 = (struct client *)le->data;
+
+		if (!cli0->n_ready)
 			return false;
 	}
 
@@ -232,7 +293,7 @@ static void tmr_message_handler(void *data)
 	struct econn_message *emsg = NULL;
 	int err;
 
-#if 1
+#if 0
 	err = econn_message_decode(&emsg, curr_time, msg_time,
 				   (char *)msg->data, msg->len);
 	if (err) {
@@ -311,7 +372,7 @@ static void answer_timer(void *arg)
 	int err;
 
 	/* Auto-answer */
-	err = wcall_answer(cli->wuser, cli->pending_convid, 0);
+	err = wcall_answer(cli->wuser, cli->pending_convid, WCALL_CALL_TYPE_NORMAL, 0);
 	ASSERT_EQ(0, err);
 }
 
@@ -351,7 +412,7 @@ static void client_on_established(struct client *cli, const char *convid)
 	if (cli->is_nervous &&
 	    client_is_complete(cli)) {
 
-		re_printf("  ** Nervous client leaving..\n");
+		info("test: Nervous client leaving..\n");
 
 		/* call closed, all streams are terminated */
 		cli->n_datachan = 0;
@@ -364,7 +425,7 @@ static void client_on_established(struct client *cli, const char *convid)
 
 #if 1
 	if (test_is_complete(cli)) {
-		re_printf("estab: test complete\n");
+		info("estab: test complete\n");
 		test_abort(cli, 0);
 	}
 #endif
@@ -379,10 +440,9 @@ static void estab_handler(const char *convid,
 
 	++cli->n_estab;
 
-	re_printf("[ %s.%s ] {%s} [%u] audio established with \"%s\"\n",
-		  cli->userid, cli->clientid,
-		  convid, cli->n_estab, userid);
-
+	info("[ %s.%s ] {%s} [%u] audio established with \"%s\"\n",
+	     cli->userid, cli->clientid,
+	     convid, cli->n_estab, userid);
 
 	/* check peer userid */
 	if (0 == str_casecmp(cli->userid, userid)) {
@@ -419,10 +479,11 @@ static void close_handler(int reason, const char *convid, uint32_t msg_time,
 	/* Nervous client is joining and leaving all the time */
 	if (cli->is_nervous) {
 
-		const int is_group = 1;
+		const int conv_type = WCALL_CONV_TYPE_GROUP;
 
-		re_printf("  ** Nervous client joining..\n");
-		err = wcall_start(cli->wuser, convid, 0, is_group, 0);
+		info("test: Nervous client joining..\n");
+
+		err = wcall_start(cli->wuser, convid, WCALL_CALL_TYPE_NORMAL, conv_type, 0);
 		ASSERT_EQ(0, err);
 
 		return;
@@ -447,7 +508,7 @@ static void datachan_estab_handler(const char *convid,
 
 	++cli->n_datachan;
 
-	re_printf("[ %s.%s ] {%s} [%u] data channel established (%s)\n",
+	info("[ %s.%s ] {%s} [%u] data channel established (%s)\n",
 		  cli->userid, cli->clientid,
 		  convid, cli->n_datachan, userid);
 
@@ -483,14 +544,99 @@ static void client_destructor(void *data)
 }
 
 
+static void ready_handler(int version, void *arg)
+{
+	struct client *cli = (struct client *)arg;
+	static const char *convid = "00cc";
+	const int conv_type = WCALL_CONV_TYPE_GROUP;
+	struct le *le;
+	size_t i;
+	int err;
+
+	info("[ %s.%s ] ready.\n", cli->userid, cli->clientid);
+
+	++cli->n_ready;
+
+	/* Start the test when all clients are ready. */
+
+	if (!clients_are_ready(cli))
+		return;
+
+	switch (cli->fixture->testcase) {
+
+	case TESTCASE_START_ALL:
+		/* Start a Group-call from all the clients */
+		for (le = list_head(cli->le.list); le; le = le->next) {
+
+			struct client *cli0 = (struct client *)le->data;
+
+			err = wcall_start(cli0->wuser, convid, WCALL_CALL_TYPE_NORMAL,
+				conv_type, 0);
+			ASSERT_EQ(0, err);
+		}
+		break;
+
+	case TESTCASE_CALL_ANSWER:
+		/* Start a Group-call from the first client */
+		cli = (struct client *)list_ledata(list_head(cli->le.list));
+		err = wcall_start(cli->wuser, convid, WCALL_CALL_TYPE_NORMAL, conv_type, 0);
+		ASSERT_EQ(0, err);
+
+		break;
+
+	case TESTCASE_NERVOUS_CLIENT:
+		/* Start a Group-call from the first client */
+		cli = (struct client *)list_ledata(list_head(cli->le.list));
+		err = wcall_start(cli->wuser, convid, WCALL_CALL_TYPE_NORMAL, conv_type, 0);
+		ASSERT_EQ(0, err);
+		break;
+	}
+}
+
+
+/* TODO: add turns url */
+static const char *json_config_fmt =
+" {"
+"  \"ice_servers\" : ["
+"    {"
+"    \"urls\"       : [\"turns:%J?transport=tcp\"],"
+"    \"username\"   : \"user\","
+"    \"credential\" : \"secret\""
+"    }"
+"  ],"
+"  \"ttl\":3600"
+"  }"
+	;
+
+
+static int config_req_handler(void *wuser, void *arg)
+{
+	struct client *cli = (struct client *)arg;
+	class Wcall *fix = cli->fixture;
+	char *json;
+	int err;
+
+	err = re_sdprintf(&json, json_config_fmt, &fix->turn_srv.addr_tls);
+	if (err)
+		return err;
+
+	wcall_config_update(wuser, 0, json);
+
+	mem_deref(json);
+
+	return 0;
+}
+
+
 void client_alloc(struct client **clip, struct list *lst,
-		  const char *userid, const char *clientid)
+		  const char *userid, const char *clientid, class Wcall *fix)
 {
 	struct client *cli;
 	const bool use_mediamgr = false;
 
 	cli = (struct client *)mem_zalloc(sizeof(*cli), client_destructor);
 
+	cli->fixture = fix;
 	cli->answer_delay = 1;
 
 	str_ncpy(cli->userid, userid, sizeof(cli->userid));
@@ -499,7 +645,7 @@ void client_alloc(struct client **clip, struct list *lst,
 	cli->wuser = wcall_create_ex(userid,
 				     clientid,
 				     use_mediamgr,
-				     NULL,
+				     ready_handler,
 				     send_handler,
 				     incoming_handler,
 				     0,
@@ -507,7 +653,7 @@ void client_alloc(struct client **clip, struct list *lst,
 				     estab_handler,
 				     close_handler,
 				     0,
-				     0,
+				     config_req_handler,
 				     0,
 				     0,
 				     cli);
@@ -569,36 +715,6 @@ TEST(wcall, create_multiple)
 #define NUM_CLIENTS 3
 
 
-class Wcall : public ::testing::Test {
-
-public:
-	virtual void SetUp() override
-	{
-		int err;
-
-		/* This is needed for multiple-calls test */
-		err = ztest_set_ulimit(512);
-		ASSERT_EQ(0, err);
-
-		err = flowmgr_init("audummy");
-		ASSERT_EQ(0, err);
-
-		msystem_enable_kase(flowmgr_msystem(), true);
-
-		err = wcall_init();
-		ASSERT_EQ(0, err);
-	}
-
-	virtual void TearDown() override
-	{
-		wcall_close();
-
-		flowmgr_close();
-	}
-
-public:
-};
-
 
 TEST_F(Wcall, group_call_start_all)
 {
@@ -608,6 +724,8 @@ TEST_F(Wcall, group_call_start_all)
 	const int is_group = 1;
 	unsigned i;
 	int err;
+
+	this->testcase = TESTCASE_START_ALL;
 
 #if 0
 	log_set_min_level(LOG_LEVEL_INFO);
@@ -620,14 +738,7 @@ TEST_F(Wcall, group_call_start_all)
 		char userid[2]   = { (char)('A' + i), '\0'};
 		char clientid[2] = { (char)('1' + i), '\0'};
 
-		client_alloc(&cliv[i], &clientl, userid, clientid);
-	}
-
-	/* Start a Group-call from all the clients */
-	for (i=0; i<ARRAY_SIZE(cliv); i++) {
-
-		err = wcall_start(cliv[i]->wuser, convid, 0, is_group, 0);
-		ASSERT_EQ(0, err);
+		client_alloc(&cliv[i], &clientl, userid, clientid, this);
 	}
 
 	err = re_main_wait(60000);
@@ -635,6 +746,7 @@ TEST_F(Wcall, group_call_start_all)
 
 	for (i=0; i<ARRAY_SIZE(cliv); i++) {
 
+		ASSERT_EQ(1, cliv[i]->n_ready);
 		ASSERT_EQ(0, cliv[i]->err);
 		ASSERT_EQ(num_streams(NUM_CLIENTS), cliv[i]->n_datachan);
 		ASSERT_EQ(0, cliv[i]->n_incoming);
@@ -643,6 +755,10 @@ TEST_F(Wcall, group_call_start_all)
 		ASSERT_EQ(num_streams(NUM_CLIENTS),
 			  odict_count(cliv[i]->odict, false));
 	}
+
+	/* verify that TURN over TLS was used */
+	ASSERT_TRUE(turn_srv.nrecv == 0);
+	ASSERT_TRUE(turn_srv.nrecv_tls > 0);
 
 	/* destroy all the clients */
 	for (i=0; i<ARRAY_SIZE(cliv); i++) {
@@ -661,6 +777,8 @@ TEST_F(Wcall, group_call_answer)
 	unsigned i;
 	int err;
 
+	this->testcase = TESTCASE_CALL_ANSWER;
+
 #if 0
 	log_set_min_level(LOG_LEVEL_INFO);
 	log_enable_stderr(true);
@@ -672,12 +790,8 @@ TEST_F(Wcall, group_call_answer)
 		char userid[2]   = { (char)('A' + i), '\0'};
 		char clientid[2] = { (char)('1' + i), '\0'};
 
-		client_alloc(&cliv[i], &clientl, userid, clientid);
+		client_alloc(&cliv[i], &clientl, userid, clientid, this);
 	}
-
-	/* Start a Group-call from the first client */
-	err = wcall_start(cliv[0]->wuser, convid, 0, is_group, 0);
-	ASSERT_EQ(0, err);
 
 	err = re_main_wait(60000);
 	ASSERT_EQ(0, err);
@@ -718,6 +832,8 @@ TEST_F(Wcall, group_call_nervous_join_leave)
 	unsigned i;
 	int err;
 
+	this->testcase = TESTCASE_NERVOUS_CLIENT;
+
 #if 0
 	log_set_min_level(LOG_LEVEL_INFO);
 	log_enable_stderr(true);
@@ -729,14 +845,11 @@ TEST_F(Wcall, group_call_nervous_join_leave)
 		char userid[2]   = { (char)('A' + i), '\0'};
 		char clientid[2] = { (char)('1' + i), '\0'};
 
-		client_alloc(&cliv[i], &clientl, userid, clientid);
+		client_alloc(&cliv[i], &clientl, userid, clientid, this);
 	}
 
 	cliv[0]->is_nervous = true;
 
-	/* Start a Group-call from the first client */
-	err = wcall_start(cliv[0]->wuser, convid, 0, is_group, 0);
-	ASSERT_EQ(0, err);
 
 	err = re_main_wait(60000);
 	ASSERT_EQ(0, err);

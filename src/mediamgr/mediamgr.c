@@ -131,6 +131,8 @@ struct mm {
 	enum mediamgr_state hold_state;
 	enum mm_sys_state sys_state;
 	volatile bool started;
+	bool should_reset;
+	bool alloc_pending;
 
 	pthread_t thread;
 
@@ -424,6 +426,19 @@ static int mediamgr_post_media_cmd(struct mm *mm,
 				   const char* media_name)
 {
 	struct mm_message *elem = NULL;
+
+	switch (cmd) {
+	case MM_MARSHAL_AUDIO_ALLOC:
+		if (mm->alloc_pending)
+			return 0;
+		else {
+			mm->alloc_pending = true;
+		}
+		break;
+
+	default:
+		break;
+	}
 	
 	if (media_name) {
 		elem = mem_zalloc(sizeof(struct mm_message), NULL);
@@ -439,6 +454,25 @@ static int mediamgr_post_media_cmd(struct mm *mm,
 	return mqueue_push(mm->mq, cmd, elem);
 }
 
+static void set_video_route(struct mm *mm)
+{
+	enum mediamgr_auplay route;
+
+	mm->router.prefer_loudspeaker = true;
+	
+	route = mm_platform_get_route();
+	switch(route) {
+	case MEDIAMGR_AUPLAY_HEADSET:
+	case MEDIAMGR_AUPLAY_BT:
+	case MEDIAMGR_AUPLAY_LINEOUT:
+	case MEDIAMGR_AUPLAY_SPDIF:
+		break;
+
+	default:
+		enable_speaker(mm, true);
+		break;
+	}
+}
 
 static void incall_action(struct mm *mm)
 {
@@ -446,23 +480,9 @@ static void incall_action(struct mm *mm)
 	
 	stop_all_media(mm);
 
-	if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL) {
-		enum mediamgr_auplay route;
-
-		route = mm_platform_get_route();
-		switch(route) {
-		case MEDIAMGR_AUPLAY_HEADSET:
-		case MEDIAMGR_AUPLAY_BT:
-		case MEDIAMGR_AUPLAY_LINEOUT:
-		case MEDIAMGR_AUPLAY_SPDIF:
-			break;
-
-		default:
-			enable_speaker(mm, true);
-			break;
-		}
-	}
-
+	if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
+		set_video_route(mm);
+	
 	play_sound(mm, "ready_to_talk", true, false);
 
 	mediamgr_post_media_cmd(mm, MM_MARSHAL_AUDIO_ALLOC, NULL);
@@ -704,15 +724,16 @@ static void update_route(struct mm *mm, enum mm_route_update_event event)
 
 	case MM_HEADSET_UNPLUGGED:
 		mm->router.wired_hs_is_connected = false;
-		if(mm->call_state == MEDIAMGR_STATE_INVIDEOCALL){
+		if (mm->router.bt_device_is_connected)
+			wanted_route = MEDIAMGR_AUPLAY_BT;
+		if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
 			mm->router.prefer_loudspeaker = true;
-		}
 		break;
 
 	case MM_BT_DEVICE_CONNECTED:
 		mm->router.bt_device_is_connected = true;
 		if (mm->call_state == MEDIAMGR_STATE_INCALL ||
-		    mm->call_state == MEDIAMGR_STATE_INVIDEOCALL){
+		    mm->call_state == MEDIAMGR_STATE_INVIDEOCALL) {
             
 			/* Always switch to BT when plugged in */
 			wanted_route = MEDIAMGR_AUPLAY_BT;
@@ -722,7 +743,9 @@ static void update_route(struct mm *mm, enum mm_route_update_event event)
 
 	case MM_BT_DEVICE_DISCONNECTED:
 		mm->router.bt_device_is_connected = false;
-		if(mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
+		if (mm->router.wired_hs_is_connected)
+			wanted_route = MEDIAMGR_AUPLAY_HEADSET;
+		if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
 			mm->router.prefer_loudspeaker = true;
 		break;
 
@@ -762,6 +785,7 @@ static void update_route(struct mm *mm, enum mm_route_update_event event)
 						     mgr->route_changed_arg);
 			}
 		}
+		mm_platform_confirm_route(cur_route);
 	}
 }
 
@@ -1262,7 +1286,8 @@ static void sys_entered_call_handler(struct mm *mm)
 			fire_callback(mm);
 		else {
 			mediamgr_post_media_cmd(mm,
-						MM_MARSHAL_AUDIO_ALLOC, NULL);
+						MM_MARSHAL_AUDIO_ALLOC,
+						NULL);
 		}
 		set_state(mm, mm->hold_state);
 		break;
@@ -1300,13 +1325,15 @@ static void audio_alloc(struct mm *mm)
 		info("mediamgr: audio already allocated\n");
 		return;
 	}
-	
+
 	info("mediamgr: allocating audio\n");
 	audio_io_alloc(&mm->aio, AUDIO_IO_MODE_NORMAL);
 	voe_register_adm(mm->aio);
+	mm->alloc_pending = false;
 
 	info("mediamgr: audio_alloc: fire_callback\n");	
 	fire_callback(mm);
+
 }
 
 
@@ -1317,7 +1344,7 @@ static void audio_release(struct mm *mm)
 	if (mm->aio) {
 		voe_deregister_adm();
 		mm->aio = mem_deref(mm->aio);
-	}
+	}	
 }
 
 
@@ -1351,6 +1378,17 @@ void mediamgr_audio_reset_mm(struct mm *mm)
 }
 
 
+void mediamgr_audio_reset(struct mediamgr *mediamgr)
+{
+	if (!mediamgr)
+		return;
+
+	if (mediamgr->mm) {
+		mediamgr_audio_reset_mm(mediamgr->mm);
+	//	mediamgr->mm->should_reset = true;
+	}
+}
+
 static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 {
 	enum mediamgr_state old_state = mm->call_state;
@@ -1373,6 +1411,7 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 		set_state(mm, new_state);
 		stop_all_media(mm);
 		audio_release(mm);
+		msystem_set_muted(false);		
 		switch (mm->sys_state) {
 		case MM_SYS_STATE_NORMAL:
 			break;
@@ -1397,12 +1436,20 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 			set_state(mm, new_state);
 			enter_call(mm);
 		}
+		else if (old_state == MEDIAMGR_STATE_RESUME) {
+			mm->hold_state = MEDIAMGR_STATE_OUTGOING_AUDIO_CALL;
+			enter_call(mm);
+		}
 		break;
 
 	case MEDIAMGR_STATE_OUTGOING_VIDEO_CALL:
 		mm->router.prefer_loudspeaker = true;
 		if (old_state == MEDIAMGR_STATE_NORMAL) {
 			set_state(mm, new_state);
+			enter_call(mm);
+		}
+		else if (old_state == MEDIAMGR_STATE_RESUME) {
+			mm->hold_state = MEDIAMGR_STATE_OUTGOING_VIDEO_CALL;
 			enter_call(mm);
 		}
 		break;
@@ -1429,7 +1476,19 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 	case MEDIAMGR_STATE_INCALL:
 	case MEDIAMGR_STATE_INVIDEOCALL:
 		set_state(mm, new_state);
-		handle_incall(mm);
+		if (old_state == MEDIAMGR_STATE_INCALL) {
+			if (new_state == MEDIAMGR_STATE_INVIDEOCALL)
+				set_video_route(mm);
+			if (mm->aio)
+				fire_callback(mm);
+		}
+		else if (old_state == MEDIAMGR_STATE_INVIDEOCALL) {
+			if (mm->aio)
+				fire_callback(mm);
+		}
+		else {
+			handle_incall(mm);
+		}
 		break;
 
 	case MEDIAMGR_STATE_ROAMING:
@@ -1844,4 +1903,14 @@ void mediamgr_stop_recording(struct mediamgr *mediamgr)
 		return;
 
 	mediamgr_post_media_cmd(mediamgr->mm, MM_MARSHAL_STOP_RECORDING, NULL);
+}
+
+bool mediamgr_should_reset(struct mm *mm)
+{
+	if (mm && mm->should_reset) {
+		mm->should_reset = false;
+		return true;
+	}
+
+	return false;
 }

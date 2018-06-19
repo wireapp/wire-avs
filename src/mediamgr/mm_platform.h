@@ -49,7 +49,9 @@ int mm_platform_enable_earpiece(void);
 int mm_platform_enable_headset(void);
 	
 enum mediamgr_auplay mm_platform_get_route(void);
+void mm_platform_confirm_route(enum mediamgr_auplay route);
 
+	
 void mm_platform_registerMedia(struct dict *sounds,
 	const char *name,
 	void *mediaObj,

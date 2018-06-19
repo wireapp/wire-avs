@@ -154,10 +154,10 @@ extern "C" {
 /*
  * Class:     com_waz_avs_VideoRenderer
  * Method:    createNative
- * Signature: (IIZ)J
+ * Signature: (Ljava/lang/String;IIZ)J
  */
 JNIEXPORT jlong JNICALL Java_com_waz_avs_VideoRenderer_createNative
-  (JNIEnv *, jobject, jint, jint, jboolean);
+  (JNIEnv *, jobject, jstring, jint, jint, jboolean);
 
 /*
  * Class:     com_waz_avs_VideoRenderer

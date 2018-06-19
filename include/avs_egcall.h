@@ -36,7 +36,8 @@ enum egcall_state {
 struct egcall;
 
 typedef void (egcall_start_h)(uint32_t msg_time, const char *userid_sender,
-			      bool should_ring, void *arg);
+			      bool video, bool should_ring, void *arg);
+typedef void (egcall_answer_h)(void *arg);
 typedef void (egcall_leave_h)(int reason, uint32_t msg_time, void *arg);
 typedef void (egcall_group_changed_h)(void *arg);
 
@@ -52,6 +53,7 @@ int egcall_alloc(struct egcall **egcallp,
 		 const char *clientid,
 		 ecall_transp_send_h *sendh,
 		 egcall_start_h *starth,
+		 egcall_answer_h *answerh,
 		 ecall_media_estab_h *media_estabh,
 		 ecall_audio_estab_h *audio_estabh,
 		 ecall_datachan_estab_h *datachan_estabh,
@@ -64,13 +66,14 @@ int egcall_alloc(struct egcall **egcallp,
 		 void *arg);
 
 int egcall_set_turnserver(struct egcall *egcall,
-			  struct sa *addr,
+			  const struct sa *addr,
+			  int proto, bool secure,
 			  const char *username,
 			  const char *credential);
 
-int egcall_start(struct egcall *egcall, bool audio_cbr);
+int egcall_start(struct egcall *egcall, int call_type, bool audio_cbr);
 
-int egcall_answer(struct egcall *egcall, bool audio_cbr);
+int egcall_answer(struct egcall *egcall, int call_type, bool audio_cbr);
 
 void egcall_end(struct egcall *egcall);
 
@@ -84,7 +87,7 @@ bool egcall_msg_recv(struct egcall* egcall,
 int egcall_media_start(struct egcall *egcall);
 void egcall_media_stop(struct egcall *egcall);
 
-int egcall_set_video_send_active(struct egcall *egcall, bool active);
+int egcall_set_video_send_state(struct egcall *egcall, enum ecall_vstate state);
 
 struct wcall_members;
 int egcall_get_members(struct wcall_members **mmp, struct egcall *egcall);

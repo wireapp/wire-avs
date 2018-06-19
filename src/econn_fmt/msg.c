@@ -123,6 +123,14 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		break;
 
 	case ECONN_GROUP_START:
+		/* props is optional for GROUPSTART */
+		if (msg->u.groupstart.props) {
+			err = econn_props_encode(jobj, msg->u.groupstart.props);
+			if (err)
+				goto out;
+		}
+		break;
+
 	case ECONN_GROUP_LEAVE:
 	case ECONN_GROUP_CHECK:
 		break;
@@ -347,6 +355,10 @@ int econn_message_decode(struct econn_message **msgp,
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_GROUP_START))) {
 
 		msg->msg_type = ECONN_GROUP_START;
+
+		/* Props are optional, dont fail to decode message if they are missing */
+		if (econn_props_decode(&msg->u.groupstart.props, jobj))
+			info("econn: decode GROUPSTART: no props\n");
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_GROUP_LEAVE))) {
 

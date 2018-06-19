@@ -111,7 +111,7 @@ TEST_F(Netprobe, tls)
 			     netprobe_handler, this);
 	ASSERT_EQ(0, err);
 
-	err = re_main_wait(5000);
+	err = re_main_wait(15000);
 	ASSERT_EQ(0, err);
 
 	/* Verify results after test is complete */

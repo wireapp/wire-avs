@@ -214,7 +214,6 @@ static void data_estab_handler(void *arg)
 		info("both datachannels established -- stop.\n");
 		re_cancel();
 	}
-
 }
 
 
@@ -350,6 +349,7 @@ static void agent_alloc(struct agent **agp, MediaDual *fix, bool offerer,
 
 			      mediaflow_estab_handler,
 			      mediaflow_close_handler,
+			      NULL,
 			      ag);
 	ASSERT_EQ(0, err);
 
@@ -366,18 +366,14 @@ static void agent_alloc(struct agent **agp, MediaDual *fix, bool offerer,
 
 	ASSERT_FALSE(mediaflow_is_ready(ag->mf));
 
-	if (1) {
+	info("[ %s ] adding local host candidate (%J)\n",
+	     name, &laddr);
 
-		info("[ %s ] adding local host candidate (%J)\n",
-			  name, &laddr);
+	/* NOTE: at least one HOST candidate is needed */
+	err = mediaflow_add_local_host_candidate(ag->mf, "en0", &laddr);
+	ASSERT_EQ(0, err);
 
-		/* NOTE: at least one HOST candidate is needed */
-		err = mediaflow_add_local_host_candidate(ag->mf,
-							 "en0", &laddr);
-		ASSERT_EQ(0, err);
-
-		ag->n_lcand_expect += 1;  /* host */
-	}
+	ag->n_lcand_expect += 1;  /* host */
 
 	mediaflow_set_tag(ag->mf, ag->name);
 

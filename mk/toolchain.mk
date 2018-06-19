@@ -1,7 +1,8 @@
 
 TOOLCHAIN_GCC_VERSION  := 4.9
 TOOLCHAIN_LLVM_VERSION := 3.4
-TOOLCHAIN_PLATFORM     := android-16
+#TOOLCHAIN_PLATFORM     := android-16
+TOOLCHAIN_API          := 16
 TOOLCHAIN_STL          := libc++
 
 TOOLCHAIN_ARCH_armv7   := arm
@@ -63,14 +64,11 @@ $(TOOLCHAIN_BASE_PATH)/android-%/stat: $(ANDROID_NDK_ROOT) $(TC_MKS)
 		echo ANDROID_NDK_ROOT not set ; \exit 1 ; \
 	fi
 	@rm -rf $(TOOLCHAIN_PATH)
-	$(ANDROID_NDK_ROOT)/build/tools/make-standalone-toolchain.sh \
-		--toolchain=$(TOOLCHAIN_TOOLCHAIN) \
-		--use-llvm \
+	$(ANDROID_NDK_ROOT)/build/tools/make_standalone_toolchain.py \
 		--stl=$(TOOLCHAIN_STL) \
 		--arch=$(TOOLCHAIN_ARCH) \
-		--ndk-dir=$(ANDROID_NDK_ROOT) \
-		--install-dir=$(TOOLCHAIN_PATH) \
-		--platform=$(TOOLCHAIN_PLATFORM)
+		--api $(TOOLCHAIN_API) \
+		--install-dir=$(TOOLCHAIN_PATH)
 	@mkdir $(TOOLCHAIN_PATH)/sysroot/usr/include/c++
 	@ln -s ../../../../include/c++/$(TOOLCHAIN_GCC_VERSION).x \
 		$(TOOLCHAIN_PATH)/sysroot/usr/include/c++/v1

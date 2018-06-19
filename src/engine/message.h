@@ -26,3 +26,12 @@
  */
 struct engine_module;
 extern struct engine_module engine_message_module;
+
+int engine_send_message(struct engine_conv *conv,
+		        const char *sender_clientid,
+		        struct list *msgl,
+		        bool transient,
+		        bool ignore_missing,
+		        engine_status_h *resph,
+		        engine_missing_client_h *missingh,
+		        void *arg);

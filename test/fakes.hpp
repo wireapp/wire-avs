@@ -188,7 +188,7 @@ public:
 };
 
 
-extern const char fake_certificate_rsa[];
+extern const char fake_certificate_ecdsa[];
 
 
 #endif

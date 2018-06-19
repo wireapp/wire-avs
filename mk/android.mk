@@ -54,11 +54,11 @@ AND_CC_OBJS := \
 AND_OBJS := $(AND_CC_OBJS)
 
 ifeq ($(AVS_OS),android)
-#ifneq ($(AVS_PROJECT),avsopen)
+ifneq ($(AVS_PROJECT),avsopen)
 #AND_DEPS := $(CONTRIB_BREAKPAD_TARGET)
 #AND_LIBS := $(CONTRIB_BREAKPAD_LIBS)
 #AND_CPPFLAGS += -DUSE_BREAKPAD=1
-#endif
+endif
 endif
 
 ADB       := $(ANDROID_SDK_ROOT)/platform-tools/adb

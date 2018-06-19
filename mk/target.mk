@@ -21,7 +21,6 @@
 #     AVS_OS=ios		AVS_ARCH=armv7
 #     				AVS_ARCH=armv7s
 #     				AVS_ARCH=arm64
-#     				AVS_ARCH=i386	(simulator)
 #     				AVS_ARCH=x86_64	(simulator)
 #     AVS_OS=osx		AVS_ARCH=x86_64
 #
@@ -189,7 +188,7 @@ ifeq ($(AVS_OS),linux)
 AVS_ARCH := $(HOST_ARCH)
 endif
 ifeq ($(AVS_OS),ios)
-AVS_ARCH := armv7
+AVS_ARCH := arm64
 endif
 ifeq ($(AVS_OS),osx)
 AVS_ARCH := x86_64
@@ -443,10 +442,7 @@ AVS_OS_FAMILY := darwin
 
 # SDK
 #
-ifeq ($(AVS_ARCH),i386)
-SDK := iphonesimulator
-HOST_OPTIONS := --host=arm-apple-darwin
-else ifeq ($(AVS_ARCH),x86_64)
+ifeq ($(AVS_ARCH),x86_64)
 SDK := iphonesimulator
 HOST_OPTIONS := --host=arm-apple-darwin
 else

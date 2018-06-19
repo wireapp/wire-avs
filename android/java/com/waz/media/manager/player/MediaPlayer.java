@@ -96,24 +96,28 @@ public class MediaPlayer implements MediaSourceListener {
 
 
   public void play (boolean sync) {
-	  //Log.d("avs", "MediaPlayer::play sync=" + sync);
-    this.setTimestamp(new Date().getTime());
+	  long ts = new Date().getTime();
 
-    // this.setVolume(0);
+	  this.setTimestamp(ts);
 
-    if ( this._source != null ) {
-      this._source.play();
-        
-      _is_playing = true;
-    }
-    if (sync) {
-	    while (_is_playing)	{
-		    try {
-			    Thread.sleep(40);
-		    }
-		    catch (Exception e) {
-		    }
-			    
+	  if ( this._source != null ) {
+		  _is_playing = true;
+		  this._source.play();
+	  }
+	  if (sync) {
+		  while (_is_playing)	{
+			  try {
+				  Thread.sleep(40);
+				  // Never wait more than 2s
+				  long now = new Date().getTime();
+				  if (now - ts > 2000) {
+					  this.stop();
+					  return;
+				  }
+			  }
+			  catch (Exception e) {
+				  return;
+			  }
 	    }
     }
   }

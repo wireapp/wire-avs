@@ -37,6 +37,7 @@ static struct {
 	jobject mm;
 	jmethodID mmOnPlaybackRouteChanged;
 	jmethodID mmOnMediaCategoryChanged;
+	jmethodID mmOnAudioFocus;
 	jmethodID mmOnEnterCall;
 	jmethodID mmOnExitCall;
 	jclass arClass;
@@ -261,7 +262,12 @@ int mm_android_jni_init(JNIEnv *env, jobject jobj, jobject ctx)
         error("mm: Could not get onMediaCategoryChanged method ID \n");
     }
     java.mmOnMediaCategoryChanged = jmObject;
-    
+
+    if ((jmObject= (*env)->GetMethodID(env, cls, "onAudioFocus", "()V")) == NULL){
+        error("mm: Could not get onAudioFocus method ID \n");
+    }
+    java.mmOnAudioFocus = jmObject;
+
     if ((jmObject= (*env)->GetMethodID(env, cls, "onEnterCall", "()V")) == NULL){
         error("mm: Could not get onEnterCall method ID \n");
     }
@@ -570,7 +576,8 @@ static int mm_platform_enable_speaker_internal(bool notify)
         error("mm: %s jni_attach failed !! \n", __FUNCTION__);
         return -1;
     }
-    int ret = callIntMethodHelper(jni_env.env, java.router, java.arEnableSpeaker);
+    int ret = callIntMethodHelper(jni_env.env, java.router,
+				  java.arEnableSpeaker);
     
     jni_detach(&jni_env);
 
@@ -595,7 +602,8 @@ int mm_platform_enable_headset(void){
         error("mm: %s jni_attach failed !! \n", __FUNCTION__);
         return -1;
     }
-    int ret = callIntMethodHelper(jni_env.env, java.router, java.arEnableHeadset);
+    int ret = callIntMethodHelper(jni_env.env, java.router,
+				  java.arEnableHeadset);
     
     jni_detach(&jni_env);
 
@@ -704,25 +712,24 @@ void mm_android_jni_on_media_category_changed(enum mediamgr_state state, void *a
     jni_detach(&jni_env);
 }
 
-void mm_platform_incoming(void)
+static void audio_focus(void)
 {
-#if 0
     struct jni_env jni_env;
     
-    if(jni_attach(&jni_env)){
-        error("mm: %s jni_attach failed !! \n", __FUNCTION__);
-        return;
+    debug("mm_platform_android: audio_focus\n");
+    
+    if(jni_attach(&jni_env)) {
+	    error("mm_platform_android: audio_focus attach failed\n");
+	    return;
     }
+    (*jni_env.env)->CallVoidMethod(jni_env.env, java.mm,
+				   java.mmOnAudioFocus);
     
-    (*jni_env.env)->CallVoidMethod(jni_env.env, java.router, java.arOnStartingCall);    
-
     jni_detach(&jni_env);
-#endif
-    
-    mediamgr_sys_incoming(java.mediamgr);
 }
 
-void mm_platform_enter_call(void){
+static void enter_call(void)
+{
     struct jni_env jni_env;
     
     debug("mm_platform_android: enter_call\n");
@@ -736,10 +743,22 @@ void mm_platform_enter_call(void){
     
     jni_detach(&jni_env);
 
-    mediamgr_sys_entered_call(java.mediamgr);    
 }
 
-void mm_platform_exit_call(void){
+void mm_platform_incoming(void)
+{
+	audio_focus();
+	mediamgr_sys_incoming(java.mediamgr);
+}
+
+void mm_platform_enter_call(void)
+{
+	enter_call();
+	mediamgr_sys_entered_call(java.mediamgr);    
+}
+
+void mm_platform_exit_call(void)
+{
 	debug("mm_platform_android: exit_call\n");
 
 	tmr_cancel(&java.tmr_delay);
@@ -817,4 +836,11 @@ void mm_platform_start_recording(struct mm_platform_start_rec *rec_elem)
 
 void mm_platform_stop_recording(void)
 {
+}
+
+void mm_platform_confirm_route(enum mediamgr_auplay route)
+{
+	if (route == MEDIAMGR_AUPLAY_SPEAKER)
+		mm_platform_enable_speaker_internal(false);
+
 }
