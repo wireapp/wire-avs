@@ -21,8 +21,8 @@
  */
 
 struct call_config {
-       struct zapi_ice_server iceserverv[4];
-       size_t iceserverc;
+	struct zapi_ice_server *iceserverv;
+	size_t iceserverc;
 };
 
 typedef int (config_req_h)(void *arg);

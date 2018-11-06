@@ -117,6 +117,18 @@ static bool sdp_has_remb(struct viddec_state *vds){
 	return goog_remb ? true : false;
 }
 
+static bool get_extmap_ids(const char *name, const char *value, void *arg)
+{
+	struct viddec_state *vds = (struct viddec_state*)arg;
+	if (0 == re_regex(value, strlen(value), EXTMAP_VIDEO_ORIENTATION)) {
+		vds->extmap_rotation = atoi(value);
+	}
+	if (0 == re_regex(value, strlen(value), EXTMAP_ABS_SEND_TIME)) {
+		vds->extmap_abstime = atoi(value);
+	}
+	return false;
+}
+
 int vie_render_start(struct viddec_state *vds, const char* userid_remote)
 {
   	webrtc::VideoReceiveStream::Decoder decoder;
@@ -181,12 +193,18 @@ int vie_render_start(struct viddec_state *vds, const char* userid_remote)
 #if USE_RTX
 #endif
 
-	receive_config.rtp.extensions.push_back(
-		webrtc::RtpExtension(webrtc::RtpExtension::kAbsSendTime,
-		kAbsSendTimeExtensionId));
-	receive_config.rtp.extensions.push_back(
-		webrtc::RtpExtension(webrtc::RtpExtension::kVideoRotation,
-		kVideoRotationRtpExtensionId));
+	sdp_media_rattr_apply(vds->sdpm, "extmap", get_extmap_ids, vds);
+	if (vds->extmap_abstime > 0) {
+		receive_config.rtp.extensions.push_back(
+			webrtc::RtpExtension(webrtc::RtpExtension::kAbsSendTime,
+			vds->extmap_abstime));
+	}
+
+	if (vds->extmap_rotation > 0) {
+		receive_config.rtp.extensions.push_back(
+			webrtc::RtpExtension(webrtc::RtpExtension::kVideoRotation,
+			vds->extmap_rotation));
+	}
 	vie->receive_renderer = new ViERenderer(userid_remote);
 	receive_config.renderer = vie->receive_renderer;
 

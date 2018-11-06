@@ -60,6 +60,7 @@ public:
 		err = mediaflow_alloc(&mf, "1", dtls, &aucodecl, &laddr,
 				      CRYPTO_DTLS_SRTP,
 				      mediaflow_estab_handler,
+				      NULL,
 				      mediaflow_close_handler,
 				      NULL,
 				      this);

@@ -127,6 +127,7 @@ struct video_renderer {
 	bool inited;
 	bool rounded;
 	bool should_fill;
+	float fill_ratio;
 	bool needs_recalc;
 	bool use_mask;
 	int w;
@@ -276,11 +277,9 @@ static int setup_vertices(struct video_renderer *vr, int rotation)
 {	
 	GLfloat vw = (GLfloat)vr->w;
 	GLfloat vh = (GLfloat)vr->h;
-	GLfloat va = vw / vh;
 	
 	GLfloat fw = (GLfloat)vr->tex.w;
 	GLfloat fh = (GLfloat)vr->tex.h;
-	GLfloat fa = fw / fh;
 
 	GLfloat xscale = 1.0f;
 	GLfloat yscale = 1.0f;
@@ -289,6 +288,16 @@ static int setup_vertices(struct video_renderer *vr, int rotation)
 	int tex;
 	
 	int err = 0;
+
+	if (vr->w == 0 || vr->h == 0 ||
+	    vr->tex.w == 0 || vr->tex.h == 0) {
+		return 0;
+	}
+
+	GLfloat va = vw / vh;
+	GLfloat fa = fw / fh;
+
+	bool fill = vr->should_fill;
 
 	// 180 & 270 are double-flipped 0 & 90
 	if (rotation == 180 || rotation == 270) {
@@ -301,7 +310,12 @@ static int setup_vertices(struct video_renderer *vr, int rotation)
 		fa = 1.0f / fa;
 	}
 	
-	if (vr->should_fill == (va > fa)) {
+	if (fa / va < vr->fill_ratio &&
+	    va / fa < vr->fill_ratio) {
+		fill = true;
+	}
+	
+	if (fill == (va > fa)) {
 		yscale *= va / fa;
 	}
 	else {
@@ -310,7 +324,7 @@ static int setup_vertices(struct video_renderer *vr, int rotation)
 
 #if 0
 	info("setup_vertices: view(%fx%f)%f frame(%fx%f)%f scale(%fx%f) fill %s\n",
-	      vw, vh, va, fw, fh, fa, xscale, yscale, vr->should_fill ? "YES" : "NO");
+	      vw, vh, va, fw, fh, fa, xscale, yscale, fill ? "YES" : "NO");
 #endif
 
 
@@ -462,6 +476,7 @@ int video_renderer_alloc(struct video_renderer **vrp,  int w, int h,
 
 	vr->rounded = rounded;
 	vr->should_fill = true;
+	vr->fill_ratio = 0.0f;
 	vr->needs_recalc = false;
 	vr->inited = false;
 	vr->w = w;
@@ -735,6 +750,15 @@ void video_renderer_set_should_fill(struct video_renderer *vr,
 	}
 }
 
+void video_renderer_set_fill_ratio(struct video_renderer *vr,
+				   float fill_ratio)
+{
+	if (vr) {
+		vr->fill_ratio = fill_ratio;
+		vr->needs_recalc = true;
+	}
+}
+
 const char *video_renderer_userid(struct video_renderer *vr)
 {
 	return vr ? vr->userid : NULL;
@@ -778,6 +802,11 @@ void *video_renderer_arg(struct video_renderer *vr)
 
 void video_renderer_set_should_fill(struct video_renderer *vr,
 				    bool should_fill)
+{
+}
+
+void video_renderer_set_fill_ratio(struct video_renderer *vr,
+				   float fill_ratio)
 {
 }
 

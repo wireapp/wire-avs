@@ -22,7 +22,7 @@
 #include <string.h>
 
 #define streq(a, b) ((*(a) == *(b)) && (strcmp(a, b) == 0))
-#define strcaseeq(a, b) ((*(a) == *(b)) && (str_casecmp(a, b) == 0))
+#define strcaseeq(a, b) (str_casecmp(a, b) == 0)
 
 
 struct str_wordexp {

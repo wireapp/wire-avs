@@ -46,6 +46,7 @@ AVS_MODULES += dict
 AVS_MODULES += ecall
 AVS_MODULES += econn
 AVS_MODULES += econn_fmt
+AVS_MODULES += extmap
 AVS_MODULES += flowmgr
 AVS_MODULES += jzon
 AVS_MODULES += kase

@@ -135,7 +135,11 @@ ifneq ($(filter armv7,$(DIST_ARCH)),)
 	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) android_shared AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) tools test AVS_OS=android AVS_ARCH=armv7
-	@cp $(BUILD_BASE)/android-armv7/lib/libavs.stripped.so \
+	@echo TOOLCHAIN=$(TOOLCHAIN_PATH)
+	@rm -rf android/obj
+	@rm -rf android/libs
+	@$(TOOLCHAIN_BASE_PATH)/android-armv7/ndk/ndk-build -C android
+	@cp android/libs/armeabi-v7a/libavs.so \
 		$(BUILD_DIST_AND)/aar/jni/armeabi-v7a/libavs.so
 endif
 ifneq ($(filter i386,$(DIST_ARCH)),)

@@ -21,7 +21,6 @@
 
 #include "avs_devpair.h"
 
-
 static struct {
 	bool initialized;
 	struct dict *pairings;
@@ -39,7 +38,7 @@ struct devpair_entry {
 	struct ecall *ecall;
 	struct econn_message *msg;
 
-	struct zapi_ice_server turnv[8];
+	struct zapi_ice_server turnv[MAX_TURN_SERVERS];
 	size_t turnc;
 
 	devpair_send_h *sendh;
@@ -85,24 +84,14 @@ static int set_turnservers(struct devpair_entry *dpe,
 	size_t i;
 
 	for (i = 0; i < turnc; ++i) {
-		struct stun_uri uri;
-
-		err = stun_uri_decode(&uri, turnv[i].url);
-
-		if (0 == err) {
-			err = ecall_add_turnserver(dpe->ecall,
-						   &uri.addr,
-						   IPPROTO_UDP, false,
-						   turnv[i].username,
-						   turnv[i].credential);
-			if (err) {
-				warning("devpair: failed to set turn: %J\n",
-					&uri.addr);
-				goto out;
-			}
-
-			dpe->turnv[i] = turnv[i];
+		err = ecall_add_turnserver(dpe->ecall, &turnv[i]);
+		if (err) {
+			warning("devpair: failed to set turn: %s\n",
+				turnv[i].url);
+			goto out;
 		}
+
+		dpe->turnv[i] = turnv[i];
 	}
 	dpe->turnc = turnc;
 
@@ -291,7 +280,7 @@ static int alloc_dpe(struct devpair_entry **dpep, const char *pairid)
 			  "devpair",
 			  pairid,
 			  ecall_conn_handler,
-			  NULL, NULL, NULL,
+			  NULL, NULL, NULL, NULL,
 			  ecall_datachan_estab_handler,
 			  NULL,
 			  NULL,

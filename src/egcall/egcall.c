@@ -29,18 +29,16 @@
 #define EGCALL_ACTIVE_ROSTER_RAND      (30000)
 #define EGCALL_PASSIVE_ROSTER_TIMEOUT (120000)
 
-struct turn_srv {
-	struct sa addr;
-	int proto;
-	bool secure;
-	char *username;
-	char *credential;
+struct media_entry {
+	struct ecall *ecall;
+	bool started;
 
-	struct le le; /* member of turn server list */
+	struct le le;
 };
 
 struct egcall {
 	struct list ecalll;
+	struct list media_startl;
 	enum egcall_state state;
 	char *convid;
 	char *userid_self;
@@ -54,14 +52,14 @@ struct egcall {
 		egcall_group_changed_h *chgh;
 	} conf_pos;
 
-	struct {
-		struct list srvl;
-	} turn;
-
+	struct zapi_ice_server turnv[MAX_TURN_SERVERS];
+	size_t turnc;
+	
 	ecall_transp_send_h *sendh;
 	egcall_start_h *starth;
 	egcall_answer_h *answerh;
 	ecall_media_estab_h *mediah;
+	ecall_media_stopped_h *media_stoppedh;
 	ecall_audio_estab_h *audioh;
 	ecall_datachan_estab_h *dcestabh;
 	egcall_leave_h *leaveh;
@@ -81,6 +79,12 @@ struct egcall {
 		enum ecall_vstate send_state;
 	} video;
 
+	struct {
+		ecall_quality_h *netqh;
+		int interval;
+		void *arg;
+	} quality;
+
 	void *arg;
 };
 
@@ -99,6 +103,65 @@ static void egcall_active_roster_timeout(void *arg);
 static void egcall_passive_roster_timeout(void *arg);
 static void egcall_start_active_roster_timer(struct egcall *egcall);
 static void egcall_end_with_err(struct egcall *egcall, int err);
+
+static void media_entry_destructor(void *arg)
+{
+	struct media_entry *me = arg;
+
+	list_unlink(&me->le);
+}
+
+static bool all_media_stopped(struct egcall *egcall)
+{
+	bool started = false;
+	struct le *le;
+
+	for(le = egcall->media_startl.head; le && !started; le = le->next) {
+		struct media_entry *me = le->data;
+
+		started = me->started;
+	}
+
+	return !started;
+}
+
+static struct media_entry *lookup_media_entry(struct egcall *egcall,
+					      struct ecall *ecall)
+{
+	struct media_entry *me = NULL;
+	struct le *le;
+
+	for(le = egcall->media_startl.head; le && me == NULL; le = le->next) {
+		me = le->data;
+
+		if (me->ecall != ecall)
+			me = NULL;
+	}
+
+	return me;
+}
+
+static void set_media_started(struct egcall *egcall, struct ecall *ecall,
+			      bool started)
+{
+	struct media_entry *me;
+
+	me = lookup_media_entry(egcall, ecall);
+	if (me)
+		me->started = started;
+}
+
+
+static void destroy_ecall(struct egcall *egcall, struct ecall *ecall)
+{
+	struct media_entry *me;
+
+	me = lookup_media_entry(egcall, ecall);
+	if (me)
+		mem_deref(me);
+
+	mem_deref(ecall);
+}
 
 static void roster_destructor(void *arg)
 {
@@ -141,7 +204,7 @@ static void update_conf_pos(struct egcall *egcall)
 	}
 }
 
-static void roster_add(struct egcall *egcall,
+static struct roster_item *roster_add(struct egcall *egcall,
 		       const char *userid,
 		       const char *clientid)
 {
@@ -149,6 +212,22 @@ static void roster_add(struct egcall *egcall,
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
 	int err = 0;
+	char *uc;
+
+	if (!egcall || !userid || !clientid) {
+		return NULL;
+	}
+
+	err = get_userclient(&uc, userid, clientid);
+	if (err)
+		return NULL;
+
+	item = dict_lookup(egcall->roster, uc);
+	mem_deref(uc);
+
+	if (item) {
+		return item;
+	}
 
 	item = mem_zalloc(sizeof(*item), roster_destructor);
 	if (!item) {
@@ -177,6 +256,8 @@ static void roster_add(struct egcall *egcall,
 	      dict_count(egcall->roster));
 out:
 	mem_deref(item);
+
+	return item;
 }
 
 static void roster_remove(struct egcall *egcall, const char* userid,
@@ -241,6 +322,7 @@ static void destructor(void *arg)
 
 	tmr_cancel(&egcall->call_timer);
 	tmr_cancel(&egcall->roster_timer);
+	list_flush(&egcall->media_startl);
 	list_flush(&egcall->ecalll);
 	mem_deref(egcall->convid);
 	mem_deref(egcall->userid_self);
@@ -248,8 +330,6 @@ static void destructor(void *arg)
 
 	dict_flush(egcall->roster);
 	mem_deref(egcall->roster);
-
-	list_flush(&egcall->turn.srvl);
 }
 
 const char *egcall_state_name(enum egcall_state state)
@@ -332,7 +412,8 @@ static void set_state(struct egcall* egcall, enum egcall_state state)
 }
 
 
-static int send_msg(struct egcall *egcall, enum econn_msg type, bool resp, bool transient)
+static int send_msg(struct egcall *egcall, enum econn_msg type,
+		    bool resp, bool transient)
 {
 	struct econn_message *msg = NULL;
 	int err = 0;
@@ -357,7 +438,8 @@ static int send_msg(struct egcall *egcall, enum econn_msg type, bool resp, bool 
 			goto skipprops;
 
 		err = econn_props_add(msg->u.groupstart.props, "videosend",
-			egcall->call_type == WCALL_CALL_TYPE_VIDEO ? "true" : "false");
+			egcall->call_type == WCALL_CALL_TYPE_VIDEO ? "true"
+				                                   : "false");
 		if (err)
 			goto skipprops;
 	}
@@ -378,7 +460,8 @@ static void egcall_start_timeout(void *arg)
 {
 	struct egcall *egcall = arg;
 
-	info("egcall(%p): start_timeout state=%s\n", egcall, egcall_state_name(egcall->state));
+	info("egcall(%p): start_timeout state=%s\n",
+	     egcall, egcall_state_name(egcall->state));
 	if (egcall->state != EGCALL_STATE_ACTIVE) {
 		dict_flush(egcall->roster);
 		egcall_end_with_err(egcall, ETIMEDOUT);
@@ -389,7 +472,9 @@ static void egcall_ring_timeout(void *arg)
 {
 	struct egcall *egcall = arg;
 
-	info("egcall(%p): ring_timeout state=%s\n", egcall, egcall_state_name(egcall->state));
+	info("egcall(%p): ring_timeout state=%s\n",
+	     egcall, egcall_state_name(egcall->state));
+	
 	if (egcall->state == EGCALL_STATE_INCOMING) {
 		if (egcall->leaveh) {
 			egcall->leaveh(EGCALL_REASON_STILL_ONGOING,
@@ -455,6 +540,7 @@ int egcall_alloc(struct egcall **egcallp,
 		 egcall_start_h *starth,
 		 egcall_answer_h *answerh,
 		 ecall_media_estab_h *media_estabh,
+		 ecall_media_stopped_h *media_stoppedh,
 		 ecall_audio_estab_h *audio_estabh,
 		 ecall_datachan_estab_h *datachan_estabh,
 		 egcall_group_changed_h *grp_chgh,
@@ -521,49 +607,21 @@ out:
 	return err;
 }
 
-static void turn_srv_destructor(void *arg)
+int egcall_add_turnserver(struct egcall *egcall,
+			  struct zapi_ice_server *srv)
 {
-	struct turn_srv *turn = arg;
-
-	list_unlink(&turn->le);
-
-	mem_deref(turn->username);
-	mem_deref(turn->credential);
-}
-
-
-int egcall_set_turnserver(struct egcall *egcall,
-			  const struct sa *addr,
-			  int proto, bool secure,
-			  const char *username,
-			  const char *credential)
-{
-	struct turn_srv *turn;
 	int err = 0;
 
-	if (!egcall)
+	if (!egcall || !srv)
 		return EINVAL;
+
+	if (egcall->turnc >= ARRAY_SIZE(egcall->turnv))
+		return EOVERFLOW;
 	
-	info("egcall: set_turnserver: %J proto=%d secure=%d\n",
-	     addr, proto, secure);
+	info("egcall(%p): add_turnserver: %s\n", egcall, srv->url);
 
-	turn = mem_zalloc(sizeof(*turn), turn_srv_destructor);
-	if (!turn)
-		return ENOMEM;
-
-	turn->addr = *addr;
-	turn->proto = proto;
-	turn->secure = secure;
-	err = str_dup(&turn->username, username);
-	err |= str_dup(&turn->credential, credential);
-	if (err)
-		goto out;
-
-	list_append(&egcall->turn.srvl, &turn->le, turn);
-	
- out:
-	if (err)
-		mem_deref(turn);
+	egcall->turnv[egcall->turnc] = *srv;
+	++egcall->turnc;
 
 	return err;
 }
@@ -733,6 +791,20 @@ static void ecall_media_estab_handler(struct ecall *ecall, bool update,
 		egcall->mediah(ecall, update, egcall->arg);
 }
 
+static void ecall_media_stopped_handler(struct ecall *ecall, void *arg)
+{
+	struct egcall *egcall = arg;
+
+	set_media_started(egcall, ecall, false);
+
+	if (all_media_stopped(egcall)) {
+		if (egcall->media_stoppedh) {
+			egcall->media_stoppedh(NULL, egcall->arg);
+		}
+	}
+}
+
+
 
 static void ecall_audio_estab_handler(struct ecall *ecall, bool update,
 				      void *arg)
@@ -752,7 +824,9 @@ static void ecall_audio_estab_handler(struct ecall *ecall, bool update,
 		struct roster_item *ri;
 		struct conf_part *cp;
 
-		ri = roster_lookup(egcall, ecall);
+		ri = roster_add(egcall,
+				ecall_get_peer_userid(ecall),
+				ecall_get_peer_clientid(ecall));
 		if (ri)
 			ri->audio_estab = true;
 
@@ -805,6 +879,18 @@ static void ecall_propsync_handler(void *arg)
 static void ecall_vstate_handler(struct ecall *ecall, const char *userid,
 	enum ecall_vstate state, void *arg)
 {
+	struct egcall *egcall = arg;
+
+	if (ecall) {
+		struct roster_item *ri;
+
+		ri = roster_lookup(egcall, ecall);
+		if (ri)
+			ri->video_recv = state;
+	}
+
+	if (egcall->vstateh)
+		egcall->vstateh(ecall, userid, state, egcall->arg);
 }
 
 
@@ -848,7 +934,7 @@ static void ecall_close_handler(int err, const char *metrics_json,
 		roster_remove(egcall, uid, cid);
 	}
 
-	mem_deref(ecall);
+	destroy_ecall(egcall, ecall);
 
 	if (list_count(&egcall->ecalll) == 0) {
 		send_leave(egcall, msg_time, 0);
@@ -889,14 +975,15 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 		     const char *userid_peer, const char *clientid_peer)
 {
 	struct ecall *ecall;
+	struct media_entry *me;
 	struct msystem *msys;
-	struct le *le;
+	size_t i;
 	int err = 0;
 
 	ecall = ecall_find_userid(&egcall->ecalll,
 				  userid_peer);
 	if (ecall) {
-		mem_deref(ecall);
+		destroy_ecall(egcall, ecall);
 	}
 
 	msys = flowmgr_msystem();
@@ -910,6 +997,7 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 			  ecall_setup_handler,
 			  ecall_setup_resp_handler,
 			  ecall_media_estab_handler,
+			  ecall_media_stopped_handler,
 			  ecall_audio_estab_handler,
 			  ecall_datachan_estab_handler,
 			  ecall_propsync_handler,
@@ -924,26 +1012,37 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 		goto out;
 	}
 
+	me = mem_zalloc(sizeof(*me), media_entry_destructor);
+	if (!me) {
+		err = ENOMEM;
+		goto out;
+	}
+	me->ecall = ecall;
+	me->started = false;
+	list_append(&egcall->media_startl, &me->le, me);
+
+	if (egcall->quality.netqh) {
+		ecall_set_quality_handler(ecall,
+					  egcall->quality.netqh,
+					  egcall->quality.interval,	 
+					  egcall);
+	}
+					 
+	
 	ecall_set_peer_userid(ecall, userid_peer);
 	ecall_set_peer_clientid(ecall, clientid_peer);
+	ecall_set_video_send_state(ecall, egcall->video.send_state);
 	ecall_set_group_mode(ecall, true);
 
-	LIST_FOREACH(&egcall->turn.srvl, le) {
-		struct turn_srv *turn = le->data;
-
-		err = ecall_add_turnserver(ecall,
-					   &turn->addr,
-					   turn->proto,
-					   turn->secure,
-					   turn->username,
-					   turn->credential);
+	for (i = 0; i < egcall->turnc; ++i) {
+		err = ecall_add_turnserver(ecall, &egcall->turnv[i]);
 		if (err)
 			goto out;
 	}
 	
  out:
 	if (err)
-		mem_deref(ecall);
+		destroy_ecall(egcall, ecall);
 	else
 		*ecallp = ecall;
 
@@ -1034,13 +1133,16 @@ static void recv_start(struct egcall *egcall,
 
 				ecall_end(ecall);
 				ecall_remove(ecall);
+				ecall = NULL;
 			}
 		}
 
-		err = add_ecall(&ecall, egcall, userid_sender, clientid_sender);
-		if (err) {
-			warning("egcall(%p): add_ecall failed %m\n", egcall, err);
-			goto out;
+		if (!ecall) {
+			err = add_ecall(&ecall, egcall, userid_sender, clientid_sender);
+			if (err) {
+				warning("egcall(%p): add_ecall failed %m\n", egcall, err);
+				goto out;
+			}
 		}
 
 		err = ecall_start(ecall, egcall->call_type != WCALL_CALL_TYPE_FORCED_AUDIO,
@@ -1069,7 +1171,7 @@ static void recv_start(struct egcall *egcall,
 	}
  out:
 	if (err)
-		mem_deref(ecall);
+		destroy_ecall(egcall, ecall);
 }
 		
 static void recv_leave(struct egcall* egcall,
@@ -1084,7 +1186,8 @@ static void recv_leave(struct egcall* egcall,
 
 	info("egcall(%p): recv_leave u: %s c: %s r: %s\n", egcall,
 	     anon_id(userid_anon, userid_sender), 
-	     anon_client(clientid_anon, clientid_sender), msg->resp ? "yes" : "no");
+	     anon_client(clientid_anon, clientid_sender),
+	     msg->resp ? "yes" : "no");
 
 	roster_remove(egcall, userid_sender, clientid_sender);
 
@@ -1097,13 +1200,16 @@ static void recv_leave(struct egcall* egcall,
 		}
 	}
 
-	if (egcall->state == EGCALL_STATE_INCOMING && dict_count(egcall->roster) == 0) {
+	if (egcall->state == EGCALL_STATE_INCOMING
+	    && dict_count(egcall->roster) == 0) {
 		info("egcall(%p): recv_leave no users in roster in %s\n",
 		     egcall, egcall_state_name(egcall->state));
 		set_state(egcall, EGCALL_STATE_IDLE);
 		if (egcall->closeh) {
 			egcall->closeh(egcall->is_call_answered ? 0 : ECANCELED,
-				msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN, egcall->arg);
+				       msg ? msg->time
+				           : ECONN_MESSAGE_TIME_UNKNOWN,
+				       egcall->arg);
 		}
 	}	
 }
@@ -1255,7 +1361,9 @@ int egcall_media_start(struct egcall *egcall)
 	LIST_FOREACH(&egcall->ecalll, le) {
 		struct ecall *ecall = le->data;
 		
-		ecall_media_start(ecall);
+		err = ecall_media_start(ecall);
+		if (!err)
+			set_media_started(egcall, ecall, true);
 	}
 
 	return err;
@@ -1324,7 +1432,7 @@ static bool roster_members_handler(char *key, void *val, void *arg)
 
 	str_dup(&memb->userid, ri->userid);
 	memb->audio_estab = (int)ri->audio_estab;
-	memb->video_recv = 0;
+	memb->video_recv = ri->video_recv;
 
 	(mm->membc)++;
 
@@ -1391,5 +1499,38 @@ int egcall_set_video_send_state(struct egcall *egcall, enum ecall_vstate state)
 {
 	int err = 0;
 
+	uint32_t ecount = 0;
+	struct le *le;
+
+	if (!egcall)
+		return EINVAL;
+
+	ecount = list_count(&egcall->ecalll);
+	info("egcall: set_video_send_state %s ecalls=%u\n",
+	     ecall_vstate_name(state), ecount);
+
+	egcall->video.send_state = state;
+
+	LIST_FOREACH(&egcall->ecalll, le) {
+		struct ecall *ecall = le->data;
+
+		ecall_set_video_send_state(ecall, state);
+	}
+
 	return err;
+}
+
+int egcall_set_quality_handler(struct egcall *egcall,
+			       ecall_quality_h *netqh,
+			       uint64_t interval,
+			       void *arg)
+{
+	if (!egcall)
+		return EINVAL;
+
+	egcall->quality.netqh = netqh;
+	egcall->quality.interval = interval;
+	egcall->quality.arg = arg;
+
+	return 0;
 }

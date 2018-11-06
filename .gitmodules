@@ -10,9 +10,6 @@
 [submodule "contrib/opus"]
 	path = contrib/opus
 	url = https://github.com/xiph/opus.git
-[submodule "contrib/libvpx"]
-	path = contrib/libvpx
-	url = https://chromium.googlesource.com/webm/libvpx
 [submodule "contrib/googletest"]
 	path = contrib/googletest
 	url = https://github.com/google/googletest.git
@@ -27,13 +24,16 @@
 	url = https://github.com/creytiv/rem.git
 [submodule "contrib/rew"]
 	path = contrib/rew
-	url = https://github.com/alfredh/rew.git
-[submodule "contrib/re"]
-	path = contrib/re
-	url = git@github.com:alfredhz/re.git
-[submodule "contrib/sodium"]
-	path = contrib/sodium
-	url = https://github.com/jedisct1/libsodium.git
+	url = https://github.com/wireapp/rew.git
 [submodule "contrib/openssl"]
 	path = contrib/openssl
 	url = git@github.com:openssl/openssl.git
+[submodule "contrib/re"]
+	path = contrib/re
+	url = https://github.com/wireapp/re.git
+[submodule "contrib/sodium"]
+	path = contrib/sodium
+	url = https://github.com/jedisct1/libsodium.git
+[submodule "contrib/libvpx"]
+	path = contrib/libvpx
+	url = git@github.com:wireapp/libvpx.git

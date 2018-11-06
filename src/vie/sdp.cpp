@@ -32,8 +32,11 @@ int vie_fmtp_enc(struct mbuf *mb, const struct sdp_format *fmt,
 		 bool offer, void *data)
 {
 	int err = 0;
-
-	(void)data;
+#if USE_RTP_ROTATION
+	const char *rtp_rot = NULL;
+#endif
+	const char *abs_time = NULL;
+	struct videnc_fmt_data *fmtdata = (struct videnc_fmt_data*) data;
 
 	err |= mbuf_printf(mb, "a=rtcp-fb:%s ccm fir\r\n", fmt->id);
 	err |= mbuf_printf(mb, "a=rtcp-fb:%s nack\r\n", fmt->id);
@@ -45,11 +48,16 @@ int vie_fmtp_enc(struct mbuf *mb, const struct sdp_format *fmt,
 
 #endif
 
-	err |= mbuf_printf(mb, "a=extmap:3 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\n");
-	
-#if USE_RTP_ROTATION
-	err |= mbuf_printf(mb, "a=extmap:4 urn:3gpp:video-orientation\r\n");
+	abs_time = extmap_lookup(fmtdata->extmap, EXTMAP_ABS_SEND_TIME, offer);
+	if (abs_time) {
+		err |= mbuf_printf(mb, "a=extmap:%s\r\n", abs_time);
+	}
 
+#if USE_RTP_ROTATION
+	rtp_rot = extmap_lookup(fmtdata->extmap, EXTMAP_VIDEO_ORIENTATION, offer);
+	if (rtp_rot) {
+		err |= mbuf_printf(mb, "a=extmap:%s\r\n", rtp_rot);
+	}
 #endif
 
 	return err;
@@ -58,7 +66,8 @@ int vie_fmtp_enc(struct mbuf *mb, const struct sdp_format *fmt,
 int vie_rtx_fmtp_enc(struct mbuf *mb, const struct sdp_format *fmt,
 		     bool offer, void *data)
 {
-	const struct sdp_format *ref = (const struct sdp_format *)data;
+	struct videnc_fmt_data *fmtdata = (struct videnc_fmt_data*) data;
+	const struct sdp_format *ref = fmtdata->ref_fmt;
 	int err = 0;
 	const char *ref_id = ref ? ref->id : "100";
 

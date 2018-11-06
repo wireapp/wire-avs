@@ -201,7 +201,9 @@ public class SoundSource implements MediaSource, OnPreparedListener, OnSeekCompl
         boolean looping = getShouldLoop ( );
         
         this._player.reset();
-          
+
+
+	/*
         if(MediaManager.getInstance(this._context).isWiredHsOn()){
           this._player.setAudioStreamType(AudioManager.STREAM_VOICE_CALL);
           DoLog("Reconfigure to STREAM_VOICE_CALL");
@@ -209,6 +211,11 @@ public class SoundSource implements MediaSource, OnPreparedListener, OnSeekCompl
           this._player.setAudioStreamType(AudioManager.STREAM_RING);
           DoLog("Reconfigure to STREAM_RING");
         }
+	*/
+
+	/* -- Use the stream as indicated by the stream property */	
+	this._player.setAudioStreamType(this._stream);
+	
         try {
           this._player.setDataSource(this._context, this._uri);
         }
@@ -344,7 +351,8 @@ public class SoundSource implements MediaSource, OnPreparedListener, OnSeekCompl
         boolean looping = getShouldLoop ( );
         
         this._player.reset();
-            
+
+	/*
         if(MediaManager.getInstance(this._context).isWiredHsOn()){
           this._player.setAudioStreamType(AudioManager.STREAM_VOICE_CALL);
           DoLog("Reconfigure to STREAM_VOICE_CALL");
@@ -352,6 +360,10 @@ public class SoundSource implements MediaSource, OnPreparedListener, OnSeekCompl
           this._player.setAudioStreamType(AudioManager.STREAM_RING);
           DoLog("Reconfigure to STREAM_RING");
         }
+	*/
+	
+	this._player.setAudioStreamType(this._stream);
+	
         try {
           this._player.setDataSource(this._context, this._uri);
         }

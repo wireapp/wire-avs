@@ -70,7 +70,7 @@ static void cfg_destructor(void *arg)
 	struct config *cfg = arg;
 
 	tmr_cancel(&cfg->tmr);
-	
+	mem_deref(cfg->config.iceserverv);	
 }
 
 
@@ -108,7 +108,6 @@ int config_update(struct config *cfg, int err,
 	struct json_object *jobj;
 	struct json_object *jices;
 	uint32_t ttl = 0;
-	size_t srvc;
 
 	if (!cfg || !conf_json)
 		return EINVAL;
@@ -138,20 +137,20 @@ int config_update(struct config *cfg, int err,
 
 	if (0 == jzon_array(&jices, jobj, "ice_servers")) {
 
-		srvc = ARRAY_SIZE(cfg->config.iceserverv);
+		cfg->config.iceserverv = mem_deref(cfg->config.iceserverv);
 		err = zapi_iceservers_decode(jices,
-					     cfg->config.iceserverv, &srvc);
+					     &cfg->config.iceserverv,
+					     &cfg->config.iceserverc);
 		if (err) {
 			warning("config(%p): failed to decode iceservers(%m)\n",
 				cfg, err);
 			goto out;
 		}
 
-		cfg->config.iceserverc = srvc;
+		info("config(%p): got iceservers: %zu\n",
+		     cfg, cfg->config.iceserverc);
 
-		info("config(%p): got iceservers: %zu\n", cfg, srvc);
-
-		if (!srvc) {
+		if (!cfg->config.iceserverc) {
 			warning("config: got no iceservers!\n");
 			err = ENOENT;
 			goto out;

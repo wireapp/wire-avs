@@ -81,6 +81,8 @@ struct mediaflow_stats {
 typedef void (mediaflow_estab_h)(const char *crypto, const char *codec,
 				 void *arg);
 typedef void (mediaflow_close_h)(int err, void *arg);
+typedef void (mediaflow_stopped_h)(void *arg);
+
 
 typedef void (mediaflow_rtp_state_h)(bool started, bool video_started,
 				     void *arg);
@@ -99,10 +101,13 @@ int mediaflow_alloc(struct mediaflow **mfp, const char *clientid_local,
 		    const struct sa *laddr,
 		    enum media_crypto cryptos,
 		    mediaflow_estab_h *estabh,
+		    mediaflow_stopped_h *stoppedh,
 		    mediaflow_close_h *closeh,
 		    mediaflow_restart_h *restarth,
 		    void *arg);
 
+int mediaflow_add_turn_server(struct mediaflow *mf,
+			      struct zapi_ice_server *turn);
 int mediaflow_set_setup(struct mediaflow *mf, enum media_setup setup);
 bool mediaflow_is_sdp_offerer(const struct mediaflow *mf);
 enum media_setup mediaflow_local_setup(const struct mediaflow *mf);
@@ -224,3 +229,8 @@ int mediaflow_print_ice(struct re_printf *pf, const struct mediaflow *mf);
 
 int mediaflow_set_extcodec(struct mediaflow *mf, void *arg);
 void mediaflow_video_set_disabled(struct mediaflow *mf, bool dis);
+
+int mediaflow_add_turnserver(struct mediaflow *mf,
+			     struct zapi_ice_server *turn);
+int mediaflow_gather_all_turn(struct mediaflow *mf);
+

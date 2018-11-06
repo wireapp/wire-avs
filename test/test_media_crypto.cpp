@@ -243,6 +243,7 @@ static void agent_alloc(struct agent **agp, struct test *test, bool offerer,
 			      ag->dtls, &test->aucodecl, &laddr,
 			      cryptos,
 			      mediaflow_estab_handler,
+			      NULL,
 			      mediaflow_close_handler,
 			      NULL,
 			      ag);

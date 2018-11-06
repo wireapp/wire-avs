@@ -44,4 +44,3 @@ void wcall_i_invoke_incoming_handler(const char *convid,
 				    int should_ring,
 				    void *arg);
 
-

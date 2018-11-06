@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <re.h>
 #include "avs_log.h"
+#include "avs_zapi.h"
 #include "avs_media.h"
 #include "avs_aucodec.h"
 

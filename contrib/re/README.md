@@ -3,7 +3,7 @@ libre README
 
 
 libre is a Generic library for real-time communications with async IO support.
-Copyright (C) 2010 - 2017 Creytiv.com
+Copyright (C) 2010 - 2018 Creytiv.com
 
 
 [![Build Status](https://travis-ci.org/creytiv/re.svg?branch=master)](https://travis-ci.org/creytiv/re)
@@ -67,7 +67,7 @@ the main [website](http://creytiv.com/doxygen/re-dox/html/)
 ### Examples
 
 Coding examples are available from the
-[redemo](http://creytiv.com/pub/redemo-0.4.1.tar.gz) project
+[redemo](http://creytiv.com/pub/redemo-0.5.0.tar.gz) project
 
 
 ## License
@@ -198,6 +198,7 @@ legend:
 * [RFC 6455](https://tools.ietf.org/html/rfc6455) - The WebSocket Protocol
 * [RFC 7159](https://tools.ietf.org/html/rfc7159) - JavaScript Object Notation (JSON)
 * [RFC 7350](https://tools.ietf.org/html/rfc7350) - DTLS as Transport for STUN
+* [RFC 7714](https://tools.ietf.org/html/rfc7714) - AES-GCM Authenticated Encryption in SRTP
 
 
 ## Supported platforms

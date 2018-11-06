@@ -35,8 +35,8 @@
 
 //#define VIE_DEBUG_RTX 1
 
-static const int kVideoRotationRtpExtensionId = 4;
-static const int kAbsSendTimeExtensionId = 3;
+#define EXTMAP_ABS_SEND_TIME "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"
+#define EXTMAP_VIDEO_ORIENTATION "urn:3gpp:video-orientation"
 
 class ViERenderer;
 class ViECaptureRouter;
@@ -106,6 +106,8 @@ struct videnc_state {
 	struct sdp_media *sdpm;
 
 	int pt;
+	int extmap_abstime;
+	int extmap_rotation;
 	
 	const struct resolution_info *curr_res;
 	uint64_t ts_res_changed;
@@ -152,6 +154,8 @@ struct viddec_state {
 	bool packet_received;
 
 	int pt;
+	int extmap_abstime;
+	int extmap_rotation;
 	
 	viddec_err_h *errh;
 	void *arg;

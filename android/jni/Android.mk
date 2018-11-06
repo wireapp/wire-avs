@@ -24,6 +24,7 @@ LOCAL_C_INCLUDES := ../build/android-armv7/include \
 		    ../mediaengine
 
 LOCAL_SRC_FILES := \
+		audio_effect.cc \
 		flow_manager.cc \
 		media_manager.cc \
 		video_renderer.cc
@@ -50,6 +51,7 @@ LOCAL_LDLIBS    += \
 		-lvpx \
 		-lcpufeatures \
 		-lopus \
+		-lOpenSLES \
 		-llog
 
 LOCAL_LDLIBS	+= \

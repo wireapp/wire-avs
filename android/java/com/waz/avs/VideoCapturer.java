@@ -154,12 +154,15 @@ public class VideoCapturer implements PreviewCallback,
 				camera.setPreviewCallback(null);
 				camera.stopPreview();
 				this.started = false;
-				camera.unlock();
+				//camera.unlock();
 				Log.d(TAG, "stopCamera: stopped");
 			}
 			catch(Exception e) {
 				Log.e(TAG, "stopCamera: failed: " + e);
 			}
+			
+			camera.release();
+			camera = null;
 		}
 
 		lock.unlock();
@@ -171,12 +174,15 @@ public class VideoCapturer implements PreviewCallback,
 	    if (camera == null)
 		    return;
 
+	    destroying = true;
+
 	    Runnable r = new Runnable() {
 		@Override
 		public void run() {
 			stopCamera();
 
 			lock.lock();
+			/*
 			try {
 				camera.reconnect();
 				camera.release();
@@ -185,6 +191,7 @@ public class VideoCapturer implements PreviewCallback,
 			catch(IOException ioe) {
 				Log.e(TAG, "destroy: reconnect failed: " + ioe);
 			}
+			*/
 		
 			Log.d(TAG, "destroy: camera released");
 			previewView = null;
@@ -233,35 +240,6 @@ public class VideoCapturer implements PreviewCallback,
 		Runnable r = new Runnable() {
 			@Override
 			public void run() {
-				VideoPreview vp = (VideoPreview)view;
-
-				if (vp == null) {
-					Log.e(TAG, "statCapture failed. No view");
-					return;
-				}
-
-				if (cameraInfo == null) {
-					Log.e(TAG, "statCapture failed. No cameraInfo");
-					return;
-				}
-				
-				int vrot = getViewRotation();
-				Log.d(TAG, "startCapture on main: " + vp + " rot:" + vrot +
-					"facing: " + cameraInfo.facing);
-
-				if (camera != null) {
-					try {
-						camera.setDisplayOrientation(vrot);
-					}
-					catch (RuntimeException e){
-						Log.d(TAG, "startCapture: exception calling " +
-							"setDisplayOrientation: " +
-							e.getMessage());
-
-					}
-				}
-				vp.setVideoOrientation(vrot);
-
 				view.setSurfaceTextureListener(VideoCapturer.this);
 				if (view.isAvailable()) {
 					startCamera(view.getSurfaceTexture());
@@ -363,8 +341,8 @@ public class VideoCapturer implements PreviewCallback,
 
 		if (failed)
 			cameraFailed();
-		
 	}
+
 	private void initCamera(int facing, int w, int h, int fps) {
 		VideoCapturerInfo[] capturers;
 
@@ -499,9 +477,25 @@ public class VideoCapturer implements PreviewCallback,
 			Log.w(TAG, "startCamera: failed to initCamera");
 		}
 		else {
+			VideoPreview vp = (VideoPreview)this.previewView;	
+			int vrot = getViewRotation();
+			
+			Log.d(TAG, "startCamera: " + vp + " rot:" + vrot +
+					"facing: " + cameraInfo.facing);
+
+			try {
+				camera.setDisplayOrientation(vrot);
+			}
+			catch (RuntimeException e){
+				Log.d(TAG, "startCapture: exception calling " +
+				      "setDisplayOrientation: " +
+				      e.getMessage());
+			}
+			vp.setVideoOrientation(vrot);
+
 			try {
 				if (!this.started) {
-					this.camera.reconnect();
+					//this.camera.reconnect();
 					this.camera.setPreviewTexture(surface);
 					this.camera.setPreviewCallback(this);
 					this.camera.startPreview();

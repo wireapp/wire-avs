@@ -981,6 +981,7 @@ public:
 					  conn_handler,
 					  NULL,
 					  media_estab_handler,
+					  NULL,
 					  audio_estab_handler,
 					  datachan_estab_handler,
 					  propsync_handler,
@@ -1015,12 +1016,20 @@ public:
 				continue;
 
 			for (unsigned j=0; j<ARRAY_SIZE(turn_srvv); j++) {
+				struct zapi_ice_server turn;
 
+				re_snprintf(turn.url, sizeof(turn.url),
+					    "turn:%J",
+					    &turn_srvv[j]->addr);
+				re_snprintf(turn.username,
+					    sizeof(turn.username),
+					    "user");
+				re_snprintf(turn.credential,
+					    sizeof(turn.credential),
+					    "pass");
+				
 				err = ecall_add_turnserver(cli->ecall,
-							   &turn_srvv[j]->addr,
-							   IPPROTO_UDP,
-							   false,
-							   "user", "pass");
+							   &turn);
 				ASSERT_EQ(0, err);
 			}
 		}

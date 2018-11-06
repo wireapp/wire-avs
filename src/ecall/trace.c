@@ -20,8 +20,8 @@
 #include <re.h>
 #include "avs_log.h"
 #include "avs_msystem.h"
-#include "avs_media.h"
 #include "avs_zapi.h"
+#include "avs_media.h"
 #include "avs_econn.h"
 #include "avs_econn_fmt.h"
 #include "avs_ecall.h"

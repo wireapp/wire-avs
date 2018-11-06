@@ -88,13 +88,13 @@ const char indices[] = {0, 1, 2, 3};
 	CADisplayLink* _displayLink;
 	BOOL _newFrame;
 	BOOL _firstFrame;
-	CGSize _videoSize;
 #if DBG_BGCOLOR
 	GLfloat _clearClr[4];
 #endif
 }
 
 @synthesize videoSize = _videoSize;
+@synthesize fillRatio = _fillRatio;
 
 + (Class)layerClass
 {
@@ -292,14 +292,22 @@ const char indices[] = {0, 1, 2, 3};
 	CGRect frame = self.frame;
 	GLfloat dw = (GLfloat)frame.size.width;
 	GLfloat dh = (GLfloat)frame.size.height;
-	GLfloat da = dw / dh;
 	
 	GLfloat vw = (GLfloat)_texWidth;
 	GLfloat vh = (GLfloat)_texHeight;
-	GLfloat va = vw / vh;
 
 	GLfloat xscale = 1.0f;
 	GLfloat yscale = 1.0f;
+
+	if (dw == 0.0f || dh == 0.0f ||
+	    _texWidth == 0 || _texHeight == 0) {
+		return;
+	}
+
+	GLfloat da = dw / dh;
+	GLfloat va = vw / vh;
+
+	BOOL fill = _shouldFill;
 
 	// 180 & 270 are double-flipped 0 & 90
 	if (_rotation == 180 || _rotation == 270) {
@@ -312,7 +320,12 @@ const char indices[] = {0, 1, 2, 3};
 		va = 1.0f / va;
 	}
 
-	if (_shouldFill == (da > va)) {
+	if (da / va < _fillRatio &&
+	    va / da < _fillRatio) {
+		fill = YES;
+	}
+	
+	if (fill == (da > va)) {
 		yscale *= da / va;
 	}
 	else {
@@ -520,6 +533,8 @@ out:
 		self.autoresizingMask =
 			UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 		_firstFrame = YES;
+
+		_fillRatio = 0.0f;
 #if DBG_BGCOLOR
 		static int cnt = 0;
 		GLfloat clrs[][4] = {

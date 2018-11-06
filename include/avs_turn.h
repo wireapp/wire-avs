@@ -65,6 +65,9 @@ struct turn_conn {
 	uint64_t ts_turn_req;
 
 	unsigned n_permh;
+
+	struct sa relay_addr;
+	struct sa mapped_addr;
 };
 
 
@@ -99,7 +102,9 @@ enum stun_scheme {
 
 struct stun_uri {
 	enum stun_scheme scheme;
-	struct sa addr;
+	struct sa addr;	
+	char host[512];
+	int port;
 	int proto;
 	bool secure;
 };

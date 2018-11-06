@@ -41,6 +41,8 @@ extern "C" {
 #include "avs_kase.h"
 #include "avs_log.h"
 #include "avs_aucodec.h"
+#include "avs_extmap.h"
+#include "avs_zapi.h"
 #include "avs_media.h"
 #include "avs_msystem.h"
 #include "avs_nevent.h"
@@ -51,7 +53,6 @@ extern "C" {
 #include "avs_turn.h"
 #include "avs_vidcodec.h"
 #include "avs_uuid.h"
-#include "avs_zapi.h"
 #include "avs_ztime.h"
 
 #include "avs_rest.h"

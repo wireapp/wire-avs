@@ -122,40 +122,6 @@ static void wakeup_handler(int id, void *data, void *arg)
 }
 
 
-static int dns_init(struct dnsc **dnscp)
-{
-	struct sa nsv[16];
-	uint32_t nsn, i;
-	int err;
-
-	nsn = ARRAY_SIZE(nsv);
-
-#if TARGET_OS_IPHONE	
-	err = dns_get_servers(NULL, 0, nsv, &nsn);
-#else
-	err = dns_srv_get(NULL, 0, nsv, &nsn);
-#endif
-	if (err) {
-		error("dns srv get: %m\n", err);
-		goto out;
-	}
-
-	err = dnsc_alloc(dnscp, NULL, nsv, nsn);
-	if (err) {
-		error("dnsc alloc: %m\n", err);
-		goto out;
-	}
-
-	info("msystem: DNS Servers: (%u)\n", nsn);
-	for (i=0; i<nsn; i++) {
-		info("dns[%u]:    %J\n", i, &nsv[i]);
-	}
-
- out:
-	return err;
-}
-
-
 static int msystem_init(struct msystem **msysp, const char *msysname,
 			struct msystem_config *config)
 {
@@ -203,6 +169,8 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 	tls_set_verify_client(msys->dtls);
 
 	err = tls_set_srtp(msys->dtls,
+			   "SRTP_AEAD_AES_256_GCM:"
+			   "SRTP_AEAD_AES_128_GCM:"
 			   "SRTP_AES128_CM_SHA1_80:"
 			   "SRTP_AES128_CM_SHA1_32");
 	if (err) {
@@ -254,8 +222,6 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 
 	if (err)
 		goto out;
-
-	dns_init(&msys->dnsc);
 
 	info("msystem: successfully initialized\n");
 

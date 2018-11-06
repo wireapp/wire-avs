@@ -35,6 +35,7 @@
 #include <avs_wcall.h>
 
 #include <avs_vie.h>
+#include <avs_network.h>
 
 #ifdef ANDROID
 #if 0//USE_BREAKPAD
@@ -167,73 +168,7 @@ static void jni_re_enter()
 	}
 }
 
-static void jni_log_handler(uint32_t lve, const char *msg, void *arg)
-{
-#ifdef ANDROID
-	int alp;
-	switch (lve) {
-	case LOG_LEVEL_DEBUG:
-		alp = ANDROID_LOG_DEBUG;
-		break;
-
-	case LOG_LEVEL_INFO:
-		alp = ANDROID_LOG_INFO;
-		break;
-
-	case LOG_LEVEL_WARN:
-		alp = ANDROID_LOG_WARN;
-		break;
-
-	case LOG_LEVEL_ERROR:
-		alp = ANDROID_LOG_ERROR;
-		break;
-	}
-
-#ifdef AVS_LOG_DEBUG
-	__android_log_write(alp, "avs", msg);
-#endif
-#endif
-
-	if (java.log_level > lve)
-		return;
-
-	// XXX Call some SE function to log??
-#ifdef ANDROID
-	{
-		#define LOG_MAX 1024
-                #define min(a, b) ((a) < (b) ? (a) : (b))
-
-		size_t slen = strlen(msg) + 1;
-		if (slen > LOG_MAX) {
-			char *split = (char *)mem_alloc(LOG_MAX+1, NULL);
-			size_t nbytes;
-			size_t pos = 0;
-			
-			do {
-				nbytes = min(slen, LOG_MAX);
-				memcpy(split, msg + pos, nbytes);
-				split[nbytes] = '\0';
-				__android_log_write(alp, "avs", split);
-				slen -= nbytes;
-				pos += nbytes;
-			}
-			while (slen > 0);
-
-			mem_deref(split);
-		}
-		else {
-			__android_log_write(alp, "avs", msg);
-		}
-	}
-#endif
-}
-
  
-static struct log log = {
-	.h = jni_log_handler 
-};
-
-
 static int jni_attach(struct jni_env *je)
 {
 	int res;
@@ -433,7 +368,6 @@ void *flowmgr_thread(void *arg)
 	re_main(NULL);
 	flowmgr_close();
 	avs_close();
-	log_unregister_handler(&log);
 
  out:
 	java.err = err;
@@ -503,7 +437,6 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 	int err = 0;
 
 	log_set_min_level(LOG_LEVEL_DEBUG);
-	//log_register_handler(&log);
 
 	info("jni: init\n");
     
@@ -513,6 +446,8 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 		err = ENOSYS;
 		goto out;
 	}
+
+	dns_init(java.vm);
 
 	cls = env->GetObjectClass(jobj);
 	if (cls == NULL) {
@@ -1515,13 +1450,22 @@ JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_destroyNative
 	lock_rel(java.video.lock);
 }
 
-JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_setShouldFill
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_nativeSetShouldFill
   (JNIEnv *env, jobject jself, jlong obj, jboolean should_fill)
 {
 	struct video_renderer *vr = (struct video_renderer *)((void *)obj);
 	jobject self = (jobject)video_renderer_arg(vr);
 
-	video_renderer_set_should_fill(vr, true);
+	video_renderer_set_should_fill(vr, should_fill);
+}
+
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_nativeSetFillRatio
+  (JNIEnv *env, jobject jself, jlong obj, jfloat fillRatio)
+{
+	struct video_renderer *vr = (struct video_renderer *)((void *)obj);
+	jobject self = (jobject)video_renderer_arg(vr);
+
+	video_renderer_set_fill_ratio(vr, fillRatio);
 }
 
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setFilePath

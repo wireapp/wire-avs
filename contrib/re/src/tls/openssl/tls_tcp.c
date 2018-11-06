@@ -43,11 +43,6 @@ static void destructor(void *arg)
 {
 	struct tls_conn *tc = arg;
 
-	/* NOTE: avoid crash in BIO_METHOD with OpenSSL 1.1.0 */
-	if (tc->ssl) {
-		SSL_set_bio(tc->ssl, NULL, NULL);
-	}
-
 	if (tc->ssl) {
 		int r = SSL_shutdown(tc->ssl);
 		if (r <= 0)

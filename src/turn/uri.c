@@ -107,12 +107,6 @@ int stun_uri_decode(struct stun_uri *stun_uri, const char *str)
 	else
 		port = 3478;
 
-	err = sa_set(&stun_uri->addr, &uri.host, port);
-	if (err) {
-		warning("invalid stun address (%r)\n", &uri.host);
-		return err;
-	}
-
 	if (0 == re_regex(str, strlen(str), "?transport=[a-z]+", &transp)) {
 
 		if (0 == pl_strcasecmp(&transp, "udp"))
@@ -129,5 +123,12 @@ int stun_uri_decode(struct stun_uri *stun_uri, const char *str)
 		stun_uri->proto = IPPROTO_UDP;
 	}
 
+	pl_strcpy(&uri.host, stun_uri->host, sizeof(stun_uri->host));
+
+	stun_uri->port = port;
+	err = sa_set(&stun_uri->addr, &uri.host, port);
+	if (err)
+		return err;
+	
 	return 0;
 }

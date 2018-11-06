@@ -124,7 +124,7 @@ struct econn_message {
 		} devpair_accept;
 		
 		struct devpair_publish {
-			struct zapi_ice_server turnv[8];
+			struct zapi_ice_server *turnv;
 			size_t turnc;
 			char *sdp;
 			char *username;

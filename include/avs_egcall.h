@@ -55,6 +55,7 @@ int egcall_alloc(struct egcall **egcallp,
 		 egcall_start_h *starth,
 		 egcall_answer_h *answerh,
 		 ecall_media_estab_h *media_estabh,
+		 ecall_media_stopped_h *media_stoppedh,
 		 ecall_audio_estab_h *audio_estabh,
 		 ecall_datachan_estab_h *datachan_estabh,
 		 egcall_group_changed_h *grp_chgh,
@@ -65,11 +66,8 @@ int egcall_alloc(struct egcall **egcallp,
 		 ecall_audio_cbr_change_h *acbrh,
 		 void *arg);
 
-int egcall_set_turnserver(struct egcall *egcall,
-			  const struct sa *addr,
-			  int proto, bool secure,
-			  const char *username,
-			  const char *credential);
+int egcall_add_turnserver(struct egcall *egcall,
+			  struct zapi_ice_server *srv);
 
 int egcall_start(struct egcall *egcall, int call_type, bool audio_cbr);
 
@@ -93,5 +91,10 @@ struct wcall_members;
 int egcall_get_members(struct wcall_members **mmp, struct egcall *egcall);
 
 int egcall_debug(struct re_printf *pf, void *arg);
+
+int egcall_set_quality_handler(struct egcall *egcall,
+			       ecall_quality_h *netqh,
+			       uint64_t interval,
+			       void *arg);
 
 

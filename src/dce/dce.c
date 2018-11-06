@@ -1830,9 +1830,11 @@ int dce_send(struct dce *dce, struct dce_channel *ch, const void *data, size_t l
 
 	assert(DCE_MAGIC == dce->magic);
     
-	if (ch->id >= NUMBER_OF_CHANNELS || ch->id < 0)
+	if (ch->id >= NUMBER_OF_CHANNELS || ch->id < 0) {
+		warning("dce: send: invalid channel %d\n", ch->id);
 		return ERANGE;
-	
+	}
+
 	lock_peer_connection(&dce->pc);
 	dce->snd_dry_event = false;
 	int ret = send_user_message(&dce->pc,

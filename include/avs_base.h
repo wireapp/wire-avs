@@ -30,8 +30,8 @@ int  avs_init(uint64_t flags);
 int  avs_start(const char *token);
 void avs_close(void);
 uint64_t  avs_get_flags(void);
-const char *avs_get_token(void);
 void avs_print_versions(void);
+void avs_print_network(void);
 
 
 /* Special error codes for AVS */

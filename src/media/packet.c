@@ -17,6 +17,7 @@
 */
 
 #include <re.h>
+#include "avs_zapi.h"
 #include "avs_media.h"
 #include "priv_mediaflow.h"
 

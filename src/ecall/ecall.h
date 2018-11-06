@@ -136,16 +136,6 @@ struct ecall {
 		enum async_sdp async;
 	} sdp;
 
-	struct turn_server {
-		struct sa srv;
-		int proto;
-		bool secure;
-		char *user;
-		char *pass;
-	} turnv[MAX_TURN_SERVERS];
-
-	size_t turnc;
-
 	struct econn *econn_pending;
 	bool answered;
 	bool update;
@@ -161,6 +151,7 @@ struct ecall {
 	ecall_answer_h *answerh;
 	ecall_transp_send_h *sendh;
 	ecall_media_estab_h *media_estabh;
+	ecall_media_stopped_h *media_stoppedh;
 	ecall_audio_estab_h *audio_estabh;
 	ecall_datachan_estab_h *datachan_estabh;
 	ecall_propsync_h *propsynch;
@@ -190,6 +181,18 @@ struct ecall {
 	struct {
 		int cbr_state;
 	} audio;
+
+	struct {
+		struct tmr tmr;
+		ecall_quality_h *netqh;
+		uint64_t interval;
+		void *arg;
+		
+	} quality;
+
+	struct zapi_ice_server turnv[MAX_TURN_SERVERS];
+	size_t turnc;
+	bool turn_added;
 };
 
 

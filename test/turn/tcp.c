@@ -87,8 +87,8 @@ static void tcp_estab(void *arg)
 	struct conn *conn = arg;
 
 	if (conn->tlsc) {
-		re_printf("server:   TLS established with cipher %s\n",
-			  tls_cipher_name(conn->tlsc));
+		info("tcp: TLS established with cipher %s\n",
+		     tls_cipher_name(conn->tlsc));
 	}
 }
 

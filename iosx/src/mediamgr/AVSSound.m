@@ -48,17 +48,6 @@
 }
 
 
-- (BOOL)looping
-{
-	return self.player.numberOfLoops < 0;	
-}
-
-- (void)setLooping:(BOOL)looping
-{
-	self.player.numberOfLoops = looping ? -1 : 0;
-}
-
-
 - (BOOL)playbackMuted
 {
     return self.muted;
@@ -77,19 +66,22 @@
     return nil;
 }
 
-- (instancetype)initWithName:(NSString *)name andAudioPlayer:(AVAudioPlayer *)player
+- (instancetype)initWithName:(NSString *)name
+		      andUrl:(NSURL *)url
+		     looping:(BOOL)loop
 {
-    self = [super init];
+	self = [super init];
 
-    if ( self ) {
-        self.name = name;
-        self.player = player;
- 
-        player.delegate = self;
-	[player prepareToPlay];
-    }
+	if (self) {
+		self.name = name;
+		self.url = url;
+		_looping = loop;
 
-    return name && player ? self : nil;
+		info("AVSSound: initWithName: %s loop=%d\n",
+		     [self.name UTF8String], _looping);
+	}
+
+	return self;
 }
 
 
@@ -97,6 +89,22 @@
 {
 	info("AVSSound: play %s\n", [self.name UTF8String]);
 	
+	if (self.player == nil) {
+		dispatch_sync(dispatch_get_main_queue(), ^{		
+		        self.player = [[AVAudioPlayer alloc]
+						    initWithContentsOfURL:_url
+								    error:nil];
+			if (self.player == nil) {
+				warning("AVSSound: cannot alloc player\n");
+				return;
+			}
+
+			self.player.delegate = self;
+			self.player.numberOfLoops = self.looping ? -1 : 0;
+			[self.player prepareToPlay];
+		});
+	}
+
 	if (![self.delegate canStartPlayingMedia:self])
 		return;
 	
@@ -123,7 +131,10 @@
 {
 	int n;
 	
-	info("AVSSound: stop: %s\n", [_name UTF8String]);
+	info("AVSSound: stop: %s player=%p\n", [_name UTF8String], self.player);
+
+	if (self.player == nil)
+		return;
 			
 	dispatch_sync(dispatch_get_main_queue(), ^{
 		[self.player stop];
@@ -143,12 +154,18 @@
 
 - (void)pause
 {
+	if (self.player == nil)
+		return;
+	
 	[self.player pause];
 	[self.delegate didPausePlayingMedia:self];
 }
 
 - (void)resume
 {
+	if (self.player == nil)
+		return;
+	
         [self.player play];
 	[self.delegate didResumePlayingMedia:self];
 }
@@ -158,7 +175,7 @@
 {
 	AVAudioPlayer *player;
 	player = [[AVAudioPlayer alloc]
-				 initWithContentsOfURL:self.player.url
+				 initWithContentsOfURL:self.url
 						 error:nil];
 	player.delegate = self;
 	player.numberOfLoops = self.player.numberOfLoops;
@@ -170,7 +187,10 @@
 
 - (void)updateVolume
 {
-    self.player.volume = self.muted ? 0 : self.level;
+	if (self.player == nil)
+		return;
+
+	self.player.volume = self.muted ? 0 : self.level;
 }
 
 

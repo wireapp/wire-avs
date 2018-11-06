@@ -169,11 +169,19 @@ JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_destroyNative
 
 /*
  * Class:     com_waz_avs_VideoRenderer
- * Method:    setShouldFill
+ * Method:    nativeSetShouldFill
  * Signature: (JZ)V
  */
-JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_setShouldFill
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_nativeSetShouldFill
   (JNIEnv *, jobject, jlong, jboolean);
+
+/*
+ * Class:     com_waz_avs_VideoRenderer
+ * Method:    nativeSetFillRatio
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_nativeSetFillRatio
+  (JNIEnv *, jobject, jlong, jfloat);
 
 #ifdef __cplusplus
 }

@@ -65,16 +65,20 @@ static void turnc_handler(int err, uint16_t scode, const char *reason,
 	(void)mapped_addr;  /* NOTE: TCP-mapped address unused */
 
 	if (err) {
-		warning("turnconn: [allocated=%d] TURN-%s"
+		warning("turnconn: [allocated=%d] TURN-%s %J"
 			" client error (%m)\n",
-			tc->turn_allocated, turnconn_proto_name(tc),
+			tc->turn_allocated,
+			turnconn_proto_name(tc),
+			&tc->turn_srv,
 			err);
 		goto error;
 	}
 	if (scode) {
-		warning("turnconn: [allocated=%d] TURN client error"
+		warning("turnconn: [allocated=%d] TURN-%s %J client error"
 			" on method '%s' (%u %s)\n",
 			tc->turn_allocated,
+			turnconn_proto_name(tc),
+			&tc->turn_srv,
 			stun_method_name(stun_msg_method(msg)),
 			scode, reason);
 
@@ -100,6 +104,9 @@ static void turnc_handler(int err, uint16_t scode, const char *reason,
 	     (int)(tc->ts_turn_resp - tc->ts_turn_req),
 	     relay_addr, mapped_addr,
 	     attr ? attr->v.software : "");
+
+	tc->relay_addr = *relay_addr;
+	tc->mapped_addr = *mapped_addr;
 
 
 	/* Start a STUN keepalive timer from the client to
@@ -275,15 +282,16 @@ static void tcp_recv(struct mbuf *mb, void *arg)
 
 static void tcp_close(int err, void *arg)
 {
-	struct turn_conn *tl = arg;
+	struct turn_conn *tc = arg;
 
-	info("turnconn: turn connection closed (%m)\n", err);
+	info("turnconn(%p): TURN-%s connection: %J closed (%m)\n",
+	     tc, turnconn_proto_name(tc), &tc->turn_srv, err);
 
-	tl->turn_allocated = false;
-	tl->turnc = mem_deref(tl->turnc);
+	tc->turn_allocated = false;
+	tc->turnc = mem_deref(tc->turnc);
 
-	if (tl->errorh)
-		tl->errorh(err ? err : EPROTO, tl->arg);
+	if (tc->errorh)
+		tc->errorh(err ? err : EPROTO, tc->arg);
 }
 
 
@@ -325,7 +333,7 @@ int turnconn_alloc(struct turn_conn **connp, struct list *connl,
 		return EINVAL;
 
 	if (layer_stun > layer_turn) {
-		warning("turn: stun layer (%d) higher thant turn layer (%d)\n",
+		warning("turn: stun layer (%d) higher than turn layer (%d)\n",
 			layer_stun, layer_turn);
 	}
 
@@ -381,7 +389,7 @@ int turnconn_alloc(struct turn_conn **connp, struct list *connl,
 			break;
 
 		default:
-			warning("mediaflow: invalid af in laddr sdp\n");
+			warning("turnconn: invalid af in laddr sdp\n");
 			err = EAFNOSUPPORT;
 			goto out;
 		}
@@ -447,8 +455,8 @@ int turnconn_alloc(struct turn_conn **connp, struct list *connl,
 
 	tc->ts_turn_req = tmr_jiffies();
 
-	debug("turnconn: alloc: srv=%J\n",
-	      turn_srv);
+	debug("turnconn: alloc: TURN-%s srv=%J (%s/%s)\n",
+	      turnconn_proto_name(tc), turn_srv, username, password);
 
 	list_append(connl, &tc->le, tc);
 
@@ -620,12 +628,15 @@ int turnconn_debug(struct re_printf *pf, const struct turn_conn *conn)
 	}
 
 	err |= re_hprintf(pf,
-			  "...[%c] delay=%3ums af=%s  proto=%s srv=%J"
+			  "...[%c] delay=%3ums af=%s  proto=%s srv=%J(%J/%J)"
 			  "  turnc=<%p>  (%d ms)\n",
 			  conn->turn_allocated ? 'A' : ' ',
 			  conn->delay,
 			  net_af2name(conn->af),
-			  turnconn_proto_name(conn), &conn->turn_srv,
+			  turnconn_proto_name(conn),
+			  &conn->turn_srv,
+			  &conn->relay_addr,
+			  &conn->mapped_addr,
 			  conn->turnc,
 			  alloc_time);
 

@@ -96,6 +96,8 @@ int avs_init(uint64_t flags)
 
 	avs_print_versions();
 
+	avs_print_network();
+
 	return 0;
 }
 
@@ -133,12 +135,6 @@ uint64_t avs_get_flags(void)
 }
 
 
-const char *avs_get_token(void)
-{
-	return base.token;
-}
-
-
 void avs_print_versions(void)
 {
 	info("init: avs:      %s\n", avs_version_str());
@@ -147,4 +143,27 @@ void avs_print_versions(void)
 	     SSLeay_version(SSLEAY_VERSION),
 	     SSLeay_version(SSLEAY_PLATFORM));
 	info("init: sodium:   %s\n", sodium_version_string());
+}
+
+
+static bool ifaddr_handler(const char *ifname, const struct sa *sa,
+			   void *arg)
+{
+	char buf[256] = "???";
+
+	net_if_getname(buf, sizeof(buf), sa_af(sa), sa);
+
+	info("init: interface: %-8s    %-26j  resolved='%s'\n", ifname, sa, buf);
+
+	return false;
+}
+
+
+void avs_print_network(void)
+{
+	info("init: network info:\n");
+
+	info("init: Interfaces:\n");
+	net_if_apply(ifaddr_handler, 0);
+	info("init\n");
 }

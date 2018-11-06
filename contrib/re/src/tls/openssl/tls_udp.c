@@ -426,9 +426,7 @@ static void conn_recv(struct tls_conn *tc, struct mbuf *mb)
 		if (n <= 0) {
 			const int ssl_err = SSL_get_error(tc->ssl, n);
 
-			if (SSL_ERROR_SYSCALL != ssl_err) {
-				ERR_clear_error();
-			}
+			ERR_clear_error();
 
 			switch (ssl_err) {
 
@@ -437,14 +435,6 @@ static void conn_recv(struct tls_conn *tc, struct mbuf *mb)
 
 			case SSL_ERROR_ZERO_RETURN:
 				conn_close(tc, ECONNRESET);
-				return;
-
-			case SSL_ERROR_SYSCALL:
-				err = errno;
-				DEBUG_WARNING("read error: SYSCALL (%m)\n",
-					      err);
-				tls_flush_error();
-				conn_close(tc, err ? err : EPROTO);
 				return;
 
 			default:

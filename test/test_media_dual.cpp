@@ -346,8 +346,8 @@ static void agent_alloc(struct agent **agp, MediaDual *fix, bool offerer,
 	err = mediaflow_alloc(&ag->mf, name,
 			      ag->dtls, &fix->aucodecl, &laddr,
 			      CRYPTO_DTLS_SRTP,
-
 			      mediaflow_estab_handler,
+			      NULL,
 			      mediaflow_close_handler,
 			      NULL,
 			      ag);

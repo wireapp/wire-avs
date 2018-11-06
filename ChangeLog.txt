@@ -1,6 +1,51 @@
 ChangeLog for AVS -- latest on top!
 
 ==============================================================================
+AVS Release 4.6
+
+Date:	    26. July 2018
+GIT:	    https://github.com/wearezeta/avs/tree/release-4.6
+Android:    Android NDK r14b
+iOS:	    iOS SDK 11.0
+OSX:	    MacOS SDK 10.13
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:        - Enable DNS lookup for TURN configurations (fixes IPv6 issues)
+		- Use TURN via TCP or TLS (requires calls/config/v2 BE endpoint)
+		- Bug fixes:
+		- iOS: AUDIO-1560
+
+Hotfixes:
+
+Aug 03, 2018    - Patched security issue in VP8
+                - Android: Fixed AUDIO-1486
+                - iOS: Crash fix when no outputs were available
+
+==============================================================================
+AVS Release 4.5
+
+Date:	    20. June 2018
+GIT:	    https://github.com/wearezeta/avs/tree/release-4.5
+Android:    Android NDK r14b
+iOS:	    iOS SDK 11.0
+OSX:	    MacOS SDK 10.13
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:        - Resolve TURN hostnames for both IPv4 and IPv6
+		- Add support for AES-GCM
+		- Add Netprobe functionality
+		- Bug fixes:
+			- Fix some incompatibilities with webapp
+			- Audio routing fixes
+			- More bug fixes
+
+Hotfixes:
+
+Jul 10, 2018	- Android: Fixes AUDIO-1512
+		- Android: Fixes AUDIO-1559
+		- Fixes logging issue
+
+==============================================================================
 AVS Release 4.4
 
 Date:	    27. April 2018

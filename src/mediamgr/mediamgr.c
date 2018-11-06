@@ -489,13 +489,19 @@ static void incall_action(struct mm *mm)
 }
 
 
-static void handle_incall(struct mm *mm)
+static void handle_incall(struct mm *mm, bool hold)
 {
-	info("mediamgr: handle_incall: call_state=%s sys_state=%s\n",
-	     mmstate_name(mm->call_state), mm_sys_state_name(mm->sys_state));
+	info("mediamgr: handle_incall: call_state=%s sys_state=%s hold=%d\n",
+	     mmstate_name(mm->call_state), mm_sys_state_name(mm->sys_state),
+	     hold);
 
 	if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
 		mm->router.prefer_loudspeaker = true;
+
+	if (hold) {
+		enter_call(mm);
+		return;
+	}
 	
 	switch(mm->sys_state) {
 	case MM_SYS_STATE_INCALL:
@@ -830,6 +836,11 @@ static void enter_call(struct mm *mm)
 		mm_platform_enter_call();
 		break;
 
+	case MM_SYS_STATE_ENTERING_CALL:
+	case MM_SYS_STATE_INCALL:
+		mm_platform_enter_call();
+		break;
+		
 	default:
 		break;
 	}
@@ -1250,6 +1261,17 @@ static void sys_entered_call_handler(struct mm *mm)
 	info("mediamgr: sys_entered_call: sys_state=%s call_state=%s\n",
 	     mm_sys_state_name(mm->sys_state), mmstate_name(mm->call_state));
 
+	if (mm->sys_state == MM_SYS_STATE_INCALL) {
+		if (mm->call_state == MEDIAMGR_STATE_INCALL
+		 || mm->call_state == MEDIAMGR_STATE_INVIDEOCALL) {
+			info("mediamgr: sys_entered call: incall aio=%p\n",
+			     mm->aio);
+			if (NULL == mm->aio)
+				incall_action(mm);
+			return;
+		}
+	}
+		
 	if (mm->sys_state == MM_SYS_STATE_INCALL
 	    && mm->call_state != MEDIAMGR_STATE_RESUME) {		
 		info("mediamgr: already INCALL and not resuming\n");
@@ -1262,7 +1284,7 @@ static void sys_entered_call_handler(struct mm *mm)
 	}
 
 	set_sys_state(mm, MM_SYS_STATE_INCALL);
-	
+
 	switch (mm->call_state) {
 	case MEDIAMGR_STATE_OUTGOING_AUDIO_CALL:
 		play_sound(mm, "ringing_from_me", false, true);
@@ -1306,10 +1328,16 @@ static void sys_left_call_handler(struct mm *mm)
 	info("mediamgr: sys_left_call: call_state=%s sys_state=%s\n",
 	     mmstate_name(mm->call_state), mm_sys_state_name(mm->sys_state));
 
-	set_sys_state(mm, MM_SYS_STATE_NORMAL);
-	if (mm->call_state == MEDIAMGR_STATE_NORMAL) {
-		mm->router.prefer_loudspeaker = false;
-		update_route(mm, MM_DEVICE_CHANGED);
+	if (mm->sys_state == MM_SYS_STATE_ENTERING_CALL) {
+		info("mediamgr: sys_left_call: ignoring since we are "
+		     "entering call\n");
+	}
+	else {
+		set_sys_state(mm, MM_SYS_STATE_NORMAL);
+		if (mm->call_state == MEDIAMGR_STATE_NORMAL) {
+			mm->router.prefer_loudspeaker = false;
+			update_route(mm, MM_DEVICE_CHANGED);
+		}
 	}
 }
 
@@ -1432,28 +1460,56 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 		break;
 
 	case MEDIAMGR_STATE_OUTGOING_AUDIO_CALL:
-		if (old_state == MEDIAMGR_STATE_NORMAL) {
+		switch(old_state) {
+		case MEDIAMGR_STATE_NORMAL:
 			set_state(mm, new_state);
 			enter_call(mm);
-		}
-		else if (old_state == MEDIAMGR_STATE_RESUME) {
+			break;
+
+		case MEDIAMGR_STATE_RESUME:
 			mm->hold_state = MEDIAMGR_STATE_OUTGOING_AUDIO_CALL;
 			enter_call(mm);
+			break;
+
+		case MEDIAMGR_STATE_HOLD:
+			if (mm->sys_state == MM_SYS_STATE_INCALL)
+				play_sound(mm, "ringing_from_me", false, true);
+			break;
+
+		default:
+			break;
+		}
+		break;
+				
+	case MEDIAMGR_STATE_OUTGOING_VIDEO_CALL:
+		mm->router.prefer_loudspeaker = true;
+		switch(old_state) {
+		case MEDIAMGR_STATE_NORMAL:
+			set_state(mm, new_state);
+			enter_call(mm);
+			break;
+			
+		case MEDIAMGR_STATE_RESUME:
+			mm->hold_state = MEDIAMGR_STATE_OUTGOING_VIDEO_CALL;
+			enter_call(mm);
+			break;
+
+		case MEDIAMGR_STATE_HOLD:
+			if (mm->sys_state == MM_SYS_STATE_INCALL) {
+				if (!mm->router.bt_device_is_connected
+				    && !mm->router.wired_hs_is_connected) {
+					enable_speaker(mm, true);
+				}
+				play_sound(mm, "ringing_from_me_video",
+					   false, true);
+			}
+			break;
+
+		default:
+			break;
 		}
 		break;
 
-	case MEDIAMGR_STATE_OUTGOING_VIDEO_CALL:
-		mm->router.prefer_loudspeaker = true;
-		if (old_state == MEDIAMGR_STATE_NORMAL) {
-			set_state(mm, new_state);
-			enter_call(mm);
-		}
-		else if (old_state == MEDIAMGR_STATE_RESUME) {
-			mm->hold_state = MEDIAMGR_STATE_OUTGOING_VIDEO_CALL;
-			enter_call(mm);
-		}
-		break;
-		
 	case MEDIAMGR_STATE_INCOMING_AUDIO_CALL:
 		if (old_state == MEDIAMGR_STATE_NORMAL) {
 			set_state(mm, new_state);
@@ -1487,7 +1543,7 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 				fire_callback(mm);
 		}
 		else {
-			handle_incall(mm);
+			handle_incall(mm, old_state == MEDIAMGR_STATE_HOLD);
 		}
 		break;
 
@@ -1740,12 +1796,8 @@ out:
 
 void mediamgr_sys_entered_call(struct mm *mm)
 {
-	if (mm->sys_state == MM_SYS_STATE_INCALL) {
-		info("mediamgr: sys_entered_call already in-call\n");
-		return;
-	}
-	else
-		info("mediamgr: posting entered_call\n");
+	info("mediamgr: posting entered_call\n");
+
 	mediamgr_post_media_cmd(mm, MM_MARSHAL_SYS_ENTERED_CALL, NULL);
 }
 

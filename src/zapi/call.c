@@ -62,11 +62,13 @@ int zapi_iceservers_encode(struct json_object *jobj,
 
 
 int zapi_iceservers_decode(struct json_object *jarr,
-			   struct zapi_ice_server *srvv, size_t *srvc)
+			   struct zapi_ice_server **srvvp, size_t *srvc)
 {
+	struct zapi_ice_server *srvv;
 	int i, n;
+	int err = 0;
 
-	if (!jarr || !srvv || !srvc || !*srvc)
+	if (!jarr || !srvvp || !srvc)
 		return EINVAL;
 
 	if (!jzon_is_array(jarr)) {
@@ -74,7 +76,8 @@ int zapi_iceservers_decode(struct json_object *jarr,
 		return EINVAL;
 	}
 
-	n = min( json_object_array_length(jarr), (int)*srvc);
+	n = json_object_array_length(jarr);
+	srvv = mem_zalloc(n * sizeof(*srvv), NULL);
 
 	for (i = 0; i < n; ++i) {
 		struct json_object *jice;
@@ -85,7 +88,8 @@ int zapi_iceservers_decode(struct json_object *jarr,
 		jice = json_object_array_get_idx(jarr, i);
 		if (!jice) {
 			warning("zapi: ice_servers[%d] is missing\n", i);
-			return ENOENT;
+			err = ENOENT;
+			goto out;
 		}
 
 		if (0 == jzon_array(&urls_arr, jice, "urls")) {
@@ -107,8 +111,8 @@ int zapi_iceservers_decode(struct json_object *jarr,
 		if (!url) {
 			warning("zapi: ice_servers[%d] is missing"
 				" url\n", i);
-			return EPROTO;
-
+			err = EPROTO;
+			goto out;
 		}
 
 		str_ncpy(srv->url, url, sizeof(srv->url));
@@ -116,7 +120,13 @@ int zapi_iceservers_decode(struct json_object *jarr,
 		str_ncpy(srv->credential, credential, sizeof(srv->credential));
 	}
 
-	*srvc = i;
+ out:
+	if (err)
+		mem_deref(srvv);
+	else {
+		*srvvp = srvv;
+		*srvc = n;
+	}
 
-	return 0;
+	return err;
 }

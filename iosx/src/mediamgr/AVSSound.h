@@ -23,8 +23,9 @@
 
 
 @interface AVSSound : NSObject <AVAudioPlayerDelegate, AVSMedia>
-
-- (instancetype)initWithName:(NSString *)name andAudioPlayer:(AVAudioPlayer *)player;
+- (instancetype)initWithName:(NSString *)name
+	              andUrl:(NSURL *)url
+	             looping:(BOOL)loop;
 
 - (void)play;
 - (void)stop;
@@ -35,6 +36,7 @@
 - (void)reset;
 
 @property (nonatomic, copy) NSString *name;
+@property (nonatomic, copy) NSURL *url;
 
 @property (nonatomic, weak) id<AVSMediaDelegate> delegate;
 

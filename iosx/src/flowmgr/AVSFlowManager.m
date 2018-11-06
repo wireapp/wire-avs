@@ -904,7 +904,6 @@ out:
 - (void)attachVideoView:(UIView *)view
 {
 	[_viewLock lock];
-	[_videoViews removeAllObjects];
 	[_videoViews addObject: view];
 	[_viewLock unlock];
 }
@@ -921,14 +920,26 @@ out:
 	BOOL sizeChanged = NO;
 	
 #if TARGET_OS_IPHONE
+	char userid_anon[ANON_ID_LEN];
+	BOOL found = NO;
+
 	[_viewLock lock];
 	for (unsigned int v = 0; v < _videoViews.count; v++) {
 		AVSVideoView *view = [_videoViews objectAtIndex: v];
 
-		sizeChanged = [view handleFrame:frame];
-		break;
+		if ([view.userid isEqualToString: userid]) {
+			sizeChanged |= [view handleFrame:frame];
+			found = YES;
+		}
 	}
 	[_viewLock unlock];
+
+	if (!found) {
+		warning("flowmgr: render_frame couldnt find renderer for frame "
+			"belonging to %s\n",
+			anon_id(userid_anon, [userid UTF8String]));
+	}
+
 #endif
 
 	return sizeChanged;

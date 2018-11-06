@@ -145,7 +145,7 @@ int zapi_iceservers_encode(struct json_object *jobj,
 			   const struct zapi_ice_server *srvv,
 			   size_t srvc);
 int zapi_iceservers_decode(struct json_object *jobj,
-			   struct zapi_ice_server *srvv, size_t *srvc);
+			   struct zapi_ice_server **srvv, size_t *srvc);
 
 
 /************* Assets *******************************************************/

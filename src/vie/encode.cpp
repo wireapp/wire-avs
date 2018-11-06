@@ -132,22 +132,20 @@ static void ves_destructor(void *arg)
 	ves->send_state = FLOWMGR_VIDEO_SEND_NONE;
 }
 
-static bool check_rotation_attr(const char *name, const char *value, void *arg){
-	if (0 == re_regex(value, strlen(value), "urn:3gpp:video-orientation")){
-		return true;
-		} else{
-		return false;
+static bool get_extmap_ids(const char *name, const char *value, void *arg)
+{
+	struct videnc_state *ves = (struct videnc_state*)arg;
+	if (0 == re_regex(value, strlen(value), EXTMAP_VIDEO_ORIENTATION)) {
+		ves->extmap_rotation = atoi(value);
 	}
+	if (0 == re_regex(value, strlen(value), EXTMAP_ABS_SEND_TIME)) {
+		ves->extmap_abstime = atoi(value);
+	}
+	return false;
 }
 
-static bool sdp_has_rtp_rotation(struct videnc_state *ves){
-	const char *rot;
-	rot = sdp_media_rattr_apply(ves->sdpm, "extmap", check_rotation_attr, NULL);
-
-	return rot ? true : false;
-}
-
-static int32_t sdp_get_max_bandwidth(struct videnc_state *ves){
+static int32_t sdp_get_max_bandwidth(struct videnc_state *ves)
+{
 	int32_t bw = sdp_media_rbandwidth(ves->sdpm, SDP_BANDWIDTH_AS);
 
 	
@@ -257,8 +255,9 @@ static int vie_capture_start_int(struct videnc_state *ves, bool group_mode)
 	if (!ves || !vie)
 		return EINVAL;
 
+	sdp_media_rattr_apply(ves->sdpm, "extmap", get_extmap_ids, ves);
 #if USE_RTP_ROTATION
-	ves->rtp_rotation = sdp_has_rtp_rotation(ves);
+	ves->rtp_rotation = ves->extmap_rotation > 0;
 #else
 	ves->rtp_rotation = false;
 #endif
@@ -311,13 +310,15 @@ static int vie_capture_start_int(struct videnc_state *ves, bool group_mode)
 	vie->stats_rx.rtcp.ssrc = ves->prm.local_ssrcv[0];
 	vie->stats_rx.rtcp.bitrate_limit = 0;
 
-	send_config.rtp.extensions.push_back(
-		webrtc::RtpExtension(webrtc::RtpExtension::kAbsSendTime,
-		kAbsSendTimeExtensionId));
+	if (ves->extmap_abstime > 0) {
+		send_config.rtp.extensions.push_back(
+			webrtc::RtpExtension(webrtc::RtpExtension::kAbsSendTime,
+			ves->extmap_abstime));
+	}
 	if (ves->rtp_rotation) {
 		send_config.rtp.extensions.push_back(
 			webrtc::RtpExtension(webrtc::RtpExtension::kVideoRotation,
-			kVideoRotationRtpExtensionId));
+			ves->extmap_rotation));
 	}
 
 	vie->encoder = webrtc::VideoEncoder::Create(webrtc::VideoEncoder::kVp8);

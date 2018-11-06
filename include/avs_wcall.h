@@ -51,7 +51,8 @@ typedef void (wcall_ready_h)(int version, void *arg);
 typedef int (wcall_send_h)(void *ctx, const char *convid,
 			   const char *userid_self, const char *clientid_self,
 			   const char *userid_dest, const char *clientid_dest,
-			   const uint8_t *data, size_t len, int transient /*bool*/,
+			   const uint8_t *data, size_t len,
+			   int transient /*bool*/,
 			   void *arg);
 
 /* Incoming call */
@@ -64,6 +65,18 @@ typedef void (wcall_incoming_h)(const char *convid, uint32_t msg_time,
 typedef void (wcall_missed_h)(const char *convid, uint32_t msg_time,
 			      const char *userid, int video_call /*bool*/,
 			      void *arg);
+
+/* Network quality info */
+#define WCALL_QUALITY_NORMAL 1
+#define WCALL_QUALITY_MEDIUM 2
+#define WCALL_QUALITY_POOR   3
+typedef void (wcall_network_quality_h)(const char *convid,
+				       const char *userid,
+				       int quality, /*  WCALL_QUALITY_ */
+				       int rtt, /* round trip time in ms */
+				       int uploss, /* upstream pkt loss % */
+				       int downloss, /* dnstream pkt loss % */
+				       void *arg); 
 
 
 /**
@@ -91,6 +104,10 @@ typedef void (wcall_estab_h)(const char *convid,
 
 typedef void (wcall_group_changed_h)(const char *convid, void *arg);
 
+/* All media has been stopped */
+typedef void (wcall_media_stopped_h)(const char *convid, void *arg);
+	
+	
 /* Data channel established */
 typedef void (wcall_data_chan_estab_h)(const char *convid,
 				       const char *userid, void *arg);
@@ -129,10 +146,11 @@ typedef void (wcall_metrics_h)(const char *convid,
 typedef void (wcall_log_h)(int level, const char *msg, void *arg);
     
 /* Video receive state */
-#define	WCALL_VIDEO_STATE_STOPPED  0
-#define	WCALL_VIDEO_STATE_STARTED  1
-#define	WCALL_VIDEO_STATE_BAD_CONN 2
-#define	WCALL_VIDEO_STATE_PAUSED   3
+#define	WCALL_VIDEO_STATE_STOPPED     0
+#define	WCALL_VIDEO_STATE_STARTED     1
+#define	WCALL_VIDEO_STATE_BAD_CONN    2
+#define	WCALL_VIDEO_STATE_PAUSED      3
+#define	WCALL_VIDEO_STATE_SCREENSHARE 4
 
 /**
  * Callback used to inform user that received video has started or stopped
@@ -254,6 +272,8 @@ int wcall_reject(void *wuser, const char *convid);
 
 int wcall_is_video_call(void *wuser, const char *convid /*bool*/);
 
+void wcall_set_media_stopped_handler(void *wuser,
+				     wcall_media_stopped_h *mstoph);
 void wcall_set_data_chan_estab_handler(void *wuser,
 				       wcall_data_chan_estab_h *dcestabh);
 
@@ -265,6 +285,11 @@ void wcall_network_changed(void *wuser);
 
 void wcall_set_group_changed_handler(void *wuser, wcall_group_changed_h *chgh,
 				     void *arg);
+
+int wcall_set_network_quality_handler(void *wuser,
+				      wcall_network_quality_h *netqh,
+				      int interval, /* in s */
+				      void *arg);
 
 void wcall_set_log_handler(wcall_log_h *logh, void *arg);
 
@@ -324,6 +349,21 @@ struct mediamgr *wcall_mediamgr(void *wuser);
 
 struct avs_vidframe;
 void wcall_handle_frame(struct avs_vidframe *frame);
+
+
+/*
+ * Netprobe
+ */
+
+typedef void (wcall_netprobe_h)(int err,
+				uint32_t rtt_avg,
+				size_t n_pkt_sent,
+				size_t n_pkt_recv,
+				void *arg);
+
+
+int wcall_netprobe(void *id, size_t pkt_count, uint32_t pkt_interval_ms,
+		   wcall_netprobe_h *netprobeh, void *arg);
 
 
 #ifdef __cplusplus

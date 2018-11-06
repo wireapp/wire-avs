@@ -142,6 +142,8 @@ int create_dtls_srtp_context(struct tls **dtlsp, enum tls_keytype cert_type)
 	tls_set_verify_client(dtls);
 
 	err = tls_set_srtp(dtls,
+			   "SRTP_AEAD_AES_256_GCM:"
+			   "SRTP_AEAD_AES_128_GCM:"
 			   "SRTP_AES128_CM_SHA1_80:"
 			   "SRTP_AES128_CM_SHA1_32");
 	if (err)

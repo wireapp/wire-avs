@@ -283,12 +283,10 @@ static AVSMediaManager *_defaultMediaManager;
 	int priority = [name hasPrefix:@"ringing"] ? 1 : 0; // TODO: get this from the file
 
 	NSLog(@"registering media %@ for file %@", name, url);
-	AVAudioPlayer *player = [[AVAudioPlayer alloc] initWithContentsOfURL:url error:nil];
-	if (!player) {
-		return;
-	}
 
-	AVSSound *sound = [[AVSSound alloc] initWithName:name andAudioPlayer:player];
+	AVSSound *sound = [[AVSSound alloc] initWithName:name
+						  andUrl:url
+						 looping:loop];
 
 	bool is_call_media = false;
 
@@ -297,7 +295,6 @@ static AVSMediaManager *_defaultMediaManager;
 	else if ([name isEqualToString: @"ready_to_talk"])
 		is_call_media = true;
 		
-	sound.looping = loop ? YES : NO;
 	mediamgr_register_media(_mm, [name UTF8String], (__bridge_retained void *)(sound),
 		mixing, incall, intensity, priority, is_call_media);
 }

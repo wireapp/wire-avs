@@ -41,10 +41,13 @@ typedef void (ecall_answer_h)(void *arg);
  */
 typedef void (ecall_media_start_h)(void *arg);
 
+
 /**
  * Call/media established, called after every UPDATE.
  */
 typedef void (ecall_media_estab_h)(struct ecall *ecall, bool update, void *arg);
+
+typedef void (ecall_media_stopped_h)(struct ecall *ecall, void *arg);
 
 /**
  * Call/audio established, called after every UPDATE.
@@ -57,16 +60,27 @@ typedef void (ecall_audio_estab_h)(struct ecall *ecall, bool update, void *arg);
 typedef void (ecall_datachan_estab_h)(struct ecall *ecall, bool update,
 				      void *arg);
 
+/* Status of ecall.
+   rtt(ms), 
+   upstream packet loss(%),
+   downstream packet loss(%)
+*/
+typedef void (ecall_quality_h)(struct ecall *ecall,
+			       const char *userid,
+			       int rtt, int uploss, int downloss,
+			       void *arg);
+
 /**
  * We received a PROPSYNC from remote side, called multiple times.
  */
 typedef void (ecall_propsync_h)(void *arg);
 
 enum ecall_vstate {
-	ECALL_VIDEO_STATE_STOPPED  = 0,
-	ECALL_VIDEO_STATE_STARTED  = 1,
-	ECALL_VIDEO_STATE_BAD_CONN = 2,
-	ECALL_VIDEO_STATE_PAUSED   = 3,
+	ECALL_VIDEO_STATE_STOPPED     = 0,
+	ECALL_VIDEO_STATE_STARTED     = 1,
+	ECALL_VIDEO_STATE_BAD_CONN    = 2,
+	ECALL_VIDEO_STATE_PAUSED      = 3,
+	ECALL_VIDEO_STATE_SCREENSHARE = 4,
 };
 
 /**
@@ -108,6 +122,7 @@ int  ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		 ecall_conn_h *connh,
 		 ecall_answer_h *answerh,
 		 ecall_media_estab_h *media_estabh,
+		 ecall_media_stopped_h *media_stoppedh,
 		 ecall_audio_estab_h *audio_estabh,
 		 ecall_datachan_estab_h *datachan_estabh,
 		 ecall_propsync_h *propsynch,
@@ -115,9 +130,8 @@ int  ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		 ecall_audio_cbr_change_h *audiocbrh,
 		 ecall_close_h *closeh,
 		 ecall_transp_send_h *sendh, void *arg);
-int  ecall_add_turnserver(struct ecall *ecall, const struct sa *srv,
-			  int proto, bool secure,
-			  const char *user, const char *pass);
+int ecall_add_turnserver(struct ecall *ecall,
+			 struct zapi_ice_server *srv);
 int  ecall_start(struct ecall *ecall, bool enable_video, bool audio_cbr, void *extcodec_arg);
 int  ecall_answer(struct ecall *ecall, bool enable_video, bool audio_cbr, void *extcodec_arg);
 void ecall_transp_recv(struct ecall *ecall,
@@ -159,6 +173,11 @@ void ecall_trace(struct ecall *ecall, const struct econn_message *msg,
 		 bool tx, enum econn_transport tp,
 		 const char *fmt, ...);
 int  ecall_restart(struct ecall *ecall);
+
+int ecall_set_quality_handler(struct ecall *ecall,
+			      ecall_quality_h *netqh,
+			      uint64_t interval,
+			      void *arg);
 
 struct conf_part *ecall_get_conf_part(struct ecall *ecall);
 void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp);

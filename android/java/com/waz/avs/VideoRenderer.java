@@ -290,12 +290,23 @@ public class VideoRenderer extends TextureView implements TextureView.SurfaceTex
 		destroyGL();
 	}
 
+	public void setShouldFill(boolean shouldFill) {
+		nativeSetShouldFill(nativeObject, shouldFill);
+	}
+	
+	public void setFillRatio(float ratio) {
+		nativeSetFillRatio(nativeObject, ratio);
+	}
+
+
 	private native long createNative(String userId,
 					 int width, int height,
 					 boolean rounded);
 	private native void destroyNative(long obj);
 
-	private native void setShouldFill(long obj, boolean shouldFill);
+	private native void nativeSetShouldFill(long obj, boolean shouldFill);
+
+	private native void nativeSetFillRatio(long obj, float ratio);
 }
         
 

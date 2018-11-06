@@ -53,6 +53,7 @@ static void *rec_thread(void *arg) {
 audio_io_ios::audio_io_ios() :
         audioCallback_(nullptr),
         au_(nullptr),
+	mq_(nullptr),
         initialized_(false),
         is_shut_down_(false),
         is_recording_initialized_(false),
@@ -88,9 +89,10 @@ audio_io_ios::audio_io_ios() :
 
 	pthread_mutex_init(&cond_mutex_,NULL);
 	pthread_mutex_init(&lock_, NULL);
-	pthread_cond_init(&cond_, NULL);
 
+#if 1
 	mqueue_alloc(&mq_, mq_callback, this);
+#endif	
 }
 
 audio_io_ios::~audio_io_ios()
@@ -101,11 +103,10 @@ audio_io_ios::~audio_io_ios()
 	TerminateInternal();
         
 	pthread_mutex_destroy(&cond_mutex_);
-	pthread_cond_destroy(&cond_);
 
 	rec_buffer_ = (uint8_t *)mem_deref(rec_buffer_);
 	play_buffer_ = (int16_t *)mem_deref(play_buffer_);
-	
+
 	mem_deref(mq_);
 }
     
@@ -295,8 +296,7 @@ out:
             
             pthread_join(rec_tid_, &thread_ret);
             rec_tid_ = 0;
-            
-            pthread_cond_destroy(&cond_);
+	    pthread_cond_destroy(&cond_);
         }
         
         if (!is_playing_.load()) {
@@ -409,8 +409,7 @@ out:
         info("audio_io_ios: ResetAudioDeviceInternal\n");
         
         if (!is_playing_initialized_ && !is_recording_initialized_) {
-            info("audio_io_ios: Playout or recording not initialized, doing nothing \n");
-            return 0;
+            info("audio_io_ios: Playout or recording not initialized\n");
         }
         
         int res(0);
@@ -429,11 +428,18 @@ out:
         init_play_or_record();
         
         // Restart
+#if 0	
         if (initPlay) res += InitPlayout();
         if (initRec)  res += InitRecording();
         if (play)     res += StartPlayoutInternal();
         if (rec)      res += StartRecordingInternal();
-        return res;
+#endif
+        res += InitPlayout();
+        res += InitRecording();
+        res += StartPlayoutInternal();
+        res += StartRecordingInternal();
+
+	return res;
     }
     
     int32_t audio_io_ios::StereoPlayoutIsAvailable(bool* available) const{
@@ -442,6 +448,11 @@ out:
 #ifdef ZETA_IOS_STEREO_PLAYOUT
         // Get array of current audio outputs (there should only be one)
         NSArray *outputs = [[AVAudioSession sharedInstance] currentRoute].outputs;
+	if (outputs == nil || outputs.count < 1) {
+		warning("audio_io_ios: StereoPlayoutIsAvailable: no outputs\n");
+		return -1;
+	}
+		
         AVAudioSessionPortDescription *outPortDesc = [outputs objectAtIndex:0];
         
         *available = false; // NB Only when a HS is plugged in
@@ -479,7 +490,12 @@ out:
         }
         
         NSArray *outputs = [[AVAudioSession sharedInstance] currentRoute].outputs;
-        AVAudioSessionPortDescription *outPortDesc = [outputs objectAtIndex:0];
+	if (outputs == nil || outputs.count < 1) {
+		warning("audio_io_ios: PlayoutDeviceName: no outputs\n");
+		return -1;
+	}
+
+	AVAudioSessionPortDescription *outPortDesc = [outputs objectAtIndex:0];
         
         if ([outPortDesc.portType isEqualToString:AVAudioSessionPortHeadphones]){
             sprintf(name, "headset");
@@ -508,6 +524,10 @@ out:
 #ifdef ZETA_IOS_STEREO_PLAYOUT
         // Get array of current audio outputs (there should only be one)
         NSArray *outputs = [[AVAudioSession sharedInstance] currentRoute].outputs;
+	if (outputs == nil || outputs.count < 1) {
+		warning("audio_io_ios: init_play_or_record: no outputs\n");
+		return -1;
+	}
         AVAudioSessionPortDescription *outPortDesc = [outputs objectAtIndex:0];
         if ([outPortDesc.portType isEqualToString:AVAudioSessionPortHeadphones]){
             use_stereo_playout = want_stereo_playout_;

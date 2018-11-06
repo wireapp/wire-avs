@@ -322,6 +322,7 @@ static void set_category(NSString *cat, bool speaker)
 
 static void leave_call(void)
 {
+	mm_ios.incall = false;
 	mediamgr_sys_left_call(mm_ios.mm);
 }
 
@@ -534,7 +535,7 @@ static void handle_audio_notification(NSNotification *notification)
 	if (mm_ios.interrupted) {
 		mm_ios.interrupted = false;
 		if (mm_ios.incall) {
-			/* If we are able to ativate,
+			/* If we are able to activate,
 			 * it means that interruption
 			 * has actually ended,
 			 * without us being notified,
@@ -958,6 +959,9 @@ enum mediamgr_auplay mm_platform_get_route(void)
 	enum mediamgr_auplay route = MEDIAMGR_AUPLAY_EARPIECE;
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
 	NSArray *outputs = nil;
+
+	if (sess == nil)
+		return route;
 
 	outputs = [[sess currentRoute] outputs];
 

@@ -372,7 +372,6 @@ int econn_message_decode(struct econn_message **msgp,
 				  econn_msg_name(ECONN_DEVPAIR_PUBLISH))) {
 
 		struct json_object *jturns;
-		size_t srvc;
 
 		msg->msg_type = ECONN_DEVPAIR_PUBLISH;
 
@@ -382,16 +381,14 @@ int econn_message_decode(struct econn_message **msgp,
 			goto out;
 		}
 
-		srvc = ARRAY_SIZE(msg->u.devpair_publish.turnv);
 		err = zapi_iceservers_decode(jturns,
-					     msg->u.devpair_publish.turnv,
-					     &srvc);
+					     &msg->u.devpair_publish.turnv,
+					     &msg->u.devpair_publish.turnc);
 		if (err) {
 			warning("econn: devpair_publish: "
 				"could not decode ICE servers (%m)\n", err);
 			goto out;
 		}
-		msg->u.devpair_publish.turnc = srvc;
 
 		err = jzon_strdup(&msg->u.devpair_publish.sdp,
 				  jobj, "sdp");
