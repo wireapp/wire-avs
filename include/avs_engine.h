@@ -444,4 +444,11 @@ int engine_register_client(struct engine *eng,
 int engine_delete_client(struct engine *eng, const char *clientid);
 
 
+typedef void (engine_call_shutdown_h)(void *arg);
+void engine_call_set_shutdown_handler(struct engine *engine,
+				      engine_call_shutdown_h *shuth,
+				      void *arg);
+void engine_call_shutdown(struct engine *engine);
+
+
 #endif  /* ZCLIENTCALL__ENGINE_H */

@@ -42,7 +42,11 @@
 
 
 struct engine_call_data {
-	struct flowmgr *flowmgr;
+	struct flowmgr *flowmgr;	
+	struct engine_module_state *state;
+
+	engine_call_shutdown_h *shuth;
+	void *shuth_arg;
 };
 
 
@@ -55,6 +59,14 @@ struct flowmgr *engine_get_flowmgr(struct engine *engine)
 		return NULL;
 
 	return engine->call->flowmgr;
+}
+
+void engine_call_set_shutdown_handler(struct engine *engine,
+				      engine_call_shutdown_h *shuth,
+				      void *arg)
+{
+	engine->call->shuth = shuth;
+	engine->call->shuth_arg = arg;
 }
 
 
@@ -103,6 +115,7 @@ static int alloc_handler(struct engine *engine,
 		goto out;
 
 	engine->call = data;
+	engine->call->state = state;
 	list_append(&engine->modulel, &state->le, state);
 
  out:
@@ -123,6 +136,24 @@ static void close_handler(void)
 }
 
 
+void engine_call_shutdown(struct engine *engine)
+{
+	engine->call->state->state = ENGINE_STATE_DEAD;
+	engine_shutdown_handler(engine);
+}
+
+
+static void shutdown_handler(struct engine *engine,
+			     struct engine_module_state *state)
+{
+	info("call: shutdown handler\n");
+	
+	if (engine->call->shuth)
+		engine->call->shuth(engine->call->shuth_arg);
+	else
+		engine->call->state->state = ENGINE_STATE_DEAD;
+}
+
 /*** engine_call_module
  */
 
@@ -131,4 +162,5 @@ struct engine_module engine_call_module = {
 	.inith = init_handler,
 	.alloch = alloc_handler,
 	.closeh = close_handler,
+	.shuth = shutdown_handler,	
 };

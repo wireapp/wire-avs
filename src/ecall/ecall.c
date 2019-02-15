@@ -30,6 +30,7 @@
 #include "avs_msystem.h"
 #include "avs_econn.h"
 #include "avs_econn_fmt.h"
+#include "avs_icall.h"
 #include "avs_ecall.h"
 #include "avs_conf_pos.h"
 #include "avs_jzon.h"
@@ -70,30 +71,16 @@ static const char *async_sdp_name(enum async_sdp sdp)
 	}
 }
 
-const char *ecall_vstate_name(int vstate)
-{
-	switch (vstate) {
-
-	case ECALL_VIDEO_STATE_STOPPED:     return "STOPPED";
-	case ECALL_VIDEO_STATE_STARTED:     return "STARTED";
-	case ECALL_VIDEO_STATE_SCREENSHARE: return "SCREENSHARE";
-	case ECALL_VIDEO_STATE_BAD_CONN:    return "BADCONN";
-	case ECALL_VIDEO_STATE_PAUSED:      return "PAUSED";
-	default: return "???";
-	}
-}
-
-
 /* NOTE: Should only be triggered by async events! */
 void ecall_close(struct ecall *ecall, int err, uint32_t msg_time)
 {
-	ecall_close_h *closeh;
+	icall_close_h *closeh;
 	struct mediaflow *mf;
 
 	if (!ecall)
 		return;
 
-	closeh = ecall->closeh;
+	closeh = ecall->icall.closeh;
 
 	if (err) {
 		info("ecall(%p): closed (%m)\n", ecall, err);
@@ -125,14 +112,17 @@ void ecall_close(struct ecall *ecall, int err, uint32_t msg_time)
 	/* NOTE: calling the callback handlers MUST be done last,
 	 *       to make sure that all states are correct.
 	 */
-	if (ecall->video.recv_state != ECALL_VIDEO_STATE_STOPPED && ecall->vstateh) {
-		ecall->vstateh(ecall, ecall->userid_peer, ECALL_VIDEO_STATE_STOPPED, ecall->arg);
-		ecall->video.recv_state = ECALL_VIDEO_STATE_STOPPED;
+	if (ecall->video.recv_state != ICALL_VIDEO_STATE_STOPPED) {
+		ICALL_CALL_CB(ecall->icall, vstate_changedh,
+			&ecall->icall, ecall->userid_peer, ecall->clientid_peer,
+			ICALL_VIDEO_STATE_STOPPED, ecall->icall.arg);
+		ecall->video.recv_state = ICALL_VIDEO_STATE_STOPPED;
 	}
 
 	if (closeh) {
-		ecall->closeh = NULL;
-		closeh(err, json_str, ecall, msg_time, ecall->arg);
+		ecall->icall.closeh = NULL;
+		closeh(err, json_str, &ecall->icall, msg_time,
+			ecall->userid_peer, ecall->clientid_peer, ecall->icall.arg);
 	}
 
 	mem_deref(jobj);
@@ -220,10 +210,9 @@ static void econn_conn_handler(struct econn *econn,
 	info("ecall(%p): conn_handler: message age is %u seconds\n",
 	     ecall, age);
 
-	if (ecall->connh) {
-		ecall->connh(ecall, msg_time, userid_sender,
-			     video_active, ecall->arg);
-	}
+	ICALL_CALL_CB(ecall->icall, starth,
+		&ecall->icall, msg_time, userid_sender,
+		video_active, true, ecall->icall.arg);
 
 	ecall->ts_started = tmr_jiffies();
 	ecall->call_setup_time = -1;
@@ -451,9 +440,8 @@ static void econn_answer_handler(struct econn *conn, bool reset,
 
 	ecall->answered = true;
 
-	if (ecall->answerh) {
-		ecall->answerh(ecall->arg);
-	}
+	ICALL_CALL_CB(ecall->icall, answerh,
+		ecall->icall.arg);
 
 	return;
 
@@ -522,15 +510,6 @@ static void econn_update_resp_handler(struct econn *econn,
 static void econn_alert_handler(struct econn *econn, uint32_t level,
 				const char *descr, void *arg)
 {
-	struct ecall *ecall = arg;
-
-	if (ecall->alerth) {
-		ecall->alerth(level, descr, ecall->arg);
-	}
-	else {
-		warning("ecall: received level %u ALERT (%s)\n",
-			level, descr);
-	}
 }
 
 
@@ -663,7 +642,8 @@ static int send_handler(struct econn *conn,
 	else if (try_otr) {
 		ecall_trace(ecall, msg, true, ECONN_TRANSP_BACKEND,
 			    "SE %H\n", econn_message_brief, msg);
-		err = ecall->sendh(ecall->userid_self, msg, ecall->arg);
+		err = ICALL_CALL_CBE(ecall->icall, sendh,
+			ecall->userid_self, msg, ecall->icall.arg);
 	}
 
 out:
@@ -671,23 +651,82 @@ out:
 }
 
 
+static int _icall_add_turnserver(struct icall *icall, struct zapi_ice_server *srv)
+{
+	return ecall_add_turnserver((struct ecall*)icall, srv);
+}
+
+
+static int _icall_start(struct icall *icall, enum icall_call_type call_type, bool audio_cbr,
+	void *extcodec_arg)
+{
+	return ecall_start((struct ecall*)icall, call_type, audio_cbr, extcodec_arg);
+}
+
+
+static int _icall_answer(struct icall *icall, enum icall_call_type call_type, bool audio_cbr,
+	void *extcodec_arg)
+{
+	return ecall_answer((struct ecall*)icall, call_type, audio_cbr, extcodec_arg);
+}
+
+
+static void _icall_end(struct icall *icall)
+{
+	return ecall_end((struct ecall*)icall);
+}
+
+
+static int _icall_media_start(struct icall *icall)
+{
+	return ecall_media_start((struct ecall*)icall);
+}
+
+
+static void _icall_media_stop(struct icall *icall)
+{
+	ecall_media_stop((struct ecall*)icall);
+}
+
+
+static int _icall_set_video_send_state(struct icall *icall, enum icall_vstate vstate)
+{
+	return ecall_set_video_send_state((struct ecall*)icall, vstate);
+}
+
+
+static int _icall_msg_recv(struct icall *icall,
+			   uint32_t curr_time, /* in seconds */
+			   uint32_t msg_time, /* in seconds */
+			   const char *userid_sender,
+			   const char *clientid_sender,
+			   struct econn_message *msg)
+{
+	return ecall_msg_recv((struct ecall*)icall, curr_time, msg_time,
+		userid_sender, clientid_sender, msg);
+}
+
+
+static int _icall_set_quality_interval(struct icall *icall,
+				       uint64_t interval)
+{
+	return ecall_set_quality_interval((struct ecall*)icall, interval);
+}
+
+
+static int _icall_debug(struct re_printf *pf, const struct icall *icall)
+{
+	return ecall_debug(pf, (const struct ecall*)icall);
+}
+
+
 int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
+		enum icall_conv_type conv_type,
 		const struct ecall_conf *conf,
 		struct msystem *msys,
 		const char *convid,
 		const char *userid_self,
-		const char *clientid,
-		ecall_conn_h *connh,
-		ecall_answer_h *answerh,
-		ecall_media_estab_h *media_estabh,
-		ecall_media_stopped_h *media_stoppedh,
-		ecall_audio_estab_h *audio_estabh,
-		ecall_datachan_estab_h *datachan_estabh,
-		ecall_propsync_h *propsynch,
-		ecall_video_state_change_h *vstateh,
-		ecall_audio_cbr_change_h *audiocbrh,
-		ecall_close_h *closeh,
-		ecall_transp_send_h *sendh, void *arg)
+		const char *clientid)
 {
 	struct ecall *ecall;
 	int err = 0;
@@ -702,6 +741,18 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 	ecall->magic = ECALL_MAGIC;
 	ecall->conf = conf ? *conf : default_conf;
 	ecall->enable_video = true;
+	ecall->conv_type = conv_type;
+	switch(conv_type) {
+	case ICALL_CONV_TYPE_CONFERENCE:
+	case ICALL_CONV_TYPE_GROUP:
+		ecall->max_retries = 2;
+		break;
+	case ICALL_CONV_TYPE_ONEONONE:
+	default:
+		ecall->max_retries = 0;
+		break;
+	}
+	ecall->num_retries = 0;
 
 	/* Add some properties */
 	err = econn_props_alloc(&ecall->props_local, NULL);
@@ -727,18 +778,18 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 	ecall->transp.sendh = send_handler;
 	ecall->transp.arg = ecall;
 
-	ecall->connh = connh;
-	ecall->answerh = answerh;
-	ecall->media_estabh = media_estabh;
-	ecall->media_stoppedh = media_stoppedh;
-	ecall->audio_estabh = audio_estabh;
-	ecall->datachan_estabh = datachan_estabh;
-	ecall->propsynch = propsynch;
-	ecall->vstateh = vstateh;
-	ecall->audiocbrh = audiocbrh;
-	ecall->closeh = closeh;
-	ecall->sendh = sendh;
-	ecall->arg = arg;
+	icall_set_functions(&ecall->icall,
+		 _icall_add_turnserver,
+		 _icall_start,
+		 _icall_answer,
+		 _icall_end,
+		 _icall_media_start,
+		 _icall_media_stop,
+		 _icall_set_video_send_state,
+		 _icall_msg_recv,
+		 NULL,
+		 _icall_set_quality_interval,
+		 _icall_debug);
 
 	list_append(ecalls, &ecall->le, ecall);
 
@@ -751,6 +802,12 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		*ecallp = ecall;
 
 	return err;
+}
+
+
+struct icall *ecall_get_icall(struct ecall *ecall)
+{
+	return &ecall->icall;
 }
 
 
@@ -884,6 +941,7 @@ static int generate_answer(struct ecall *ecall, struct econn *econn)
 	}
 
 	if (ecall->update) {
+		ecall->num_retries++;
 		err = econn_update_resp(econn, sdp, ecall->props_local);
 
 		if (dce_is_chan_open(ecall->dce_ch))
@@ -939,13 +997,14 @@ static void mf_estab_handler(const char *crypto, const char *codec,
 		ecall->call_estab_time = tmr_jiffies() - ecall->ts_answered;
 	}
 
-	if (ecall->media_estabh) {
+	if (ecall->icall.media_estabh) {
 
 		/* Start a timer to check that we do start Audio Later */
 		tmr_start(&ecall->media_start_tmr, TIMEOUT_MEDIA_START,
 			  media_start_timeout_handler, ecall);
 
-		ecall->media_estabh(ecall, ecall->update, ecall->arg);
+		ICALL_CALL_CB(ecall->icall, media_estabh, &ecall->icall, ecall->userid_peer,
+			      ecall->clientid_peer, ecall->update, ecall->icall.arg);
 	}
 	else {
 		int err = ecall_media_start(ecall);
@@ -983,7 +1042,12 @@ static void mf_close_handler(int err, void *arg)
 		"user=%s err='%m'\n", ecall, 
 		anon_id(userid_anon, ecall->userid_self), err);
 
-	if (ecall->econn) {
+	enum econn_state state = econn_current_state(ecall->econn);
+	if (ECONN_ANSWERED == state && ETIMEDOUT == err &&
+		ecall->num_retries < ecall->max_retries) {
+		ecall_restart(ecall);
+	}
+	else if (ecall->econn) {
 		econn_set_error(ecall->econn, err);
 
 		ecall_end(ecall);
@@ -994,12 +1058,13 @@ static void mf_close_handler(int err, void *arg)
 	}
 }
 
+
 static void mf_stopped_handler(void *arg)
 {
 	struct ecall *ecall = arg;
 
-	if (ecall->media_stoppedh)
-		ecall->media_stoppedh(ecall, ecall->arg);
+	ICALL_CALL_CB(ecall->icall, media_stoppedh,
+		&ecall->icall, ecall->icall.arg);
 }
 
 
@@ -1097,9 +1162,11 @@ static void channel_estab_handler(void *arg)
 	}
 
 	ecall->update = false;
+	ecall->num_retries = 0;
 
-	if (ecall->datachan_estabh)
-		ecall->datachan_estabh(ecall, ecall->update, ecall->arg);
+	ICALL_CALL_CB(ecall->icall, datachan_estabh,
+		&ecall->icall, ecall->userid_peer, ecall->clientid_peer,
+		ecall->update, ecall->icall.arg);
 
 	return;
 
@@ -1140,7 +1207,7 @@ static void data_estab_handler(void *arg)
 
 static void propsync_handler(struct ecall *ecall)
 {
-	int vstate = ECALL_VIDEO_STATE_STOPPED;
+	int vstate = ICALL_VIDEO_STATE_STOPPED;
 	bool vstate_present = false;
 	const char *vr, *cr, *cl;
 	bool local_cbr, remote_cbr, cbr_enabled;
@@ -1152,16 +1219,16 @@ static void propsync_handler(struct ecall *ecall)
 	}
 
 	info("ecall(%p): propsync_handler, current recv_state %s\n",
-	     ecall, ecall_vstate_name(ecall->video.recv_state));
+	     ecall, icall_vstate_name(ecall->video.recv_state));
 
 	vr = ecall_props_get_remote(ecall, "videosend");
 	if (vr) {
 		vstate_present = true;
 		if (strcmp(vr, "true") == 0) {
-			vstate = ECALL_VIDEO_STATE_STARTED;
+			vstate = ICALL_VIDEO_STATE_STARTED;
 		}
 		else if (strcmp(vr, "paused") == 0) {
-			vstate = ECALL_VIDEO_STATE_PAUSED;
+			vstate = ICALL_VIDEO_STATE_PAUSED;
 		}
 	}
 
@@ -1170,12 +1237,12 @@ static void propsync_handler(struct ecall *ecall)
 		vstate_present = true;
 		if (strcmp(vr, "true") == 0) {
 			// screenshare overrides video started
-			vstate = ECALL_VIDEO_STATE_SCREENSHARE;
+			vstate = ICALL_VIDEO_STATE_SCREENSHARE;
 		}
 		else if (strcmp(vr, "paused") == 0 &&
-			ECALL_VIDEO_STATE_STARTED != vstate) {
+			ICALL_VIDEO_STATE_STARTED != vstate) {
 			// video started overrides screenshare paused
-			vstate = ECALL_VIDEO_STATE_PAUSED;
+			vstate = ICALL_VIDEO_STATE_PAUSED;
 		}
 	}
     
@@ -1183,10 +1250,12 @@ static void propsync_handler(struct ecall *ecall)
 		info("ecall(%p): propsync_handler updating recv_state "
 		     "%s -> %s\n",
 		     ecall,
-		     ecall_vstate_name(ecall->video.recv_state),
-		     ecall_vstate_name(vstate));
-		if (ecall->vstateh && ecall->enable_video) {
-			ecall->vstateh(ecall, ecall->userid_peer, vstate, ecall->arg);
+		     icall_vstate_name(ecall->video.recv_state),
+		     icall_vstate_name(vstate));
+		if (ecall->icall.vstate_changedh && ecall->enable_video) {
+			ICALL_CALL_CB(ecall->icall, vstate_changedh,
+				&ecall->icall, ecall->userid_peer,
+				ecall->clientid_peer, vstate, ecall->icall.arg);
 			ecall->video.recv_state = vstate;
 		}
 	}
@@ -1200,11 +1269,14 @@ static void propsync_handler(struct ecall *ecall)
 	cbr_enabled = local_cbr && remote_cbr ? 1 : 0;
 
 	if (cbr_enabled != ecall->audio.cbr_state) {
-		info("ecall(%p): acbrh(%p) lcbr=%s rcbr=%s cbr=%d\n", ecall, ecall->audiocbrh,
-			local_cbr ? "true" : "false", remote_cbr ? "true" : "false",
-			cbr_enabled);
-		if (ecall->audiocbrh) {
-			ecall->audiocbrh(ecall, ecall->userid_peer, cbr_enabled, ecall->arg);
+		info("ecall(%p): acbrh(%p) lcbr=%s rcbr=%s cbr=%d\n", ecall,
+			ecall->icall.acbr_changedh, local_cbr ? "true" : "false",
+			remote_cbr ? "true" : "false", cbr_enabled);
+
+		if (ecall->icall.acbr_changedh) {
+			ICALL_CALL_CB(ecall->icall, acbr_changedh,
+				&ecall->icall, ecall->userid_peer, ecall->clientid_peer,
+				 cbr_enabled, ecall->icall.arg);
 			ecall->audio.cbr_state = cbr_enabled;
 		}
 	}
@@ -1237,9 +1309,6 @@ static int handle_propsync(struct ecall *ecall, struct econn_message *msg)
 	}
 
 	propsync_handler(ecall);
-
-	if (ecall->propsynch)
-		ecall->propsynch(ecall->arg);
 
 out:
 	return err;
@@ -1327,9 +1396,10 @@ static void rtp_start_handler(bool started, bool video_started, void *arg)
 	assert(ECALL_MAGIC == ecall->magic);
 
 	if (started) {
-		if (ecall->audio_estabh){
-			ecall->audio_estabh(ecall, ecall->update, ecall->arg);
-		}
+		ecall->num_retries = 0;
+		ICALL_CALL_CB(ecall->icall, audio_estabh,
+			&ecall->icall, ecall->userid_peer, ecall->clientid_peer,
+			ecall->update, ecall->icall.arg);
 
 		if (ecall->audio_setup_time < 0 && ecall->ts_answered){
 			uint64_t now = tmr_jiffies();
@@ -1538,7 +1608,8 @@ int ecall_create_econn(struct ecall *ecall)
 }
 
 
-int ecall_start(struct ecall *ecall, bool enable_video, bool audio_cbr, void *extcodec_arg)
+int ecall_start(struct ecall *ecall, enum icall_call_type call_type, bool audio_cbr,
+	void *extcodec_arg)
 {
 	int err;
 
@@ -1548,9 +1619,14 @@ int ecall_start(struct ecall *ecall, bool enable_video, bool audio_cbr, void *ex
 		return EINVAL;
 
 	if (ecall->econn) {
-		warning("ecall: start: already in progress (econn=%s)\n",
-			econn_state_name(econn_current_state(ecall->econn)));
-		return EALREADY;
+		if (ECONN_PENDING_INCOMING == econn_current_state(ecall->econn)) {
+			return ecall_answer(ecall, call_type, audio_cbr, extcodec_arg);
+		}
+		else {
+			warning("ecall: start: already in progress (econn=%s)\n",
+				econn_state_name(econn_current_state(ecall->econn)));
+			return EALREADY;
+		}
 	}
 
 #if 0
@@ -1575,8 +1651,19 @@ int ecall_start(struct ecall *ecall, bool enable_video, bool audio_cbr, void *ex
 	}
 
 	mediaflow_set_audio_cbr(ecall->mf, audio_cbr);
-	mediaflow_video_set_disabled(ecall->mf, !enable_video);
-	ecall->enable_video = enable_video;
+	ecall->enable_video = call_type != ICALL_CALL_TYPE_FORCED_AUDIO;
+	mediaflow_video_set_disabled(ecall->mf, !ecall->enable_video);
+
+	if (ecall->props_local) {
+		const char *vstate_string =
+			call_type == ICALL_CALL_TYPE_VIDEO ? "true" : "false";
+		int err2 = econn_props_update(ecall->props_local, "videosend", vstate_string);
+		if (err2) {
+			warning("ecall(%p): econn_props_update(videosend)",
+				" failed (%m)\n", ecall, err2);
+			/* Non fatal, carry on */
+		}
+	}
 
 	if (extcodec_arg)
 		mediaflow_set_extcodec(ecall->mf, extcodec_arg);
@@ -1598,7 +1685,8 @@ int ecall_start(struct ecall *ecall, bool enable_video, bool audio_cbr, void *ex
 }
 
 
-int ecall_answer(struct ecall *ecall, bool enable_video, bool audio_cbr, void *extcodec_arg)
+int ecall_answer(struct ecall *ecall, enum icall_call_type call_type, bool audio_cbr,
+	void *extcodec_arg)
 {
 	int err = 0;
 
@@ -1624,8 +1712,8 @@ int ecall_answer(struct ecall *ecall, bool enable_video, bool audio_cbr, void *e
 	}
 
 	mediaflow_set_audio_cbr(ecall->mf, audio_cbr);
-	mediaflow_video_set_disabled(ecall->mf, !enable_video);
-	ecall->enable_video = enable_video;
+	ecall->enable_video = call_type != ICALL_CALL_TYPE_FORCED_AUDIO;
+	mediaflow_video_set_disabled(ecall->mf, !ecall->enable_video);
 
 	if (extcodec_arg)
 		mediaflow_set_extcodec(ecall->mf, extcodec_arg);
@@ -1646,30 +1734,37 @@ int ecall_answer(struct ecall *ecall, bool enable_video, bool audio_cbr, void *e
 }
 
 
-void ecall_msg_recv(struct ecall *ecall,
-		    uint32_t curr_time, /* in seconds */
-		    uint32_t msg_time, /* in seconds */
-		    const char *userid_sender,
-		    const char *clientid_sender,
-		    struct econn_message *msg)
+int ecall_msg_recv(struct ecall *ecall,
+		   uint32_t curr_time, /* in seconds */
+		   uint32_t msg_time, /* in seconds */
+		   const char *userid_sender,
+		   const char *clientid_sender,
+		   struct econn_message *msg)
 {
 	char userid_anon[ANON_ID_LEN];
-	int err;
+	int err = 0;
 
 	info("ecall(%p): msg_recv: %H\n", ecall, econn_message_brief, msg);
 
 	if (!ecall || !userid_sender || !clientid_sender || !msg)
-		return;
+		return EINVAL;
 
 	ecall_trace(ecall, msg, false, ECONN_TRANSP_BACKEND,
 		    "SE %H\n", econn_message_brief, msg);
 
+	if (userid_sender && !ecall->userid_peer) {
+		ecall_set_peer_userid(ecall, userid_sender);
+	}
+	if (clientid_sender && !ecall->clientid_peer) {
+		ecall_set_peer_clientid(ecall, clientid_sender);
+	}
+	
 	if (ECONN_PROPSYNC == msg->msg_type) {
 		err = handle_propsync(ecall, msg);
 		if (err) {
 			warning("ecall(%p): recv: handle_propsync failed\n", ecall);
 		}
-		return;
+		return err;
 	}
 
 	/* Check that message was received via correct transport */
@@ -1728,7 +1823,7 @@ void ecall_msg_recv(struct ecall *ecall,
 	econn_recv_message(ecall->econn, userid_sender, clientid_sender, msg);
 
  out:
-	return;
+	return err;
 }
 
 void ecall_transp_recv(struct ecall *ecall,
@@ -1818,7 +1913,7 @@ struct econn *ecall_get_econn(const struct ecall *ecall)
 }
 
 
-int ecall_set_video_send_state(struct ecall *ecall, enum ecall_vstate vstate)
+int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 {
 	bool active = false;
 	int err = 0;
@@ -1828,26 +1923,26 @@ int ecall_set_video_send_state(struct ecall *ecall, enum ecall_vstate vstate)
 
 	info("ecall(%p): set_video_send_state %s econn %p\n",
 	     ecall,
-	     ecall_vstate_name(vstate),
+	     icall_vstate_name(vstate),
 	     ecall->econn);
 
-	if (!ecall->enable_video && vstate != ECALL_VIDEO_STATE_STOPPED) {
+	if (!ecall->enable_video && vstate != ICALL_VIDEO_STATE_STOPPED) {
 		warning("ecall(%p): set_video_send_state setting %s when enable_video=false\n",
-			ecall, ecall_vstate_name(vstate));
+			ecall, icall_vstate_name(vstate));
 		return EINVAL;
 	}
 
 	const char *vstate_string;
 	switch (vstate) {
-	case ECALL_VIDEO_STATE_STARTED:
+	case ICALL_VIDEO_STATE_STARTED:
 		vstate_string = "true";
 		active = true;
 		break;
-	case ECALL_VIDEO_STATE_PAUSED:
+	case ICALL_VIDEO_STATE_PAUSED:
 		vstate_string = "paused";
 		break;
+	case ICALL_VIDEO_STATE_STOPPED:
 	default:
-	case ECALL_VIDEO_STATE_STOPPED:
 		vstate_string = "false";
 		break;
 	}
@@ -1869,7 +1964,7 @@ int ecall_set_video_send_state(struct ecall *ecall, enum ecall_vstate vstate)
 	}
 	/* If webapp sent us a SETUP for audio only call and we are escalating, */
 	/* force an UPDATE so they can answer with video recvonly AUDIO-1549 */
-	else if (ECALL_VIDEO_STATE_STARTED == vstate) {
+	else if (ICALL_VIDEO_STATE_STARTED == vstate) {
 		enum econn_state state = econn_current_state(ecall->econn);
 		switch (state) {
 		case ECONN_ANSWERED:
@@ -2238,23 +2333,6 @@ void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp)
 }
 
 
-void ecall_set_alert_handler(struct ecall *ecall, ecall_alert_h *alerth)
-{
-	if (!ecall)
-		return;
-
-	ecall->alerth = alerth;
-}
-
-
-int ecall_send_alert(struct ecall *ecall, uint32_t level, const char *descr)
-{
-	if (!ecall)
-		return EINVAL;
-
-	return econn_send_alert(ecall->econn, level, descr);
-}
-
 int ecall_remove(struct ecall *ecall)
 {
 	if (!ecall)
@@ -2264,6 +2342,7 @@ int ecall_remove(struct ecall *ecall)
 	return 0;
 }
 
+
 static void quality_handler(void *arg)
 {
 	struct ecall *ecall = arg;
@@ -2272,29 +2351,29 @@ static void quality_handler(void *arg)
 	tmr_start(&ecall->quality.tmr, ecall->quality.interval,
 		  quality_handler, arg);
 
-	if (!ecall->quality.netqh)
+	if (!ecall->icall.qualityh)
 		return;
 
 	stats = mediaflow_codec_stats(ecall->mf);
-	ecall->quality.netqh(ecall,
-			     ecall->userid_peer,
-			     (int)(stats->rtt.avg + 0.5f),
-			     (int)(stats->loss_d.avg * 100.0f),
-			     (int)(stats->loss_u.avg * 100.0f),
-			     ecall->quality.arg);
+	if (stats) {
+		ICALL_CALL_CB(ecall->icall, qualityh,
+			      &ecall->icall, 
+			      ecall->userid_peer,
+			      stats->rtt.avg,
+			      stats->loss_d.avg,
+			      stats->loss_u.avg,
+			      ecall->icall.arg);
+	}
 }
 
-int ecall_set_quality_handler(struct ecall *ecall,
-			      ecall_quality_h *netqh,
-			      uint64_t interval,
-			      void *arg)
+
+int ecall_set_quality_interval(struct ecall *ecall,
+			      uint64_t interval)
 {
 	if (!ecall)
 		return EINVAL;
 	
-	ecall->quality.netqh = netqh;
 	ecall->quality.interval = interval;
-	ecall->quality.arg = arg;
 
 	if (interval == 0)
 		tmr_cancel(&ecall->quality.tmr);
@@ -2304,4 +2383,5 @@ int ecall_set_quality_handler(struct ecall *ecall,
 
 	return 0;
 }
+
 

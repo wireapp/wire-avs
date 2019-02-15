@@ -108,12 +108,14 @@ struct user_data {
 };
 
 struct ecall {
+	struct icall icall;
 
 	struct le le;
 	struct ecall_conf conf;
 	struct msystem *msys;
 	struct econn *econn;
 
+	enum icall_conv_type conv_type;
 	struct mediaflow *mf;
 	struct dce *dce;
 	struct dce_channel *dce_ch;
@@ -132,6 +134,9 @@ struct ecall {
 	char *userid_peer;
 	char *clientid_peer;
 
+	uint32_t max_retries;
+	uint32_t num_retries;
+
 	struct {
 		enum async_sdp async;
 	} sdp;
@@ -147,20 +152,6 @@ struct ecall {
 	enum media_crypto crypto;
 
 	struct econn_transp transp;
-	ecall_conn_h *connh;
-	ecall_answer_h *answerh;
-	ecall_transp_send_h *sendh;
-	ecall_media_estab_h *media_estabh;
-	ecall_media_stopped_h *media_stoppedh;
-	ecall_audio_estab_h *audio_estabh;
-	ecall_datachan_estab_h *datachan_estabh;
-	ecall_propsync_h *propsynch;
-	ecall_video_state_change_h *vstateh;
-	ecall_audio_cbr_change_h *audiocbrh;
-	ecall_alert_h *alerth;
-	ecall_close_h *closeh;
-	void *arg;
-
 	uint32_t magic;
 
 	struct conf_part *conf_part;
@@ -184,10 +175,7 @@ struct ecall {
 
 	struct {
 		struct tmr tmr;
-		ecall_quality_h *netqh;
 		uint64_t interval;
-		void *arg;
-		
 	} quality;
 
 	struct zapi_ice_server turnv[MAX_TURN_SERVERS];

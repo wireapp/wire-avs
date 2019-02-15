@@ -181,8 +181,8 @@ const char* voe_iosfilepath(void);
 #endif
 
 
-#define NUM_STATS 32
-#define NW_STATS_DELTA 10
+#define NUM_STATS 16
+#define NW_STATS_DELTA 2
 
 struct channel_stats{
     webrtc::NetworkStatistics neteq_nw_stats;
@@ -207,6 +207,12 @@ struct channel_data {
 	int stats_idx;
 	int stats_cnt;
 	float out_vol_smth;
+
+	struct {
+		int downloss;
+		int uploss;
+		int rtt;
+	} quality;
 };
 
 int channel_data_add(struct list *ch_list, int ch, webrtc::CodecInst &c);

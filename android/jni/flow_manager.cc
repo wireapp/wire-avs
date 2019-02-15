@@ -285,47 +285,6 @@ out:
 	debug("change_state_handler: state=%d \n", jstate);
 }
 
-static void change_state_handler(enum flowmgr_video_receive_state state,
-				 enum flowmgr_video_reason reason)
-{
-	struct jfm *jfm = java.jfm;
-	struct jni_env je;
-	jint jstate = 0;
-	jint jreason = 0;
-	int err = 0;
-
-	switch(state) {
-	case FLOWMGR_VIDEO_RECEIVE_STOPPED:
-		jstate = com_waz_call_FlowManager_VIDEO_STATE_STOPPED;
-		break;
-
-	case FLOWMGR_VIDEO_RECEIVE_STARTED:
-		jstate = com_waz_call_FlowManager_VIDEO_STATE_STARTED;
-		break;
-	}
-
-	switch(reason) {
-	case FLOWMGR_VIDEO_NORMAL:
-		jreason = com_waz_call_FlowManager_VIDEO_REASON_NORMAL;
-		break;
-
-	case FLOWMGR_VIDEO_BAD_CONNECTION:
-		jreason = com_waz_call_FlowManager_VIDEO_REASON_BAD_CONNECTION;
-		break;
-	}
-
-	err = jni_attach(&je);
-	if (err) {
-		warning("%s: cannot attach JNI: %m\n", __func__, err);
-		goto out;
-	}
-
-	je.env->CallVoidMethod(jfm->self, java.csmid, jstate, jreason);
-
- out:
-	jni_detach(&je);	
-	debug("change_state_handler: state=%d reason=%d\n", jstate, jreason);
-}
 
 void *flowmgr_thread(void *arg)
 {
@@ -728,17 +687,6 @@ out:
 }
 
 
-static void video_state_handler(enum flowmgr_video_receive_state state,
-				enum flowmgr_video_reason reason,
-				void *arg)
-{
-	debug("video_state_change_handler: state=%d reason=%d\n",
-	      state, reason);
-
-	change_state_handler(state, reason);
-}
-
-
 static int render_frame_handler(struct avs_vidframe *vf, const char *userid, void *arg)
 {
 	struct video_renderer *vr;
@@ -852,11 +800,9 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_attach
 		goto out;
 	}
     
-	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_video_handlers, jfm->fm,
-			     video_state_handler,
-			     render_frame_handler,
-			     video_size_handler,
-			     jfm);
+	wcall_set_video_handlers(render_frame_handler,
+				 video_size_handler,
+				 jfm);
 
 	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_audio_state_handler,
 			     jfm->fm, audio_state_handler, jfm);

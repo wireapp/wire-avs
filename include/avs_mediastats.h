@@ -41,6 +41,12 @@ struct aucodec_stats {
 	struct max_min_avg jb_size;
 	int16_t test_score;
 	char audio_route[1024];
+
+	struct {
+		int downloss;
+		int uploss;
+		int rtt;
+	} quality;
 };
     
 #define MAX_PACKETS_PER_SEC 100

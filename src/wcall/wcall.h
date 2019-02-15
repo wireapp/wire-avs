@@ -44,3 +44,7 @@ void wcall_i_invoke_incoming_handler(const char *convid,
 				    int should_ring,
 				    void *arg);
 
+void wcall_i_destroy(void *id);
+void wcall_marshal_destroy(void *id);
+
+

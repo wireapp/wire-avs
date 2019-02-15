@@ -134,16 +134,6 @@ int flowmgr_alloc(struct flowmgr **fmp, flowmgr_req_h *reqh,
 }
 
 
-void flowmgr_set_video_handlers(struct flowmgr *fm, 
-				flowmgr_video_state_change_h *state_change_h,
-				flowmgr_render_frame_h *render_frame_h,
-				flowmgr_video_size_h *size_h,
-				void *arg)
-{
-	vie_set_video_handlers(state_change_h, render_frame_h, size_h, arg);
-}
-
-
 struct flowmgr *flowmgr_free(struct flowmgr *fm)
 {
 	return mem_deref(fm);

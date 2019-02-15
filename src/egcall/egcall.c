@@ -37,6 +37,7 @@ struct media_entry {
 };
 
 struct egcall {
+	struct icall icall;
 	struct list ecalll;
 	struct list media_startl;
 	enum egcall_state state;
@@ -49,25 +50,11 @@ struct egcall {
 	struct dict *roster;
 	struct {
 		struct list partl;
-		egcall_group_changed_h *chgh;
 	} conf_pos;
 
 	struct zapi_ice_server turnv[MAX_TURN_SERVERS];
 	size_t turnc;
 	
-	ecall_transp_send_h *sendh;
-	egcall_start_h *starth;
-	egcall_answer_h *answerh;
-	ecall_media_estab_h *mediah;
-	ecall_media_stopped_h *media_stoppedh;
-	ecall_audio_estab_h *audioh;
-	ecall_datachan_estab_h *dcestabh;
-	egcall_leave_h *leaveh;
-	egcall_close_h *closeh;
-	egcall_metrics_h *metricsh;
-	ecall_video_state_change_h *vstateh;
-	ecall_audio_cbr_change_h *acbrh;
-
 	/* TODO replace this with an ONGOING state */
 	bool is_call_answered;
 	struct tmr call_timer;
@@ -76,16 +63,12 @@ struct egcall {
 	bool audio_cbr;
 
 	struct {
-		enum ecall_vstate send_state;
+		enum icall_vstate send_state;
 	} video;
 
 	struct {
-		ecall_quality_h *netqh;
 		int interval;
-		void *arg;
 	} quality;
-
-	void *arg;
 };
 
 struct roster_item {
@@ -104,12 +87,14 @@ static void egcall_passive_roster_timeout(void *arg);
 static void egcall_start_active_roster_timer(struct egcall *egcall);
 static void egcall_end_with_err(struct egcall *egcall, int err);
 
+
 static void media_entry_destructor(void *arg)
 {
 	struct media_entry *me = arg;
 
 	list_unlink(&me->le);
 }
+
 
 static bool all_media_stopped(struct egcall *egcall)
 {
@@ -124,6 +109,7 @@ static bool all_media_stopped(struct egcall *egcall)
 
 	return !started;
 }
+
 
 static struct media_entry *lookup_media_entry(struct egcall *egcall,
 					      struct ecall *ecall)
@@ -140,6 +126,7 @@ static struct media_entry *lookup_media_entry(struct egcall *egcall,
 
 	return me;
 }
+
 
 static void set_media_started(struct egcall *egcall, struct ecall *ecall,
 			      bool started)
@@ -163,6 +150,7 @@ static void destroy_ecall(struct egcall *egcall, struct ecall *ecall)
 	mem_deref(ecall);
 }
 
+
 static void roster_destructor(void *arg)
 {
 	struct roster_item *item = arg;
@@ -170,6 +158,7 @@ static void roster_destructor(void *arg)
 	mem_deref(item->userid);
 	mem_deref(item->key);
 }
+
 
 static int get_userclient(char** userclient,
 			  const char* userid, const char *clientid)
@@ -195,13 +184,8 @@ static void update_conf_pos(struct egcall *egcall)
 		warning("egcall: msystem_update_conf_parts error (%m)\n", err);
 	}
 
-	if (egcall->conf_pos.chgh) {
-		uint64_t now = tmr_jiffies();
-		info("egcall(%p): update_conf_pos chgh called\n");
-		egcall->conf_pos.chgh(egcall->arg);
-		info("egcall(%p): update_conf_pos chgh took: %llums\n",
-		     egcall, tmr_jiffies() - now);
-	}
+	ICALL_CALL_CB(egcall->icall, group_changedh,
+		egcall->icall.arg);	
 }
 
 static struct roster_item *roster_add(struct egcall *egcall,
@@ -445,7 +429,7 @@ static int send_msg(struct egcall *egcall, enum econn_msg type,
 	}
 
 skipprops:
-	err = egcall->sendh(egcall->userid_self, msg, egcall->arg);
+	err = ICALL_CALL_CBE(egcall->icall, sendh, egcall->userid_self, msg, egcall->icall.arg);
 	if (err != 0) {
 		goto out;
 	}
@@ -476,10 +460,8 @@ static void egcall_ring_timeout(void *arg)
 	     egcall, egcall_state_name(egcall->state));
 	
 	if (egcall->state == EGCALL_STATE_INCOMING) {
-		if (egcall->leaveh) {
-			egcall->leaveh(EGCALL_REASON_STILL_ONGOING,
-				ECONN_MESSAGE_TIME_UNKNOWN, egcall->arg);
-		}
+		ICALL_CALL_CB(egcall->icall, leaveh, EGCALL_REASON_STILL_ONGOING,
+				ECONN_MESSAGE_TIME_UNKNOWN, egcall->icall.arg);
 	}
 }
 
@@ -517,9 +499,9 @@ static void egcall_passive_roster_timeout(void *arg)
 	info("egcall(%p): passive_roster_timeout state=%s\n", egcall, egcall_state_name(egcall->state));
 	dict_flush(egcall->roster);
 	set_state(egcall, EGCALL_STATE_IDLE);
-	if (egcall->closeh) {
-		egcall->closeh(0, ECONN_MESSAGE_TIME_UNKNOWN, egcall->arg);
-	}
+	ICALL_CALL_CB(egcall->icall, closeh, 
+		0, NULL, &egcall->icall, ECONN_MESSAGE_TIME_UNKNOWN,
+		NULL, NULL, egcall->icall.arg);
 }
 
 static void egcall_start_active_roster_timer(struct egcall *egcall)
@@ -535,26 +517,12 @@ int egcall_alloc(struct egcall **egcallp,
 		 const struct ecall_conf *conf,		 
 		 const char *convid,
 		 const char *userid_self,
-		 const char *clientid,
-		 ecall_transp_send_h *sendh,
-		 egcall_start_h *starth,
-		 egcall_answer_h *answerh,
-		 ecall_media_estab_h *media_estabh,
-		 ecall_media_stopped_h *media_stoppedh,
-		 ecall_audio_estab_h *audio_estabh,
-		 ecall_datachan_estab_h *datachan_estabh,
-		 egcall_group_changed_h *grp_chgh,
-		 egcall_leave_h *leaveh,
-		 egcall_close_h *closeh,
-		 egcall_metrics_h *metricsh,
-		 ecall_video_state_change_h *vstateh,
-		 ecall_audio_cbr_change_h *acbrh,
-		 void *arg)
+		 const char *clientid)
 {
 	struct egcall *egcall = NULL;
 	int err = 0;
 
-	if (convid == NULL || egcallp == NULL || sendh == NULL) {
+	if (convid == NULL || egcallp == NULL) {
 		return EINVAL;
 	}
 
@@ -577,25 +545,24 @@ int egcall_alloc(struct egcall **egcallp,
 
 	egcall->conf = conf;
 	egcall->state = EGCALL_STATE_IDLE;
-	egcall->sendh = sendh;
-	egcall->starth = starth;
-	egcall->answerh = answerh;
-	egcall->mediah = media_estabh;
-	egcall->audioh = audio_estabh;
-	egcall->dcestabh = datachan_estabh;
-	egcall->conf_pos.chgh = grp_chgh;
-	egcall->leaveh = leaveh;
-	egcall->closeh = closeh;
-	egcall->metricsh = metricsh;
-	egcall->vstateh = vstateh,
-	egcall->acbrh = acbrh,
-	egcall->arg = arg;
 
 	list_init(&egcall->conf_pos.partl);
 	
 	tmr_init(&egcall->call_timer);
 	tmr_init(&egcall->roster_timer);
 
+	icall_set_functions(&egcall->icall,
+		egcall_add_turnserver,
+		egcall_start,
+		egcall_answer,
+		egcall_end,
+		egcall_media_start,
+		egcall_media_stop,
+		egcall_set_video_send_state,
+		egcall_msg_recv,
+		egcall_get_members,
+		egcall_set_quality_interval,
+		egcall_debug);
 out:
 	if (err == 0) {
 		*egcallp = egcall;
@@ -607,9 +574,15 @@ out:
 	return err;
 }
 
-int egcall_add_turnserver(struct egcall *egcall,
+struct icall *egcall_get_icall(struct egcall *egcall)
+{
+	return &egcall->icall;
+}
+
+int egcall_add_turnserver(struct icall *icall,
 			  struct zapi_ice_server *srv)
 {
+	struct egcall *egcall = (struct egcall*)icall;
 	int err = 0;
 
 	if (!egcall || !srv)
@@ -627,9 +600,13 @@ int egcall_add_turnserver(struct egcall *egcall,
 }
 
 
-int egcall_start(struct egcall *egcall, int call_type, bool audio_cbr)
+int egcall_start(struct icall *icall, enum icall_call_type call_type,
+		 bool audio_cbr, void *extcodec_arg)
 {
+	struct egcall *egcall = (struct egcall*)icall;
 	int err = 0;
+
+	(void)extcodec_arg;
 
 	if (egcall == NULL) {
 		return EINVAL;
@@ -655,9 +632,13 @@ out:
 	return err;
 }
 
-int egcall_answer(struct egcall *egcall, int call_type, bool audio_cbr)
+int egcall_answer(struct icall *icall, enum icall_call_type call_type,
+		  bool audio_cbr, void *extcodec_arg)
 {
+	struct egcall *egcall = (struct egcall*)icall;
 	int err = 0;
+
+	(void)extcodec_arg;
 
 	if (egcall == NULL) {
 		return EINVAL;
@@ -698,17 +679,16 @@ static void send_leave(struct egcall *egcall, uint32_t msg_time, int err)
 		set_state(egcall, EGCALL_STATE_IDLE);
 		info("egcall(%p): send_leave no ecalls in list, closing\n",
 		     egcall);
-		if (egcall->closeh) {
-			egcall->closeh(err, msg_time, egcall->arg);
-		}
+		ICALL_CALL_CB(egcall->icall, closeh, 
+			0, NULL, &egcall->icall, ECONN_MESSAGE_TIME_UNKNOWN,
+			NULL, NULL, egcall->icall.arg);
 	}
 	else {
 		info("egcall(%p): send_leave %u ecalls in list, leaving\n",
 		     egcall, rcount);
 		set_state(egcall, EGCALL_STATE_INCOMING);
-		if (egcall->leaveh) {
-			egcall->leaveh(EGCALL_REASON_STILL_ONGOING, msg_time, egcall->arg);
-		}
+		ICALL_CALL_CB(egcall->icall, leaveh, 
+			EGCALL_REASON_STILL_ONGOING, msg_time, egcall->icall.arg);
 	}
 }
 
@@ -745,15 +725,17 @@ static void egcall_end_with_err(struct egcall *egcall, int err)
 }
 
 
-void egcall_end(struct egcall *egcall)
+void egcall_end(struct icall *icall)
 {
+	struct egcall *egcall = (struct egcall*)icall;
 	egcall_end_with_err(egcall, 0);
 }
 
-static void ecall_setup_handler(struct ecall *ecall,
+static void ecall_setup_handler(struct icall *icall,
 				uint32_t msg_time,
 			        const char *userid_sender,
 			        bool video_call,
+				bool should_ring,
 			        void *arg)
 {
 	struct egcall *egcall = arg;
@@ -761,14 +743,16 @@ static void ecall_setup_handler(struct ecall *ecall,
 	char userid_anon[ANON_ID_LEN];
 
 	(void)msg_time;
-	(void)ecall; /* not really used, revise code below and use directly */
+	(void)icall; /* not really used, revise code below and use directly */
+	(void)should_ring;
 
 	ecall0 = ecall_find_userid(&egcall->ecalll, userid_sender);
 	
 	info("ecall_setup_h user=%s ecall=%p ecall0=%p\n",
-	     anon_id(userid_anon, userid_sender), ecall, ecall0);
+	     anon_id(userid_anon, userid_sender), icall, ecall0);
 	if (ecall0) {
-		ecall_answer(ecall0, egcall->call_type != WCALL_CALL_TYPE_FORCED_AUDIO,
+		ecall_answer(ecall0,
+			egcall->call_type != WCALL_CALL_TYPE_FORCED_AUDIO,
 			egcall->audio_cbr, NULL);
 	}
 }
@@ -782,34 +766,34 @@ static void ecall_setup_resp_handler(void *arg)
 }
 
 
-static void ecall_media_estab_handler(struct ecall *ecall, bool update,
-				      void *arg)
+static void ecall_media_estab_handler(struct icall *icall, const char *userid,
+				      const char *clientid, bool update, void *arg)
 {
 	struct egcall *egcall = arg;
 
-	if (egcall->mediah)
-		egcall->mediah(ecall, update, egcall->arg);
+	ICALL_CALL_CB(egcall->icall, media_estabh,
+		icall, userid, clientid, update, egcall->icall.arg);
 }
 
-static void ecall_media_stopped_handler(struct ecall *ecall, void *arg)
+static void ecall_media_stopped_handler(struct icall *icall, void *arg)
 {
 	struct egcall *egcall = arg;
 
-	set_media_started(egcall, ecall, false);
+	set_media_started(egcall, (struct ecall*)icall, false);
 
 	if (all_media_stopped(egcall)) {
-		if (egcall->media_stoppedh) {
-			egcall->media_stoppedh(NULL, egcall->arg);
-		}
+		ICALL_CALL_CB(egcall->icall, media_stoppedh,
+			icall, egcall->icall.arg);
 	}
 }
 
 
 
-static void ecall_audio_estab_handler(struct ecall *ecall, bool update,
-				      void *arg)
+static void ecall_audio_estab_handler(struct icall *icall, const char *userid,
+				      const char *clientid, bool update, void *arg)
 {
 	struct egcall *egcall = arg;
+	struct ecall *ecall = (struct ecall*)icall;
 
 	if (egcall->state == EGCALL_STATE_ANSWERED) {
 		set_state(egcall, EGCALL_STATE_ACTIVE);
@@ -843,7 +827,7 @@ static void ecall_audio_estab_handler(struct ecall *ecall, bool update,
 
 			err = conf_part_add(&cp,
 					    &egcall->conf_pos.partl,
-					    ecall_get_peer_userid(ecall),
+					    userid,
 					    mf);
 			if (!err) {
 				ecall_set_conf_part(ecall, cp);
@@ -853,85 +837,80 @@ static void ecall_audio_estab_handler(struct ecall *ecall, bool update,
 	}
 
 	
-	if (egcall->audioh)
-		egcall->audioh(ecall, update, egcall->arg);
+	ICALL_CALL_CB(egcall->icall, audio_estabh,
+		icall, userid, clientid, update, egcall->icall.arg);
 }
 
 
-static void ecall_datachan_estab_handler(struct ecall *ecall, bool update,
-					 void *arg)
+static void ecall_datachan_estab_handler(struct icall *icall, const char *userid,
+					 const char *clientid, bool update, void *arg)
 {
 	struct egcall *egcall = arg;
 
-	if (egcall->dcestabh)
-		egcall->dcestabh(ecall, update, egcall->arg);
+	ICALL_CALL_CB(egcall->icall, datachan_estabh,
+		icall, userid, clientid, update, egcall->icall.arg);
 }
 
 
-static void ecall_propsync_handler(void *arg)
+static void ecall_vstate_handler(struct icall *icall, const char *userid,
+				 const char *clientid, enum icall_vstate state, void *arg)
 {
 	struct egcall *egcall = arg;
 
-	(void)egcall;	
-}
-
-
-static void ecall_vstate_handler(struct ecall *ecall, const char *userid,
-	enum ecall_vstate state, void *arg)
-{
-	struct egcall *egcall = arg;
-
-	if (ecall) {
+	if (icall) {
 		struct roster_item *ri;
 
-		ri = roster_lookup(egcall, ecall);
+		ri = roster_lookup(egcall, (struct ecall*)icall);
 		if (ri)
 			ri->video_recv = state;
 	}
 
-	if (egcall->vstateh)
-		egcall->vstateh(ecall, userid, state, egcall->arg);
+	ICALL_CALL_CB(egcall->icall, vstate_changedh,
+		icall, userid, clientid, state, egcall->icall.arg);
 }
 
 
-static void ecall_audiocbr_handler(struct ecall *ecall, const char *userid, int enabled, void *arg)
+static void ecall_audiocbr_handler(struct icall *icall, const char *userid,
+				   const char *clientid, int enabled, void *arg)
 {
 #if 1
 	/* For now CBR should not be signalled for group calls */
-	(void)ecall;
+	(void)icall;
 	(void)userid;
+	(void)clientid;
 	(void)enabled;
 	(void)arg;
 #else
 	struct egcall *egcall = arg;
 
-	if (egcall->acbrh)
-		egcall->acbrh(ecall, userid, enabled, egcall->arg);
+	ICALL_CALL_CB(egcall->icall, acbr_changedh,
+		icall, userid, enabled, egcall->icall.arg);
 #endif
 }
 
 static void ecall_close_handler(int err, const char *metrics_json,
-				struct ecall *ecall, uint32_t msg_time,
+				struct icall *icall, uint32_t msg_time,
+				const char *userid, const char *clientid,
 				void *arg)
 {
+	struct ecall *ecall = (struct ecall*)icall;
 	struct egcall *egcall = arg;
-	const char *uid = ecall_get_peer_userid(ecall);
-	const char *cid = ecall_get_peer_clientid(ecall);
 
 	info("egcall(%p): ecall_close_handler err=%d ecall=%p\n",
 	     egcall, err, ecall);
 	
-	if(egcall->metricsh && metrics_json){
-		egcall->metricsh(metrics_json, egcall->arg);
+	if(metrics_json){
+		ICALL_CALL_CB(egcall->icall, metricsh,
+			metrics_json, egcall->icall.arg);
 	}
 
 	ecall_set_conf_part(ecall, NULL);
 	update_conf_pos(egcall);
 
 	if ((err != 0 || egcall->state != EGCALL_STATE_TERMINATING)
-	    && uid
-	    && cid) {
-		roster_remove(egcall, uid, cid);
+	    && userid
+	    && clientid) {
+		roster_remove(egcall, userid, clientid);
 	}
 
 	destroy_ecall(egcall, ecall);
@@ -949,7 +928,7 @@ static int ecall_transp_send_handler(const char *userid,
 	int err = 0;
 	char *str = NULL;
 
-	if (!egcall->sendh)
+	if (!egcall->icall.sendh)
 		return ENOTSUP;
 
 	/* Remap messages to GROUP-equivalents */
@@ -963,11 +942,24 @@ static int ecall_transp_send_handler(const char *userid,
 		break;
 	}
 
-	err = egcall->sendh(userid, msg, egcall->arg);
+	err = ICALL_CALL_CBE(egcall->icall, sendh,
+		userid, msg, egcall->icall.arg);
 
 	mem_deref(str);
 
 	return err;
+}
+
+
+static void ecall_quality_handler(struct icall *icall,
+				  const char *userid,
+				  int rtt, int uploss, int downloss,
+				  void *arg)
+{
+	struct egcall *egcall = arg;
+
+	ICALL_CALL_CB(egcall->icall, qualityh,
+		icall, userid, rtt, uploss, downloss, egcall->icall.arg);
 }
 
 
@@ -989,23 +981,30 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 	msys = flowmgr_msystem();
 	/* If call has been answered, send SETUP */
 	err = ecall_alloc(&ecall, &egcall->ecalll,
+			  ICALL_CONV_TYPE_GROUP,
 			  egcall->conf,
 			  msys,
 			  egcall->convid,
 			  egcall->userid_self,
-			  egcall->clientid_self,
-			  ecall_setup_handler,
-			  ecall_setup_resp_handler,
-			  ecall_media_estab_handler,
-			  ecall_media_stopped_handler,
-			  ecall_audio_estab_handler,
-			  ecall_datachan_estab_handler,
-			  ecall_propsync_handler,
-			  ecall_vstate_handler,
-			  ecall_audiocbr_handler,
-			  ecall_close_handler,
-			  ecall_transp_send_handler,
-			  egcall);
+			  egcall->clientid_self);
+
+	icall_set_callbacks(ecall_get_icall(ecall),
+			    ecall_transp_send_handler,
+			    ecall_setup_handler, 
+			    ecall_setup_resp_handler,
+			    ecall_media_estab_handler,
+			    ecall_audio_estab_handler,
+			    ecall_datachan_estab_handler,
+			    ecall_media_stopped_handler,
+			    NULL, // group_changed_handler
+			    NULL, // leave_handler
+			    ecall_close_handler,
+			    NULL, // metrics_handler
+			    ecall_vstate_handler,
+			    ecall_audiocbr_handler,
+			    ecall_quality_handler,
+			    egcall);
+
 	if (err) {
 		warning("egcall(%p): ecall_alloc failed: %m\n",
 			egcall, err);
@@ -1021,13 +1020,7 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 	me->started = false;
 	list_append(&egcall->media_startl, &me->le, me);
 
-	if (egcall->quality.netqh) {
-		ecall_set_quality_handler(ecall,
-					  egcall->quality.netqh,
-					  egcall->quality.interval,	 
-					  egcall);
-	}
-					 
+	ecall_set_quality_interval(ecall, egcall->quality.interval);
 	
 	ecall_set_peer_userid(ecall, userid_peer);
 	ecall_set_peer_clientid(ecall, clientid_peer);
@@ -1073,7 +1066,7 @@ static void recv_start(struct egcall *egcall,
 	switch (egcall->state) {
 	case EGCALL_STATE_IDLE:
 		set_state(egcall, EGCALL_STATE_INCOMING);
-		if (egcall->starth) {
+		if (egcall->icall.starth) {
 			bool should_ring = econn_message_isrequest(msg) &&
 				((msg->age * 1000) < EGCALL_SHOULD_RING_TIMEOUT) &&
 				!strcaseeq(userid_sender, egcall->userid_self);
@@ -1087,7 +1080,8 @@ static void recv_start(struct egcall *egcall,
 				}
 			}
 			// Needs to happen after set_state
-			egcall->starth(msg->time, userid_sender, video, should_ring, egcall->arg);
+			ICALL_CALL_CB(egcall->icall, starth,
+				      &egcall->icall, msg->time, userid_sender,							       video, should_ring, egcall->icall.arg);
 			if (should_ring) {
 				tmr_start(&egcall->call_timer, EGCALL_RING_TIMEOUT,
 					egcall_ring_timeout, egcall);
@@ -1100,11 +1094,10 @@ static void recv_start(struct egcall *egcall,
 			((msg->age * 1000) < EGCALL_SHOULD_RING_TIMEOUT) &&
 			strcaseeq(userid_sender, egcall->userid_self)) {
 
-			if (egcall->leaveh) {
-				egcall->leaveh(EGCALL_REASON_ANSWERED_ELSEWHERE,
-					msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN,
-					egcall->arg);
-			}
+			ICALL_CALL_CB(egcall->icall, leaveh,
+				EGCALL_REASON_ANSWERED_ELSEWHERE,
+				msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN,
+				egcall->icall.arg);
 		}
 		break;
 
@@ -1145,8 +1138,7 @@ static void recv_start(struct egcall *egcall,
 			}
 		}
 
-		err = ecall_start(ecall, egcall->call_type != WCALL_CALL_TYPE_FORCED_AUDIO,
-			egcall->audio_cbr, NULL);
+		err = ecall_start(ecall, egcall->call_type, egcall->audio_cbr, NULL);
 		if (EALREADY == err) {
 			err = 0;
 		}
@@ -1159,9 +1151,8 @@ static void recv_start(struct egcall *egcall,
 
 		if (egcall->state == EGCALL_STATE_OUTGOING) {
 			set_state(egcall, EGCALL_STATE_ANSWERED);
-			if (egcall->answerh) {
-				egcall->answerh(egcall->arg);
-			}
+			ICALL_CALL_CB(egcall->icall, answerh,
+				egcall->icall.arg);
 		}
 		break;
 
@@ -1205,12 +1196,11 @@ static void recv_leave(struct egcall* egcall,
 		info("egcall(%p): recv_leave no users in roster in %s\n",
 		     egcall, egcall_state_name(egcall->state));
 		set_state(egcall, EGCALL_STATE_IDLE);
-		if (egcall->closeh) {
-			egcall->closeh(egcall->is_call_answered ? 0 : ECANCELED,
-				       msg ? msg->time
-				           : ECONN_MESSAGE_TIME_UNKNOWN,
-				       egcall->arg);
-		}
+		ICALL_CALL_CB(egcall->icall, closeh,
+			egcall->is_call_answered ? 0 : ECANCELED,
+			NULL, &egcall->icall,
+			msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN,
+			userid_sender, clientid_sender, egcall->icall.arg);
 	}	
 }
 		
@@ -1232,9 +1222,9 @@ static void recv_check(struct egcall* egcall,
 
 	if (egcall->state == EGCALL_STATE_IDLE) {
 		set_state(egcall, EGCALL_STATE_INCOMING);
-		if (egcall->starth) {
-			egcall->starth(msg->time, userid_sender, false, false, egcall->arg);
-		}
+		ICALL_CALL_CB(egcall->icall, starth,
+			&egcall->icall, msg->time, userid_sender,
+			false, false, egcall->icall.arg);
 	}
 	else if (egcall->state == EGCALL_STATE_ACTIVE) {
 		egcall_start_active_roster_timer(egcall);
@@ -1259,24 +1249,26 @@ static void recv_reject(struct egcall* egcall,
 
 	/* Handle REJECT from ourselves but remain in INCOMING */
 	if (0 == str_casecmp(egcall->userid_self, userid_sender) && 
-		egcall->state == EGCALL_STATE_INCOMING && egcall->leaveh) {
+		egcall->state == EGCALL_STATE_INCOMING) {
 
-		egcall->leaveh(EGCALL_REASON_REJECTED, ECONN_MESSAGE_TIME_UNKNOWN, egcall->arg);
+		ICALL_CALL_CB(egcall->icall, leaveh,
+			EGCALL_REASON_REJECTED, ECONN_MESSAGE_TIME_UNKNOWN, egcall->icall.arg);
 	}
 }
 
-bool egcall_msg_recv(struct egcall *egcall,
+int egcall_msg_recv(struct icall *icall,
 		     uint32_t curr_time,
 		     uint32_t msg_time,
 		     const char *userid_sender,
 		     const char *clientid_sender,
 		     struct econn_message *msg)
 {
+	struct egcall *egcall = (struct egcall*)icall;
 	struct ecall *ecall = NULL;
 	char userid_anon[ANON_ID_LEN];
 
 	if (!egcall || !msg)
-		return false;
+		return EINVAL;
 
 	// assert(ECONN_MAGIC == conn->magic);
 
@@ -1284,24 +1276,24 @@ bool egcall_msg_recv(struct egcall *egcall,
 
 	case ECONN_GROUP_START:
 		recv_start(egcall, userid_sender, clientid_sender, msg);
-		return true;
+		return 0;
 
 	case ECONN_GROUP_LEAVE:
 		recv_leave(egcall, userid_sender, clientid_sender, msg);
-		return true;
+		return 0;
 
 	case ECONN_GROUP_CHECK:
 		recv_check(egcall, userid_sender, clientid_sender, msg);
-		return true;
+		return 0;
 
 	case ECONN_REJECT:
 		recv_reject(egcall, userid_sender, clientid_sender, msg);
-		return true;
+		return 0;
 
 	default:
 		if (!str_isset(msg->dest_userid) || !str_isset(msg->dest_clientid)) {
 			info("egcall(%p): ignoring message as user & dest arent set\n", egcall);
-			return false;
+			return EINVAL;
 		}
 
 		if (strcaseeq(msg->dest_userid, egcall->userid_self) &&
@@ -1313,7 +1305,7 @@ bool egcall_msg_recv(struct egcall *egcall,
 				info("egcall(%p): ignore message %s from same user (%s)\n",
 				     egcall, econn_msg_name(msg->msg_type),
 				     anon_id(userid_anon, userid_sender));
-				return true;
+				return 0;
 			}
 
 			if (msg->msg_type == ECONN_GROUP_SETUP)
@@ -1348,13 +1340,14 @@ bool egcall_msg_recv(struct egcall *egcall,
 			info("egcall(%p): ignoring message as user & dest dont match\n", egcall);
 		}
 
-		return true;
+		return 0;
 	}
 }
 
 
-int egcall_media_start(struct egcall *egcall)
+int egcall_media_start(struct icall *icall)
 {
+	struct egcall *egcall = (struct egcall*)icall;
 	struct le *le;
 	int err = 0;
 
@@ -1369,8 +1362,9 @@ int egcall_media_start(struct egcall *egcall)
 	return err;
 }
 
-void egcall_media_stop(struct egcall *egcall)
+void egcall_media_stop(struct icall *icall)
 {
+	struct egcall *egcall = (struct egcall*)icall;
 	struct le *le;
 	
 	LIST_FOREACH(&egcall->ecalll, le) {
@@ -1393,9 +1387,9 @@ static bool roster_debug_handler(char *key, void *val, void *arg)
 }
 
 
-int egcall_debug(struct re_printf *pf, void *arg)
+int egcall_debug(struct re_printf *pf, const struct icall *arg)
 {
-	struct egcall *egcall = arg;
+	struct egcall *egcall = (struct egcall*)arg;
 	struct le *le;
 	int err = 0;
 
@@ -1453,8 +1447,9 @@ static void members_destructor(void *arg)
 }
 
 	
-int egcall_get_members(struct wcall_members **mmp, struct egcall *egcall)
+int egcall_get_members(struct icall *icall, struct wcall_members **mmp)
 {
+	struct egcall *egcall = (struct egcall*)icall;
 	struct wcall_members *mm;
 	size_t n = 0;
 	int err = 0;
@@ -1495,8 +1490,9 @@ int egcall_get_members(struct wcall_members **mmp, struct egcall *egcall)
 }
 
 
-int egcall_set_video_send_state(struct egcall *egcall, enum ecall_vstate state)
+int egcall_set_video_send_state(struct icall *icall, enum icall_vstate state)
 {
+	struct egcall *egcall = (struct egcall*)icall;
 	int err = 0;
 
 	uint32_t ecount = 0;
@@ -1507,7 +1503,7 @@ int egcall_set_video_send_state(struct egcall *egcall, enum ecall_vstate state)
 
 	ecount = list_count(&egcall->ecalll);
 	info("egcall: set_video_send_state %s ecalls=%u\n",
-	     ecall_vstate_name(state), ecount);
+	     icall_vstate_name(state), ecount);
 
 	egcall->video.send_state = state;
 
@@ -1520,17 +1516,29 @@ int egcall_set_video_send_state(struct egcall *egcall, enum ecall_vstate state)
 	return err;
 }
 
-int egcall_set_quality_handler(struct egcall *egcall,
-			       ecall_quality_h *netqh,
-			       uint64_t interval,
-			       void *arg)
+int egcall_set_quality_interval(struct icall *icall, uint64_t interval)
 {
+	struct egcall *egcall = (struct egcall*)icall;
+	int err = 0;
+
+	uint32_t ecount = 0;
+	struct le *le;
+
 	if (!egcall)
 		return EINVAL;
 
-	egcall->quality.netqh = netqh;
-	egcall->quality.interval = interval;
-	egcall->quality.arg = arg;
+	ecount = list_count(&egcall->ecalll);
+	info("egcall: set_quality_interval %ull ecalls=%u\n",
+	     interval, ecount);
 
-	return 0;
+	egcall->quality.interval = interval;
+
+	LIST_FOREACH(&egcall->ecalll, le) {
+		struct ecall *ecall = le->data;
+
+		ecall_set_quality_interval(ecall, interval);
+	}
+
+	return err;
 }
+

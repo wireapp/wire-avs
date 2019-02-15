@@ -29,6 +29,7 @@
 #include "avs_msystem.h"
 #include "avs_econn.h"
 #include "avs_econn_fmt.h"
+#include "avs_icall.h"
 #include "avs_ecall.h"
 #include "avs_jzon.h"
 #include "avs_mediastats.h"

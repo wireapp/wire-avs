@@ -98,8 +98,6 @@ struct client {
 	unsigned n_media_estab = 0;
 	unsigned n_audio_estab = 0;
 	unsigned n_datachan_estab = 0;
-	unsigned n_propsync = 0;
-	unsigned n_alert = 0;
 	unsigned n_close = 0;
 	unsigned n_usr_data_ready = 0;
 	int err_close;
@@ -120,9 +118,6 @@ struct conv_loop {
 	char convid[64];
 	bool complete;
 };
-
-
-static const char alert_description[] = "We apologize for the interruption";
 
 
 /* prototypes */
@@ -260,7 +255,7 @@ static unsigned total_datachan_estab(const struct conv_loop *loop)
 	return n_estab;
 }
 
-
+/*
 static unsigned total_propsync(const struct conv_loop *loop)
 {
 	unsigned n = 0;
@@ -274,7 +269,7 @@ static unsigned total_propsync(const struct conv_loop *loop)
 
 	return n;
 }
-
+*/
 
 static unsigned total_close(const struct conv_loop *loop)
 {
@@ -551,7 +546,7 @@ public:
 		switch (cli->action_conn) {
 
 		case ACTION_ANSWER:
-			err = ecall_answer(cli->ecall, false, false, NULL);
+			err = ecall_answer(cli->ecall, ICALL_CALL_TYPE_NORMAL, false, NULL);
 			ASSERT_EQ(0, err);
 			break;
 
@@ -560,7 +555,7 @@ public:
 			break;
 
 		case ACTION_ANSWER_AND_END:
-			err = ecall_answer(cli->ecall, false, false, NULL);
+			err = ecall_answer(cli->ecall, ICALL_CALL_TYPE_NORMAL, false, NULL);
 			ASSERT_EQ(0, err);
 
 			ecall_end(cli->ecall);
@@ -580,9 +575,9 @@ public:
 		}
 	}
 
-	static void conn_handler(struct ecall *ecall,
+	static void conn_handler(struct icall *icall,
 				 uint32_t msg_time, const char *userid_sender,
-				 bool video_call, void *arg)
+				 bool video_call, bool should_ring, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
 		struct conv_loop *loop = cli->loop;
@@ -609,7 +604,8 @@ public:
 		}
 	}
 
-	static void audio_estab_handler(struct ecall *ecall,
+	static void audio_estab_handler(struct icall *icall,
+					const char *userid, const char *clientid,
 					bool update, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
@@ -629,7 +625,8 @@ public:
 		}
 	}
 
-	static void media_estab_handler(struct ecall *ecall,
+	static void media_estab_handler(struct icall *icall,
+					const char *userid, const char *clientid,
 					bool update, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
@@ -657,7 +654,8 @@ public:
 		}
 	}
 
-	static void datachan_estab_handler(struct ecall *ecall,
+	static void datachan_estab_handler(struct icall *icall,
+					   const char *userid, const char *clientid,
 					   bool update, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
@@ -782,37 +780,11 @@ public:
 		}
 	}
 
-	static void propsync_handler(void *arg)
-	{
-		struct client *cli = (struct client *)arg;
-		struct conv_loop *loop = cli->loop;
-		Ecall *fix = cli->fix;
-
-		info("[%s.%s] propsync\n", cli->userid, cli->clientid);
-
-		++cli->n_propsync;
-
-		if (fix->exp_total_propsyncs &&
-			total_propsync(loop) >= fix->exp_total_propsyncs) {
-			cli->fix->test_complete(loop, 0);
-		}
-	}
-
-	static void alert_handler(uint32_t level, const char *descr, void *arg)
-	{
-		struct client *cli = (struct client *)arg;
-
-		ASSERT_EQ(1, level);
-		ASSERT_STREQ(alert_description, descr);
-
-		++cli->n_alert;
-
-		cli->fix->test_complete(cli->loop, 0);
-	}
-
 	static void close_handler(int err, const char *metrics_json,
-				  struct ecall* ecall,
-				  uint32_t msg_time, void *arg)
+				  struct icall* icall,
+				  uint32_t msg_time,
+				  const char *userid, const char *clientid,
+				  void *arg)
 	{
 		struct client *cli = (struct client *)arg;
 		Ecall *fix = cli->fix;
@@ -975,24 +947,29 @@ public:
 			if (!str_isset(cli->userid))
 				continue;
 
-			err = ecall_alloc(&cli->ecall, &lst, &conf,
+			err = ecall_alloc(&cli->ecall, &lst, ICALL_CONV_TYPE_ONEONONE, &conf,
 					  msys, loop->convid,
-					  cli->userid, cli->clientid,
-					  conn_handler,
-					  NULL,
-					  media_estab_handler,
-					  NULL,
-					  audio_estab_handler,
-					  datachan_estab_handler,
-					  propsync_handler,
-					  NULL,
-					  NULL,
-					  close_handler,
-					  transp_send_handler, cli);
+					  cli->userid, cli->clientid);
+
 			ASSERT_EQ(0, err);
 			ASSERT_TRUE(cli->ecall != NULL);
 
-			ecall_set_alert_handler(cli->ecall, alert_handler);
+			icall_set_callbacks(ecall_get_icall(cli->ecall),
+					    transp_send_handler,
+					    conn_handler, 
+					    NULL,
+					    media_estab_handler,
+					    audio_estab_handler,
+					    datachan_estab_handler,
+					    NULL, // media_stopped_handler
+					    NULL, // group_changed_handler
+					    NULL, // leave_handler
+					    close_handler,
+					    NULL, // metrics_handler
+					    NULL, // vstate_handler
+					    NULL, // audiocbr_handler
+					    NULL, // quality_handler
+					    cli);
 
 			if (user_data_channel) {
 				err = ecall_add_user_data(cli->ecall,
@@ -1045,7 +1022,7 @@ public:
 #endif
 
 		/* Call from A to B */
-		err = ecall_start(loop->clients[0].ecall, false, false, NULL);
+		err = ecall_start(loop->clients[0].ecall, ICALL_CALL_TYPE_NORMAL, false, NULL);
 		ASSERT_EQ(0, err);
 
 		verify_debug(loop);
@@ -1095,7 +1072,7 @@ protected:
 	unsigned exp_total_media_estab = 0;
 	unsigned exp_total_audio_estab = 0;
 	unsigned exp_total_datachan_estab = 0;
-	unsigned exp_total_propsyncs = 0;
+	//unsigned exp_total_propsyncs = 0;
 	unsigned exp_total_close = 0;
 	unsigned exp_total_user_data_ready = 0;
 	unsigned exp_total_user_data_rcv = 0;
@@ -1170,11 +1147,6 @@ void handle_estab_action(struct conv_loop *loop, enum estab_type estabt)
 			tmr_start(&cli->fix->tmr_restart, 100,
 				  tmr_restart_handler, cli->ecall);
 			*action_estab = ACTION_NOTHING;
-			break;
-
-		case ACTION_ALERT:
-			err = ecall_send_alert(cli->ecall, 1,
-					       alert_description);
 			break;
 
 		default:
@@ -1630,7 +1602,7 @@ TEST_F(Ecall, hundreds_of_calls_in_parallel)
 		ASSERT_EQ(0, a1->n_conn);
 		ASSERT_EQ(1, a1->n_media_estab);
 		ASSERT_EQ(1, a1->n_datachan_estab);
-		ASSERT_GE(a1->n_propsync, 1);
+		//ASSERT_GE(a1->n_propsync, 1);
 		ASSERT_LE(a1->n_close, 1);     /* zero or one */
 		ASSERT_EQ(0, a1->err_close);
 
@@ -1639,7 +1611,7 @@ TEST_F(Ecall, hundreds_of_calls_in_parallel)
 		ASSERT_EQ(0, a2->n_media_estab);
 		ASSERT_EQ(0, a2->n_audio_estab);
 		ASSERT_EQ(0, a2->n_datachan_estab);
-		ASSERT_EQ(0, a2->n_propsync);
+		//ASSERT_EQ(0, a2->n_propsync);
 		ASSERT_EQ(0, a2->n_close);
 		ASSERT_EQ(0, a2->err_close);
 
@@ -1647,7 +1619,7 @@ TEST_F(Ecall, hundreds_of_calls_in_parallel)
 		ASSERT_EQ(1, b1->n_conn);
 		ASSERT_EQ(1, b1->n_media_estab);
 		ASSERT_EQ(1, b1->n_datachan_estab);
-		ASSERT_GE(b1->n_propsync, 1);
+		//ASSERT_GE(b1->n_propsync, 1);
 		ASSERT_EQ(1, b1->n_close);
 		ASSERT_EQ(0, b1->err_close);
 
@@ -1656,7 +1628,7 @@ TEST_F(Ecall, hundreds_of_calls_in_parallel)
 		ASSERT_EQ(0, b2->n_media_estab);
 		ASSERT_EQ(0, b2->n_audio_estab);
 		ASSERT_EQ(0, b2->n_datachan_estab);
-		ASSERT_EQ(0, b2->n_propsync);
+		//ASSERT_EQ(0, b2->n_propsync);
 		ASSERT_EQ(1, b2->n_close);
 		ASSERT_EQ(EALREADY, b2->err_close);
 	}
@@ -2055,10 +2027,10 @@ TEST_F(Ecall, flow007)
 	prepare_ecalls(conv);
 
 	/* Call from A to B */
-	err = ecall_start(a1->ecall, false, false, NULL);
+	err = ecall_start(a1->ecall, ICALL_CALL_TYPE_NORMAL, false, NULL);
 	ASSERT_EQ(0, err);
 
-	err = ecall_start(b2->ecall, false, false, NULL);
+	err = ecall_start(b2->ecall, ICALL_CALL_TYPE_NORMAL, false, NULL);
 	ASSERT_EQ(0, err);
 
 	/* Wait .. */
@@ -2123,10 +2095,10 @@ TEST_F(Ecall, flow007_check_audio_estabh)
 	prepare_ecalls(conv);
 
 	/* Call from A to B */
-	err = ecall_start(a1->ecall, false, false, NULL);
+	err = ecall_start(a1->ecall, ICALL_CALL_TYPE_NORMAL, false, NULL);
 	ASSERT_EQ(0, err);
 
-	err = ecall_start(b2->ecall, false, false, NULL);
+	err = ecall_start(b2->ecall, ICALL_CALL_TYPE_NORMAL, false, NULL);
 	ASSERT_EQ(0, err);
 
 	/* Wait .. */
@@ -2197,7 +2169,7 @@ TEST_F(Ecall, flow008)
 	prepare_ecalls(conv);
 
 	/* Call from B to A */
-	err = ecall_start(b2->ecall, false, false, NULL);
+	err = ecall_start(b2->ecall, ICALL_CALL_TYPE_NORMAL, false, NULL);
 	ASSERT_EQ(0, err);
 
 	exp_total_conn = 4;
@@ -2291,7 +2263,7 @@ TEST_F(Ecall, flow014)
 	ASSERT_EQ(0, n_cancel);
 }
 
-
+#if 0
 TEST_F(Ecall, propsync)
 {
 	struct client *a1, *b1;
@@ -2339,7 +2311,7 @@ TEST_F(Ecall, propsync)
 	ASSERT_EQ(3, a1->n_propsync);
 	ASSERT_EQ(3, b1->n_propsync);
 }
-
+#endif
 
 TEST_F(Ecall, ice)
 {
@@ -2476,39 +2448,3 @@ TEST_F(Ecall, restart)
 	ASSERT_EQ(2, b2->n_datachan_estab);
 }
 
-
-TEST_F(Ecall, alert)
-{
-	struct client *a1, *b2;
-
-	prepare_loops(1, 4);
-
-	struct conv_loop *conv = loopv[0];
-
-	prepare_clients(conv);
-
-	conv->clients[1].userid = "";
-	conv->clients[2].userid = "";
-
-	a1 = convloop_client(conv, "A", "1");
-	b2 = convloop_client(conv, "B", "2");
-	ASSERT_TRUE(a1 != NULL);
-	ASSERT_TRUE(b2 != NULL);
-
-	b2->action_conn = ACTION_ANSWER;
-
-	exp_total_audio_estab = 2;
-	a1->action_aestab = ACTION_ALERT;
-
-	test_base(conv);
-
-	/* Wait .. */
-	err = re_main_wait(60000);
-	ASSERT_EQ(0, err);
-
-	ASSERT_EQ(0, a1->n_conn);
-	ASSERT_EQ(0, a1->n_alert);
-
-	ASSERT_EQ(1, b2->n_conn);
-	ASSERT_EQ(1, b2->n_alert);
-}

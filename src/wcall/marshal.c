@@ -42,6 +42,7 @@ enum mq_event {
 	WCALL_MEV_AUDIO_ROUTE_CHANGED,
 	WCALL_MEV_NETWORK_CHANGED,
 	WCALL_MEV_INCOMING,
+	WCALL_MEV_DESTROY,
 };
 
 
@@ -252,6 +253,11 @@ static void mqueue_handler(int id, void *data, void *arg)
 				    md->u.incoming.video_call,
 				    md->u.incoming.should_ring,
 				    md->wuser);
+		break;
+
+
+	case WCALL_MEV_DESTROY:
+		wcall_i_destroy(md->wuser);
 		break;
 
 	default:
@@ -687,3 +693,19 @@ void wcall_invoke_incoming_handler(const char *convid,
 		mem_deref(md);
 }
 
+void wcall_marshal_destroy(void *id)
+{
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	md = md_new(id, NULL, WCALL_MEV_DESTROY);
+	if (!md)
+		return;
+
+	err = md_enqueue(md);
+	if (err)
+		goto out;
+
+ out:
+	return;
+}

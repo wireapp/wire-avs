@@ -1,0 +1,622 @@
+diff --git a/modules/audio_device/android/audio_manager.cc b/modules/audio_device/android/audio_manager.cc
+index 01e5d5f..076ff53 100644
+--- a/modules/audio_device/android/audio_manager.cc
++++ b/modules/audio_device/android/audio_manager.cc
+@@ -66,8 +66,7 @@ bool AudioManager::JavaAudioManager::IsDeviceBlacklistedForOpenSLESUsage() {
+ 
+ // AudioManager implementation
+ AudioManager::AudioManager()
+-    : j_environment_(JVM::GetInstance()->environment()),
+-      audio_layer_(AudioDeviceModule::kPlatformDefaultAudio),
++    : audio_layer_(AudioDeviceModule::kPlatformDefaultAudio),
+       initialized_(false),
+       hardware_aec_(false),
+       hardware_agc_(false),
+@@ -75,12 +74,11 @@ AudioManager::AudioManager()
+       low_latency_playout_(false),
+       delay_estimate_in_milliseconds_(0) {
+   ALOGD("ctor%s", GetThreadInfo().c_str());
+-  RTC_CHECK(j_environment_);
+   JNINativeMethod native_methods[] = {
+       {"nativeCacheAudioParameters",
+        "(IIZZZZIIJ)V",
+        reinterpret_cast<void*>(&webrtc::AudioManager::CacheAudioParameters)}};
+-  j_native_registration_ = j_environment_->RegisterNatives(
++  j_native_registration_ = JNIEnvironment::RegisterNatives(
+       "org/webrtc/voiceengine/WebRtcAudioManager", native_methods,
+       arraysize(native_methods));
+   j_audio_manager_.reset(new JavaAudioManager(
+diff --git a/modules/audio_device/android/audio_manager.h b/modules/audio_device/android/audio_manager.h
+index b4264a6..004d19c 100644
+--- a/modules/audio_device/android/audio_manager.h
++++ b/modules/audio_device/android/audio_manager.h
+@@ -128,9 +128,6 @@ class AudioManager {
+   // Also ensures that DetachCurrentThread() is called at destruction.
+   AttachCurrentThreadIfNeeded attach_thread_if_needed_;
+ 
+-  // Wraps the JNI interface pointer and methods associated with it.
+-  std::unique_ptr<JNIEnvironment> j_environment_;
+-
+   // Contains factory method for creating the Java object.
+   std::unique_ptr<NativeRegistration> j_native_registration_;
+ 
+diff --git a/modules/audio_device/android/audio_record_jni.cc b/modules/audio_device/android/audio_record_jni.cc
+index 8ce1386..f693ec5 100644
+--- a/modules/audio_device/android/audio_record_jni.cc
++++ b/modules/audio_device/android/audio_record_jni.cc
+@@ -74,8 +74,7 @@ bool AudioRecordJni::JavaAudioRecord::EnableBuiltInNS(bool enable) {
+ 
+ // AudioRecordJni implementation.
+ AudioRecordJni::AudioRecordJni(AudioManager* audio_manager)
+-    : j_environment_(JVM::GetInstance()->environment()),
+-      audio_manager_(audio_manager),
++    : audio_manager_(audio_manager),
+       audio_parameters_(audio_manager->GetRecordAudioParameters()),
+       total_delay_in_milliseconds_(0),
+       direct_buffer_address_(nullptr),
+@@ -86,14 +85,13 @@ AudioRecordJni::AudioRecordJni(AudioManager* audio_manager)
+       audio_device_buffer_(nullptr) {
+   ALOGD("ctor%s", GetThreadInfo().c_str());
+   RTC_DCHECK(audio_parameters_.is_valid());
+-  RTC_CHECK(j_environment_);
+   JNINativeMethod native_methods[] = {
+       {"nativeCacheDirectBufferAddress", "(Ljava/nio/ByteBuffer;J)V",
+       reinterpret_cast<void*>(
+           &webrtc::AudioRecordJni::CacheDirectBufferAddress)},
+       {"nativeDataIsRecorded", "(IJ)V",
+       reinterpret_cast<void*>(&webrtc::AudioRecordJni::DataIsRecorded)}};
+-  j_native_registration_ = j_environment_->RegisterNatives(
++  j_native_registration_ = JNIEnvironment::RegisterNatives(
+       "org/webrtc/voiceengine/WebRtcAudioRecord", native_methods,
+       arraysize(native_methods));
+   j_audio_record_.reset(new JavaAudioRecord(
+diff --git a/modules/audio_device/android/audio_record_jni.h b/modules/audio_device/android/audio_record_jni.h
+index de58468..b4029bc 100644
+--- a/modules/audio_device/android/audio_record_jni.h
++++ b/modules/audio_device/android/audio_record_jni.h
+@@ -118,9 +118,6 @@ class AudioRecordJni {
+   // Also ensures that DetachCurrentThread() is called at destruction.
+   AttachCurrentThreadIfNeeded attach_thread_if_needed_;
+ 
+-  // Wraps the JNI interface pointer and methods associated with it.
+-  std::unique_ptr<JNIEnvironment> j_environment_;
+-
+   // Contains factory method for creating the Java object.
+   std::unique_ptr<NativeRegistration> j_native_registration_;
+ 
+diff --git a/modules/audio_device/android/audio_track_jni.cc b/modules/audio_device/android/audio_track_jni.cc
+index fc77e32..694d957 100644
+--- a/modules/audio_device/android/audio_track_jni.cc
++++ b/modules/audio_device/android/audio_track_jni.cc
+@@ -69,8 +69,7 @@ int AudioTrackJni::JavaAudioTrack::GetStreamVolume() {
+ 
+ // TODO(henrika): possible extend usage of AudioManager and add it as member.
+ AudioTrackJni::AudioTrackJni(AudioManager* audio_manager)
+-    : j_environment_(JVM::GetInstance()->environment()),
+-      audio_parameters_(audio_manager->GetPlayoutAudioParameters()),
++    : audio_parameters_(audio_manager->GetPlayoutAudioParameters()),
+       direct_buffer_address_(nullptr),
+       direct_buffer_capacity_in_bytes_(0),
+       frames_per_buffer_(0),
+@@ -79,14 +78,13 @@ AudioTrackJni::AudioTrackJni(AudioManager* audio_manager)
+       audio_device_buffer_(nullptr) {
+   ALOGD("ctor%s", GetThreadInfo().c_str());
+   RTC_DCHECK(audio_parameters_.is_valid());
+-  RTC_CHECK(j_environment_);
+   JNINativeMethod native_methods[] = {
+       {"nativeCacheDirectBufferAddress", "(Ljava/nio/ByteBuffer;J)V",
+       reinterpret_cast<void*>(
+           &webrtc::AudioTrackJni::CacheDirectBufferAddress)},
+       {"nativeGetPlayoutData", "(IJ)V",
+       reinterpret_cast<void*>(&webrtc::AudioTrackJni::GetPlayoutData)}};
+-  j_native_registration_ = j_environment_->RegisterNatives(
++  j_native_registration_ = JNIEnvironment::RegisterNatives(
+       "org/webrtc/voiceengine/WebRtcAudioTrack", native_methods,
+       arraysize(native_methods));
+   j_audio_track_.reset(new JavaAudioTrack(
+diff --git a/modules/audio_device/android/audio_track_jni.h b/modules/audio_device/android/audio_track_jni.h
+index 2c78a59..390f610 100644
+--- a/modules/audio_device/android/audio_track_jni.h
++++ b/modules/audio_device/android/audio_track_jni.h
+@@ -114,9 +114,6 @@ class AudioTrackJni {
+   // Also ensures that DetachCurrentThread() is called at destruction.
+   AttachCurrentThreadIfNeeded attach_thread_if_needed_;
+ 
+-  // Wraps the JNI interface pointer and methods associated with it.
+-  std::unique_ptr<JNIEnvironment> j_environment_;
+-
+   // Contains factory method for creating the Java object.
+   std::unique_ptr<NativeRegistration> j_native_registration_;
+ 
+diff --git a/modules/audio_device/android/build_info.cc b/modules/audio_device/android/build_info.cc
+index 455c12f..4cfedc7 100644
+--- a/modules/audio_device/android/build_info.cc
++++ b/modules/audio_device/android/build_info.cc
+@@ -15,15 +15,14 @@
+ namespace webrtc {
+ 
+ BuildInfo::BuildInfo()
+-    : j_environment_(JVM::GetInstance()->environment()),
+-      j_build_info_(
++    : j_build_info_(
+           JVM::GetInstance()->GetClass("org/webrtc/voiceengine/BuildInfo")) {}
+ 
+ std::string BuildInfo::GetStringFromJava(const char* name) {
+   jmethodID id = j_build_info_.GetStaticMethodId(name, "()Ljava/lang/String;");
+   jstring j_string = static_cast<jstring>(
+       j_build_info_.CallStaticObjectMethod(id));
+-  return j_environment_->JavaToStdString(j_string);
++  return JNIEnvironment::JavaToStdString(j_string);
+ }
+ 
+ std::string BuildInfo::GetDeviceModel() {
+diff --git a/modules/audio_device/android/build_info.h b/modules/audio_device/android/build_info.h
+index 4a4c30e..0abd9cc 100644
+--- a/modules/audio_device/android/build_info.h
++++ b/modules/audio_device/android/build_info.h
+@@ -54,10 +54,6 @@ class BuildInfo {
+   // if the creating thread was not attached to the JVM.
+   AttachCurrentThreadIfNeeded attach_thread_if_needed_;
+ 
+-  // Provides access to the JNIEnv interface pointer and the JavaToStdString()
+-  // method which is used to translate Java strings to std strings.
+-  std::unique_ptr<JNIEnvironment> j_environment_;
+-
+   // Holds the jclass object and provides access to CallStaticObjectMethod().
+   // Used by GetStringFromJava() during construction only.
+   JavaClass j_build_info_;
+diff --git a/modules/utility/include/jvm_android.h b/modules/utility/include/jvm_android.h
+index 574c977..f2ca1a3 100644
+--- a/modules/utility/include/jvm_android.h
++++ b/modules/utility/include/jvm_android.h
+@@ -42,7 +42,7 @@ class AttachCurrentThreadIfNeeded {
+ // TODO(henrika): extend support for type of function calls.
+ class GlobalRef {
+  public:
+-  GlobalRef(JNIEnv* jni, jobject object);
++  GlobalRef(jobject object, bool attach);
+   ~GlobalRef();
+ 
+   jboolean CallBooleanMethod(jmethodID methodID, ...);
+@@ -50,15 +50,14 @@ class GlobalRef {
+   void CallVoidMethod(jmethodID methodID, ...);
+ 
+  private:
+-  JNIEnv* const jni_;
+-  const jobject j_object_;
++  jobject j_object_;
+ };
+ 
+ // Wraps the jclass object on which we can call GetMethodId() functions to
+ // query method IDs.
+ class JavaClass {
+  public:
+-  JavaClass(JNIEnv* jni, jclass clazz) : jni_(jni), j_class_(clazz) {}
++  JavaClass(jclass clazz) : j_class_(clazz) {}
+   ~JavaClass() {}
+ 
+   jmethodID GetMethodId(const char* name, const char* signature);
+@@ -66,7 +65,6 @@ class JavaClass {
+   jobject CallStaticObjectMethod(jmethodID methodID, ...);
+ 
+  protected:
+-  JNIEnv* const jni_;
+   jclass const j_class_;
+ };
+ 
+@@ -74,14 +72,11 @@ class JavaClass {
+ // See example in JVM for more details on how to use it.
+ class NativeRegistration : public JavaClass {
+  public:
+-  NativeRegistration(JNIEnv* jni, jclass clazz);
++  NativeRegistration(jclass clazz);
+   ~NativeRegistration();
+ 
+   std::unique_ptr<GlobalRef> NewObject(
+       const char* name, const char* signature, ...);
+-
+- private:
+-  JNIEnv* const jni_;
+ };
+ 
+ // This class is created by the JVM class and is used to expose methods that
+@@ -90,23 +85,20 @@ class NativeRegistration : public JavaClass {
+ // methods. See example in JVM for more details.
+ class JNIEnvironment {
+  public:
+-  explicit JNIEnvironment(JNIEnv* jni);
+-  ~JNIEnvironment();
+ 
+   // Registers native methods with the Java class specified by |name|.
+   // Note that the class name must be one of the names in the static
+   // |loaded_classes| array defined in jvm_android.cc.
+   // This method must be called on the construction thread.
+-  std::unique_ptr<NativeRegistration> RegisterNatives(
++  static std::unique_ptr<NativeRegistration> RegisterNatives(
+       const char* name, const JNINativeMethod *methods, int num_methods);
+ 
+   // Converts from Java string to std::string.
+   // This method must be called on the construction thread.
+-  std::string JavaToStdString(const jstring& j_string);
++  static std::string JavaToStdString(const jstring& j_string);
+ 
+  private:
+   rtc::ThreadChecker thread_checker_;
+-  JNIEnv* const jni_;
+ };
+ 
+ // Main class for working with Java from C++ using JNI in WebRTC.
+diff --git a/modules/utility/source/jvm_android.cc b/modules/utility/source/jvm_android.cc
+index d53d1b5..7f70dc1 100644
+--- a/modules/utility/source/jvm_android.cc
++++ b/modules/utility/source/jvm_android.cc
+@@ -24,6 +24,48 @@ namespace webrtc {
+ 
+ JVM* g_jvm;
+ 
++static struct {
++       JavaVM *vm;
++} java;
++       
++struct jni_env {
++       bool attached;
++       JNIEnv *env;
++};
++       
++static int jni_attach(struct jni_env *je)
++{
++       int res;
++       int err = 0;
++
++       je->attached = false;
++       res = java.vm->GetEnv((void **)&je->env, JNI_VERSION_1_6);
++
++       if (res != JNI_OK || je->env == NULL) {
++               res = java.vm->AttachCurrentThread(&je->env, NULL);
++
++               if (res != JNI_OK) {
++                       err = ENOSYS;
++                       goto out;
++               }
++               je->attached = true;
++       }
++
++
++out:
++      return err;
++}
++
++static void jni_detach(struct jni_env *je)
++{
++       if (je->attached) {
++               java.vm->DetachCurrentThread();
++       }
++}
++	
++	       
++
++	
+ // TODO(henrika): add more clases here if needed.
+ struct {
+   const char* name;
+@@ -70,6 +112,7 @@ jclass LookUpClass(const char* name) {
+ // AttachCurrentThreadIfNeeded implementation.
+ AttachCurrentThreadIfNeeded::AttachCurrentThreadIfNeeded()
+     : attached_(false) {
++#if 0
+   ALOGD("AttachCurrentThreadIfNeeded::ctor%s", GetThreadInfo().c_str());
+   JavaVM* jvm = JVM::GetInstance()->jvm();
+   RTC_CHECK(jvm);
+@@ -80,9 +123,11 @@ AttachCurrentThreadIfNeeded::AttachCurrentThreadIfNeeded()
+     jint ret = jvm->AttachCurrentThread(&env, nullptr);
+     attached_ = (ret == JNI_OK);
+   }
++#endif
+ }
+ 
+ AttachCurrentThreadIfNeeded::~AttachCurrentThreadIfNeeded() {
++#if 0
+   ALOGD("AttachCurrentThreadIfNeeded::dtor%s", GetThreadInfo().c_str());
+   RTC_DCHECK(thread_checker_.CalledOnValidThread());
+   if (attached_) {
+@@ -90,33 +135,62 @@ AttachCurrentThreadIfNeeded::~AttachCurrentThreadIfNeeded() {
+     jint res = JVM::GetInstance()->jvm()->DetachCurrentThread();
+     RTC_CHECK(res == JNI_OK) << "DetachCurrentThread failed: " << res;
+   }
++#endif
+ }
+ 
+ // GlobalRef implementation.
+-GlobalRef::GlobalRef(JNIEnv* jni, jobject object)
+-    : jni_(jni), j_object_(NewGlobalRef(jni, object)) {
++GlobalRef::GlobalRef(jobject obj, bool attach)
++{
++      struct jni_env je;
++      if (!attach) {
++              j_object_ = obj;
++      }
++      else {
++              jni_attach(&je);        
++              j_object_ = je.env->NewGlobalRef(obj);
++              jni_detach(&je);
++      }
++		
+   ALOGD("GlobalRef::ctor%s", GetThreadInfo().c_str());
+ }
+ 
+ GlobalRef::~GlobalRef() {
+-  ALOGD("GlobalRef::dtor%s", GetThreadInfo().c_str());
+-  DeleteGlobalRef(jni_, j_object_);
++       ALOGD("GlobalRef::dtor%s o=%p", GetThreadInfo().c_str(), j_object_);
++       struct jni_env je;
++       jni_attach(&je);
++       je.env->DeleteGlobalRef(j_object_);
++       jni_detach(&je);
+ }
+ 
+ jboolean GlobalRef::CallBooleanMethod(jmethodID methodID, ...) {
+   va_list args;
++  jboolean res;
+   va_start(args, methodID);
+-  jboolean res = jni_->CallBooleanMethodV(j_object_, methodID, args);
+-  CHECK_EXCEPTION(jni_) << "Error during CallBooleanMethod";
++  {
++         struct jni_env je;
++         
++         jni_attach(&je);        
++         res = je.env->CallBooleanMethodV(j_object_, methodID, args);
++         CHECK_EXCEPTION(je.env) << "Error during CallBooleanMethod";
++         jni_detach(&je);
++  }
++
+   va_end(args);
+   return res;
+ }
+ 
+ jint GlobalRef::CallIntMethod(jmethodID methodID, ...) {
+   va_list args;
++  jint res;
+   va_start(args, methodID);
+-  jint res = jni_->CallIntMethodV(j_object_, methodID, args);
+-  CHECK_EXCEPTION(jni_) << "Error during CallIntMethod";
++  {
++         struct jni_env je;
++         jni_attach(&je);
++  
++         res = je.env->CallIntMethodV(j_object_, methodID, args);
++         CHECK_EXCEPTION(je.env) << "Error during CallIntMethod";
++         jni_detach(&je);
++  }
+   va_end(args);
+   return res;
+ }
+@@ -124,91 +198,134 @@ jint GlobalRef::CallIntMethod(jmethodID methodID, ...) {
+ void GlobalRef::CallVoidMethod(jmethodID methodID, ...) {
+   va_list args;
+   va_start(args, methodID);
+-  jni_->CallVoidMethodV(j_object_, methodID, args);
+-  CHECK_EXCEPTION(jni_) << "Error during CallVoidMethod";
++  {
++         struct jni_env je;
++         jni_attach(&je);
++  
++         je.env->CallVoidMethodV(j_object_, methodID, args);
++         CHECK_EXCEPTION(je.env) << "Error during CallVoidMethod";
++         jni_detach(&je);
++  }
+   va_end(args);
+ }
+ 
+ // NativeRegistration implementation.
+-NativeRegistration::NativeRegistration(JNIEnv* jni, jclass clazz)
+-    : JavaClass(jni, clazz), jni_(jni) {
++NativeRegistration::NativeRegistration(jclass clazz)
++    : JavaClass(clazz) {
+   ALOGD("NativeRegistration::ctor%s", GetThreadInfo().c_str());
+ }
+ 
+ NativeRegistration::~NativeRegistration() {
+   ALOGD("NativeRegistration::dtor%s", GetThreadInfo().c_str());
+-  jni_->UnregisterNatives(j_class_);
+-  CHECK_EXCEPTION(jni_) << "Error during UnregisterNatives";
++
++  struct jni_env je;
++
++  jni_attach(&je);
++  je.env->UnregisterNatives(j_class_);
++  CHECK_EXCEPTION(je.env) << "Error during UnregisterNatives";
++  jni_detach(&je);
+ }
+ 
+ std::unique_ptr<GlobalRef> NativeRegistration::NewObject(
+     const char* name, const char* signature, ...) {
+   ALOGD("NativeRegistration::NewObject%s", GetThreadInfo().c_str());
+   va_list args;
++  jobject obj;
++  jmethodID mid;
++  struct jni_env je;
++  
+   va_start(args, signature);
+-  jobject obj = jni_->NewObjectV(j_class_,
+-                                 GetMethodID(jni_, j_class_, name, signature),
+-                                 args);
+-  CHECK_EXCEPTION(jni_) << "Error during NewObjectV";
++  
++  jni_attach(&je);
++  mid = je.env->GetMethodID(j_class_, name, signature);
++  obj = je.env->NewObjectV(j_class_, mid, args);
++  
+   va_end(args);
+-  return std::unique_ptr<GlobalRef>(new GlobalRef(jni_, obj));
++
++  ALOGD("NativeRegistration::NewObject: mid=%p obj=%p", mid, obj);
++
++  GlobalRef *gref = new GlobalRef(obj, false);
++  CHECK_EXCEPTION(je.env) << "Error during NewObjectV";
++  jni_detach(&je);
++
++  return std::unique_ptr<GlobalRef>(gref);  
+ }
+ 
+ // JavaClass implementation.
+ jmethodID JavaClass::GetMethodId(
+     const char* name, const char* signature) {
+-  return GetMethodID(jni_, j_class_, name, signature);
++	jmethodID mid;
++	struct jni_env je;
++
++	jni_attach(&je);
++	mid = je.env->GetMethodID(j_class_, name, signature);
++	jni_detach(&je);
++
++	return mid;
+ }
+ 
+ jmethodID JavaClass::GetStaticMethodId(
+     const char* name, const char* signature) {
+-  return GetStaticMethodID(jni_, j_class_, name, signature);
++      jmethodID mid;
++      struct jni_env je;
++
++      jni_attach(&je);
++      je.env->GetStaticMethodID(j_class_, name, signature);
++      jni_detach(&je);
++
++      return mid;
+ }
+ 
+ jobject JavaClass::CallStaticObjectMethod(jmethodID methodID, ...) {
+   va_list args;
+   va_start(args, methodID);
+-  jobject res = jni_->CallStaticObjectMethod(j_class_, methodID, args);
+-  CHECK_EXCEPTION(jni_) << "Error during CallStaticObjectMethod";
++  jobject res;
++  {
++	  struct jni_env je;
++	  jni_attach(&je);
++
++	  res = je.env->CallStaticObjectMethod(j_class_, methodID, args);
++	  CHECK_EXCEPTION(je.env) << "Error during CallStaticObjectMethod";
++	  jni_detach(&je);
++  }
+   return res;
+ }
+ 
+-// JNIEnvironment implementation.
+-JNIEnvironment::JNIEnvironment(JNIEnv* jni) : jni_(jni) {
+-  ALOGD("JNIEnvironment::ctor%s", GetThreadInfo().c_str());
+-}
+-
+-JNIEnvironment::~JNIEnvironment() {
+-  ALOGD("JNIEnvironment::dtor%s", GetThreadInfo().c_str());
+-  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+-}
+-
+ std::unique_ptr<NativeRegistration> JNIEnvironment::RegisterNatives(
+     const char* name, const JNINativeMethod *methods, int num_methods) {
+   ALOGD("JNIEnvironment::RegisterNatives(%s)", name);
+-  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+   jclass clazz = LookUpClass(name);
+-  jni_->RegisterNatives(clazz, methods, num_methods);
+-  CHECK_EXCEPTION(jni_) << "Error during RegisterNatives";
+-  return std::unique_ptr<NativeRegistration>(
+-      new NativeRegistration(jni_, clazz));
++  struct jni_env je;
++  
++  jni_attach(&je);
++  je.env->RegisterNatives(clazz, methods, num_methods);
++  CHECK_EXCEPTION(je.env) << "Error during RegisterNatives";
++  jni_detach(&je);
++
++  return std::unique_ptr<NativeRegistration>(new NativeRegistration(clazz));
+ }
+ 
+ std::string JNIEnvironment::JavaToStdString(const jstring& j_string) {
+-  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+-  const char* jchars = jni_->GetStringUTFChars(j_string, nullptr);
+-  CHECK_EXCEPTION(jni_);
+-  const int size = jni_->GetStringUTFLength(j_string);
+-  CHECK_EXCEPTION(jni_);
+-  std::string ret(jchars, size);
+-  jni_->ReleaseStringUTFChars(j_string, jchars);
+-  CHECK_EXCEPTION(jni_);
+-  return ret;
++	struct jni_env je;
++	
++	jni_attach(&je);
++	const char* jchars = je.env->GetStringUTFChars(j_string, nullptr);
++	CHECK_EXCEPTION(je.env);
++	const int size = je.env->GetStringUTFLength(j_string);
++	CHECK_EXCEPTION(je.env);
++
++	std::string ret(jchars, size);
++	je.env->ReleaseStringUTFChars(j_string, jchars);
++	CHECK_EXCEPTION(je.env);
++	jni_detach(&je);
++
++	return ret;
+ }
+ 
+ // static
+ void JVM::Initialize(JavaVM* jvm, jobject context) {
+   ALOGD("JVM::Initialize%s", GetThreadInfo().c_str());
++  java.vm = jvm;
+   RTC_CHECK(!g_jvm);
+   g_jvm = new JVM(jvm, context);
+ }
+@@ -229,38 +346,35 @@ JVM* JVM::GetInstance() {
+ 
+ JVM::JVM(JavaVM* jvm, jobject context)
+     : jvm_(jvm) {
+-  ALOGD("JVM::JVM%s", GetThreadInfo().c_str());
+-  RTC_CHECK(jni()) << "AttachCurrentThread() must be called on this thread.";
+-  context_ = NewGlobalRef(jni(), context);
+-  LoadClasses(jni());
++	ALOGD("JVM::JVM%s", GetThreadInfo().c_str());
++
++	struct jni_env je;
++
++	jni_attach(&je);
++	context_ = je.env->NewGlobalRef(context);
++	LoadClasses(je.env);
++	jni_detach(&je);
+ }
+ 
+ JVM::~JVM() {
++	struct jni_env je;
++	
+   ALOGD("JVM::~JVM%s", GetThreadInfo().c_str());
+-  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+-  FreeClassReferences(jni());
+-  DeleteGlobalRef(jni(), context_);
++
++  jni_attach(&je);
++  FreeClassReferences(je.env);
++  je.env->DeleteGlobalRef(context_);
++  jni_detach(&je);
+ }
+ 
+ std::unique_ptr<JNIEnvironment> JVM::environment() {
+-  ALOGD("JVM::environment%s", GetThreadInfo().c_str());
+-  // The JNIEnv is used for thread-local storage. For this reason, we cannot
+-  // share a JNIEnv between threads. If a piece of code has no other way to get
+-  // its JNIEnv, we should share the JavaVM, and use GetEnv to discover the
+-  // thread's JNIEnv. (Assuming it has one, if not, use AttachCurrentThread).
+-  // See // http://developer.android.com/training/articles/perf-jni.html.
+-  JNIEnv* jni = GetEnv(jvm_);
+-  if (!jni) {
+-    ALOGE("AttachCurrentThread() has not been called on this thread.");
+-    return std::unique_ptr<JNIEnvironment>();
+-  }
+-  return std::unique_ptr<JNIEnvironment>(new JNIEnvironment(jni));
++	return NULL;
+ }
+ 
+ JavaClass JVM::GetClass(const char* name) {
+   ALOGD("JVM::GetClass(%s)%s", name, GetThreadInfo().c_str());
+   RTC_DCHECK(thread_checker_.CalledOnValidThread());
+-  return JavaClass(jni(), LookUpClass(name));
++  return JavaClass(LookUpClass(name));
+ }
+ 
+ }  // namespace webrtc

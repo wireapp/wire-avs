@@ -693,7 +693,7 @@ int voe_update_mute(struct voe *voe)
 		return 0;
 	}
     
-	err = voe->volume->SetInputMute(-1, voe->isMuted);
+	err = voe->volume->SetInputMute(-1, voe->isMuted || voe->isSilenced);
 	if (err) {
 		warning("voe_start_silencing: SetInputMute failed\n");
 		return ENOSYS;

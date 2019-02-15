@@ -251,9 +251,9 @@ struct vid_eng {
 	bool renderer_reset;
 	bool capture_reset;
 
-	flowmgr_video_state_change_h *state_change_h;
-	flowmgr_render_frame_h *render_frame_h;
-	flowmgr_video_size_h *size_h;
+	vie_video_state_change_h *state_change_h;
+	vie_render_frame_h *render_frame_h;
+	vie_video_size_h *size_h;
 	void *cb_arg;
 };
 

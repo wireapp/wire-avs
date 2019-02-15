@@ -95,10 +95,16 @@ struct voe_stats {
 	float std_OutVol;
     
 	float avg_jitterPeaksFound;
+
+	struct {
+		int downloss;
+		int uploss;
+		int rtt;
+	} quality;
 };
 
 void voe_stats_init(struct voe_stats *vst);
-void voe_stats_calc(int ch, struct voe_stats *vst);	
+int voe_stats_calc(int ch, struct voe_stats *vst);	
 	
 	
 int  voe_init(struct list *aucodecl);

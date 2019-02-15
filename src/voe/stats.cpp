@@ -40,6 +40,7 @@ static bool stats_available(int ch)
 int voe_get_stats(struct audec_state *ads, struct aucodec_stats *new_stats)
 {
     struct voe_stats stats;
+    int err;
     
     if (!ads || !ads->ve)
         return EINVAL;
@@ -47,13 +48,18 @@ int voe_get_stats(struct audec_state *ads, struct aucodec_stats *new_stats)
     if(!stats_available(ads->ve->ch)){
         return EINVAL;
     }
-    voe_stats_init(&stats);
-    voe_stats_calc(ads->ve->ch, &stats);
     
+    voe_stats_init(&stats);
+    err = voe_stats_calc(ads->ve->ch, &stats);
+    if (err)
+	    return err;
+
     bool in_valid = false;
+
     if(stats.min_currentBufferSize == (uint16_t)1 << 15){
-        in_valid = true;
+	    in_valid = true;
     }
+
     new_stats->in_vol.avg = in_valid ? -1 : stats.avg_InVol;
     new_stats->in_vol.max = in_valid ? -1 : stats.max_InVol;
     new_stats->in_vol.min = in_valid ? -1 : stats.min_InVol;
@@ -74,7 +80,11 @@ int voe_get_stats(struct audec_state *ads, struct aucodec_stats *new_stats)
     new_stats->jb_size.min = in_valid ? -1 : stats.min_currentBufferSize;
     new_stats->test_score = gvoe.autest.test_score;
     strcpy(new_stats->audio_route, gvoe.playout_device);
-    
+
+    new_stats->quality.downloss = stats.quality.downloss;
+    new_stats->quality.uploss = stats.quality.uploss;
+    new_stats->quality.rtt = stats.quality.rtt;
+
     return 0;
 }
 
@@ -99,41 +109,71 @@ void voe_stats_init(struct voe_stats *vst)
     vst->min_OutVol = (uint16_t)1 << 15;
 }
 
-void voe_stats_calc(int ch, struct voe_stats *vst)
+int voe_stats_calc(int ch, struct voe_stats *vst)
 {
     uint16_t tmpu16;
+    int cnt;
     struct channel_data *cd = find_channel_data(&gvoe.channel_data_list, ch);
-    if (cd) {
-        int cnt = cd->stats_cnt;
-        if(cnt > NUM_STATS){
-            cnt = NUM_STATS;
-        }
-        for(int i = 0; i < cnt; i++){
+    
+    if (!cd)
+	    return ENOENT;    
+
+    vst->quality.downloss = cd->quality.downloss;
+    vst->quality.uploss = cd->quality.uploss;
+    vst->quality.rtt = cd->quality.rtt;
+    
+    cnt = (cd->stats_cnt > NUM_STATS) ? NUM_STATS : cd->stats_cnt;
+    for(int i = 0; i < cnt; i++){
             vst->num_measurements++;
                 
-            vst->avg_currentBufferSize += cd->ch_stats[i].neteq_nw_stats.currentBufferSize;
-            vst->max_currentBufferSize = std::max(cd->ch_stats[i].neteq_nw_stats.currentBufferSize, vst->max_currentBufferSize);
-            vst->min_currentBufferSize = std::min(cd->ch_stats[i].neteq_nw_stats.currentBufferSize, vst->min_currentBufferSize);
-                
-            vst->avg_PacketLossRate += cd->ch_stats[i].neteq_nw_stats.currentPacketLossRate;
-            vst->max_PacketLossRate = std::max(cd->ch_stats[i].neteq_nw_stats.currentPacketLossRate, vst->max_PacketLossRate);
-            vst->min_PacketLossRate = std::min(cd->ch_stats[i].neteq_nw_stats.currentPacketLossRate, vst->min_PacketLossRate);
-                
-            vst->avg_ExpandRate += cd->ch_stats[i].neteq_nw_stats.currentExpandRate;
-            vst->max_ExpandRate = std::max(cd->ch_stats[i].neteq_nw_stats.currentExpandRate, vst->max_ExpandRate);
-            vst->min_ExpandRate = std::min(cd->ch_stats[i].neteq_nw_stats.currentExpandRate, vst->min_ExpandRate);
-                
-            vst->avg_AccelerateRate += cd->ch_stats[i].neteq_nw_stats.currentAccelerateRate;
-            vst->max_AccelerateRate = std::max(cd->ch_stats[i].neteq_nw_stats.currentAccelerateRate, vst->max_AccelerateRate);
-            vst->min_AccelerateRate = std::min(cd->ch_stats[i].neteq_nw_stats.currentAccelerateRate, vst->min_AccelerateRate);
-                
-            vst->avg_PreemptiveRate += cd->ch_stats[i].neteq_nw_stats.currentPreemptiveRate;
-            vst->max_PreemptiveRate = std::max(cd->ch_stats[i].neteq_nw_stats.currentPreemptiveRate, vst->max_PreemptiveRate);
-            vst->min_PreemptiveRate = std::min(cd->ch_stats[i].neteq_nw_stats.currentPreemptiveRate, vst->min_PreemptiveRate);
-                
-            vst->avg_SecondaryDecodedRate += cd->ch_stats[i].neteq_nw_stats.currentSecondaryDecodedRate;
-            vst->max_SecondaryDecodedRate = std::max(cd->ch_stats[i].neteq_nw_stats.currentSecondaryDecodedRate, vst->max_SecondaryDecodedRate);
-            vst->min_SecondaryDecodedRate = std::min(cd->ch_stats[i].neteq_nw_stats.currentSecondaryDecodedRate, vst->min_SecondaryDecodedRate);
+            vst->avg_currentBufferSize +=
+		    cd->ch_stats[i].neteq_nw_stats.currentBufferSize;
+            vst->max_currentBufferSize =
+		    std::max(cd->ch_stats[i].neteq_nw_stats.currentBufferSize,
+			     vst->max_currentBufferSize);
+            vst->min_currentBufferSize =
+		    std::min(cd->ch_stats[i].neteq_nw_stats.currentBufferSize,
+			     vst->min_currentBufferSize);                
+            vst->avg_PacketLossRate +=
+		    cd->ch_stats[i].neteq_nw_stats.currentPacketLossRate;
+            vst->max_PacketLossRate =
+		  std::max(cd->ch_stats[i].neteq_nw_stats.currentPacketLossRate,
+			   vst->max_PacketLossRate);
+            vst->min_PacketLossRate =
+		  std::min(cd->ch_stats[i].neteq_nw_stats.currentPacketLossRate,
+			   vst->min_PacketLossRate);                
+            vst->avg_ExpandRate +=
+		    cd->ch_stats[i].neteq_nw_stats.currentExpandRate;
+            vst->max_ExpandRate =
+		    std::max(cd->ch_stats[i].neteq_nw_stats.currentExpandRate,
+			     vst->max_ExpandRate);
+            vst->min_ExpandRate =
+		    std::min(cd->ch_stats[i].neteq_nw_stats.currentExpandRate,
+			     vst->min_ExpandRate);                
+            vst->avg_AccelerateRate +=
+		    cd->ch_stats[i].neteq_nw_stats.currentAccelerateRate;
+            vst->max_AccelerateRate =
+		  std::max(cd->ch_stats[i].neteq_nw_stats.currentAccelerateRate,
+			   vst->max_AccelerateRate);
+            vst->min_AccelerateRate =
+		  std::min(cd->ch_stats[i].neteq_nw_stats.currentAccelerateRate,
+			   vst->min_AccelerateRate);
+            vst->avg_PreemptiveRate +=
+		    cd->ch_stats[i].neteq_nw_stats.currentPreemptiveRate;
+            vst->max_PreemptiveRate =
+		  std::max(cd->ch_stats[i].neteq_nw_stats.currentPreemptiveRate,
+			   vst->max_PreemptiveRate);
+            vst->min_PreemptiveRate =
+		  std::min(cd->ch_stats[i].neteq_nw_stats.currentPreemptiveRate,
+			   vst->min_PreemptiveRate);                
+            vst->avg_SecondaryDecodedRate +=
+		    cd->ch_stats[i].neteq_nw_stats.currentSecondaryDecodedRate;
+            vst->max_SecondaryDecodedRate =
+		    std::max(cd->ch_stats[i].neteq_nw_stats.currentSecondaryDecodedRate,
+			     vst->max_SecondaryDecodedRate);
+            vst->min_SecondaryDecodedRate =
+		    std::min(cd->ch_stats[i].neteq_nw_stats.currentSecondaryDecodedRate,
+			     vst->min_SecondaryDecodedRate);
                 
             vst->avg_RTT += cd->ch_stats[i].Rtt_ms;
             vst->max_RTT = std::max((int32_t)cd->ch_stats[i].Rtt_ms, vst->max_RTT);
@@ -233,5 +273,6 @@ void voe_stats_calc(int ch, struct voe_stats *vst)
             vst->std_InVol = sqrt(vst->std_InVol/vst->num_measurements);
             vst->std_OutVol = sqrt(vst->std_OutVol/vst->num_measurements);
         }
-    }
+
+	return 0;
 }

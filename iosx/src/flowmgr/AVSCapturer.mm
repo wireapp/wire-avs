@@ -154,7 +154,11 @@ enum AVSDeviceOrientation {
 				name:UIDeviceOrientationDidChangeNotification
 				object:nil];
 
-		[self deviceOrientationDidChange:nil];
+		dispatch_async(
+			dispatch_get_main_queue(), 
+			^(void) { 
+				[self deviceOrientationDidChange:nil];
+		});
 #endif
 
 	}
@@ -198,7 +202,7 @@ enum AVSDeviceOrientation {
 
 #if TARGET_OS_IPHONE
 			dispatch_async(
-				dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), 
+				dispatch_get_main_queue(), 
 				^(void) { 
 					[self deviceOrientationDidChange:nil];
 			});
@@ -408,7 +412,11 @@ enum AVSDeviceOrientation {
 				_previewLayer.frame = _preview.bounds;
 #if TARGET_OS_IPHONE
 				[_preview.layer addSublayer:_previewLayer];
-				[self deviceOrientationDidChange:nil];
+				dispatch_async(
+					dispatch_get_main_queue(), 
+					^(void) { 
+						[self deviceOrientationDidChange:nil];
+				});
 #else
 				[_preview setLayer:(CALayer*)_previewLayer];
 				[_preview setWantsLayer:YES];
@@ -628,13 +636,12 @@ out:
 	if (newori != _orientation) {
 		info("%s old: %d new: %d dev: %d ui: %d ly: %p pv: %p\n", __FUNCTION__,
 			_orientation, newori, devori, uiori, _previewLayer, _preview);
+		_orientation = newori;
 	}
 
 	if (!_previewLayer || !_preview) {
 		return;
 	}
-
-	_orientation = newori;
 
 	switch (_orientation) {
 		case AVSDeviceOrientationPortrait:

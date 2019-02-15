@@ -47,6 +47,7 @@ extern "C" {
 #include "avs_msystem.h"
 #include "avs_nevent.h"
 #include "avs_packetqueue.h"
+#include "avs_serial.h"
 #include "avs_store.h"
 #include "avs_string.h"
 #include "avs_trace.h"
@@ -64,6 +65,7 @@ extern "C" {
 #include "avs_audummy.h"
 #include "avs_econn.h"
 #include "avs_econn_fmt.h"
+#include "avs_icall.h"
 #include "avs_ecall.h"
 #include "avs_egcall.h"
 

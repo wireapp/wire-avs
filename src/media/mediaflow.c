@@ -4426,29 +4426,26 @@ static void trice_failed_handler(int err, uint16_t scode,
 	info("mediaflow(%p): candpair not working [%H]\n",
 	     mf, trice_candpair_debug, pair);
 
-	/* check if checklist is complete AND EOC */
-	if (mediaflow_have_eoc(mf)) {
 
-		if (!list_isempty(trice_validl(mf->trice)))
-			return;
+	if (!list_isempty(trice_validl(mf->trice)))
+		return;
 
-		if (all_failed(trice_checkl(mf->trice))) {
+	if (all_failed(trice_checkl(mf->trice))) {
 
-			int to = (int)(tmr_jiffies() - mf->ts_nat_start);
+		int to = (int)(tmr_jiffies() - mf->ts_nat_start);
 
-			warning("mediaflow(%p): all pairs failed"
-				" after %d milliseconds"
-				" (checklist=%u, validlist=%u)\n",
-				mf, to,
-				list_count(trice_checkl(mf->trice)),
-				list_count(trice_validl(mf->trice))
-				);
+		warning("mediaflow(%p): all pairs failed"
+			" after %d milliseconds"
+			" (checklist=%u, validlist=%u)\n",
+			mf, to,
+			list_count(trice_checkl(mf->trice)),
+			list_count(trice_validl(mf->trice))
+			);
 
-			mf->ice_ready = false;
-			mf->err = EPROTO;
+		mf->ice_ready = false;
+		mf->err = EPROTO;
 
-			tmr_start(&mf->tmr_error, 0, tmr_error_handler, mf);
-		}
+		tmr_start(&mf->tmr_error, 0, tmr_error_handler, mf);
 	}
 }
 

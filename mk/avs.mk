@@ -63,6 +63,7 @@ endif
 AVS_MODULES += queue
 AVS_MODULES += rest
 AVS_MODULES += sem
+AVS_MODULES += serial
 AVS_MODULES += store
 AVS_MODULES += string
 AVS_MODULES += trace
@@ -73,6 +74,7 @@ AVS_MODULES += vidcodec
 AVS_MODULES += voe
 AVS_MODULES += vie
 AVS_MODULES += wcall
+AVS_MODULES += icall
 AVS_MODULES += egcall
 AVS_MODULES += audio_io
 AVS_MODULES += audio_effect

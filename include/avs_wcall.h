@@ -25,6 +25,7 @@ extern "C" {
 #include <stdint.h>
 
 struct wcall;
+struct avs_vidframe;
 
 #define WCALL_VERSION_3 3
 
@@ -46,6 +47,8 @@ struct wcall_members {
  * calling.
  */
 typedef void (wcall_ready_h)(int version, void *arg);
+
+typedef void (wcall_shutdown_h)(void *wuser, void *arg);
 
 /* Send calling message otr data */
 typedef int (wcall_send_h)(void *ctx, const char *convid,
@@ -162,6 +165,30 @@ typedef void (wcall_log_h)(int level, const char *msg, void *arg);
 typedef void (wcall_video_state_change_h)(const char *userid, int state, void *arg);
 
 /**
+ * Callback used to inform user that received video frame has
+ * changed size.
+ * @paran w        New video width
+ * @param h        New video height
+ * @param userid   User ID for the participant whose video to render
+ * @param arg      The handler argument passed to the callback
+ */
+typedef void (wcall_video_size_h)(int w, int h, const char *userid, void *arg);
+	
+/**
+ * Callback used to render frames
+ *
+ * This is not part of the public flow manager interface. Native bindings
+ * need to render the frame. Note the vidframe stuct and its contents are valid
+ * only until the function returns. You need to copy to texture or normal RAM before
+ * returning.
+ *
+ * @param frame    Pointer to the frame object to render
+ * @param userid   User ID for the participant whose video to render
+ * @param arg      The handler argument passed to the callback
+ */
+typedef int (wcall_render_frame_h)(struct avs_vidframe *frame, const char *userid, void *arg);
+
+/**
  * Callback used to inform user that call uses CBR (in both directions)
  */
 typedef void (wcall_audio_cbr_change_h)(const char *userid, int enabled, void *arg);
@@ -202,8 +229,10 @@ void *wcall_create_ex(const char *userid,
 		      wcall_video_state_change_h *vstateh,
 		      void *arg);
 
-
+void wcall_set_shutdown_handler(void *wuser,
+				wcall_shutdown_h *shuth, void *arg);
 void wcall_destroy(void *wuser);
+	
 
 void wcall_set_trace(void *wuser, int trace);
 
@@ -281,6 +310,10 @@ void wcall_set_data_chan_estab_handler(void *wuser,
  */
 void wcall_set_video_send_state(void *wuser, const char *convid, int state);
 
+void wcall_set_video_handlers(wcall_render_frame_h *render_frame_h,
+			      wcall_video_size_h *size_h,
+			      void *arg);
+
 void wcall_network_changed(void *wuser);
 
 void wcall_set_group_changed_handler(void *wuser, wcall_group_changed_h *chgh,
@@ -347,7 +380,6 @@ void wcall_enable_privacy(void *wuser, int enabled);
 
 struct mediamgr *wcall_mediamgr(void *wuser);
 
-struct avs_vidframe;
 void wcall_handle_frame(struct avs_vidframe *frame);
 
 

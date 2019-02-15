@@ -445,6 +445,8 @@ contrib_opus: $(CONTRIB_OPUS_TARGET)
 
 CONTRIB_LIBVPX_OPTIONS := \
 	--disable-install-bins \
+	--disable-install-srcs \
+	--disable-install-docs \
 	--disable-examples --disable-docs \
 	--enable-vp8 --enable-vp9 \
 	--disable-unit-tests \
@@ -496,7 +498,7 @@ $(CONTRIB_LIBVPX_TARGET): $(TOOLCHAIN_MASTER)
 			--prefix="$(BUILD_TARGET)"
 	$(MAKE) -C $(CONTRIB_LIBVPX_BUILD_PATH) clean
 	$(MAKE) -C $(CONTRIB_LIBVPX_BUILD_PATH) $(JOBS)
-	$(MAKE) -C $(CONTRIB_LIBVPX_BUILD_PATH) install
+	-$(MAKE) -C $(CONTRIB_LIBVPX_BUILD_PATH) install
 ifeq ($(AVS_PAIR),android-i386)
 	$(RANLIB) $@
 endif

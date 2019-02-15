@@ -169,10 +169,14 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 	tls_set_verify_client(msys->dtls);
 
 	err = tls_set_srtp(msys->dtls,
+#ifndef USE_APPLE_COMMONCRYPTO
 			   "SRTP_AEAD_AES_256_GCM:"
 			   "SRTP_AEAD_AES_128_GCM:"
-			   "SRTP_AES128_CM_SHA1_80:"
-			   "SRTP_AES128_CM_SHA1_32");
+#endif
+			   "SRTP_AES128_CM_SHA1_80");
+#if 0 /* Chrome has disabled this, but still has it in neogtiation */
+	"SRTP_AES128_CM_SHA1_32");
+#endif
 	if (err) {
 		warning("flowmgr: failed to enable SRTP profile (%m)\n",
 			err);

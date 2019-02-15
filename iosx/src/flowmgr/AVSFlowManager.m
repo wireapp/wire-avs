@@ -431,11 +431,9 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 	if (err)
 		return nil;
 
-	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_video_handlers, fm,
-			     NULL,
-			     render_frame_h,
-			     video_size_h,
-			     (__bridge void *)(self));
+	wcall_set_video_handlers(render_frame_h,
+				 video_size_h,
+				 (__bridge void *)(self));
 
 	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_audio_state_handler, fm,
 			     audio_state_change_h,

@@ -10,8 +10,8 @@ TEST_SRCS	+= util.cpp
 TEST_SRCS	+= test_version.cpp
 
 # Testcases in alphabetical order
-TEST_SRCS	+= test_acm.cpp
-TEST_SRCS	+= test_apm.cpp
+#TEST_SRCS	+= test_acm.cpp
+#TEST_SRCS	+= test_apm.cpp
 TEST_SRCS	+= test_audummy.cpp
 #TEST_SRCS	+= test_bwe.cpp
 TEST_SRCS	+= test_cert.cpp

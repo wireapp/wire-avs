@@ -53,14 +53,19 @@ ViERenderer::ViERenderer(const char *userid_remote)
 ViERenderer::~ViERenderer()
 {
 	tmr_cancel(&_timer);
-	if (_state == VIE_RENDERER_STATE_RUNNING) {
-		if (vid_eng.state_change_h) {
-			vid_eng.state_change_h(FLOWMGR_VIDEO_RECEIVE_STOPPED,
-				FLOWMGR_VIDEO_NORMAL, vid_eng.cb_arg);
-		}
-	}
+	SetState(VIE_RENDERER_STATE_STOPPED);
 	mem_deref(_userid_remote);
 	mem_deref(_lock);
+}
+
+void ViERenderer::SetState(enum vie_renderer_state newState)
+{
+	if (_state != newState) {
+		_state = newState;
+		if (vid_eng.state_change_h) {
+			vid_eng.state_change_h(_userid_remote, newState, vid_eng.cb_arg);
+		}
+	}
 }
 
 /*
@@ -71,16 +76,9 @@ void ViERenderer::OnFrame(const webrtc::VideoFrame& video_frame)
 	struct avs_vidframe avs_frame;
 	char userid_anon[ANON_ID_LEN];
 	int err;
-	
-	lock_write_get(_lock);
-	if (_state != VIE_RENDERER_STATE_RUNNING) {
-		if (vid_eng.state_change_h) {
-			vid_eng.state_change_h(FLOWMGR_VIDEO_RECEIVE_STARTED,
-				FLOWMGR_VIDEO_NORMAL, vid_eng.cb_arg);
-		}
-		_state = VIE_RENDERER_STATE_RUNNING;
-	}
 
+	lock_write_get(_lock);
+	SetState(VIE_RENDERER_STATE_RUNNING);
 	lock_rel(_lock);
 
 	/* Save the time when the last frame was received */
@@ -164,11 +162,7 @@ void ViERenderer::ReportTimeout()
 
 	if (timeout && _state == VIE_RENDERER_STATE_RUNNING)
 	{
-		if (vid_eng.state_change_h) {
-			vid_eng.state_change_h(FLOWMGR_VIDEO_RECEIVE_STOPPED,
-				FLOWMGR_VIDEO_BAD_CONNECTION, vid_eng.cb_arg);
-		}
-		_state = VIE_RENDERER_STATE_TIMEDOUT;
+		SetState( VIE_RENDERER_STATE_TIMEDOUT);
 	}
 
 	lock_rel(_lock);

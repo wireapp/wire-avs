@@ -110,10 +110,14 @@ static void dpe_destructor(void *arg)
 }
 
 
-static void ecall_datachan_estab_handler(struct ecall *ecall, bool update,
-					 void *arg)
+static void ecall_datachan_estab_handler(struct icall *icall, const char *userid,
+				   const char *clientid, bool update, void *arg)
 {
 	struct devpair_entry *dpe = arg;
+	(void)icall;
+	(void)userid;
+	(void)clientid;
+	(void)update;
 
 	info("devpair: datachan established for pairid: %s\n", dpe->pairid);
 
@@ -127,8 +131,11 @@ static void ecall_datachan_estab_handler(struct ecall *ecall, bool update,
 
 
 static void ecall_close_handler(int err, const char *metrics_json,
-				struct ecall *ecall,
-				uint32_t msg_time, void *arg)
+				struct icall *icall,
+				uint32_t msg_time,
+				const char *userid,
+				const char *clientid,
+				void *arg)
 {
 	struct devpair_entry *dpe = arg;
 
@@ -218,16 +225,17 @@ static int ecall_send_handler(const char *userid_sender,
 }
 
 
-static void ecall_conn_handler(struct ecall *ecall,
+static void ecall_conn_handler(struct icall *icall,
 			       uint32_t msg_time, const char *userid_sender,
-			       bool video_call, void *arg)
+			       bool video_call, bool should_ring, void *arg)
 {
 	struct devpair_entry *dpe = arg;
 
 	info("devpair: conn_handler: ecall=%p\n", dpe->ecall);
 
 	/* Auto-answer */
-	ecall_answer(ecall, false, false, NULL);
+	ICALL_CALL(icall, answer,
+		false, false, NULL);
 }
 
 
@@ -275,23 +283,33 @@ static int alloc_dpe(struct devpair_entry **dpep, const char *pairid)
 	}
 
 	err = ecall_alloc(&dpe->ecall, &devpair.ecalll,
+			  ICALL_CONV_TYPE_ONEONONE,
 			  NULL, devpair.msys,
 			  "devpair",
 			  "devpair",
-			  pairid,
-			  ecall_conn_handler,
-			  NULL, NULL, NULL, NULL,
-			  ecall_datachan_estab_handler,
-			  NULL,
-			  NULL,
-			  NULL,
-			  ecall_close_handler,
-			  ecall_send_handler,
-			  dpe);
+			  pairid);
+
 	if (err) {
 		warning("devpair: could not allocate ecall: %m\n", err);
 		goto out;
 	}
+
+	icall_set_callbacks(ecall_get_icall(dpe->ecall),
+			 ecall_send_handler,
+			 ecall_conn_handler,
+			 NULL,
+			 NULL,
+			 NULL,
+			 ecall_datachan_estab_handler,
+			 NULL,
+			 NULL,
+			 NULL,
+			 ecall_close_handler,
+			 NULL,
+			 NULL,
+			 NULL,
+			 NULL,
+			 dpe);
 
 	ecall_set_devpair(dpe->ecall, true);
 
