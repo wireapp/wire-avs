@@ -1,5 +1,5 @@
 diff --git a/modules/audio_coding/acm2/audio_coding_module_impl.cc b/modules/audio_coding/acm2/audio_coding_module_impl.cc
-index bc7197d..df08937 100644
+index bc7197d..495fbc0 100644
 --- a/modules/audio_coding/acm2/audio_coding_module_impl.cc
 +++ b/modules/audio_coding/acm2/audio_coding_module_impl.cc
 @@ -134,6 +134,7 @@ class RawAudioEncoderWrapper final : public AudioEncoder {
@@ -21,7 +21,7 @@ index bc7197d..df08937 100644
 +  }
 +  return encoder_stack_->SetCbr(true) ? 0 : -1;
 +}
-+	
++
 +int AudioCodingModuleImpl::DisableOpusCbr() {
 +  rtc::CritScope lock(&acm_crit_sect_);
 +  if (!HaveValidEncoder("DisableOpusCbr")) {
@@ -29,12 +29,12 @@ index bc7197d..df08937 100644
 +  }
 +  return encoder_stack_->SetCbr(false) ? 0 : -1;
 +}
-+	
++
  int32_t AudioCodingModuleImpl::PlayoutTimestamp(uint32_t* timestamp) {
    rtc::Optional<uint32_t> ts = PlayoutTimestamp();
    if (!ts)
 diff --git a/modules/audio_coding/acm2/audio_coding_module_impl.h b/modules/audio_coding/acm2/audio_coding_module_impl.h
-index c098e62..166dd89 100644
+index c098e62..c2ab6f2 100644
 --- a/modules/audio_coding/acm2/audio_coding_module_impl.h
 +++ b/modules/audio_coding/acm2/audio_coding_module_impl.h
 @@ -185,6 +185,10 @@ class AudioCodingModuleImpl final : public AudioCodingModule {
@@ -42,14 +42,14 @@ index c098e62..166dd89 100644
    int DisableOpusDtx() override;
  
 +  int EnableOpusCbr() override;
-+	
++
 +  int DisableOpusCbr() override;
-+	
++
    int UnregisterReceiveCodec(uint8_t payload_type) override;
  
    int EnableNack(size_t max_nack_list_size) override;
 diff --git a/modules/audio_coding/codecs/audio_encoder.cc b/modules/audio_coding/codecs/audio_encoder.cc
-index 000371d..0f30d03 100644
+index 000371d..f723302 100644
 --- a/modules/audio_coding/codecs/audio_encoder.cc
 +++ b/modules/audio_coding/codecs/audio_encoder.cc
 @@ -50,6 +50,10 @@ bool AudioEncoder::SetDtx(bool enable) {
@@ -59,12 +59,12 @@ index 000371d..0f30d03 100644
 +bool AudioEncoder::SetCbr(bool enable) {
 +  return !enable;
 +}
-+	
++
  bool AudioEncoder::SetApplication(Application application) {
    return false;
  }
 diff --git a/modules/audio_coding/codecs/audio_encoder.h b/modules/audio_coding/codecs/audio_encoder.h
-index f4c5794..b33f1eb 100644
+index f4c5794..3252626 100644
 --- a/modules/audio_coding/codecs/audio_encoder.h
 +++ b/modules/audio_coding/codecs/audio_encoder.h
 @@ -127,6 +127,12 @@ class AudioEncoder {
@@ -76,12 +76,12 @@ index f4c5794..b33f1eb 100644
 +  // disable CBR and false when asked to enable it (meaning that CBR isn't
 +  // supported).
 +  virtual bool SetCbr(bool enable);
-+	
++
    // Sets the application mode. Returns true if the codec was able to comply.
    // The default implementation just returns false.
    enum class Application { kSpeech, kAudio };
 diff --git a/modules/audio_coding/codecs/cng/audio_encoder_cng.cc b/modules/audio_coding/codecs/cng/audio_encoder_cng.cc
-index 09c25d9..5062a1d 100644
+index 09c25d9..5a4db31 100644
 --- a/modules/audio_coding/codecs/cng/audio_encoder_cng.cc
 +++ b/modules/audio_coding/codecs/cng/audio_encoder_cng.cc
 @@ -171,6 +171,10 @@ bool AudioEncoderCng::SetDtx(bool enable) {
@@ -91,7 +91,7 @@ index 09c25d9..5062a1d 100644
 +bool AudioEncoderCng::SetCbr(bool enable) {
 +  return speech_encoder_->SetCbr(enable);
 +}
-+	
++
  bool AudioEncoderCng::SetApplication(Application application) {
    return speech_encoder_->SetApplication(application);
  }
@@ -108,7 +108,7 @@ index 246e951..5ccb697 100644
    void SetMaxPlaybackRate(int frequency_hz) override;
    void SetProjectedPacketLossRate(double fraction) override;
 diff --git a/modules/audio_coding/codecs/opus/audio_encoder_opus.cc b/modules/audio_coding/codecs/opus/audio_encoder_opus.cc
-index a2497c7..1228f08 100644
+index a2497c7..a763228 100644
 --- a/modules/audio_coding/codecs/opus/audio_encoder_opus.cc
 +++ b/modules/audio_coding/codecs/opus/audio_encoder_opus.cc
 @@ -138,6 +138,12 @@ bool AudioEncoderOpus::SetDtx(bool enable) {
@@ -120,7 +120,7 @@ index a2497c7..1228f08 100644
 +  conf.cbr_enabled = enable;
 +  return RecreateEncoderInstance(conf);
 +}
-+	
++
  bool AudioEncoderOpus::SetApplication(Application application) {
    auto conf = config_;
    switch (application) {
@@ -133,12 +133,12 @@ index a2497c7..1228f08 100644
 +  } else {
 +	RTC_CHECK_EQ(0, WebRtcOpus_DisableCbr(inst_));
 +  }
-+	
++
    config_ = config;
    return true;
  }
 diff --git a/modules/audio_coding/codecs/opus/audio_encoder_opus.h b/modules/audio_coding/codecs/opus/audio_encoder_opus.h
-index 8900659..ef4d855 100644
+index 8900659..445a350 100644
 --- a/modules/audio_coding/codecs/opus/audio_encoder_opus.h
 +++ b/modules/audio_coding/codecs/opus/audio_encoder_opus.h
 @@ -39,6 +39,7 @@ class AudioEncoderOpus final : public AudioEncoder {
@@ -155,7 +155,7 @@ index 8900659..ef4d855 100644
  
 +  // Set Opus in CBR ( Constant bitrate mode )
 +  bool SetCbr(bool enable) override;
-+	
++
    bool SetApplication(Application application) override;
    void SetMaxPlaybackRate(int frequency_hz) override;
    void SetProjectedPacketLossRate(double fraction) override;
@@ -187,7 +187,7 @@ index bcb0596..da376c4 100644
    if (inst) {
      return opus_encoder_ctl(inst->encoder, OPUS_SET_COMPLEXITY(complexity));
 diff --git a/modules/audio_coding/codecs/opus/opus_interface.h b/modules/audio_coding/codecs/opus/opus_interface.h
-index 754b49c..ae1c8da 100644
+index 754b49c..d298cf4 100644
 --- a/modules/audio_coding/codecs/opus/opus_interface.h
 +++ b/modules/audio_coding/codecs/opus/opus_interface.h
 @@ -180,6 +180,32 @@ int16_t WebRtcOpus_EnableDtx(OpusEncInst* inst);
@@ -206,7 +206,7 @@ index 754b49c..ae1c8da 100644
 + *                             -1 - Error
 + */
 +int16_t WebRtcOpus_EnableCbr(OpusEncInst* inst);
-+	
++
 +/****************************************************************************
 + * WebRtcOpus_DisableCbr()
 + *
@@ -219,12 +219,12 @@ index 754b49c..ae1c8da 100644
 + *                             -1 - Error
 + */
 +int16_t WebRtcOpus_DisableCbr(OpusEncInst* inst);
-+	
++
  /*
   * WebRtcOpus_SetComplexity(...)
   *
 diff --git a/modules/audio_coding/codecs/red/audio_encoder_copy_red.cc b/modules/audio_coding/codecs/red/audio_encoder_copy_red.cc
-index 7c48c0c..0b7c22b 100644
+index 7c48c0c..0dd6ca3 100644
 --- a/modules/audio_coding/codecs/red/audio_encoder_copy_red.cc
 +++ b/modules/audio_coding/codecs/red/audio_encoder_copy_red.cc
 @@ -107,6 +107,10 @@ bool AudioEncoderCopyRed::SetDtx(bool enable) {
@@ -234,7 +234,7 @@ index 7c48c0c..0b7c22b 100644
 +bool AudioEncoderCopyRed::SetCbr(bool enable) {
 +  return speech_encoder_->SetCbr(enable);
 +}
-+	
++
  bool AudioEncoderCopyRed::SetApplication(Application application) {
    return speech_encoder_->SetApplication(application);
  }
@@ -251,7 +251,7 @@ index ead9fd6..cb35997 100644
    void SetMaxPlaybackRate(int frequency_hz) override;
    void SetProjectedPacketLossRate(double fraction) override;
 diff --git a/modules/audio_coding/include/audio_coding_module.h b/modules/audio_coding/include/audio_coding_module.h
-index daf9ac8..e6e2114 100644
+index daf9ac8..8765148 100644
 --- a/modules/audio_coding/include/audio_coding_module.h
 +++ b/modules/audio_coding/include/audio_coding_module.h
 @@ -764,6 +764,27 @@ class AudioCodingModule {
@@ -267,7 +267,7 @@ index daf9ac8..e6e2114 100644
 +  //    0 if Opus CBR is enabled successfully.
 +  //
 +  virtual int EnableOpusCbr() = 0;
-+    
++
 +  ///////////////////////////////////////////////////////////////////////////
 +  // int DisableOpusCbr()
 +  // If current send codec is Opus, disables its internal CBR.
@@ -277,13 +277,13 @@ index daf9ac8..e6e2114 100644
 +  //    0 if Opus CBR is disabled successfully.
 +  //
 +  virtual int DisableOpusCbr() = 0;
-+    
++
 +  ///////////////////////////////////////////////////////////////////////////
    //   statistics
    //
  
 diff --git a/voice_engine/channel.cc b/voice_engine/channel.cc
-index 37b0270..838a856 100644
+index 37b0270..8075f9f 100644
 --- a/voice_engine/channel.cc
 +++ b/voice_engine/channel.cc
 @@ -1449,6 +1449,19 @@ int Channel::SetOpusDtx(bool enable_dtx) {
@@ -302,26 +302,24 @@ index 37b0270..838a856 100644
 +    }
 +    return 0;
 +}
-+    
++
  int32_t Channel::RegisterExternalTransport(Transport* transport) {
    WEBRTC_TRACE(kTraceInfo, kTraceVoice, VoEId(_instanceId, _channelId),
                 "Channel::RegisterExternalTransport()");
 diff --git a/voice_engine/channel.h b/voice_engine/channel.h
-index ac49e28..85519e3 100644
+index ac49e28..7db42b5 100644
 --- a/voice_engine/channel.h
 +++ b/voice_engine/channel.h
-@@ -216,7 +216,8 @@ class Channel
+@@ -216,6 +216,7 @@ class Channel
    int32_t SetSendCNPayloadType(int type, PayloadFrequencies frequency);
    int SetOpusMaxPlaybackRate(int frequency_hz);
    int SetOpusDtx(bool enable_dtx);
--
 +  int SetOpusCbr(bool enable_cbr);
-+    
+ 
    // VoENetwork
    int32_t RegisterExternalTransport(Transport* transport);
-   int32_t DeRegisterExternalTransport();
 diff --git a/voice_engine/include/voe_codec.h b/voice_engine/include/voe_codec.h
-index 6c4fb38..f4f53e0 100644
+index 6c4fb38..fcb7b7c 100644
 --- a/voice_engine/include/voe_codec.h
 +++ b/voice_engine/include/voe_codec.h
 @@ -132,6 +132,10 @@ class WEBRTC_DLLEXPORT VoECodec {
@@ -331,12 +329,12 @@ index 6c4fb38..f4f53e0 100644
 +  // If send codec is Opus on a specified |channel|, set its CBR. Returns 0 if
 +  // success, and -1 if failed.
 +  virtual int SetOpusCbr(int channel, bool enable_cbr) = 0;
-+    
++
    // Get a pointer to the event logging object associated with this Voice
    // Engine. This pointer will remain valid until VoiceEngine is destroyed.
    virtual RtcEventLog* GetEventLog() = 0;
 diff --git a/voice_engine/voe_codec_impl.cc b/voice_engine/voe_codec_impl.cc
-index 5a16592..5125de0 100644
+index 5a16592..e26da90 100644
 --- a/voice_engine/voe_codec_impl.cc
 +++ b/voice_engine/voe_codec_impl.cc
 @@ -376,6 +376,23 @@ int VoECodecImpl::SetOpusDtx(int channel, bool enable_dtx) {
@@ -359,12 +357,12 @@ index 5a16592..5125de0 100644
 +    }
 +    return channelPtr->SetOpusCbr(enable_cbr);
 +}
-+    
++
  RtcEventLog* VoECodecImpl::GetEventLog() {
    return _shared->channel_manager().GetEventLog();
  }
 diff --git a/voice_engine/voe_codec_impl.h b/voice_engine/voe_codec_impl.h
-index 5095f6e..b431a88 100644
+index 5095f6e..459963e 100644
 --- a/voice_engine/voe_codec_impl.h
 +++ b/voice_engine/voe_codec_impl.h
 @@ -58,6 +58,8 @@ class VoECodecImpl : public VoECodec {
@@ -372,7 +370,7 @@ index 5095f6e..b431a88 100644
    int SetOpusDtx(int channel, bool enable_dtx) override;
  
 +  int SetOpusCbr(int channel, bool enable_cbr) override;
-+    
++
    RtcEventLog* GetEventLog() override;
  
   protected:

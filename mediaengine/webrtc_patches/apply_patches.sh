@@ -18,7 +18,9 @@
 cp opus_cbr.patch ../webrtc
 cp android_jni.patch ../webrtc
 cd ../webrtc
+echo "Applying OPUS CBR patch..."
 git apply opus_cbr.patch    # Apply patch to enable Opus Constant bitrate mode
 rm opus_cbr.patch
+echo "Applying Android JNI patch..."
 git apply android_jni.patch # Apply patch for Android JNI/JNA compatibility
 rm android_jni.patch

@@ -1,5 +1,5 @@
 diff --git a/modules/audio_device/android/audio_manager.cc b/modules/audio_device/android/audio_manager.cc
-index 01e5d5f..076ff53 100644
+index 01e5d5f..b4b7e05 100644
 --- a/modules/audio_device/android/audio_manager.cc
 +++ b/modules/audio_device/android/audio_manager.cc
 @@ -66,8 +66,7 @@ bool AudioManager::JavaAudioManager::IsDeviceBlacklistedForOpenSLESUsage() {
@@ -26,6 +26,14 @@ index 01e5d5f..076ff53 100644
        "org/webrtc/voiceengine/WebRtcAudioManager", native_methods,
        arraysize(native_methods));
    j_audio_manager_.reset(new JavaAudioManager(
+@@ -161,6 +159,7 @@ bool AudioManager::IsNoiseSuppressorSupported() const {
+ bool AudioManager::IsLowLatencyPlayoutSupported() const {
+   RTC_DCHECK(thread_checker_.CalledOnValidThread());
+   ALOGD("IsLowLatencyPlayoutSupported()");
++
+   // Some devices are blacklisted for usage of OpenSL ES even if they report
+   // that low-latency playout is supported. See b/21485703 for details.
+   return j_audio_manager_->IsDeviceBlacklistedForOpenSLESUsage() ?
 diff --git a/modules/audio_device/android/audio_manager.h b/modules/audio_device/android/audio_manager.h
 index b4264a6..004d19c 100644
 --- a/modules/audio_device/android/audio_manager.h
@@ -166,7 +174,7 @@ index 4a4c30e..0abd9cc 100644
    // Used by GetStringFromJava() during construction only.
    JavaClass j_build_info_;
 diff --git a/modules/utility/include/jvm_android.h b/modules/utility/include/jvm_android.h
-index 574c977..f2ca1a3 100644
+index 574c977..05d70ed 100644
 --- a/modules/utility/include/jvm_android.h
 +++ b/modules/utility/include/jvm_android.h
 @@ -42,7 +42,7 @@ class AttachCurrentThreadIfNeeded {
@@ -174,7 +182,7 @@ index 574c977..f2ca1a3 100644
  class GlobalRef {
   public:
 -  GlobalRef(JNIEnv* jni, jobject object);
-+  GlobalRef(jobject object, bool attach);
++  GlobalRef(JNIEnv *jni, jobject object);
    ~GlobalRef();
  
    jboolean CallBooleanMethod(jmethodID methodID, ...);
@@ -247,22 +255,22 @@ index 574c977..f2ca1a3 100644
  
  // Main class for working with Java from C++ using JNI in WebRTC.
 diff --git a/modules/utility/source/jvm_android.cc b/modules/utility/source/jvm_android.cc
-index d53d1b5..7f70dc1 100644
+index d53d1b5..0e9dad1 100644
 --- a/modules/utility/source/jvm_android.cc
 +++ b/modules/utility/source/jvm_android.cc
-@@ -24,6 +24,48 @@ namespace webrtc {
+@@ -24,6 +24,44 @@ namespace webrtc {
  
  JVM* g_jvm;
  
 +static struct {
 +       JavaVM *vm;
 +} java;
-+       
++
 +struct jni_env {
 +       bool attached;
 +       JNIEnv *env;
 +};
-+       
++
 +static int jni_attach(struct jni_env *je)
 +{
 +       int res;
@@ -273,14 +281,13 @@ index d53d1b5..7f70dc1 100644
 +
 +       if (res != JNI_OK || je->env == NULL) {
 +               res = java.vm->AttachCurrentThread(&je->env, NULL);
-+
++	       ALOGD("jni_attach: returned: %d OK=%d\n", res, JNI_OK);
 +               if (res != JNI_OK) {
 +                       err = ENOSYS;
 +                       goto out;
 +               }
 +               je->attached = true;
 +       }
-+
 +
 +out:
 +      return err;
@@ -292,14 +299,11 @@ index d53d1b5..7f70dc1 100644
 +               java.vm->DetachCurrentThread();
 +       }
 +}
-+	
-+	       
 +
-+	
  // TODO(henrika): add more clases here if needed.
  struct {
    const char* name;
-@@ -70,6 +112,7 @@ jclass LookUpClass(const char* name) {
+@@ -70,6 +108,7 @@ jclass LookUpClass(const char* name) {
  // AttachCurrentThreadIfNeeded implementation.
  AttachCurrentThreadIfNeeded::AttachCurrentThreadIfNeeded()
      : attached_(false) {
@@ -307,7 +311,7 @@ index d53d1b5..7f70dc1 100644
    ALOGD("AttachCurrentThreadIfNeeded::ctor%s", GetThreadInfo().c_str());
    JavaVM* jvm = JVM::GetInstance()->jvm();
    RTC_CHECK(jvm);
-@@ -80,9 +123,11 @@ AttachCurrentThreadIfNeeded::AttachCurrentThreadIfNeeded()
+@@ -80,9 +119,11 @@ AttachCurrentThreadIfNeeded::AttachCurrentThreadIfNeeded()
      jint ret = jvm->AttachCurrentThread(&env, nullptr);
      attached_ = (ret == JNI_OK);
    }
@@ -319,7 +323,7 @@ index d53d1b5..7f70dc1 100644
    ALOGD("AttachCurrentThreadIfNeeded::dtor%s", GetThreadInfo().c_str());
    RTC_DCHECK(thread_checker_.CalledOnValidThread());
    if (attached_) {
-@@ -90,33 +135,62 @@ AttachCurrentThreadIfNeeded::~AttachCurrentThreadIfNeeded() {
+@@ -90,33 +131,64 @@ AttachCurrentThreadIfNeeded::~AttachCurrentThreadIfNeeded() {
      jint res = JVM::GetInstance()->jvm()->DetachCurrentThread();
      RTC_CHECK(res == JNI_OK) << "DetachCurrentThread failed: " << res;
    }
@@ -329,19 +333,23 @@ index d53d1b5..7f70dc1 100644
  // GlobalRef implementation.
 -GlobalRef::GlobalRef(JNIEnv* jni, jobject object)
 -    : jni_(jni), j_object_(NewGlobalRef(jni, object)) {
-+GlobalRef::GlobalRef(jobject obj, bool attach)
+-  ALOGD("GlobalRef::ctor%s", GetThreadInfo().c_str());
++GlobalRef::GlobalRef(JNIEnv *jni, jobject obj)
 +{
 +      struct jni_env je;
-+      if (!attach) {
-+              j_object_ = obj;
++      bool attach = false;
++
++      if (jni == NULL) {
++              jni_attach(&je);
++	      jni = je.env;
++	      attach = true;
 +      }
-+      else {
-+              jni_attach(&je);        
-+              j_object_ = je.env->NewGlobalRef(obj);
-+              jni_detach(&je);
-+      }
-+		
-   ALOGD("GlobalRef::ctor%s", GetThreadInfo().c_str());
++      j_object_ = jni->NewGlobalRef(obj);
++
++      if (attach)
++	      jni_detach(&je);
++
++      ALOGD("GlobalRef::ctor%s", GetThreadInfo().c_str());
  }
  
  GlobalRef::~GlobalRef() {
@@ -362,8 +370,8 @@ index d53d1b5..7f70dc1 100644
 -  CHECK_EXCEPTION(jni_) << "Error during CallBooleanMethod";
 +  {
 +         struct jni_env je;
-+         
-+         jni_attach(&je);        
++
++         jni_attach(&je);
 +         res = je.env->CallBooleanMethodV(j_object_, methodID, args);
 +         CHECK_EXCEPTION(je.env) << "Error during CallBooleanMethod";
 +         jni_detach(&je);
@@ -382,7 +390,6 @@ index d53d1b5..7f70dc1 100644
 +  {
 +         struct jni_env je;
 +         jni_attach(&je);
-+  
 +         res = je.env->CallIntMethodV(j_object_, methodID, args);
 +         CHECK_EXCEPTION(je.env) << "Error during CallIntMethod";
 +         jni_detach(&je);
@@ -390,7 +397,7 @@ index d53d1b5..7f70dc1 100644
    va_end(args);
    return res;
  }
-@@ -124,91 +198,134 @@ jint GlobalRef::CallIntMethod(jmethodID methodID, ...) {
+@@ -124,91 +196,133 @@ jint GlobalRef::CallIntMethod(jmethodID methodID, ...) {
  void GlobalRef::CallVoidMethod(jmethodID methodID, ...) {
    va_list args;
    va_start(args, methodID);
@@ -399,7 +406,6 @@ index d53d1b5..7f70dc1 100644
 +  {
 +         struct jni_env je;
 +         jni_attach(&je);
-+  
 +         je.env->CallVoidMethodV(j_object_, methodID, args);
 +         CHECK_EXCEPTION(je.env) << "Error during CallVoidMethod";
 +         jni_detach(&je);
@@ -435,27 +441,27 @@ index d53d1b5..7f70dc1 100644
 +  jobject obj;
 +  jmethodID mid;
 +  struct jni_env je;
-+  
++
    va_start(args, signature);
 -  jobject obj = jni_->NewObjectV(j_class_,
 -                                 GetMethodID(jni_, j_class_, name, signature),
 -                                 args);
 -  CHECK_EXCEPTION(jni_) << "Error during NewObjectV";
-+  
++
 +  jni_attach(&je);
 +  mid = je.env->GetMethodID(j_class_, name, signature);
 +  obj = je.env->NewObjectV(j_class_, mid, args);
-+  
++
    va_end(args);
 -  return std::unique_ptr<GlobalRef>(new GlobalRef(jni_, obj));
 +
 +  ALOGD("NativeRegistration::NewObject: mid=%p obj=%p", mid, obj);
 +
-+  GlobalRef *gref = new GlobalRef(obj, false);
++  GlobalRef *gref = new GlobalRef(je.env, obj);
 +  CHECK_EXCEPTION(je.env) << "Error during NewObjectV";
 +  jni_detach(&je);
 +
-+  return std::unique_ptr<GlobalRef>(gref);  
++  return std::unique_ptr<GlobalRef>(gref);
  }
  
  // JavaClass implementation.
@@ -522,7 +528,7 @@ index d53d1b5..7f70dc1 100644
 -  return std::unique_ptr<NativeRegistration>(
 -      new NativeRegistration(jni_, clazz));
 +  struct jni_env je;
-+  
++
 +  jni_attach(&je);
 +  je.env->RegisterNatives(clazz, methods, num_methods);
 +  CHECK_EXCEPTION(je.env) << "Error during RegisterNatives";
@@ -542,7 +548,7 @@ index d53d1b5..7f70dc1 100644
 -  CHECK_EXCEPTION(jni_);
 -  return ret;
 +	struct jni_env je;
-+	
++
 +	jni_attach(&je);
 +	const char* jchars = je.env->GetStringUTFChars(j_string, nullptr);
 +	CHECK_EXCEPTION(je.env);
@@ -564,7 +570,7 @@ index d53d1b5..7f70dc1 100644
    RTC_CHECK(!g_jvm);
    g_jvm = new JVM(jvm, context);
  }
-@@ -229,38 +346,35 @@ JVM* JVM::GetInstance() {
+@@ -229,38 +343,35 @@ JVM* JVM::GetInstance() {
  
  JVM::JVM(JavaVM* jvm, jobject context)
      : jvm_(jvm) {
@@ -583,8 +589,8 @@ index d53d1b5..7f70dc1 100644
  }
  
  JVM::~JVM() {
-+	struct jni_env je;
-+	
++  struct jni_env je;
++
    ALOGD("JVM::~JVM%s", GetThreadInfo().c_str());
 -  RTC_DCHECK(thread_checker_.CalledOnValidThread());
 -  FreeClassReferences(jni());
