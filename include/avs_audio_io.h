@@ -35,7 +35,8 @@ struct audio_io{
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+void *audio_io_create_adm(void);
+	
 int  audio_io_alloc(struct audio_io **aiop,
                enum audio_io_mode mode);
 
@@ -43,7 +44,7 @@ int  audio_io_init(struct audio_io *aio);
     
 int  audio_io_terminate(struct audio_io *aio);
     
-int  audio_io_enable_sine(struct audio_io *aio);
+int  audio_io_enable_sine(void);
 
 int  audio_io_reset(struct audio_io *aio);
 	

@@ -1,6 +1,87 @@
 ChangeLog for AVS -- latest on top!
 
 ==============================================================================
+AVS Release 5.3
+
+Date:	    08. October 2019
+GIT:	    https://github.com/wearezeta/avs/tree/release-5.3
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Add support for multiple devices in group calls
+                - Add back privacy mode
+                - Mediaflow refactoring
+                
+Hotfixes:	
+
+==============================================================================
+AVS Release 5.2
+
+Date:	    04. September 2019
+GIT:	    https://github.com/wearezeta/avs/tree/release-5.2
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - New function to add proxy for media transport
+                - New function to query AVS version number
+		- Improvement of UPDATE functionality
+                - Improvement of call setup time on iOS
+                - Start group calls with 40ms packets
+                - Various bug fixes
+
+Hotfixes:	
+
+==============================================================================
+AVS Release 5.1
+
+Date:	    12. June 2019
+GIT:	    https://github.com/wearezeta/avs/tree/release-5.1
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Providing WebAssembly AVS for web client
+                - API changes: See ./docs/api/api_changes_5.1.txt
+
+Hotfixes:	
+
+==============================================================================
+AVS Release 5.0
+
+Date:	    02. April 2019
+GIT:	    https://github.com/wearezeta/avs/tree/release-5.0
+Android:    Android NDK r14b
+iOS:	    iOS SDK 11.0
+OSX:	    MacOS SDK 10.13
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:	- Update to WebRTC peerconnection API
+
+Hotfixes:	
+
+==============================================================================
+AVS Release 4.9
+
+Date:	    15. January 2019
+GIT:	    https://github.com/wearezeta/avs/tree/release-4.9
+Android:    Android NDK r14b
+iOS:	    iOS SDK 11.0
+OSX:	    MacOS SDK 10.13
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+Summary:	- Fix for AUDIO-1580
+		- Fix for AUDIO-1476
+		- iOS: Fixed crash due to mf_gather_handler
+		- Added error return in case new calling type is unknown
+
+Hotfixes:	
+
+==============================================================================
 AVS Release 4.8
 
 Date:	    19. November 2018
@@ -375,7 +456,1865 @@ Summary:	- Android now uses NDK r12b.
 		- Android MM made more robust to avoid rare crashes.
 
 ==============================================================================
+AVS Release 2.7
 
-July 21, 2016		AVS open source release
+Date:	    04. July 2016
+GIT:	    https://github.com/wearezeta/avs/tree/release-2.7
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+
+Summary:	- Improved DTLS performance in bad networks
+		- Removed switching off of video for low network bandwidth
+		- Improved network bandwidth estimation
+		- Fix for RTX PT Chrome bug
+		- Tuning of audio filters
+		- Open SSL update
+		- Improved metrics
+
+Closed Jira tickets:
+
+AUDIO-974 - Siims call dropped when he changed network
+AUDIO-946 - Consider switching to BoringSSL
+AUDIO-942 - DTLS re-transmission
+
+QA Review:
+
+AUDIO-986 - Squashed video sent from wrapper side
+AUDIO-982 - DTLS Setup
+AUDIO-971 - RTX pt not set correctly when calling wrapper to zcall
+AUDIO-963 - vie memory leaks
+AUDIO-962 - Provide a warning message if your own device's cameras are not working
+AUDIO-961 - Improve selection of videoCaptureDevice to make camera switching smoother for devices with 3 cameras
+AUDIO-959 - Frequent hold up of camera resource between calls
+AUDIO-951 - webrtc crash on linux
+AUDIO-947 - Update WebRTC
+AUDIO-944 - OpenSSL 1.0.2h upgrade
+AUDIO-938 - Enabled digital AGC for iOS and Android
+AUDIO-936 - Unsatisfied Link on Android N
+AUDIO-935 - Add ZCall feature for making a call with conversation ID
+AUDIO-932 - TURN over TLS
+AUDIO-930 - Video resolution switching
+AUDIO-929 - Double Metrics
+AUDIO-928 - crash if TURN client allocation fails
+AUDIO-926 - I want to use Wire with hand-free car kit bluetooth during calls and not break anything otherwise
+AUDIO-925 - Add metrics keys
+AUDIO-915 - Provide information about audio network interruption indication (beeping) to UI
+AUDIO-883 - Enable TURN Channels
+AUDIO-873 - iOS: No ringback for video calls when silent switch is on
+AUDIO-857 - Video Calling: one way audio
+AUDIO-840 - Static image and poor network message during video call
+AUDIO-829 - Provide a blurred image of the video stream last frame
 
 ==============================================================================
+AVS Release 2.6
+
+Date:	    16. June 2016
+GIT:	    https://github.com/wearezeta/avs/tree/release-2.6
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+
+Summary:	- WebRTC Update
+		- Audio Filters
+
+Closed Jira tickets:
+
+AUDIO-967 - Add metrics keys - speaker phone
+AUDIO-965 - voe memory leaks
+AUDIO-964 - webrtc logging to stderr
+AUDIO-960 - Video stream occupies quarter of the screen
+AUDIO-957 - Multiple metrics per call
+AUDIO-952 - ztest: add vie/video tests
+AUDIO-934 - RTP dump module
+AUDIO-933 - Enable TLS monitoring of TURN Server
+AUDIO-594 - glitches in NetEQ output
+AUDIO-953 - Latency builds up on ios with updated webrtc
+
+QA Review:
+
+AUDIO-971 - RTX pt not set correctly when calling wrapper to zcall
+AUDIO-963 - vie memory leaks
+AUDIO-962 - Provide a warning message if your own device's cameras are not working
+AUDIO-961 - Improve selection of videoCaptureDevice to make camera switching smoother for devices with 3 cameras
+AUDIO-959 - Frequent hold up of camera resource between calls
+AUDIO-951 - webrtc crash on linux
+AUDIO-947 - Update WebRTC
+AUDIO-938 - Enabled digital AGC for iOS and Android
+AUDIO-936 - Unsatisfied Link on Android N
+AUDIO-935 - Add ZCall feature for making a call with conversation ID
+AUDIO-932 - TURN over TLS
+AUDIO-930 - Video resolution switching
+AUDIO-929 - Double Metrics
+AUDIO-928 - crash if TURN client allocation fails
+AUDIO-926 - I want to use Wire with hand-free car kit bluetooth during calls and not break anything otherwise
+AUDIO-925 - Add metrics keys
+AUDIO-915 - Provide information about audio network interruption indication (beeping) to UI
+AUDIO-883 - Enable TURN Channels
+AUDIO-873 - iOS: No ringback for video calls when silent switch is on
+AUDIO-857 - Video Calling: one way audio
+AUDIO-848 - iOS: Audio Routing
+AUDIO-840 - Static image and poor network message during video call
+AUDIO-829 - Provide a blurred image of the video stream last frame
+AUDIO-735 - Adaptive digital gain control increases gain on background noise.
+
+==============================================================================
+AVS Release 2.5
+
+Date:	    01. June 2016
+GIT:	    https://github.com/wearezeta/avs/tree/release-2.5
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+
+Summary:	- TURN channels added
+		- Clean-up on mediaflow
+		- Fixes to AVS metrics (new metrics + formatting changes)
+		- General clean-up and bug fixing
+
+Hotfixes:	- Android: create/releaseVideo(Pre)view calls removed
+		- Android: setVideoPreview(null) stops capture
+		- Android: Don't attempt to start camera during process of destroying
+		- iOS: ZIOS-6597, add registerUrl:forMedia method so UI can set alternative ringtones
+		- iOS: Fix for AUDIO-956, crash in vie_bandwidth_allocation_changed
+		- Interface for audio effects added (mostly iOS)
+		- Audio effects edited
+
+Closed Jira tickets:
+
+AUDIO-956 - Fix crash in vie_bandwidth_allocation_changed(vie*, unsigned int, unsigned int), line 426
+AUDIO-954 - Seg Fault in zcall at end of call
+AUDIO-948 - Call did not connect - mobile data to mobile data
+AUDIO-927 - Allow custom Uri's for Media categories
+AUDIO-895 - Feedback from the field
+AUDIO-891 - Enable speaker during ringing phase
+AUDIO-811 - Extend metrics with video parameters 
+
+QA Review:
+
+AUDIO-951 - webrtc crash on linux
+AUDIO-938 - Enabled digital AGC for iOS and Android
+AUDIO-936 - Unsatisfied Link on Android N
+AUDIO-935 - Add ZCall feature for making a call with conversation ID
+AUDIO-932 - TURN over TLS
+AUDIO-930 - Video resolution switching
+AUDIO-929 - Double Metrics
+AUDIO-928 - crash if TURN client allocation fails
+AUDIO-926 - I want to use Wire with hand-free car kit bluetooth during calls and not break anything otherwise
+AUDIO-915 - Provide information about audio network interruption indication (beeping) to UI
+AUDIO-883 - Enable TURN Channels
+AUDIO-873 - iOS: No ringback for video calls when silent switch is on
+AUDIO-857 - Video Calling: one way audio
+AUDIO-840 - Static image and poor network message during video call
+AUDIO-829 - Provide a blurred image of the video stream last frame
+
+==============================================================================
+AVS Release 2.4
+
+Date:	    19. May 2016
+GIT:	    https://github.com/wearezeta/avs/tree/release-2.4
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+
+Summary:	- Adaptive resolution change for video
+		- Adding digital AGC for iOS + Android for 1:1 calls
+		- TURN via TLS
+		- API added for registering custom audio notifications (Android only)
+
+
+Closed Jira tickets:
+
+AUDIO-939 - Call cannot be connected - AVS 2.4.1
+AUDIO-937 - Update AVS open source
+AUDIO-920 - Fix RuntimeException in com.waz.avs.VideoRenderer.initGL, line 221
+AUDIO-904 - Group call with Autocall 2.1 and Chrome 49 - Connection timed out - no bytes
+AUDIO-903 - Limit video (receive) network bandwidth in SDP
+AUDIO-888 - Fix crash in mediaflow_set_video_send_active, line 3809
+AUDIO-882 - iOS cannot join group call, connecting
+AUDIO-868 - Call does not connect
+AUDIO-864 - Fix crash in mem_deref, line 322
+AUDIO-812 - Allow Localytics upload of metrics
+AUDIO-749 - Replace ICE by TURN-only routing
+AUDIO-624 - AVS should add more notifications when to play sounds on the client-side
+AUDIO-591 - [Group-Call] One participant changed from 3G to 4G and causing the group call ended
+AUDIO-587 - Add Call-Disconnect reason to Technical Report
+AUDIO-924 - ICE Privacy mode
+AUDIO-923 - Enable EC certificate for Android 
+
+QA Review:
+
+AUDIO-938 - Enabled digital AGC for iOS and Android
+AUDIO-932 - TURN over TLS
+AUDIO-930 - Video resolution switching
+AUDIO-929 - Double Metrics
+AUDIO-928 - crash if TURN client allocation fails
+AUDIO-927 - Allow custom Uri's for Media categories
+AUDIO-926 - I want to use Wire with hand-free car kit bluetooth during calls and not break anything otherwise
+AUDIO-915 - Provide information about audio network interruption indication (beeping) to UI
+AUDIO-891 - Enable speaker during ringing phase
+AUDIO-873 - iOS: No ringback for video calls when silent switch is on
+AUDIO-857 - Video Calling: one way audio
+AUDIO-840 - Static image and poor network message during video call
+AUDIO-829 - Provide a blurred image of the video stream last frame
+AUDIO-811 - Extend metrics with video parameters
+
+==============================================================================
+AVS Release 2.3
+
+Date:	    21. April 2016
+GIT:	    https://github.com/wearezeta/avs/tree/release-2.3
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 14.04 (LTS)
+
+
+Summary:	- Improved metrics (extended audio + added video)
+		- Signal audio network interruption to UI
+		- Increase of maximum video bit rate to 800 kbit/s
+		- bug fixes
+
+
+Closed Jira tickets:
+
+AUDIO-916 - Fix crash in webrtc::AudioDeviceIOS::ShutdownPlayOrRecord(), line 836
+AUDIO-912 - Android lost self preview and cannot recover after force stop
+AUDIO-910 - iPhone 6s could not establish the call
+AUDIO-909 - ios keeps muted state between calls
+AUDIO-908 - Increase maximum video encoder bit rate
+AUDIO-902 - One way audio - iOS (beep sound cannot hear), Android can hear
+AUDIO-901 - Calling Report
+AUDIO-897 - Working call returns success:false in metrics
+AUDIO-894 - Opening Wire pauses Sportify or Soundcloud
+AUDIO-889 - Fix crash in mm_platform_get_route, line 310
+AUDIO-881 - Group call stays in connecting state
+AUDIO-878 - Call failed to connect and dropped immediately.
+AUDIO-877 - [DTLS] Took 3 attempts to connect an audio call
+AUDIO-874 - Fix crash in - [AVAudioSessionRouteDescription inputs]
+AUDIO-865 - ER: Video quality of Wire call is lower than Skype or Viber call (same conditions)
+AUDIO-860 - iOS: Crash during video call but call continued
+AUDIO-839 - Call does not get connected if app is backgrounded before the receiver accepts the call
+AUDIO-832 - iOS. Soundcloud has stopped playing after putting the client in the background
+AUDIO-808 - iOS cancel call sound is played from speaker
+AUDIO-785 - [Group call] [Android] When killing the app during a group call, it ends the whole call upon app restart
+AUDIO-732 - Publishing Autocall and ZCall release artifacts in Jenkins
+AUDIO-905 - Video calling: frozen self preview after network switching
+AUDIO-921 - Self video is rotated when receiving a call on iPad (landscape)
+
+QA Review:
+
+AUDIO-915 - Provide information about audio network interruption indication (beeping) to UI
+AUDIO-903 - Limit video (receive) network bandwidth in SDP
+AUDIO-891 - Enable speaker during ringing phase
+AUDIO-888 - Fix crash in mediaflow_set_video_send_active, line 3809
+AUDIO-882 - iOS cannot join group call, connecting
+AUDIO-873 - iOS: No ringback for video calls when silent switch is on
+AUDIO-868 - Call does not connect
+AUDIO-864 - Fix crash in mem_deref, line 322
+AUDIO-857 - Video Calling: one way audio
+AUDIO-840 - Static image and poor network message during video call
+AUDIO-829 - Provide a blurred image of the video stream last frame
+AUDIO-811 - Extend metrics with video parameters
+AUDIO-591 - [Group-Call] One participant changed from 3G to 4G and causing the group call ended
+AUDIO-587 - Add Call-Disconnect reason to Technical Report
+AUDIO-926 - I want to use Wire with hand-free car kit bluetooth during calls and not break anything otherwise
+
+
+==============================================================================
+AVS Release 2.2
+
+Date:	    22. March 2016
+GIT:	    https://github.com/wearezeta/avs/tree/release-2.2
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+
+Summary:	- Video Calling Improvements (new capturers and renderers)
+		- Extended metrics reporting (now includes audio and video parameters)
+		- Improved handling of switching off video for poor networks
+
+
+Closed Jira tickets:
+
+AUDIO-892 - Fix crash in GlTexSubImage2D(int, int, int, unsigned char const*), line 301
+AUDIO-890 - Backwards compatibility of Webapp to AVS 1.12
+AUDIO-887 - Fix crash in flow_lookup_part_handler, line 425
+AUDIO-884 - Video is distorted on Android
+AUDIO-875 - Fix crash in - [AVSSession recordingRoute], line 303
+AUDIO-871 - Set useinbandfec=1 in SDP
+AUDIO-869 - Make a video call from iOS, gets accepted on Android
+AUDIO-862 - Video Calling: non-video calling iOS version cannot establish call with video calling iOS version
+AUDIO-861 - Outgoing ringtone only played twice then stopping for outgoing video calls on tablet
+AUDIO-854 - Android: Wire silences alarm on device
+AUDIO-852 - After a video call, other applications (e.g., my alarm clock) don't make any sound
+AUDIO-844 - iOS: Sound is in earpiece
+AUDIO-837 - NPE after displaying self-preview before a video call is established
+AUDIO-834 - [Random] Video call is started without sound in the headset
+AUDIO-831 - Fix crash in aes_set_iv, line 87
+AUDIO-830 - Impossible to switch to another incoming call
+AUDIO-828 - No video for outgoing call on caller side after canceling first video call
+AUDIO-776 - avs build with video fails on linux
+AUDIO-761 - Call zcall to iOS does not connect
+AUDIO-744 - network roaming/changing AP/regain network
+AUDIO-730 - Gain bloom is not visible in participants. There is no update being called
+AUDIO-615 - SDP from native clients lacks an a=ssrc: line in offers
+AUDIO-855 - Android lost outgoing/incoming ringtone for video call
+AUDIO-880 - Audio not sent to speaker during ringback tone when tapping speaker button 	
+AUDIO-893 - Ringtone sound outburst when answering an audio call from homescreen (APNS) 	
+AUDIO-850 - [Video] [Draft] New API for camera feeds 	
+AUDIO-886 - Fix crash in webrtc::videocapturemodule::VideoCaptureImpl::DeliverCapturedFrame(webrtc::VideoFrame&), line 227 	
+AUDIO-866 - Fix crash in - [VideoRenderIosView presentFramebuffer], line 133 	
+AUDIO-849 - Android: Rotating tablet device stretches video 	
+AUDIO-835 - Fix crash in rtc::FatalMessage::FatalMessage(char const*, int, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >*), line 99
+
+QA Review:
+
+AUDIO-785 - [Group call] [Android] When killing the app during a group call, it ends the whole call upon app restart
+AUDIO-888 - Fix crash in mediaflow_set_video_send_active, line 3809
+AUDIO-894 - Opening Wire pauses Sportify or Soundcloud
+AUDIO-864 - Fix crash in mem_deref, line 322
+AUDIO-868 - Call does not connect
+AUDIO-591 - [Group-Call] One participant changed from 3G to 4G and causing the group call ended  	
+
+==============================================================================
+AVS Release 2.1
+
+Date:	    10. March 2016
+GIT:	    https://github.com/wearezeta/avs/tree/release-2.1
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+
+Summary:	- Video Calling (MVP)
+		- Bug fixing
+
+
+android:	
+
+build:
+
+iosx:		
+
+media-manager:	
+
+contrib:	
+
+engine:		
+
+
+flowmgr:	
+
+userflow:]
+
+mediaengine:
+	
+mediaflow:
+
+nevent:
+
+vidcodec:
+
+voe:
+	
+vie:		
+
+video:
+
+ztest:
+
+zcall:		
+
+zalbot:		
+
+malbot:
+
+logging:
+
+
+Closed Jira tickets:
+
+https://wearezeta.atlassian.net/browse/AUDIO-872 - Audio is distorted on iPhone 6S (and possibly 6S Plus) after switching voice from headsets to speakerphone
+https://wearezeta.atlassian.net/browse/AUDIO-867 - iPhone 4s shows first few video frames and switches to "poor connection"
+https://wearezeta.atlassian.net/browse/AUDIO-863 - Fix crash in - [AVSSession playbackRoute], line 220
+https://wearezeta.atlassian.net/browse/AUDIO-858 - Video call never gets connected
+https://wearezeta.atlassian.net/browse/AUDIO-856 - add copyright headers to all source file
+https://wearezeta.atlassian.net/browse/AUDIO-853 - iOS: Incoming video feed never recovers after 2nd Wire call was rejected
+https://wearezeta.atlassian.net/browse/AUDIO-845 - Fix crash in GlTexSubImage2D(int, int, int, unsigned char const*), line 288
+https://wearezeta.atlassian.net/browse/AUDIO-843 - Fix crash in - [VideoRenderIosView presentFramebuffer], line 133
+https://wearezeta.atlassian.net/browse/AUDIO-838 - [iOS] Incoming GSM call stops incoming video
+https://wearezeta.atlassian.net/browse/AUDIO-836 - Fix crash in avs_flow_manager_send_notification, line 1160
+https://wearezeta.atlassian.net/browse/AUDIO-833 - iOS. Fix NSInternalInconsistencyException in - [AudioTrackPlayer setAudioTrack:], line 285
+https://wearezeta.atlassian.net/browse/AUDIO-826 - Mirror front camera feed
+https://wearezeta.atlassian.net/browse/AUDIO-825 - [iOS] On second call the self video preview remains low-res
+https://wearezeta.atlassian.net/browse/AUDIO-820 - After backgrounding app and bringing back to foreground, there's no more video
+https://wearezeta.atlassian.net/browse/AUDIO-819 - [iOS] No audio/video for a long time when enabling camera on both sides simultaneously
+https://wearezeta.atlassian.net/browse/AUDIO-817 - [iOS] OS alert breaks video feeds
+https://wearezeta.atlassian.net/browse/AUDIO-815 - [iOS] Video is stopped after the app is backgrounded
+https://wearezeta.atlassian.net/browse/AUDIO-814 - [iOS] Crash ViERenderer::AttachToView(void*)
+https://wearezeta.atlassian.net/browse/AUDIO-813 - [iOS] App always capture OS audio session
+https://wearezeta.atlassian.net/browse/AUDIO-810 - ios media manager dosnt inform voe about route changes
+https://wearezeta.atlassian.net/browse/AUDIO-809 - On ios mediamanager dosnt tell voe about route changes
+https://wearezeta.atlassian.net/browse/AUDIO-806 - [iOS] pressing the home button drops video call
+https://wearezeta.atlassian.net/browse/AUDIO-804 - [iOS] API: need to know if the network conditions are not suitable to have a video call
+https://wearezeta.atlassian.net/browse/AUDIO-803 - [iOS] Need to run the preview before the call is accepted on the other side
+https://wearezeta.atlassian.net/browse/AUDIO-802 - [iOS] API: need a callback when the camera switch is successful
+https://wearezeta.atlassian.net/browse/AUDIO-801 - [iOS] Actions are synchronized blocking main thread
+https://wearezeta.atlassian.net/browse/AUDIO-800 - Audio still audiable after call is terminated
+https://wearezeta.atlassian.net/browse/AUDIO-799 - [iOS] FlowManagerCreatePreviewNotification is dispatched also when the call is only audio
+https://wearezeta.atlassian.net/browse/AUDIO-798 - [iOS] FlowManagerCreateViewNotification is dispatched also when starting an audio call
+https://wearezeta.atlassian.net/browse/AUDIO-797 - [iOS] [AVSMediaManager isSpeakerEnabled] seems to remain NO after setting it to YES
+https://wearezeta.atlassian.net/browse/AUDIO-795 - [iOS] Video is one way sometimes (can't reproduce)
+https://wearezeta.atlassian.net/browse/AUDIO-793 - [iOS] Self video preview is pixelated (non-retina)
+https://wearezeta.atlassian.net/browse/AUDIO-788 - Calls dropping on 2.1 ( with video )
+https://wearezeta.atlassian.net/browse/AUDIO-784 - Connection closed with one iOS participant causing the entire group call terminates
+https://wearezeta.atlassian.net/browse/AUDIO-764 - Group call users are kicked out when one participant's connection closed
+https://wearezeta.atlassian.net/browse/AUDIO-740 - Call did not connect
+https://wearezeta.atlassian.net/browse/AUDIO-738 - Echo issues on Android with adaptive digital gain control
+https://wearezeta.atlassian.net/browse/AUDIO-716 - send DTLS-packets via TURN-relay
+https://wearezeta.atlassian.net/browse/AUDIO-707 - [Android] Call did not connect 2/3 times - with webapp logged in
+https://wearezeta.atlassian.net/browse/AUDIO-521 - [Calling] No audio with bluetooth on Motorola E 
+https://wearezeta.atlassian.net/browse/AUDIO-805 - [iOS] Crash checking if calling is possible
+https://wearezeta.atlassian.net/browse/AUDIO-796 - [iOS] Video rendering is slow, especially when both ways. The device gets really hot
+https://wearezeta.atlassian.net/browse/AUDIO-794 - [iOS] Received video is stretched
+https://wearezeta.atlassian.net/browse/AUDIO-792 - [iOS] Switching camera takes approx. 10 seconds, the UI is frozen for the time
+https://wearezeta.atlassian.net/browse/AUDIO-791 - [iOS] Front camera never works (no preview, no video sent)
+https://wearezeta.atlassian.net/browse/AUDIO-790 - [iOS] Self video preview is upside down
+https://wearezeta.atlassian.net/browse/AUDIO-789 - [iOS] Received video is upside down 
+
+QA Review:
+
+https://wearezeta.atlassian.net/browse/AUDIO-864 - Fix crash in mem_deref, line 322
+https://wearezeta.atlassian.net/browse/AUDIO-862 - Video Calling: non-video calling iOS version cannot establish call with video calling iOS version
+https://wearezeta.atlassian.net/browse/AUDIO-861 - Outgoing ringtone only played twice then stopping for outgoing video calls on tablet
+https://wearezeta.atlassian.net/browse/AUDIO-857 - Video Calling: one way audio
+https://wearezeta.atlassian.net/browse/AUDIO-854 - Android: Wire silences alarm on device
+https://wearezeta.atlassian.net/browse/AUDIO-852 - After a video call, other applications (e.g., my alarm clock) don't make any sound
+https://wearezeta.atlassian.net/browse/AUDIO-844 - iOS: Sound is in earpiece
+https://wearezeta.atlassian.net/browse/AUDIO-837 - NPE after displaying self-preview before a video call is established
+https://wearezeta.atlassian.net/browse/AUDIO-835 - Fix crash in rtc::FatalMessage::FatalMessage(char const*, int, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >*), line 99
+https://wearezeta.atlassian.net/browse/AUDIO-834 - [Random] Video call is started without sound in the headset
+https://wearezeta.atlassian.net/browse/AUDIO-831 - Fix crash in aes_set_iv, line 87
+https://wearezeta.atlassian.net/browse/AUDIO-830 - Impossible to switch to another incoming call
+https://wearezeta.atlassian.net/browse/AUDIO-828 - No video for outgoing call on caller side after canceling first video call
+https://wearezeta.atlassian.net/browse/AUDIO-785 - [Group call] [Android] When killing the app during a group call, it ends the whole call upon app restart
+https://wearezeta.atlassian.net/browse/AUDIO-761 - Call zcall to iOS does not connect
+https://wearezeta.atlassian.net/browse/AUDIO-730 - Gain bloom is not visible in participants. There is no update being called
+https://wearezeta.atlassian.net/browse/AUDIO-615 - SDP from native clients lacks an a=ssrc: line in offers
+https://wearezeta.atlassian.net/browse/AUDIO-591 - [Group-Call] One participant changed from 3G to 4G and causing the group call ended 
+
+
+==============================================================================
+AVS Release 1.12
+
+Date:	    22. Dezember 2015
+GIT:	    https://github.com/wearezeta/avs/tree/release-1.12
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+
+Summary:	- Media Manager Refactoring
+		- Bug Fixing
+
+
+android:	- jzon: added jzon_apply() plus a test
+		- fix android simulator
+		- Merge pull request #130 from wearezeta/feature/mmr_reroute_mcat
+		- mcat and route change handler added for Android
+		- use jzon_encode()
+		- jzon: add wrappers for is_object and is_array
+		- use jzon_encode()
+		- better error handling for android
+		- jzon: added jzon_print() and jzon_encode()
+		- renamed functions and making android simulator compile
+		- fixing android simulator build
+		- fixing Android building
+
+build:
+
+iosx:		- adding intensity for ios
+		- Added intensity handling
+
+media-manager:	- MediaManager: add lock to iOS play tracker, since items can be accessed from different threads
+		- MediaManager: re-add events for speaker enable/disable in iOS wrapper
+		- MediaManager: add (slightly unnecessary) play tracker to iOS to avoid any changes to UI code
+		- MediaManager: implement priority for iOS so that ringing tones stop other media
+		- MediaManager: fix for incall being overwritten with intensity
+		- MediaManager: tidy up, remove mediamgr config code from AVS
+		- MediaManager: more clean up on iOS wrapper
+		- MediaManager: keep & pass on convId for mcat changes
+		- MediaManager: reroute mcat handling so it goes via callback and not mm_platform
+		- MediaManager: remove typedefs of enums
+		- MediaManager: replace spaces with tabs for compliance
+		- MediaManager: enter/exit call logic for iOS
+		- adding missing va_end's
+		- Added more error handling
+		- remove global reference when unregistering media
+		- remove include json.h
+		- proper handling of re_thread_init
+		- Request AudioFocus when starting a call
+		- MediaManager: fix iOS is_playing state for AVSSounds
+		- renamed some functions
+		- Dont use mutex to wait for mm thread to start. Use a flag and polling instead
+		- Dont deadlock if an error happens during thread creation
+		- Using re and mqueue for mediamanager
+		- implemented mm_platform_is_sound_playing for android
+		- using MediaPlayer class instead of MediaSource
+		- mm fixes for BT on Android
+		- Improve locking
+		- MediaManager: iOS implementation of is_sound_playing using unnecessary callbacks
+		- Fix locks around pthread_cond
+		- MediaManager: tidied iOS header files
+		- MediaManager: reintroduce AVSSound for media registration on iOS
+		- When starting/stopping a call call platform specific code and update routing
+		- Updating route when starting and stopping the call
+
+contrib:	- contrib: attempt to fix crash in http client
+		- contrib: clean up some logging
+		- small cleanup of mqueue usage
+
+
+engine:		- engine/zapi: use jzon_apply() to iterate over JSON objects
+		- engine: fix a segfault on quit
+
+
+
+flowmgr:	- More robust startup (config fetching) of flowmgr
+		- fixed intensity logic
+		- icelite: drop STUN packets if no SDP recvd
+		- flowmgr/voe: proper fix for conf_part crash, data points to owner (struct flow)
+		- rest: close pending requests on shutdown (will call response-handler to clean up resources)
+		- srtp: handle short SRTCP packets with no payload
+		- Add avs version to metrics
+
+userflow:
+mediaengine:	- disabeled DTX
+		- updated webrtc
+		- Adding silk to neteq include path
+
+mediaflow:	- mediaflow: reset SDP state
+		- mediaflow: add workaround for USE_CAND=no (ICE lite)
+		- mediaflow: remove consent code
+		- mediaflow: extra logging for missing ice-ufrag/pwd
+
+nevent:
+
+vidcodec:
+
+voe:		- conf_pos: make the API more userfriendly, add test
+		- removed mediaflow dependency for voe
+		- Using callbacks from voe to mediaflow to send rtp and rtcp (same as video)
+		- voe refactoring
+		- renamed struct voe -> struct voe_channel
+
+vie:		
+
+video:
+
+ztest:		- added delay agnostic mode in apm_test
+		- autocall: use jzon_print
+		- ztest: add test for string with 'null' value
+		- test: add testcase for parsing connections JSON (array)
+		- test: use jzon wrapper api
+		- test: check for missing email/passwd
+		- autocall: use jzon_encode()
+		- added valgrind script
+		- fixed valgrind error
+		- ztest: added test for mediamgr, alloc_and_free
+		- removed the routing test
+		- fixing ztest
+
+zcall:		- zcall: print number of conversation entries
+
+zalbot:		- Add zalbot graph and upload scripts
+
+malbot:
+
+logging:
+
+
+Closed Jira tickets:
+
+https://wearezeta.atlassian.net/browse/AUDIO-786 - Remove session ID from metrics data
+https://wearezeta.atlassian.net/browse/AUDIO-782 - Android: New message sound is played on speaker when headset is connected
+https://wearezeta.atlassian.net/browse/AUDIO-781 - Fix crash in AVAudioSessionPropertyListener(void*, unsigned int, unsigned int, void const*)
+https://wearezeta.atlassian.net/browse/AUDIO-780 - mm: Wrong audio route when unplugging headset while on speaker
+https://wearezeta.atlassian.net/browse/AUDIO-777 - Android: Plugging in + out headset while on speaker ends up with wrong audio route
+https://wearezeta.atlassian.net/browse/AUDIO-774 - Errors after GSM call interruption
+https://wearezeta.atlassian.net/browse/AUDIO-773 - iOS: Message notification is played even though alert settings "none"
+https://wearezeta.atlassian.net/browse/AUDIO-772 - Fix crash in - [AVAudioSessionRouteDescription inputs]
+https://wearezeta.atlassian.net/browse/AUDIO-770 - iOS: Wire call is not properly hung up after GSM call is accepted
+https://wearezeta.atlassian.net/browse/AUDIO-769 - iOS: Wire call does not reconnect after rejected GSM call
+https://wearezeta.atlassian.net/browse/AUDIO-768 - iOS: Outgoing call ringback on speaker rather than earpiece
+https://wearezeta.atlassian.net/browse/AUDIO-767 - Call from zcall to iOS does not connect
+https://wearezeta.atlassian.net/browse/AUDIO-762 - SDP only contains host candidate
+https://wearezeta.atlassian.net/browse/AUDIO-746 - Call can't connect or media delays in Edge network
+https://wearezeta.atlassian.net/browse/AUDIO-745 - 1-way audio
+https://wearezeta.atlassian.net/browse/AUDIO-743 - Media server error in AVS1.10
+https://wearezeta.atlassian.net/browse/AUDIO-741 - Fix crash in - [AVAudioSessionPortDescription dataSources]
+https://wearezeta.atlassian.net/browse/AUDIO-737 - conf parts crash
+https://wearezeta.atlassian.net/browse/AUDIO-733 - Firefox spams the log and does not connect to AVS 1.10
+https://wearezeta.atlassian.net/browse/AUDIO-731 - Fix crash in - [AVSSession playbackRoute], line 220
+https://wearezeta.atlassian.net/browse/AUDIO-729 - Crash following a series of group call
+https://wearezeta.atlassian.net/browse/AUDIO-728 - Group call with no audio
+https://wearezeta.atlassian.net/browse/AUDIO-671 - MediaManager Refactor
+https://wearezeta.atlassian.net/browse/AUDIO-656 - [mmm] [iOS] Hang up sound seems coming from loudspeaker
+https://wearezeta.atlassian.net/browse/AUDIO-650 - Calling 2.0
+https://wearezeta.atlassian.net/browse/AUDIO-628 - Fix crash in AVAudioSessionPropertyListener(void*, unsigned int, unsigned int, void const*)
+https://wearezeta.atlassian.net/browse/AUDIO-611 - [AVS1.8, Random] Android could not join group call even after few trials
+https://wearezeta.atlassian.net/browse/AUDIO-146 - Network roaming 
+
+QA Review:
+
+https://wearezeta.atlassian.net/browse/AUDIO-785 - [Group call] [Android] When killing the app during a group call, it ends the whole call upon app restart
+https://wearezeta.atlassian.net/browse/AUDIO-783 - local fingerprint and list of remote fingerprints
+https://wearezeta.atlassian.net/browse/AUDIO-761 - Call zcall to iOS does not connect
+https://wearezeta.atlassian.net/browse/AUDIO-740 - Call did not connect
+https://wearezeta.atlassian.net/browse/AUDIO-730 - Gain bloom is not visible in participants. There is no update being called
+https://wearezeta.atlassian.net/browse/AUDIO-707 - [Android] Call did not connect 2/3 times - with webapp logged in
+https://wearezeta.atlassian.net/browse/AUDIO-615 - SDP from native clients lacks an a=ssrc: line in offers
+https://wearezeta.atlassian.net/browse/AUDIO-591 - [Group-Call] One participant changed from 3G to 4G and causing the group call ended
+https://wearezeta.atlassian.net/browse/AUDIO-521 - [Calling] No audio with bluetooth on Motorola E
+
+
+==============================================================================
+AVS Release 1.11
+
+Date:	    27.(tbd) November 2015
+GIT:	    https://github.com/wearezeta/avs/tree/release-1.11
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+
+Summary:	Calling 2.0 Improvements
+		Bug Fixing
+
+android:
+
+build:
+
+iosx:
+
+media-manager:
+
+contrib:	- openssl: change initial timeout-value from 1.0 sec to 0.5 sec
+		- re: fix warning on ios
+		- contrib: upgrade to re 0.4.14
+
+engine:
+
+flowmgr:	- Move codec stats to release_flows
+		- Add self object to call_state_event
+		- Add creator to zapi_flow
+		- zapi: added struct zapi_call_state_event and decode
+		- Call delete_flow before error handler, as a sync call to release_flows will pull the mat from under our feet
+		- Don't flust post list as this will destruct the call objects
+		- Make sure to activate call in the case it is created in-actively and there is an active flow
+		- Make SDP-less POST since users might have joined after acquiring
+		- Set flow even if flow is not active
+		- Better handling of eager flows and user/flow diffs
+		- Revert back to adding non-joined users in 1-1 conv to handle eager flows better, until BE is switched
+		- Purge users only in POST response
+		- Only add joined members even on 1-1 convs
+		- Purge user that are not returned in the POST for flows response
+		- Make sure userflow is in context when aceesinf it's userid
+		- Handle multiple flows on one userflow more gracefully. Solves AUDIO-707
+		- Set pending even if already started
+		- Flush postl and unlink in call destructor, thanks Alfred.
+		- Postpone post for flows until config is done
+		- Postpone post for flows until config is done
+		- Handle empty flow list automatically so we can handle eager flows on 1-1 calls in the future
+		- Due to lazy flows only add joined users
+		- zapi: handle urls as both string/array
+		- flowmgr: also print userflow name in flow debug
+		- Remove userflow when flow is destructed
+		- Old clients answer SDP eagerly, causing multiple flows to be associated with a single userflow, ref the userflow
+		- Fix dangling pointer if something goes fro min flowmgr_alloc
+		- Return ready only when we are in POSTing state
+		- Set all user flow states to POST when attempting to POST
+		- Reset userflow's flow pointer on flow dtor
+		- flowmgr: do not read 'ice_servers' from flow response
+		- http: check if app grabbed tc
+		- mqueue: align struct members to avoid valgrind warning
+		- mediaflow: enable STUN-keepalive on TURN-socket for Dualstack
+		- Re-enable stun test which is now working
+		- flowmgr: change warning to info
+		- Fix potential dangling mediaflow pointer
+		- flowmgr: fix a potential NULL-deref in stop_media()
+		- http: add support for experimental connection-reuse
+		- flowmgr: change sdp-conflict log from warning->info
+		- zapi: for ice_servers handle both 'urls' and 'url'
+		- de-ref userflow when flow is deleted
+		- flowmgr: add flowmgr_set_cert() to use a Static CERTIFICATE string
+		- Add flomgr_start through the whole call chain
+		- Set signal state to stable when answering from gather_handler
+		- Since we have role resolution dont care about creator
+		- Add clear_cookies to mill
+		- Mark replayed events
+
+mediaengine:	- updated webrtc. Changed Errors to Warnings
+		- Updated webrtc to get interrupt indication fix
+		- Updated webrtc to include fix ios crashes
+		- Added Jitter Buffer High latency mode (peak detection) to call quality statistics
+		- faster smoothing of gains to track minimum for cng generation
+		- Updated webrtc to include fix to PT and conferences
+		- Merge pull request #122 from wearezeta/opus_dtx_change
+		- updated webrtc. Proper fix to timestamp jumping back
+		- opus: add silk_dec_info.h to pkginclude_HEADERS
+		- faster smoothing of gains to track minimum for cng generation
+
+mediaflow:	- mediaflow: detect if remote endpoint is ice-lite
+		- mediaflow: added struct interface, enumerate list of local interfaces
+		- mediaflow: handle incoming RTP/RTCP packets explicitly, if external_rtp is enabled
+		- mediaflow: refactor mediaflow_alloc api
+		- mediaflow: disable ANSI colors for ios/android
+		- mediaflow: classify each incoming packet and demux
+		- media: move turn/udp client to turnconn.c
+		- mediaflow: fix createpermission (AUDIO-709)
+
+nevent:
+
+vidcodec:
+
+voe:
+
+vie:		
+
+video:
+
+ztest:		- Fix zapi call_state test
+		- Re-enable b2b_group test
+		- Adding test to measure audio setup time
+		- netprobe: use call-config to fetch TURN-server
+		- Adding loop back of RTP and RTCP packets for conferencing test
+		- ztest: fix memory-leaks in JSON code
+		- test: enable STUN also for flowmgr-group
+		- test: enable STUN-server for flowmgr B2B-test
+		- zcall: check if Websocket is established, before making a call
+		- ztest: added HTTP test with multiple-servers and multiple requests (for REUSE)
+		- ztest: use new JSON to create response-body
+		- ztest: added a new JSON test
+		- For conferencing optimization test use a different payload type for each channel
+
+zcall:		- zcall: print sync time
+
+zalbot:		- zalbot: forced exit
+
+malbot:		- malbot: disable logging and metrics
+
+logging:	- better log parsing
+		- adding log parsing scripts
+		- re: print directly to FILE stdout/stderr, no buffering
+		- http: disable logging to stdout
+		- Added uplink RTCP loss and jitter to call quality report
+
+
+Closed Jira tickets:
+
+https://wearezeta.atlassian.net/browse/AUDIO-715 - [Android] Could not join group call
+https://wearezeta.atlassian.net/browse/AUDIO-676 - [Android] Network roaming does not work
+https://wearezeta.atlassian.net/browse/AUDIO-667 - Fix crash in AVAudioSessionPropertyListener(void*, unsigned int, unsigned int, void const*)
+https://wearezeta.atlassian.net/browse/AUDIO-695 - Network Roaming
+https://wearezeta.atlassian.net/browse/AUDIO-714 - [Android] Media establishment is over 10 seconds
+https://wearezeta.atlassian.net/browse/AUDIO-718 - Call return code in log
+https://wearezeta.atlassian.net/browse/AUDIO-599 - Fix error messages in logs
+https://wearezeta.atlassian.net/browse/AUDIO-669 - Fix crash in ___ZN6webrtc14AudioDeviceIOS16InitPlayOrRecordEv_block_invoke_2, line 1548
+https://wearezeta.atlassian.net/browse/AUDIO-724 - [AVS 1.10 & 1.9] Successful and unsuccesful calls to analyse
+https://wearezeta.atlassian.net/browse/AUDIO-593 - play ready_to_talk sound from flow manager on android
+https://wearezeta.atlassian.net/browse/AUDIO-469 - Sounds on loudspeaker while earphones connected
+https://wearezeta.atlassian.net/browse/AUDIO-699 - Long latency call
+https://wearezeta.atlassian.net/browse/AUDIO-720 - Fix crash in - [AVAudioSessionRouteDescription outputs]
+https://wearezeta.atlassian.net/browse/AUDIO-585 - Update Media Manager Configuration File Format
+https://wearezeta.atlassian.net/browse/AUDIO-645 - [Android] One way Audio
+https://wearezeta.atlassian.net/browse/AUDIO-710 - [Android] [Random] No POST for flows
+https://wearezeta.atlassian.net/browse/AUDIO-719 - Group call crash in zcall
+https://wearezeta.atlassian.net/browse/AUDIO-621 - Group call cut-off when one participant crashed
+https://wearezeta.atlassian.net/browse/AUDIO-704 - 2 zcall's crash in group call
+https://wearezeta.atlassian.net/browse/AUDIO-703 - zcall crash
+https://wearezeta.atlassian.net/browse/AUDIO-523 - Ready to Talk notification improvement
+https://wearezeta.atlassian.net/browse/AUDIO-709 - TURN client error on method 'CreatePermission' (437 Allocation Mismatch (no such allocation))
+https://wearezeta.atlassian.net/browse/AUDIO-506 - flow manager takes down the whole call if 1 flow fails
+https://wearezeta.atlassian.net/browse/AUDIO-711 - [iOS dev] Call never connected
+https://wearezeta.atlassian.net/browse/AUDIO-618 - [Random] Call ended immediately when answering from locked screen
+https://wearezeta.atlassian.net/browse/AUDIO-713 - Fix crash in ___ZN6webrtc14AudioDeviceIOS16InitPlayOrRecordEv_block_invoke_2, line 1548
+https://wearezeta.atlassian.net/browse/AUDIO-712 - Fix crash in AVAudioSessionPropertyListener(void*, unsigned int, unsigned int, void const*)
+https://wearezeta.atlassian.net/browse/AUDIO-708 - segfault on hangup
+https://wearezeta.atlassian.net/browse/AUDIO-706 - [Android] Call crashes after hang up
+https://wearezeta.atlassian.net/browse/AUDIO-701 - [Android] Call does not connect with Custom build in prod
+https://wearezeta.atlassian.net/browse/AUDIO-659 - [Android] [Random] Samsung Galaxy Tab 4 - Call does not get connected
+https://wearezeta.atlassian.net/browse/AUDIO-705 - Fix crash in AVAudioSessionPropertyListener(void*, unsigned long, unsigned long, void const*)
+https://wearezeta.atlassian.net/browse/AUDIO-614 - No audio when one device crashed before group call established
+https://wearezeta.atlassian.net/browse/AUDIO-702 - segfault when calling a user with 2 ios devices (Herr Soren)
+https://wearezeta.atlassian.net/browse/AUDIO-496 - High latency in call setup requests
+https://wearezeta.atlassian.net/browse/AUDIO-700 - unstable zalbot
+https://wearezeta.atlassian.net/browse/AUDIO-688 - SDP is both OFFER and ANSWER
+https://wearezeta.atlassian.net/browse/AUDIO-685 - userflow: update: 0x1013027f8 wrong signal state: 0(Stable)
+https://wearezeta.atlassian.net/browse/AUDIO-681 - mediaflow: could not parse SDP answer
+https://wearezeta.atlassian.net/browse/AUDIO-678 - Add support for SDP in POST for flows
+https://wearezeta.atlassian.net/browse/AUDIO-590 - Dont use deprecated function audioManager.isWiredHeadsetOn()
+https://wearezeta.atlassian.net/browse/AUDIO-592 - flowmgr: process_event: cannot find flow with zcall
+https://wearezeta.atlassian.net/browse/AUDIO-576 - ICE Dualstack
+https://wearezeta.atlassian.net/browse/AUDIO-570 - ios: Race condition between AVAudioSessionInterruptionNotification and AVAudioSessionRouteChangeNotification
+https://wearezeta.atlassian.net/browse/AUDIO-694 - Fix crash in - [AVSSession playbackRoute], line 228
+https://wearezeta.atlassian.net/browse/AUDIO-675 - Fix crash in rtc::FatalMessage::~FatalMessage(), line 104
+https://wearezeta.atlassian.net/browse/AUDIO-673 - Fix crash in AVAudioSessionPropertyListener(void*, unsigned long, unsigned long, void const*)
+https://wearezeta.atlassian.net/browse/AUDIO-661 - Fix crash in - [AVSSession playbackRoute], line 220
+https://wearezeta.atlassian.net/browse/AUDIO-662 - Fix crash in - [AVSSession recordingRoute], line 303
+https://wearezeta.atlassian.net/browse/AUDIO-655 - Fix crash in - [AVAudioSessionRouteDescription inputs]
+https://wearezeta.atlassian.net/browse/AUDIO-653 - Fix crash in AVAudioSessionPropertyListener(void*, unsigned int, unsigned int, void const*)
+https://wearezeta.atlassian.net/browse/AUDIO-663 - Fix crash in - [AVSSession recordingRoute], line 299
+https://wearezeta.atlassian.net/browse/AUDIO-637 - [ECA] Lost audio and "Error establishing media on"
+https://wearezeta.atlassian.net/browse/AUDIO-630 - [1x1] Wrong call states when call connected and ended
+https://wearezeta.atlassian.net/browse/AUDIO-636 - Fix crash in - [AVSSession recordingRoute], line 307
+https://wearezeta.atlassian.net/browse/AUDIO-622 - Fix crash in AVAudioSessionPropertyListener(void*, unsigned int, unsigned int, void const*)
+https://wearezeta.atlassian.net/browse/AUDIO-635 - Fix crash in - [AVSSession playbackRoute], line 218
+https://wearezeta.atlassian.net/browse/AUDIO-606 - Bad sound quality for Berlin 4G(iOS) and Croatia 4G(Android)
+https://wearezeta.atlassian.net/browse/AUDIO-612 - [Random]Nexus 5 cannot join group call
+https://wearezeta.atlassian.net/browse/AUDIO-302 - system sound feature: decreasing volume of new_message sound over time
+https://wearezeta.atlassian.net/browse/AUDIO-620 - Cannot hear one party in group call after that party joined 437 Allocation Mismatch (no such allocation)
+https://wearezeta.atlassian.net/browse/AUDIO-608 - [Random] Call did not connect between Android and iOS public
+https://wearezeta.atlassian.net/browse/AUDIO-638 - One way audio for Android <--> Android
+https://wearezeta.atlassian.net/browse/AUDIO-640 - Call cannot be established
+https://wearezeta.atlassian.net/browse/AUDIO-643 - [Android] Call not getting connected
+https://wearezeta.atlassian.net/browse/AUDIO-658 - [Random] iOS call dropped immediately after initiate a call
+https://wearezeta.atlassian.net/browse/AUDIO-664 - [Android] Rejoining a call after > 1 min fails
+https://wearezeta.atlassian.net/browse/AUDIO-668 - [Android] Audio is on when headphones are plugged in and device is muted
+https://wearezeta.atlassian.net/browse/AUDIO-698 - [Android] Call does not connect
+https://wearezeta.atlassian.net/browse/AUDIO-609 - Call dropped (bad mobile network)
+https://wearezeta.atlassian.net/browse/AUDIO-605 - One way audio - Caller could not hear callee
+https://wearezeta.atlassian.net/browse/AUDIO-604 - Call cannot be established (Meng with Pierrine)
+https://wearezeta.atlassian.net/browse/AUDIO-598 - I see 2 different callers on 2 login devices
+https://wearezeta.atlassian.net/browse/AUDIO-683 - Seg fault in group call - 2
+https://wearezeta.atlassian.net/browse/AUDIO-680 - Seg fault in group call
+https://wearezeta.atlassian.net/browse/AUDIO-690 - zalbot: invalid sdp state 1 (mediaflow_handle_offer)
+https://wearezeta.atlassian.net/browse/AUDIO-697 - (rtp_sender.cc:441): Invalid payload_type \377
+https://wearezeta.atlassian.net/browse/AUDIO-693 - NetEQ latency changes when changing packet size
+https://wearezeta.atlassian.net/browse/AUDIO-696 - timestamp jumps back error with conferencing optimizations on mediaengine2
+https://wearezeta.atlassian.net/browse/AUDIO-689 - Call from Firefox to zcall do not connect
+https://wearezeta.atlassian.net/browse/AUDIO-499 - Add network statistics to AVS log uploading
+
+QA Review:
+
+https://wearezeta.atlassian.net/browse/AUDIO-729 - Crash following a series of group call
+https://wearezeta.atlassian.net/browse/AUDIO-707 - [Android] Call did not connect 2/3 times - with webapp logged in
+https://wearezeta.atlassian.net/browse/AUDIO-650 - Calling 2.0
+https://wearezeta.atlassian.net/browse/AUDIO-615 - SDP from native clients lacks an a=ssrc: line in offers
+https://wearezeta.atlassian.net/browse/AUDIO-611 - [AVS1.8, Random] Android could not join group call even after few trials
+https://wearezeta.atlassian.net/browse/AUDIO-591 - [Group-Call] One participant changed from 3G to 4G and causing the group call ended
+https://wearezeta.atlassian.net/browse/AUDIO-521 - [Calling] No audio with bluetooth on Motorola E
+https://wearezeta.atlassian.net/browse/AUDIO-146 - Network roaming 
+
+
+==============================================================================
+AVS Release 1.10
+
+Date:	    21 October 2015
+GIT:	    https://github.com/wearezeta/avs/tree/release-1.10
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+
+Summary:	Calling 2.0 Improvements
+		WebRTC Update
+		Improvements to bad network handling
+		Video API available
+
+android:	- added JNI wrapper for flowmgr_set_active
+		- Also load the avs library from SoundLink
+		- Ported Android ringtone changes from 1.9
+		- Add new API for Android
+
+build:		- Set NDEBUG for ios and android when building on release branch
+
+iosx:		- Add iosx wrapper methods
+
+media-manager:	- Removed calls to deprecated function isWiredHeadsetOn()
+
+contrib:	- trice: also allow PRFLX candidates to have its own UDP-socket
+		- trice: add interface-name
+
+engine:		- fix for empty JSON body in HTTP requests (rejected by EDGE-backend)
+		- use dedicated HTTP client for Websocket
+		- handle 404 response to /notifications/last gracefully
+
+flowmgr:	- marshaling and API's added
+		- added guardtimer of 5000ms
+		- add timing info to RR
+		- add option to bind to a specific network interface
+		- add trace-module and flowmgr event queue
+		- Add avs_start and flowmgr_start to start config on all available flow managers after successful login
+		- fetch iceservers from call_config
+		- check if we have iceservers before reading from JSON message
+		- added flowmgr_users_count()
+		- Fix end-point for SDP-less POST for flows used for first joiner of group calls
+
+mediaengine:	- Updated Webrtc. Now uses webrtc as a submodule for easier updating
+		- Changed Rate Control. Use 24 kbps at 40 ms packets in case of high packet loss or RTT
+		- Enabled DTX. Improves performance for very low bandwidth connections
+		- Initialize Opus to expect 10% packet loss
+		- Improved NetEQ signal concealment to generate fewer glitches
+		- Improved NetEQ delay adjustments in case of changing packet size 
+		- Use Opus pitch lag value in NetEQ
+		- Call statistics - added RTCP jitter value. Added standard deviation
+		- Added RTCP jitter value to statistics
+		- added standard deviation to call statistics
+
+mediaflow:	- allow DTLS traffic without ICE-layer (fixes AUDIO-625)
+		- add missing UDP-socket for PRFLX candidates (AUDIO-646)
+		- populate SDP with SRFLX/RELAY candidates and generate async SDP offer
+		- handle async SDP answer too
+		- also add permissions to ICE-cands in SDP
+		- Enable dualstack so gathering can work
+		- Enable dualstack as candidate gathering before local SDP is supported only under dualstack
+		- WIP add SDP to POST for flows
+		- add Websock ping/pong timing, also add to Zalbot
+		- Add states to userflow so we know if we should POST or send local_sdp
+		- Assign mediaflow to userflow, and pass userflow to interface_handler
+		- Use sdp.sdp as raw buffer
+		- Add ANSWER state
+		- Set flow on userflow, when a flow is added
+		- Generate offers only on flows we create
+		- Check for presence of SDP not flow
+		- only created permission if TURN allocation was ok (fixes AUDIO-679)
+		- Lazy SDP
+		- added mediaflow_handle_offer()
+		- added post_sdp_decode()
+		- move video-check to post_sdp_decode()
+		- Rename STABLE to IDLE userflow state
+		- added mediaflow_sdp_is_complete()
+		- generate an offer only if we have created the flow
+		- flow deletion code relies on the call being present
+		- added mediaflow_sdpstate_reset()
+
+
+nevent:
+
+vidcodec:	- Update libvpx to that used in chromium 46.0.2482.2, same as webrtc
+
+voe:
+
+vie:		
+
+video:		- add handlers to create/remove preview & view for android
+		- add static flow manager to iOS wrapper
+		- add libyuv under mediaengine2
+		- enable/disable video sending during call
+		- add setVideoSendActive & cleanup
+
+ztest:		- added flowmgr-test for multiple devices
+
+zcall:		- add support for starting/stopping video to zcall
+
+zalbot:		- support for IC dualstack added
+		- added measurement of A-B delay
+
+malbot:		- add -b option to bind to interface
+		- enable ICE dualstack, add trace
+
+
+Closed Jira tickets:
+
+https://wearezeta.atlassian.net/browse/AUDIO-684 - Fix crash in - [AVSSession recordingRoute], line 311
+https://wearezeta.atlassian.net/browse/AUDIO-682 - C2 uuid == C3 uuid in a call that dropped without user interaction
+https://wearezeta.atlassian.net/browse/AUDIO-677 - Fix crash in - [AVAudioSessionRouteDescription inputs]
+https://wearezeta.atlassian.net/browse/AUDIO-672 - Fix crash in - [AVSSession recordingRoute], line 303
+https://wearezeta.atlassian.net/browse/AUDIO-670 - Fix crash in - [AVSSession playbackRoute], line 220
+https://wearezeta.atlassian.net/browse/AUDIO-666 - Fix crash in - [AVSSession playbackRoute], line 226
+https://wearezeta.atlassian.net/browse/AUDIO-665 - Fix crash in - [AVSSession playbackRoute], line 218
+https://wearezeta.atlassian.net/browse/AUDIO-649 - Fix crash in rtc::FatalMessage::~FatalMessage(), line 104
+https://wearezeta.atlassian.net/browse/AUDIO-632 - Fix crash in rtc::FatalMessage::~FatalMessage(), line 104
+https://wearezeta.atlassian.net/browse/AUDIO-629 - Fix unknown crash
+https://wearezeta.atlassian.net/browse/AUDIO-625 - mediaflow: helper: cannot send 859 bytes to 192.168.0.24:56182, ICE not ready! (packet=DTLS)
+https://wearezeta.atlassian.net/browse/AUDIO-597 - Call cannot be connected if I end current GSM call and switch to Wire call
+https://wearezeta.atlassian.net/browse/AUDIO-580 - Crashes while accessing AVAudioSession properties
+https://wearezeta.atlassian.net/browse/AUDIO-679 - TURN client error on method 'CreatePermission' (437 Allocation Mismatch (no such allocation))
+https://wearezeta.atlassian.net/browse/AUDIO-654 - Sending requests while there's no websocket
+https://wearezeta.atlassian.net/browse/AUDIO-648 - [Android] [1.9] [Deadlock?] Call did not connect - no call notification
+https://wearezeta.atlassian.net/browse/AUDIO-647 - [iOS] Call dropped after picking it up
+https://wearezeta.atlassian.net/browse/AUDIO-646 - [iOS] Call does not connect
+https://wearezeta.atlassian.net/browse/AUDIO-631 - Call did not connect from iPhone to iPad (AVS 1.9)
+https://wearezeta.atlassian.net/browse/AUDIO-627 - malbot errors in QA
+https://wearezeta.atlassian.net/browse/AUDIO-626 - I can use headset to handle Wire call
+https://wearezeta.atlassian.net/browse/AUDIO-623 - Group call drops when one participant switches to GSM call
+https://wearezeta.atlassian.net/browse/AUDIO-619 - Fix crash in OpenSSLDie, line 986
+https://wearezeta.atlassian.net/browse/AUDIO-617 - Fix crash in __pthread_kill
+https://wearezeta.atlassian.net/browse/AUDIO-616 - [Android] Ringtone is active when phone is on silent
+https://wearezeta.atlassian.net/browse/AUDIO-584 - Wire ringtone rings loudly from a locked device even when sounds are turned off
+https://wearezeta.atlassian.net/browse/AUDIO-577 - Fix crash in webrtc::VoEAudioProcessingImpl::VoEAudioProcessingImpl(webrtc::voe::SharedData*), line 0
+https://wearezeta.atlassian.net/browse/AUDIO-575 - Error messages in zcall
+https://wearezeta.atlassian.net/browse/AUDIO-574 - Android: No volume control on Nexus 7 on headset
+https://wearezeta.atlassian.net/browse/AUDIO-565 - Unable to resume soundcloud playback if it's interrupted while in the background
+https://wearezeta.atlassian.net/browse/AUDIO-563 - Call drops immediately on caller side
+https://wearezeta.atlassian.net/browse/AUDIO-560 - [investigation] unsuccessful rejoin for iOS
+https://wearezeta.atlassian.net/browse/AUDIO-552 - Stopping and starting youtube playback turns off the sound
+https://wearezeta.atlassian.net/browse/AUDIO-547 - Android ringing is playing in EarPiece not in the Speaker
+https://wearezeta.atlassian.net/browse/AUDIO-544 - Fix unknown crash (Limit 150/sec) Observed 170/sec over 300 secs
+https://wearezeta.atlassian.net/browse/AUDIO-535 - One way audio (sending only, not receiving) on iOS
+https://wearezeta.atlassian.net/browse/AUDIO-527 - TURN binding times out
+https://wearezeta.atlassian.net/browse/AUDIO-526 - Add Voice Messaging Functionality
+https://wearezeta.atlassian.net/browse/AUDIO-520 - [GROUP-CALLING] missing ACTIVE event from Belfry
+https://wearezeta.atlassian.net/browse/AUDIO-517 - Android release on S3 has incorrect version.buildinfo format
+https://wearezeta.atlassian.net/browse/AUDIO-513 - Calling immediately after ending call causes ringing without banner on IOS side
+https://wearezeta.atlassian.net/browse/AUDIO-511 - Fix crash in call_multiparty_check, line 272
+https://wearezeta.atlassian.net/browse/AUDIO-505 - SDP answer from avs 1.7 contains contradictory mid/BUNDLE
+https://wearezeta.atlassian.net/browse/AUDIO-503 - Upgrade WebRTC code base (for audio)
+https://wearezeta.atlassian.net/browse/AUDIO-501 - Android application starts call in speaker mode
+https://wearezeta.atlassian.net/browse/AUDIO-500 - No sound when use 3G to call webapp on Chrome
+https://wearezeta.atlassian.net/browse/AUDIO-499 - Add network statistics to AVS log uploading
+https://wearezeta.atlassian.net/browse/AUDIO-477 - Impossible to turn off the sound completely
+https://wearezeta.atlassian.net/browse/AUDIO-433 - Currently playing media item should not be paused if an ongoing call is terminated
+https://wearezeta.atlassian.net/browse/AUDIO-430 - [Android] No sound for incoming and outgoing calls
+https://wearezeta.atlassian.net/browse/AUDIO-368 - [iOS] Playing Soundcloud track is unexpectedly paused after incoming/outgoing call is finished
+https://wearezeta.atlassian.net/browse/AUDIO-187 - Android: When listening to external music, answering zeta call does not put the music on hold 
+
+In QA Review:
+
+https://wearezeta.atlassian.net/browse/AUDIO-690 - zalbot: invalid sdp state 1 (mediaflow_handle_offer)
+https://wearezeta.atlassian.net/browse/AUDIO-689 - Call from Firefox to zcall do not connect
+https://wearezeta.atlassian.net/browse/AUDIO-688 - SDP is both OFFER and ANSWER
+https://wearezeta.atlassian.net/browse/AUDIO-685 - userflow: update: 0x1013027f8 wrong signal state: 0(Stable)
+https://wearezeta.atlassian.net/browse/AUDIO-683 - Seg fault in group call - 2
+https://wearezeta.atlassian.net/browse/AUDIO-681 - mediaflow: could not parse SDP answer
+https://wearezeta.atlassian.net/browse/AUDIO-680 - Seg fault in group call
+https://wearezeta.atlassian.net/browse/AUDIO-678 - Add support for SDP in POST for flows
+https://wearezeta.atlassian.net/browse/AUDIO-611 - [AVS1.8, Random] Android could not join group call even after few trials
+https://wearezeta.atlassian.net/browse/AUDIO-592 - flowmgr: process_event: cannot find flow with zcall
+https://wearezeta.atlassian.net/browse/AUDIO-591 - [Group-Call] One participant changed from 3G to 4G and causing the group call ended
+https://wearezeta.atlassian.net/browse/AUDIO-590 - Dont use deprecated function audioManager.isWiredHeadsetOn()
+https://wearezeta.atlassian.net/browse/AUDIO-576 - ICE Dualstack
+https://wearezeta.atlassian.net/browse/AUDIO-570 - ios: Race condition between AVAudioSessionInterruptionNotification and AVAudioSessionRouteChangeNotification
+https://wearezeta.atlassian.net/browse/AUDIO-523 - Ready to Talk notification improvement
+https://wearezeta.atlassian.net/browse/AUDIO-521 - [Calling] No audio with bluetooth on Motorola E
+https://wearezeta.atlassian.net/browse/AUDIO-506 - flow manager takes down the whole call if 1 flow fails
+https://wearezeta.atlassian.net/browse/AUDIO-146 - Network roaming 
+
+
+==============================================================================
+AVS Release 1.9
+
+Date:	    2 September 2015
+GIT:	    https://github.com/wearezeta/avs/tree/release-1.9
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+
+Summary:	Add support for network roaming while in a call
+		Add support for IPv6 Dualstack
+		Fixed some crashes
+
+
+android:	video api updated
+
+build:		speed up build process
+
+iosx:		added AVSVideoCaptureDevice interface
+		enable ICE Dualstack by default
+
+media-manager:  no changes
+
+contrib:	opus: upgrade to version 1.1.x-git
+		re: dns and http dualstack
+
+engine:		added restart
+		added a sync-done handler
+		fix sync for re-entrant engines
+
+flowmgr:	added video handlers
+		added network changed
+		fix rtp handling for group-calls
+
+mediaengine:	disabled some unused audio codecs
+
+mediaflow:	add gather TURN-TCP
+		added TURNPING with 15 seconds interval
+		only add TURN permissions to public IPv4 addresses
+		improvements for IPv6 dualstack
+		translate IPv4-TURN server address to NAT64-mapped IPv6
+
+nevent:		added restart
+
+vidcodec:	added preview/view/capture handlers
+
+voe:		minor changes
+
+vie:		added device.cpp
+		added create/release preview handlers
+
+ztest:		added testcases for TURN over TCP (client and server)
+		added a fake X.509 certificate
+
+
+Closed Jira tickets:
+
+TODO
+
+
+
+
+==============================================================================
+AVS Release 1.8
+
+Date:	    12 August 2015
+GIT:	    https://github.com/wearezeta/avs/tree/release-1.8
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+Summary:	Voice Messaging feature added. Records/plays to/from Opus/ogg format.
+		Group calling battery optimization.
+		Avoid unnecessary wakeup for iOS to avoid EXC_RECOURCE crash.
+		Upload network statistics after a call.
+		iOS API Change: Ready to talk sound is now played by FlowManager on iOS/OSX and should not be played by UI
+
+android:	Voice Messaging added to flow manager API
+
+media-manager:  Improved threading/queue management on iOS/OSX.
+                Exposed additional APIs and notifications to be used by the UI.
+                Ready to talk sound is now played by FlowManager on iOS/OSX.
+                Android client should now stop external audio during wire calls.
+                Multiple bug fixes and improvements for ios, osx, and android.
+
+contrib:	Ogg 1.3.2 added
+		opus: added opus_decoder_info()
+		re: upgrade to libre 0.4.13 (enable kqueue by default)
+		rew: added experimental trice (Trickle ICE v4/v6 library)
+
+aucodec:	added audec_stats handler
+
+engine:		added voice_message api
+		added API for upload/fetch asset
+		added Websock Established handler
+		acquire flows after set joined state response
+		added asset listener
+		added vm.c for Voice-Messaging
+
+flowmgr:	Voice Messaging feature added
+		add flowmgr_enable_dualstack()
+		add detection of duplicated active flows with same remoteid
+
+mediaflow:	added MEDIAFLOW_TRICKLEICE_DUALSTACK (a third mode)
+		added TURNPING with 15 seconds interval
+		only add TURN permissions to public IPv4 addresses
+
+audummy:	added sending of dummy RTP packets
+
+voe:		Voice Messaging feature added. Records/plays to/from Opus/ogg format
+		Network statistics added RTT, pckt loss etc
+
+iosx:		Voice Messaging added to flow manager API
+
+wrapper-iosx:
+
+mediaengine:	Group calling battery optimization. Reuse encoding output for channels with the same settings. Meaning only 1 encoder is used most of the time.
+		Avoid unnecessary wakeup for iOS by syncronizing worker thread with capture callbacks - avoiding EXC_RECOURCE. Copied from OS X.
+		Make sure processThread waits for at least 8 ms to make sure we limit the number of wakeups to 125/sec
+
+
+
+
+Closed Jira tickets:
+
+https://wearezeta.atlassian.net/browse/AUDIO-268 Media Manager should properly handle the case when media is registered twice or being overriden with another media
+https://wearezeta.atlassian.net/browse/AUDIO-334 iOS UI is frozen in case of resuming playback from conversation list
+https://wearezeta.atlassian.net/browse/AUDIO-431 Sound alerts doesn't play if I pause the soundcloud track
+https://wearezeta.atlassian.net/browse/AUDIO-516 Music playing in another app is not paused when a call is received in Wire
+https://wearezeta.atlassian.net/browse/AUDIO-548 AVSMediaManagerClientChangeNotification arrives to UI on a background thread
+https://wearezeta.atlassian.net/browse/AUDIO-549 There is no notification when the speaker is enabled/disabled
+https://wearezeta.atlassian.net/browse/AUDIO-557 AVSMediaManager tries to pause a AVSMedia item if it signals that it's paused
+https://wearezeta.atlassian.net/browse/AUDIO-558 Fix crash in - [AVSMediaManager registerMedia:withConfiguration:]
+https://wearezeta.atlassian.net/browse/AUDIO-580 Crashes while accessing AVAudioSession properties
+https://wearezeta.atlassian.net/browse/AUDIO-554 Fix crash in - [AVSSession playbackRoute]
+https://wearezeta.atlassian.net/browse/AUDIO-571 Fix crash in - [AVSSession recordingRoute]
+https://wearezeta.atlassian.net/browse/AUDIO-572 Fix crash in - [AVSSession playbackRoute]
+https://wearezeta.atlassian.net/browse/AUDIO-578 Fix crash in - [AVSSession recordingRoute]
+https://wearezeta.atlassian.net/browse/AUDIO-579 Fix crash in - [AVSSession playbackRoute]
+
+https://wearezeta.atlassian.net/browse/AUDIO-561 - Crash after rejoin group call
+https://wearezeta.atlassian.net/browse/AUDIO-559 - iOS 4G call drop during long call
+https://wearezeta.atlassian.net/browse/AUDIO-555 - [iOS and Android] No audio when answering the call
+https://wearezeta.atlassian.net/browse/AUDIO-546 - Fix unknown crash
+https://wearezeta.atlassian.net/browse/AUDIO-543 - Switch network cannot rejoin the call
+https://wearezeta.atlassian.net/browse/AUDIO-542 - Call without sound
+https://wearezeta.atlassian.net/browse/AUDIO-541 - Stuck on connecting to a group call, eventually timing out
+https://wearezeta.atlassian.net/browse/AUDIO-538 - [Random] Group call can't be established
+https://wearezeta.atlassian.net/browse/AUDIO-536 - No audio after leaving and joining a group call
+https://wearezeta.atlassian.net/browse/AUDIO-534 - Android group call still ongoing but call overlay changed to Join Call
+https://wearezeta.atlassian.net/browse/AUDIO-533 - Webapp call drops
+https://wearezeta.atlassian.net/browse/AUDIO-532 - [Scrum of scrum] iOS few attempts to join the call
+https://wearezeta.atlassian.net/browse/AUDIO-531 - [Scrum of scrum] Beepings at iOS and Android
+https://wearezeta.atlassian.net/browse/AUDIO-530 - [Scrum of scrum] iOS can't join the call, beeping sound and can't end the call
+https://wearezeta.atlassian.net/browse/AUDIO-529 - Rejoin fails on group calling
+https://wearezeta.atlassian.net/browse/AUDIO-512 - Very fast answering call on home screen by tapping notification results with call without sound
+https://wearezeta.atlassian.net/browse/AUDIO-508 - Muted participants should return voice gain 0.
+https://wearezeta.atlassian.net/browse/AUDIO-497 - OpenSSL version 1.0.2c released
+https://wearezeta.atlassian.net/browse/AUDIO-494 - In multiparty calls, SDP Offers expire before late joiners from webapp can answer.
+https://wearezeta.atlassian.net/browse/AUDIO-402 - Impossible to establish call after transferring from iPad
+https://wearezeta.atlassian.net/browse/AUDIO-369 - Android Sound Link interfers with calling
+https://wearezeta.atlassian.net/browse/AUDIO-332 - Muted state is saved on the device for the next calls
+https://wearezeta.atlassian.net/browse/AUDIO-312 - Implement method to collect data from satellite zalbot nodes
+https://wearezeta.atlassian.net/browse/AUDIO-55 - Test iOS connector for sound
+
+
+In QA Review:
+
+https://wearezeta.atlassian.net/browse/AUDIO-382 - No way audio
+https://wearezeta.atlassian.net/browse/AUDIO-397 - [Blocked by AN-1896]Android: Call transfer not connecting\
+https://wearezeta.atlassian.net/browse/AUDIO-435 - [for David] UI should show "Connecting" when the call is not connected
+https://wearezeta.atlassian.net/browse/AUDIO-465 - [iOS] Opening youtube video during call drops the call
+https://wearezeta.atlassian.net/browse/AUDIO-471 - [for David] Webapp: 2 people calling at the same time - User B stays in calling state
+https://wearezeta.atlassian.net/browse/AUDIO-481 - People who are no longer members of a conversation get included in group calls
+https://wearezeta.atlassian.net/browse/AUDIO-488 - DTLS cipher suites
+https://wearezeta.atlassian.net/browse/AUDIO-497 - OpenSSL version 1.0.2c released
+https://wearezeta.atlassian.net/browse/AUDIO-498 - Gain variations for microphone signal are too large in group calls
+https://wearezeta.atlassian.net/browse/AUDIO-502 - No Stereo for Samsung Galixy S5
+https://wearezeta.atlassian.net/browse/AUDIO-505 - SDP answer from avs 1.7 contains contradictory mid/BUNDLE
+https://wearezeta.atlassian.net/browse/AUDIO-506 - flow manager takes down the whole call if 1 flow fails
+https://wearezeta.atlassian.net/browse/AUDIO-507 - [VIDEO] Add statistics about RTCP-packets (FIR,PLI, ...)
+https://wearezeta.atlassian.net/browse/AUDIO-508 - Muted participants should return voice gain 0.
+https://wearezeta.atlassian.net/browse/AUDIO-509 - Whitelisting and test of ciphers in DTLS hello
+https://wearezeta.atlassian.net/browse/AUDIO-511 - Fix crash in call_multiparty_check, line 272
+https://wearezeta.atlassian.net/browse/AUDIO-514 - Group Calling: Order of avatars is reversed to stereo audio image
+https://wearezeta.atlassian.net/browse/AUDIO-515 - Impossible to connect after dropping the call
+https://wearezeta.atlassian.net/browse/AUDIO-519 - Rejoining group call has no sound anymore
+https://wearezeta.atlassian.net/browse/AUDIO-520 - [GROUP-CALLING] missing ACTIVE event from Belfry
+
+https://wearezeta.atlassian.net/browse/AUDIO-187 Android: When listening to external music, answering zeta call does not put the music on hold
+https://wearezeta.atlassian.net/browse/AUDIO-368 [iOS] Playing Soundcloud track is unexpectedly paused after incoming/outgoing call is finished
+https://wearezeta.atlassian.net/browse/AUDIO-372 Notification alert settings should never turn off ringing
+https://wearezeta.atlassian.net/browse/AUDIO-422 No ringtone / no sound on incoming call on last 2 public Android builds
+https://wearezeta.atlassian.net/browse/AUDIO-430 [Android] No sound for incoming and outgoing calls
+https://wearezeta.atlassian.net/browse/AUDIO-501 Android application starts call in speaker mode
+https://wearezeta.atlassian.net/browse/AUDIO-517 Android release on S3 has incorrect version.buildinfo format
+https://wearezeta.atlassian.net/browse/AUDIO-523 Ready to Talk notification improvement
+https://wearezeta.atlassian.net/browse/AUDIO-552 Stopping and starting youtube playback turns off the sound
+https://wearezeta.atlassian.net/browse/AUDIO-570 ios: Race condition between AVAudioSessionInterruptionNotification and AVAudioSessionRouteChangeNotification
+
+Not been confirmed yet:
+
+https://wearezeta.atlassian.net/browse/AUDIO-477 Impossible to turn off the sound completely
+https://wearezeta.atlassian.net/browse/AUDIO-584 Wire ringtone rings loudly from a locked device even when sounds are turned off
+
+==============================================================================
+AVS Hotfixes 1.7
+
+- Restored consent checks to make chrome happy (WEBAPP-1391) with initial check almost immediately. 
+- Android: Dont assert if another app is using the microphone. Generate an error to SE instaed
+- Perform multiparty check when a flow is de-activated to make sure unsilencing even when a part leaves group call fixes AUDIO-535
+- should help with getting the correct route
+- conference limiter enabled for 48 kHz also
+- Bug Fix: When resetting audio device only restart recording and playout if they were active before the reset 
+
+AVS Release 1.7
+
+Date:	    02. July 2015
+GIT:	    https://github.com/wearezeta/avs/tree/release-1.7
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+Summary:	Using adaptive digital mic gain control in conferences
+		Bug fixes for Android Stereo ( Samsung etc )	
+		Crypto magic
+
+android:	Informing voice engine about route changes HS, EarPiece, BT etc	
+		To get stereo for Samsung (Galaxy S5) we set the mode to NORMAL and recording mode to DEFAULT when a HS is plugged in
+
+media-manager:
+
+contrib:	upgrade to OpenSSL 1.0.2c
+		dtls: reduced number of offered Ciphers
+		dtls: disable SSLv2 and SSLv3
+		openssl: build with stripped-down options
+
+flowmgr:	many fine changes by Herr Dule :)
+
+mediaflow:	added check for audio/video payload types
+
+vie:		refactoring
+
+voe:		Use adaptive digital microphone gain control when in a
+		conference in order to normalize the audio level between
+		the participants 	
+
+iosx:
+
+wrapper-iosx:
+
+mediaengine:
+
+conf_pos:
+
+test:		ported ztest to Android
+
+tools:
+
+Closed Jira tickets:
+
+https://wearezeta.atlassian.net/browse/AUDIO-286 - sound: ready_to_talk shall play only when media is flowing A<>B parties 
+https://wearezeta.atlassian.net/browse/AUDIO-337 - Integrate Audio Link with Media Manager
+https://wearezeta.atlassian.net/browse/AUDIO-407 - Fix crash in - [AVSSession syncMediaStateInMediaList:], line 520
+https://wearezeta.atlassian.net/browse/AUDIO-439 - Fix crash in CFRelease
+https://wearezeta.atlassian.net/browse/AUDIO-454 - Fix crash in - [AVSSession recordingRoute], line 192
+https://wearezeta.atlassian.net/browse/AUDIO-485 - Multi Party calling gets the number of participants wrong
+https://wearezeta.atlassian.net/browse/AUDIO-490 - Android video capture
+https://wearezeta.atlassian.net/browse/AUDIO-510 - Memory corruption
+https://wearezeta.atlassian.net/browse/AUDIO-504 - (AVS BLOCKED) Voice gain is indicated for the wrong participant
+
+
+==============================================================================
+AVS Release 1.6
+
+Date:	    10. June 2015
+GIT:	   
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+
+Summary:	GSM interruption handling.
+		DTLS improvements.
+		Stereo support for Android and iOS with a wired HS.
+		Conferencing improvements leaving/joining indication.
+
+
+android:	Added Stereo playout.
+		Fix crash for devices with no BT support.
+		Added callback for conference participant changes.
+		
+media-manager:	
+
+contrib:	upgrade to OpenSSL 1.0.2a
+		hot patch for DTLS re-transmits
+
+engine:		
+
+flowmgr:	Silencing during call setup added for multi party calls.
+		Using "creator" attributute to determine who should send the SDP offer.
+		
+mediaflow:	disable consent-timer
+		add RTP timeout (20 seconds)
+		more robust DTLS setup, try 3 times on failures
+		fix memleak/crash if receiving 2 or more SDPs
+		ICE keepalives with STUN Binding Indication (15 seconds)
+		fix setup:actpass for video line
+
+vidcodec:	
+
+vie:		
+
+voe:		Use mediaflow for channel to participant mapping for conf_pos.
+		refactoring of VOE module
+		
+iosx:		
+
+wrapper-iosx:	Added callback for conference participant changes.
+
+mediaengine:	Added stereo playout for iOS and Android.
+		Integrated conf_pos into conferencing stereo panning.
+		Added leaving and joining notification to conference mixer.
+		Removed calls to update record and playout delays for iOS as it causes
+		deadlock when app is interrupted.
+		
+conf_pos:	Added mediaflow, so we can associate channel to participant.
+
+audummy:	
+
+test:		Added acm_conf_test_dec for stereo playout testing
+
+tools:		
+
+Closed Jira tickets:
+
+https://wearezeta.atlassian.net/browse/AUDIO-495 - Wire steal audio focus
+https://wearezeta.atlassian.net/browse/AUDIO-468 - Android: Loudspeaker turns off when call gets connected
+https://wearezeta.atlassian.net/browse/AUDIO-292 - Switching apps stops Soundcloud audio
+https://wearezeta.atlassian.net/browse/AUDIO-406 - Line is busy on second transfer
+https://wearezeta.atlassian.net/browse/AUDIO-195 - [Q for Julian] Notify farend side about call interruption due to GSM calling
+https://wearezeta.atlassian.net/browse/AUDIO-448 - [Not for QA] FF38 rejects SDP from AVS
+https://wearezeta.atlassian.net/browse/AUDIO-479 - [Not for QA] DTLS should handle packet-loss
+https://wearezeta.atlassian.net/browse/AUDIO-451 - [Not for QA] DTLS leaks on some networks
+https://wearezeta.atlassian.net/browse/AUDIO-475 - [for SE/UI] iOS MM: Expose API that signals "interrupted" audio session
+https://wearezeta.atlassian.net/browse/AUDIO-483 - [for SE/UI] Media manager does not always issue a route change notification on iOS
+https://wearezeta.atlassian.net/browse/AUDIO-424 - [Not for QA] Mediamanager changes the catagory twice when joining a call
+https://wearezeta.atlassian.net/browse/AUDIO-486 - update staging URL
+https://wearezeta.atlassian.net/browse/AUDIO-462 - Mute group call until all flows are active
+https://wearezeta.atlassian.net/browse/AUDIO-460 - [for SE/UI] iOS Media manager detects an incoming GSM call while on a Wire call
+https://wearezeta.atlassian.net/browse/AUDIO-352 - [SE to check] Flow Manager: Add interface for SE to inform about suspend, resume, hangup, and reason for action
+https://wearezeta.atlassian.net/browse/AUDIO-322 - [Not for QA] Internal: Stereo playout for iOS
+https://wearezeta.atlassian.net/browse/AUDIO-277 - Call sound in iOS client does not exist anymore after switch back from incoming GSM call
+https://wearezeta.atlassian.net/browse/AUDIO-385 - [Android, for Marc] App crash due to NPE after call established
+https://wearezeta.atlassian.net/browse/AUDIO-396 - OSX to Webapp: Audio got interrupted but call bar was still up on OSX
+https://wearezeta.atlassian.net/browse/AUDIO-484 - Stream goes silent in the middle of a conference call
+https://wearezeta.atlassian.net/browse/AUDIO-457 - iOS: Alarm makes call drop
+https://wearezeta.atlassian.net/browse/AUDIO-313 - [iOS] SoundCloud pauses when device falls asleep
+https://wearezeta.atlassian.net/browse/AUDIO-329 - Audio played in earpiece if speakerphone button hit before call connects
+https://wearezeta.atlassian.net/browse/AUDIO-446 - Call didn't connect
+https://wearezeta.atlassian.net/browse/AUDIO-445 - Dropped call
+https://wearezeta.atlassian.net/browse/AUDIO-452 - [Android] No sound on caller and callee side
+https://wearezeta.atlassian.net/browse/AUDIO-437 - [Random] Call didn't pass to iOS (and OS X) from Android
+https://wearezeta.atlassian.net/browse/AUDIO-370 - Silence hardware button should not affect call sound
+https://wearezeta.atlassian.net/browse/AUDIO-387 - Few seconds delay from connecting to ready to talk
+https://wearezeta.atlassian.net/browse/AUDIO-365 - MediaManager: Pause triggers the play state immediately
+https://wearezeta.atlassian.net/browse/AUDIO-455 - Only 1 ringback
+https://wearezeta.atlassian.net/browse/AUDIO-463 - Map user ID's to stereo location
+https://wearezeta.atlassian.net/browse/AUDIO-301 - proximity sensing for ringback and other earpiece specific sounds
+https://wearezeta.atlassian.net/browse/AUDIO-23 - iOS: Investigate feasibility of running 32kHz
+https://wearezeta.atlassian.net/browse/AUDIO-428 - Integrate logfile server upload service from SE
+https://wearezeta.atlassian.net/browse/AUDIO-482 - Add suspend and resume API's to AVS flow manager
+https://wearezeta.atlassian.net/browse/AUDIO-377 - Client crash on launch
+https://wearezeta.atlassian.net/browse/AUDIO-456 - Audio cut off some after a minute or so of a call.
+https://wearezeta.atlassian.net/browse/AUDIO-410 - Crash during video call
+https://wearezeta.atlassian.net/browse/AUDIO-401 - Unmute then call drops
+https://wearezeta.atlassian.net/browse/AUDIO-413 - [iOS] Delay in connecting to ready to talk
+https://wearezeta.atlassian.net/browse/AUDIO-395 - Connecting then call drops itself - Android, Android (59e299bc-9b45-4331-99f6-1f434db813e0)
+https://wearezeta.atlassian.net/browse/AUDIO-381 - One way audio for iOS/OSX
+https://wearezeta.atlassian.net/browse/AUDIO-473 - iOS: calls is interrupted with excellent internet connection - public builds
+https://wearezeta.atlassian.net/browse/AUDIO-474 - Fix crash in rtp_sock, line 466
+https://wearezeta.atlassian.net/browse/AUDIO-459 - Core dump in zcall.
+https://wearezeta.atlassian.net/browse/AUDIO-79 - Build media manager for webapp
+https://wearezeta.atlassian.net/browse/AUDIO-458 - Call didn't connect
+https://wearezeta.atlassian.net/browse/AUDIO-323 - Internal: Stereo playout for Android
+https://wearezeta.atlassian.net/browse/AUDIO-404 - iOS no sound after call transfer (session ID: c0c85bc8-a69e-4205-8d36-a3339809ff15)
+https://wearezeta.atlassian.net/browse/AUDIO-432 - TimeUntilNextProcess returned an invalid value -252707
+https://wearezeta.atlassian.net/browse/AUDIO-375 - Jenkins jobs are taking too long 
+
+
+==============================================================================
+AVS Release 1.5
+
+Date:	    11. May 2015
+GIT:	    aa268646c5d5af04b92f2fb569f2d354fc807af4
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+
+Summary:	Performance optimizations (i.e. speed up of call setup times)
+		Improvements to NW interruption indicator
+		Improvements to packet switching in terms of audio performance
+		Improved robustness and fixes
+		Conferencing improvements
+
+
+android:	expose function to set log-level
+		add media_established handler to android wrapper
+
+media-manager:	android ringing_from_them now using STREAM_VOICE_CALL
+
+contrib:	opus:	fix some warnings
+		re:	add function to set DTLS headroom
+			additional debug where TLS fails
+
+engine:		remove experimental flag
+		added option to clear cookies
+
+flowmgr:	added handlers for log append and upload
+		added handler for media established
+		added logic for RTP started and silencing
+		added reason in DELETE request
+
+mediaflow:	added handler for RTP stream started
+		added ICE triggered checks
+		ice: send packets via local relay, if selected
+		added support for video media and bundle
+		consent: up to 3 retries if network failure
+		start dtls_listen in alloc, speed up DTLS-nego
+		use mid-value from incoming offer (ref. FF38 interop)
+
+vidcodec:	new module for video-codec api
+
+vie:		new module for Video-Engine usage
+
+voe:		added voe_start/stop_silencing()
+		added VOE_MQ_RTP_START event
+		fix memory leak in transport object
+
+iosx:		added a Video-Converter
+
+wrapper-iosx:	properly clean up if flowmgr_init fails
+
+mediaengine:	added class VoEConfControl
+
+conf_pos:	new module for conference positioning
+
+audummy:	remove G.711 codecs
+
+test:		added acm_conf_test
+		added test-cases for DTLS
+
+tools:		zcall: added video-view for OSX
+
+toys:		new project with video upload/playback
+
+
+
+
+Closed Jira tickets:
+
+https://wearezeta.atlassian.net/browse/AUDIO-213 - Reliable detection of calling issue
+https://wearezeta.atlassian.net/browse/AUDIO-215 - Provide reliable and fast detection of an interrupted call
+https://wearezeta.atlassian.net/browse/AUDIO-281 - Notify UI that there has been a state change so sound: call_drop can be played
+https://wearezeta.atlassian.net/browse/AUDIO-306 - Update WebRTC mediaengine code
+https://wearezeta.atlassian.net/browse/AUDIO-310 - Deploy Zalbot in AWS and other locations
+https://wearezeta.atlassian.net/browse/AUDIO-321 - Internal: Stabilize Android Conferencing
+https://wearezeta.atlassian.net/browse/AUDIO-324 - Internal: 1st iteration of JS Flow Manager for webapp
+https://wearezeta.atlassian.net/browse/AUDIO-346 - DTLS v1.2
+https://wearezeta.atlassian.net/browse/AUDIO-351 - Flow Manager: Add interface for iOS Media Manager to suspend, resume, and hangup a call
+https://wearezeta.atlassian.net/browse/AUDIO-353 - Media Manager (iOS): Implement suspend, resume, and hangup
+https://wearezeta.atlassian.net/browse/AUDIO-361 - restund: add monitoring of reply codes
+https://wearezeta.atlassian.net/browse/AUDIO-365 - MediaManager: Pause triggers the play state immediately
+https://wearezeta.atlassian.net/browse/AUDIO-366 - Enable Call Metrics in all clients
+https://wearezeta.atlassian.net/browse/AUDIO-370 - Silence hardware button should not affect call sound
+https://wearezeta.atlassian.net/browse/AUDIO-371 - ICE: add support for a=end-of-candidate
+https://wearezeta.atlassian.net/browse/AUDIO-382 - No way audio
+https://wearezeta.atlassian.net/browse/AUDIO-396 - OSX to Webapp: Audio got interrupted but call bar was still up on OSX
+https://wearezeta.atlassian.net/browse/AUDIO-397 - [Blocked by AN-1896]Android: Call transfer not connecting
+https://wearezeta.atlassian.net/browse/AUDIO-401 - Unmute then call drops
+https://wearezeta.atlassian.net/browse/AUDIO-413 - [iOS] Delay in connecting to ready to talk
+https://wearezeta.atlassian.net/browse/AUDIO-420 - Implement forced flow deletion
+https://wearezeta.atlassian.net/browse/AUDIO-427 - (Limit 150/sec) Observed 161/sec over 300 secs
+https://wearezeta.atlassian.net/browse/AUDIO-429 - DTLS speedup
+https://wearezeta.atlassian.net/browse/AUDIO-430 - No sound for incoming and outgoing calls
+https://wearezeta.atlassian.net/browse/AUDIO-438 - AVSFlowManager::init: error initializing subsystems
+https://wearezeta.atlassian.net/browse/AUDIO-440 - marshall should not block the function call
+https://wearezeta.atlassian.net/browse/AUDIO-441 - Mute until we fire the call active callback to SE
+https://wearezeta.atlassian.net/browse/AUDIO-442 - Music in 3rd party apps interrups and resumes when the app is open or message is received. (Android)
+https://wearezeta.atlassian.net/browse/AUDIO-443 - Media player breaks with a MEDIA_ERROR (Android)
+https://wearezeta.atlassian.net/browse/AUDIO-447 - flowmgr: mediaflow start media failed (Function not implemented)
+https://wearezeta.atlassian.net/browse/AUDIO-448 - FF38 rejects SDP from AVS
+https://wearezeta.atlassian.net/browse/AUDIO-449 - iOSX: Add silencing support to media manager
+https://wearezeta.atlassian.net/browse/AUDIO-450 - Investigate flows to self
+https://wearezeta.atlassian.net/browse/AUDIO-451 - DTLS leaks on some networks
+https://wearezeta.atlassian.net/browse/AUDIO-452 - [Android] No sound on caller and callee side
+https://wearezeta.atlassian.net/browse/AUDIO-453 - metrics: measure total call setup time
+
+
+==============================================================================
+AVS Release 1.4
+
+Date:	    26. March 2015
+GIT:	    
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+Summary:	avs_init function needed to activate AVS lib
+		WebRTC update
+		Network management introduced
+		Network interrupt notification inserted
+		OSX: Playout on both speakers enabled
+		OSX: Receive side noise reduction enabled
+		Audio link tunings
+		Video added to mediaengine
+		
+mediaflow:	SDP timeout set to 60s
+		logging improved
+		fix in metrics
+		add avs-software to SDP
+		add support for a=end-of-candidate
+		Turn on metrics by default, and remove media time metric
+		refactor out the STUN Consent timer
+		move list of remote candidates into wice.c
+		use sdp_media_session_rattr()
+		move uh_ice/stun into wice.c
+		refactoring, added wice.c (Wire ICE)
+		fix crash in FLOWMGR_EVENT_FLOW_DEL
+
+media manager:	adjusted property ownership in AVSConversationMedia
+		fix for mute state being saved from previous call
+		improved logging
+		android ringtone is now using stream ring category
+		
+
+mediaengine:	Make sure the maximum playout volumen is being updated
+		Don't limit osx to super wideband
+		Codec bitrate and packet size now adjusted based on RTCP RTT and packet loss
+		video added
+
+voe:		caste LE_INIT to struct le
+		removed G.711 codecs from voe.cpp		
+
+contrib: 	re-0.4.12
+
+
+Closed Jira tickets:
+
+https://wearezeta.atlassian.net/browse/AUDIO-371 - ICE: add support for a=end-of-candidate
+https://wearezeta.atlassian.net/browse/AUDIO-367 - Increased size of AVS 1.3
+https://wearezeta.atlassian.net/browse/AUDIO-366 - Enable Call Metrics in all clients
+https://wearezeta.atlassian.net/browse/AUDIO-365 - MediaManager: Pause triggers the play state immediately
+https://wearezeta.atlassian.net/browse/AUDIO-346 - DTLS v1.2
+https://wearezeta.atlassian.net/browse/AUDIO-341 - Calling: no audio for OSX internal build 2338
+https://wearezeta.atlassian.net/browse/AUDIO-332 - Muted state is saved on the device for the next calls
+https://wearezeta.atlassian.net/browse/AUDIO-327 - Consent timeout takes a long time
+https://wearezeta.atlassian.net/browse/AUDIO-319 - memory leaks in AVS logger
+https://wearezeta.atlassian.net/browse/AUDIO-291 - Screensaver stops Soundcloud audio
+
+==============================================================================
+AVS Release 1.3
+
+Date:	    13. March 2015
+GIT:	    
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+Summary:	ICE and STUN fixes
+		Properly handle deletion of (ghost) flows
+		Improved logging
+		Updated build system
+		Group calling improvements
+		Audio link improvements
+		Bug fixes
+
+contrib: 	tls debug tuning
+		set ECDH for openssl
+
+mediaflow: 	add detection of SSRC changes
+		reduce STUN RC to 8
+		add rel_addr to SRFLX candidate
+		always update DTLS addr if addr is different 
+		more robust ICE/DTLS peer detection
+		Handle ghost flows
+		refactoring of ICE-lite code
+		Properly handle deletion of flows
+		bug fixes
+		
+sound link:	fix for sampling rates above 48kHz
+		Adding Sound Link code to Android build
+
+group calling:	Improvements for group calling (stereo positioning, stability, packet size switching)
+
+general:	Improved logging
+		Updated build system
+		DTLS v1.2
+		Bug fixes (memory leaks)
+
+Closed Jira tickets:
+
+https://wearezeta.atlassian.net/browse/AUDIO-343 - [iOS] Setting alerts to None does not have any effect
+https://wearezeta.atlassian.net/browse/AUDIO-341 - Calling: no audio for OSX internal build 2338
+https://wearezeta.atlassian.net/browse/AUDIO-339 - Fix crash in ofdm_decode
+https://wearezeta.atlassian.net/browse/AUDIO-336 - Check WebRTC on osx with sampling frequency higher than 48 kHz
+https://wearezeta.atlassian.net/browse/AUDIO-335 - Fix crash in ofdm_decode
+https://wearezeta.atlassian.net/browse/AUDIO-330 - Paused soundcloud items start playback as soon as I accept any call
+https://wearezeta.atlassian.net/browse/AUDIO-305 - Ensure Webapp compatibility
+https://wearezeta.atlassian.net/browse/AUDIO-291 - Screensaver stops Soundcloud audio
+https://wearezeta.atlassian.net/browse/AUDIO-244 - avs: add x86 support to Android build
+https://wearezeta.atlassian.net/browse/AUDIO-210 - Add protobuf to mediaengine
+https://wearezeta.atlassian.net/browse/AUDIO-98 - Add additional ABIs to Android AVS build
+https://wearezeta.atlassian.net/browse/AUDIO-16 - Blender: Integrate proper signaling 
+
+==============================================================================
+AVS Release 1.2
+
+Date:	    25. Feb 2015
+GIT:	    65c9fc10908619e43f1d7d70d5cd7d687a397580
+Android:    Android NDK r10d
+iOS:	    iOS SDK 8.0
+OSX:	    OSX SDK 10.9
+Linux:	    Ubuntu x86_64 10.04 (or later)
+
+
+contrib: moved zcontrib into avs tree
+	 upgrade to OpenSSL 1.0.2
+
+mediaengine: moved mediaengine into avs tree
+
+msystem: module was removed
+
+audummy: added dummy aucodec
+
+flowmgr: added parsing of Session-ID
+	 added support for call metrics
+	 added support for logging AVS events to S3 server
+	 refactoring of flowmgr module
+	 added support for multiparty calling
+
+engine: added audio mute
+
+mediaflow: handle changes in remote IP-address for DTLS-traffic
+	   fix interop with Firefox Webrtc (fingerprint)
+	   added statistics for SRTP 
+	   use SHA-256 fingerprint by default
+	   change experimental SDP attribute to x-OFFER x-ANSWER
+	   turn: do not create permission/channels until allocated
+	   turn: added late permissions for new remotes
+
+voe: fix crash with RTCP-handler being called after destruction
+     added support for setting bitrate
+     added support for setting packet-size
+
+zcall: added support for setting bitrate and packetsize
+       added support for audio mute
+
+soundlink:
+	android: Added SoundLink java interface
+
+osx: Enabled stereo output and playing in both speakers for MacBook Pro.
+     Fix to crashed when audio device cannot do 44.1 or 48 kHz.
+     https://wearezeta.atlassian.net/browse/AUDIO-298
+     Reduced audio link level to 1000
+
+multiparty:
+	all: Stereo panning for Mesh Multi Party Calling
+	all: CPU optimization of codec usage for Mesh Multi Party Calling.
+             Reusing codec output when codec settings are the same
+	     for several channels.
+
+android: Use the native device sampling frequency as reported by
+	 audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
+
+	 Added isLoudSpeakerOn/isLoudSpeakerOff APIs to the media manager
+	 to enable the UI team to use media manager for switching between
+	 loud speaker and ear piece
+
+Closed Jira tickets:
+
+https://wearezeta.atlassian.net/browse/AUDIO-305 - Ensure Webapp compatibility
+https://wearezeta.atlassian.net/browse/AUDIO-326 - zcall - android call drops easily
+https://wearezeta.atlassian.net/browse/AUDIO-318 - Add Audio Link JNI with stub
+https://wearezeta.atlassian.net/browse/AUDIO-317 - Merge new Media Manager API
+https://wearezeta.atlassian.net/browse/AUDIO-315 - zall coredump with Webapp/Chrome
+https://wearezeta.atlassian.net/browse/AUDIO-314 - ERROR ; (13:13:32:406 | 114) 1287; (rtp_payload_registry.cc:94): Payload type already registered
+https://wearezeta.atlassian.net/browse/AUDIO-311 - Prototype: Conferencing
+https://wearezeta.atlassian.net/browse/AUDIO-309 - Refactor media system and media flow API's
+https://wearezeta.atlassian.net/browse/AUDIO-308 - Android NDK (10d) update on build server
+https://wearezeta.atlassian.net/browse/AUDIO-304 - Merge Git Repositories
+https://wearezeta.atlassian.net/browse/AUDIO-299 - Fix crash in - [AVSSession recordingRoute], line 190
+https://wearezeta.atlassian.net/browse/AUDIO-298 - Fix crash in SoundLinkRecord
+https://wearezeta.atlassian.net/browse/AUDIO-297 - Upgrade to OpenSSL 1.0.2
+https://wearezeta.atlassian.net/browse/AUDIO-296 - Hang up notification sound is only played half
+https://wearezeta.atlassian.net/browse/AUDIO-295 - Fix crash in - [AVSSession playbackRoute], line 137
+https://wearezeta.atlassian.net/browse/AUDIO-290 - 50% audio loss on decent speed connection
+https://wearezeta.atlassian.net/browse/AUDIO-288 - Enable and test BT on iOS
+https://wearezeta.atlassian.net/browse/AUDIO-287 - Enable and test BT on Android
+https://wearezeta.atlassian.net/browse/AUDIO-284 - Fix crash in - [AVSSession playbackRoute], line 137
+https://wearezeta.atlassian.net/browse/AUDIO-283 - Fix crash in - [AVSSession playbackRoute], line 137
+https://wearezeta.atlassian.net/browse/AUDIO-282 - Fix crash in - [AVSSession recordingRoute], line 190
+https://wearezeta.atlassian.net/browse/AUDIO-266 - AVSMediaManager needs a pause method
+https://wearezeta.atlassian.net/browse/AUDIO-257 - There will be no "Ready to talk" sound it second user will answer not immediately and wait for few seconds
+https://wearezeta.atlassian.net/browse/AUDIO-254 - iOS/OSX Xcode project for AVSMediaManager
+https://wearezeta.atlassian.net/browse/AUDIO-251 - ZClien Doesn't turn off music in a case of receiving the call during listening the music
+https://wearezeta.atlassian.net/browse/AUDIO-250 - [iOS] Background music should be paused if incoming/outgoing call happens
+https://wearezeta.atlassian.net/browse/AUDIO-243 - mediaengine: add x86 support to Android build
+https://wearezeta.atlassian.net/browse/AUDIO-242 - zcontrib: add x86 support to Android build
+https://wearezeta.atlassian.net/browse/AUDIO-124 - Investigate if call states are reflected properly
+https://wearezeta.atlassian.net/browse/AUDIO-19 - Blender: Fix unexpected quality degradation for larger groups in conference mixer
+https://wearezeta.atlassian.net/browse/AUDIO-17 - Blender: Use websockets for signaling 
+
+
+==============================================================================
+AVS Release 1.1
+
+ios: Added bluetooth support and fixed mode/route switching to execute
+     only when necessary
+
+Wednesday 17. December 2014
+
+ios: AVAudioSession should now be retained during AVSSession playback and recording route retreival (addresses tickets AUDIO-276 and AUDIO-280). Recording route is searched for in inputs rather than outputs.
+
+android: Reworked SoundSource wrapper around native MediaPlayer. Now all MediaPlayer states are tracked, used, and handled. Resetting the player after almost every playback and better error handling should address the problem with sounds stopping to work after using the app for a while.
+
+------------------------------------------------------------------------------
+Tuesday 16. December 2014
+
+osx: Enabled extended filter mode for osx AEC
+
+The extended filter mode improves echo performance especially where the device round trip latency is lower than using the build in OSX speaker microphone - i.e. with a headset etc.
+
+------------------------------------------------------------------------------
+Tuesday 16. December 2014
+
+all: Adding inband FEC for Opus
+
+Using RTCP loss statistics to control the usage of Opus redundancy.
+
+------------------------------------------------------------------------------
+Wednesday 10. December 2014
+
+android: ringing from me, talk later, ready to talk, and call drop sounds are now in voice call stream on android. This fix resolves issues with sound playback and routing while in communication mode.
+
+------------------------------------------------------------------------------
+Monday 8. December 2014
+
+android: MediaPlayer create method does not always produce on prepared event. Now calling prepareAsync ourselves inside SoundSource after all necessary event listeners are set.
+
+------------------------------------------------------------------------------
+Thursday 20. November 2014
+
+android: OnCompletionListener is now ignored when MediaPlayer isLooping property is set to true on android
+
+------------------------------------------------------------------------------
+Thursday 20. November 2014
+
+Build avs 1.566 
+commit 360203965f0a533c120ff5ac2beae80cdda353ba.
+
+android: Disabled HW echo cancellation for Lollipop 5.0 ( seems to be broken )
+
+------------------------------------------------------------------------------
+Thursday 13. November 2014
+
+Build avs 1.558
+commit 913cd2ff65d7f8e1be12023a5f2dbf2fe1d23c5d
+
+osx: https://wearezeta.atlassian.net/browse/ZOSX-2568
+
+------------------------------------------------------------------------------
+Friday 14. November 2014
+
+Updated sound configuration to fix ringing and external media interaction
+
+------------------------------------------------------------------------------
+Thursday 13. November 2014
+- Using Mediaengine 1.22 
+
+mediaengine: Call pthread_mutex_destroy and pthread_cond_destroy in osx Audio Device destructor
+
+------------------------------------------------------------------------------
+Thursday 13. November 2014
+- Using Mediaengine 1.21 
+
+mediaengine: Fixed crash for 24 kHz input sampling frequency
+
+------------------------------------------------------------------------------
+Thursday 13. November 2014
+- Using Mediaengine 1.19 
+
+mediaengine: Making Osx Audio device more roboust. Reset Audio Device when large delay jump is reported prevents Echo issue due to high device round trip latency
+
+------------------------------------------------------------------------------
+Building avs #530 succeeded. Build based on git commit ea086f66b9bb5dc562197110801f790679e03b3f.
+Friday 31. October 2014
+
+- Fixed: https://wearezeta.atlassian.net/browse/AUDIO-238
+- Improvement: Using extended filter mode for AEC (osx). Improves some cases
+
+------------------------------------------------------------------------------

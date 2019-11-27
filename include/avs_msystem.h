@@ -30,9 +30,25 @@ struct msystem_config {
 	bool data_channel;
 };
 
+struct msystem_proxy {
+	char *host;
+	int port;
+};
+
+typedef void (msystem_activate_h)(void *arg);
+typedef void (msystem_mute_h)(bool muted, void *arg);
+
+void msystem_set_env(int env);
+int msystem_get_env(void);
+
 int msystem_get(struct msystem **msysp, const char *msysname,
-		struct msystem_config *config);
+		struct msystem_config *config,
+		msystem_activate_h *activateh,
+		msystem_mute_h *muteh,
+		void *arg);
+void msystem_unregister_listener(void *arg);
 bool msystem_is_initialized(struct msystem *msys);
+struct msystem *msystem_instance(void);
 struct tls *msystem_dtls(struct msystem *msys);
 struct list *msystem_aucodecl(struct msystem *msys);
 struct list *msystem_vidcodecl(struct msystem *msys);
@@ -53,6 +69,8 @@ int  msystem_enable_datachannel(struct msystem *msys, bool enable);
 bool msystem_have_datachannel(const struct msystem *msys);
 int msystem_update_conf_parts(struct list *partl);
 struct dnsc *msystem_dnsc(void);
+bool msystem_audio_is_activated(void);
+void msystem_audio_set_activated(bool activated);
 
 
 #define MAX_TURN_SERVERS 8
@@ -65,6 +83,8 @@ void msystem_leave(struct msystem *msys);
 void msystem_set_auplay(const char *dev);
 void msystem_stop_silencing(void);
 
+int msystem_set_proxy(const char *host, int port);
+struct msystem_proxy *msystem_get_proxy(void);
 
 
 /*

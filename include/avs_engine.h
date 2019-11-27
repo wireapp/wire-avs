@@ -352,6 +352,14 @@ int engine_send_file(struct engine_conv *conv, const char *ctype,
 		     const char *path);
 int engine_fetch_asset(struct engine *engine,
 		       const char *cid, const char *aid, const char *path);
+int engine_send_message(struct engine_conv *conv,
+		        const char *sender_clientid,
+		        struct list *msgl,
+		        bool transient,
+		        bool ignore_missing,
+		        engine_status_h *resph,
+		        engine_missing_client_h *missingh,
+		        void *arg);
 
 /************* Listening to Events *****************************************/
 
@@ -443,6 +451,7 @@ int engine_register_client(struct engine *eng,
 			   const struct client_handler *clih);
 int engine_delete_client(struct engine *eng, const char *clientid);
 
+struct dnsc *engine_dnsc(struct engine *eng);
 
 typedef void (engine_call_shutdown_h)(void *arg);
 void engine_call_set_shutdown_handler(struct engine *engine,

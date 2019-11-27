@@ -60,6 +60,7 @@ TEST(libre, verify_tls_support)
 }
 
 
+#if 0
 TEST(libre, verify_dtls_support)
 {
 	struct tls *tls;
@@ -69,7 +70,7 @@ TEST(libre, verify_dtls_support)
 	ASSERT_TRUE(tls != NULL);
 	mem_deref(tls);
 }
-
+#endif
 
 struct test {
 	unsigned n_estab;

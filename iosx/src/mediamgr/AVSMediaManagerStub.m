@@ -156,6 +156,10 @@ static AVSMediaManager *_defaultMediaManager;
 {
 }
 
+- (void)unregisterMediaByName:(NSString *)mediaName
+{
+}
+
 
 - (BOOL)isInterrupted
 {

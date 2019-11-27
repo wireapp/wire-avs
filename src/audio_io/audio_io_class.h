@@ -20,7 +20,7 @@
 #define AVS_IO_CLASS_H_
 
 #include "avs_audio_io.h"
-#include "webrtc/modules/audio_device/include/audio_device.h"
+#include "modules/audio_device/include/audio_device.h"
 
 namespace webrtc {
     class audio_io_class : public AudioDeviceModule {
@@ -28,6 +28,7 @@ namespace webrtc {
         virtual int32_t InitInternal() = 0;
 
         virtual int32_t TerminateInternal() = 0;
+        virtual int32_t ResetAudioDevice() = 0;
                 
         virtual int32_t EnableSine() = 0;
     };

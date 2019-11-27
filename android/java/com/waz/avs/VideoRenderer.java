@@ -83,14 +83,16 @@ public class VideoRenderer extends TextureView implements TextureView.SurfaceTex
 
 	private int targetFps;
 	private String userId = null;
+	private String clientId = null;
 
-	public VideoRenderer(Context context, String userId, boolean rounded) {
+	public VideoRenderer(Context context, String userId, String clientId, boolean rounded) {
 		super(context);
 
 		Log.d(TAG, "Creating new VideoRenderer");
 		
 		isRounded = rounded;
 		this.userId = userId;
+		this.clientId = clientId;
 		
 		init(context);
 	}
@@ -113,7 +115,7 @@ public class VideoRenderer extends TextureView implements TextureView.SurfaceTex
 		if (nativeObject != 0)
 			destroyRenderer();
 
-		nativeObject = createNative(userId, width, height, isRounded);
+		nativeObject = createNative(userId, clientId, width, height, isRounded);
 		
 		nativeFunctionLock.unlock();
 	}
@@ -147,7 +149,7 @@ public class VideoRenderer extends TextureView implements TextureView.SurfaceTex
 		surfaceHeight = height;
 
 		destroyNative(nativeObject);
-		nativeObject = createNative(userId, width, height, isRounded);
+		nativeObject = createNative(userId, clientId, width, height, isRounded);
 	}
 
 	private void makeCurrent() {
@@ -300,6 +302,7 @@ public class VideoRenderer extends TextureView implements TextureView.SurfaceTex
 
 
 	private native long createNative(String userId,
+					 String clientId,
 					 int width, int height,
 					 boolean rounded);
 	private native void destroyNative(long obj);

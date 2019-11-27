@@ -32,7 +32,13 @@ enum econn_msg {
 	ECONN_GROUP_LEAVE = 0x06,
 	ECONN_GROUP_CHECK = 0x07,
 	ECONN_GROUP_SETUP = 0x08,
-	
+
+	/* Conference call: */
+	ECONN_CONF_START = 0x09,
+	ECONN_CONF_END   = 0x0A,
+	ECONN_CONF_PART  = 0x0B,
+	ECONN_CONF_KEY   = 0x0C,
+
 	ECONN_UPDATE = 0x10,
 	ECONN_REJECT = 0x11,
 	ECONN_ALERT  = 0x12,
@@ -88,6 +94,7 @@ struct econn_props {
 	struct odict *dict;
 };
 
+#define ECONN_ID_LEN 64
 /*
  * The message-type is the actually message type that is sent on the Wire.
  * It containes the type (SETUP or CANCEL) and message type specific
@@ -99,9 +106,11 @@ struct econn_message {
 
 	/* common types: */
 	enum econn_msg msg_type;
-	char sessid_sender[64];
-	char dest_userid[64];
-	char dest_clientid[64];
+	char sessid_sender[ECONN_ID_LEN];
+	char src_userid[ECONN_ID_LEN];
+	char src_clientid[ECONN_ID_LEN];
+	char dest_userid[ECONN_ID_LEN];
+	char dest_clientid[ECONN_ID_LEN];
 	bool resp;
 	bool transient;
 
@@ -138,12 +147,35 @@ struct econn_message {
 		struct groupstart {
 			struct econn_props *props;
 		} groupstart;
+
+		struct confstart {
+			struct econn_props *props;
+		} confstart;
+
+		struct confpart {
+			bool should_start;
+			struct list partl; /* list of struct econn_group_part */
+		} confpart;
+
+		struct confkey {
+			int idx;
+			uint8_t *keydata;
+			uint32_t keylen;
+		} confkey;
 	} u;
 };
 
 
 struct econn;
 
+struct econn_group_part {
+	char *userid;
+	char *clientid;
+	uint32_t ssrca;
+	uint32_t ssrcv;
+
+	struct le le; /* member of participant list */
+};
 
 /**
  * Indicates an incoming call on this ECONN.
@@ -156,6 +188,7 @@ typedef void (econn_conn_h)(struct econn *econn,
 			    uint32_t age,
 			    const char *sdp,
 			    struct econn_props *props,
+			    bool reset,
 			    void *arg);
 
 /**
@@ -185,6 +218,9 @@ typedef void (econn_update_resp_h)(struct econn *econn, const char *sdp,
 
 typedef void (econn_alert_h)(struct econn *econn, uint32_t level,
 			     const char *descr, void *arg);
+
+typedef void (econn_confpart_h)(struct econn *econn, const struct list *partlist,
+				bool should_start, void *arg);
 
 
 /**
@@ -227,6 +263,7 @@ int  econn_alloc(struct econn **econnp,
 		 econn_update_req_h *update_reqh,
 		 econn_update_resp_h *update_resph,
 		 econn_alert_h *alerth,
+		 econn_confpart_h *confparth,
 		 econn_close_h *closeh, void *arg);
 int  econn_start(struct econn *conn, const char *sdp,
 		 const struct econn_props *props);
@@ -271,6 +308,9 @@ bool econn_iswinner(const char *userid_self, const char *clientid,
 		    const char *userid_remote, const char *clientid_remote);
 bool econn_is_creator(const char *userid_self, const char *userid_remote,
 		      const struct econn_message *msg);
+bool econn_is_creator_full(const char *userid_self, const char *clientid_self,
+			   const char *userid_remote, const char *clientid_remote,
+			   const struct econn_message *msg);
 enum econn_transport econn_transp_resolve(enum econn_msg type);
 
 

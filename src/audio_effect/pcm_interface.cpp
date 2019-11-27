@@ -19,9 +19,10 @@
 #include <re.h>
 #include "avs_audio_effect.h"
 
-#include "webrtc/common_audio/resampler/include/push_resampler.h"
-#include "webrtc/modules/audio_processing/include/audio_processing.h"
-#include "webrtc/modules/include/module_common_types.h"
+#include "common_audio/resampler/include/push_resampler.h"
+#include "modules/audio_processing/include/audio_processing.h"
+#include "modules/include/module_common_types.h"
+#include "api/audio/audio_frame.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -134,7 +135,7 @@ int apply_effect_to_pcm(const char* pcmIn,
     
     webrtc::PushResampler<int16_t> input_resampler;
     webrtc::PushResampler<int16_t> output_resampler;
-    std::unique_ptr<webrtc::AudioProcessing> apm(webrtc::AudioProcessing::Create());    
+    std::unique_ptr<webrtc::AudioProcessing> apm(webrtc::AudioProcessingBuilder().Create());    
     
     struct aueffect *aue;
     int ret = aueffect_alloc(&aue, effect_type, FS_PROC);
@@ -182,7 +183,12 @@ int apply_effect_to_pcm(const char* pcmIn,
     apm->Initialize( FS_PROC, FS_PROC, FS_PROC, inLayout, outLayout, reverseLayout );
     
     // Enable High Pass Filter
-    apm->high_pass_filter()->Enable(true);
+    //apm->high_pass_filter()->Enable(true);
+    webrtc::AudioProcessing::Config apmConfig;
+
+    apmConfig.high_pass_filter.enabled = true;
+    apm->ApplyConfig(apmConfig);    
+    
     
     // Enable Noise Supression
     if(reduce_noise){
@@ -217,7 +223,7 @@ int apply_effect_to_pcm(const char* pcmIn,
             }
         }
         
-        input_resampler.Resample( bufIn, L, near_frame.data_, L_proc);
+        input_resampler.Resample( bufIn, L, near_frame.mutable_data(), L_proc);
         
         ret = apm->ProcessStream(&near_frame);
         if( ret < 0 ){
@@ -225,7 +231,7 @@ int apply_effect_to_pcm(const char* pcmIn,
         }
         
         size_t L_proc_out;
-        aueffect_process(aue, near_frame.data_, procOut, L_proc, &L_proc_out);
+        aueffect_process(aue, near_frame.data(), procOut, L_proc, &L_proc_out);
         
         //input_resampler.Resample( bufIn, L, procIn, L_proc);
         

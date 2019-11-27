@@ -28,7 +28,7 @@ typedef void (dce_open_chan_h)(int sid,
 typedef void (dce_close_chan_h)(int sid,
 				const char *label, const char *protocol,
 				void *arg);
-typedef void (dce_data_h)(int sid, uint8_t *data, size_t len, void *arg);
+typedef void (dce_data_h)(int id, const uint8_t *data, size_t len, void *arg);
 
 int  dce_init(void);
 void dce_close(void);
@@ -39,6 +39,11 @@ int  dce_alloc(struct dce **dcep,
 	       dce_estab_h *estabh,
 	       void *arg);
 
+int  dce_connect(struct dce *dce, bool dtls_role_active);
+int  dce_status(struct re_printf *pf, struct dce *dce);
+void dce_recv_pkt(struct dce *dce, const uint8_t *pkt, size_t len);
+bool dce_snd_dry(struct dce *dce);
+
 int  dce_channel_alloc(struct dce_channel **chp,
 		       struct dce *dce,
 		       const char *label,
@@ -48,12 +53,7 @@ int  dce_channel_alloc(struct dce_channel **chp,
 		       dce_close_chan_h *closeh,
 		       dce_data_h *datah,
 		       void *arg);
-
-int  dce_connect(struct dce *dce, bool dtls_role_active);
-int  dce_open_chan(struct dce *dce, struct dce_channel *ch);
-int  dce_close_chan(struct dce *dce, struct dce_channel *ch);
-int  dce_status(struct re_printf *pf, struct dce *dce);
-int  dce_send(struct dce *dce, struct dce_channel *ch, const void *data, size_t len);
-void dce_recv_pkt(struct dce *dce, const uint8_t *pkt, size_t len);
-bool dce_snd_dry(struct dce *dce);
 bool dce_is_chan_open(const struct dce_channel *ch);
+int  dce_open_chan(struct dce_channel *ch);
+int  dce_close_chan(struct dce_channel *ch);
+int  dce_send(struct dce_channel *ch, const void *data, size_t len);

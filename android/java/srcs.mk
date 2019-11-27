@@ -12,13 +12,6 @@ AND_JAVA_SRCS := \
 	com/waz/call/FlowSource.java \
 	com/waz/call/RequestHandler.java \
 	com/waz/log/LogHandler.java \
-	org/webrtc/voiceengine/WebRtcAudioRecord.java \
-	org/webrtc/voiceengine/WebRtcAudioTrack.java \
-	org/webrtc/voiceengine/WebRtcAudioManager.java \
-	org/webrtc/voiceengine/WebRtcAudioUtils.java \
-	org/webrtc/voiceengine/WebRtcAudioEffects.java \
-	org/webrtc/voiceengine/BuildInfo.java \
-    org/webrtc/Logging.java \
 	com/waz/media/manager/MediaManager.java \
 	com/waz/media/manager/MediaManagerListener.java \
 	com/waz/media/manager/config/Configuration.java \
@@ -32,3 +25,12 @@ AND_JAVA_SRCS := \
 	com/waz/media/manager/player/MediaSourceListener.java \
 	com/waz/media/manager/context/IntensityLevel.java \
 	com/waz/audioeffect/AudioEffect.java
+
+#	org/webrtc/voiceengine/WebRtcAudioRecord.java \
+#	org/webrtc/voiceengine/WebRtcAudioTrack.java \
+#	org/webrtc/voiceengine/WebRtcAudioManager.java \
+#	org/webrtc/voiceengine/WebRtcAudioUtils.java \
+#	org/webrtc/voiceengine/WebRtcAudioEffects.java \
+#	org/webrtc/voiceengine/BuildInfo.java \
+#   org/webrtc/Logging.java \
+

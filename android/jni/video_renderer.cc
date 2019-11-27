@@ -144,6 +144,7 @@ struct video_renderer {
 	GLfloat vertices[20];
 
 	char *userid;
+	char *clientid;
 
 	void *arg;
 };
@@ -198,6 +199,7 @@ void vr_destructor(void *arg)
 
 	vr->arg = NULL;
 	mem_deref(vr->userid);
+	mem_deref(vr->clientid);
 }
 
 static GLuint load_shader(GLenum shader_type, const char* src)
@@ -454,7 +456,9 @@ static int setup_vertices(struct video_renderer *vr, int rotation)
 
 int video_renderer_alloc(struct video_renderer **vrp,  int w, int h,
 			 bool rounded,
-			 const char *userid, void *arg)
+			 const char *userid,
+			 const char *clientid,
+			 void *arg)
 {
 	struct video_renderer *vr;
 	int err = 0;
@@ -482,6 +486,7 @@ int video_renderer_alloc(struct video_renderer **vrp,  int w, int h,
 	vr->w = w;
 	vr->h = h;
 	str_dup(&vr->userid, userid);
+	str_dup(&vr->clientid, clientid);
 	vr->arg = arg;
 
 	if (err)
@@ -764,6 +769,11 @@ const char *video_renderer_userid(struct video_renderer *vr)
 	return vr ? vr->userid : NULL;
 }
 
+const char *video_renderer_clientid(struct video_renderer *vr)
+{
+	return vr ? vr->clientid : NULL;
+}
+
 #else
 
 
@@ -811,6 +821,11 @@ void video_renderer_set_fill_ratio(struct video_renderer *vr,
 }
 
 const char *video_renderer_userid(struct video_renderer *vr)
+{
+	return NULL;
+}
+
+const char *video_renderer_clientid(struct video_renderer *vr)
 {
 	return NULL;
 }

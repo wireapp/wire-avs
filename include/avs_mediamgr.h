@@ -44,6 +44,7 @@ enum mediamgr_state {
 	MEDIAMGR_STATE_ROAMING,
 	MEDIAMGR_STATE_HOLD,
 	MEDIAMGR_STATE_RESUME,
+	MEDIAMGR_STATE_ERROR,
 	MEDIAMGR_STATE_UNKNOWN,
 };
 
@@ -99,6 +100,7 @@ void mediamgr_enter_call(struct mediamgr *mediamgr);
 void mediamgr_exit_call(struct mediamgr *mediamgr);
 void mediamgr_audio_release(struct mediamgr *mediamgr);
 void mediamgr_audio_reset(struct mediamgr *mediamgr);
+void mediamgr_audio_start(struct mediamgr *mediamgr);	
 
 /* Recording of audio messages */
 typedef void (mediamgr_start_rec_h)(void *arg);	
@@ -110,6 +112,7 @@ void mediamgr_stop_recording(struct mediamgr *mm);
 typedef void (mediamgr_incoming_h)(const char *convid, uint32_t msg_time,
 				   const char *userid, int video_call /*bool*/,
 				   int should_ring /*bool*/,
+				   int conv_type,
 				   void *arg);
 	
 int mediamgr_invoke_incomingh(struct mediamgr *mm,
@@ -117,6 +120,7 @@ int mediamgr_invoke_incomingh(struct mediamgr *mm,
 			      const char *convid, uint32_t msg_time,
 			      const char *userid, int video_call,
 			      int should_ring,
+			      int conv_type,
 			      void *arg);
 
 	

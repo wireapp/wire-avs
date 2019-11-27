@@ -21,7 +21,6 @@
 
 struct conf_part {
 	char *uid;
-	void *data;
 
 	uint32_t pos;
 
@@ -31,7 +30,7 @@ struct conf_part {
 
 /* Init function for the above structure. */
 int conf_part_add(struct conf_part **cpp, struct list *partl,
-		  const char *uid, void *data);
+		  const char *uid);
 
 struct conf_part *conf_part_find(const struct list *partl, const char *userid);
 

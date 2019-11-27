@@ -26,10 +26,10 @@
 #include <string>
 #include <stdlib.h>
 
-#include "webrtc/common_audio/resampler/include/push_resampler.h"
+#include "common_audio/resampler/include/push_resampler.h"
 
-#include "main.h"
-#include "float/main_FLP.h"
+#include "third_party/opus/src/silk/main.h"
+#include "third_party/opus/src/silk/float/main_FLP.h"
 #include "common_settings.h"
 
 #define Z_LPC_ORDER 10

@@ -25,7 +25,7 @@
 #include "avs_ztime.h"
 
 
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) && !defined(_LP64)
 #include <time64.h>
 
 

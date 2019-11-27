@@ -119,6 +119,7 @@ AVS_EXPORT @interface AVSMediaManager : NSObject
 - (void)registerMedia:(id<AVSMedia>)media withOptions:(NSDictionary *)options;
 - (void)registerUrl:(NSURL*)url forMedia:(NSString*)name;
 - (void)unregisterMedia:(id<AVSMedia>)media;
+- (void)unregisterMediaByName:(NSString *)mediaName;
 
 - (BOOL)isInterrupted;
 

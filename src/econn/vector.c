@@ -17,13 +17,15 @@
 */
 
 #include <string.h>
+#ifdef HAVE_CRYPTOBOX
 #include <sodium.h>
+#endif
 #include <re.h>
 #include "avs_base.h"
 #include "avs_log.h"
 #include "avs_uuid.h"
 #include "avs_zapi.h"
-#include "avs_media.h"
+#include "avs_icall.h"
 #include "avs_econn.h"
 
 
@@ -33,7 +35,11 @@ static void destructor(void *arg)
 
 	/* wipe the data */
 	if (vec->bytes && vec->len)
+#ifdef HAVE_CRYPTOBOX
 		sodium_memzero(vec->bytes, vec->len);
+#else
+		memset(vec->bytes, 0, vec->len);
+#endif
 
 	mem_deref(vec->bytes);
 }

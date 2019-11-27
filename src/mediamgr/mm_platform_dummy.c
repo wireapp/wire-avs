@@ -170,3 +170,7 @@ void mm_platform_confirm_route(enum mediamgr_auplay route)
 {
 }
 
+
+void mm_platform_stop_delayed_play(void)
+{
+}

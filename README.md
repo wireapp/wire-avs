@@ -86,21 +86,38 @@ system. Good luck!
 
 # Build Instructions
 
-The first time you need to fetch the submodules by doing:
 
-```
-$ ./prepare.sh
-```
+AVS will work with Google WebRTC which first needs to be pulled from Google and pre-compiled. To do that go to the webrtc directory and run:
 
-Patches for webrtc are under mediaengine/webrtc_patches. Run apply_patches.sh to apply them
+./scripts/build.sh
+./scripts/package.sh
 
-If you simply say ``make``, a selection of tools is being built for your
-host machine.
+This should be done on OSX for headers and iOS+OSX libs and on Linux for Linux+Android libs. The scripts pull from Googles repos, apply a patch for Android (in patches dir), build and package the libs into zips, which get copied to contrib/webrtc. Expected zips are:
 
-The deliverables are being built by saying ``make dist``. You can limit
-this to only select target platforms through ``make dist_android``,
-``make dist_osx`` and ``make dist_ios``. All of them take quite a while
+contrib/webrtc/webrtc_72.local_android.zip
+contrib/webrtc/webrtc_72.local_headers.zip
+contrib/webrtc/webrtc_72.local_ios.zip
+contrib/webrtc/webrtc_72.local_linux.zip
+contrib/webrtc/webrtc_72.local_osx.zip
+
+All zips are needed to build AVS, but can be empty files if not needed: e.g. you can run touch contrib/webrtc/webrtc_72.local_android.zip if you dont intend to build for Android.
+
+
+Next step is to build AVS itself. When building AVS with local webrtc, invoke make with: 
+
+make WEBRTC_VER <release>.local
+
+For example:
+
+make WEBRTC_VER=72.local
+
+
+The deliverables are being built by saying ``make WEBRTC_VER <release>.local dist``. You can limit
+this to only select target platforms through ``make WEBRTC_VER <release>.local dist_android``,
+``make WEBRTC_VER <release>.local dist_osx`` and ``make WEBRTC_VER <release>.local dist_ios``. All of them take quite a while
 on a fresh checkout.
+
+
 
 You'll find the deliverables in ``build/dist/{android,ios,osx}``.
 
@@ -119,7 +136,7 @@ all the necessary architectures but builds quicker, you can pass
 architecture:
 
 ```bash
-$ make dist_ios DIST_ARCH=armv7
+$ make WEBRTC_VER=72.local dist_ios DIST_ARCH=armv7
 ```
 
 will build an iOS distribution that will only contain armv7 instead of

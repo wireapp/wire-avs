@@ -396,8 +396,8 @@ enum AVSDeviceOrientation {
 
 - (void)attachPreviewInt:(UIView*)preview
 {
-	dispatch_sync(
-		dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), 
+	dispatch_async(
+		dispatch_get_main_queue(), 
 		^(void) {
 			if (_preview) {
 #if TARGET_OS_IPHONE
@@ -412,11 +412,7 @@ enum AVSDeviceOrientation {
 				_previewLayer.frame = _preview.bounds;
 #if TARGET_OS_IPHONE
 				[_preview.layer addSublayer:_previewLayer];
-				dispatch_async(
-					dispatch_get_main_queue(), 
-					^(void) { 
-						[self deviceOrientationDidChange:nil];
-				});
+				[self deviceOrientationDidChange:nil];
 #else
 				[_preview setLayer:(CALayer*)_previewLayer];
 				[_preview setWantsLayer:YES];

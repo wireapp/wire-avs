@@ -146,14 +146,14 @@ TEST_F(Voe, enc_dec_alloc)
 
 	if (ac->enc_alloc){
 		err = ac->enc_alloc(&aesp, ac, NULL, &prm,
-				    NULL, NULL, NULL, NULL, NULL);
+				    NULL, NULL, NULL, NULL);
 		ASSERT_EQ(0, err);
 		ASSERT_TRUE(aesp != NULL);
 	}
 
 	if (ac->dec_alloc){
 		err = ac->dec_alloc(&adsp, ac, NULL, &prm,
-				    NULL, NULL, NULL);
+				    NULL, NULL);
 		ASSERT_EQ(0, err);
 		ASSERT_TRUE(adsp != NULL);
 	}
@@ -179,13 +179,13 @@ TEST_F(Voe, unmute_after_call)
 
 	if (ac->enc_alloc){
 		err = ac->enc_alloc(&aesp, ac, NULL, &prm,
-				    NULL, NULL, NULL, NULL, NULL);
+				    NULL, NULL, NULL, NULL);
 		ASSERT_EQ(0, err);
 	}
 
 	if (ac->dec_alloc){
 		err = ac->dec_alloc(&adsp, ac, NULL, &prm,
-				    NULL, NULL, NULL);
+				    NULL, NULL);
 		ASSERT_EQ(0, err);
 	}
 
@@ -293,22 +293,22 @@ TEST_F(Voe, enc_dec_alloc_start_stop)
 	ac = aucodec_find(&aucodecl, "opus", 48000, 2);
 	if (ac->enc_alloc){
 		err = ac->enc_alloc(&aesp, ac, NULL, &prm,
-				    send_rtp_handler, NULL, NULL, NULL, &ss);
+				    send_rtp_handler, NULL, NULL, &ss);
 		ASSERT_EQ(0, err);
 	}
 
 	if (ac->dec_alloc){
 		err = ac->dec_alloc(&adsp, ac, NULL, &prm,
-				    NULL, NULL, NULL);
+				    NULL, NULL);
 		ASSERT_EQ(0, err);
 	}
 
 	if (ac->enc_start){
-		ac->enc_start(aesp, false, NULL, &mctxp);
+		ac->enc_start(aesp, false, NULL, NULL, &mctxp);
 	}
 
 	if (ac->dec_start){
-		ac->dec_start(adsp, &mctxp);
+		ac->dec_start(adsp, &mctxp, NULL);
 	}
 
 	err = re_main_wait(30000);

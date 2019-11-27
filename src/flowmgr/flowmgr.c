@@ -29,7 +29,6 @@
 
 #include "avs.h"
 #include "avs_version.h"
-#include "avs_vie.h"
 
 #include "flowmgr.h"
 
@@ -57,7 +56,7 @@ int flowmgr_init(const char *msysname)
 		return err;
 	}
 
-	err = msystem_get(&fsys.msys, msysname, NULL);
+	err = msystem_get(&fsys.msys, msysname, NULL, NULL, NULL, NULL);
 	if (err) {
 		warning("flowmgr: msystem_init failed: %m\n", err);
 		goto out;
@@ -181,7 +180,9 @@ void flowmgr_set_audio_state_handler(struct flowmgr *fm,
 			flowmgr_audio_state_change_h *state_change_h,
 			void *arg)
 {
+#if USE_AVSLIB
 	voe_set_audio_state_handler(state_change_h, arg);
+#endif
 }
 
 

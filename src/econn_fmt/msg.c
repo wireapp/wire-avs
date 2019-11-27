@@ -22,7 +22,7 @@
 #include "avs_jzon.h"
 #include "avs_uuid.h"
 #include "avs_zapi.h"
-#include "avs_media.h"
+#include "avs_icall.h"
 #include "avs_econn.h"
 #include "avs_econn_fmt.h"
 
@@ -49,6 +49,104 @@ static int econn_props_encode(struct json_object *jobj,
 	return err;
 }
 
+#if ENABLE_CONFERENCE_CALLS
+static int econn_parts_encode(struct json_object *jobj,
+			      const struct list *partl)
+{
+	struct le *le;
+	struct json_object *jparts;
+	int err = 0;
+
+	jparts = jzon_alloc_array();
+	if (!jparts)
+		return ENOMEM;
+	
+	LIST_FOREACH(partl, le) {
+		struct econn_group_part *part = le->data;
+		struct json_object *jpart;
+		char ssrc[32];
+
+		jpart = jzon_alloc_object();
+		if (!jpart) {
+			err = ENOMEM;
+			goto out;
+		}
+		jzon_add_str(jpart, "userid", part->userid);
+		jzon_add_str(jpart, "clientid", part->clientid);
+		re_snprintf(ssrc, sizeof(ssrc), "%u", part->ssrca);
+		jzon_add_str(jpart, "ssrc_audio", ssrc);
+		re_snprintf(ssrc, sizeof(ssrc), "%u", part->ssrcv);
+		jzon_add_str(jpart, "ssrc_video", ssrc);
+
+		json_object_array_add(jparts, jpart);
+	}
+
+	json_object_object_add(jobj, "participants", jparts);
+
+ out:
+	return err;
+}
+
+static void part_destructor(void *arg)
+{
+	struct econn_group_part *part = arg;
+
+	mem_deref(part->userid);
+	mem_deref(part->clientid);
+}
+
+
+static bool part_decode_handler(const char *key, struct json_object *jobj,
+				void *arg)
+{
+	struct econn_group_part *part;
+	struct list *partl = arg;
+	const char *ssrc;
+	int err;
+
+	part = mem_zalloc(sizeof(*part), part_destructor);
+	if (!part) {
+		warning("econn: part_decode_handler: could not alloc part\n");
+		return false;
+	}
+
+	err = jzon_strdup(&part->userid, jobj, "userid");
+	err |= jzon_strdup(&part->clientid, jobj, "clientid");
+	ssrc = jzon_str(jobj, "ssrc_audio");
+	if (ssrc)
+		sscanf(ssrc, "%u", &part->ssrca);
+	ssrc = jzon_str(jobj, "ssrc_video");
+	if (ssrc)
+		sscanf(ssrc, "%u", &part->ssrcv);
+
+	if (err) {
+		warning("econn: failed to parse participant entry\n");
+		return false;
+	}
+
+	list_append(partl, &part->le, part);
+
+	return false;
+}
+
+
+static int econn_parts_decode(struct list *partl, struct json_object *jobj)
+{
+	struct json_object *jparts;
+	int err = 0;
+
+	err = jzon_array(&jparts, jobj, "participants");
+	if (err) {
+		warning("econn: parts decode: no participants\n");
+		return err;
+	}
+
+	jzon_apply(jparts, part_decode_handler, partl);
+
+	return 0;
+}
+#endif
+
 
 int econn_message_encode(char **strp, const struct econn_message *msg)
 {
@@ -65,6 +163,18 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 			  "sessid", msg->sessid_sender);
 	if (err)
 		return err;
+
+	if (str_isset(msg->src_userid)) {
+		err = jzon_add_str(jobj, "src_userid", msg->src_userid);
+		if (err)
+			goto out;
+	}
+
+	if (str_isset(msg->src_clientid)) {
+		err = jzon_add_str(jobj, "src_clientid", msg->src_clientid);
+		if (err)
+			goto out;
+	}
 
 	if (str_isset(msg->dest_userid)) {
 		err = jzon_add_str(jobj, "dest_userid", msg->dest_userid);
@@ -134,6 +244,33 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 	case ECONN_GROUP_LEAVE:
 	case ECONN_GROUP_CHECK:
 		break;
+
+#if ENABLE_CONFERENCE_CALLS
+	case ECONN_CONF_START:
+		/* props is optional for CONFSTART */
+		if (msg->u.confstart.props) {
+			err = econn_props_encode(jobj, msg->u.confstart.props);
+			if (err)
+				goto out;
+		}
+		break;
+
+	case ECONN_CONF_END:
+		break;
+
+	case ECONN_CONF_PART:
+		jzon_add_bool(jobj, "should_start",
+			      msg->u.confpart.should_start);
+		econn_parts_encode(jobj, &msg->u.confpart.partl);
+		break;
+
+	case ECONN_CONF_KEY:
+		jzon_add_int(jobj, "idx",
+			     msg->u.confkey.idx);
+		jzon_add_base64(jobj, "key",
+				msg->u.confkey.keydata, msg->u.confkey.keylen);
+		break;
+#endif
 
 	case ECONN_DEVPAIR_PUBLISH:
 		err = zapi_iceservers_encode(jobj,
@@ -263,6 +400,12 @@ int econn_message_decode(struct econn_message **msgp,
 	}
 	str_ncpy(msg->sessid_sender, sessid, sizeof(msg->sessid_sender));
 
+	userid = jzon_str(jobj, "src_userid");
+	str_ncpy(msg->src_userid, userid, sizeof(msg->src_userid));
+
+	clientid = jzon_str(jobj, "src_clientid");
+	str_ncpy(msg->src_clientid, clientid, sizeof(msg->src_clientid));
+
 	userid = jzon_str(jobj, "dest_userid");
 	str_ncpy(msg->dest_userid, userid, sizeof(msg->dest_userid));
 
@@ -356,18 +499,67 @@ int econn_message_decode(struct econn_message **msgp,
 
 		msg->msg_type = ECONN_GROUP_START;
 
-		/* Props are optional, dont fail to decode message if they are missing */
+		/* Props are optional, 
+		 * dont fail to decode message if they are missing
+		 */
 		if (econn_props_decode(&msg->u.groupstart.props, jobj))
 			info("econn: decode GROUPSTART: no props\n");
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_GROUP_LEAVE))) {
-
+		
 		msg->msg_type = ECONN_GROUP_LEAVE;
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_GROUP_CHECK))) {
 
 		msg->msg_type = ECONN_GROUP_CHECK;
 	}
+#if ENABLE_CONFERENCE_CALLS
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_START))) {
+
+		msg->msg_type = ECONN_CONF_START;
+
+		/* Props are optional, dont fail to decode message if they are missing */
+		if (econn_props_decode(&msg->u.confstart.props, jobj))
+			info("econn: decode CONFSTART: no props\n");
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_END))) {
+		msg->msg_type = ECONN_CONF_END;
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_PART))) {
+		msg->msg_type = ECONN_CONF_PART;
+
+		jzon_bool(&msg->u.confpart.should_start, jobj,
+			  "should_start");
+		if (econn_parts_decode(&msg->u.confpart.partl, jobj))
+			warning("econn: decode: CONF_PART no parts\n");
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_KEY))) {
+		const char *key;
+		uint8_t *kdata;
+		size_t klen;
+		msg->msg_type = ECONN_CONF_KEY;
+
+		jzon_int(&msg->u.confkey.idx, jobj, "idx");
+		key = jzon_str(jobj, "key");
+		if (!key || err)
+			return EBADMSG;
+
+		klen = str_len(key) * 3 / 4;
+
+		kdata = mem_zalloc(klen, NULL);
+		if (!kdata) {
+			return ENOMEM;
+		}
+		err = base64_decode(key, str_len(key), kdata, &klen);
+		if (err) {
+			mem_deref(kdata);
+			return err;
+		}
+
+		msg->u.confkey.keydata = kdata;
+		msg->u.confkey.keylen = klen;
+	}
+#endif
 	else if (0 == str_casecmp(type,
 				  econn_msg_name(ECONN_DEVPAIR_PUBLISH))) {
 
@@ -439,7 +631,7 @@ int econn_message_decode(struct econn_message **msgp,
 	}
 	else {
 		warning("econn: decode: unknown message type '%s'\n", type);
-		err = EBADMSG;
+		err = EPROTONOSUPPORT;
 		goto out;
 	}
 

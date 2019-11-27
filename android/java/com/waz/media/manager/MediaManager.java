@@ -99,8 +99,13 @@ public class MediaManager implements OnAudioFocusChangeListener {
         ctx = context;
       
         audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-        
-        audioManager.setSpeakerphoneOn(false);
+
+	try {
+		audioManager.setSpeakerphoneOn(false);
+	}
+	catch(Exception e) {
+		Log.e("avs MediaManager", "setSpeakerphoneOn failed: " + e);
+	}
     }
     
     public static MediaManager getInstance ( Context context ) {

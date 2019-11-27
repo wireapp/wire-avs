@@ -397,7 +397,7 @@ public:
 
 		memset(loopv, 0, sizeof(loopv));
 
-		err = msystem_get(&msys, "audummy", &config);
+		err = msystem_get(&msys, "audummy", &config, NULL, NULL);
 		ASSERT_EQ(0, err);
 		ASSERT_TRUE(msys != NULL);
 
@@ -577,7 +577,8 @@ public:
 
 	static void conn_handler(struct icall *icall,
 				 uint32_t msg_time, const char *userid_sender,
-				 bool video_call, bool should_ring, void *arg)
+				 bool video_call, bool should_ring,
+				 enum icall_conv_type conv_type, void *arg)
 	{
 		struct client *cli = (struct client *)arg;
 		struct conv_loop *loop = cli->loop;
@@ -956,6 +957,7 @@ public:
 
 			icall_set_callbacks(ecall_get_icall(cli->ecall),
 					    transp_send_handler,
+					    NULL, // sft_handler
 					    conn_handler, 
 					    NULL,
 					    media_estab_handler,
@@ -969,6 +971,7 @@ public:
 					    NULL, // vstate_handler
 					    NULL, // audiocbr_handler
 					    NULL, // quality_handler
+					    NULL, // req_client_handler
 					    cli);
 
 			if (user_data_channel) {

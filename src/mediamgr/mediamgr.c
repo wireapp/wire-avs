@@ -20,6 +20,7 @@
 #include "avs.h"
 #include "avs_mediamgr.h"
 #include "avs_lockedqueue.h"
+#include "avs_audio_io.h"
 #include <pthread.h>
 #include "mediamgr.h"
 #include "mm_platform.h"
@@ -106,6 +107,8 @@ struct mm_message {
 			int intensity;
 			int priority;
 			bool is_call_media;
+
+			struct le le;
 		} register_media_elem;
 		struct {
 			int intensity;
@@ -117,6 +120,7 @@ struct mm_message {
 			uint32_t msg_time;
 			int video_call;
 			int should_ring;
+			int conv_type;
 			void *arg;
 		} incomingh;
 		struct mm_platform_start_rec *rec_elem;
@@ -131,8 +135,10 @@ struct mm {
 	enum mediamgr_state hold_state;
 	enum mm_sys_state sys_state;
 	volatile bool started;
+	bool audio_started;
 	bool should_reset;
 	bool alloc_pending;
+	bool play_ready;
 
 	pthread_t thread;
 
@@ -159,6 +165,7 @@ struct mediamgr {
 
 
 static struct mm *g_mm = NULL;
+static struct list g_postponed_medial = LIST_INIT;
 
 
 /* prototypes */
@@ -272,7 +279,7 @@ static const char *event_name(enum mm_route_update_event event)
 	}
 }
 
-static void fire_callback(struct mm *mm)
+static void fire_callback_internal(struct mm *mm, enum mediamgr_state state)
 {
 	struct le *le;	
 
@@ -284,9 +291,18 @@ static void fire_callback(struct mm *mm)
 		info("mediamgr: fire_callback: firing callback for mm=%p\n",
 		     mgr);
 		
-		if (mgr->mcat_changed_h)
-			mgr->mcat_changed_h(mm->call_state, mgr->arg);
+		if (mgr->mcat_changed_h) {
+			enum mediamgr_state cbs;
+			cbs = state == MEDIAMGR_STATE_NORMAL ?
+				mm->call_state : state;
+			mgr->mcat_changed_h(cbs, mgr->arg);
+		}
 	}
+}
+
+static void fire_callback(struct mm *mm)
+{
+	fire_callback_internal(mm, MEDIAMGR_STATE_NORMAL);
 }
 
 static bool stop_playing_media(char *key, void *val, void *arg)
@@ -308,8 +324,9 @@ static bool stop_playing_media(char *key, void *val, void *arg)
 
 static void stop_all_media(struct mm *mm)
 {
-	dict_apply(mm->sounds, stop_playing_media, NULL);
-	
+	mm_platform_stop_delayed_play();
+
+	dict_apply(mm->sounds, stop_playing_media, NULL);	
 }
 
 
@@ -476,16 +493,22 @@ static void set_video_route(struct mm *mm)
 
 static void incall_action(struct mm *mm)
 {
-	info("mediamgr: incall_action\n");
-	
-	stop_all_media(mm);
+	info("mediamgr: incall_action play ready_to_talk: %d\n",
+	     mm->play_ready);
 
+	stop_all_media(mm);
+	
 	if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
 		set_video_route(mm);
-	
-	play_sound(mm, "ready_to_talk", true, false);
 
-	mediamgr_post_media_cmd(mm, MM_MARSHAL_AUDIO_ALLOC, NULL);
+	if (msystem_audio_is_activated() || mm->audio_started) {
+		if (mm->play_ready) {
+			mm->play_ready = false;
+			play_sound(mm, "ready_to_talk", true, false);
+		}
+
+		mediamgr_post_media_cmd(mm, MM_MARSHAL_AUDIO_ALLOC, NULL);
+	}
 }
 
 
@@ -537,6 +560,8 @@ static void mm_destructor(void *arg)
 	mm_platform_free(mm);
 
 	g_mm = NULL;
+
+	list_flush(&g_postponed_medial);
 }
 
 
@@ -730,8 +755,10 @@ static void update_route(struct mm *mm, enum mm_route_update_event event)
 
 	case MM_HEADSET_UNPLUGGED:
 		mm->router.wired_hs_is_connected = false;
-		if (mm->router.bt_device_is_connected)
+		if (mm->router.bt_device_is_connected
+		    && cur_route != MEDIAMGR_AUPLAY_SPEAKER) {
 			wanted_route = MEDIAMGR_AUPLAY_BT;
+		}
 		if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
 			mm->router.prefer_loudspeaker = true;
 		break;
@@ -749,8 +776,10 @@ static void update_route(struct mm *mm, enum mm_route_update_event event)
 
 	case MM_BT_DEVICE_DISCONNECTED:
 		mm->router.bt_device_is_connected = false;
-		if (mm->router.wired_hs_is_connected)
+		if (mm->router.wired_hs_is_connected
+		    && cur_route != MEDIAMGR_AUPLAY_SPEAKER) {
 			wanted_route = MEDIAMGR_AUPLAY_HEADSET;
+		}
 		if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
 			mm->router.prefer_loudspeaker = true;
 		break;
@@ -767,7 +796,7 @@ static void update_route(struct mm *mm, enum mm_route_update_event event)
 		else
 			wanted_route = cur_route;
 		break;
-		
+
 	default:
 		warning("mediamgr: illegal event: %d for system route\n",
 			event);
@@ -827,6 +856,8 @@ static void enter_call(struct mm *mm)
 {
 	info("mediamgr: enter_call: sys_state=%s\n",
 	     mm_sys_state_name(mm->sys_state));
+
+	mm->play_ready = true;
 	
 	switch (mm->sys_state) {
 	case MM_SYS_STATE_NORMAL:
@@ -1055,6 +1086,11 @@ void mediamgr_bt_device_connected(struct mm *mm, bool connected)
 	}
 }
 
+void mediamgr_update_route(struct mm *mm)
+{
+	update_route(mm, MM_DEVICE_CHANGED);
+}
+
 void mediamgr_device_changed(struct mm *mm)
 {
 	if (!mm)
@@ -1075,17 +1111,18 @@ void mediamgr_register_media(struct mediamgr *mediamgr,
 			     bool is_call_media)
 {
 	struct mm_message *elem;
-	struct mm *mm;
+	struct mm *mm = mediamgr ? mediamgr->mm : NULL;
+	int err = 0;
 
-	if (!mediamgr)
-		return;
+	info("mediamgr: mm=%p register_media: name=%s\n",
+	     mediamgr, media_name);	
 
-	mm = mediamgr->mm;
 	elem = mem_zalloc(sizeof(struct mm_message), NULL);
 	if (!elem) {
-		error("mediamgr_register_media failed \n");
+		error("mediamgr: register_media failed to alloc elem\n");
 		return;
 	}
+	
 	str_ncpy(elem->register_media_elem.media_name,
 		 media_name,
 		 sizeof(elem->register_media_elem.media_name));
@@ -1095,8 +1132,19 @@ void mediamgr_register_media(struct mediamgr *mediamgr,
 	elem->register_media_elem.intensity = intensity;
 	elem->register_media_elem.priority = priority;
 	elem->register_media_elem.is_call_media = is_call_media;
-	if (mqueue_push(mm->mq, MM_MARSHAL_REGISTER_MEDIA, elem) != 0) {
-		error("mediamgr_register_media failed \n");
+
+	if (mediamgr == NULL || mm == NULL || mm->mq == NULL) {
+		info("mediamgr: posponed media: %s\n",
+		     elem->register_media_elem.media_name);
+		list_append(&g_postponed_medial, &elem->register_media_elem.le,
+			    elem);
+	}
+	else {
+		err = mqueue_push(mm->mq, MM_MARSHAL_REGISTER_MEDIA, elem);
+		if (err) {
+			error("mediamgr: register_media: mqueue failed: %m\n",
+			      err);
+		}
 	}
 }
 
@@ -1344,24 +1392,38 @@ static void sys_left_call_handler(struct mm *mm)
 
 static void audio_alloc(struct mm *mm)
 {
-
+	int err = 0;
+#if 0	
 	if (mm->aio) {
+#if USE_AVSLIB
 		voe_deregister_adm();
+#endif
 		mm->aio = mem_deref(mm->aio);
 	}
+#endif
 	if (mm->aio) {
 		info("mediamgr: audio already allocated\n");
 		return;
 	}
 
 	info("mediamgr: allocating audio\n");
-	audio_io_alloc(&mm->aio, AUDIO_IO_MODE_NORMAL);
+	err = audio_io_alloc(&mm->aio, AUDIO_IO_MODE_NORMAL);
+	if (err) {
+		/* if we fail to alloc audio, we need to fail the call */
+		warning("mediamgr: audio_alloc: failed to alloc audio\n");
+
+		fire_callback_internal(mm, MEDIAMGR_STATE_ERROR);
+		goto out;
+	}
+#if USE_AVSLIB
 	voe_register_adm(mm->aio);
-	mm->alloc_pending = false;
+#endif	
 
 	info("mediamgr: audio_alloc: fire_callback\n");	
 	fire_callback(mm);
 
+ out:
+	mm->alloc_pending = false;
 }
 
 
@@ -1370,9 +1432,12 @@ static void audio_release(struct mm *mm)
 	info("mediamgr: audio_release: aio=%p\n", mm->aio);
 	
 	if (mm->aio) {
+#if USE_AVSLIB
 		voe_deregister_adm();
+#endif
 		mm->aio = mem_deref(mm->aio);
 	}	
+	mm->alloc_pending = false;
 }
 
 
@@ -1396,7 +1461,17 @@ static void audio_reset(struct mm *mm)
 	info("mediamgr: audio_reset: aio=%p\n", mm->aio);
 	
 	if (mm->aio) {
-		audio_io_reset(mm->aio);
+		int res;
+
+		res = audio_io_reset(mm->aio);
+		if (res < 0) {
+			warning("mediamgr: audio_reset failed\n");
+
+			fire_callback_internal(mm, MEDIAMGR_STATE_ERROR);
+		}
+	}
+	else {
+		enter_call(mm);
 	}
 }
 
@@ -1415,6 +1490,12 @@ void mediamgr_audio_reset(struct mediamgr *mediamgr)
 		mediamgr_audio_reset_mm(mediamgr->mm);
 	//	mediamgr->mm->should_reset = true;
 	}
+}
+
+void mediamgr_audio_start(struct mediamgr *mediamgr)
+{
+	if (mediamgr && mediamgr->mm)
+		mediamgr->mm->audio_started = true;
 }
 
 static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
@@ -1439,7 +1520,8 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 		set_state(mm, new_state);
 		stop_all_media(mm);
 		audio_release(mm);
-		msystem_set_muted(false);		
+		msystem_set_muted(false);
+		mm->audio_started = false;
 		switch (mm->sys_state) {
 		case MM_SYS_STATE_NORMAL:
 			break;
@@ -1582,6 +1664,23 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 }
 
 
+static void register_media(struct mm *mm, struct mm_message *msg)
+{
+	const char *mname = msg->register_media_elem.media_name;
+	void *mobject = msg->register_media_elem.media_object;
+	bool mixing = msg->register_media_elem.mixing;
+	bool incall = msg->register_media_elem.incall;
+	int intensity = msg->register_media_elem.intensity;
+	int priority = msg->register_media_elem.priority;
+	int is_call_media = msg->register_media_elem.is_call_media;
+
+	info("mediamgr: registering media: %s\n", mname);
+	
+	mm_platform_registerMedia(mm->sounds, mname, mobject, mixing,
+				  incall, intensity, priority,
+				  is_call_media);
+}
+
 static void mqueue_handler(int id, void *data, void *arg)
 {
 	struct mm *mm = arg;
@@ -1660,17 +1759,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 	break;
             
 	case MM_MARSHAL_REGISTER_MEDIA: {
-		const char *mname = msg->register_media_elem.media_name;
-		void *mobject = msg->register_media_elem.media_object;
-		bool mixing = msg->register_media_elem.mixing;
-		bool incall = msg->register_media_elem.incall;
-		int intensity = msg->register_media_elem.intensity;
-		int priority = msg->register_media_elem.priority;
-		int is_call_media = msg->register_media_elem.is_call_media;
-
-		mm_platform_registerMedia(mm->sounds, mname, mobject, mixing,
-					  incall, intensity, priority,
-					  is_call_media);
+		register_media(g_mm, msg);
 	}
 	break;
 
@@ -1730,6 +1819,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 						 msg->incomingh.userid,
 						 msg->incomingh.video_call,
 						 msg->incomingh.should_ring,
+						 msg->incomingh.conv_type,
 						 msg->incomingh.arg);
 		}
 		break;
@@ -1747,13 +1837,27 @@ static void mqueue_handler(int id, void *data, void *arg)
 }
 
 
+static void register_postponed_media(struct mm *mm)
+{
+	struct le *le;
+
+	info("mediamgr: registering postponed media: %d entries\n",
+	     list_count(&g_postponed_medial));
+	
+	LIST_FOREACH(&g_postponed_medial, le) {
+		struct mm_message *msg = le->data;
+		
+		register_media(mm, msg);
+	}
+
+	list_flush(&g_postponed_medial);
+}
+
 static void *mediamgr_thread(void *arg)
 {
 	struct mm *mm = arg;
 	int err;
 
-	mm->started = true;
-	
 #ifdef MM_USE_THREAD
 	info("mediamgr: thread started\n");
 	err = re_thread_init();
@@ -1771,7 +1875,11 @@ static void *mediamgr_thread(void *arg)
 		error("mediamgr_thread: cannot allocate mqueue (%m)\n", err);
 		goto out;
 	}
-
+	
+	mm->started = true;
+	if (g_postponed_medial.head)
+		register_postponed_media(mm);
+	
 	info("mediamgr_thread: read %d sounds\n", dict_count(mm->sounds));
 
 	mm->sys_state = MM_SYS_STATE_NORMAL;
@@ -1786,7 +1894,7 @@ static void *mediamgr_thread(void *arg)
 
 	re_thread_close();
 #else
-	re_tread_leave();
+	re_thread_leave();
 #endif
 
 out:
@@ -1828,6 +1936,7 @@ int mediamgr_invoke_incomingh(struct mediamgr *mediamgr,
 			      const char *convid, uint32_t msg_time,
 			      const char *userid, int video_call,
 			      int should_ring,
+			      int conv_type,
 			      void *arg)
 {
 
@@ -1843,6 +1952,7 @@ int mediamgr_invoke_incomingh(struct mediamgr *mediamgr,
 	elem->incomingh.msg_time = msg_time;
 	elem->incomingh.video_call = video_call;
 	elem->incomingh.should_ring = should_ring;
+	elem->incomingh.conv_type = conv_type;
 	elem->incomingh.arg = arg;
 
 	return mqueue_push(mediamgr->mm->mq, MM_MARSHAL_INVOKE_INCOMINGH, elem);

@@ -37,12 +37,10 @@ int ecall_add_turnserver(struct ecall *ecall,
 			 struct zapi_ice_server *srv);
 int  ecall_start(struct ecall *ecall,
 		 enum icall_call_type call_type,
-		 bool audio_cbr,
-		 void *extcodec_arg);
+		 bool audio_cbr);
 int  ecall_answer(struct ecall *ecall,
 		  enum icall_call_type call_type,
-		  bool audio_cbr,
-		  void *extcodec_arg);
+		  bool audio_cbr);
 void ecall_transp_recv(struct ecall *ecall,
 		       uint32_t curr_time, /* in seconds */
 		       uint32_t msg_time, /* in seconds */
@@ -62,16 +60,17 @@ const char *ecall_get_peer_userid(const struct ecall *ecall);
 const char *ecall_get_peer_clientid(const struct ecall *ecall);
 struct ecall *ecall_find_convid(const struct list *ecalls,
 				const char *convid);
-struct ecall *ecall_find_userid(const struct list *ecalls,
-				const char *userid);
+struct ecall *ecall_find_userclient(const struct list *ecalls,
+				    const char *userid,
+				    const char *clientid);
 int ecall_debug(struct re_printf *pf, const struct ecall *ecall);
-struct mediaflow *ecall_mediaflow(const struct ecall *ecall);
+int ecall_stats(struct re_printf *pf, const struct ecall *ecall);
+//struct mediaflow *ecall_mediaflow(const struct ecall *ecall);
 struct econn *ecall_get_econn(const struct ecall *ecall);
 enum econn_state ecall_state(const struct ecall *ecall);
 int ecall_media_start(struct ecall *ecall);
 void ecall_media_stop(struct ecall *ecall);
 int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate);
-int ecall_set_group_mode(struct ecall *ecall, bool active);
 bool ecall_is_answered(const struct ecall *ecall);
 bool ecall_has_video(const struct ecall *ecall);
 int ecall_propsync_request(struct ecall *ecall);
@@ -80,7 +79,7 @@ const char *ecall_props_get_remote(struct ecall *ecall, const char *key);
 void ecall_trace(struct ecall *ecall, const struct econn_message *msg,
 		 bool tx, enum econn_transport tp,
 		 const char *fmt, ...);
-int  ecall_restart(struct ecall *ecall);
+int  ecall_restart(struct ecall *ecall, enum icall_call_type call_type);
 
 struct conf_part *ecall_get_conf_part(struct ecall *ecall);
 void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp);
@@ -112,6 +111,14 @@ int ecall_user_data_register_ft_handlers(struct ecall *ecall,
                 ecall_user_data_file_rcv_h *f_rcv_h,
                 ecall_user_data_file_snd_h *f_snd_h);
 
+typedef void (ecall_confpart_h)(struct ecall *ecall, const struct list *partlist,
+				bool should_start, void *arg);
+
+int ecall_set_confpart_handler(struct ecall *ecall,
+			       ecall_confpart_h confparth);
+
+int ecall_dce_send(struct ecall *ecall, struct mbuf *mb);
+
 int ecall_set_quality_interval(struct ecall *ecall,
 			       uint64_t interval);
 
@@ -127,4 +134,22 @@ int  ecall_devpair_ack(struct ecall *ecall,
 		       const char *pairid);
 int ecall_remove(struct ecall *ecall);
 
+
+int ecall_add_decoders_for_user(struct ecall *ecall,
+				const char *userid,
+				const char *clientid,
+				uint32_t ssrca,
+				uint32_t ssrcv);
+int ecall_remove_decoders_for_user(struct ecall *ecall,
+				   const char *userid,
+				   const char *clientid,
+				   uint32_t ssrca,
+				   uint32_t ssrcv);
+
+int ecall_set_e2ee_key(struct ecall *ecall,
+		       uint32_t idx,
+		       uint8_t e2ee_key[E2EE_SESSIONKEY_SIZE]);
+
+
+void ecall_activate(void);
 

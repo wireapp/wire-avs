@@ -1,0 +1,78 @@
+
+Changes introduced in AVS 5.0
+=============================
+
+A new parameter conv_type added to specifying the type of protocol used (1:1/group/conference):
+
+typedef void (wcall_incoming_h)(const char *convid, uint32_t msg_time,
+				const char *userid, int video_call /*bool*/,
+				int should_ring /*bool*/,
+				int conv_type,
+				void *arg);
+
+conv_type is one of WCALL_CONV_TYPE_ONEONONE, WCALL_CONV_TYPE_GROUP, WCALL_CONV_TYPE_CONFERENCE
+
+A new callback for you to implement for sending HTTPS requests to the SFT:
+
+typedef int (wcall_sft_req_h)(void *ctx, const char *url,
+			      const uint8_t *data, size_t len,
+			      void *arg);
+
+and a function to pass the response back to AVS:
+
+void wcall_sft_resp(void *wuser, int perr, const uint8_t *buf, size_t len, void *ctx);
+
+New wcall_conf_start and wcall_conf_answer functions for passing in SFT URL and token:
+
+int wcall_conf_start(void *wuser, const char *convid,
+		     const char *sft_url,
+		     const char *sft_token,
+		     int call_type, /*WCALL_CALL_TYPE...*/
+		     int audio_cbr /*bool*/);
+
+int wcall_conf_answer(void *wuser, const char *convid,
+		      const char *sft_url,
+		      const char *sft_token,
+		      int call_type, /*WCALL_CALL_TYPE...*/
+		      int audio_cbr /*bool*/);
+
+AVS needs the list of clients in a conversation to be able to obfuscate the IDs from the SFT.
+Define a wcall_req_lients_h and set it in avs. When this is called pass the list to AVS
+
+typedef void (wcall_req_clients_h)(const char *convid, void *arg);
+
+void wcall_set_req_clients_handler(void *wuser, wcall_req_clients_h *reqch);
+int wcall_set_clients_for_conv(void *wuser,
+			       const char *convid,
+			       const char *carray[],
+			       size_t clen);
+
+
+Workflow for making a call:
+
+if group call and allowed to use conference:
+	get SFT URL and token for this conversation from BE
+	call wcall_conf_start passing URL and token plus the usual params
+else
+	call wcall_start as usual
+
+AVS will call wcall_sft_req_h, do a HTTPS post to the URL
+pass the results to wcall_sft_resp
+
+AVS will call wcall_req_clients_h, pass a list of all clients to wcall_set_clients_for_conv
+
+
+Workflow for receiving a call:
+
+AVS will call wcall_incoming_h giving the conversation/protocol type
+
+if conv_type == conference:
+	get SFT URL and token for this conversation from BE
+	call wcall_conf_answer passing URL and token plus the usual params
+else
+	call wcall_answer as usual
+
+AVS will call wcall_sft_req_h, do a HTTPS post to the URL
+pass the results to wcall_sft_resp
+
+AVS will call wcall_req_clients_h, pass a list of all clients to wcall_set_clients_for_conv

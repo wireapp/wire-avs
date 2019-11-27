@@ -113,10 +113,15 @@ public class AudioRouter {
     }
       
     this.subscribeToRouteUpdates();
-    
-    setupBluetooth();
-    registerForBluetoothScoIntentBroadcast(); // Where should we Unregister ??    
-    registerForWiredHeadsetIntentBroadcast();
+
+    try {
+	    setupBluetooth();
+	    registerForBluetoothScoIntentBroadcast(); // Where should we Unregister ??    
+	    registerForWiredHeadsetIntentBroadcast();
+    }
+    catch (Exception e) {
+	    // Bluetooth might not be supported on emulator	    
+    }
       
     _afListener = new OnAudioFocusChangeListener ( ) {
       public void onAudioFocusChange ( int focusChange ) { DoLog("DVA: On Audio Focus Change"); }

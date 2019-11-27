@@ -4,12 +4,12 @@
 #
 # source scripts/android_devenv.sh
 #
-# This will place the SDKs in ../android_dev, set the ANDROID_DEV_ROOT env variable
+# This will place the SDKs in ../android_dev, set the AVS_DEVTOOLS_ROOT env variable
 # to override
 #
 
-if [ -z "$ANDROID_DEV_ROOT" ]; then
-	ANDROID_DEV_ROOT=$(git rev-parse --show-toplevel)/../android_dev
+if [ -z "$AVS_DEVTOOLS_ROOT" ]; then
+	AVS_DEVTOOLS_ROOT=$(git rev-parse --show-toplevel)/../devtools
 fi
 
 PLATFORM=$(uname -s | awk '{ print tolower($1) }')
@@ -29,11 +29,11 @@ ANDROID_SDK_PKG=zip
 ANDROID_SDK_TARGET=android-sdk-$ANDROID_SDK_PLAT
 ANDROID_SDK_PKG_FILE=$ANDROID_SDK_VER-$ANDROID_SDK_PLAT.$ANDROID_SDK_PKG
 
-if [ ! -e $ANDROID_DEV_ROOT ]; then
-	mkdir -p $ANDROID_DEV_ROOT
+if [ ! -e $AVS_DEVTOOLS_ROOT ]; then
+	mkdir -p $AVS_DEVTOOLS_ROOT
 fi
 
-pushd $ANDROID_DEV_ROOT > /dev/null
+pushd $AVS_DEVTOOLS_ROOT > /dev/null
 
 if [ ! -e $ANDROID_NDK_VER ]; then
 	if [ ! -e $ANDROID_NDK_VER-$ANDROID_NDK_PLAT.zip ]; then
@@ -56,7 +56,7 @@ if [ ! -e $ANDROID_SDK_TARGET ]; then
 		tar zxf $ANDROID_SDK_PKG_FILE
 	fi
 
-	cd $ANDROID_DEV_ROOT/$ANDROID_SDK_TARGET
+	cd $AVS_DEVTOOLS_ROOT/$ANDROID_SDK_TARGET
 	tools/android update sdk --no-ui
 fi
 
@@ -66,8 +66,8 @@ echo "Setting environment variables"
 echo "NDK ($ANDROID_NDK_VER)"
 echo "SDK ($ANDROID_SDK_VER)"
 
-export ANDROID_HOME=$ANDROID_DEV_ROOT/$ANDROID_SDK_TARGET
-export ANDROID_SDK_ROOT=$ANDROID_DEV_ROOT/$ANDROID_SDK_TARGET
-export ANDROID_NDK_ROOT=$ANDROID_DEV_ROOT/$ANDROID_NDK_VER
+export ANDROID_HOME=$AVS_DEVTOOLS_ROOT/$ANDROID_SDK_TARGET
+export ANDROID_SDK_ROOT=$AVS_DEVTOOLS_ROOT/$ANDROID_SDK_TARGET
+export ANDROID_NDK_ROOT=$AVS_DEVTOOLS_ROOT/$ANDROID_NDK_VER
 export PATH=$PATH:$ANDROID_SDK_ROOT/platform-tools
 

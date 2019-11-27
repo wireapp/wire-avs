@@ -55,6 +55,10 @@ IOSX_MODULES += audioutil
 
 IOSX_MODMKS := $(patsubst %,iosx/src/%/mod.mk,$(IOSX_MODULES))
 IOSX_MKS    := $(OUTER_MKS) mk/iosx.mk $(IOSX_MODMKS)
+ifeq ($(AVS_OS),ios)
+IOSX_WEBRTCMKS  := mk/ios_webrtc.mk
+endif
+
 
 IOSX_LIB_NAME := avsiosx
 IOSX_FULL_NAME := avsobjc
@@ -74,6 +78,7 @@ IOSX_MASTER := $(IOSX_STATIC) $(IOSX_SHARED)
 IOSX_OBJ_PATH := $(BUILD_OBJ)/iosx
 
 include $(IOSX_MODMKS)
+include $(IOSX_WEBRTCMKS)
 
 IOSX_SRCS := $(IOSX_LIB_SRCS) $(IOSX_STUB_SRCS) $(IOSX_ANY_SRCS)
 
@@ -91,7 +96,11 @@ IOSX_M_OBJS := $(patsubst %.m,$(IOSX_OBJ_PATH)/%.o,\
 			$(filter %.m,$(IOSX_SRCS)))
 IOSX_MM_OBJS := $(patsubst %.mm,$(IOSX_OBJ_PATH)/%.o,\
 			$(filter %.mm,$(IOSX_SRCS)))
+IOSX_WEBRTC_OBJS := $(patsubst %.mm,$(IOSX_OBJ_PATH)/%.o,\
+			$(filter %.mm,$(IOSX_WEBRTC_SRCS)))
 IOSX_OBJS := $(IOSX_M_OBJS) $(IOSX_MM_OBJS)
+
+IOSX_LIB_OBJS += $(IOSX_WEBRTC_OBJS)
 
 IOSX_CPPFLAGS += \
 	-Iiosx/include
@@ -108,7 +117,7 @@ endif
 #--- Target Dependencies ---
 
 $(IOSX_OBJS): $(TOOLCHAIN_MASTER) $(AVS_DEPS)
-$(IOSX_LIB_OBJS): $(MENG_DEPS)
+$(IOSX_LIB_OBJS):
 
 ifeq ($(SKIP_MK_DEPS),)
 $(IOSX_OBJS): $(IOSX_MKS)
@@ -130,16 +139,27 @@ $(IOSX_M_OBJS): $(IOSX_OBJ_PATH)/%.o: iosx/src/%.m
 
 $(IOSX_MM_OBJS): $(IOSX_OBJ_PATH)/%.o: iosx/src/%.mm
 	@echo "  OCXX $(AVS_OS)-$(AVS_ARCH) iosx/src/$*.mm"
+	@echo "  OCXX SRCS: $(IOSX_MM_OBJS)"
 	@mkdir -p $(dir $@)
 	@$(CXX) -fvisibility=default $(CPPFLAGS) $(CXXFLAGS) $(OCPPFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) $(AVS_OPPCFLAGS) \
 		$(IOSX_CPPFLAGS) $(IOSX_CXXFLAGS) $(IOSX_OCPPFLAGS) \
 		-c $< -o $@ $(DFLAGS)
 
+$(IOSX_WEBRTC_OBJS): $(IOSX_OBJ_PATH)/%.o: contrib/webrtc/$(WEBRTC_VER)/ios/%.mm
+	@echo "  OCXX $(AVS_OS)-$(AVS_ARCH) contrib/webrtc/$(WEBRTC_VER)/ios/$*.mm"
+	@mkdir -p $(dir $@)
+	@$(CXX) -fvisibility=default $(CPPFLAGS) $(CXXFLAGS) $(`OCPPFLAGS) \
+		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) $(AVS_OPPCFLAGS) \
+		$(IOSX_CPPFLAGS) $(IOSX_CXXFLAGS) $(IOSX_OCPPFLAGS) \
+		$(IOSX_WEBRTC_CPPFLAGS) \
+		-c $< -o $@ $(DFLAGS)
+
+
 $(IOSX_LIB_STATIC): $(IOSX_LIB_OBJS)
 $(IOSX_STUB_STATIC): $(IOSX_STUB_OBJS)
 $(IOSX_LIB_STATIC) $(IOSX_STUB_STATIC):
-	@echo "  AR   $(AVS_OS)-$(AVS_ARCH) $@"
+	@echo "  AR   $(AVS_OS)-$(AVS_ARCH) $@ $^"
 	@mkdir -p $(dir $@)
 	@$(AR) $(AFLAGS) $@ $(filter %.o,$^)
 ifneq ($(RANLIB),)

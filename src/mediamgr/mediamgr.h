@@ -59,6 +59,7 @@ void mediamgr_audio_reset_mm(struct mm *mm);
 void mediamgr_reset_sounds(struct mm *mm);
 bool mediamgr_should_reset(struct mm *mm);
 
+void mediamgr_update_route(struct mm *mm);
 
 #endif
 

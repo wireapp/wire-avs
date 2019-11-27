@@ -1,0 +1,282 @@
+diff --git a/modules/utility/include/jvm_android.h b/modules/utility/include/jvm_android.h
+index eb18cc27f3..a70c9e7030 100644
+--- a/modules/utility/include/jvm_android.h
++++ b/modules/utility/include/jvm_android.h
+@@ -147,9 +147,11 @@ class JNIEnvironment {
+ //   JVM::Uninitialize();
+ class JVM {
+  public:
++  static void Initialize(JavaVM* jvm);
++  
+   // Stores global handles to the Java VM interface.
+   // Should be called once on a thread that is attached to the JVM.
+-  static void Initialize(JavaVM* jvm);
++  static void Initialize(JavaVM* jvm, JNIEnv *jni);
+   // Like the method above but also passes the context to the ContextUtils
+   // class. This method should be used by pure-C++ Android users that can't call
+   // ContextUtils.initialize directly.
+@@ -176,7 +178,7 @@ class JVM {
+   JavaVM* jvm() const { return jvm_; }
+ 
+  protected:
+-  JVM(JavaVM* jvm);
++  JVM(JavaVM* jvm, JNIEnv *jni);
+   ~JVM();
+ 
+  private:
+diff --git a/modules/utility/source/jvm_android.cc b/modules/utility/source/jvm_android.cc
+index 2d48c2d7be..7af3c70207 100644
+--- a/modules/utility/source/jvm_android.cc
++++ b/modules/utility/source/jvm_android.cc
+@@ -21,7 +21,38 @@
+ namespace webrtc {
+ 
+ JVM* g_jvm;
++JavaVM *g_vm;
++
++
++class Jni_Env {
++public:
++  Jni_Env() {
++    env = GetEnv(g_vm);
++    attached = false;
++    if (!env) {
++      RTC_LOG(INFO) << "Jni_Env::Attaching thread to JVM";
++      
++      jint ret = g_vm->AttachCurrentThread(&env, nullptr);
++      if (ret == JNI_OK) {
++	attached = true;
++      }
++      else {
++	attached = false;
++	env = nullptr;
++      }
++    }
++  }
++
++  ~Jni_Env() {
++    if (attached) {
++      g_vm->DetachCurrentThread();	  
++    }
++  }
+ 
++  JNIEnv *env;
++  bool attached;
++};
++  
+ // TODO(henrika): add more clases here if needed.
+ struct {
+   const char* name;
+@@ -49,11 +80,14 @@ void LoadClasses(JNIEnv* jni) {
+     RTC_CHECK(globalRef) << c.name;
+     c.clazz = globalRef;
+   }
++
++  RTC_LOG(INFO) << "LoadClasses: done";
+ }
+ 
+ void FreeClassReferences(JNIEnv* jni) {
+   for (auto& c : loaded_classes) {
+-    jni->DeleteGlobalRef(c.clazz);
++    Jni_Env jenv;
++    jenv.env->DeleteGlobalRef(c.clazz);
+     c.clazz = nullptr;
+   }
+ }
+@@ -105,8 +139,9 @@ GlobalRef::~GlobalRef() {
+ jboolean GlobalRef::CallBooleanMethod(jmethodID methodID, ...) {
+   va_list args;
+   va_start(args, methodID);
+-  jboolean res = jni_->CallBooleanMethodV(j_object_, methodID, args);
+-  CHECK_EXCEPTION(jni_) << "Error during CallBooleanMethod";
++  Jni_Env jenv;
++  jboolean res = jenv.env->CallBooleanMethodV(j_object_, methodID, args);
++  CHECK_EXCEPTION(jenv.env) << "Error during CallBooleanMethod";
+   va_end(args);
+   return res;
+ }
+@@ -114,8 +149,9 @@ jboolean GlobalRef::CallBooleanMethod(jmethodID methodID, ...) {
+ jint GlobalRef::CallIntMethod(jmethodID methodID, ...) {
+   va_list args;
+   va_start(args, methodID);
+-  jint res = jni_->CallIntMethodV(j_object_, methodID, args);
+-  CHECK_EXCEPTION(jni_) << "Error during CallIntMethod";
++  Jni_Env jenv;
++  jint res = jenv.env->CallIntMethodV(j_object_, methodID, args);
++  CHECK_EXCEPTION(jenv.env) << "Error during CallIntMethod";
+   va_end(args);
+   return res;
+ }
+@@ -123,7 +159,9 @@ jint GlobalRef::CallIntMethod(jmethodID methodID, ...) {
+ void GlobalRef::CallVoidMethod(jmethodID methodID, ...) {
+   va_list args;
+   va_start(args, methodID);
+-  jni_->CallVoidMethodV(j_object_, methodID, args);
++  Jni_Env jni;
++  if (jni.env)
++    jni.env->CallVoidMethodV(j_object_, methodID, args);
+   CHECK_EXCEPTION(jni_) << "Error during CallVoidMethod";
+   va_end(args);
+ }
+@@ -136,8 +174,9 @@ NativeRegistration::NativeRegistration(JNIEnv* jni, jclass clazz)
+ 
+ NativeRegistration::~NativeRegistration() {
+   RTC_LOG(INFO) << "NativeRegistration::dtor";
+-  jni_->UnregisterNatives(j_class_);
+-  CHECK_EXCEPTION(jni_) << "Error during UnregisterNatives";
++  Jni_Env jenv;
++  jenv.env->UnregisterNatives(j_class_);
++  CHECK_EXCEPTION(jenv.env) << "Error during UnregisterNatives";
+ }
+ 
+ std::unique_ptr<GlobalRef> NativeRegistration::NewObject(const char* name,
+@@ -146,41 +185,47 @@ std::unique_ptr<GlobalRef> NativeRegistration::NewObject(const char* name,
+   RTC_LOG(INFO) << "NativeRegistration::NewObject";
+   va_list args;
+   va_start(args, signature);
+-  jobject obj = jni_->NewObjectV(
++  Jni_Env jenv;
++  jobject obj = jenv.env->NewObjectV(
+       j_class_, GetMethodID(jni_, j_class_, name, signature), args);
+-  CHECK_EXCEPTION(jni_) << "Error during NewObjectV";
++  CHECK_EXCEPTION(jenv.env) << "Error during NewObjectV";
+   va_end(args);
+   return std::unique_ptr<GlobalRef>(new GlobalRef(jni_, obj));
+ }
+ 
+ // JavaClass implementation.
+ jmethodID JavaClass::GetMethodId(const char* name, const char* signature) {
+-  return GetMethodID(jni_, j_class_, name, signature);
++  Jni_Env jenv;
++  return GetMethodID(jenv.env, j_class_, name, signature);
+ }
+ 
+ jmethodID JavaClass::GetStaticMethodId(const char* name,
+                                        const char* signature) {
+-  return GetStaticMethodID(jni_, j_class_, name, signature);
++  Jni_Env jenv;
++  return GetStaticMethodID(jenv.env, j_class_, name, signature);
+ }
+ 
+ jobject JavaClass::CallStaticObjectMethod(jmethodID methodID, ...) {
+   va_list args;
+   va_start(args, methodID);
+-  jobject res = jni_->CallStaticObjectMethodV(j_class_, methodID, args);
+-  CHECK_EXCEPTION(jni_) << "Error during CallStaticObjectMethod";
++  Jni_Env jenv;
++  jobject res = jenv.env->CallStaticObjectMethodV(j_class_, methodID, args);
++  CHECK_EXCEPTION(jenv.env) << "Error during CallStaticObjectMethod";
+   return res;
+ }
+ 
+ jint JavaClass::CallStaticIntMethod(jmethodID methodID, ...) {
+   va_list args;
+   va_start(args, methodID);
+-  jint res = jni_->CallStaticIntMethodV(j_class_, methodID, args);
+-  CHECK_EXCEPTION(jni_) << "Error during CallStaticIntMethod";
++  Jni_Env jenv;
++  jint res = jenv.env->CallStaticIntMethodV(j_class_, methodID, args);
++  CHECK_EXCEPTION(jenv.env) << "Error during CallStaticIntMethod";
+   return res;
+ }
+ 
+ // JNIEnvironment implementation.
+ JNIEnvironment::JNIEnvironment(JNIEnv* jni) : jni_(jni) {
++  (void)jni_;
+   RTC_LOG(INFO) << "JNIEnvironment::ctor";
+ }
+ 
+@@ -196,36 +241,48 @@ std::unique_ptr<NativeRegistration> JNIEnvironment::RegisterNatives(
+   RTC_LOG(INFO) << "JNIEnvironment::RegisterNatives: " << name;
+   RTC_DCHECK(thread_checker_.CalledOnValidThread());
+   jclass clazz = LookUpClass(name);
+-  jni_->RegisterNatives(clazz, methods, num_methods);
+-  CHECK_EXCEPTION(jni_) << "Error during RegisterNatives";
++  Jni_Env jenv;
++  jenv.env->RegisterNatives(clazz, methods, num_methods);
++  CHECK_EXCEPTION(jenv.env) << "Error during RegisterNatives";
+   return std::unique_ptr<NativeRegistration>(
+-      new NativeRegistration(jni_, clazz));
++      new NativeRegistration(jenv.env, clazz));
+ }
+ 
+ std::string JNIEnvironment::JavaToStdString(const jstring& j_string) {
+   RTC_DCHECK(thread_checker_.CalledOnValidThread());
+-  const char* jchars = jni_->GetStringUTFChars(j_string, nullptr);
+-  CHECK_EXCEPTION(jni_);
+-  const int size = jni_->GetStringUTFLength(j_string);
+-  CHECK_EXCEPTION(jni_);
++  Jni_Env jenv;
++  const char* jchars = jenv.env->GetStringUTFChars(j_string, nullptr);
++  CHECK_EXCEPTION(jenv.env);
++  const int size = jenv.env->GetStringUTFLength(j_string);
++  CHECK_EXCEPTION(jenv.env);
+   std::string ret(jchars, size);
+-  jni_->ReleaseStringUTFChars(j_string, jchars);
+-  CHECK_EXCEPTION(jni_);
++  jenv.env->ReleaseStringUTFChars(j_string, jchars);
++  CHECK_EXCEPTION(jenv.env);
+   return ret;
+ }
+ 
+ // static
+-void JVM::Initialize(JavaVM* jvm) {
++ void JVM::Initialize(JavaVM* jvm) {
++   Jni_Env jenv;
++
++   Initialize(jvm, jenv.env);
++ }
++  
++ void JVM::Initialize(JavaVM* jvm, JNIEnv *jni) {
+   RTC_LOG(INFO) << "JVM::Initialize";
+   RTC_CHECK(!g_jvm);
+-  g_jvm = new JVM(jvm);
++  g_jvm = new JVM(jvm, jni);
+ }
+ 
+ void JVM::Initialize(JavaVM* jvm, jobject context) {
+-  Initialize(jvm);
++  g_vm = jvm;
++  Jni_Env jenv;
++  JNIEnv* jni = jenv.env;
++  
++  Initialize(jvm, jni);
+ 
+   // Pass in the context to the new ContextUtils class.
+-  JNIEnv* jni = g_jvm->jni();
++  //JNIEnv* jni = g_jvm->jni();
+   jclass context_utils = FindClass(jni, "org/webrtc/ContextUtils");
+   jmethodID initialize_method = jni->GetStaticMethodID(
+       context_utils, "initialize", "(Landroid/content/Context;)V");
+@@ -246,10 +303,11 @@ JVM* JVM::GetInstance() {
+   return g_jvm;
+ }
+ 
+-JVM::JVM(JavaVM* jvm) : jvm_(jvm) {
++  JVM::JVM(JavaVM* jvm, JNIEnv *jni) : jvm_(jvm) {
+   RTC_LOG(INFO) << "JVM::JVM";
+-  RTC_CHECK(jni()) << "AttachCurrentThread() must be called on this thread.";
+-  LoadClasses(jni());
++  RTC_CHECK(jni) << "AttachCurrentThread() must be called on this thread.";
++  g_jvm = this;
++  LoadClasses(jni);
+ }
+ 
+ JVM::~JVM() {
+@@ -266,13 +324,15 @@ std::unique_ptr<JNIEnvironment> JVM::environment() {
+   // its JNIEnv, we should share the JavaVM, and use GetEnv to discover the
+   // thread's JNIEnv. (Assuming it has one, if not, use AttachCurrentThread).
+   // See // http://developer.android.com/training/articles/perf-jni.html.
++#if 0
+   JNIEnv* jni = GetEnv(jvm_);
+   if (!jni) {
+     RTC_LOG(LS_ERROR)
+         << "AttachCurrentThread() has not been called on this thread";
+     return std::unique_ptr<JNIEnvironment>();
+   }
+-  return std::unique_ptr<JNIEnvironment>(new JNIEnvironment(jni));
++#endif
++  return std::unique_ptr<JNIEnvironment>(new JNIEnvironment(nullptr));
+ }
+ 
+ JavaClass JVM::GetClass(const char* name) {

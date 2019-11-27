@@ -21,7 +21,7 @@
 #include <pthread.h>
 #ifdef ANDROID
 #include <android/log.h>
-#include "webrtc/voice_engine/include/voe_base.h"
+//#include "webrtc/voice_engine/include/voe_base.h"
 #endif
 
 #include "avs_mediamgr.h"

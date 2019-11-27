@@ -49,10 +49,10 @@ endif
 # arch "osx" to trigger the OSX build for the zip file.
 #
 ifeq ($(DIST_ARCH),)
-	DIST_ARCH := $(ALL_AVS_ARCH)
+	DIST_ARCH := $(ALL_AVS_ARCH) osx
 endif
 
-DIST_ARCH_android := $(filter armv7 i386 osx,$(DIST_ARCH))
+DIST_ARCH_android := $(filter armv7 arm64 i386 x86_64 osx,$(DIST_ARCH))
 DIST_ARCH_ios := $(filter armv7 arm64 x86_64,$(DIST_ARCH))
 
 DIST_FMWK_VERSION := A
@@ -68,6 +68,7 @@ BUILD_DIST_AND := $(BUILD_DIST_BASE)/android
 BUILD_DIST_IOS := $(BUILD_DIST_BASE)/ios
 BUILD_DIST_OSX := $(BUILD_DIST_BASE)/osx
 BUILD_DIST_LINUX := $(BUILD_DIST_BASE)/linux
+BUILD_DIST_WASM := $(BUILD_DIST_BASE)/wasm
 
 BUILD_LIB_REL := avs
 BUILD_LIB_REL_V := $(BUILD_LIB_REL)/Versions/$(DIST_FMWK_VERSION)
@@ -92,7 +93,7 @@ DIST_BUNDLE_LIB := \
 	DTPlatformBuild="14C89";\
 	DTCompiler="com.apple.compilers.llvm.clang.1_0";\
 	DTXCodeBuild="8C1002";\
-	MinimumOSVersion="8.0";\
+	MinimumOSVersion="10.0";\
 	UIDeviceFamily=(1, 2);\
 	BuildMachineOSBuild="16D32";\
 	CFBundleDevelopmentRegion="en";\
@@ -115,11 +116,36 @@ DIST_OSX_TARGETS := \
 DIST_LINUX_TARGETS := \
 	$(BUILD_DIST_LINUX)/avscore.tar.bz2
 
+DIST_WASM_PKG_VERSION := $(subst snapshot,0,$(AVS_VERSION))
+DIST_WASM_TARGETS := \
+	$(BUILD_DIST_WASM)/avs-web-$(DIST_WASM_PKG_VERSION).tgz
+
 
 #--- Android ---
 
 
 DIST_AND_BUILDINFO := <?xml version="1.0" encoding="utf-8"?><resources><string name="avs_version">$(BUILDVERSION)</string></resources>
+
+define build_arch
+	mkdir -p $(BUILD_DIST_AND)/aar/jni/$2
+	$(MAKE) toolchain AVS_OS=android AVS_ARCH=$1 && \
+	$(MAKE) contrib AVS_OS=android AVS_ARCH=$1 && \
+	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=$1 && \
+	$(MAKE) android_shared AVS_OS=android AVS_ARCH=$1
+
+	@echo TOOLCHAIN=$(TOOLCHAIN_PATH)
+	@echo BUILD_TARGET=$(BUILD_TARGET)
+	exit
+	@rm -rf android/obj
+	@rm -rf android/libs
+	@echo "\
+APP_ABI=$2\n\
+AVS_ARCH_NAME := $1\n\
+" > build/android-$1/Arch.mk
+	$(TOOLCHAIN_BASE_PATH)/android-$1/ndk/ndk-build -C android -I ../build/android-$1
+	cp android/libs/$2/libavs.so \
+		$(BUILD_DIST_AND)/aar/jni/$2/libavs.so
+endef
 
 .PHONY: $(BUILD_DIST_AND)/avs.aar
 $(BUILD_DIST_AND)/avs.aar:
@@ -127,36 +153,27 @@ $(BUILD_DIST_AND)/avs.aar:
 	@$(MAKE) android_jar AVS_OS=android AVS_ARCH=armv7
 	@cp $(BUILD_BASE)/android-armv7/classes.jar \
 		$(BUILD_DIST_AND)/aar
+
 ifneq ($(filter armv7,$(DIST_ARCH)),)
-	@mkdir -p $(BUILD_DIST_AND)/aar/jni/armeabi-v7a
-	@$(MAKE) toolchain AVS_OS=android AVS_ARCH=armv7 && \
-	$(MAKE) contrib AVS_OS=android AVS_ARCH=armv7 && \
-	$(MAKE) $(JOBS) mediaengine AVS_OS=android AVS_ARCH=armv7 && \
-	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=armv7 && \
-	$(MAKE) android_shared AVS_OS=android AVS_ARCH=armv7 && \
-	$(MAKE) tools test AVS_OS=android AVS_ARCH=armv7
-	@echo TOOLCHAIN=$(TOOLCHAIN_PATH)
-	@rm -rf android/obj
-	@rm -rf android/libs
-	@$(TOOLCHAIN_BASE_PATH)/android-armv7/ndk/ndk-build -C android
-	@cp android/libs/armeabi-v7a/libavs.so \
-		$(BUILD_DIST_AND)/aar/jni/armeabi-v7a/libavs.so
+	$(call build_arch,armv7,armeabi-v7a)
 endif
+
+ifneq ($(filter arm64,$(DIST_ARCH)),)
+	$(call build_arch,arm64,arm64-v8a)
+endif
+
 ifneq ($(filter i386,$(DIST_ARCH)),)
-	@mkdir -p $(BUILD_DIST_AND)/aar/jni/x86
-	@$(MAKE) toolchain AVS_OS=android AVS_ARCH=i386 && \
-	$(MAKE) contrib AVS_OS=android AVS_ARCH=i386 && \
-	$(MAKE) $(JOBS) mediaengine AVS_OS=android AVS_ARCH=i386 && \
-	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=i386 && \
-	$(MAKE) android_shared AVS_OS=android AVS_ARCH=i386
-	@cp $(BUILD_BASE)/android-i386/lib/libavs.stripped.so \
-		$(BUILD_DIST_AND)/aar/jni/x86/libavs.so
+	$(call build_arch,i386,x86)
 endif
+
+ifneq ($(filter x86_64,$(DIST_ARCH)),)
+	$(call build_arch,x86_64,x86_64)
+endif
+
 ifneq ($(filter osx,$(DIST_ARCH)),)
 	@mkdir -p $(BUILD_DIST_AND)/aar/jni/darwin
 	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) contrib AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) $(JOBS) mediaengine AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=x86_64
 	@cp $(BUILD_BASE)/osx-x86_64/lib/libavs.jnilib \
@@ -177,7 +194,6 @@ $(BUILD_DIST_AND)/avs.zip:
 ifneq ($(filter armv7,$(DIST_ARCH)),)
 	@$(MAKE) toolchain AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) contrib AVS_OS=android AVS_ARCH=armv7 && \
-	$(MAKE) $(JOBS) mediaengine AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) android_shared AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) tools test AVS_OS=android AVS_ARCH=armv7
@@ -185,20 +201,37 @@ ifneq ($(filter armv7,$(DIST_ARCH)),)
 	@cp $(BUILD_BASE)/android-armv7/lib/libavs.so \
 		$(BUILD_DIST_AND)/zip/libs/armeabi-v7a
 endif
+ifneq ($(filter arm64,$(DIST_ARCH)),)
+	@$(MAKE) toolchain AVS_OS=android AVS_ARCH=arm64 && \
+	$(MAKE) contrib AVS_OS=android AVS_ARCH=arm64 && \
+	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=arm64 && \
+	$(MAKE) android_shared AVS_OS=android AVS_ARCH=arm64 && \
+	$(MAKE) tools test AVS_OS=android AVS_ARCH=arm64
+	@mkdir -p $(BUILD_DIST_AND)/zip/libs/arm64-v8a
+	@cp $(BUILD_BASE)/android-arm64/lib/libavs.so \
+		$(BUILD_DIST_AND)/zip/libs/arm64-v8a
+endif
 ifneq ($(filter i386,$(DIST_ARCH)),)
 	@$(MAKE) toolchain AVS_OS=android AVS_ARCH=i386 && \
 	$(MAKE) contrib AVS_OS=android AVS_ARCH=i386 && \
-	$(MAKE) $(JOBS) mediaengine AVS_OS=android AVS_ARCH=i386 && \
 	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=i386 && \
 	$(MAKE) android_shared AVS_OS=android AVS_ARCH=i386
 	@mkdir -p $(BUILD_DIST_AND)/zip/libs/x86
 	@cp $(BUILD_BASE)/android-i386/lib/libavs.so \
 		$(BUILD_DIST_AND)/zip/libs/x86
 endif
+ifneq ($(filter x86_64,$(DIST_ARCH)),)
+	@$(MAKE) toolchain AVS_OS=android AVS_ARCH=x86_64 && \
+	$(MAKE) contrib AVS_OS=android AVS_ARCH=x86_64 && \
+	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=x86_64 && \
+	$(MAKE) android_shared AVS_OS=android AVS_ARCH=x86_64
+	@mkdir -p $(BUILD_DIST_AND)/zip/libs/x86_64
+	@cp $(BUILD_BASE)/android-x86_64/lib/libavs.so \
+		$(BUILD_DIST_AND)/zip/libs/x86_64
+endif
 ifneq ($(filter osx,$(DIST_ARCH)),)
 	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) contrib AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) $(JOBS) mediaengine AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=x86_64
 	@mkdir -p $(BUILD_DIST_AND)/zip/libs/osx
@@ -209,12 +242,12 @@ ifneq ($(filter osx,$(DIST_ARCH)),)
 		$(BUILD_DIST_AND)/zip/libs/darwin/libavs.dylib
 
 endif
-#	@echo 'GEN BUILD INFO > $(BUILD_DIST_AND)/zip/version.buildinfo'
-#	@echo `genbuildinfo -b BUILDCONTROL -c ../buildcomponents/android`
+	@echo 'GEN BUILD INFO > $(BUILD_DIST_AND)/zip/version.buildinfo'
+	@echo `genbuildinfo -b BUILDCONTROL -c ../buildcomponents/android`
 #	@echo '$(DIST_AND_BUILDINFO)' \
 #		> $(BUILD_DIST_AND)/zip/version.buildinfo
-#	@genbuildinfo -b BUILDCONTROL -c ../build/components/android \
-#		-o $(BUILD_DIST_AND)/zip/version.buildinfo
+	@genbuildinfo -b BUILDCONTROL -c ../build/components/android \
+		-o $(BUILD_DIST_AND)/zip/version.buildinfo
 	@( cd $(BUILD_DIST_AND)/zip && zip -r $@ * )
 
 
@@ -252,7 +285,6 @@ $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Modules:
 $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
 	@for arch in $(DIST_ARCH_ios) ; do \
 		$(MAKE) contrib AVS_OS=ios AVS_ARCH=$$arch && \
-		$(MAKE) $(JOBS) mediaengine AVS_OS=ios AVS_ARCH=$$arch && \
 		$(MAKE) $(JOBS) avs AVS_OS=ios AVS_ARCH=$$arch && \
 		$(MAKE) iosx AVS_OS=ios AVS_ARCH=$$arch ; \
 	done
@@ -266,8 +298,6 @@ dist_test: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 .PHONY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
 	@$(MAKE) contrib AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) $(JOBS) mediaengine AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=x86_64 && \
 	$(MAKE) iosx AVS_OS=osx AVS_ARCH=x86_64
 	@mkdir -p $(dir $@)
 	@cp $(BUILD_BASE)/osx-x86_64/lib/avs.framework/avs $@
@@ -284,7 +314,8 @@ $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL).framework.zip: \
 	cp -R $(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/* \
 		$(BUILD_DIST_BASE)/$*/Carthage/Build/iOS/avs.framework
 	dsymutil -o $(BUILD_DIST_BASE)/$*/Carthage/Build/iOS/avs.framework.dSYM \
-		$(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
+		$(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/$(BUILD_LIB_REL) \
+		2>/dev/null
 	@( cd $(BUILD_DIST_BASE)/$* && \
 		zip --symlinks -r $@ Carthage )
 
@@ -320,13 +351,59 @@ $(BUILD_DIST_BASE)/%/avscore.tar.bz2:
 	@( cd $(dir $@) && tar cfj $@ avscore)
 
 
+#--- Wasm ---
+
+DIST_WASM_JS_TARGET := $(BUILD_DIST_WASM)/src/avs_core.js
+DIST_WASM_PC_TARGET := $(BUILD_DIST_WASM)/src/avs_pc.js
+DIST_WASM_WC_TARGET := $(BUILD_DIST_WASM)/src/avs_wcall.ts
+DIST_WASM_PKG_TARGET := $(BUILD_DIST_WASM)/package.json
+
+ifeq ($(WASM_PATH),)
+EMCC	:= emcc
+else
+EMCC 	:= $(WASM_PATH)/emcc
+endif
+
+
+$(DIST_WASM_JS_TARGET):
+	$(MAKE) AVS_OS=wasm AVS_ARCH=generic avs
+	@mkdir -p $(BUILD_DIST_WASM)/src
+	$(EMCC) -o $(DIST_WASM_JS_TARGET) \
+		$(BUILD_BASE)/wasm-generic/lib/libavscore.a \
+		$(BUILD_BASE)/wasm-generic/lib/libre.a \
+		-s EXTRA_EXPORTED_RUNTIME_METHODS='["ccall", "cwrap", "addFunction", "UTF8ToString", "lengthBytesUTF8", "stringToUTF8"]' \
+		-s RESERVED_FUNCTION_POINTERS=128 \
+		-s SINGLE_FILE=1 \
+		-s MODULARIZE=1 -s EXPORT_NAME='avs_core' \
+		-s EXPORT_ES6=1
+
+$(DIST_WASM_PC_TARGET):
+	@mkdir -p $(BUILD_DIST_WASM)
+	@cp -r wasm/. $(BUILD_DIST_WASM)
+	@rm -f $(BUILD_DIST_WASM)/package.json
+
+$(DIST_WASM_PKG_TARGET):
+	@cat $(BUILD_DIST_WASM)/package.json.template | \
+		awk '{ gsub("AVS_VERSION", "$(DIST_WASM_PKG_VERSION)", $$0); print; }' > $@
+
+$(DIST_WASM_WC_TARGET):
+	@mkdir -p $(BUILD_DIST_WASM)
+	@python scripts/wcall2ts.py include/avs_wcall.h scripts/avs_wcall.template $@
+	@prettier --write $@
+
+$(DIST_WASM_TARGETS): $(DIST_WASM_JS_TARGET) $(DIST_WASM_PC_TARGET) $(DIST_WASM_WC_TARGET) \
+	$(DIST_WASM_PKG_TARGET)
+	@( cd $(dir $@) && npm install && npm pack)
+
+
 #--- Phony Targets ---
 
-.PHONY: dist_android dist_ios dist_osx dist_linux dist dist_host dist_clean
-dist_android: android_symlinks $(DIST_AND_TARGETS)
+.PHONY: dist_android dist_ios dist_osx dist_linux dist_wasm dist dist_host dist_clean
+dist_android: $(DIST_AND_TARGETS)
 dist_ios: $(DIST_IOS_TARGETS)
 dist_osx: $(DIST_OSX_TARGETS)
 dist_linux: $(DIST_LINUX_TARGETS)
+dist_wasm: $(DIST_WASM_TARGETS)
 dist_clean:
 	@rm -rf $(BUILD_DIST_BASE)
 
@@ -334,6 +411,6 @@ ifeq ($(HOST_OS),linux)
 dist: dist_linux
 dist_host: dist_linux
 else
-dist: dist_android dist_ios dist_osx
+dist: dist_android dist_ios dist_osx dist_wasm
 dist_host: dist_osx
 endif

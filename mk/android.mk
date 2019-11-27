@@ -49,9 +49,9 @@ AND_JAR := $(BUILD_TARGET)/classes.jar
 
 AND_CLSS := $(patsubst %.java,$(AND_CLS_TARGET)/%.class,$(AND_JAVA_SRCS))
 
-AND_CC_OBJS := \
-	$(patsubst %.cc,$(AND_OBJ_TARGET)/%.o,$(filter %.cc,$(AND_JNI_SRCS)))
-AND_OBJS := $(AND_CC_OBJS)
+#AND_CC_OBJS := \
+#	$(patsubst %.cc,$(AND_OBJ_TARGET)/%.o,$(filter %.cc,$(AND_JNI_SRCS)))
+#AND_OBJS := $(AND_CC_OBJS)
 
 ifeq ($(AVS_OS),android)
 ifneq ($(AVS_PROJECT),avsopen)
@@ -86,6 +86,10 @@ $(AND_CLSS): $(AND_CLS_TARGET)/%.class: $(AND_CLASSPATH)/%.java
 		$<
 
 $(AND_JAR): $(AND_CLSS)
+	@echo "  UNZ webrtc jars"
+	@unzip -o contrib/webrtc/$(WEBRTC_VER)/java/base.jar -d $(AND_CLS_TARGET)
+	@unzip -o contrib/webrtc/$(WEBRTC_VER)/java/audiodev.jar -d $(AND_CLS_TARGET)
+	@rm -r $(AND_CLS_TARGET)/META-INF
 	@echo "  ZIP  $(AVS_OS)-$(AVS_ARCH) $@"
 	@mkdir -p $(dir $@)
 	@( cd $(AND_CLS_TARGET) && zip -r $@ * )
@@ -104,20 +108,20 @@ $(AND_SHARED):  $(AND_OBJS) $(AVS_STATIC) $(MENG_STATIC)
 	@$(LD) $(SH_LFLAGS) $(LFLAGS) $(AND_LFLAGS) \
 		$(AND_OBJS) $(AVS_STATIC) $(MENG_STATIC) \
 		$(SH_LIBS) $(LIBS) $(AVS_LIBS) $(MENG_LIBS) $(AND_LIBS) -o $@
-	@$(STRIP) --strip-unneeded $@
+	# @$(STRIP) --strip-unneeded $@
 
 $(AND_SHARED_STRIPPED): $(AND_SHARED)
 	@echo "  STR  $(AVS_OS)-$(AVS_ARCH) $@"
 	@mkdir -p $(dir $@)
 	@cp $< $@
-	@$(STRIP) --strip-unneeded $@
+	# @$(STRIP) --strip-unneeded $@
 
 #--- Phony Targets ---
 
 .PHONY: android android_jar android_shared android_clean
-android: android_symlinks $(AND_JAR) $(AND_SHARED) $(AND_SHARED_STRIPPED)
 android: $(AND_JAR) $(AND_SHARED) $(AND_SHARED_STRIPPED)
-android_jar: android_symlinks $(AND_JAR)
+android: $(AND_JAR) $(AND_SHARED) $(AND_SHARED_STRIPPED)
+android_jar: $(AND_JAR)
 android_shared: $(AND_SHARED) $(AND_SHARED_STRIPPED)
 android_clean:
 	@rm -rf $(AND_CLS_TARGET)
@@ -155,13 +159,4 @@ android_zcall:
 .PHONY: android_shell
 android_shell:
 	@$(ADB) shell
-
-PHONY: android_symlinks
-android_symlinks:
-	@rm -rf android/java/org/webrtc/
-	@echo "setting up symlinks for webrtc"
-	@mkdir -p android/java/org/webrtc/
-	@ln -s ../../../../mediaengine/webrtc/modules/audio_device/android/java/src/org/webrtc/voiceengine android/java/org/webrtc/
-	@ln -s ../../../../mediaengine/webrtc/base/java/src/org/webrtc/Logging.java android/java/org/webrtc/
-	@ln -s ../../../../mediaengine/webrtc/base/java/src/org/webrtc/ThreadUtils.java android/java/org/webrtc/
 

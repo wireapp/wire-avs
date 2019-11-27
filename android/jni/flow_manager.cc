@@ -21,7 +21,9 @@
 #include <android/log.h>
 #endif
 
-#include "webrtc/voice_engine/include/voe_base.h"
+//#include "webrtc/voice_engine/include/voe_base.h"
+#include "rtc_base/platform_thread_types.h"
+#include "modules/utility/include/jvm_android.h"
 
 #include <unistd.h>
 #include <pthread.h>
@@ -33,8 +35,8 @@
 #include <re/re_dbg.h>
 #include <avs.h>
 #include <avs_wcall.h>
-
-#include <avs_vie.h>
+#include <avs_peerflow.h>
+#include <avs_conf_pos.h>
 #include <avs_network.h>
 
 #ifdef ANDROID
@@ -53,6 +55,7 @@
 
 #define THREAD_NAME "re_main"
 
+#define USERCLIENT_LEN 128
 struct jfm;
 
 static struct {
@@ -140,6 +143,12 @@ struct jfm {
 
 	enum flowmgr_video_send_state video_state;
 };
+
+static void get_userclient(char* userclient, size_t max_len,
+			  const char* userid, const char *clientid)
+{
+	re_snprintf(userclient, max_len, "%s.%s", userid, clientid);
+}
 
 static int vie_jni_get_view_size_handler(const void *view, int *w, int *h);
 
@@ -298,7 +307,7 @@ void *flowmgr_thread(void *arg)
 	/* Force the loading of wcall symbols! 
 	 * Can't this be done with a linker directive?
 	 */
-	wcall_get_members(NULL, NULL);
+	wcall_get_members(0, NULL);
 
 	err = libre_init();
 	if (err) {
@@ -387,6 +396,16 @@ static int setup_breakpad(JNIEnv *env, jobject ctx)
 #endif
 #endif
 
+static void log_handler(uint32_t level, const char *msg, void *arg)
+{
+	__android_log_write(ANDROID_LOG_INFO, "AVS-N", msg);
+}
+
+
+struct log logh = {
+	.h = log_handler,
+	.arg = NULL,
+};
 
 static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 {
@@ -396,15 +415,20 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 	int err = 0;
 
 	log_set_min_level(LOG_LEVEL_DEBUG);
+	log_register_handler(&logh);
 
+	__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: init\n");
 	info("jni: init\n");
-    
+
+
+#if 0
 	res = env->GetJavaVM(&java.vm);
 	if (res != JNI_OK) {
 		warning("jni: call_manager: no Java VM\n");
 		err = ENOSYS;
 		goto out;
 	}
+#endif
 
 	dns_init(java.vm);
 
@@ -475,9 +499,29 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 									"(I)V");
     
 #ifdef ANDROID
-	info("Calling SetAndroidObjects\n");
-	webrtc::VoiceEngine::SetAndroidObjects(java.vm, ctx);
+	//info("Calling SetAndroidObjects\n");
+	//	webrtc::VoiceEngine::SetAndroidObjects(java.vm, ctx);
 
+	__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: setting ctx\n");
+	info("calling webrtc::JVM:Initialize: vm=%p ctx=%p\n",
+	     java.vm, ctx);
+	peerflow_start_log();
+
+	//   // At initialization (e.g. in JNI_OnLoad), call JVM::Initialize.
+	//JNIEnv* jni = ::base::android::AttachCurrentThread();
+	//JavaVM* jvm = NULL;
+	//jni->GetJavaVM(&jvm);
+	//  webrtc::JVM::Initialize(jvm);
+
+
+	if (1) {
+		webrtc::JVM::Initialize(java.vm, ctx);
+		std::unique_ptr<webrtc::JNIEnvironment> jenv = webrtc::JVM::GetInstance()->environment();
+		info("vm: %p env: %p\n",
+		     webrtc::JVM::GetInstance()->jvm(),
+		     jenv.get());
+	}
+	
 	java.context = env->NewGlobalRef(ctx);
 
 #if 0//USE_BREAKPAD	
@@ -687,7 +731,10 @@ out:
 }
 
 
-static int render_frame_handler(struct avs_vidframe *vf, const char *userid, void *arg)
+static int render_frame_handler(struct avs_vidframe *vf,
+				const char *userid,
+				const char *clientid,
+				void *arg)
 {
 	struct video_renderer *vr;
 	struct jni_env je;
@@ -695,10 +742,12 @@ static int render_frame_handler(struct avs_vidframe *vf, const char *userid, voi
 	jboolean entered;
 	bool attached = false;
 	int err = 0;
+	char userclient[USERCLIENT_LEN];
 	(void)arg;
-	
+
+	get_userclient(userclient, USERCLIENT_LEN, userid, clientid);
 	lock_write_get(java.video.lock);
-	vr = (struct video_renderer *)dict_lookup(java.video.renderers, userid);
+	vr = (struct video_renderer *)dict_lookup(java.video.renderers, userclient);
 	if (!vr) {
 		warning("jni: no renderer found for user: %s\n",
 			userid);
@@ -738,6 +787,7 @@ static int render_frame_handler(struct avs_vidframe *vf, const char *userid, voi
 	lock_write_get(java.video.lock);
 	
  out:
+
 	if (attached) {
 		mem_deref(vr);
 		if (jself)
@@ -1043,7 +1093,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_waz_call_FlowManager_sortConferenceParti
 		
 		part = env->GetStringUTFChars(jpart, 0);
 
-		err = conf_part_add(&cp, &partl, part, NULL);
+		err = conf_part_add(&cp, &partl, part);
 		if (part)
 			env->ReleaseStringUTFChars(jpart, part);
 
@@ -1296,8 +1346,11 @@ static int vie_jni_get_view_size_handler(const void *view, int *w, int *h)
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved)
 {
 	info("JNI_OnLoad\n");
+	__android_log_write(ANDROID_LOG_INFO, "AVS-I", "JNI_OnLoad\n");
 
 	(void)reserved;
+
+	java.vm = vm;
 
 	return JNI_VERSION_1_6;
 };
@@ -1322,19 +1375,17 @@ JNIEXPORT void JNICALL Java_com_waz_avs_VideoCapturer_handleCameraFrame
 	jboolean iscpy = JNI_FALSE;	
 	size_t len = (size_t)env->GetArrayLength(jframe);
 	uint8_t *y = (uint8_t *)env->GetByteArrayElements(jframe, &iscpy);
-	size_t ystride = (w + 16) & 0xfffffff0;
-	size_t cstride = (ystride/2 + 16) & 0xfffffff0;
+	size_t ystride = (w + 15) & 0xfffffff0;
 	size_t uoff = ystride*h;
-	size_t voff = ystride*h + cstride*(h/2);
 
 	/* Android is providing frames in NV21 */
 	vf.type = AVS_VIDFRAME_NV21;
 	vf.y = y;
 	vf.u = y + uoff;
-	vf.v = y + voff;
+	vf.v = vf.u;
 	vf.ys = ystride;
-	vf.us = cstride;
-	vf.vs = cstride;
+	vf.us = ystride;
+	vf.vs = ystride;
 	vf.w = w;
 	vf.h = h;
 	vf.rotation = (int)(360 - degrees);
@@ -1350,30 +1401,39 @@ JNIEXPORT void JNICALL Java_com_waz_avs_VideoCapturer_handleCameraFrame
 
 /* Video renderer */
 JNIEXPORT jlong JNICALL Java_com_waz_avs_VideoRenderer_createNative
-(JNIEnv *env, jobject jself, jstring juserid, jint w, jint h, jboolean rounded)
+(JNIEnv *env, jobject jself, jstring juserid, jstring jclientid,
+	jint w, jint h, jboolean rounded)
 {
 	struct video_renderer *vr;
 	int err;
-	const char *userid = NULL;	
+	const char *userid = NULL;
+	const char *clientid = NULL;
+	char userclient[USERCLIENT_LEN];
 	jobject self = env->NewGlobalRef(jself);
 
 	if (juserid)
 		userid = env->GetStringUTFChars(juserid, 0);
 
-	if (!userid) {
-		warning("jni: VideoRenderer_createNative: no userid\n");
-		ENOSYS;
+	if (jclientid)
+		clientid = env->GetStringUTFChars(jclientid, 0);
+
+	if (!userid || !clientid) {
+		warning("jni: VideoRenderer_createNative: no userid or clientid\n");
+		return 0;
 	}
 
 #ifdef ANDROID
-	err = video_renderer_alloc(&vr, w, h, rounded, userid, (void *)self);
+	err = video_renderer_alloc(&vr, w, h, rounded, userid, clientid, (void *)self);
 	if (err)
 		return 0;
 #endif
 
 	lock_write_get(java.video.lock);
-	dict_add(java.video.renderers, userid, vr);
+	get_userclient(userclient, USERCLIENT_LEN, userid, clientid);
+	dict_add(java.video.renderers, userclient, vr);
 	/* renderer is now owned by dictionary */
+
+out:
 	mem_deref(vr);
 	lock_rel(java.video.lock);
 
@@ -1386,12 +1446,16 @@ JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_destroyNative
 {
 	struct video_renderer *vr = (struct video_renderer *)((void *)obj);
 	jobject self = (jobject)video_renderer_arg(vr);
+	char userclient[USERCLIENT_LEN];
 
 #ifdef ANDROID	
 	video_renderer_detach(vr);
 #endif
+	get_userclient(userclient, USERCLIENT_LEN,
+				 video_renderer_userid(vr),
+				 video_renderer_clientid(vr));
 	lock_write_get(java.video.lock);
-	dict_remove(java.video.renderers, video_renderer_userid(vr));
+	dict_remove(java.video.renderers, userclient);
 	env->DeleteGlobalRef(self);
 	lock_rel(java.video.lock);
 }
@@ -1419,7 +1483,7 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setFilePath
 {
     const char *file_path = env->GetStringUTFChars(jpath, 0);
     
-    voe_set_file_path(file_path);
+    //voe_set_file_path(file_path);
     
     if (file_path)
         env->ReleaseStringUTFChars(jpath, file_path);

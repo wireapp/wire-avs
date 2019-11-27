@@ -26,7 +26,7 @@
 #include <string>
 #include <stdlib.h>
 
-#include "webrtc/common_audio/resampler/include/push_resampler.h"
+#include "common_audio/resampler/include/push_resampler.h"
 
 #ifdef  __cplusplus
 extern "C"

@@ -25,6 +25,7 @@
 
 @implementation AVSAudioEffect
 
+#if 1
 static void progress_status_h(int progress, void *arg)
 {
     AVSAudioEffect *ae = (__bridge AVSAudioEffect *)arg;
@@ -35,9 +36,11 @@ static void progress_status_h(int progress, void *arg)
         [ae.delegate updateProgress:prog];
     }
 }
+#endif
 
 - (int)applyEffectWav:(id<AVSAudioEffectProgressDelegate>)delegate inFile: (NSString *)inWavFileName outFile: (NSString *)outWavFileName effect: (AVSAudioEffectType) effect nr_flag:(bool)reduce_noise;
 {
+#if 1
     const char *in_file_name = [inWavFileName UTF8String];
     const char *out_file_name = [outWavFileName UTF8String];
   
@@ -107,7 +110,9 @@ static void progress_status_h(int progress, void *arg)
     }
     
     int ret = apply_effect_to_wav(in_file_name, out_file_name, effect_type, reduce_noise, progress_status_h, (__bridge void *)(self));
-    
+#else
+    int ret = 0;
+#endif
     return ret;
 }
 

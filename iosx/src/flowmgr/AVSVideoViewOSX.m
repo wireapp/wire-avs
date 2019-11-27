@@ -437,6 +437,7 @@ out:
 
 - (void)reshape
 {
+	[super reshape];
 	_forceRecalc = YES;
 }
 

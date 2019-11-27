@@ -40,5 +40,7 @@ void avs_print_network(void);
 #define ETIMEDOUT_CRYPTO   (-1002)
 #define EDATACHANNEL       (-1003)
 
+#define E2EE_SESSIONKEY_SIZE 32
+
 
 #endif //#ifndef AVS_BASE_H

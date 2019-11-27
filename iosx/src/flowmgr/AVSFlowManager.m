@@ -76,7 +76,10 @@ static NSComparisonResult (^conferenceComparator)(id, id) =
 			return (NSComparisonResult)NSOrderedSame;	
         };
 
-static int render_frame_h(struct avs_vidframe * frame, const char *userid, void *arg);
+static int render_frame_h(struct avs_vidframe * frame,
+			  const char *userid,
+			  const char *clientid,
+			  void *arg);
 
 static void audio_state_change_h(enum flowmgr_audio_receive_state state, void *arg);
 
@@ -227,7 +230,7 @@ static void *avs_thread(void *arg)
 	/* Force the loading of wcall symbols! 
 	 * Can't this be done with a linker directive?
 	 */
-	wcall_get_members(NULL, NULL);
+	wcall_get_members(0, NULL);
 	
 	err = libre_init();
 	if (err) {
@@ -409,7 +412,19 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 	int err;
 
 	debug("AVSFlowManager::init");
+	NSLog(@"AVSFlowManager::init");
+
+#if 0
 	
+	RTCAudioSessionConfiguration *configuration =
+		[[RTCAudioSessionConfiguration alloc] init];
+	configuration.category = AVAudioSessionCategoryAmbient;
+	configuration.categoryOptions = AVAudioSessionCategoryOptionDuckOthers;
+	configuration.mode = AVAudioSessionModeDefault;
+
+	[RTCAudioSessionConfiguration setWebRTCConfiguration:configuration];
+#endif
+
 	if (fmw.tid == NULL) {
         fmw.avs_flags = avs_flags;
 		err = pthread_create(&fmw.tid, NULL, avs_thread, &fmw.avs_flags);
@@ -681,7 +696,7 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 		NSString *p = [participants objectAtIndex:i];
 		struct conf_part *cp;
 
-		err = conf_part_add(&cp, &partl, [p UTF8String], NULL);
+		err = conf_part_add(&cp, &partl, [p UTF8String]);
 		if (err)
 			goto out;
 	}	
@@ -914,6 +929,7 @@ out:
 }
 
 - (BOOL)renderFrame:(struct avs_vidframe *)frame forUser:(NSString *)userid
+	client:(NSString *)clientid
 {
 	BOOL sizeChanged = NO;
 	
@@ -925,7 +941,14 @@ out:
 	for (unsigned int v = 0; v < _videoViews.count; v++) {
 		AVSVideoView *view = [_videoViews objectAtIndex: v];
 
-		if ([view.userid isEqualToString: userid]) {
+		if (view.userid == nil) {
+			warning("Found renderer without userid\n");
+		}
+		if (view.clientid == nil) {
+			warning("Found renderer without clientid\n");
+		}
+		if ([view.userid isEqualToString: userid] &&
+			[view.clientid isEqualToString: clientid]) {
 			sizeChanged |= [view handleFrame:frame];
 			found = YES;
 		}
@@ -1088,12 +1111,16 @@ static void video_size_h(int width, int height, const char *userid, void *arg)
 }
 
 
-static int render_frame_h(struct avs_vidframe * frame, const char *userid, void *arg)
+static int render_frame_h(struct avs_vidframe * frame,
+			  const char *userid,
+			  const char *clientid,
+			  void *arg)
 {
 	BOOL sizeChanged;
 	NSString *uid = [NSString stringWithUTF8String: userid];
+	NSString *cid = [NSString stringWithUTF8String: clientid];
 
-	sizeChanged = [[AVSFlowManager getInstance] renderFrame:frame forUser:uid];
+	sizeChanged = [[AVSFlowManager getInstance] renderFrame:frame forUser:uid client:cid];
 
 	return sizeChanged ? ERANGE : 0;
 }

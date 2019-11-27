@@ -13,9 +13,9 @@
 # Currently we support these combinations:
 #
 #     AVS_OS=android		AVS_ARCH=armv7
-#				AVS_ARCH=arm64	(currently disabled)
+#				AVS_ARCH=arm64
 #     				AVS_ARCH=i386
-#     				AVS_ARCH=x86_64	(currently disabled)
+#     				AVS_ARCH=x86_64
 #     AVS_OS=linux		AVS_ARCH=x86_64
 #     				AVS_ARCH=i386
 #     AVS_OS=ios		AVS_ARCH=armv7
@@ -150,8 +150,8 @@
 
 # Here's all the AVS_OS and AVS_ARCH values we support
 #
-ALL_AVS_OS := android ios linux osx
-ALL_AVS_ARCH := armv7 arm64 i386 x86_64
+ALL_AVS_OS := android ios linux osx wasm
+ALL_AVS_ARCH := armv7 arm64 i386 x86_64 generic
 
 
 # Start by auto-determining host system and arch.
@@ -192,6 +192,9 @@ AVS_ARCH := arm64
 endif
 ifeq ($(AVS_OS),osx)
 AVS_ARCH := x86_64
+endif
+ifeq ($(AVS_OS),wasm)
+AVS_ARCH := generic
 endif
 endif
 
@@ -235,6 +238,9 @@ endif
 
 #--- Generic settings -------------------------------------------------------
 
+ifeq ($(WEBRTC_VER),)
+WEBRTC_VER := 72.5
+endif
 JAVAC := javac
 
 AFLAGS := cr
@@ -243,18 +249,28 @@ CFLAGS   += \
          -fvisibility=hidden -Os -g -ffunction-sections -fdata-sections
 
 CPPFLAGS += \
-         -I. -DWEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE -DWEBRTC_CODEC_OPUS \
+         -I. \
+	 -DWEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE \
+	 -DWEBRTC_CODEC_OPUS \
+	 -DWEBRTC_NS_FIXED \
+	 -DWEBRTC_APM_DEBUG_DUMP=0 \
 	 -DSSL_USE_OPENSSL -DFEATURE_ENABLE_SSL -D__STDC_FORMAT_MACROS=1 \
 	 -DAVS_VERSION='"$(AVS_VERSION)"' -DAVS_PROJECT='"$(AVS_PROJECT)"' \
+	 -DAVS_OS='"$(AVS_OS)"' -DAVS_ARCH='"$(AVS_ARCH)"' \
 	 -I$(BUILD_TARGET)/include -Iinclude \
-	 -Imediaengine -Imediaengine/webrtc \
-	 -Icontrib/opus/include \
-	 -Icontrib/opus/celt \
-	 -Icontrib/opus/silk
+	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include \
+	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/sdk/objc \
+	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/sdk/objc/base \
+	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/third_party/abseil-cpp \
+	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/third_party/boringssl/src/include \
+	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/third_party/libyuv/include \
+	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/third_party/opus/src/include \
+	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/third_party/opus/src/celt \
+	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/third_party/opus/src/silk
 
 CXXFLAGS += \
-         -fvisibility=hidden -ffunction-sections -fdata-sections -Os -g \
-         -std=c++11 -stdlib=libc++ 
+         -fvisibility=hidden -fno-rtti -ffunction-sections -fdata-sections \
+	-Os -g -std=c++11 -stdlib=libc++ 
 
 ifeq ($(AVS_RELEASE),1)
  ifeq ($(AVS_OS),ios)
@@ -383,8 +399,13 @@ else
 LFLAGS	+= \
 	-fPIC \
 	-L$(SYSROOT)/lib \
-	-no-canonical-prefixes -Wl,--fix-cortex-a8  -Wl,--no-undefined \
+	-no-canonical-prefixes -Wl,--no-undefined \
 	-Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now -mthumb
+endif
+
+ifeq ($(AVS_ARCH),armv7)
+LFLAGS	+= \
+	-Wl,--fix-cortex-a8
 endif
 
 SH_LFLAGS += \
@@ -399,11 +420,11 @@ LIBS += \
 # this one was added to get ztest to link:
 LIBS += \
 	$(TOOLCHAIN_PATH)/libc++/libc++_static.a \
-	$(TOOLCHAIN_PATH)/libc++/libc++abi.a \
-	$(TOOLCHAIN_PATH)/libc++/libandroid_support.a
+	$(TOOLCHAIN_PATH)/libc++/libc++abi.a
 
 ifeq ($(AVS_ARCH),armv7)
 LIBS +=	\
+	$(TOOLCHAIN_PATH)/libc++/libandroid_support.a \
 	$(TOOLCHAIN_PATH)/libc++/libunwind.a
 endif
 
@@ -417,7 +438,7 @@ SH_LIBS += \
 
 else ifeq ($(AVS_ARCH),arm64)
 CPPFLAGS += \
-	-mfpu=neon
+#	-mfpu=neon
 else ifeq ($(AVS_ARCH),i386)
 
 else ifeq ($(AVS_ARCH),x86_64)
@@ -426,6 +447,46 @@ else
 $(error Unknown architecture $(AVS_ARCH) for Android.)
 endif
 
+
+endif
+
+
+#--- WASM Target ---------------------------------------------------------
+#
+ifeq ($(AVS_OS),wasm)
+
+AVS_OS_FAMILY := wasm
+
+# All our tools
+#
+ifeq ($(WASM_PATH),)
+EMCC_PATH    := $(shell which emcc)
+WASM_PATH    := $(shell dirname $(EMCC_PATH))
+endif
+
+BIN_PATH     := $(WASM_PATH)
+CC           := $(BIN_PATH)/emcc
+CXX          := $(BIN_PATH)/emcc
+GCC          := $(BIN_PATH)/emcc
+GCXX         := $(BIN_PATH)/emcc
+LD           := $(CXX)
+AR           := $(BIN_PATH)/emar
+AS           := 
+RANLIB       := 
+STRIP        := 
+SYSROOT      := 
+HOST_OPTIONS := 
+LIB_SUFFIX   := .so
+JNI_SUFFIX   := .so
+
+# Settings
+#
+CPPFLAGS +=
+
+# XXX Review these ...
+CFLAGS   +=
+
+CXXFLAGS += 
 
 endif
 
@@ -483,14 +544,14 @@ LIBS	 += \
 
 ifeq ($(SDK),iphoneos)
 CPPFLAGS += \
-         -miphoneos-version-min=8.0
+         -miphoneos-version-min=9.0
 LFLAGS	 += \
-         -miphoneos-version-min=8.0
+         -miphoneos-version-min=9.0
 else
 CPPFLAGS += \
-         -mios-simulator-version-min=8.0
+         -mios-simulator-version-min=9.0
 LFLAGS	 += \
-         -mios-simulator-version-min=8.0
+         -mios-simulator-version-min=9.0
 endif
 
 # video

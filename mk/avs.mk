@@ -32,7 +32,6 @@
 
 #--- AVS Core Modules ---
 
-AVS_MODULES += aucodec
 AVS_MODULES += base
 AVS_MODULES += cert
 AVS_MODULES += conf_pos
@@ -41,7 +40,6 @@ ifneq ($(HAVE_CRYPTOBOX),)
 AVS_MODULES += cryptobox
 endif
 AVS_MODULES += dce
-AVS_MODULES += devpair
 AVS_MODULES += dict
 AVS_MODULES += ecall
 AVS_MODULES += econn
@@ -49,43 +47,49 @@ AVS_MODULES += econn_fmt
 AVS_MODULES += extmap
 AVS_MODULES += flowmgr
 AVS_MODULES += jzon
+ifneq ($(HAVE_CRYPTOBOX),)
 AVS_MODULES += kase
+endif
 AVS_MODULES += log
-AVS_MODULES += media
 AVS_MODULES += mediamgr
 AVS_MODULES += msystem
 AVS_MODULES += nevent
-AVS_MODULES += netprobe
-AVS_MODULES += network
 ifneq ($(HAVE_PROTOBUF),)
 AVS_MODULES += protobuf
 endif
+AVS_MODULES += peerflow
 AVS_MODULES += queue
 AVS_MODULES += rest
 AVS_MODULES += sem
 AVS_MODULES += serial
-AVS_MODULES += store
 AVS_MODULES += string
 AVS_MODULES += trace
-AVS_MODULES += turn
 AVS_MODULES += uuid
 AVS_MODULES += version
-AVS_MODULES += vidcodec
-AVS_MODULES += voe
-AVS_MODULES += vie
 AVS_MODULES += wcall
 AVS_MODULES += icall
+AVS_MODULES += iflow
 AVS_MODULES += egcall
+ifeq ($(ENABLE_CONFERENCE_CALLS),1)
+AVS_MODULES += ccall
+endif
 AVS_MODULES += audio_io
+ifneq ($(AVS_OS),wasm)
 AVS_MODULES += audio_effect
-AVS_MODULES += audummy
-AVS_MODULES += extcodec
-AVS_MODULES += rtpdump
+endif
 AVS_MODULES += zapi
 AVS_MODULES += ztime
-AVS_MODULES += mediastats
 
+ifeq ($(BUILD_NETWORK_MODULES),1)
+AVS_MODULES += network
+endif
+
+ifeq ($(BUILD_OPTIONAL_MODULES),1)
 AVS_MODULES += engine
+AVS_MODULES += rtpdump
+AVS_MODULES += store
+endif
+
 AVS_MODULES += $(EXTRA_MODULES)
 
 
@@ -121,14 +125,11 @@ AVS_CPPFLAGS += -DHAVE_CRYPTOBOX=1
 endif
 
 AVS_DEPS := $(CONTRIB_LIBRE_TARGET) \
-	$(CONTRIB_OPUS_TARGET) \
 	$(CONTRIB_LIBREW_TARGET) \
-	$(CONTRIB_USRSCTP_TARGET) \
 	$(CONTRIB_SODIUM_TARGET)
 AVS_LIBS += $(CONTRIB_LIBRE_LIBS) \
-	$(CONTRIB_OPUS_LIBS) \
 	$(CONTRIB_LIBREW_LIBS) \
-	$(CONTRIB_USRSCTP_LIBS)
+	$(CONTRIB_WEBRTC_LIBS)
 
 ifneq ($(HAVE_CRYPTOBOX),)
 AVS_DEPS += $(CONTRIB_CRYPTOBOX_TARGET)
@@ -148,10 +149,12 @@ ifeq ($(AVS_OS),android)
 AVS_LIBS += $(CONTRIB_AND_IFADDRS_LIBS)
 endif
 
+ifeq ($(ENABLE_CONFERENCE_CALLS),1)
+AVS_CPPFLAGS += -DENABLE_CONFERENCE_CALLS=1
+endif
+
 AVS_LIB_FILES += $(CONTRIB_LIBRE_LIB_FILES) \
-	$(CONTRIB_OPUS_LIB_FILES) \
 	$(CONTRIB_LIBREW_LIB_FILES) \
-	$(CONTRIB_USRSCTP_LIB_FILES) \
 	$(CONTRIB_SODIUM_LIB_FILES)
 
 #--- Dependency Targets ---
@@ -159,9 +162,7 @@ AVS_LIB_FILES += $(CONTRIB_LIBRE_LIB_FILES) \
 
 $(AVS_OBJS): $(TOOLCHAIN_MASTER) \
 	     $(CONTRIB_LIBRE_TARGET) \
-	     $(CONTRIB_OPUS_TARGET) \
-	     $(CONTRIB_LIBREW_TARGET) \
-	     $(CONTRIB_USRSCTP_TARGET)
+	     $(CONTRIB_LIBREW_TARGET)
 
 ifeq ($(SKIP_MK_DEPS),)
 $(AVS_OBJS):  $(AVS_MKS)
@@ -183,10 +184,11 @@ $(AVS_C_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.c
 $(AVS_CC_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.cpp
 	@echo "  CXX  $(AVS_OS)-$(AVS_ARCH) src/$*.cpp"
 	@mkdir -p $(dir $@)
-	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) \
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) \
 		$(AVS_CPPFLAGS_$(dir $*)) $(AVS_CXXFLAGS_$(dir $*)) \
 		-c $< -o $@ $(DFLAGS)
+#		-fno-rtti -std=c++11 \
 
 $(AVS_M_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.m
 	@echo "  OC $(AVS_OS)-$(AVS_ARCH) src/$*.m"
@@ -208,7 +210,7 @@ $(AVS_MM_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.mm
 $(AVS_STATIC): $(AVS_OBJS)
 	@echo "  AR   $(AVS_OS)-$(AVS_ARCH) $@"
 	@mkdir -p $(dir $@)
-	@$(AR) $(AFLAGS) $@ $(filter %.o,$^)
+	$(AR) $(AFLAGS) $@ $(filter %.o,$^)
 ifneq ($(RANLIB),)
 	@$(RANLIB) $@
 endif
@@ -220,6 +222,9 @@ endif
 avs_headers:
 	@mkdir -p $(BUILD_TARGET)/include/avs
 	@cp -a include/* $(BUILD_TARGET)/include/avs
+ifneq ($(HAVE_PROTOBUF),)
+	@cp -R src/protobuf/proto $(BUILD_TARGET)/include/
+endif
 
 #--- Phony Targets ---
 

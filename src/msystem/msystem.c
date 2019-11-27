@@ -20,9 +20,8 @@
 
 #include "re.h"
 #include "avs.h"
-#include "avs_extcodec.h"
-#include "avs_voe.h"
-#include "avs_vie.h"
+
+#include "msystem.h"
 
 #ifdef __APPLE__
 #       include <TargetConditionals.h>
@@ -35,6 +34,7 @@ struct msystem {
 	
 	bool inited;
 	bool started;
+	bool audio_activated;
 	struct dnsc *dnsc;
 	struct tls *dtls;
 	struct mqueue *mq;
@@ -46,54 +46,47 @@ struct msystem {
 	bool crypto_kase;
 	char ifname[256];
 
-	struct list aucodecl;
-	struct list vidcodecl;
+	struct list activatel;
+	struct list mutel;
+
+	struct msystem_proxy *proxy;
 };
 
 
-static const char *cipherv[] = {
+struct activate_elem {
+	msystem_activate_h *activateh;
+	void *arg;
 
-	"ECDHE-RSA-AES128-GCM-SHA256",
-	"ECDHE-ECDSA-AES128-GCM-SHA256",
-	"ECDHE-RSA-AES256-GCM-SHA384",
-	"ECDHE-ECDSA-AES256-GCM-SHA384",
-	"DHE-RSA-AES128-GCM-SHA256",
-	"DHE-DSS-AES128-GCM-SHA256",
-	"ECDHE-RSA-AES128-SHA256",
-	"ECDHE-ECDSA-AES128-SHA256",
-	"ECDHE-RSA-AES128-SHA",
-	"ECDHE-ECDSA-AES128-SHA",
-	"ECDHE-RSA-AES256-SHA384",
-	"ECDHE-ECDSA-AES256-SHA384",
-	"ECDHE-RSA-AES256-SHA",
-	"ECDHE-ECDSA-AES256-SHA",
-	"DHE-RSA-AES128-SHA256",
-	"DHE-RSA-AES128-SHA",
-	"DHE-DSS-AES128-SHA256",
-	"DHE-RSA-AES256-SHA256",
-	"DHE-DSS-AES256-SHA",
-	"DHE-RSA-AES256-SHA",
-	"ECDHE-RSA-AES128-CBC-SHA",
+	struct le le;
+};
 
+struct mute_elem {
+	msystem_mute_h *muteh;
+	void *arg;
+
+	struct le le;
 };
 
 static struct msystem *g_msys = NULL;
 
+static int msys_env = 0;
+
+void msystem_set_env(int env)
+{
+	msys_env = env;
+}
+
+int msystem_get_env(void)
+{
+	return msys_env;
+}
 
 static void msystem_destructor(void *data)
 {
 	struct msystem *msys = data;
 
 	if (msys->name) {
-		if (streq(msys->name, "audummy"))
-			audummy_close();
-		else if (streq(msys->name, "extcodec")) {
-			extcodec_audio_close();
-			extcodec_video_close();
-		}
-		else if (streq(msys->name, "voe")) {
-			vie_close();
-			voe_close();
+		if (streq(msys->name, "audummy")) {
 		}
 	}
 
@@ -103,8 +96,12 @@ static void msystem_destructor(void *data)
 	msys->dtls = mem_deref(msys->dtls);
 	msys->name = mem_deref(msys->name);
 	msys->dnsc = mem_deref(msys->dnsc);
+	msys->proxy = mem_deref(msys->proxy);
+
+	list_flush(&msys->activatel);
+	list_flush(&msys->mutel);
 	
-	dce_close();
+	iflow_destroy();
 
 	msys->inited = false;
 
@@ -127,7 +124,7 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 {
 	struct msystem *msys;
 	int err;
-
+	
 	if (!msysp)
 		return EINVAL;
 
@@ -141,81 +138,15 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 		goto out;
 	}
 
-	err = tls_alloc(&msys->dtls, TLS_METHOD_DTLS, NULL, NULL);
-	if (err) {
-		warning("flowmgr: failed to create DTLS context (%m)\n",
-			err);
-		goto out;
-	}
-
-	err = cert_enable_ecdh(msys->dtls);
-	if (err)
-		goto out;
-
-	info("flowmgr: setting %zu ciphers for DTLS\n", ARRAY_SIZE(cipherv));
-	err = tls_set_ciphers(msys->dtls, cipherv, ARRAY_SIZE(cipherv));
-	if (err)
-		goto out;
-
-	info("msystem: generating ECDSA certificate\n");
-	err = cert_tls_set_selfsigned_ecdsa(msys->dtls, "prime256v1");
-	if (err) {
-		warning("msystem: failed to generate ECDSA"
-			" certificate"
-			" (%m)\n", err);
-		goto out;
-	}
-
-	tls_set_verify_client(msys->dtls);
-
-	err = tls_set_srtp(msys->dtls,
-#ifndef USE_APPLE_COMMONCRYPTO
-			   "SRTP_AEAD_AES_256_GCM:"
-			   "SRTP_AEAD_AES_128_GCM:"
-#endif
-			   "SRTP_AES128_CM_SHA1_80");
-#if 0 /* Chrome has disabled this, but still has it in neogtiation */
-	"SRTP_AES128_CM_SHA1_32");
-#endif
-	if (err) {
-		warning("flowmgr: failed to enable SRTP profile (%m)\n",
-			err);
-		goto out;
-	}
-
 	tmr_init(&msys->vol_tmr);
 
 	info("msystem: initializing for msys: %s\n", msysname);
 	
 	err = str_dup(&msys->name, msysname);
-	if (streq(msys->name, "audummy"))
-		err = audummy_init(&msys->aucodecl);
-	else if (streq(msys->name, "extcodec")) {
-		err = extcodec_audio_init(&msys->aucodecl);
-		if (err) {
-			warning("msystem: extcodec audio init failed (%m)\n",
-				err);
-			goto out;
-		}
-		err = extcodec_video_init(&msys->vidcodecl);
-		if (err) {
-			warning("flowmgr: vie init failed (%m)\n", err);
-			goto out;
-		}
+	if (streq(msys->name, "audummy")) {
+		//err = audummy_init(&msys->aucodecl);
 	}
 	else if (streq(msys->name, "voe")) {
-		err = voe_init(&msys->aucodecl);
-		if (err) {
-			warning("flowmgr: voe init failed (%m)\n", err);
-			goto out;
-		}
-
-		err = vie_init(&msys->vidcodecl);
-		if (err) {
-			warning("flowmgr: vie init failed (%m)\n", err);
-			goto out;
-		}
-
 		msys->using_voe = true;
 	}
 	else {
@@ -229,6 +160,7 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 
 	info("msystem: successfully initialized\n");
 
+        msys->audio_activated = true;
 	msys->inited = true;
 
 	if (config) {
@@ -236,9 +168,9 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 
 		if (config->data_channel) {
 
-			err = dce_init();
-			if (err)
-				goto out;
+			//err = dce_init();
+			//if (err)
+			//	goto out;
 		}
 	}
 	
@@ -254,18 +186,85 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 }
 
 
-int msystem_get(struct msystem **msysp, const char *msysname,
-		struct msystem_config *config)
+static void ae_destructor(void *arg)
 {
+	struct activate_elem *ae = arg;
+
+	list_unlink(&ae->le);
+}
+
+static void me_destructor(void *arg)
+{
+	struct mute_elem *me = arg;
+
+	list_unlink(&me->le);
+}
+
+struct msystem *msystem_instance(void)
+{
+	return g_msys;
+}
+
+int msystem_get(struct msystem **msysp, const char *msysname,
+		struct msystem_config *config,
+		msystem_activate_h *activateh,
+		msystem_mute_h *muteh,
+		void *arg)
+{
+	int err = 0;
+	
 	if (!msysp)
 		return EINVAL;
 	
-	if (g_msys) {
+	if (g_msys)
 		*msysp = mem_ref(g_msys);
-		return 0;
+	else {
+		err = msystem_init(msysp, msysname, config);
+		if (err)
+			return err;
 	}
 
-	return msystem_init(msysp, msysname, config);
+	if (activateh) {
+		struct activate_elem *ae;
+		
+		ae = mem_zalloc(sizeof(*ae), ae_destructor);
+		ae->activateh = activateh;
+		ae->arg = arg;
+		list_append(&g_msys->activatel, &ae->le, ae);
+	}
+	if (muteh) {
+		struct mute_elem *me;
+		
+		me = mem_zalloc(sizeof(*me), me_destructor);
+		me->muteh = muteh;
+		me->arg = arg;
+		list_append(&g_msys->mutel, &me->le, me);
+	}
+	
+	return err;
+}
+
+void msystem_unregister_listener(void *arg)
+{
+	struct le *le;
+
+	LIST_FOREACH(&g_msys->mutel, le) {
+		struct mute_elem *me = le->data;
+
+		if (arg == me->arg) {
+			mem_deref(me);
+			break;
+		}
+	}
+
+	LIST_FOREACH(&g_msys->activatel, le) {
+		struct activate_elem *ae = le->data;
+
+		if (arg == ae->arg) {
+			mem_deref(ae);
+			break;
+		}
+	}
 }
 
 
@@ -319,18 +318,6 @@ void msystem_leave(struct msystem *msys)
 struct tls *msystem_dtls(struct msystem *msys)
 {
 	return msys ? msys->dtls : NULL;
-}
-
-
-struct list *msystem_aucodecl(struct msystem *msys)
-{
-	return msys ? &msys->aucodecl : NULL;
-}
-
-
-struct list *msystem_vidcodecl(struct msystem *msys)
-{
-	return msys ? &msys->vidcodecl : NULL;
 }
 
 
@@ -441,11 +428,11 @@ bool msystem_is_initialized(struct msystem *msys)
 
 int msystem_enable_datachannel(struct msystem *msys, bool enable)
 {
-	int err;
+	//int err;
 
 	if (!msys)
 		return EINVAL;
-
+/*
 	msys->config.data_channel = enable;
 
 	if (enable) {
@@ -457,19 +444,21 @@ int msystem_enable_datachannel(struct msystem *msys, bool enable)
 	else {
 		dce_close();
 	}
-
+*/
 	return 0;
 }
 
 
 bool msystem_have_datachannel(const struct msystem *msys)
 {
-	return msys ? msys->config.data_channel : false;
+//	return msys ? msys->config.data_channel : false;
+	return false;
 }
 
 
 int msystem_update_conf_parts(struct list *partl)
 {
+#if 0
 	const struct audec_state **adsv;
 	struct le *le;
 	size_t i, adsc = list_count(partl);
@@ -487,10 +476,8 @@ int msystem_update_conf_parts(struct list *partl)
 		adsv[i] = ads;
 	}
 
-	voe_update_conf_parts(adsv, adsc);
-
 	mem_deref(adsv);
-
+#endif
 	return 0;
 }
 
@@ -498,40 +485,54 @@ void msystem_set_auplay(const char *dev)
 {
 	if (!g_msys)
 		return;
-
-	if (streq(g_msys->name, "voe")) {
-		voe_set_auplay(dev);
-	}
 }
 
 void msystem_stop_silencing(void)
 {
 	if (!g_msys)
 		return;
-
-	if (streq(g_msys->name, "voe")) {
-		voe_stop_silencing();
-	}
 }
 
 bool msystem_get_muted(void)
 {
 	bool muted = false;
 
-	if (g_msys) {		
-		if (streq(g_msys->name, "voe")) {
-			voe_get_mute(&muted);
-		}
+	if (!g_msys)
+		return false;
+
+	if (streq(g_msys->name, "voe")) {
+			muted = iflow_get_mute();
 	}
 
 	return muted;
 }
 
+static void call_muteh(bool muted)
+{
+	struct le *le;
+
+	LIST_FOREACH(&g_msys->mutel, le) {
+		struct mute_elem *me = le->data;
+
+		if (me->muteh)
+			me->muteh(muted, me->arg);
+	}
+}
+
 void msystem_set_muted(bool muted)
 {
-	if (g_msys) {		
+	bool mute_state = false;
+
+	info("msys(%p): set_muted: %d\n", g_msys, muted);
+	
+	if (g_msys) {
 		if (streq(g_msys->name, "voe")) {
-			voe_set_mute(muted);
+			mute_state = iflow_get_mute();
+			info("msys(%p): muted_state=%d->%d\n", g_msys, mute_state, muted);
+			if (muted != mute_state) {
+				iflow_set_mute(muted);
+				call_muteh(muted);
+			}
 		}
 	}
 }
@@ -541,3 +542,68 @@ struct dnsc *msystem_dnsc(void)
 {
 	return g_msys ? g_msys->dnsc : NULL;
 }
+
+
+bool msystem_audio_is_activated(void)
+{
+	if (!g_msys)
+		return false;
+	
+	return g_msys->audio_activated;
+}
+
+void msystem_audio_set_activated(bool activated)
+{
+	if (!g_msys) {
+		warning("msystem: activate: no msystem available\n");
+		return;
+	}
+
+	g_msys->audio_activated = activated;
+
+	/*
+	if (activate) {
+		struct le *le;
+
+		LIST_FOREACH(&g_msys->activatel, le) {
+			struct activate_elem *ae = le->data;
+
+			if (ae->activateh)
+				ae->activateh(ae->arg);
+		}
+	}
+	*/
+}
+
+static void proxy_destructor(void *arg)
+{
+	struct msystem_proxy *proxy = arg;
+
+	mem_deref(proxy->host);
+}
+
+int msystem_set_proxy(const char *host, int port)
+{
+	struct msystem_proxy *proxy;
+	
+	if (!g_msys)
+		return ENOSYS;
+
+	proxy = mem_zalloc(sizeof(*proxy), proxy_destructor);
+	if (!proxy)
+		return ENOMEM;
+	
+	str_dup(&proxy->host, host);
+	proxy->port = port;
+	
+	mem_deref(g_msys->proxy);
+	g_msys->proxy = proxy;
+
+	return 0;
+}
+
+struct msystem_proxy *msystem_get_proxy(void)
+{
+	return g_msys ? g_msys->proxy : NULL;
+}
+

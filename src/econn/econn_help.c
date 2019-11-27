@@ -20,7 +20,7 @@
 #include <re.h>
 #include "avs_uuid.h"
 #include "avs_zapi.h"
-#include "avs_media.h"
+#include "avs_icall.h"
 #include "avs_econn.h"
 #include "avs_log.h"
 
@@ -39,10 +39,14 @@ const char *econn_msg_name(enum econn_msg msg)
 	case ECONN_GROUP_LEAVE:		return "GROUPLEAVE";
 	case ECONN_GROUP_CHECK:		return "GROUPCHECK";
 	case ECONN_GROUP_SETUP:		return "GROUPSETUP";
-	case ECONN_DEVPAIR_PUBLISH:     return "DEVPAIR_PUBLISH";
-	case ECONN_DEVPAIR_ACCEPT:      return "DEVPAIR_ACCEPT";
-	case ECONN_ALERT:               return "ALERT";
-	default:            return "???";
+	case ECONN_DEVPAIR_PUBLISH:	return "DEVPAIR_PUBLISH";
+	case ECONN_DEVPAIR_ACCEPT:	return "DEVPAIR_ACCEPT";
+	case ECONN_ALERT:		return "ALERT";
+	case ECONN_CONF_START:		return "CONFSTART";
+	case ECONN_CONF_END:		return "CONFEND";
+	case ECONN_CONF_PART:	        return "CONFPART";
+	case ECONN_CONF_KEY:	        return "CONFKEY";
+	default:			return "???";
 	}
 }
 
@@ -119,6 +123,20 @@ bool econn_is_creator(const char *userid_self, const char *userid_remote,
 }
 
 
+bool econn_is_creator_full(const char *userid_self, const char *clientid_self,
+			   const char *userid_remote, const char *clientid_remote,
+			   const struct econn_message *msg)
+{
+	if (!str_isset(userid_self) || !str_isset(userid_remote) || !msg)
+		return false;
+
+	return (0 != str_casecmp(userid_self, userid_remote) ||
+		0 != str_casecmp(clientid_self, clientid_remote)) &&
+		econn_message_isrequest(msg) &&
+		msg->msg_type == ECONN_SETUP;
+}
+
+
 enum econn_transport econn_transp_resolve(enum econn_msg type)
 {
 	switch (type) {
@@ -136,6 +154,9 @@ enum econn_transport econn_transp_resolve(enum econn_msg type)
 	case ECONN_DEVPAIR_PUBLISH:     return ECONN_TRANSP_BACKEND;
 	case ECONN_DEVPAIR_ACCEPT:      return ECONN_TRANSP_BACKEND;
 	case ECONN_ALERT:		return ECONN_TRANSP_BACKEND;
+	case ECONN_CONF_START:		return ECONN_TRANSP_BACKEND;
+	case ECONN_CONF_END:		return ECONN_TRANSP_BACKEND;
+	case ECONN_CONF_PART:		return ECONN_TRANSP_DIRECT;
 
 	default:
 		warning("econn: transp_resolv: message type %d"

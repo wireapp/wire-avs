@@ -21,36 +21,50 @@
 
 void icall_set_functions(struct icall *icall,
 			 icall_add_turnserver		*add_turnserver,
+			 icall_set_sft			*set_sft,
 			 icall_start			*start,
 			 icall_answer			*answer,
 			 icall_end			*end,
 			 icall_media_start		*media_start,
 			 icall_media_stop		*media_stop,
+			 icall_set_media_laddr          *set_media_laddr,
 			 icall_set_vstate		*set_video_send_state,
 			 icall_msg_recv			*msg_recv,
+			 icall_sft_msg_recv		*sft_msg_recv,
 			 icall_get_members		*get_members,
 			 icall_set_quality_interval	*set_quality_interval,
-			 icall_debug			*debug)
+			 icall_dce_send                 *dce_send,
+			 icall_set_clients		*set_clients,
+			 icall_debug			*debug,
+			 icall_stats			*stats)
 {
 	if (!icall) {
 		warning("icall_set_functions called on NULL icall\n");
 		return;
 	}
 	icall->add_turnserver		= add_turnserver;
+	icall->set_sft			= set_sft;
 	icall->start			= start;
 	icall->answer			= answer;
 	icall->end			= end;
 	icall->media_start		= media_start;
 	icall->media_stop		= media_stop;
+	icall->set_media_laddr          = set_media_laddr;
 	icall->set_video_send_state	= set_video_send_state;
 	icall->msg_recv			= msg_recv;
+	icall->sft_msg_recv		= sft_msg_recv;
 	icall->get_members		= get_members;
 	icall->set_quality_interval	= set_quality_interval;
+	icall->dce_send                 = dce_send;
+	icall->set_clients		= set_clients;
 	icall->debug			= debug;
+	icall->stats			= stats;
 }
+
 
 void icall_set_callbacks(struct icall *icall,
 			 icall_send_h		*sendh,
+			 icall_sft_h		*sfth,
 			 icall_start_h		*starth,
 			 icall_answer_h		*answerh,
 			 icall_media_estab_h	*media_estabh,
@@ -64,6 +78,7 @@ void icall_set_callbacks(struct icall *icall,
 			 icall_vstate_changed_h	*vstate_changedh,
 			 icall_acbr_changed_h	*acbr_changedh,
 			 icall_quality_h	*qualityh,
+			 icall_req_clients_h	*req_clientsh,
 			 void			*arg)
 {
 	if (!icall) {
@@ -71,6 +86,7 @@ void icall_set_callbacks(struct icall *icall,
 		return;
 	}
 	icall->sendh		= sendh;
+	icall->sfth		= sfth;
 	icall->starth		= starth;
 	icall->answerh		= answerh;
 	icall->media_estabh	= media_estabh;
@@ -84,6 +100,7 @@ void icall_set_callbacks(struct icall *icall,
 	icall->vstate_changedh	= vstate_changedh;
 	icall->acbr_changedh	= acbr_changedh;
 	icall->qualityh		= qualityh;
+	icall->req_clientsh	= req_clientsh;
 	icall->arg		= arg;
 }
 
@@ -93,6 +110,7 @@ const char *icall_vstate_name(enum icall_vstate state)
 
 	case ICALL_VIDEO_STATE_STOPPED:     return "STOPPED";
 	case ICALL_VIDEO_STATE_STARTED:     return "STARTED";
+	case ICALL_VIDEO_STATE_SCREENSHARE: return "SCREENSHARE";
 	case ICALL_VIDEO_STATE_BAD_CONN:    return "BADCONN";
 	case ICALL_VIDEO_STATE_PAUSED:      return "PAUSED";
 	default: return "???";

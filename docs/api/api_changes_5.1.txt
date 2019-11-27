@@ -1,0 +1,57 @@
+
+
+Changes introduced in AVS 5.1
+=============================
+
+The void pointers representing wuser instances have been replaced with a handle:
+
+#define WUSER_HANDLE uint32_t
+#define WUSER_INVALID_HANDLE ((WUSER_HANDLE)0)
+
+Note that the handle is now 32 bits, whereas the pointer was typically 64 bits and that NULL has been replaced with a define INVALID_HANDLE.
+
+This handle is used everywhere the void* was used before, both in functions and callbacks, for example:
+
+typedef void (wcall_shutdown_h)(WUSER_HANDLE wuser, void *arg);
+
+WUSER_HANDLE wcall_create(const char *userid, ...
+
+-----
+
+The video state change handler now includes the conversation and client ids, note the first param is now convid, not userid:
+
+typedef void (wcall_video_state_change_h)(const char *convid, 
+					  const char *userid,
+ 					  const char *clientid,
+ 					  int state,
+ 					  void *arg);
+
+-----
+
+It is now possible to set and get the mute state via the wcall API. Also, a new (optional) mute handler callback is available, to tell you when the mute state has changed:
+
+int wcall_get_mute(WUSER_HANDLE wuser);
+void wcall_set_mute(WUSER_HANDLE wuser, int muted);
+
+typedef void (wcall_mute_h)(int muted, void *arg);
+void wcall_set_mute_handler(WUSER_HANDLE wuser, wcall_mute_h *muteh, void *arg);
+
+-----
+
+The group call member handler is being replaced with a handler that provides a json string for the participant list instead of a C struct. This also removes the need to free the list after use. The old version is still present but will later be removed:
+
+typedef void (wcall_participant_changed_h)(const char *convid,
+ 					   const char *mjson, void *arg);
+void wcall_set_participant_changed_handler(WUSER_HANDLE wuser,
+ 					   wcall_participant_changed_h *chgh,
+ 					   void *arg);
+
+-----
+
+wcall_init takes a new parameter, env, which should be WCALL_ENV_DEFAULT for all platforms except for Firefox:
+
+#define WCALL_ENV_DEFAULT 0
+#define WCALL_ENV_FIREFOX 1
+
+int wcall_init(int env);
+

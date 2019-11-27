@@ -706,3 +706,9 @@ int engine_restart(struct engine *eng)
 
 	return err;
 }
+
+struct dnsc *engine_dnsc(struct engine *eng)
+{
+	return eng ? eng->dnsc : NULL;
+}
+

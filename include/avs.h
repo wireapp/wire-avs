@@ -24,7 +24,11 @@
 #ifdef ANDROID
 #define AVS_EXPORT __attribute__((visibility("default")))
 #else
+#ifdef __EMSCRIPTEN__
+#define AVS_EXPORT EMSCRIPTEN_KEEPALIVE
+#else
 #define AVS_EXPORT
+#endif
 #endif
 #endif
 
@@ -40,10 +44,12 @@ extern "C" {
 #include "avs_jzon.h"
 #include "avs_kase.h"
 #include "avs_log.h"
-#include "avs_aucodec.h"
 #include "avs_extmap.h"
 #include "avs_zapi.h"
-#include "avs_media.h"
+#include "avs_icall.h"	
+#include "avs_iflow.h"	
+#include "avs_peerflow.h"	
+#include "avs_jsflow.h"	
 #include "avs_msystem.h"
 #include "avs_nevent.h"
 #include "avs_packetqueue.h"
@@ -62,16 +68,14 @@ extern "C" {
 #include "avs_engine.h"
 #include "avs_netprobe.h"
 #include "avs_network.h"
-#include "avs_audummy.h"
 #include "avs_econn.h"
 #include "avs_econn_fmt.h"
-#include "avs_icall.h"
 #include "avs_ecall.h"
 #include "avs_egcall.h"
+#include "avs_ccall.h"
 
 #include "avs_mediamgr.h"
 
-#include "avs_voe.h"    
 #include "avs_version.h"
     
 #include "avs_audio_effect.h"

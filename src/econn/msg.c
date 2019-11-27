@@ -21,7 +21,7 @@
 #include "avs_log.h"
 #include "avs_uuid.h"
 #include "avs_zapi.h"
-#include "avs_media.h"
+#include "avs_icall.h"
 #include "avs_econn.h"
 
 
@@ -92,6 +92,22 @@ void econn_message_reset(struct econn_message *msg)
 	case ECONN_GROUP_START:
 		msg->u.groupstart.props = mem_deref(msg->u.groupstart.props);
 		break;
+
+	case ECONN_CONF_START:
+		msg->u.confstart.props = mem_deref(msg->u.confstart.props);
+		break;
+
+	case ECONN_CONF_PART:
+		list_flush(&msg->u.confpart.partl);
+		break;
+
+	case ECONN_CONF_END:
+		break;
+
+	case ECONN_CONF_KEY:
+		msg->u.confkey.keydata = mem_deref(msg->u.confkey.keydata);
+		break;
+		
 
 	default:
 		break;

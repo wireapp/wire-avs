@@ -53,7 +53,6 @@ static void *rec_thread(void *arg) {
 audio_io_ios::audio_io_ios() :
         audioCallback_(nullptr),
         au_(nullptr),
-	mq_(nullptr),
         initialized_(false),
         is_shut_down_(false),
         is_recording_initialized_(false),
@@ -68,7 +67,9 @@ audio_io_ios::audio_io_ios() :
         rec_tid_(0),
         dig_mic_gain_(0),
         want_stereo_playout_(false),
-        using_stereo_playout_(false)
+        using_stereo_playout_(false),
+	want_rec_(false),
+	want_play_(false)
 {
 	rec_buffer_size_ = sizeof(uint16_t) * MAX_FS_REC_HZ * 2;
 	rec_buffer_ = (uint8_t *)mem_zalloc(rec_buffer_size_, NULL);
@@ -89,10 +90,8 @@ audio_io_ios::audio_io_ios() :
 
 	pthread_mutex_init(&cond_mutex_,NULL);
 	pthread_mutex_init(&lock_, NULL);
+	pthread_mutex_init(&reset_lock_, NULL);
 
-#if 1
-	mqueue_alloc(&mq_, mq_callback, this);
-#endif	
 }
 
 audio_io_ios::~audio_io_ios()
@@ -103,61 +102,29 @@ audio_io_ios::~audio_io_ios()
 	TerminateInternal();
         
 	pthread_mutex_destroy(&cond_mutex_);
+	pthread_mutex_destroy(&lock_);
+	pthread_mutex_destroy(&reset_lock_);
 
 	rec_buffer_ = (uint8_t *)mem_deref(rec_buffer_);
 	play_buffer_ = (int16_t *)mem_deref(play_buffer_);
-
-	mem_deref(mq_);
 }
     
 int32_t audio_io_ios::RegisterAudioCallback(AudioTransport* audioCallback)
 {
+	info("audio_io_ios::RegisterAudioCallback: %p\n", audioCallback);
 	StopPlayout();
 	StopRecording(); // Stop the threads that uses audioCallback
 	audioCallback_ = audioCallback;
 	return 0;
 }
 
-int32_t audio_io_ios::Init() {
-        if (initialized_) {
-		return 0;
-        }
-	else {
-		return -1;
-        }
+int32_t audio_io_ios::Init()
+{
+	return 0;
 }
     
-void audio_io_ios::mq_callback(int id, void *data, void *arg)
+int32_t audio_io_ios::InitInternal()
 {
-        audio_io_ios* ptrThis = static_cast<audio_io_ios*>(arg);
-        
-        switch (id) {
-            case AUDIO_IO_COMMAND_START_PLAYOUT:
-                ptrThis->StartPlayoutInternal();
-                break;
-                
-            case AUDIO_IO_COMMAND_STOP_PLAYOUT:
-                ptrThis->StopPlayoutInternal();
-                break;
-                
-            case AUDIO_IO_COMMAND_START_RECORDING:
-                ptrThis->StartRecordingInternal();
-                break;
-                
-            case AUDIO_IO_COMMAND_STOP_RECORDING:
-                ptrThis->StopRecordingInternal();
-                break;
-                
-            case AUDIO_IO_COMMAND_RESET:
-                ptrThis->ResetAudioDeviceInternal();
-                break;
-                
-            default:
-                break;
-        }
-    }
-    
-    int32_t audio_io_ios::InitInternal() {
         int ret = 0;
         if (initialized_) {
             goto out;
@@ -167,24 +134,51 @@ void audio_io_ios::mq_callback(int id, void *data, void *arg)
         initialized_ = true;
         
         ret = init_play_or_record();
+	if (ret < 0) {
+		warning("audio_io_ios: init_play_or_record failed\n");
+		return ret;
+	}
+	if (want_play_) {
+		ret = StartPlayoutInternal();
+		if (ret < 0) {
+			warning("audio_io_ios: init_play_or_record failed\n");
+			return ret;
+		}
+	}
+	if (want_rec_) {
+		ret = StartRecordingInternal();
+		if (ret < 0) {
+			warning("audio_io_ios: init_play_or_record failed\n");
+			return ret;
+		}
+	}
 out:
         return ret;
-    }
+}
     
-	bool audio_io_ios::PlayoutIsInitialized() const {
-		return is_playing_initialized_;
-	}
+bool audio_io_ios::PlayoutIsInitialized() const
+{
+	return is_playing_initialized_;
+}
     
-	bool audio_io_ios::RecordingIsInitialized() const {
-		return is_recording_initialized_;
-	}
+bool audio_io_ios::RecordingIsInitialized() const
+{
+	return is_recording_initialized_;
+}
 
-    int32_t audio_io_ios::StartPlayoutInternal() {
-        info("audio_io_ios: StartPlayoutInternal \n");
+int32_t audio_io_ios::StartPlayoutInternal()
+{
+        info("audio_io_ios: StartPlayoutInternal "
+	     "initialized=%d play_init=%d want_play=%d want_rec=%d\n",
+	     initialized_, is_playing_initialized_, want_play_, want_rec_);
+
         if(!is_playing_initialized_){
             goto out;
         }
+
         assert(!is_playing_.load());
+
+	want_play_ = false;
         
 	memset(play_buffer_, 0, sizeof(*play_buffer_) * play_buffer_size_);
 	play_avail_ = 0;
@@ -194,37 +188,46 @@ out:
         if (!is_recording_.load()) {
             OSStatus result = AudioOutputUnitStart(au_);
             if (result != noErr) {
-                error("audio_io_ios: AudioOutputUnitStart failed: \n", result);
+                error("audio_io_ios: AudioOutputUnitStart failed:0x08x\n", result);
                 return -1;
             }
         }
         is_playing_.store(true);
 out:
         return 0;
-    }
-    
-    
-	int32_t audio_io_ios::StartPlayout() {
-        info("audio_io_ios: StartPlayout \n");
-        if(mq_){
-            mqueue_push(mq_, AUDIO_IO_COMMAND_START_PLAYOUT, NULL);
-        } else {
-            StartPlayoutInternal();
-        }
+}
+
+int32_t audio_io_ios::StartPlayout()
+{
+        info("audio_io_ios: StartPlayout initialized=%d\n", initialized_);
+
+	if (!initialized_) {
+		want_play_ = true;
 		return 0;
-    }
-    
-	bool audio_io_ios::Playing() const {
-		return is_playing_;
 	}
+
+	StartPlayoutInternal();
+	
+	return 0;
+}
     
-	int32_t audio_io_ios::StartRecordingInternal() {
-        info("audio_io_ios: StartRecordingInternal \n");
-        if(!is_playing_initialized_){
+bool audio_io_ios::Playing() const
+{
+	return is_playing_;
+}
+    
+int32_t audio_io_ios::StartRecordingInternal()
+{
+        info("audio_io_ios: StartRecordingInternal "
+	     "initialized=%d play_init=%d want_play=%d want_rec=%d\n",
+	     initialized_, is_playing_initialized_, want_play_, want_rec_);
+
+        if(!is_playing_initialized_) {
             goto out;
         }
         assert(!is_recording_.load());
-        
+
+	want_rec_ = false;
         memset(rec_buffer_, 0, rec_buffer_size_);
         rec_avail_ = 0;
 	rec_in_pos_ = 0;
@@ -252,138 +255,152 @@ out:
                     error("audio_io_ios: Failed to set thread priority \n");
                 }
             }
-        } else {
+        }
+	else {
             warning("audio_io_ios: Thread already created \n");
         }
         
         if (!is_playing_.load()) {
-            OSStatus result = AudioOutputUnitStart(au_);
-            if (result != noErr) {
-                error("audio_io_ios: AudioOutputUnitStart failed: %d \n", result);
-                return -1;
-            }
+		OSStatus result = AudioOutputUnitStart(au_);
+		if (result != noErr) {
+			error("audio_io_ios: AudioOutputUnitStart "
+			      "failed: %d \n", result);
+			return -1;
+		}
         }
-		is_recording_.store(true);
-out:
+	is_recording_.store(true);
+ out:
+	return 0;
+}
+    
+int32_t audio_io_ios::StartRecording()
+{
+	info("audio_io_ios: StartRecording initialized=%d\n", initialized_);
+	
+	if (!initialized_) {
+		want_rec_ = true;
 		return 0;
-    }
-    
-    int32_t audio_io_ios::StartRecording() {
-        if(mq_){
-            mqueue_push(mq_, AUDIO_IO_COMMAND_START_RECORDING, NULL);
-        } else {
-            StartRecordingInternal();
-        }
-        return 0;
-    }
-    
-	bool audio_io_ios::Recording() const {
-		return is_recording_;
 	}
+
+	StartRecordingInternal();
+
+        return 0;
+}
     
-	int32_t audio_io_ios::StopRecordingInternal() {
+bool audio_io_ios::Recording() const
+{
+	return is_recording_;
+}
+    
+int32_t audio_io_ios::StopRecordingInternal()
+{
         if (!is_recording_.load()) {
             goto out;
         }
+
         info("audio_io_ios: StopRecordingInternal \n");
-        
-        if (rec_tid_){
-            void* thread_ret;
-            
-            is_running_ = false;
-            
-            pthread_cond_signal(&cond_);
-            
-            pthread_join(rec_tid_, &thread_ret);
-            rec_tid_ = 0;
-	    pthread_cond_destroy(&cond_);
-        }
-        
-        if (!is_playing_.load()) {
-            // Both playout and recording has stopped, shutdown the device.
-            if (nullptr != au_) {
-                OSStatus result = -1;
-                result = AudioOutputUnitStop(au_);
-                if (0 != result) {
-                    error("audio_io_ios: AudioOutputUnitStop failed: %d ", result);
-                }
-            }
-        }
+
         is_recording_.store(false);
-out:
+
+        if (rec_tid_) {
+		void* thread_ret;
+            
+		is_running_ = false;
+            
+		pthread_cond_signal(&cond_);
+
+		info("audio_io_ios: StopRecordingInternal thread join\n");
+		
+		pthread_join(rec_tid_, &thread_ret);
+		info("audio_io_ios: StopRecordingInternal thread join done\n");
+		rec_tid_ = 0;
+		pthread_cond_destroy(&cond_);
+        }
+
+        if (!is_playing_.load()) {
+		// Both playout and recording has stopped, shutdown the device.
+		if (nullptr != au_) {
+			dispatch_sync(dispatch_get_main_queue(), ^{
+				OSStatus result = -1;	
+				if (nullptr != au_) {
+					result = AudioOutputUnitStop(au_);
+					if (0 != result) {
+						error("audio_io_ios: "
+						      "AudioOutputUnitStop "
+						      "failed: %d ", result);
+					}
+				}
+			});
+		}
+        }
+	
+        info("audio_io_ios: StopRecordingInternal done\n");
+ out:
         return 0;
-	}
+}
     
-    int32_t audio_io_ios::StopRecording() {
+int32_t audio_io_ios::StopRecording()
+{
         info("audio_io_ios: StopRecording \n");
-        if(mq_){
-            mqueue_push(mq_, AUDIO_IO_COMMAND_STOP_RECORDING, NULL);
-        } else {
-            StopRecordingInternal();
-        }
-        int max_wait = 0;
-        int err = 0;
-        while(is_recording_.load()){
-            usleep(2000);
-            max_wait++;
-            if(max_wait > 1000){
-                error("audio_io_ios: Waiting for recording to stop failed \n");
-                err = -1;
-                break;
-            }
-        }
+
+	int32_t err;
+	
+	err = StopRecordingInternal();
+	
         return err;
-    }
+}
     
-	int32_t audio_io_ios::StopPlayoutInternal() {
+int32_t audio_io_ios::StopPlayoutInternal()
+{
         if (!is_playing_.load()) {
             return 0;
         }
-        info("audio_io_ios: StopPlayoutInternal\n");
-        
-        if (!is_recording_.load()) {
-            // Both playout and recording has stopped, shutdown the device.
-            if (nullptr != au_) {
-                OSStatus result = -1;
-                result = AudioOutputUnitStop(au_);
-                if (0 != result) {
-                    error("audio_io_ios: AudioOutputUnitStop failed: %d ", result);
-                }
-            }
-        }
-        is_playing_.store(false);
-		return 0;
-	}
-    
-    int32_t audio_io_ios::StopPlayout() {
-        info("audio_io_ios: StopPlayout\n");
-        if(mq_){
-            mqueue_push(mq_, AUDIO_IO_COMMAND_STOP_PLAYOUT, NULL);
-        } else {
-            StopPlayoutInternal();
-        }
-        int max_wait = 0;
-        int err = 0;
-        while(is_playing_.load()){
-            usleep(2000);
-            max_wait++;
-            if(max_wait > 1000){
-                error("audio_io_ios: Waiting for playout to stop failed \n");
-                err = -1;
-                break;
-            }
-        }
-        return err;
-    }
 
-	int32_t audio_io_ios::Terminate() {
-        return 0;
-    }
+        info("audio_io_ios: StopPlayoutInternal\n");
+
+        if (!is_recording_.load()) {
+		// Both playout and recording has stopped, shutdown the device.
+		if (nullptr != au_) {
+			dispatch_sync(dispatch_get_main_queue(), ^{
+				OSStatus result = -1;
+				if (nullptr != au_) {
+					result = AudioOutputUnitStop(au_);
+					if (0 != result) {
+						error("audio_io_ios: "
+						      "AudioOutputUnitStop: %d\n",
+						      result);
+					}
+				}
+			});
+		}
+        }
+	
+        is_playing_.store(false);
+        info("audio_io_ios: StopPlayoutInternal done\n");
+	return 0;
+}
     
-	int32_t audio_io_ios::TerminateInternal() {
+int32_t audio_io_ios::StopPlayout()
+{
+        info("audio_io_ios: StopPlayout tid=%p\n", pthread_self());
+
+	int32_t err;
+
+	err = StopPlayoutInternal();
+
+        return err;
+}
+
+int32_t audio_io_ios::Terminate()
+{
+        return 0;
+}
+    
+int32_t audio_io_ios::TerminateInternal()
+{
         info("audio_io_ios: Terminate\n");
         if (!initialized_) {
-            return 0;
+		return 0;
         }
         shutdown_play_or_record();
         
@@ -393,21 +410,23 @@ out:
         is_shut_down_ = true;
         initialized_ = false;
         return 0;
-	}
+}
 
-    int32_t audio_io_ios::ResetAudioDevice() {
+int32_t audio_io_ios::ResetAudioDevice()
+{
         info("audio_io_ios: ResetAudioDevice\n");
-        if(mq_){
-            mqueue_push(mq_, AUDIO_IO_COMMAND_RESET, NULL);
-        } else {
-            ResetAudioDeviceInternal();
-        }
+
+	ResetAudioDeviceInternal();
+	
         return 0;
-    }
+}
     
-    int32_t audio_io_ios::ResetAudioDeviceInternal() {
+int32_t audio_io_ios::ResetAudioDeviceInternal()
+{
         info("audio_io_ios: ResetAudioDeviceInternal\n");
-        
+
+	pthread_mutex_lock(&reset_lock_);
+
         if (!is_playing_initialized_ && !is_recording_initialized_) {
             info("audio_io_ios: Playout or recording not initialized\n");
         }
@@ -439,10 +458,13 @@ out:
         res += StartPlayoutInternal();
         res += StartRecordingInternal();
 
+	pthread_mutex_unlock(&reset_lock_);
+
 	return res;
-    }
+}
     
-    int32_t audio_io_ios::StereoPlayoutIsAvailable(bool* available) const{
+int32_t audio_io_ios::StereoPlayoutIsAvailable(bool* available) const
+{
         info("audio_io_ios: StereoPlayoutIsAvailable: \n");
         
 #ifdef ZETA_IOS_STEREO_PLAYOUT
@@ -457,64 +479,75 @@ out:
         
         *available = false; // NB Only when a HS is plugged in
         if ([outPortDesc.portType isEqualToString:AVAudioSessionPortHeadphones]){
-            *   available = true;
+		*available = true;
         }
 #else
         *available = false;
 #endif
         return 0;
-    }
+}
     
-    int32_t audio_io_ios::SetStereoPlayout(bool enable) {
+int32_t audio_io_ios::SetStereoPlayout(bool enable)
+{
         info("audio_io_ios: SetStereoPlayout to %d: \n", enable);
 
-        if(want_stereo_playout_ != enable){
-            want_stereo_playout_ = enable;
-            ResetAudioDevice();
+        if(want_stereo_playout_ != enable) {
+		want_stereo_playout_ = enable;
+		ResetAudioDevice();
         }
 
         return 0;
-    }
+}
     
-    bool audio_io_ios::BuiltInAECIsAvailable() const {
+bool audio_io_ios::BuiltInAECIsAvailable() const
+{
         return !want_stereo_playout_;
-    }
+}
     
-    int32_t audio_io_ios::PlayoutDeviceName(uint16_t index,
-                                              char name[kAdmMaxDeviceNameSize],
-                                              char guid[kAdmMaxGuidSize]) {
+int32_t audio_io_ios::PlayoutDeviceName(uint16_t index,
+					char name[kAdmMaxDeviceNameSize],
+					char guid[kAdmMaxGuidSize])
+{
+        NSArray *outputs;
+
         info("audio_io_ios: PlayoutDeviceName(index=%d)\n", index);
         
         if (index != 0) {
-            return -1;
+		return -1;
         }
         
-        NSArray *outputs = [[AVAudioSession sharedInstance] currentRoute].outputs;
+	outputs = [[AVAudioSession sharedInstance] currentRoute].outputs;
 	if (outputs == nil || outputs.count < 1) {
 		warning("audio_io_ios: PlayoutDeviceName: no outputs\n");
 		return -1;
 	}
 
 	AVAudioSessionPortDescription *outPortDesc = [outputs objectAtIndex:0];
+	NSString *ptype = outPortDesc.portType;
         
-        if ([outPortDesc.portType isEqualToString:AVAudioSessionPortHeadphones]){
-            sprintf(name, "headset");
-        } else if ([outPortDesc.portType isEqualToString:AVAudioSessionPortBuiltInSpeaker]){
-            sprintf(name, "speaker");
-        } else if ([outPortDesc.portType isEqualToString:AVAudioSessionPortBluetoothHFP]){
-            sprintf(name, "bt");
-        } else {
-            sprintf(name, "earpiece");
+        if ([ptype isEqualToString:AVAudioSessionPortHeadphones]) {
+		sprintf(name, "headset");
+        }
+	else if ([ptype isEqualToString:AVAudioSessionPortBuiltInSpeaker]) {
+		sprintf(name, "speaker");
+        }
+	else if ([ptype isEqualToString:AVAudioSessionPortBluetoothHFP]) {
+		sprintf(name, "bt");
+        }
+	else {
+		sprintf(name, "earpiece");
         }
         if (guid != NULL) {
-            memset(guid, 0, kAdmMaxGuidSize);
+		memset(guid, 0, kAdmMaxGuidSize);
         }
         
         return 0;
-    }
+}
     
-    int32_t audio_io_ios::init_play_or_record() {
+int32_t audio_io_ios::init_play_or_record()
+{
         info("audio_io_ios: AudioDeviceIOS::InitPlayOrRecord \n");
+
         assert(!au_);
         
         OSStatus result = -1;
@@ -523,27 +556,32 @@ out:
         bool use_stereo_playout = false; // NB Only when a HS is plugged in
 #ifdef ZETA_IOS_STEREO_PLAYOUT
         // Get array of current audio outputs (there should only be one)
-        NSArray *outputs = [[AVAudioSession sharedInstance] currentRoute].outputs;
+        NSArray *outputs;
+	outputs = [[AVAudioSession sharedInstance] currentRoute].outputs;
 	if (outputs == nil || outputs.count < 1) {
 		warning("audio_io_ios: init_play_or_record: no outputs\n");
 		return -1;
 	}
         AVAudioSessionPortDescription *outPortDesc = [outputs objectAtIndex:0];
-        if ([outPortDesc.portType isEqualToString:AVAudioSessionPortHeadphones]){
-            use_stereo_playout = want_stereo_playout_;
-            info("audio_io_ios: A Headset is plugged in \n");
+	NSString *ptype = outPortDesc.portType;
+        if ([ptype isEqualToString:AVAudioSessionPortHeadphones]) {
+		use_stereo_playout = want_stereo_playout_;
+		info("audio_io_ios: A Headset is plugged in\n");
         }
 #endif
         using_stereo_playout_ = use_stereo_playout;
       
-        info("audio_io_ios: want_stereo_playout_ = %d use_stereo_playout = %d \n",
+        info("audio_io_ios: want_stereo=%d use_stereo=%d\n",
              want_stereo_playout_, use_stereo_playout);
         
         NSString *cat = [AVAudioSession sharedInstance].category;
         if (cat != AVAudioSessionCategoryPlayAndRecord){
-            error("audio_io_ios: catagory not AVAudioSessionCategoryPlayAndRecord \n");
-        } else {
-            info("audio_io_ios: catagory okay AVAudioSessionCategoryPlayAndRecord \n");
+		error("audio_io_ios: catagory not "
+		      "AVAudioSessionCategoryPlayAndRecord\n");
+        }
+	else {
+		info("audio_io_ios: catagory okay "
+		     "AVAudioSessionCategoryPlayAndRecord\n");
         }
         
         // Create Voice Processing Audio Unit
@@ -552,30 +590,30 @@ out:
         
         desc.componentType = kAudioUnitType_Output;
 
-        if(use_stereo_playout){
-            desc.componentSubType = kAudioUnitSubType_RemoteIO;
-            info("audio_io_ios: Use kAudioUnitSubType_RemoteIO !! \n");
-            dig_mic_gain_ = 3;
+        if (use_stereo_playout) {
+		desc.componentSubType = kAudioUnitSubType_RemoteIO;
+		info("audio_io_ios: Use kAudioUnitSubType_RemoteIO !! \n");
+		dig_mic_gain_ = 3;
         }
 	else {
-            desc.componentSubType = kAudioUnitSubType_VoiceProcessingIO;
-            info("audio_io_ios: Use kAudioUnitSubType_VoiceProcessingIO !! \n");
-            dig_mic_gain_ = 0;
+		desc.componentSubType = kAudioUnitSubType_VoiceProcessingIO;
+		info("audio_io_ios: Use kAudioUnitSubType_VoiceProcessingIO\n");
+		dig_mic_gain_ = 0;
         }
         desc.componentManufacturer = kAudioUnitManufacturer_Apple;
         desc.componentFlags = 0;
         desc.componentFlagsMask = 0;
-        
+
         comp = AudioComponentFindNext(nullptr, &desc);
         if (nullptr == comp) {
-            error("Could not find audio component for Audio Unit \n");
-            return -1;
+		error("Could not find audio component for Audio Unit \n");
+		return -1;
         }
         
         result = AudioComponentInstanceNew(comp, &au_);
         if (0 != result) {
-            error("audio_io_ios: Failed to create Audio Unit instance: %d \n", result);
-            return -1;
+		error("audio_io_ios: AudioUnit failed: %d\n", result);
+		return -1;
         }
         
         NSError* err = nil;
@@ -588,17 +626,16 @@ out:
 	err = nil;
         [session setPreferredSampleRate:preferredSampleRate error:&err];	
         if (err != nil) {
-            const char* errorString = [[err localizedDescription] UTF8String];
-            error("audio_io_ios: setPreferredSampleRate failed %s \n", errorString);
+		error("audio_io_ios: setPreferredSampleRate failed %s\n",
+		      [[err localizedDescription] UTF8String]);
         }
 
 	err = nil;
 	success = [session setPreferredIOBufferDuration:AUDIO_IO_BUF_DUR
-						  error:&err];
+		   error:&err];
 	if (!success || err != nil) {
-            const char* errorString = [[err localizedDescription] UTF8String];
-            error("audio_io_ios: setPreferredIOBUfferDuration failed %s\n",
-		  errorString);
+		error("audio_io_ios: setPreferredIOBUfferDuration failed %s\n",
+		      [[err localizedDescription] UTF8String]);
 	}
 	info("mm_platform_ios: IOBufferDuration=%dms\n",
 	     (int)(session.IOBufferDuration * 1000.0));
@@ -619,16 +656,19 @@ out:
                                       0,  // output bus
                                       &enableIO, sizeof(enableIO));
         if (0 != result) {
-            error("audio_io_ios: Failed to enable IO on output: %d \n", result);
+		error("audio_io_ios: Failed to enable IO on output: %d\n",
+		      result);
         }
         
         // Disable AU buffer allocation for the recorder, we allocate our own.
         UInt32 flag = 0;
         result = AudioUnitSetProperty(au_,
                                       kAudioUnitProperty_ShouldAllocateBuffer,
-                                      kAudioUnitScope_Output, 1, &flag, sizeof(flag));
+                                      kAudioUnitScope_Output, 1, &flag,
+				      sizeof(flag));
         if (0 != result) {
-            warning("audio_io_ios: Failed to disable AU buffer allocation: %d \n", result);
+		warning("audio_io_ios: Failed to disable"
+			"AU buffer allocation: %d \n", result);
             // Should work anyway
         }
         
@@ -658,7 +698,8 @@ out:
 			  kAudioUnitScope_Global,
 			  0, &auCbS, sizeof(auCbS));
         if (0 != result) {
-            error("audio_io_ios: Failed to set AU output callback:: %d \n", result);
+		error("audio_io_ios: Failed to set AU output callback: %d\n",
+		      result);
         }
         
         // Get stream format for out/0
@@ -668,7 +709,7 @@ out:
         AudioUnitGetProperty(au_, kAudioUnitProperty_StreamFormat,
                              kAudioUnitScope_Output, 0, &playoutDesc, &size);
         if (0 != result) {
-            error("audio_io_ios: Failed to get AU output stream format: %d \n", result);
+		error("audio_io_ios: Failed to get AU output stream format: %d \n", result);
         }
         
         // Get hardware sample rate for logging (see if we get what we asked for).
@@ -747,11 +788,13 @@ out:
         // Close and delete AU.
         OSStatus result = -1;
         if (nullptr != au_) {
-            result = AudioComponentInstanceDispose(au_);
+	    AudioUnit au = au_;
+	    
+            au_ = nullptr;	    
+            result = AudioComponentInstanceDispose(au);
             if (0 != result) {
                 error("audio_io_ios: AudioComponentInstanceDispose failed: %d \n", result);
             }
-            au_ = nullptr;
         }
         
         is_recording_initialized_ = false;
@@ -1010,7 +1053,7 @@ void* audio_io_ios::record_thread()
 			      tot_avail, avail, duration);
 #endif
 
-			 if (audioCallback_) {
+			 if (audioCallback_ && is_recording_.load()) {
 				 ret = audioCallback_->RecordedDataIsAvailable(
 					(void*)&rec_buffer_[rec_out_pos_],
 					nsamps,

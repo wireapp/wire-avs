@@ -113,6 +113,7 @@ static void econn_conn_handler(struct econn *econn,
 			       uint32_t age,
 			       const char *sdp,
 			       struct econn_props *props,
+			       bool reset,
 			       void *arg);
 static void econn_answer_handler(struct econn *conn,
 				    bool reset, const char *sdp,
@@ -330,6 +331,7 @@ static void client_new_econn(struct client *cli)
 			  econn_answer_handler,
 			  econn_update_req_handler,
 			  econn_update_resp_handler,
+			  NULL,
 			  NULL,
 			  econn_close_handler,
 			  cli);
@@ -744,6 +746,7 @@ static void econn_conn_handler(struct econn *econn,
 			       uint32_t age,
 			       const char *sdp,
 			       struct econn_props *props,
+			       bool reset,
 			       void *arg)
 {
 	struct client *cli = (struct client *)arg;

@@ -742,18 +742,22 @@ static void enter_call(void)
     callVoidMethodHelper(jni_env.env, java.mm, java.mmOnEnterCall);
     
     jni_detach(&jni_env);
-
 }
 
 void mm_platform_incoming(void)
 {
 	audio_focus();
+
+	if (mm_platform_get_route() == MEDIAMGR_AUPLAY_EARPIECE)
+		mm_platform_enable_speaker_internal(false);
+
 	mediamgr_sys_incoming(java.mediamgr);
 }
 
 void mm_platform_enter_call(void)
 {
-	enter_call();
+	mediamgr_update_route(java.mediamgr);
+	enter_call();	
 	mediamgr_sys_entered_call(java.mediamgr);    
 }
 
@@ -843,4 +847,8 @@ void mm_platform_confirm_route(enum mediamgr_auplay route)
 	if (route == MEDIAMGR_AUPLAY_SPEAKER)
 		mm_platform_enable_speaker_internal(false);
 
+}
+
+void mm_platform_stop_delayed_play(void)
+{
 }

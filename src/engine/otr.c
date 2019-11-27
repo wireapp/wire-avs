@@ -211,7 +211,7 @@ static int encrypt_msg(struct list *msgl,
 
 		str_ncpy(msg->clientid, clientid, sizeof(msg->clientid));
 
-		msg->cipher_len = 4096;
+		msg->cipher_len = 8192;
 		msg->cipher = mem_alloc(msg->cipher_len, NULL);
 
 #ifdef HAVE_CRYPTOBOX

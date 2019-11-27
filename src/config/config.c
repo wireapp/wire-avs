@@ -191,7 +191,6 @@ void config_stop(struct config *cfg)
 	tmr_cancel(&cfg->tmr);
 }
 
-
 struct zapi_ice_server *config_get_iceservers(struct config *cfg,
 					      size_t *count)
 {

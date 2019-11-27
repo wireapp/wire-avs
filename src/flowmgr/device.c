@@ -24,9 +24,12 @@
 #include "avs_zapi.h"
 #include "avs_rest.h"
 #include "avs_conf_pos.h"
-#include "avs_media.h"
+#include "avs_icall.h"
+#include "avs_msystem.h"
 #include "avs_flowmgr.h"
+#if USE_AVSLIB
 #include "avs_voe.h"
+#endif
 #include "flowmgr.h"
 
 
@@ -66,7 +69,9 @@ int flowmgr_auplay_changed(struct flowmgr *fm, enum flowmgr_auplay aplay)
 		return EINVAL;
 	}
 
+#if USE_AVSLIB
 	err = voe_set_auplay(dev);
+#endif
 
 	return err;
 }
@@ -76,8 +81,12 @@ int flowmgr_set_mute(struct flowmgr *fm, bool mute)
 {
 	int err = 0;
 	(void)fm;
-
+	
+#if USE_AVSLIB
 	err = voe_set_mute(mute);
+#else
+	msystem_set_muted(mute);
+#endif
 
 	return err;
 }
@@ -88,7 +97,12 @@ int flowmgr_get_mute(struct flowmgr *fm, bool *muted)
 	int err = ENOSYS;
 	(void)fm;
 
+#if USE_AVSLIB
 	err = voe_get_mute(muted);
+#else
+	err = 0;
+	*muted = msystem_get_muted();
+#endif
 
 	return err;
 }

@@ -26,7 +26,7 @@
 #include <string>
 #include <stdlib.h>
 
-#include "webrtc/common_audio/resampler/include/push_resampler.h"
+#include "common_audio/resampler/include/push_resampler.h"
 
 #include "find_pitch_lags.h"
 #include "time_scale.h"

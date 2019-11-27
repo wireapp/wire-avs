@@ -202,9 +202,12 @@ static AVSMediaManager *_defaultMediaManager;
 }
 
 - (instancetype) init
-{
+{	
+
+	NSLog(@"AVSMediaManager::init");
 	self = [super init];
 	if (self) {
+		(void)on_mcat_changed;
 		mediamgr_alloc(&_mm, on_mcat_changed, (__bridge void *)(self));
 		_convId = nil;
 		_intensity = AVSIntensityLevelFull;
@@ -307,6 +310,12 @@ static AVSMediaManager *_defaultMediaManager;
 {
 	mediamgr_unregister_media(_mm, [media.name UTF8String]);
 }
+
+- (void)unregisterMediaByName:(NSString *)mediaName
+{
+	mediamgr_unregister_media(_mm, [mediaName UTF8String]);
+}
+
 
 
 - (BOOL)isInterrupted
@@ -424,24 +433,31 @@ static AVSMediaManager *_defaultMediaManager;
 
 - (void)startAudio
 {
-	info("AVSMediaManager: startAudio\n");	
+	info("AVSMediaManager: startAudio\n");
+	mediamgr_audio_start(_mm);
+	mediamgr_enter_call(_mm);
 	mediamgr_audio_reset(_mm);
 }
 
 - (void)stopAudio
 {
+	info("AVSMediaManager: stopAudio\n");
 }
 
 - (void)audioActivated
 {
+	info("AVSMediaManager: audioActivated\n");
 }
 
 - (void)audioDeActivated
 {
+	info("AVSMediaManager: audioDeActivated\n");
 }
 
-- (void)setUiStartsAudio:(BOOL)ui_starts_audio
+- (void)setUiStartsAudio:(BOOL)starts
 {
+	info("AVSMediaManager: setUiStartsAudio: %s\n", starts ? "yes" : "no");
+	msystem_audio_set_activated(!starts);
 }
 
 

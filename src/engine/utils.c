@@ -23,7 +23,7 @@
 #include <re.h>
 #include "avs_uuid.h"
 #include "avs_zapi.h"
-#include "avs_media.h"
+#include "avs_icall.h"
 #include "avs_flowmgr.h"
 #include "avs_jzon.h"
 #include "avs_rest.h"

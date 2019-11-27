@@ -37,6 +37,9 @@ extern "C" {
 }
 #endif
 
+static webrtc::audio_io_class *g_aioc = nullptr;
+static bool g_enable_sine = false;
+
 static void audio_io_destructor(void *arg)
 {
     struct audio_io *aio = (struct audio_io *)arg;
@@ -44,51 +47,101 @@ static void audio_io_destructor(void *arg)
     webrtc::audio_io_class *aioc = (webrtc::audio_io_class *)aio->aioc;
     if(aioc){
         aioc->TerminateInternal();
-        delete aioc;
+	if (aioc != g_aioc)
+		delete aioc;
     }
 }
+
+
+void *audio_io_create_adm(void)
+{
+	uint64_t flags;	
+
+	flags = avs_get_flags();
+
+	info("audio_io: create_adm: flags=%llu aioc=%p\n",
+	     flags, g_aioc);
+	
+	if (g_aioc)
+		return (void *)g_aioc;
+	
+	if (flags & AVS_FLAG_AUDIO_TEST) {
+		info("audio_io: create_adm: creating fake audio device\n");
+		g_aioc = new webrtc::fake_audiodevice(true);		
+	}
+	else {
+#if TARGET_OS_IPHONE // For now we only have our own ios audio implementation
+		g_aioc = new webrtc::audio_io_ios();
+#endif
+	}
+
+	if (g_enable_sine)
+		g_aioc->EnableSine();
+
+	return (void *)g_aioc;
+}
+
 
 int  audio_io_alloc(struct audio_io **aiop,
                     enum audio_io_mode mode)
 {
-    if (!aiop)
-        return EINVAL;
+	struct audio_io *aio;
+	webrtc::audio_io_class *aioc = NULL;
+	bool realtime = true;
+	int err = 0;
+
+	if (!aiop)
+		return EINVAL;
+
+	aio = (struct audio_io *)mem_zalloc(sizeof(*aio),
+					    audio_io_destructor);
+	if (!aio)
+		return ENOMEM;
     
-    struct audio_io *aio = (struct audio_io *)mem_zalloc(sizeof(*aiop), audio_io_destructor);
-    if (!aiop)
-        return ENOMEM;
-    
-    webrtc::audio_io_class *aioc = NULL;
-    bool realtime = true;
-    if (avs_get_flags() & AVS_FLAG_AUDIO_TEST){
-        mode = AUDIO_IO_MODE_MOCK_REALTIME;
-    }
-    switch (mode){
-        case AUDIO_IO_MODE_NORMAL:
-        {
+	if (avs_get_flags() & AVS_FLAG_AUDIO_TEST) {
+		mode = AUDIO_IO_MODE_MOCK_REALTIME;
+	}
+	switch (mode){
+	case AUDIO_IO_MODE_NORMAL:
 #if TARGET_OS_IPHONE // For now we only have our own ios audio implementation
-            aioc = new webrtc::audio_io_ios();
+		if (!g_aioc)
+			g_aioc = new webrtc::audio_io_ios();
+
+		aioc = g_aioc;
 #endif
-        }break;
+		break;
         
-        case AUDIO_IO_MODE_MOCK:
-            realtime = false;
-        case AUDIO_IO_MODE_MOCK_REALTIME:
-        {
-            aioc = new webrtc::fake_audiodevice(realtime);
-        }break;
-        
-        default:
-            warning("audio_io: audio_io_alloc unknown mode \n");
-    }
-    if(aioc){
-        aioc->InitInternal();
-    }
-    aio->aioc = aioc;
+	case AUDIO_IO_MODE_MOCK:
+		realtime = false;
+	case AUDIO_IO_MODE_MOCK_REALTIME:
+		aioc = new webrtc::fake_audiodevice(realtime);
+		break;
+	    
+	default:
+		warning("audio_io: audio_io_alloc unknown mode \n");
+		break;
+	}
+
+	if (aioc) {
+		int32_t ret;
+
+		ret = aioc->InitInternal();
+		if (ret < 0) {
+			err = ENOSYS;
+			warning("audio_io_alloc: InitInternal failed\n");
+			goto out;
+		}
+	}
+
+ out:
+	if (err)
+		mem_deref(aio);
+	else {
+		aio->aioc = aioc;
+		*aiop = aio;
+	}
     
-    *aiop = aio;
-    
-    return 0;
+	return err;
 }
 
 int  audio_io_init(struct audio_io *aio)
@@ -115,16 +168,14 @@ int  audio_io_terminate(struct audio_io *aio)
     return 0;
 }
 
-int  audio_io_enable_sine(struct audio_io *aio)
+int  audio_io_enable_sine(void)
 {
-    if(!aio)
-        return -1;
-    
-    if(aio->aioc){
-        webrtc::audio_io_class *aioc = (webrtc::audio_io_class *)aio->aioc;
-        aioc->EnableSine();
-    }
-    return 0;
+	if (g_aioc)
+		g_aioc->EnableSine();
+	else
+		g_enable_sine = true;
+	
+	return 0;
 }
 
 int audio_io_reset(struct audio_io *aio)

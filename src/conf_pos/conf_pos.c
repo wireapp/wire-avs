@@ -30,7 +30,7 @@ static void cp_destructor(void *arg)
 
 
 int conf_part_add(struct conf_part **cpp, struct list *partl,
-		  const char *userid, void *data)
+		  const char *userid)
 {
 	struct conf_part *cp;
 	int err;
@@ -39,7 +39,6 @@ int conf_part_add(struct conf_part **cpp, struct list *partl,
 	if (!cp)
 		return ENOMEM;
 
-	cp->data = data;
 	err = str_dup(&cp->uid, userid);
 	if (err)
 		goto out;
@@ -155,8 +154,8 @@ int conf_pos_print(struct re_printf *pf, const struct list *partl)
 
 	for (le = list_head(partl); le; le = le->next) {
 		struct conf_part *part = le->data;
-		err |= re_hprintf(pf, "....userid=%s  pos=%u  data=%p\n",
-				  part->uid, part->pos, part->data);
+		err |= re_hprintf(pf, "....userid=%s  pos=%u\n",
+				  part->uid, part->pos);
 	}
 
 	return err;

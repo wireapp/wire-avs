@@ -22,6 +22,10 @@
 #include "avs_wcall.h"
 #include "wcall.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 struct wcall_marshal {
 	struct mqueue *mq;
 	struct list mdl;
@@ -42,28 +46,34 @@ enum mq_event {
 	WCALL_MEV_AUDIO_ROUTE_CHANGED,
 	WCALL_MEV_NETWORK_CHANGED,
 	WCALL_MEV_INCOMING,
+	WCALL_MEV_SFT_RESP,
+	WCALL_MEV_SET_CLIENTS,
+	WCALL_MEV_DCE_SEND,
 	WCALL_MEV_DESTROY,
+	WCALL_MEV_SET_MUTE,
 };
 
 
 struct mq_data {
 	enum mq_event event;
-	void *wuser;
+	struct calling_instance *inst;
 	struct wcall *wcall;
 	struct le le; /* member of marshaling list */
 	
 	union {
 		struct {
+			char *sft_url;
+			char *sft_token;
 			int call_type;
 			int conv_type;
 			bool audio_cbr;
-			void *extcodec_arg;
 		} start;
 
 		struct {
+			char *sft_url;
+			char *sft_token;
 			int call_type;
 			bool audio_cbr;
-			void *extcodec_arg;
 		} answer;
 
 		struct {
@@ -106,12 +116,31 @@ struct mq_data {
 		} resp;
 
 		struct {
+			int err;
+			struct econn_message *msg;
+			void *ctx;
+		} sft_resp;
+
+		struct {
 			char *convid;
 			uint32_t msg_time;
 			char *userid;
 			int video_call;
 			int should_ring;
+			int conv_type;
 		} incoming;
+
+		struct {
+			struct list clist;
+		} set_clients;
+
+		struct {
+			struct mbuf *mb;
+		} dce_send;
+
+		struct {
+			int muted;
+		} set_mute;
 	} u;
 };
 
@@ -122,6 +151,16 @@ static void md_destructor(void *arg)
 	list_unlink(&md->le);
 	
 	switch (md->event) {
+	case WCALL_MEV_ANSWER:
+		mem_deref(md->u.answer.sft_url);
+		mem_deref(md->u.answer.sft_token);
+		break;
+
+	case WCALL_MEV_START:
+		mem_deref(md->u.start.sft_url);
+		mem_deref(md->u.start.sft_token);
+		break;
+
 	case WCALL_MEV_RECV_MSG:
 		mem_deref(md->u.recv_msg.msg);
 		mem_deref(md->u.recv_msg.convid);
@@ -137,9 +176,21 @@ static void md_destructor(void *arg)
 		mem_deref(md->u.resp.reason);
 		break;
 
+	case WCALL_MEV_SFT_RESP:
+		mem_deref(md->u.sft_resp.msg);
+		break;
+
 	case WCALL_MEV_INCOMING:
 		mem_deref(md->u.incoming.convid);
 		mem_deref(md->u.incoming.userid);
+		break;
+
+	case WCALL_MEV_DCE_SEND:
+		mem_deref(md->u.dce_send.mb);
+		break;
+
+	case WCALL_MEV_SET_CLIENTS:
+		list_flush(&md->u.set_clients.clist);
 		break;
 
 	default:
@@ -150,8 +201,9 @@ static void md_destructor(void *arg)
 }
 
 
-static struct mq_data *md_new(void *wuser, struct wcall *wcall,
-			     enum mq_event event)
+static struct mq_data *md_new(struct calling_instance *inst,
+			      struct wcall *wcall,
+			      enum mq_event event)
 {
 	struct mq_data *md;
 
@@ -159,7 +211,7 @@ static struct mq_data *md_new(void *wuser, struct wcall *wcall,
 	if (!md)
 		return NULL;
 
-	md->wuser = wuser;
+	md->inst = inst;
 	md->wcall = mem_ref(wcall);
 	md->event = event;
 
@@ -176,7 +228,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 	switch (id) {
 
 	case WCALL_MEV_RECV_MSG:
-		wcall_i_recv_msg(md->wuser,
+		wcall_i_recv_msg(md->inst,
 				 md->u.recv_msg.msg,
 				 md->u.recv_msg.curr_time,
 				 md->u.recv_msg.msg_time,
@@ -186,24 +238,32 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case WCALL_MEV_CONFIG_UPDATE:
-		wcall_i_config_update(md->wuser,
+		wcall_i_config_update(md->inst,
 				      md->u.config_update.err,
 				      md->u.config_update.json_str);
 		break;
 
 	case WCALL_MEV_RESP:
-		wcall_i_resp(md->wuser,
+		wcall_i_resp(md->inst,
 			     md->u.resp.status,
 			     md->u.resp.reason,
 			     md->u.resp.arg);
 		break;
 
+	case WCALL_MEV_SFT_RESP:
+		wcall_i_sft_resp(md->inst,
+				 md->u.sft_resp.err,
+				 md->u.sft_resp.msg,
+				 md->u.sft_resp.ctx);
+		break;
+
 	case WCALL_MEV_START:
 		 err = wcall_i_start(md->wcall,
+				     md->u.start.sft_url,
+				     md->u.start.sft_token,
 				     md->u.start.call_type,
 				     md->u.start.conv_type,
-				     md->u.start.audio_cbr,
-				     md->u.start.extcodec_arg);
+				     md->u.start.audio_cbr);
 		if (err) {
 			warning("wcall: wcall_start failed (%m)\n", err);
 			wcall_i_end(md->wcall);
@@ -212,9 +272,10 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 	case WCALL_MEV_ANSWER:
 		err = wcall_i_answer(md->wcall,
+				     md->u.answer.sft_url,
+				     md->u.answer.sft_token,
 				     md->u.answer.call_type,
-				     md->u.answer.audio_cbr,
-				     md->u.answer.extcodec_arg);
+				     md->u.answer.audio_cbr);
 		if (err) {
 			warning("wcall: wcall_answer failed (%m)\n", err);
 			wcall_i_end(md->wcall);
@@ -235,7 +296,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case WCALL_MEV_MCAT_CHANGED:
-		wcall_i_mcat_changed(md->wuser, md->u.mcat_changed.state);
+		wcall_i_mcat_changed(md->inst, md->u.mcat_changed.state);
 		break;
             
 	case WCALL_MEV_AUDIO_ROUTE_CHANGED:
@@ -252,12 +313,25 @@ static void mqueue_handler(int id, void *data, void *arg)
 				    md->u.incoming.userid,
 				    md->u.incoming.video_call,
 				    md->u.incoming.should_ring,
-				    md->wuser);
+				    md->u.incoming.conv_type,
+				    md->inst);
 		break;
 
+	case WCALL_MEV_DCE_SEND:
+		wcall_i_dce_send(md->wcall, md->u.dce_send.mb);		
+		break;
+
+	case WCALL_MEV_SET_CLIENTS:
+		wcall_i_set_clients_for_conv(md->wcall,
+				 &md->u.set_clients.clist);
+		break;
 
 	case WCALL_MEV_DESTROY:
-		wcall_i_destroy(md->wuser);
+		wcall_i_destroy(md->inst);
+		break;
+
+	case WCALL_MEV_SET_MUTE:
+		wcall_i_set_mute(md->u.set_mute.muted);
 		break;
 
 	default:
@@ -314,8 +388,8 @@ static int md_enqueue(struct mq_data *md)
 {
 	struct wcall_marshal *wm;
 	int err;
-	
-	wm = wcall_get_marshal(md->wuser);
+
+	wm = wcall_get_marshal(md->inst);
 	if (wm == NULL) {
 		err = ENOSYS;
 		goto out;
@@ -334,30 +408,43 @@ static int md_enqueue(struct mq_data *md)
 
 
 AVS_EXPORT
-void wcall_recv_msg(void *wuser, const uint8_t *buf, size_t len,
+int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
 		    uint32_t curr_time,
 		    uint32_t msg_time,
 		    const char *convid,
 		    const char *userid,
 		    const char *clientid)
 {
-	struct econn_message *msg;
+	struct calling_instance *inst;
+	struct econn_message *msg = NULL;
 	struct mq_data *md = NULL;
 	int err = 0;
 
 	if (!buf || len == 0 || !convid || !userid || !clientid)
-		return;
+		return EINVAL;
 
 	err = econn_message_decode(&msg, curr_time, msg_time,
 				   (const char *)buf, len);
-	if (err) {
+	if (err == EPROTONOSUPPORT) {
+		warning("wcall: recv_msg: uknown message type, ask user to update client\n");
+		return WCALL_ERROR_UNKNOWN_PROTOCOL;
+	}
+	else if (err) {
 		warning("wcall: recv_msg: failed to decode\n");
-		return;
+		return err;
 	}
 
-	md = md_new(wuser, NULL, WCALL_MEV_RECV_MSG);
-	if (!md)
-		return;
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: recv_msg: invalid wuser: 0x%08X\n", wuser);
+		return EINVAL;
+	}		
+
+	md = md_new(inst, NULL, WCALL_MEV_RECV_MSG);
+	if (!md) {
+		mem_deref(msg);
+		return ENOMEM;
+	}
 
 	md->u.recv_msg.msg = msg;
 	md->u.recv_msg.curr_time = curr_time;
@@ -377,17 +464,27 @@ void wcall_recv_msg(void *wuser, const uint8_t *buf, size_t len,
  out:
 	if (err)
 		mem_deref(md);
+
+	return err;
 }
 
 AVS_EXPORT
-void wcall_config_update(void *wuser, int err, const char *json_str)
+void wcall_config_update(WUSER_HANDLE wuser, int err, const char *json_str)
 {
+	struct calling_instance *inst;
 	struct mq_data *md = NULL;
 
 	info("wcall(%p): config_update: err=%d json=%zu bytes\n",
 	     wuser, err, str_len(json_str));
 
-	md = md_new(wuser, NULL, WCALL_MEV_CONFIG_UPDATE); 
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: config_update: invalid handle: 0x%08X\n",
+			wuser);
+		return;
+	}
+	
+	md = md_new(inst, NULL, WCALL_MEV_CONFIG_UPDATE); 
 	if (!md)
 		return;
 
@@ -399,17 +496,20 @@ void wcall_config_update(void *wuser, int err, const char *json_str)
 
 
 AVS_EXPORT
-void wcall_resp(void *wuser, int status, const char *reason, void *arg)
+void wcall_resp(WUSER_HANDLE wuser, int status, const char *reason, void *arg)
 {
+	struct calling_instance *inst;
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	if (!wuser) {
-		warning("wcall_resp: no wcall user\n");
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: resp: invalid handle: 0x%08X\n",
+			wuser);
 		return;
 	}
 	
-	md = md_new(wuser, NULL, WCALL_MEV_RESP);
+	md = md_new(inst, NULL, WCALL_MEV_RESP);
 	if (!md) {
 		err = ENOMEM;
 		return;
@@ -428,12 +528,60 @@ void wcall_resp(void *wuser, int status, const char *reason, void *arg)
 
 
 AVS_EXPORT
-int wcall_start_ex(void *wuser, const char *convid,
-		   int call_type,
-		   int conv_type,
-		   int audio_cbr /*bool */,
-		   void *extcodec_arg)
+void wcall_sft_resp(WUSER_HANDLE wuser,
+		    int perr, const uint8_t *buf, size_t len, void *ctx)
 {
+	struct calling_instance *inst;
+	struct econn_message *msg = NULL;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: sft_resp: invalid handle: 0x%08X\n",
+			wuser);
+		return;
+	}
+	
+	if (!ctx)
+		return;
+
+	if (buf && len > 0) {
+		err = econn_message_decode(&msg, 0, 0, (const char *)buf, len);
+		if (err) {
+			warning("wcall: recv_msg: failed to decode\n");
+			return;
+		}
+	}
+
+	md = md_new(inst, NULL, WCALL_MEV_SFT_RESP);
+	if (!md)
+		return;
+
+	md->u.sft_resp.err = perr;
+	md->u.sft_resp.msg = msg;
+	md->u.sft_resp.ctx = ctx;
+
+	if (err)
+		goto out;
+
+	err = md_enqueue(md);
+	if (err)
+		goto out;
+ out:
+	if (err)
+		mem_deref(md);
+}
+
+
+static int wcall_start_ex(WUSER_HANDLE wuser, const char *convid,
+			  const char *sft_url,
+			  const char *sft_token,
+			  int call_type,
+			  int conv_type,
+			  int audio_cbr /*bool */)
+{
+	struct calling_instance *inst;
 	struct wcall *wcall;
 	struct mq_data *md = NULL;
 	bool added = false;
@@ -441,15 +589,22 @@ int wcall_start_ex(void *wuser, const char *convid,
 
 	if (!convid)
 		return EINVAL;
-	
-	wcall = wcall_lookup(wuser, convid);
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: start_ex: invalid handle: 0x%08X\n",
+			wuser);
+		return EINVAL;
+	}
+		
+	wcall = wcall_lookup(inst, convid);
 	if (!wcall) {
-		err = wcall_add(wuser, &wcall, convid, conv_type);
+		err = wcall_add(inst, &wcall, convid, conv_type);
 		if (err)
 			goto out;
 		added = true;
 	}
-	md = md_new(wuser, wcall, WCALL_MEV_START);
+	md = md_new(inst, wcall, WCALL_MEV_START);
 	if (!md) {
 		err = ENOMEM;
 		goto out;
@@ -458,7 +613,19 @@ int wcall_start_ex(void *wuser, const char *convid,
 	md->u.start.call_type = call_type;
 	md->u.start.conv_type = conv_type;
 	md->u.start.audio_cbr = (bool)audio_cbr;
-	md->u.start.extcodec_arg = extcodec_arg;
+
+	if (sft_url) {
+		err = str_dup(&md->u.answer.sft_url, sft_url);
+		if (err) {
+			goto out;
+		}
+	}
+	if (sft_token) {
+		err = str_dup(&md->u.answer.sft_token, sft_token);
+		if (err) {
+			goto out;
+		}
+	}
 
 	err = md_enqueue(md);
 	if (err)
@@ -475,22 +642,41 @@ int wcall_start_ex(void *wuser, const char *convid,
 
 
 AVS_EXPORT
-int wcall_start(void *wuser, const char *convid,
+int wcall_start(WUSER_HANDLE wuser, const char *convid,
 		int call_type,
 		int conv_type,
 		int audio_cbr /*bool*/)
 {
-	return wcall_start_ex(wuser, convid, call_type, conv_type, audio_cbr,
-			      NULL);
+	if (conv_type == WCALL_CONV_TYPE_CONFERENCE) {
+		return EINVAL;
+	}
+	return wcall_start_ex(wuser, convid,
+			      NULL, NULL,
+			      call_type, conv_type, audio_cbr);
 }
 
 
-AVS_EXPORT 
-int wcall_answer_ex(void *wuser, const char *convid,
-		    int call_type,
-		    int audio_cbr/* bool */,
-		    void *extcodec_arg)
+AVS_EXPORT
+int wcall_conf_start(WUSER_HANDLE wuser, const char *convid,
+		     const char *sft_url,
+		     const char *sft_token,
+		     int call_type, /*WCALL_CALL_TYPE...*/
+		     int audio_cbr /*bool*/)
 {
+	return wcall_start_ex(wuser, convid,
+			      sft_url, sft_token,
+			      call_type, WCALL_CONV_TYPE_CONFERENCE,
+			      audio_cbr);
+}
+
+
+static int wcall_answer_ex(WUSER_HANDLE wuser, const char *convid,
+			   const char *sft_url,
+			   const char *sft_token,
+			   int call_type,
+			   int audio_cbr/* bool */)
+{
+	struct calling_instance *inst;
 	struct wcall *wcall;
 	struct mq_data *md = NULL;
 	int err = 0;
@@ -498,18 +684,41 @@ int wcall_answer_ex(void *wuser, const char *convid,
 	if (!convid)
 		return EINVAL;
 	
-	wcall = wcall_lookup(wuser, convid);
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: answer_ex: invalid handle: 0x%08X\n",
+			wuser);
+		return EINVAL;
+	}
+	
+	wcall = wcall_lookup(inst, convid);
 	if (!wcall)
 		return EPROTO;
 
-	md = md_new(wuser, wcall, WCALL_MEV_ANSWER);
-
-	md->wuser = wuser;
+	md = md_new(inst, wcall, WCALL_MEV_ANSWER);
 	md->u.answer.call_type = call_type;
 	md->u.answer.audio_cbr = audio_cbr;
-	md->u.answer.extcodec_arg = extcodec_arg;
+
+	if (sft_url) {
+		err = str_dup(&md->u.answer.sft_url, sft_url);
+		if (err) {
+			goto out;
+		}
+	}
+	if (sft_token) {
+		err = str_dup(&md->u.answer.sft_token, sft_token);
+		if (err) {
+			goto out;
+		}
+	}
 
 	err = md_enqueue(md);
+	if (err) {
+		goto out;
+	}
+
+
+out:
 	if (err)
 		mem_deref(md);
 
@@ -518,25 +727,48 @@ int wcall_answer_ex(void *wuser, const char *convid,
 
 
 AVS_EXPORT 
-int wcall_answer(void *wuser, const char *convid,
+int wcall_answer(WUSER_HANDLE wuser, const char *convid,
 		 int call_type, int audio_cbr /*bool*/)
 {
-	return wcall_answer_ex(wuser, convid, call_type, audio_cbr, NULL);
+	return wcall_answer_ex(wuser, convid,
+			       NULL, NULL,
+			       call_type, audio_cbr);
 }
 
 
 AVS_EXPORT
-void wcall_end(void *wuser, const char *convid)
+int wcall_conf_answer(WUSER_HANDLE wuser, const char *convid,
+		      const char *sft_url,
+		      const char *sft_token,
+		      int call_type, /*WCALL_CALL_TYPE...*/
+		      int audio_cbr /*bool*/)
 {
+	return wcall_answer_ex(wuser, convid,
+			       sft_url, sft_token,
+			       call_type, audio_cbr);
+}
+
+
+AVS_EXPORT
+void wcall_end(WUSER_HANDLE wuser, const char *convid)
+{
+	struct calling_instance *inst;
 	struct wcall *wcall;
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	wcall = wcall_lookup(wuser, convid);	
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: end: invalid handle: 0x%08X\n",
+			wuser);
+		return;
+	}
+	
+	wcall = wcall_lookup(inst, convid);	
 	if (!wcall)
 		return;
 
-	md = md_new(wuser, wcall, WCALL_MEV_END);
+	md = md_new(inst, wcall, WCALL_MEV_END);
 	if (!md) {
 		err = ENOMEM;
 		goto out;
@@ -553,17 +785,25 @@ void wcall_end(void *wuser, const char *convid)
 
 
 AVS_EXPORT
-int wcall_reject(void *wuser, const char *convid)
+int wcall_reject(WUSER_HANDLE wuser, const char *convid)
 {
+	struct calling_instance *inst;
 	struct wcall *wcall;
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	wcall = wcall_lookup(wuser, convid);	
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: reject: invalid handle: 0x%08X\n",
+			wuser);
+		return EINVAL;
+	}
+
+	wcall = wcall_lookup(inst, convid);	
 	if (!wcall)
 		return EPROTO;
 
-	md = md_new(wuser, wcall, WCALL_MEV_REJECT);
+	md = md_new(inst, wcall, WCALL_MEV_REJECT);
 	if (!md) {
 		err = ENOMEM;
 		goto out;
@@ -582,20 +822,30 @@ int wcall_reject(void *wuser, const char *convid)
 
 
 AVS_EXPORT
-void wcall_set_video_send_state(void *wuser, const char *convid, int state)
+void wcall_set_video_send_state(WUSER_HANDLE wuser,
+				const char *convid, int state)
 {
+	struct calling_instance *inst;
 	struct wcall *wcall;
 	struct mq_data *md = NULL;
 	int err = 0;
-
+	
 	if (!convid)
 		return;
 
-	wcall = wcall_lookup(wuser, convid);
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: set_video_send_state: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return;
+	}
+
+	wcall = wcall_lookup(inst, convid);
 	if (!wcall)
 		return;
 
-	md = md_new(wuser, wcall, WCALL_MEV_VIDEO_SET_STATE);
+	md = md_new(inst, wcall, WCALL_MEV_VIDEO_SET_STATE);
 	if (!md)
 		return;
 
@@ -606,30 +856,70 @@ void wcall_set_video_send_state(void *wuser, const char *convid, int state)
 		mem_deref(md);	
 }
 
-void wcall_mcat_changed(void *wuser, enum mediamgr_state state)
+
+AVS_EXPORT
+void wcall_dce_send(WUSER_HANDLE wuser, const char *convid, struct mbuf *mb)
 {
+	struct calling_instance *inst;
+	struct wcall *wcall;
 	struct mq_data *md = NULL;
 	int err = 0;
-    
-	md = md_new(wuser, NULL, WCALL_MEV_MCAT_CHANGED);
+
+	if (!convid)
+		return;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: dce_send invalid handle: 0x%08X\n",
+			wuser);
+		return;
+	}
+
+	wcall = wcall_lookup(inst, convid);
+	if (!wcall)
+		return;
+
+	md = md_new(inst, wcall, WCALL_MEV_DCE_SEND);
+	if (!md)
+		return;
+
+	md->u.dce_send.mb = mem_ref(mb);
+
+	err = md_enqueue(md);
+	if (err)
+		mem_deref(md);
+}
+
+void wcall_mcat_changed(struct calling_instance *inst,
+			enum mediamgr_state state)
+{
+	
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	if (!inst)
+		return;
+	
+	md = md_new(inst, NULL, WCALL_MEV_MCAT_CHANGED);
 	if (!md)
 		return;
     
 	md->u.mcat_changed.state = state;
 
-	info("wcall_mcat_changed: wuser=%p state=%d\n", wuser, (int)state);
+	info("wcall_mcat_changed: inst=%p state=%d\n", inst, (int)state);
 	
 	err = md_enqueue(md);
 	if (err)
 		mem_deref(md);
 }
 
-void wcall_audio_route_changed(void *wuser, enum mediamgr_auplay new_route)
+void wcall_audio_route_changed(	struct calling_instance *inst,
+			       enum mediamgr_auplay new_route)
 {
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	md = md_new(wuser, NULL, WCALL_MEV_AUDIO_ROUTE_CHANGED);
+	md = md_new(inst, NULL, WCALL_MEV_AUDIO_ROUTE_CHANGED);
 	if (!md)
 		return;
 
@@ -642,12 +932,20 @@ void wcall_audio_route_changed(void *wuser, enum mediamgr_auplay new_route)
 
 
 AVS_EXPORT
-void wcall_network_changed(void *wuser)
+void wcall_network_changed(WUSER_HANDLE wuser)
 {
+	struct calling_instance *inst;
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	md = md_new(wuser, NULL, WCALL_MEV_NETWORK_CHANGED);
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: network_changed: invalid handle: 0x%08X\n",
+			wuser);
+		return;
+	}
+	
+	md = md_new(inst, NULL, WCALL_MEV_NETWORK_CHANGED);
 	if (!md)
 		return;
 
@@ -663,21 +961,24 @@ void wcall_invoke_incoming_handler(const char *convid,
 			           const char *userid,
 			           int video_call,
 			           int should_ring,
-			           void *wuser)
+				   int conv_type,
+			           void *arg)
 {
+	struct calling_instance *inst = arg;
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	if (!convid || !userid)
+	if (!inst || !convid || !userid)
 		return;
 
-	md = md_new(wuser, NULL, WCALL_MEV_INCOMING);
+	md = md_new(inst, NULL, WCALL_MEV_INCOMING);
 	if (!md)
 		return;
 
 	md->u.incoming.msg_time = msg_time;
 	md->u.incoming.video_call = video_call;
 	md->u.incoming.should_ring = should_ring;
+	md->u.incoming.conv_type = conv_type;
 	err = str_dup(&md->u.incoming.convid, convid);
 	err |= str_dup(&md->u.incoming.userid, userid);
 
@@ -693,12 +994,119 @@ void wcall_invoke_incoming_handler(const char *convid,
 		mem_deref(md);
 }
 
-void wcall_marshal_destroy(void *id)
+
+static void strle_destructor(void *arg)
+{
+	struct str_le *strle = arg;
+
+	strle->str = mem_deref(strle->str);	
+}
+
+
+AVS_EXPORT
+int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
+			       const char *convid,
+			       const char *carray[],
+			       size_t clen)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	struct wcall *wcall;
+	struct str_le *strle;
+	size_t c;
+	int err = 0;
+
+	if (!convid) {
+		warning("wcall_set_clients_for_conv: no convid set\n");
+		return EINVAL;
+	}
+	
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: set_clients_for_conv: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return EINVAL;
+	}
+
+
+	if (!carray || !clen) {
+		warning("wcall_set_clients_for_conv: no clients for conv\n");
+		return EINVAL;
+	}
+
+	wcall = wcall_lookup(inst, convid);
+	if (!wcall) {
+		warning("wcall_set_clients_for_conv: couldnt find conv\n");
+		return EPROTO;
+	}
+
+	md = md_new(inst, wcall, WCALL_MEV_SET_CLIENTS);
+	if (!md)
+		return ENOMEM;
+
+	list_init(&md->u.set_clients.clist);
+
+	for (c = 0; c < clen; c++) {
+		strle = mem_zalloc(sizeof(*strle), strle_destructor);
+		if (!strle) {
+			err = ENOMEM;
+			goto out;
+		}
+
+		err = str_dup(&strle->str, carray[c]);
+		if (err)
+			goto out;
+
+		list_append(&md->u.set_clients.clist, &strle->le, strle);
+	}
+
+	err = md_enqueue(md);
+	if (err)
+		goto out;
+
+ out:
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
+
+AVS_EXPORT
+void wcall_set_mute(WUSER_HANDLE wuser, int muted)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: set_mute: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return;
+	}
+	
+	md = md_new(inst, NULL, WCALL_MEV_SET_MUTE);
+	if (!md)
+		return;
+    
+	md->u.set_mute.muted = muted;
+
+	info("wcall_set_mute: inst=%p muted=%d\n", inst, muted);
+	
+	err = md_enqueue(md);
+	if (err)
+		mem_deref(md);
+}
+
+void wcall_marshal_destroy(struct calling_instance *inst)
 {
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	md = md_new(id, NULL, WCALL_MEV_DESTROY);
+	md = md_new(inst, NULL, WCALL_MEV_DESTROY);
 	if (!md)
 		return;
 

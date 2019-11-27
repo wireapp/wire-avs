@@ -76,6 +76,7 @@ static void rest_resp_handler(int err, const struct http_msg *msg,
 	(void)mb;
 
 	if (err) {
+		printf("bar1\n");
 		warning("login: request failed: %m\n", err);
 		goto out;
 	}
@@ -122,6 +123,7 @@ static int send_refresh_request(struct login *login)
 {
 	int err;
 
+	printf("login: refresh\n");
 	err = rest_request_json(&login->req, login->rest_cli, 0, "POST",
 				rest_resp_handler, login,
 				"/access", 0);
@@ -137,6 +139,7 @@ static int send_request(struct login *login)
 {
 	int err;
 
+	printf("login: send_request\n");
 	err = rest_request_json(&login->req, login->rest_cli, 0, "POST",
 				rest_resp_handler, login,
 				"/login?persist=true",

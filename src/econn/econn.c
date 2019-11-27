@@ -23,7 +23,7 @@
 #include "avs_log.h"
 #include "avs_uuid.h"
 #include "avs_zapi.h"
-#include "avs_media.h"
+#include "avs_icall.h"
 #include "avs_econn.h"
 #include "econn.h"
 
@@ -196,10 +196,17 @@ static void handle_setup_request(struct econn *econn,
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
 	bool is_winner;
+	bool reset = false;
 
 	switch (econn->state) {
 
 	case ECONN_IDLE:
+		break;
+
+	case ECONN_ANSWERED:
+	case ECONN_DATACHAN_ESTABLISHED:
+	case ECONN_UPDATE_SENT:
+		reset = true;
 		break;
 
 	case ECONN_PENDING_OUTGOING:
@@ -263,6 +270,7 @@ static void handle_setup_request(struct econn *econn,
 			     clientid_sender,
 			     msg->age,
 			     msg->u.setup.sdp_msg, msg->u.setup.props,
+			     reset,
 			     econn->arg);
 	}
 }
@@ -620,6 +628,28 @@ static void recv_alert(struct econn *econn,
 }
 
 
+static void recv_confpart(struct econn *econn,
+			  const char *userid_sender,
+			  const char *clientid_sender,
+			  const struct econn_message *msg)
+{
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+
+	if (econn->confparth) {
+		econn->confparth(econn, &msg->u.confpart.partl,
+				msg->u.confpart.should_start, econn->arg);
+	}
+	else {
+		warning("econn(%p): received CONFPART from %s.%s (%s)\n",
+			econn,
+			anon_id(userid_anon, userid_sender),
+			anon_client(clientid_anon, clientid_sender),
+			msg->u.alert.descr);
+	}
+}
+
+
 void econn_recv_message(struct econn *conn,
 			const char *userid_sender,
 			const char *clientid_sender,
@@ -661,6 +691,10 @@ void econn_recv_message(struct econn *conn,
 		recv_alert(conn, userid_sender, clientid_sender, msg);
 		break;
 
+	case ECONN_CONF_PART:
+		recv_confpart(conn, userid_sender, clientid_sender, msg);
+		break;
+
 	default:
 		warning("econn(%p): recv: message not supported (%s)\n",
 			conn, econn_msg_name(msg->msg_type));
@@ -684,6 +718,7 @@ int  econn_alloc(struct econn **connp,
 		 econn_update_req_h *update_reqh,
 		 econn_update_resp_h *update_resph,
 		 econn_alert_h *alerth,
+		 econn_confpart_h *confparth,
 		 econn_close_h *closeh,
 		 void *arg)
 {
@@ -713,12 +748,16 @@ int  econn_alloc(struct econn **connp,
 	conn->update_reqh  = update_reqh;
 	conn->update_resph = update_resph;
 	conn->alerth       = alerth;
+	conn->confparth    = confparth;
 	conn->closeh       = closeh;
 	conn->arg          = arg;
 
 	/* Generate a new random (unique) local Session-ID */
 	rand_str(conn->sessid_local, 5);
 
+	tmr_start(&conn->tmr_local, conn->conf.timeout_setup,
+		  tmr_local_handler, conn);
+	
 	conn->err = 0;
  out:
 	if (err)
@@ -819,6 +858,8 @@ int econn_update_req(struct econn *conn, const char *sdp,
 	if (err) {
 		warning("econn(%p): connect: send_setup failed (%m)\n",
 			conn, err);
+		tmr_start(&conn->tmr_local, 1, tmr_local_handler, conn);
+		
 		return err;
 	}
 

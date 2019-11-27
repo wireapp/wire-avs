@@ -41,7 +41,7 @@ void mm_platform_resume_sound(struct sound *snd);
 void mm_platform_stop_sound(struct sound *snd);
 bool mm_platform_is_sound_playing(struct sound *snd);
 void mm_platform_reset_sound(struct sound *snd);	
-
+void mm_platform_stop_delayed_play(void);
 /* Audio Routing */
 int mm_platform_enable_speaker(void);
 int mm_platform_enable_bt_sco(void);

@@ -146,13 +146,15 @@ static void set_active(bool active)
 #if !TARGET_IPHONE_SIMULATOR
 	NSString *cname = NSStringFromClass([media class]);
 
-	info("mm_platform_ios: didStartPlaying: class=%s %s\n",
-	     [cname UTF8String], mm_ios.recording ? "recording" : "");
+	info("mm_platform_ios: didStartPlaying: class=%s %s incall=%s\n",
+	     [cname UTF8String], mm_ios.recording ? "recording" : "",
+	     mm_ios.incall ? "yes" : "no");
 
-	if (![cname isEqualToString:@"AVSSound"] && !mm_ios.recording) {
-		mediamgr_override_speaker_mm(mm_ios.mm, true);
-		set_category_sync(AVAudioSessionCategoryPlayback, true);
-		set_active_sync(true);
+	if (![cname isEqualToString:@"AVSSound"] && !mm_ios.recording) {	
+		if (!mm_ios.incall) {
+			set_category_sync(AVAudioSessionCategoryPlayback, true);
+			set_active_sync(true);
+		}
 	}
 #endif
 	
@@ -165,12 +167,14 @@ static void set_active(bool active)
 {
 	NSString *cname = NSStringFromClass([media class]);
 
-	info("mm_platform_ios: didPausePlaying: class=%s\n",
-	     [cname UTF8String]);
+	info("mm_platform_ios: didPausePlaying: class=%s incall=%s\n",
+	     [cname UTF8String], mm_ios.incall ? "yes" : "no");
 
 	if (![cname isEqualToString:@"AVSSound"] && !mm_ios.recording) {
-		mediamgr_override_speaker_mm(mm_ios.mm, false);
-		mm_platform_enable_earpiece();
+		if (!mm_ios.incall) {
+			mediamgr_override_speaker_mm(mm_ios.mm, false);
+			mm_platform_enable_earpiece();
+		}
 	}
 
 	[_lock lock];
@@ -186,9 +190,11 @@ static void set_active(bool active)
 	     [cname UTF8String]);
 
 	if (![cname isEqualToString:@"AVSSound"] && !mm_ios.recording) {
-		mediamgr_override_speaker_mm(mm_ios.mm, true);
-		set_category_sync(AVAudioSessionCategoryPlayback, true);
-		set_active_sync(true);
+		if (!mm_ios.incall) {
+			mediamgr_override_speaker_mm(mm_ios.mm, true);
+			set_category_sync(AVAudioSessionCategoryPlayback, true);
+			set_active_sync(true);
+		}
 	}
 	
 	[_lock lock];
@@ -322,6 +328,8 @@ static void set_category(NSString *cat, bool speaker)
 
 static void leave_call(void)
 {
+	info("mm_platforn_ios: leave_call\n");
+
 	mm_ios.incall = false;
 	mediamgr_sys_left_call(mm_ios.mm);
 }
@@ -673,7 +681,7 @@ static void incall_category(void)
 int mm_platform_init(struct mm *mm, struct dict *sounds)
 {
 	info("mm_platform_ios: init for mm=%p\n", mm);
-	NSLog(@"mm_platform_ios: init for mm=%p\n", mm);
+	NSLog(@"mm_platform_ios: init changed for mm=%p\n", mm);
 	
 	mm_ios.mm = mm;
 	tmr_init(&mm_ios.tmr_play);
@@ -739,6 +747,7 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 		    usingBlock: ^(NSNotification *notification) {
 			
 			info("mm_platform_ios: didBecomeActive\n");
+			//msystem_activate(true);
 
 			if (mm_ios.incall)
 				mediamgr_audio_reset_mm(mm_ios.mm);
@@ -799,8 +808,9 @@ static void play_handler(void *arg)
 void mm_platform_play_sound(struct sound *snd, bool sync, bool delayed)
 {
 
-	info("mm_platform_ios: play_sound: %s %s\n",
-	     snd->path, snd->is_call_media ? "(call)" : "");
+	info("mm_platform_ios: play_sound: %s %s incall=%s\n",
+	     snd->path, snd->is_call_media ? "(call)" : "",
+	     mm_ios.incall ? "yes" : "no");
 
 	if (mm_ios.recording)
 		return;
@@ -877,6 +887,12 @@ bool mm_platform_is_sound_playing(struct sound *snd)
 		return [g_playingTracker isPlaying:media];
 	}
 }
+
+void mm_platform_stop_delayed_play(void)
+{
+	tmr_cancel(&mm_ios.tmr_play);
+}
+
 
 int mm_platform_enable_speaker(void)
 {

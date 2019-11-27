@@ -98,8 +98,10 @@ AVS_CPPFLAGS += \
 
 # zlib
 #
+ifneq ($(AVS_OS),wasm)
 AVS_CPPFLAGS += -DUSE_ZLIB
 AVS_LIBS += -lz
+endif
 
 # pthread
 #

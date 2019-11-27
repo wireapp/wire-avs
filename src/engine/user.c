@@ -30,7 +30,7 @@
 #include "avs_engine.h"
 #include "avs_uuid.h"
 #include "avs_zapi.h"
-#include "avs_media.h"
+#include "avs_icall.h"
 #include "avs_flowmgr.h"
 #include "module.h"
 #include "engine.h"

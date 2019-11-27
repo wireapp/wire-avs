@@ -113,7 +113,7 @@
 		[self.player play];
 	});
 
-	int n = 100;
+	int n = 50;
 	while (!self.player.playing && n-- > 0) {
 		usleep(20000);
 	}

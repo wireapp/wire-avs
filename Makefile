@@ -24,8 +24,8 @@
 
 # Master version number
 #
-VER_MAJOR := 4
-VER_MINOR := 8
+VER_MAJOR := 5
+VER_MINOR := 3
 
 ifeq ($(BUILD_NUMBER),)
 VER_PATCH := snapshot
@@ -49,8 +49,8 @@ AVS_RELEASE := 1
 AVS_VERSION := $(VER_MAJOR).$(VER_MINOR).$(VER_PATCH)
 endif
 
-MK_COMPONENTS := toolchain contrib mediaengine avs test android iosx dist
 
+MK_COMPONENTS := toolchain contrib avs test android iosx dist
 
 #--- Configuration ---
 
@@ -68,12 +68,17 @@ OUTER_MKS := Makefile mk/target.mk
 ifeq ($(AVS_OS),osx)
 HAVE_PROTOBUF	:= 1
 HAVE_CRYPTOBOX	:= 1
+BUILD_OPTIONAL_MODULES := 1
 endif
 ifeq ($(AVS_OS),linux)
 HAVE_PROTOBUF	:= 1
 HAVE_CRYPTOBOX	:= 1
+BUILD_OPTIONAL_MODULES := 1
 endif
 
+ifneq ($(AVS_OS),wasm)
+BUILD_NETWORK_MODULES := 1
+endif
 
 #--- All My Targets ---
 

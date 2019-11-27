@@ -33,7 +33,7 @@ enum async_sdp {
  *
  * An ECALL object has multiple ECONN objects
  *
- * An ECALL object has a single mediaflow object
+ * An ECALL object has a single iflow object
  */
 struct conf_part;
 
@@ -111,12 +111,15 @@ struct ecall {
 	struct icall icall;
 
 	struct le le;
+	struct le ecall_le;
+	enum icall_call_type call_type;
+	enum icall_vstate vstate;
 	struct ecall_conf conf;
 	struct msystem *msys;
 	struct econn *econn;
 
 	enum icall_conv_type conv_type;
-	struct mediaflow *mf;
+	struct iflow *flow;
 	struct dce *dce;
 	struct dce_channel *dce_ch;
 	struct user_data *usrd;
@@ -139,17 +142,18 @@ struct ecall {
 
 	struct {
 		enum async_sdp async;
+		char *offer;
 	} sdp;
 
 	struct econn *econn_pending;
 	bool answered;
 	bool update;
+	bool delayed_restart;
 	int32_t call_setup_time;
 	int32_t call_estab_time;
 	int32_t audio_setup_time;
 	uint64_t ts_started;
 	uint64_t ts_answered;
-	enum media_crypto crypto;
 
 	struct econn_transp transp;
 	uint32_t magic;
@@ -162,7 +166,6 @@ struct ecall {
 	bool devpair;
 
 	bool audio_cbr;
-	bool enable_video;
 	bool group_mode;
 
 	struct {
@@ -181,6 +184,11 @@ struct ecall {
 	struct zapi_ice_server turnv[MAX_TURN_SERVERS];
 	size_t turnc;
 	bool turn_added;
+
+	ecall_confpart_h *confparth;
+
+	struct sa *media_laddr;
+	bool ifs_added;
 };
 
 
@@ -193,6 +201,8 @@ void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp);
 int ecall_add_user_data_channel(struct ecall *ecall, bool should_open);
 int ecall_create_econn(struct ecall *ecall);
 void ecall_close(struct ecall *ecall, int err, uint32_t msg_time);
+int ecall_set_media_laddr(struct ecall *ecall, struct sa *laddr);
+
 
 /* Ecall trace */
 

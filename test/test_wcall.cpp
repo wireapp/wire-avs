@@ -380,6 +380,7 @@ static void answer_timer(void *arg)
 static void incoming_handler(const char *convid, uint32_t msg_time,
 			     const char *userid, int video_call /*bool*/,
 			     int should_ring /*bool*/,
+			     int conv_type,
 			     void *arg)
 {
 	struct client *cli = (struct client *)arg;
@@ -645,8 +646,10 @@ void client_alloc(struct client **clip, struct list *lst,
 	cli->wuser = wcall_create_ex(userid,
 				     clientid,
 				     use_mediamgr,
+				     "voe",
 				     ready_handler,
 				     send_handler,
+				     NULL,
 				     incoming_handler,
 				     0,
 				     NULL,
@@ -698,11 +701,11 @@ TEST(wcall, create_multiple)
 	err = wcall_init();
 	ASSERT_EQ(0, err);
 
-	void *wuser1 = wcall_create("abc", "123", NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+	void *wuser1 = wcall_create("abc", "123", NULL, NULL, NULL, NULL, NULL, NULL,
+		NULL, NULL, NULL, NULL, NULL, NULL);
 
-	void *wuser2 = wcall_create("abd", "234", NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+	void *wuser2 = wcall_create("abd", "234", NULL, NULL, NULL, NULL, NULL, NULL,
+		NULL, NULL, NULL, NULL, NULL, NULL);
 
 
 	wcall_destroy(wuser1);

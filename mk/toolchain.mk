@@ -2,7 +2,7 @@
 TOOLCHAIN_GCC_VERSION  := 4.9
 TOOLCHAIN_LLVM_VERSION := 3.4
 #TOOLCHAIN_PLATFORM     := android-16
-TOOLCHAIN_API          := 16
+TOOLCHAIN_API          := 21
 TOOLCHAIN_STL          := libc++
 
 TOOLCHAIN_ARCH_armv7   := arm
@@ -69,7 +69,7 @@ $(TOOLCHAIN_BASE_PATH)/android-%/stat: $(ANDROID_NDK_ROOT) $(TC_MKS)
 		--arch=$(TOOLCHAIN_ARCH) \
 		--api $(TOOLCHAIN_API) \
 		--install-dir=$(TOOLCHAIN_PATH)
-	@mkdir $(TOOLCHAIN_PATH)/sysroot/usr/include/c++
+	@mkdir -p $(TOOLCHAIN_PATH)/sysroot/usr/include/c++
 	@ln -s ../../../../include/c++/$(TOOLCHAIN_GCC_VERSION).x \
 		$(TOOLCHAIN_PATH)/sysroot/usr/include/c++/v1
 	@ln -s  $(ANDROID_NDK_ROOT) $(TOOLCHAIN_PATH)/ndk

@@ -1,0 +1,9 @@
+
+Changes introduced in AVS 4.6
+=============================
+
+We've added a new callback:
+
+typedef void (wcall_media_stopped_h)(const char *convid, void *arg);
+
+When a client hangs up it sends a HANGUP message and waits for a confirmation HANGUP(response). The close handler (closeh) is only called after HANGUP(r) is received or after some timeout. To speed up the perceived response of the UI the above callback will fire when HANGUP is sent and closeh after HANGUP(r) is received or the timeout has elapsed. This way the UI can be dismissed earlier but new calls should only be allowed after the close handler is called.

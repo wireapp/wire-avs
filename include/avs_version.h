@@ -20,5 +20,6 @@
 #define AVS_VERSION_H    1
 
 const char *avs_version_str(void);
+const char *avs_version_short(void);
 
 #endif /* #ifndef AVS_VERSION_H */

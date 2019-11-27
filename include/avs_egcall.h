@@ -28,11 +28,6 @@ enum egcall_state {
 	EGCALL_STATE_TERMINATING,
 };
 
-#define EGCALL_REASON_NORMAL             0
-#define EGCALL_REASON_ANSWERED_ELSEWHERE 5
-#define EGCALL_REASON_STILL_ONGOING      7
-#define EGCALL_REASON_REJECTED          10
-
 struct egcall;
 
 typedef void (egcall_start_h)(uint32_t msg_time, const char *userid_sender,
@@ -65,13 +60,11 @@ int egcall_add_turnserver(struct icall *icall,
 
 int egcall_start(struct icall *icall,
 		 enum icall_call_type call_type,
-		 bool audio_cbr,
-		 void *extcodec_arg);
+		 bool audio_cbr);
 
 int egcall_answer(struct icall *icall,
 		  enum icall_call_type call_type,
-		  bool audio_cbr,
-		  void *extcodec_arg);
+		  bool audio_cbr);
 
 void egcall_end(struct icall *icall);
 
@@ -93,4 +86,5 @@ int egcall_get_members(struct icall *icall, struct wcall_members **mmp);
 int egcall_set_quality_interval(struct icall *icall, uint64_t interval);
 
 int egcall_debug(struct re_printf *pf, const struct icall *arg);
+int egcall_stats(struct re_printf *pf, const struct icall *arg);
 

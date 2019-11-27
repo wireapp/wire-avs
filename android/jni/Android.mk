@@ -5,60 +5,57 @@
 LOCAL_PATH:= $(call my-dir)
 
 include $(CLEAR_VARS)
+include ../mk/target.mk
 
 PROJDIR		:= $(PWD)
 BUILDDEBUG	:= 1
 
 LOCAL_MODULE    := avs
 LOCAL_CFLAGS    := -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
-		   -DWEBRTC_ANDROID -DDEBUG=$(BUILDDEBUG) \
+		   -DWEBRTC_ANDROID -DWEBRTC_POSIX -DDEBUG=$(BUILDDEBUG) \
 		   -pthread
-LOCAL_CXXFLAGS   := -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
+LOCAL_CXXFLAGS  := -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
 		   -x c++ -std=c++11 -stdlib=libc++ \
 		   -DWEBRTC_ANDROID -DDEBUG=$(BUILDDEBUG) \
 		   -pthread
 
-LOCAL_C_INCLUDES := ../build/android-armv7/include \
-		    ../build/android-armv7/include/re \
+LOCAL_C_INCLUDES := ../build/android-$(AVS_ARCH_NAME)/include \
+		    ../build/android-$(AVS_ARCH_NAME)/include/re \
 		    ../include \
-		    ../mediaengine
+		    ../contrib/webrtc/$(WEBRTC_VER)/include
 
 LOCAL_SRC_FILES := \
-		audio_effect.cc \
 		flow_manager.cc \
 		media_manager.cc \
-		video_renderer.cc
+		video_renderer.cc \
+		audio_effect.cc
 
 LOCAL_LDLIBS    := \
-		-L../build/android-armv7/lib \
-		../build/android-armv7/lib/libavscore.a \
-		-lvpx \
-		-lusrsctp \
+		-L../build/android-$(AVS_ARCH_NAME)/lib \
+		-L../contrib/webrtc/$(WEBRTC_VER)/lib/android-$(AVS_ARCH_NAME) \
+		-L$(ANDROID_NDK_ROOT)/sources/cxx-stl/llvm-libc++/libs/$(TARGET_ARCH_ABI)
+
+LOCAL_LDLIBS    += \
+		-lavscore \
 		-lre \
 		-lrew \
 		-lsodium \
-		-lssl \
-		-lcrypto \
-		-lcpufeatures \
 		-llog -lz -lGLESv2 \
-		-latomic
+		-latomic \
+		-lwebrtc
 
-LOCAL_C_INCLUDES += \
-		../mediaengine
-LOCAL_LDLIBS    += \
-		-L../../build/android-armv7/lib \
-		-lmediaengine \
-		-lvpx \
-		-lcpufeatures \
-		-lopus \
-		-lOpenSLES \
-		-llog
+ifeq ($(TARGET_ARCH_ABI),armeabi-v7a)
+LOCAL_LDLIBS	+= \
+	-landroid_support \
+	-lunwind 
+endif
+
+LOCAL_LDLIBS 	+= \
+		-lOpenSLES
 
 LOCAL_LDLIBS	+= \
-		$(ANDROID_NDK_ROOT)/sources/cxx-stl/llvm-libc++/libs/armeabi-v7a/libc++_static.a \
-		$(ANDROID_NDK_ROOT)/sources/cxx-stl/llvm-libc++/libs/armeabi-v7a/libc++abi.a \
-		$(ANDROID_NDK_ROOT)/sources/cxx-stl/llvm-libc++/libs/armeabi-v7a/libandroid_support.a \
-		$(ANDROID_NDK_ROOT)/sources/cxx-stl/llvm-libc++/libs/armeabi-v7a/libunwind.a 
+		-lc++_static \
+		-lc++abi \
 
 
 include $(BUILD_SHARED_LIBRARY)

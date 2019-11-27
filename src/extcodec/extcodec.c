@@ -26,11 +26,9 @@
 
 
 static struct {
-	int ncodecs;
 	struct list aucodecl;
 	struct list vidcodecl;
 } extcodec = {
-	.ncodecs = 0,
 	.aucodecl = LIST_INIT,
 	.vidcodecl = LIST_INIT,
 };
@@ -83,8 +81,6 @@ int extcodec_audio_init(struct list *aucodecl)
 
 	/* list all supported codecs */
 
-	extcodec.ncodecs = 0;
-
 	LIST_FOREACH(&extcodec.aucodecl, le) {
 		struct aucodec *ac = le->data;
 
@@ -94,7 +90,6 @@ int extcodec_audio_init(struct list *aucodecl)
 		ac->data = NULL;
 
 		aucodec_register(aucodecl, ac);
-		++extcodec.ncodecs;
 
 		info("extcodec_audio_init: registering %s(%d) ch=%d\n",
 		     ac->name, ac->srate, ac->ch);
@@ -109,7 +104,24 @@ int extcodec_audio_init(struct list *aucodecl)
 
 int extcodec_video_init(struct list *vidcodecl)
 {
-	return 0;
+	struct le *le;
+	int err = 0;
+
+	/* list all supported codecs */
+
+	LIST_FOREACH(&extcodec.vidcodecl, le) {
+		struct vidcodec *vc = le->data;
+
+		vc->data = NULL;
+
+		vidcodec_register(vidcodecl, vc);
+		info("extcodec_video_init: registering %s(%d)", vc->name);
+	}
+
+	if (err)
+		extcodec_audio_close();
+
+	return err;
 }
 
 
@@ -121,7 +133,6 @@ void extcodec_audio_close(void)
 		struct aucodec *ac = le->data;
 
 		aucodec_unregister(ac);
-		--extcodec.ncodecs;
 
 		info("extcodec_audio_close: unregistered %s(%d) ch=%d\n",
 		     ac->name, ac->srate, ac->ch);

@@ -17,13 +17,15 @@
 */
 #include <openssl/crypto.h>
 #include <re.h>
+#ifdef HAVE_CRYPTOBOX
 #include <sodium.h>
+#endif
 
 #include "avs_log.h"
 #include "avs_base.h"
 #include "avs_uuid.h"
 #include "avs_zapi.h"
-#include "avs_media.h"
+#include "avs_icall.h"
 #include "avs_flowmgr.h"
 #include "avs_version.h"
 
@@ -79,10 +81,12 @@ static void debug_handler(int level, const char *p, size_t len, void *arg)
 
 int avs_init(uint64_t flags)
 {
+#ifdef HAVE_CRYPTOBOX
 	if (sodium_init() == -1) {
 		warning("init: could not init libsodium\n");
 		return ENOSYS;
 	}
+#endif
 
 	base.flags = flags;
 	base.inited = true;
@@ -139,13 +143,17 @@ void avs_print_versions(void)
 {
 	info("init: avs:      %s\n", avs_version_str());
 	info("init: libre:    %s\n", sys_libre_version_get());
+#ifndef __EMSCRIPTEN__
 	info("init: openssl:  %s (%s)\n",
 	     SSLeay_version(SSLEAY_VERSION),
 	     SSLeay_version(SSLEAY_PLATFORM));
+#endif
+#ifdef HAVE_CRYPTOBOX
 	info("init: sodium:   %s\n", sodium_version_string());
+#endif
 }
 
-
+/*
 static bool ifaddr_handler(const char *ifname, const struct sa *sa,
 			   void *arg)
 {
@@ -157,13 +165,13 @@ static bool ifaddr_handler(const char *ifname, const struct sa *sa,
 
 	return false;
 }
-
+*/
 
 void avs_print_network(void)
 {
 	info("init: network info:\n");
 
 	info("init: Interfaces:\n");
-	net_if_apply(ifaddr_handler, 0);
+	//net_if_apply(ifaddr_handler, 0);
 	info("init\n");
 }

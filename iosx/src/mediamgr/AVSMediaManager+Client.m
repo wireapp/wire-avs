@@ -285,12 +285,12 @@ void avsmm_on_route_changed(enum mediamgr_auplay new_route, void *arg)
 	     (int)self.playbackRoute, (int)AVSPlaybackRouteSpeaker,
 	     enabled?"yes":"no");
 	
-	return self.sysUpdated && enabled;
+	return enabled;
 }
 
 - (void)setSpeakerEnabled:(BOOL)speakerEnabled
 {
-	info("AVSMediaManager:spaekerEnabled=%s\n", speakerEnabled?"yes":"no");
+	info("AVSMediaManager:speakerEnabled=%s\n", speakerEnabled?"yes":"no");
 
 	self.playbackRoute = speakerEnabled ? AVSPlaybackRouteSpeaker
 		                            : AVSPlaybackRouteBuiltIn;
@@ -312,10 +312,10 @@ void avsmm_on_route_changed(enum mediamgr_auplay new_route, void *arg)
 
 - (BOOL)isMicrophoneMuted
 {
-	bool muted;
+	bool muted = false;
 
 	info("AVSMediaManager: isMicrophoneMuted\n");
-	voe_get_mute(&muted);
+	muted = msystem_get_muted();
 	info("AVSMediaManager: isMicrophoneMuted: muted=%d\n", muted);
 
 	return muted ? YES : NO;
@@ -326,7 +326,8 @@ void avsmm_on_route_changed(enum mediamgr_auplay new_route, void *arg)
 	info("AVSMediaManager: setMicrophoneMuted: muted=%s\n",
 	     microphoneMuted ? "yes" : "no");
 
-	voe_set_mute(microphoneMuted ? true : false);
+	msystem_set_muted(microphoneMuted == YES);
+
 	dispatch_async(dispatch_get_main_queue(),^{
 			AVSMediaManagerClientChangeNotification *notification =
 				[AVSMediaManagerClientChangeNotification notificationWithMediaManager:self];
