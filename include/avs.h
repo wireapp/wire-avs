@@ -80,8 +80,6 @@ extern "C" {
     
 #include "avs_audio_effect.h"
     
-#include "avs_dce.h"
-
 #ifdef HAVE_CRYPTOBOX
 #include "avs_cryptobox.h"
 #endif

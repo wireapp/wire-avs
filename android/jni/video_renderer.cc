@@ -595,7 +595,7 @@ void *video_renderer_arg(struct video_renderer *vr)
 static void copy_tex(GLsizei width, GLsizei height, int stride,
 		     const uint8_t *plane)
 {
-	if (stride == width) {
+	if (stride == width && !(stride & 15)) {
 		/* We can upload the entire plane in a single GL call. */
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height,
 				GL_LUMINANCE,

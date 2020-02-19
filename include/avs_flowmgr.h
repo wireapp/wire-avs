@@ -194,10 +194,6 @@ enum flowmgr_auplay {
 
 int flowmgr_auplay_changed(struct flowmgr *fm, enum flowmgr_auplay aplay);
 
-int flowmgr_set_mute(struct flowmgr *fm, bool mute);
-int flowmgr_get_mute(struct flowmgr *fm, bool *muted);
-
-
 bool flowmgr_can_send_video(struct flowmgr *fm, const char *convid);
 bool flowmgr_is_sending_video(struct flowmgr *fm,
 			      const char *convid, const char *partid);

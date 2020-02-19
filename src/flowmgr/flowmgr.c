@@ -56,7 +56,7 @@ int flowmgr_init(const char *msysname)
 		return err;
 	}
 
-	err = msystem_get(&fsys.msys, msysname, NULL, NULL, NULL, NULL);
+	err = msystem_get(&fsys.msys, msysname, NULL, NULL, NULL);
 	if (err) {
 		warning("flowmgr: msystem_init failed: %m\n", err);
 		goto out;

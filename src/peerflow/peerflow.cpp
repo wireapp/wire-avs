@@ -61,8 +61,7 @@ extern "C" {
 #include "peerflow.h"
 #include "sdp.h"
 
-#define TMR_STATS_INTERVAL 1000
-#define DISCONNECT_TIMEOUT 2000
+#define TMR_STATS_INTERVAL 5000
 
 #define DOUBLE_ENCRYPTION 0
 
@@ -114,6 +113,7 @@ struct peerflow {
 
 	bool gathered;
 	enum icall_vstate vstate;
+	size_t ncands;
 
 	rtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConn;
 
@@ -165,7 +165,6 @@ struct peerflow {
 	struct le le;
 
 	struct tmr tmr_stats;
-	struct tmr tmr_disconnect;
 	rtc::scoped_refptr<wire::NetStatsCallback> netStatsCb;
 };
 
@@ -729,13 +728,24 @@ static bool peerflow_get_mute(void)
 		return false;
 }
 
+int peerflow_set_funcs(void)
+{
+	iflow_set_alloc(peerflow_alloc);
+
+	iflow_register_statics(peerflow_destroy,
+			       peerflow_set_mute,
+			       peerflow_get_mute);
+	return 0;
+}
+
 int peerflow_init(void)
 {
 	int err;
-	
+
 	if (g_pf.initialized)
 		return EALREADY;
 
+	info("pf_init\n");
 	err = mqueue_alloc(&g_pf.mq.q, mq_handler, NULL);
 	if (err)
 		goto out;
@@ -783,9 +793,6 @@ int peerflow_init(void)
 		goto out;
 	}
 
-	iflow_register_statics(peerflow_destroy,
-			       peerflow_set_mute,
-			       peerflow_get_mute);
 	g_pf.initialized = true;
 
  out:
@@ -1085,6 +1092,7 @@ public:
 		     pf_, ice_connection_state_name(state));
 		
 		switch (state) {
+		case webrtc::PeerConnectionInterface::IceConnectionState::kIceConnectionDisconnected:
 		case webrtc::PeerConnectionInterface::IceConnectionState::kIceConnectionFailed:
 			warning("pf(%p): ice connection: %s\n",
 			     pf_, ice_connection_state_name(state));
@@ -1103,13 +1111,6 @@ public:
 			break;
 
 		case webrtc::PeerConnectionInterface::IceConnectionState::kIceConnectionConnected:
-			if (tmr_isrunning(&pf_->tmr_disconnect))
-				tmr_cancel(&pf_->tmr_disconnect);
-			break;
-			
-		case webrtc::PeerConnectionInterface::IceConnectionState::kIceConnectionDisconnected:
-			tmr_start(&pf_->tmr_disconnect,  DISCONNECT_TIMEOUT,
-				  disconnect_timeout_handler, pf_);
 			break;
 			
 		default:
@@ -1170,9 +1171,10 @@ public:
 
 		const webrtc::SessionDescriptionInterface *isdp;
 				
-		info("pf(%p): IceGathering: %s gathered=%s\n",
+		info("pf(%p): IceGathering: %s gathered=%s ncands=%d\n",
 		     pf_, gathering_state_name(state),
-		     pf_->gathered ? "yes" : "no");
+		     pf_->gathered ? "yes" : "no",
+		     pf_->ncands);
 		
 		switch(state) {
 		case webrtc::PeerConnectionInterface::kIceGatheringGathering:
@@ -1182,8 +1184,6 @@ public:
 			if (pf_->gathered)
 				return;
 
-			pf_->gathered = true;
-			
 			isdp = pf_->peerConn->local_description();
 			if (!isdp) {
 				warning("pf(%p): ice gathering "
@@ -1191,7 +1191,22 @@ public:
 				return;
 			}
 
-			invoke_gather(pf_, isdp);			
+			// Check that we have at least 1 candidate
+			if (pf_->ncands < 1) {
+				info("pc(%p): ice gathering no candidates\n", pf_);
+
+				/*
+				if (isdp->GetType() == webrtc::SdpType::kOffer) {
+					pf_->peerConn->CreateOffer(pf_->sdpObserver, *pf_->offerOptions);
+				}
+				else {
+					pf_->peerConn->CreateAnswer(pf_->sdpObserver, *pf_->answerOptions);
+				}
+				*/
+				return;
+			}
+			pf_->gathered = true;
+			invoke_gather(pf_, isdp);
 			break;
 
 		default:
@@ -1209,7 +1224,10 @@ public:
 		const cricket::Candidate& cand = icand->candidate();
 
 		icand->ToString(&cand_str);
-		info("pf(%p): OnIceCandidate: %s\n", pf_, cand_str.c_str());
+		info("pf(%p): OnIceCandidate: %s has %d candidates\n",
+		     pf_, cand_str.c_str(), pf_->ncands);
+
+		++pf_->ncands;
 
 		if (!pf_->gathered && cand.type() == std::string("relay")) {
 			const webrtc::SessionDescriptionInterface *isdp;
@@ -1302,12 +1320,12 @@ public:
 			       webrtc::MediaStreamTrackInterface::kAudioKind))
 		{
 			/* Handle audio here */
-		}
 #if DOUBLE_ENCRYPTION
-		if (pf_->group_mode == MEDIAFLOW_MODE_CONFERENCE) {
+		if (pf_->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
 			rx->SetFrameDecryptor(pf_->decryptor);
 		}
 #endif
+		}
 	}
 
 	// This is called when signaling indicates a transceiver will
@@ -1327,6 +1345,12 @@ public:
 		info("pf(%p): track added: id=%s\n",
 		     pf_, txrx->receiver()->id().c_str());
 
+#if DOUBLE_ENCRYPTION
+		if (pf_->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
+			info("pf(%p): set frame decryptor for stream\n", pf_);
+			txrx->receiver()->SetFrameDecryptor(pf_->decryptor);
+		}
+#endif
 		//rtc::VideoSinkWants vsw;
 		//receiver->track()->AddOrUpdateSink(new VideoRendererSink(), vsw);
 		
@@ -1595,7 +1619,7 @@ static int create_pf(struct peerflow *pf)
 	bool recv_video;
 	int err = 0;
 
-	recv_video = pf->call_type != ICALL_CALL_TYPE_FORCED_AUDIO;
+	recv_video = true;
 	
 	pf->offerOptions =
 		new webrtc::PeerConnectionInterface::RTCOfferAnswerOptions(
@@ -1610,8 +1634,13 @@ static int create_pf(struct peerflow *pf)
 		webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
 	pf->config->sdp_semantics =
 		webrtc::SdpSemantics::kUnifiedPlan;
-
 	
+	bool privacy = msystem_get_privacy(msystem_instance());
+	if (privacy)
+		pf->config->type = webrtc::PeerConnectionInterface::kRelay; 
+	else 
+		pf->config->type = webrtc::PeerConnectionInterface::kAll; 
+
 	std::unique_ptr<cricket::PortAllocator> port_allocator = nullptr; 
 	
 	struct msystem_proxy *proxy = msystem_get_proxy();
@@ -1661,7 +1690,7 @@ static int create_pf(struct peerflow *pf)
 					       {rtc::CreateRandomUuid()}).value();
 
 #if DOUBLE_ENCRYPTION
-		if (pf->group_mode == MEDIAFLOW_MODE_CONFERENCE) {
+		if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
 			audio_track->SetFrameEncryptor(pf->encryptor);
 		}
 #endif
@@ -1681,7 +1710,7 @@ static int create_pf(struct peerflow *pf)
 
 
 #if DOUBLE_ENCRYPTION
-		if (pf->group_mode == MEDIAFLOW_MODE_CONFERENCE) {
+		if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
 			video_track->SetFrameEncryptor(pf->encryptor);
 		}
 #endif
@@ -1700,7 +1729,6 @@ static void pf_destructor(void *arg)
 
 	pf->netStatsCb->setActive(false);
 	tmr_cancel(&pf->tmr_stats);
-	tmr_cancel(&pf->tmr_disconnect);
 	pf->netStatsCb = NULL;
 
 	pf->video.track = NULL;
@@ -1751,7 +1779,8 @@ int peerflow_alloc(struct iflow		**flowp,
 		   const char		*convid,
 		   enum icall_conv_type	conv_type,
 		   enum icall_call_type	call_type,
-		   enum icall_vstate	vstate)
+		   enum icall_vstate	vstate,
+		   void			*extarg)
 {
 	struct peerflow *pf;
 	int err = 0;
@@ -1785,7 +1814,7 @@ int peerflow_alloc(struct iflow		**flowp,
 			 peerflow_gather_all_turn,
 			 peerflow_add_decoders_for_user,
 			 NULL, //peerflow_remove_decoders_for_user,
-			 NULL, //peerflow_set_e2ee_key,
+			 peerflow_set_e2ee_key,
 			 peerflow_dce_send,
 			 peerflow_stop_media,
 			 peerflow_close,
@@ -1944,7 +1973,7 @@ int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
 	}
 	else if (state == webrtc::PeerConnectionInterface::kHaveRemoteOffer)
 		pf->peerConn->CreateAnswer(pf->sdpObserver, *pf->answerOptions);
-	
+
 	return 0;
 }
 
@@ -2043,6 +2072,12 @@ int peerflow_handle_offer(struct iflow *iflow,
 
 		pf->peerConn->SetRemoteDescription(std::move(sdp),
 					     pf->sdpRemoteObserver);
+
+		std::string str;
+		const webrtc::SessionDescriptionInterface *rsdp = pf->peerConn->remote_description();
+		if (rsdp->ToString(&str)) {
+			sdp_dup(&pf->rsess, str.c_str(), false);
+		}
 	}
 
 	return err;
@@ -2069,7 +2104,7 @@ int peerflow_handle_answer(struct iflow *iflow,
 						 sdp_str, &parse_err);
 
 	if (sdp == nullptr) {
-		warning("peerflow_handle_offer: failed to parse SDP: "
+		warning("peerflow_handle_answer: failed to parse SDP: "
 			"line=%s reason=%s\n",
 			parse_err.line.c_str(), parse_err.description.c_str());
 		err = EPROTO;
@@ -2095,6 +2130,10 @@ static struct sdp_media *find_media(struct sdp_session *sess,
 	const struct list *medial;
 	struct le *le;
 	bool found = false;
+
+	if (!sess) {
+		return NULL;
+	}
 
 	medial = sdp_session_medial(sess, false);
 
@@ -2151,9 +2190,15 @@ int peerflow_set_remote_userclientid(struct iflow *iflow,
 	char *label;
 	struct conf_member *memb;
 	struct peerflow *pf = (struct peerflow*)iflow;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 
 	if (!pf)
 		return EINVAL;
+
+	info("peerflow(%p): set remote user %s.%s\n", pf,
+		anon_id(userid_anon, userid),
+		anon_client(clientid_anon, clientid));
 
 	pf->userid_remote = (char *)mem_deref(pf->userid_remote);
 	pf->clientid_remote = (char *)mem_deref(pf->clientid_remote);
@@ -2173,6 +2218,8 @@ int peerflow_add_decoders_for_user(struct iflow *iflow,
 	struct sdp_media *sdpm = NULL;
 	char cname[16];             /* common for audio+video */
 	char msid[36];
+	struct mbuf mb;
+	char *grpstr;
 	char *label;
 	struct conf_member *memb;
 	webrtc::SessionDescriptionInterface *isdp;
@@ -2182,9 +2229,12 @@ int peerflow_add_decoders_for_user(struct iflow *iflow,
 	if (!pf)
 		return EINVAL;
 
-	info("pf(%pf): decoder for: %s.%s ssrca: %u ssrcv: %u\n",
-	     pf, userid, clientid, ssrca, ssrcv);
-	
+	info("pf(%pf): add_decoders_for_user: %s.%s ssrca: %u ssrcv: %u rsess: %p\n",
+	     pf, userid, clientid, ssrca, ssrcv, pf->rsess);
+
+	if (!pf->rsess)
+		return EINVAL;
+
 	memb = conf_member_find_by_userclient(pf, userid, clientid);
 	if (memb)
 		memb = (struct conf_member *)mem_deref(memb);
@@ -2198,30 +2248,67 @@ int peerflow_add_decoders_for_user(struct iflow *iflow,
 	if (err)
 		goto out;
 
+	sdpm = find_media(pf->rsess, "audio");
+	if (sdpm) {
+		struct le *le;
+		sdp_media_del_lattr(sdpm, "ssrc");
+
+		mbuf_init(&mb);
+		mbuf_printf(&mb, "FID");
+
+		LIST_FOREACH(&pf->cml, le) {
+			struct conf_member *mem = (struct conf_member *)le->data;
+
+			if (mem->ssrca != 0) {
+				err = sdp_media_set_lattr(sdpm, false,
+							  "ssrc", "%u cname:%s",
+							  mem->ssrca, cname);
+				err |= sdp_media_set_lattr(sdpm, false,
+							   "ssrc", "%u msid:%s %s",
+							   mem->ssrca, msid, label);
+				err |= sdp_media_set_lattr(sdpm, false,
+							   "ssrc", "%u mslabel:%s",
+							   mem->ssrca, msid);
+				err |= sdp_media_set_lattr(sdpm, false,
+							   "ssrc", "%u label:%s",	   
+							   mem->ssrca, label);
+
+				mbuf_printf(&mb, " %u", mem->ssrca);
+			}
+		}
+
+		if (list_count(&pf->cml) > 1) {
+			mbuf_strdup(&mb, &grpstr, mb.end);
+			err |= sdp_media_set_lattr(sdpm, true,
+						   "ssrc-group", grpstr);
+			//mem_deref(grpstr);
+		}
+	}
+/*
 	sdpm = find_media(pf->rsess, "video");
-	if (!sdpm)
-		return ENOSYS;
-
-	err = sdp_media_set_lattr(sdpm, false,
-				  "ssrc", "%u cname:%s",
-				  ssrcv, cname);
-	err |= sdp_media_set_lattr(sdpm, false, "ssrc", "%u msid:%s %s",
-				   ssrcv, msid, label);
-	err |= sdp_media_set_lattr(sdpm, false, "ssrc", "%u mslabel:%s",
-				   ssrcv, msid);
-	err |= sdp_media_set_lattr(sdpm, false, "ssrc", "%u label:%s",	   
-				   ssrcv, label);
-	
-	mem_deref(label);
-
+	if (sdpm && ssrcv != 0) {
+		err = sdp_media_set_lattr(sdpm, false,
+					  "ssrc", "%u cname:%s",
+					  ssrcv, cname);
+		err |= sdp_media_set_lattr(sdpm, false, "ssrc", "%u msid:%s %s",
+					   ssrcv, msid, label);
+		err |= sdp_media_set_lattr(sdpm, false, "ssrc", "%u mslabel:%s",
+					   ssrcv, msid);
+		err |= sdp_media_set_lattr(sdpm, false, "ssrc", "%u label:%s",	   
+					   ssrcv, label);
+	}
+*/
 	sdp = sdp_modify_offer(pf->rsess, pf->conv_type, pf->audio.local_cbr);
 	isdp = sdp_interface(sdp, webrtc::SdpType::kOffer);
 
+	//info("pf(%p): modify_offer %s\n", pf, sdp);
 	pf->peerConn->SetRemoteDescription(
 		std::unique_ptr<webrtc::SessionDescriptionInterface>(isdp),
 		pf->sdpRemoteObserver);
 
  out:
+	mem_deref(label);
+
 	return err;
 }
 
@@ -2328,10 +2415,12 @@ int peerflow_set_video_state(struct iflow *iflow, enum icall_vstate vstate)
 	return 0;
 }
 
-int peerflow_set_e2ee_key(struct peerflow *pf,
-				uint32_t idx,
-				uint8_t e2ee_key[E2EE_SESSIONKEY_SIZE])
+int peerflow_set_e2ee_key(struct iflow *iflow,
+			  uint32_t idx,
+			  uint8_t e2ee_key[E2EE_SESSIONKEY_SIZE])
 {
+	struct peerflow *pf = (struct peerflow*)iflow;
+
 	(void) idx;
 	if (pf->encryptor) {
 		pf->encryptor->SetKey(e2ee_key);
@@ -2350,10 +2439,12 @@ void peerflow_close(struct iflow *iflow)
 	debug("pf(%p): close: peerConn=%p tid=%p\n",
 	      pf, pf ? pf->peerConn.get() : NULL, pthread_self());
 	
-	if (!pf || !pf->peerConn)
+	if (!pf)
 		return;
 
-	pf->peerConn->Close();
+	if (pf->peerConn) {
+		pf->peerConn->Close();
+	}
 	debug("pf(%p): close: peerConn=%p closed\n",
 	      pf, pf ? pf->peerConn.get() : NULL);
 
@@ -2403,7 +2494,7 @@ bool peerflow_has_video(const struct iflow *iflow)
 
 void peerflow_stop_media(struct iflow *iflow)
 {
-	const struct peerflow *pf = (const struct peerflow*)iflow;
+	struct peerflow *pf = (struct peerflow*)iflow;
 	if (!pf)
 		return;
 
@@ -2412,12 +2503,22 @@ void peerflow_stop_media(struct iflow *iflow)
 	IFLOW_CALL_CB(pf->iflow, stoppedh, pf->iflow.arg);
 }
 
-void peerflow_set_stats(struct peerflow* pf, float downloss, float rtt)
+void peerflow_set_stats(struct peerflow* pf,
+			uint32_t apkts_recv,
+			uint32_t vpkts_recv,
+			uint32_t apkts_sent,
+			uint32_t vpkts_sent,
+			float downloss,
+			float rtt)
 {
 	if (!pf) {
 		return;
 	}
 
+	pf->stats.apkts_recv = apkts_recv;
+	pf->stats.vpkts_recv = vpkts_recv;
+	pf->stats.apkts_sent = apkts_sent;
+	pf->stats.vpkts_sent = vpkts_sent;
 	pf->stats.dloss = downloss;
 	pf->stats.rtt = rtt;
 }

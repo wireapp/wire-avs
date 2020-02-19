@@ -1314,7 +1314,9 @@ static void sys_entered_call_handler(struct mm *mm)
 		 || mm->call_state == MEDIAMGR_STATE_INVIDEOCALL) {
 			info("mediamgr: sys_entered call: incall aio=%p\n",
 			     mm->aio);
-			if (NULL == mm->aio)
+			if (mm->aio)
+				fire_callback(mm);
+			else
 				incall_action(mm);
 			return;
 		}
@@ -1402,7 +1404,8 @@ static void audio_alloc(struct mm *mm)
 	}
 #endif
 	if (mm->aio) {
-		info("mediamgr: audio already allocated\n");
+		info("mediamgr: audio already allocated, firing callback\n");
+		fire_callback(mm);		
 		return;
 	}
 
@@ -1459,7 +1462,7 @@ void mediamgr_audio_release(struct mediamgr *mediamgr)
 static void audio_reset(struct mm *mm)
 {
 	info("mediamgr: audio_reset: aio=%p\n", mm->aio);
-	
+
 	if (mm->aio) {
 		int res;
 
@@ -1477,6 +1480,7 @@ static void audio_reset(struct mm *mm)
 
 void mediamgr_audio_reset_mm(struct mm *mm)
 {
+	mm->should_reset = false;
 	mediamgr_post_media_cmd(mm, MM_MARSHAL_AUDIO_RESET, NULL);
 }
 
@@ -1488,7 +1492,6 @@ void mediamgr_audio_reset(struct mediamgr *mediamgr)
 
 	if (mediamgr->mm) {
 		mediamgr_audio_reset_mm(mediamgr->mm);
-	//	mediamgr->mm->should_reset = true;
 	}
 }
 
@@ -1634,6 +1637,7 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 
 	case MEDIAMGR_STATE_HOLD:
 		mm->hold_state = old_state;
+		mm->should_reset = true;
 		set_state(mm, new_state);
 		fire_callback(mm);
 		break;
@@ -2069,10 +2073,5 @@ void mediamgr_stop_recording(struct mediamgr *mediamgr)
 
 bool mediamgr_should_reset(struct mm *mm)
 {
-	if (mm && mm->should_reset) {
-		mm->should_reset = false;
-		return true;
-	}
-
-	return false;
+	return mm ? mm->should_reset : false;
 }

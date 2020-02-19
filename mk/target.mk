@@ -241,12 +241,16 @@ endif
 ifeq ($(WEBRTC_VER),)
 WEBRTC_VER := 72.5
 endif
+
 JAVAC := javac
 
 AFLAGS := cr
 
 CFLAGS   += \
-         -fvisibility=hidden -Os -g -ffunction-sections -fdata-sections
+         -fvisibility=hidden -Os -g \
+	 -ffunction-sections \
+	 -fdata-sections \
+	 -fstack-protector-strong
 
 CPPFLAGS += \
          -I. \
@@ -271,6 +275,12 @@ CPPFLAGS += \
 CXXFLAGS += \
          -fvisibility=hidden -fno-rtti -ffunction-sections -fdata-sections \
 	-Os -g -std=c++11 -stdlib=libc++ 
+
+ifeq ($(ENABLE_COVERAGE),1)
+CFLAGS += -fprofile-instr-generate -fcoverage-mapping
+CPPFLAGS += -fprofile-instr-generate -fcoverage-mapping
+LFLAGS += -fprofile-instr-generate -fcoverage-mapping
+endif
 
 ifeq ($(AVS_RELEASE),1)
  ifeq ($(AVS_OS),ios)
@@ -385,7 +395,7 @@ CPPFLAGS += \
 CFLAGS   += \
 	 -fpic \
 	 -ffunction-sections -funwind-tables \
-	 -fstack-protector -fno-short-enums \
+	 -fno-short-enums \
 	 -fomit-frame-pointer -fno-strict-aliasing \
 	 -fPIC
 

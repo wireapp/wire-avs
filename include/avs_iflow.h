@@ -24,6 +24,10 @@ struct iflow;
 struct avs_vidframe;
 
 struct iflow_stats {
+	uint32_t apkts_recv;
+	uint32_t apkts_sent;
+	uint32_t vpkts_recv;
+	uint32_t vpkts_sent;
 	float dloss;
 	float rtt;
 };
@@ -87,7 +91,8 @@ typedef int (iflow_allocf)(struct iflow		**flowp,
 			   const char		*convid,
 			   enum icall_conv_type	conv_type,
 			   enum icall_call_type	call_type,
-			   enum icall_vstate	vstate);
+			   enum icall_vstate	vstate,
+			   void			*extarg);
 
 typedef void (iflow_destroyf)(void);
 
@@ -95,25 +100,32 @@ typedef void (iflow_set_mutef)(bool muted);
 typedef bool (iflow_get_mutef)(void);
 
 /* Callbacks from iflow */
-typedef void (iflow_estab_h)(const char *crypto,
-			   const char *codec,
-			   void *arg);
-typedef void (iflow_close_h)(int err, void *arg);
-typedef void (iflow_stopped_h)(void *arg);
-
-
-typedef void (iflow_rtp_state_h)(bool started,
-			       bool video_started,
+typedef void (iflow_estab_h)(struct iflow *flow,
+			     const char *crypto,
+			     const char *codec,
+			     void *arg);
+typedef void (iflow_close_h)(struct iflow *flow,
+			     int err,
+			     void *arg);
+typedef void (iflow_stopped_h)(struct iflow *flow,
 			       void *arg);
 
-typedef void (iflow_restart_h)(bool force_cbr, void *arg);
-typedef void (iflow_gather_h)(void *arg);
+typedef void (iflow_rtp_state_h)(struct iflow *flow,
+				 bool started,
+			         bool video_started,
+			         void *arg);
 
-typedef void (iflow_dce_estab_h)(void *arg);
-typedef void (iflow_dce_recv_h)(const uint8_t *data,
+typedef void (iflow_restart_h)(struct iflow *flow,
+			       bool force_cbr,
+			       void *arg);
+typedef void (iflow_gather_h)(struct iflow *flow, void *arg);
+
+typedef void (iflow_dce_estab_h)(struct iflow *flow, void *arg);
+typedef void (iflow_dce_recv_h)(struct iflow *flow,
+				const uint8_t *data,
 				size_t len,
 				void *arg);
-typedef void (iflow_dce_close_h)(void *arg);
+typedef void (iflow_dce_close_h)(struct iflow *flow, void *arg);
 
 /* Static callbacks */
 typedef void (iflow_video_size_h)(int w,
@@ -165,8 +177,8 @@ struct iflow {
 #define IFLOW_CALL(iflow, fn, ...) if(iflow && (iflow)->fn){iflow->fn(iflow, ##__VA_ARGS__);}
 #define IFLOW_CALLE(iflow, fn, ...) (iflow && (iflow)->fn) ? iflow->fn(iflow, ##__VA_ARGS__) : 0
 
-#define IFLOW_CALL_CB(iflow, fn, p0, ...) if(iflow.fn){iflow.fn(p0, ##__VA_ARGS__);}
-#define IFLOW_CALL_CBE(iflow, fn, p0, ...) iflow.fn ? iflow.fn(p0, ##__VA_ARGS__) : 0
+#define IFLOW_CALL_CB(iflow, fn, ...) if(iflow.fn){iflow.fn(&iflow, ##__VA_ARGS__);}
+#define IFLOW_CALL_CBE(iflow, fn, ...) iflow.fn ? iflow.fn(&iflow, ##__VA_ARGS__) : 0
 
 
 void iflow_set_functions(struct iflow *iflow,
@@ -215,7 +227,8 @@ int iflow_alloc(struct iflow		**flowp,
 		const char		*convid,
 		enum icall_conv_type	conv_type,
 		enum icall_call_type	call_type,
-		enum icall_vstate	vstate);
+		enum icall_vstate	vstate,
+		void			*extarg);
 
 void iflow_destroy(void);
 

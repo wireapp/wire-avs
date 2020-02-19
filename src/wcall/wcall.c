@@ -1189,7 +1189,10 @@ static int icall_send_handler(struct icall *icall, const char *userid,
 }
 
 #if ENABLE_CONFERENCE_CALLS
-static int icall_sft_handler(const char *url, struct econn_message *msg, void *arg)
+static int icall_sft_handler(struct icall *icall,
+			     const char *url,
+			     struct econn_message *msg,
+			     void *arg)
 {
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
@@ -1472,6 +1475,12 @@ int wcall_add(struct calling_instance *inst,
 				    icall_quality_handler,
 				    icall_req_clients_handler,
 				    wcall);
+
+		err = ICALL_CALLE(wcall->icall, set_sft,
+			config_get_sft_url(inst->cfg));
+		if (err)
+			goto out;
+
 		}
 		break;
 #endif
@@ -1649,7 +1658,7 @@ AVS_EXPORT
 int wcall_setup(void)
 {
 	int err = 0;
-	info("wcall_init: starting...\n");
+	info(APITAG "wcall_setup: starting...\n");
 
 	err = libre_init();
 	if (err) {
@@ -1679,11 +1688,13 @@ AVS_EXPORT
 int wcall_init(int env)
 {
 	int err = 0;
-	debug("wcall: init: initialized=%d env=%d\n", calling.initialized, env);
+	info(APITAG "wcall: init: initialized=%d env=%d\n", calling.initialized, env);
 
 #ifndef __EMSCRIPTEN__
 	/* Ensure that Android linker pulls in all wcall symbols */
 	wcall_get_members(WUSER_INVALID_HANDLE, NULL);
+
+	peerflow_set_funcs();
 #endif
 
 	if (calling.initialized)
@@ -1927,13 +1938,6 @@ static void instance_destructor(void *arg)
 	info("instance_destructor(%p)\n", inst);
 }
 
-static void msys_activate_handler(void *arg)
-{
-	(void)arg;
-
-	ecall_activate();
-}
-
 static void msys_mute_handler(bool muted, void *arg)
 {
 	WUSER_HANDLE wuser = (WUSER_HANDLE)arg;
@@ -2050,7 +2054,7 @@ WUSER_HANDLE wcall_create_ex(const char *userid,
 
 	uintptr_t vuser = inst->wuser;
 	err = msystem_get(&inst->msys, msys_name, NULL,
-			  msys_activate_handler, msys_mute_handler, (void*)vuser);
+			  msys_mute_handler, (void*)vuser);
 	if (err) {
 		warning("wcall(%p): create, cannot init msystem: %m\n",
 			inst, err);
@@ -2153,7 +2157,6 @@ void wcall_destroy(WUSER_HANDLE wuser)
 
 AVS_EXPORT
 int wcall_i_start(struct wcall *wcall,
-		  const char *sft_url, const char *sft_token,
 		  int call_type, int conv_type,
 		  int audio_cbr)
 {
@@ -2161,6 +2164,9 @@ int wcall_i_start(struct wcall *wcall,
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
 	bool cbr = audio_cbr != 0;
 	char convid_anon[ANON_ID_LEN];
+
+	call_type = (call_type == WCALL_CALL_TYPE_FORCED_AUDIO) ?
+		    WCALL_CALL_TYPE_NORMAL : call_type;
 
 	if (!wcall_valid(wcall)) {
 		warning("wcall(%p): invalid wcall: inst=%p\n", wcall, inst);
@@ -2181,15 +2187,9 @@ int wcall_i_start(struct wcall *wcall,
 	wcall->video.video_call = is_video_call;
 	if (wcall && wcall->icall) {
 
-		err = ICALL_CALLE(wcall->icall, set_sft,
-			sft_url, sft_token);
-		if (err)
-			goto out;
-
 		if (WCALL_STATE_NONE == wcall->state) {
 			set_state(wcall, WCALL_STATE_OUTGOING);
 		}
-#ifdef __EMSCRIPTEN__
 		if (is_video_call) {
 			ICALL_CALL(wcall->icall,
 				   set_video_send_state,
@@ -2200,7 +2200,7 @@ int wcall_i_start(struct wcall *wcall,
 				   set_video_send_state,
 				   ICALL_VIDEO_STATE_STOPPED);
 		}
-#endif
+
 		err = ICALL_CALLE(wcall->icall, start,
 			call_type, cbr);
 		if (err)
@@ -2221,7 +2221,6 @@ int wcall_i_start(struct wcall *wcall,
 
 
 int wcall_i_answer(struct wcall *wcall,
-		   const char *sft_url, const char *sft_token,
 		   int call_type, int audio_cbr)
 {
 	int err = 0;
@@ -2232,7 +2231,10 @@ int wcall_i_answer(struct wcall *wcall,
 		warning("wcall; answer: no wcall\n");
 		return EINVAL;
 	}
-	
+
+	call_type = (call_type == WCALL_CALL_TYPE_FORCED_AUDIO) ?
+		    WCALL_CALL_TYPE_NORMAL : call_type;
+
 	info(APITAG "wcall(%p): answer calltype=%s\n",
 	     wcall, wcall_call_type_name(call_type));
 
@@ -2246,14 +2248,6 @@ int wcall_i_answer(struct wcall *wcall,
 	}
 	set_state(wcall, WCALL_STATE_ANSWERED);
 
-	if (sft_url && sft_token) {
-		err = ICALL_CALLE(wcall->icall, set_sft,
-			sft_url, sft_token);
-		if (err)
-			goto out;
-	}
-
-#ifdef __EMSCRIPTEN__
 	if (call_type == WCALL_CALL_TYPE_VIDEO) {
 		ICALL_CALL(wcall->icall,
 			   set_video_send_state,
@@ -2264,12 +2258,10 @@ int wcall_i_answer(struct wcall *wcall,
 			   set_video_send_state,
 			   ICALL_VIDEO_STATE_STOPPED);
 	}
-#endif
 	
 	err = ICALL_CALLE(wcall->icall, answer,
 			  call_type, cbr);
 
-out:
 	return err;
 }
 
@@ -2764,15 +2756,17 @@ int wcall_is_video_call(WUSER_HANDLE wuser, const char *convid)
 }
 
 
-AVS_EXPORT
-int wcall_debug(struct re_printf *pf, const void *id)
+int  wcall_debug(struct re_printf *pf, WUSER_HANDLE wuser)
 {
+	struct calling_instance *inst;
 	struct le *le;	
 	char convid_anon[ANON_ID_LEN];
 	int err = 0;
-	const struct calling_instance *inst = id;
 
+	inst = wuser2inst(wuser);
 	if (!inst) {
+		warning("wcall: debug: invalid wuser=0x%08X\n",
+			wuser);
 		re_hprintf(pf, "\n");
 		return 0;
 	}
@@ -2793,13 +2787,17 @@ int wcall_debug(struct re_printf *pf, const void *id)
 	return err;
 }
 
-int  wcall_stats(struct re_printf *pf, const void *id)
+AVS_EXPORT
+int  wcall_stats(struct re_printf *pf, WUSER_HANDLE wuser)
 {
-	const struct calling_instance *inst = id;
+	struct calling_instance *inst;
 	struct le *le;	
 	int err = 0;
 
+	inst = wuser2inst(wuser);
 	if (!inst) {
+		warning("wcall: stats: invalid wuser=0x%08X\n",
+			wuser);
 		re_hprintf(pf, "\n");
 		return 0;
 	}

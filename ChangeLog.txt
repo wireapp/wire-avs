@@ -1,6 +1,24 @@
 ChangeLog for AVS -- latest on top!
 
 ==============================================================================
+AVS Release 5.4
+
+Date:	    28. November 2019
+GIT:	    https://github.com/wearezeta/avs/tree/release-5.4
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Keep old flows until new one has started (to avoid media interruptio
+                - More aggressive UPDATE strategy
+                - Remove forced audio to allow to share screen to more clients
+                - Increase number of supported TURN configurations to 16
+                - Bug fixes
+                
+Hotfixes:	
+
+==============================================================================
 AVS Release 5.3
 
 Date:	    08. October 2019

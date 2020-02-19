@@ -34,10 +34,11 @@ enum econn_msg {
 	ECONN_GROUP_SETUP = 0x08,
 
 	/* Conference call: */
-	ECONN_CONF_START = 0x09,
-	ECONN_CONF_END   = 0x0A,
-	ECONN_CONF_PART  = 0x0B,
-	ECONN_CONF_KEY   = 0x0C,
+	ECONN_CONF_CONN  = 0x09,
+	ECONN_CONF_START = 0x0A,
+	ECONN_CONF_END   = 0x0B,
+	ECONN_CONF_PART  = 0x0C,
+	ECONN_CONF_KEY   = 0x0D,
 
 	ECONN_UPDATE = 0x10,
 	ECONN_REJECT = 0x11,
@@ -150,9 +151,16 @@ struct econn_message {
 
 		struct confstart {
 			struct econn_props *props;
+			char *sft_url;
+			uint8_t *secret;
+			uint32_t secretlen;
+			uint64_t timestamp;
+			uint32_t seqno;
 		} confstart;
 
 		struct confpart {
+			uint64_t timestamp;
+			uint32_t seqno;
 			bool should_start;
 			struct list partl; /* list of struct econn_group_part */
 		} confpart;
@@ -171,6 +179,7 @@ struct econn;
 struct econn_group_part {
 	char *userid;
 	char *clientid;
+	bool authorized;
 	uint32_t ssrca;
 	uint32_t ssrcv;
 
@@ -219,9 +228,12 @@ typedef void (econn_update_resp_h)(struct econn *econn, const char *sdp,
 typedef void (econn_alert_h)(struct econn *econn, uint32_t level,
 			     const char *descr, void *arg);
 
-typedef void (econn_confpart_h)(struct econn *econn, const struct list *partlist,
-				bool should_start, void *arg);
-
+typedef void (econn_confpart_h)(struct econn *econn,
+				const struct list *partlist,
+				bool should_start,
+				uint64_t timestamp,
+				uint32_t seqno,
+				void *arg);
 
 /**
  * Indicates that this ECONN was closed, locally or by remote peer
@@ -342,6 +354,8 @@ bool econn_can_send_propsync(const struct econn *econn);
 int econn_send_propsync(struct econn *conn, bool resp,
 			struct econn_props *props);
 
+struct econn_group_part *econn_part_alloc(const char *userid,
+					  const char *clientid);
 
 struct vector {
 	uint8_t *bytes;

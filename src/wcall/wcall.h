@@ -45,11 +45,9 @@ void wcall_i_sft_resp(struct calling_instance *inst,
 		      struct econn_message *msg,
 		      void *arg);
 int  wcall_i_start(struct wcall *wcall,
-		   const char *sft_url, const char *sft_token,
 		   int is_video_call, int group,
 		   int audio_cbr);
 int wcall_i_answer(struct wcall *wcall,
-		   const char *sft_url, const char *sft_token,
 		   int call_type, int audio_cbr);
 int  wcall_i_reject(struct wcall *wcall);
 void wcall_i_end(struct wcall *wcall);

@@ -43,7 +43,6 @@ int msystem_get_env(void);
 
 int msystem_get(struct msystem **msysp, const char *msysname,
 		struct msystem_config *config,
-		msystem_activate_h *activateh,
 		msystem_mute_h *muteh,
 		void *arg);
 void msystem_unregister_listener(void *arg);
@@ -73,7 +72,7 @@ bool msystem_audio_is_activated(void);
 void msystem_audio_set_activated(bool activated);
 
 
-#define MAX_TURN_SERVERS 8
+#define MAX_TURN_SERVERS 16
 
 
 void msystem_set_tid(struct msystem *msys, pthread_t tid);

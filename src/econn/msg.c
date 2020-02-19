@@ -93,8 +93,13 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.groupstart.props = mem_deref(msg->u.groupstart.props);
 		break;
 
+	case ECONN_CONF_CONN:
+		break;
+
 	case ECONN_CONF_START:
 		msg->u.confstart.props = mem_deref(msg->u.confstart.props);
+		msg->u.confstart.sft_url = mem_deref(msg->u.confstart.sft_url);
+		msg->u.confstart.secret = mem_deref(msg->u.confstart.secret);
 		break;
 
 	case ECONN_CONF_PART:

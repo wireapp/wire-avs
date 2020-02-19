@@ -111,13 +111,20 @@ int ecall_user_data_register_ft_handlers(struct ecall *ecall,
                 ecall_user_data_file_rcv_h *f_rcv_h,
                 ecall_user_data_file_snd_h *f_snd_h);
 
-typedef void (ecall_confpart_h)(struct ecall *ecall, const struct list *partlist,
-				bool should_start, void *arg);
+typedef void (ecall_confpart_h)(struct ecall *ecall,
+				const struct list *partlist,
+				bool should_start,
+				uint64_t timestamp,
+				uint32_t seqno,
+				void *arg);
+
 
 int ecall_set_confpart_handler(struct ecall *ecall,
 			       ecall_confpart_h confparth);
 
 int ecall_dce_send(struct ecall *ecall, struct mbuf *mb);
+
+int ecall_dce_sendmsg(struct ecall *ecall, struct econn_message *msg);
 
 int ecall_set_quality_interval(struct ecall *ecall,
 			       uint64_t interval);

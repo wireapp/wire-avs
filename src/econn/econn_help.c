@@ -42,6 +42,7 @@ const char *econn_msg_name(enum econn_msg msg)
 	case ECONN_DEVPAIR_PUBLISH:	return "DEVPAIR_PUBLISH";
 	case ECONN_DEVPAIR_ACCEPT:	return "DEVPAIR_ACCEPT";
 	case ECONN_ALERT:		return "ALERT";
+	case ECONN_CONF_CONN:		return "CONFCONN";
 	case ECONN_CONF_START:		return "CONFSTART";
 	case ECONN_CONF_END:		return "CONFEND";
 	case ECONN_CONF_PART:	        return "CONFPART";
@@ -154,6 +155,7 @@ enum econn_transport econn_transp_resolve(enum econn_msg type)
 	case ECONN_DEVPAIR_PUBLISH:     return ECONN_TRANSP_BACKEND;
 	case ECONN_DEVPAIR_ACCEPT:      return ECONN_TRANSP_BACKEND;
 	case ECONN_ALERT:		return ECONN_TRANSP_BACKEND;
+	case ECONN_CONF_CONN:		return ECONN_TRANSP_BACKEND;
 	case ECONN_CONF_START:		return ECONN_TRANSP_BACKEND;
 	case ECONN_CONF_END:		return ECONN_TRANSP_BACKEND;
 	case ECONN_CONF_PART:		return ECONN_TRANSP_DIRECT;

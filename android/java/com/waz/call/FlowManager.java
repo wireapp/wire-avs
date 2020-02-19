@@ -324,9 +324,6 @@ public class FlowManager
 
   public native void setLogHandler(LogHandler logh);
 	
-  public native int setMute(boolean mute);
-  public native boolean getMute();
-
   public native void setEnableLogging(boolean enable);
   public native void setEnableMetrics(boolean enable);
   public native void setSessionId(String convId, String sessId);

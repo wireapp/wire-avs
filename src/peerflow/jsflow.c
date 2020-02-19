@@ -379,7 +379,8 @@ int jsflow_alloc(struct iflow		**flowp,
 		 const char		*convid,
 		 enum icall_conv_type	conv_type,
 		 enum icall_call_type	call_type,
-		 enum icall_vstate	vstate)
+		 enum icall_vstate	vstate,
+		 void			*extarg)
 {
 	struct jsflow *flow;
 
@@ -570,16 +571,17 @@ static void jsflow_acbr_handler(bool enabled, bool offer, void *arg)
 	struct jsflow *jsflow = (struct jsflow*)arg;
 	bool local_cbr;
 
+	
 	local_cbr = jsflow->audio.local_cbr;
-	jsflow->audio.local_cbr = enabled;
 	jsflow->audio.remote_cbr = enabled;
+	jsflow->audio.local_cbr = enabled && g_jf.env != ENV_FIREFOX;
 
 	if (offer) {
 		/* If this is an offer, then we just need to set
 		 * the local cbr
 		 */
 	}		
-	else if (enabled && !local_cbr) {
+	else if (enabled && !local_cbr && (g_jf.env != ENV_FIREFOX)) {
 		IFLOW_CALL_CB(jsflow->iflow, restarth,
 			true, jsflow->iflow.arg);
 	}

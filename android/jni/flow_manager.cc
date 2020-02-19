@@ -315,7 +315,7 @@ void *flowmgr_thread(void *arg)
 		goto out;
 	}
 
-	debug("flowmgr_thread: using avs_flags=%llu", java.avs_flags);
+	info("flowmgr_thread: using avs_flags=%llu", java.avs_flags);
 	err = avs_init(java.avs_flags);
 	if (err) {
 		warning("flowmgr_thread: avs_init failed (%m)\n", err);
@@ -420,6 +420,36 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 	__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: init\n");
 	info("jni: init\n");
 
+#ifdef ANDROID
+	//info("Calling SetAndroidObjects\n");
+	//	webrtc::VoiceEngine::SetAndroidObjects(java.vm, ctx);
+
+	__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: setting ctx\n");
+	info("calling webrtc::JVM:Initialize: vm=%p ctx=%p\n",
+	     java.vm, ctx);
+
+	//   // At initialization (e.g. in JNI_OnLoad), call JVM::Initialize.
+	//JNIEnv* jni = ::base::android::AttachCurrentThread();
+	//JavaVM* jvm = NULL;
+	//jni->GetJavaVM(&jvm);
+	//  webrtc::JVM::Initialize(jvm);
+
+
+	if (1) {
+		webrtc::JVM::Initialize(java.vm, ctx);
+		std::unique_ptr<webrtc::JNIEnvironment> jenv = webrtc::JVM::GetInstance()->environment();
+		info("flow_manager: init: vm: %p env: %p\n",
+		     webrtc::JVM::GetInstance()->jvm(),
+		     jenv.get());
+	}
+	
+	java.context = env->NewGlobalRef(ctx);
+
+#if 0//USE_BREAKPAD	
+	setup_breakpad(env, ctx);
+#endif
+#endif
+	
 
 #if 0
 	res = env->GetJavaVM(&java.vm);
@@ -495,39 +525,9 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 	}
 
 	java.acsmid = env->GetMethodID(cls,
-									"changeAudioState",
-									"(I)V");
+				       "changeAudioState",
+				       "(I)V");
     
-#ifdef ANDROID
-	//info("Calling SetAndroidObjects\n");
-	//	webrtc::VoiceEngine::SetAndroidObjects(java.vm, ctx);
-
-	__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: setting ctx\n");
-	info("calling webrtc::JVM:Initialize: vm=%p ctx=%p\n",
-	     java.vm, ctx);
-	peerflow_start_log();
-
-	//   // At initialization (e.g. in JNI_OnLoad), call JVM::Initialize.
-	//JNIEnv* jni = ::base::android::AttachCurrentThread();
-	//JavaVM* jvm = NULL;
-	//jni->GetJavaVM(&jvm);
-	//  webrtc::JVM::Initialize(jvm);
-
-
-	if (1) {
-		webrtc::JVM::Initialize(java.vm, ctx);
-		std::unique_ptr<webrtc::JNIEnvironment> jenv = webrtc::JVM::GetInstance()->environment();
-		info("vm: %p env: %p\n",
-		     webrtc::JVM::GetInstance()->jvm(),
-		     jenv.get());
-	}
-	
-	java.context = env->NewGlobalRef(ctx);
-
-#if 0//USE_BREAKPAD	
-	setup_breakpad(env, ctx);
-#endif
-#endif
 	java.avs_flags = avs_flags;
 
 	err = lock_alloc(&java.video.lock);
@@ -552,7 +552,7 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 	while(!java.initialized && !java.err)
 		usleep(50000);
 	err = java.err;
-
+	
  out:
 	if (err)
 		error("jni: init failed\n");
@@ -987,34 +987,6 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setLogHandler
 	warning("NOT IMPLEMENTED: setLogHandler\n");
 }
 
-
-
-JNIEXPORT jint JNICALL Java_com_waz_call_FlowManager_setMute
-(JNIEnv *env, jobject self, jboolean mute)
-{
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	int err;
-
-	FLOWMGR_MARSHAL_RET(java.tid, err, flowmgr_set_mute, fm,
-			    mute ? true : false);
-
-	return err;
-}
-
-
-JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_getMute
-(JNIEnv *env, jobject self)
-{
-	struct jfm *jfm = self2fm(env, self);
-	struct flowmgr *fm = jfm->fm;
-	bool muted;
-	int err;
-
-	FLOWMGR_MARSHAL_RET(java.tid, err, flowmgr_get_mute, fm, &muted);
-
-	return err ? JNI_FALSE : (muted ? JNI_TRUE : JNI_FALSE);
-}
 
 
 JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_event

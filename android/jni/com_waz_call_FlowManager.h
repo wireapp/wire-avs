@@ -181,22 +181,6 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setLogHandler
 
 /*
  * Class:     com_waz_call_FlowManager
- * Method:    setMute
- * Signature: (Z)I
- */
-JNIEXPORT jint JNICALL Java_com_waz_call_FlowManager_setMute
-  (JNIEnv *, jobject, jboolean);
-
-/*
- * Class:     com_waz_call_FlowManager
- * Method:    getMute
- * Signature: ()Z
- */
-JNIEXPORT jboolean JNICALL Java_com_waz_call_FlowManager_getMute
-  (JNIEnv *, jobject);
-
-/*
- * Class:     com_waz_call_FlowManager
  * Method:    setEnableLogging
  * Signature: (Z)V
  */

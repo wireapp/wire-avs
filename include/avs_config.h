@@ -23,6 +23,7 @@
 struct call_config {
 	struct zapi_ice_server *iceserverv;
 	size_t iceserverc;
+	char *sft_url;
 };
 
 typedef int (config_req_h)(void *arg);
@@ -39,4 +40,6 @@ void config_stop(struct config *cfg);
 
 struct zapi_ice_server *config_get_iceservers(struct config *cfg,
 					      size_t *count);
+
+const char *config_get_sft_url(struct config *cfg);
 

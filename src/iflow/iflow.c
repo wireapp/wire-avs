@@ -146,7 +146,7 @@ struct {
 #ifdef __EMSCRIPTEN__
 	jsflow_alloc,
 #else
-	peerflow_alloc,
+	NULL,
 #endif
 	NULL,
 	NULL,
@@ -203,12 +203,13 @@ int iflow_alloc(struct iflow		**flowp,
 		const char		*convid,
 		enum icall_conv_type	conv_type,
 		enum icall_call_type	call_type,
-		enum icall_vstate	vstate)
+		enum icall_vstate	vstate,
+		void			*extarg)
 {
 	if (!statics.alloc) {
 		error("iflow: statics.alloc is NULL\n");
 		return ENOMEM;
 	}
-	return statics.alloc(flowp, convid, conv_type, call_type, vstate);
+	return statics.alloc(flowp, convid, conv_type, call_type, vstate, extarg);
 }
 

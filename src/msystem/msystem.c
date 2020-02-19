@@ -46,7 +46,6 @@ struct msystem {
 	bool crypto_kase;
 	char ifname[256];
 
-	struct list activatel;
 	struct list mutel;
 
 	struct msystem_proxy *proxy;
@@ -98,7 +97,6 @@ static void msystem_destructor(void *data)
 	msys->dnsc = mem_deref(msys->dnsc);
 	msys->proxy = mem_deref(msys->proxy);
 
-	list_flush(&msys->activatel);
 	list_flush(&msys->mutel);
 	
 	iflow_destroy();
@@ -185,14 +183,6 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 	return err;
 }
 
-
-static void ae_destructor(void *arg)
-{
-	struct activate_elem *ae = arg;
-
-	list_unlink(&ae->le);
-}
-
 static void me_destructor(void *arg)
 {
 	struct mute_elem *me = arg;
@@ -207,7 +197,6 @@ struct msystem *msystem_instance(void)
 
 int msystem_get(struct msystem **msysp, const char *msysname,
 		struct msystem_config *config,
-		msystem_activate_h *activateh,
 		msystem_mute_h *muteh,
 		void *arg)
 {
@@ -224,14 +213,6 @@ int msystem_get(struct msystem **msysp, const char *msysname,
 			return err;
 	}
 
-	if (activateh) {
-		struct activate_elem *ae;
-		
-		ae = mem_zalloc(sizeof(*ae), ae_destructor);
-		ae->activateh = activateh;
-		ae->arg = arg;
-		list_append(&g_msys->activatel, &ae->le, ae);
-	}
 	if (muteh) {
 		struct mute_elem *me;
 		
@@ -253,15 +234,6 @@ void msystem_unregister_listener(void *arg)
 
 		if (arg == me->arg) {
 			mem_deref(me);
-			break;
-		}
-	}
-
-	LIST_FOREACH(&g_msys->activatel, le) {
-		struct activate_elem *ae = le->data;
-
-		if (arg == ae->arg) {
-			mem_deref(ae);
 			break;
 		}
 	}
@@ -560,19 +532,6 @@ void msystem_audio_set_activated(bool activated)
 	}
 
 	g_msys->audio_activated = activated;
-
-	/*
-	if (activate) {
-		struct le *le;
-
-		LIST_FOREACH(&g_msys->activatel, le) {
-			struct activate_elem *ae = le->data;
-
-			if (ae->activateh)
-				ae->activateh(ae->arg);
-		}
-	}
-	*/
 }
 
 static void proxy_destructor(void *arg)

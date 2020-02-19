@@ -22,8 +22,8 @@ enum ccall_state {
 	CCALL_STATE_NONE = 0,
 	CCALL_STATE_IDLE,
 	CCALL_STATE_INCOMING,
-	CCALL_STATE_GATHERING,
-	CCALL_STATE_SETUPSENT,
+	CCALL_STATE_CONNSENT,
+	CCALL_STATE_SETUPRECV,
 	CCALL_STATE_CONNECTING,
 	CCALL_STATE_CONNECTED,
 	CCALL_STATE_ACTIVE,
@@ -40,17 +40,15 @@ struct icall *ccall_get_icall(struct ccall* ccall);
 
 int  ccall_add_turnserver(struct icall *icall, struct zapi_ice_server *srv);
 
-int  ccall_set_sft(struct icall *icall, const char *sft_url, const char *sft_token);
+int  ccall_set_sft(struct icall *icall, const char *sft_url);
 
 int  ccall_start(struct icall *icall,
 		 enum icall_call_type call_type,
-		 bool audio_cbr,
-		 void *extcodec_arg);
+		 bool audio_cbr);
 
 int  ccall_answer(struct icall *icall,
 		  enum icall_call_type call_type,
-		  bool audio_cbr,
-		  void *extcodec_arg);
+		  bool audio_cbr);
 
 void ccall_end(struct icall *icall);
 

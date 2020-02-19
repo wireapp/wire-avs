@@ -37,8 +37,8 @@
 
 #define FRAME_LEN_MS 10
 
-#define MAX_FS_REC_HZ                   48000
-#define MAX_FS_PLAY_HZ                  48000
+#define MAX_FS_HZ                       48000
+#define MAX_AUBUF_SIZE                  (sizeof(int16_t) * MAX_FS_HZ * 2)
 
 #define FS_REC_HZ                       16000
 #define FS_PLAY_HZ                      16000
@@ -46,10 +46,8 @@
 #define REC_CHANNELS                    1
 #define PLAY_CHANNELS                   2
 
-#define REC_BUF_SIZE_IN_SAMPLES         (MAX_FS_REC_HZ / 100)
-#define PLAY_BUF_SIZE_IN_SAMPLES        (MAX_FS_PLAY_HZ / 100)
-
 #define REC_BUFFERS                     20
+
 
 enum audio_io_command {
         AUDIO_IO_COMMAND_INIT = 0,

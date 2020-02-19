@@ -45,6 +45,9 @@ extern "C" {
 #endif
     
     
+#define AUBUF_FRAME_SIZE(x) ((MAX_FS_HZ * 2 * 100 / (x)) * (x) / 100)
+
+
 namespace webrtc {
 static void *rec_thread(void *arg) {
 	return static_cast<audio_io_ios*>(arg)->record_thread();
@@ -71,16 +74,16 @@ audio_io_ios::audio_io_ios() :
 	want_rec_(false),
 	want_play_(false)
 {
-	rec_buffer_size_ = sizeof(uint16_t) * MAX_FS_REC_HZ * 2;
-	rec_buffer_ = (uint8_t *)mem_zalloc(rec_buffer_size_, NULL);
+	rec_buffer_size_ = 0;
+	rec_buffer_ = (uint8_t *)mem_zalloc(MAX_AUBUF_SIZE, NULL);
+
 	rec_avail_ = 0;
 	rec_in_pos_ = 0;
 	rec_out_pos_ = 0;
 
-	play_buffer_size_ = MAX_FS_PLAY_HZ * 2;
-	play_buffer_ = (int16_t *)mem_zalloc(sizeof(*play_buffer_)
-					     * play_buffer_size_,
-					     NULL);
+	play_buffer_size_ = 0;
+	play_buffer_ = (int16_t *)mem_zalloc(MAX_AUBUF_SIZE, NULL);
+
 	play_avail_ = 0;
 	play_in_pos_ = 0;
 	play_out_pos_ = 0;
@@ -179,8 +182,12 @@ int32_t audio_io_ios::StartPlayoutInternal()
         assert(!is_playing_.load());
 
 	want_play_ = false;
-        
-	memset(play_buffer_, 0, sizeof(*play_buffer_) * play_buffer_size_);
+
+	play_buffer_size_ = AUBUF_FRAME_SIZE(play_fs_hz_);
+        info("audio_io_ios: StartPlayoutInternal "
+	     "play buffer size set to %u\n", play_buffer_size_);
+
+	memset(play_buffer_, 0, MAX_AUBUF_SIZE);
 	play_avail_ = 0;
 	play_in_pos_ = 0;
 	play_out_pos_ = 0;
@@ -225,10 +232,20 @@ int32_t audio_io_ios::StartRecordingInternal()
         if(!is_playing_initialized_) {
             goto out;
         }
-        assert(!is_recording_.load());
+
+        if (is_recording_.load()) {
+            goto out;
+	}
+
+	is_recording_.store(true);
+
+	rec_buffer_size_ = AUBUF_FRAME_SIZE(rec_fs_hz_) * sizeof(int16_t);
+        info("audio_io_ios: StartRecordInternal "
+	     "record buffer size set to %u\n", rec_buffer_size_);
+
+	memset(rec_buffer_, 0, MAX_AUBUF_SIZE);
 
 	want_rec_ = false;
-        memset(rec_buffer_, 0, rec_buffer_size_);
         rec_avail_ = 0;
 	rec_in_pos_ = 0;
 	rec_out_pos_ = 0;
@@ -268,7 +285,6 @@ int32_t audio_io_ios::StartRecordingInternal()
 			return -1;
 		}
         }
-	is_recording_.store(true);
  out:
 	return 0;
 }
@@ -289,7 +305,7 @@ int32_t audio_io_ios::StartRecording()
     
 bool audio_io_ios::Recording() const
 {
-	return is_recording_;
+	return is_recording_.load();
 }
     
 int32_t audio_io_ios::StopRecordingInternal()
@@ -946,7 +962,7 @@ OSStatus audio_io_ios::rec_process_impl(
 #endif
 	
 	
-	if (!is_recording_)
+	if (!is_recording_.load())
 		return 0;	    
 
 	uint8_t *rec_data = (uint8_t *)malloc(fsize);
@@ -1017,6 +1033,7 @@ void* audio_io_ios::record_thread()
 	int tot_avail;
 	int avail;
 	int handled;
+	uint32_t rec_hz;
 	uint32_t nbytes10ms = (rec_fs_hz_ * sizeof(uint16_t)) / 100;
 	
 	while(is_running_) {
@@ -1031,14 +1048,19 @@ void* audio_io_ios::record_thread()
             
 		pthread_mutex_lock(&lock_);
 		tot_avail = rec_avail_;
+		rec_hz = rec_fs_hz_;
 		pthread_mutex_unlock(&lock_);
 
 		handled = 0;
 		while (is_running_ && tot_avail >= nbytes10ms) {
 			uint32_t nsamps;
 
-			if (rec_out_pos_ + tot_avail >= rec_buffer_size_)
-				avail = rec_buffer_size_ - rec_out_pos_;
+			if (rec_out_pos_ + tot_avail >= rec_buffer_size_) {
+				handled = rec_buffer_size_ - rec_out_pos_;
+				warning("audio_io_ios: hit end of buffer with odd size: %u\n", handled);
+				rec_out_pos_ = 0;
+				break;
+			}
 			else
 				avail = tot_avail;
 			
@@ -1046,7 +1068,7 @@ void* audio_io_ios::record_thread()
 				avail = nbytes10ms;
 
 			nsamps = avail >> 1;
-			duration = (nsamps * 1000) / rec_fs_hz_;		
+			duration = (nsamps * 1000) / rec_hz;		
 #if 0
 			 info("audio_io_ios: record_thread: avail=%d "
 			      "handling=%d duration=%dms\n",
@@ -1059,7 +1081,7 @@ void* audio_io_ios::record_thread()
 					nsamps,
 					2,
 					1,
-					rec_fs_hz_,
+					rec_hz,
 					duration,
 					0,
 					currentMicLevel,

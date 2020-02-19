@@ -76,7 +76,8 @@ typedef int (wcall_sft_req_h)(void *ctx, const char *url,
 
 /* Incoming call */
 typedef void (wcall_incoming_h)(const char *convid, uint32_t msg_time,
-				const char *userid, int video_call /*bool*/,
+				const char *userid,
+				int video_call /*bool*/,
 				int should_ring /*bool*/,
 				void *arg);
 
@@ -291,22 +292,13 @@ int wcall_start(WUSER_HANDLE wuser, const char *convid,
 		int conv_type, /*WCALL_CONV_TYPE...*/
 		int audio_cbr /*bool*/);
 
-int wcall_conf_start(WUSER_HANDLE wuser, const char *convid,
-		     const char *sft_url,
-		     const char *sft_token,
-		     int call_type, /*WCALL_CALL_TYPE...*/
-		     int audio_cbr /*bool*/);
-
-/* Returns 0 if successfull */
+/* Returns 0 if successfull
+ * Set call_type from defines above.
+ * Set audio_cbr to 0 for false, non-zero for true.
+ */
 int wcall_answer(WUSER_HANDLE wuser, const char *convid,
 		 int call_type, /*WCALL_CALL_TYPE...*/
 		 int audio_cbr /*bool*/);
-
-int wcall_conf_answer(WUSER_HANDLE wuser, const char *convid,
-		      const char *sft_url,
-		      const char *sft_token,
-		      int call_type, /*WCALL_CALL_TYPE...*/
-		      int audio_cbr /*bool*/);
 
 /* Async response from send handler.
  * The ctx parameter MUST be the same context provided in the
@@ -388,8 +380,8 @@ void wcall_set_mute(WUSER_HANDLE wuser, int muted);
 void wcall_set_mute_handler(WUSER_HANDLE wuser, wcall_mute_h *muteh, void *arg);
 	
 struct re_printf;
-int  wcall_debug(struct re_printf *pf, const void *id);
-int  wcall_stats(struct re_printf *pf, const void *id);
+int  wcall_debug(struct re_printf *pf, WUSER_HANDLE wuser);
+int  wcall_stats(struct re_printf *pf, WUSER_HANDLE wuser);
 
 
 #define WCALL_STATE_NONE         0 /* There is no call */

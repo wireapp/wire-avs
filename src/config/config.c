@@ -71,6 +71,7 @@ static void cfg_destructor(void *arg)
 
 	tmr_cancel(&cfg->tmr);
 	mem_deref(cfg->config.iceserverv);	
+	mem_deref(cfg->config.sft_url);
 }
 
 
@@ -157,6 +158,10 @@ int config_update(struct config *cfg, int err,
 		}
 	}
 
+	cfg->config.sft_url = mem_deref(cfg->config.sft_url);
+	if (jzon_str(jobj, "sft_url")) {
+		str_dup(&cfg->config.sft_url, jzon_str(jobj, "sft_url"));
+	}
  out:
 	if (err) {
 		warning("config(%p): config error (%m)\n", cfg, err);
@@ -201,3 +206,12 @@ struct zapi_ice_server *config_get_iceservers(struct config *cfg,
 
 	return cfg->config.iceserverv;
 }
+
+const char *config_get_sft_url(struct config *cfg)
+{
+	if (!cfg)
+		return NULL;
+
+	return cfg->config.sft_url;
+}
+

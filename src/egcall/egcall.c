@@ -148,6 +148,9 @@ static void destroy_ecall(struct egcall *egcall, struct ecall *ecall)
 	if (me)
 		mem_deref(me);
 
+	info("egcall(%p): destroy_ecall %p\n", egcall, ecall);
+
+	ecall_end(ecall);
 	mem_deref(ecall);
 
 	/* Remove ecall's parent */
@@ -987,21 +990,23 @@ static void ecall_quality_handler(struct icall *icall,
 static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 		     const char *userid_peer, const char *clientid_peer)
 {
-	struct ecall *ecall;
+	struct ecall *ecall, *old_ecall;
 	struct media_entry *me;
 	struct msystem *msys;
 	size_t i;
 	int err = 0;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 
 
 	/* Ensure that all ecalls have an egcall parent */
 	mem_ref(egcall);
-		
-	ecall = ecall_find_userclient(&egcall->ecalll,
-				      userid_peer,
-				      clientid_peer);
-	if (ecall) {
-		destroy_ecall(egcall, ecall);
+
+	old_ecall = ecall_find_userclient(&egcall->ecalll,
+					  userid_peer,
+					  clientid_peer);
+	if (old_ecall) {
+		destroy_ecall(egcall, old_ecall);
 	}
 
 	msys = flowmgr_msystem();
@@ -1014,6 +1019,11 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 			  egcall->userid_self,
 			  egcall->clientid_self);
 
+	info("egcall(%p): add_ecall for user %s.%s old=%p new=%p\n",
+		egcall,
+		anon_id(userid_anon, userid_peer),
+		anon_client(clientid_anon, clientid_peer),
+		old_ecall, ecall);
 	icall_set_callbacks(ecall_get_icall(ecall),
 			    ecall_transp_send_handler,
 			    NULL, // sft_handler
@@ -1077,13 +1087,13 @@ static void recv_start(struct egcall *egcall,
 {
 	struct ecall *ecall = NULL;
 	char userid_anon[ANON_ID_LEN];
-	char clientid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 	bool video = false;
 	int err = 0;
 	
 	info("egcall(%p): recv_start u: %s c: %s r: %s\n", egcall,
 	     anon_id(userid_anon, userid_sender),
-	     anon_id(clientid_anon, clientid_sender), msg->resp ? "yes" : "no");
+	     anon_client(clientid_anon, clientid_sender), msg->resp ? "yes" : "no");
 
 	roster_add(egcall, userid_sender, clientid_sender);
 

@@ -535,6 +535,7 @@ static void recv_cancel(struct econn *conn, const char *clientid_sender,
 {
 	char clientid_anon1[ANON_CLIENT_LEN];
 	char clientid_anon2[ANON_CLIENT_LEN];
+	int err;
 
 	if (0 != str_casecmp(clientid_sender, conn->clientid_remote)) {
 		info("econn(%p): recv_cancel: clientid does not match"
@@ -545,9 +546,16 @@ static void recv_cancel(struct econn *conn, const char *clientid_sender,
 		return;
 	}
 
-	if (conn->state != ECONN_PENDING_INCOMING &&
-	    conn->state != ECONN_ANSWERED &&
-	    conn->state != ECONN_DATACHAN_ESTABLISHED) {
+	if (conn->state == ECONN_PENDING_INCOMING) {
+		err = ECANCELED;
+	}
+	else if (conn->state == ECONN_UPDATE_SENT ||
+		 conn->state == ECONN_UPDATE_RECV ||
+		 conn->state == ECONN_ANSWERED ||
+		 conn->state == ECONN_DATACHAN_ESTABLISHED) {
+		err = 0;
+	}
+	else {
 		info("econn(%p): recv_cancel: ignore received CANCEL"
 		     " in state `%s'\n",
 		     conn, econn_state_name(conn->state));
@@ -563,7 +571,7 @@ static void recv_cancel(struct econn *conn, const char *clientid_sender,
 	econn_set_state(conn, ECONN_TERMINATING);
 
 	/* NOTE: must be done last */
-	econn_close(conn, conn->err ? conn->err : ECANCELED,
+	econn_close(conn, conn->err ? conn->err : err,
 		msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN);
 }
 
@@ -637,8 +645,12 @@ static void recv_confpart(struct econn *econn,
 	char clientid_anon[ANON_CLIENT_LEN];
 
 	if (econn->confparth) {
-		econn->confparth(econn, &msg->u.confpart.partl,
-				msg->u.confpart.should_start, econn->arg);
+		econn->confparth(econn,
+				 &msg->u.confpart.partl,
+				 msg->u.confpart.should_start,
+				 msg->u.confpart.timestamp,
+				 msg->u.confpart.seqno,
+				 econn->arg);
 	}
 	else {
 		warning("econn(%p): received CONFPART from %s.%s (%s)\n",
@@ -689,6 +701,9 @@ void econn_recv_message(struct econn *conn,
 
 	case ECONN_ALERT:
 		recv_alert(conn, userid_sender, clientid_sender, msg);
+		break;
+
+	case ECONN_CONF_CONN:
 		break;
 
 	case ECONN_CONF_PART:

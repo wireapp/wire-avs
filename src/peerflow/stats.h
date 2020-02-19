@@ -43,7 +43,7 @@ public:
 	void OnStatsDelivered(
 		const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
 	{
-		info("mediaflow(%p): stats: %s\n", pf_, report->ToJson().c_str());
+		info("peerflow(%p): stats: %s\n", pf_, report->ToJson().c_str());
 	}
 
 private:
@@ -83,11 +83,13 @@ public:
 		std::string sstat = report->ToJson();
 		const char *stats = sstat.c_str();
 		char *tmp = NULL;
+		uint32_t apkts_recv = 0, vpkts_recv = 0;
+		uint32_t apkts_sent = 0, vpkts_sent = 0;
 		int err;
 
 		lock_write_get(lock_);	       		
 		err = str_dup(&tmp, stats);
-		info("mediaflow(%p): OnStatsDelivered err=%d len=%d\n", pf_, err, (int)str_len(tmp));
+		info("peerflow(%p): OnStatsDelivered err=%d len=%d\n", pf_, err, (int)str_len(tmp));
 		mem_deref(current_stats_);
 		current_stats_ = tmp;
 		lock_rel(lock_);
@@ -100,13 +102,37 @@ public:
 		for (it = streamStats.begin(); it != streamStats.end(); it++) {
 			const webrtc::RTCInboundRTPStreamStats* s = *it;
 
-			
+			if (s->media_type.is_defined()) {
+				if (*s->media_type == "video") {
+					vpkts_recv = *s->packets_received;
+				}
+				else if (*s->media_type == "audio") {
+					apkts_recv = *s->packets_received;
+				}
+			}
 			if (s->packets_received.is_defined()) {
 				packetsTotal += *s->packets_received;
 			}
 			if (s->packets_lost.is_defined()) {
 				packetsTotal += *s->packets_lost;
 				packetsLost += *s->packets_lost;
+			}
+		}
+
+		std::vector<const webrtc::RTCOutboundRTPStreamStats*> ostreamStats =
+			report->GetStatsOfType<webrtc::RTCOutboundRTPStreamStats>();
+		std::vector<const webrtc::RTCOutboundRTPStreamStats*>::iterator oit;
+
+		for (oit = ostreamStats.begin(); oit != ostreamStats.end(); oit++) {
+			const webrtc::RTCOutboundRTPStreamStats* s = *oit;
+
+			if (s->media_type.is_defined()) {
+				if (*s->media_type == "video") {
+					vpkts_sent = *s->packets_sent;
+				}
+				else if (*s->media_type == "audio") {
+					apkts_sent = *s->packets_sent;
+				}
 			}
 		}
 
@@ -142,7 +168,13 @@ public:
 		info("stats callback: pl: %.02f rtt: %.02f\n", downloss, rtt);
 		lock_write_get(lock_);
 		if (active_) {
-			peerflow_set_stats(pf_, downloss, rtt);
+			peerflow_set_stats(pf_,
+					   apkts_recv,
+					   vpkts_recv,
+					   apkts_sent,
+					   vpkts_sent,
+					   downloss,
+					   rtt);
 		}
 		lock_rel(lock_);
 	}

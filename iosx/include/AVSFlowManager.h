@@ -189,9 +189,6 @@ AVS_EXPORT @interface AVSFlowManager : NSObject
 - (void)callInterruptionStartInConversation:(NSString *)convId;
 - (void)callInterruptionEndInConversation:(NSString *)convId;
 
-- (BOOL)isMuted;
-- (int)setMute:(BOOL)muted;
-
 - (NSArray *)sortConferenceParticipants:(NSArray *)participants;
 
 

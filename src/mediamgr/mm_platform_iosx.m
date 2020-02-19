@@ -7,8 +7,10 @@
 #include "re.h"
 #include "avs.h"
 #include "mm_platform.h"
+#include "avs_msystem.h"
 #include "avs_mediamgr.h"
 #include "avs_audio_io.h"
+
 #include "../../iosx/include/AVSMedia.h"
 
 
@@ -445,7 +447,7 @@ static void interrupt_action(bool interrupted)
 	}
 	else {
 		mm_ios.interrupted = false;
-		if (mm_ios.incall) {
+		if (msystem_audio_is_activated() || mm_ios.incall) {
 			set_category_sync(AVAudioSessionCategoryPlayAndRecord,
 					  mediamgr_get_speaker(mm_ios.mm));
 			set_active_sync(true);
@@ -540,7 +542,7 @@ static void handle_audio_notification(NSNotification *notification)
 
 	input_routes = sess.availableInputs;
 	
-	if (mm_ios.interrupted) {
+	if (mm_ios.interrupted && !msystem_audio_is_activated()) {
 		mm_ios.interrupted = false;
 		if (mm_ios.incall) {
 			/* If we are able to activate,
@@ -599,6 +601,18 @@ static void handle_audio_notification(NSNotification *notification)
 	case AVAudioSessionRouteChangeReasonCategoryChange:
 		info("mm_platform_ios: cat change: in:%s new=%s rec=%d\n",
 		     cat_name(mm_ios.cat), cat_name(cat), mm_ios.recording);
+
+		if (msystem_audio_is_activated()) {
+			debug("mm_platform_ios: cat change without CallKit\n");
+			if (!mm_ios.interrupted
+			    && mediamgr_should_reset(mm_ios.mm)) {
+				debug("mm_platform_ios: reseting audio\n");
+				mediamgr_audio_reset_mm(mm_ios.mm);
+			}
+		}
+		else {
+			debug("mm_platform_ios: cat change with CallKit\n");
+		}
 		
 		if (mm_ios.cat == cat && !mm_ios.incall)
 			break;

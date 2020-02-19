@@ -267,25 +267,24 @@ const char indices[] = {0, 1, 2, 3};
 
 - (void) setupTextures:(struct avs_vidframe*) frame
 {
-	const GLsizei width = (GLsizei)frame->ys;
 	const GLsizei height = frame->h;
 
 	if (!_texIds[0]) {
 		glGenTextures(3, _texIds);
 	}
 
-	[self setupTexture:GL_TEXTURE0 id:_texIds[0] width:width height:height];
-	[self setupTexture:GL_TEXTURE1 id:_texIds[1] width:width/2 height:height/2];
-	[self setupTexture:GL_TEXTURE2 id:_texIds[2] width:width/2 height:height/2];
+	[self setupTexture:GL_TEXTURE0 id:_texIds[0] width:frame->ys height:height];
+	[self setupTexture:GL_TEXTURE1 id:_texIds[1] width:frame->us height:height/2];
+	[self setupTexture:GL_TEXTURE2 id:_texIds[2] width:frame->vs height:height/2];
 
-	_texWidth = width;
+	_texWidth = frame->ys;
 	_texHeight = height;
 }
 
 - (BOOL) handleFrame:(struct avs_vidframe*) frame
 {
 	BOOL sizeChanged = NO;
-	
+
 	[_lock lock];
 	if (_firstFrame) {
 		warning("AVSVideoView handleFrame firstFrame run: %s bg: %s sz: %dx%d\n",

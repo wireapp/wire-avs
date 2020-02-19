@@ -77,34 +77,3 @@ int flowmgr_auplay_changed(struct flowmgr *fm, enum flowmgr_auplay aplay)
 }
 
 
-int flowmgr_set_mute(struct flowmgr *fm, bool mute)
-{
-	int err = 0;
-	(void)fm;
-	
-#if USE_AVSLIB
-	err = voe_set_mute(mute);
-#else
-	msystem_set_muted(mute);
-#endif
-
-	return err;
-}
-
-
-int flowmgr_get_mute(struct flowmgr *fm, bool *muted)
-{
-	int err = ENOSYS;
-	(void)fm;
-
-#if USE_AVSLIB
-	err = voe_get_mute(muted);
-#else
-	err = 0;
-	*muted = msystem_get_muted();
-#endif
-
-	return err;
-}
-
-

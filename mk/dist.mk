@@ -135,7 +135,6 @@ define build_arch
 
 	@echo TOOLCHAIN=$(TOOLCHAIN_PATH)
 	@echo BUILD_TARGET=$(BUILD_TARGET)
-	exit
 	@rm -rf android/obj
 	@rm -rf android/libs
 	@echo "\
@@ -145,6 +144,8 @@ AVS_ARCH_NAME := $1\n\
 	$(TOOLCHAIN_BASE_PATH)/android-$1/ndk/ndk-build -C android -I ../build/android-$1
 	cp android/libs/$2/libavs.so \
 		$(BUILD_DIST_AND)/aar/jni/$2/libavs.so
+	mkdir -p $(BUILD_DIST_AND)/debug/$2/
+	cp android/obj/local/$2/libavs.so $(BUILD_DIST_AND)/debug/$2/libavs.so
 endef
 
 .PHONY: $(BUILD_DIST_AND)/avs.aar

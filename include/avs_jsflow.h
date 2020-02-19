@@ -12,7 +12,8 @@ int jsflow_alloc(struct iflow		**flowp,
 		 const char		*convid,
 		 enum icall_conv_type	conv_type,
 		 enum icall_call_type	call_type,
-		 enum icall_vstate	vstate);
+		 enum icall_vstate	vstate,
+		 void			*extarg);
 
 #ifdef __cplusplus
 }

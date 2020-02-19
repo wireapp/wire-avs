@@ -62,16 +62,12 @@ struct mq_data {
 	
 	union {
 		struct {
-			char *sft_url;
-			char *sft_token;
 			int call_type;
 			int conv_type;
 			bool audio_cbr;
 		} start;
 
 		struct {
-			char *sft_url;
-			char *sft_token;
 			int call_type;
 			bool audio_cbr;
 		} answer;
@@ -152,13 +148,9 @@ static void md_destructor(void *arg)
 	
 	switch (md->event) {
 	case WCALL_MEV_ANSWER:
-		mem_deref(md->u.answer.sft_url);
-		mem_deref(md->u.answer.sft_token);
 		break;
 
 	case WCALL_MEV_START:
-		mem_deref(md->u.start.sft_url);
-		mem_deref(md->u.start.sft_token);
 		break;
 
 	case WCALL_MEV_RECV_MSG:
@@ -259,8 +251,6 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 	case WCALL_MEV_START:
 		 err = wcall_i_start(md->wcall,
-				     md->u.start.sft_url,
-				     md->u.start.sft_token,
 				     md->u.start.call_type,
 				     md->u.start.conv_type,
 				     md->u.start.audio_cbr);
@@ -272,8 +262,6 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 	case WCALL_MEV_ANSWER:
 		err = wcall_i_answer(md->wcall,
-				     md->u.answer.sft_url,
-				     md->u.answer.sft_token,
 				     md->u.answer.call_type,
 				     md->u.answer.audio_cbr);
 		if (err) {
@@ -574,12 +562,12 @@ void wcall_sft_resp(WUSER_HANDLE wuser,
 }
 
 
-static int wcall_start_ex(WUSER_HANDLE wuser, const char *convid,
-			  const char *sft_url,
-			  const char *sft_token,
-			  int call_type,
-			  int conv_type,
-			  int audio_cbr /*bool */)
+AVS_EXPORT
+int wcall_start(WUSER_HANDLE wuser,
+		const char *convid,
+		int call_type,
+		int conv_type,
+		int audio_cbr /*bool */)
 {
 	struct calling_instance *inst;
 	struct wcall *wcall;
@@ -614,19 +602,6 @@ static int wcall_start_ex(WUSER_HANDLE wuser, const char *convid,
 	md->u.start.conv_type = conv_type;
 	md->u.start.audio_cbr = (bool)audio_cbr;
 
-	if (sft_url) {
-		err = str_dup(&md->u.answer.sft_url, sft_url);
-		if (err) {
-			goto out;
-		}
-	}
-	if (sft_token) {
-		err = str_dup(&md->u.answer.sft_token, sft_token);
-		if (err) {
-			goto out;
-		}
-	}
-
 	err = md_enqueue(md);
 	if (err)
 		mem_deref(md);
@@ -641,40 +616,11 @@ static int wcall_start_ex(WUSER_HANDLE wuser, const char *convid,
 }
 
 
-AVS_EXPORT
-int wcall_start(WUSER_HANDLE wuser, const char *convid,
-		int call_type,
-		int conv_type,
-		int audio_cbr /*bool*/)
-{
-	if (conv_type == WCALL_CONV_TYPE_CONFERENCE) {
-		return EINVAL;
-	}
-	return wcall_start_ex(wuser, convid,
-			      NULL, NULL,
-			      call_type, conv_type, audio_cbr);
-}
-
-
-AVS_EXPORT
-int wcall_conf_start(WUSER_HANDLE wuser, const char *convid,
-		     const char *sft_url,
-		     const char *sft_token,
-		     int call_type, /*WCALL_CALL_TYPE...*/
-		     int audio_cbr /*bool*/)
-{
-	return wcall_start_ex(wuser, convid,
-			      sft_url, sft_token,
-			      call_type, WCALL_CONV_TYPE_CONFERENCE,
-			      audio_cbr);
-}
-
-
-static int wcall_answer_ex(WUSER_HANDLE wuser, const char *convid,
-			   const char *sft_url,
-			   const char *sft_token,
-			   int call_type,
-			   int audio_cbr/* bool */)
+AVS_EXPORT 
+int wcall_answer(WUSER_HANDLE wuser,
+		 const char *convid,
+		 int call_type,
+		 int audio_cbr/* bool */)
 {
 	struct calling_instance *inst;
 	struct wcall *wcall;
@@ -699,19 +645,6 @@ static int wcall_answer_ex(WUSER_HANDLE wuser, const char *convid,
 	md->u.answer.call_type = call_type;
 	md->u.answer.audio_cbr = audio_cbr;
 
-	if (sft_url) {
-		err = str_dup(&md->u.answer.sft_url, sft_url);
-		if (err) {
-			goto out;
-		}
-	}
-	if (sft_token) {
-		err = str_dup(&md->u.answer.sft_token, sft_token);
-		if (err) {
-			goto out;
-		}
-	}
-
 	err = md_enqueue(md);
 	if (err) {
 		goto out;
@@ -723,29 +656,6 @@ out:
 		mem_deref(md);
 
 	return err;
-}
-
-
-AVS_EXPORT 
-int wcall_answer(WUSER_HANDLE wuser, const char *convid,
-		 int call_type, int audio_cbr /*bool*/)
-{
-	return wcall_answer_ex(wuser, convid,
-			       NULL, NULL,
-			       call_type, audio_cbr);
-}
-
-
-AVS_EXPORT
-int wcall_conf_answer(WUSER_HANDLE wuser, const char *convid,
-		      const char *sft_url,
-		      const char *sft_token,
-		      int call_type, /*WCALL_CALL_TYPE...*/
-		      int audio_cbr /*bool*/)
-{
-	return wcall_answer_ex(wuser, convid,
-			       sft_url, sft_token,
-			       call_type, audio_cbr);
 }
 
 

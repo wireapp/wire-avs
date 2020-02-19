@@ -64,6 +64,10 @@ int peerflow_add_decoders_for_user(struct iflow *iflow,
 				   uint32_t ssrca,
 				   uint32_t ssrcv);
 
+int peerflow_set_e2ee_key(struct iflow *iflow,
+			  uint32_t idx,
+			  uint8_t e2ee_key[E2EE_SESSIONKEY_SIZE]);
+
 void peerflow_stop_media(struct iflow *iflow);
 void peerflow_close(struct iflow *iflow);
 
@@ -77,7 +81,13 @@ int peerflow_debug(struct re_printf *pf, const struct iflow *flow);
 
 int peerflow_get_stats(struct iflow *flow,
 		       struct iflow_stats *stats);
-void peerflow_set_stats(struct peerflow* flow, float downloss, float rtt);
+void peerflow_set_stats(struct peerflow* pf,
+			uint32_t apkts_recv,
+			uint32_t vpkts_recv,
+			uint32_t apkts_sent,
+			uint32_t vpkts_sent,
+			float downloss,
+			float rtt);
 
 #ifdef __cplusplus
 }

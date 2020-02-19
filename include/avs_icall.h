@@ -59,7 +59,7 @@ typedef int  (icall_add_turnserver)(struct icall *icall,
 				    struct zapi_ice_server *srv);
 
 typedef int  (icall_set_sft)(struct icall *icall,
-			     const char *sft_url, const char *sft_token);
+			     const char *sft_url);
 typedef int  (icall_start)(struct icall *icall,
 			   enum icall_call_type call_type, bool audio_cbr);
 typedef int  (icall_answer)(struct icall *icall,

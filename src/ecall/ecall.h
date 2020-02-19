@@ -120,13 +120,14 @@ struct ecall {
 
 	enum icall_conv_type conv_type;
 	struct iflow *flow;
+	struct iflow *oldflow;
 	struct dce *dce;
 	struct dce_channel *dce_ch;
 	struct user_data *usrd;
 
 	struct tmr dc_tmr;
 	struct tmr media_start_tmr;
-	struct tmr update_tmr;
+	struct tmr connection_tmr;
 
 	struct econn_props *props_local;
 	struct econn_props *props_remote;
@@ -147,6 +148,7 @@ struct ecall {
 
 	struct econn *econn_pending;
 	bool answered;
+	bool established;
 	bool update;
 	bool delayed_restart;
 	int32_t call_setup_time;

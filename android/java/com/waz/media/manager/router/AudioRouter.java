@@ -204,8 +204,12 @@ public class AudioRouter {
 	private void setupBluetooth() {
 		// Get the default adapter
 		BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
+		if (btAdapter == null) {
+			Log.w(logTag, "bluetooth: no BT adapter present\n");
+			return;
+		}
 
-		BluetoothProfile.ServiceListener profileListener = new BluetoothProfile.ServiceListener() {				
+		BluetoothProfile.ServiceListener profileListener = new BluetoothProfile.ServiceListener() {
 			public void onServiceConnected(int profile, BluetoothProfile proxy) {
 				Log.i(logTag, "bluetooth: service connected for profile: " + profile);
 				if (profile == BluetoothProfile.HEADSET) {
@@ -229,8 +233,9 @@ public class AudioRouter {
 				}
 			}
 		};
+
 		btAdapter.getProfileProxy(this._context, profileListener, BluetoothProfile.HEADSET);
-		btAdapter.getProfileProxy(this._context, profileListener, BluetoothProfile.A2DP);		
+		btAdapter.getProfileProxy(this._context, profileListener, BluetoothProfile.A2DP);
 	}
 
 
@@ -254,7 +259,11 @@ public class AudioRouter {
 				}
 			}
 			Log.i(logTag, "startBluetooth: scoConnected=" + btScoConnected);
-			_audio_manager.setBluetoothScoOn(true);
+			if (btScoConnected) {
+				if (_audio_manager.isSpeakerphoneOn())
+					_audio_manager.setSpeakerphoneOn(false);
+				_audio_manager.setBluetoothScoOn(true);
+			}
 			
 			return 0;
 		}

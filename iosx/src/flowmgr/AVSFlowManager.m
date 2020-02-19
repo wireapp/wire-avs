@@ -659,28 +659,6 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 }
 
 
-
-- (BOOL)isMuted
-{
-	int err;
-        bool muted;
-
-	FLOWMGR_MARSHAL_RET(fmw.tid, err, flowmgr_get_mute, self.flowManager, &muted);
-
-	return (BOOL)muted;
-}
-
-- (int)setMute:(BOOL)muted
-{
-	int err;
-
-	FLOWMGR_MARSHAL_RET(fmw.tid, err, flowmgr_set_mute, self.flowManager, muted ? true : false);
-
-	return err;	
-}
-
-
-
 - (NSArray *)sortConferenceParticipants:(NSArray *)participants
 {
 	struct list partl = LIST_INIT;

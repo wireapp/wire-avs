@@ -73,6 +73,7 @@ static int econn_parts_encode(struct json_object *jobj,
 		}
 		jzon_add_str(jpart, "userid", part->userid);
 		jzon_add_str(jpart, "clientid", part->clientid);
+		jzon_add_bool(jpart, "authorized", part->authorized);
 		re_snprintf(ssrc, sizeof(ssrc), "%u", part->ssrca);
 		jzon_add_str(jpart, "ssrc_audio", ssrc);
 		re_snprintf(ssrc, sizeof(ssrc), "%u", part->ssrcv);
@@ -95,6 +96,22 @@ static void part_destructor(void *arg)
 	mem_deref(part->clientid);
 }
 
+struct econn_group_part *econn_part_alloc(const char *userid,
+					  const char *clientid)
+{
+	struct econn_group_part *part;
+
+	part = mem_zalloc(sizeof(*part), part_destructor);
+	if (!part) {
+		warning("econn: part_decode_handler: could not alloc part\n");
+		return NULL;
+	}
+
+	str_dup(&part->userid, userid);
+	str_dup(&part->clientid, clientid);
+
+	return part;
+}
 
 static bool part_decode_handler(const char *key, struct json_object *jobj,
 				void *arg)
@@ -112,13 +129,26 @@ static bool part_decode_handler(const char *key, struct json_object *jobj,
 
 	err = jzon_strdup(&part->userid, jobj, "userid");
 	err |= jzon_strdup(&part->clientid, jobj, "clientid");
+	err |= jzon_bool(&part->authorized, jobj, "authorized");
+	if (err)
+		goto out;
+
 	ssrc = jzon_str(jobj, "ssrc_audio");
 	if (ssrc)
 		sscanf(ssrc, "%u", &part->ssrca);
+	else {
+		err = EINVAL;
+		goto out;
+	}
 	ssrc = jzon_str(jobj, "ssrc_video");
 	if (ssrc)
 		sscanf(ssrc, "%u", &part->ssrcv);
+	else {
+		err = EINVAL;
+		goto out;
+	}
 
+ out:	
 	if (err) {
 		warning("econn: failed to parse participant entry\n");
 		return false;
@@ -246,7 +276,15 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		break;
 
 #if ENABLE_CONFERENCE_CALLS
+	case ECONN_CONF_CONN:
+		break;
+
 	case ECONN_CONF_START:
+		jzon_add_str(jobj, "sft_url", msg->u.confstart.sft_url);
+		jzon_add_base64(jobj, "secret",
+				msg->u.confstart.secret, msg->u.confstart.secretlen);
+		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confstart.timestamp);
+		jzon_add_str(jobj, "seqno", "%u", msg->u.confstart.seqno);
 		/* props is optional for CONFSTART */
 		if (msg->u.confstart.props) {
 			err = econn_props_encode(jobj, msg->u.confstart.props);
@@ -261,6 +299,8 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 	case ECONN_CONF_PART:
 		jzon_add_bool(jobj, "should_start",
 			      msg->u.confpart.should_start);
+		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confpart.timestamp);
+		jzon_add_str(jobj, "seqno", "%u", msg->u.confpart.seqno);
 		econn_parts_encode(jobj, &msg->u.confpart.partl);
 		break;
 
@@ -515,21 +555,63 @@ int econn_message_decode(struct econn_message **msgp,
 	}
 #if ENABLE_CONFERENCE_CALLS
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_START))) {
+		struct pl pl = PL_INIT;
+		const char *secret;
+		uint8_t *sdata;
+		size_t slen;
 
 		msg->msg_type = ECONN_CONF_START;
 
+		err = jzon_strdup(&msg->u.confstart.sft_url, jobj, "sft_url");
+		if (err) {
+			warning("econn: decode CONFSTART: couldnt read SFT URL\n");
+			goto out;
+		}
+		pl_set_str(&pl, jzon_str(jobj, "timestamp"));
+		msg->u.confstart.timestamp = pl_u64(&pl);
+		pl_set_str(&pl, jzon_str(jobj, "seqno"));
+		msg->u.confstart.seqno = pl_u32(&pl);
+
+		secret = jzon_str(jobj, "secret");
+		if (!secret || err)
+			return EBADMSG;
+
+		slen = str_len(secret) * 3 / 4;
+
+		sdata = mem_zalloc(slen, NULL);
+		if (!sdata) {
+			return ENOMEM;
+		}
+		err = base64_decode(secret, str_len(secret), sdata, &slen);
+		if (err) {
+			mem_deref(sdata);
+			return err;
+		}
+
+		msg->u.confstart.secret = sdata;
+		msg->u.confstart.secretlen = slen;
 		/* Props are optional, dont fail to decode message if they are missing */
 		if (econn_props_decode(&msg->u.confstart.props, jobj))
 			info("econn: decode CONFSTART: no props\n");
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_CONN))) {
+		msg->msg_type = ECONN_CONF_CONN;
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_END))) {
 		msg->msg_type = ECONN_CONF_END;
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_PART))) {
+		struct pl pl = PL_INIT;
+
 		msg->msg_type = ECONN_CONF_PART;
 
 		jzon_bool(&msg->u.confpart.should_start, jobj,
 			  "should_start");
+		pl_set_str(&pl, jzon_str(jobj, "timestamp"));
+		msg->u.confpart.timestamp = pl_u64(&pl);
+		pl_set_str(&pl, jzon_str(jobj, "seqno"));
+		msg->u.confpart.seqno = pl_u32(&pl);
+		
 		if (econn_parts_decode(&msg->u.confpart.partl, jobj))
 			warning("econn: decode: CONF_PART no parts\n");
 	}

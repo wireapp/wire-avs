@@ -36,8 +36,6 @@ enum marshal_id {
 	MARSHAL_START,
 	MARSHAL_FREE,
 	MARSHAL_AUPLAY,
-	MARSHAL_SET_MUTE,
-	MARSHAL_GET_MUTE,
 	MARSHAL_CAN_SEND_VIDEO,
 	MARSHAL_IS_SENDING_VIDEO,
 	MARSHAL_SET_VIDEO_SEND_STATE,
@@ -71,12 +69,6 @@ struct marshal_auplay_elem {
 	struct marshal_elem a;
 
 	enum flowmgr_auplay aplay;
-};
-
-struct marshal_mute_elem {
-	struct marshal_elem a;
-	
-	bool *mute;
 };
 
 
@@ -179,20 +171,6 @@ static void mqueue_handler(int id, void *data, void *arg)
 		struct marshal_auplay_elem *mae = data;
 		
 		me->ret = flowmgr_auplay_changed(me->fm, mae->aplay);
-		break;
-	}
-
-	case MARSHAL_SET_MUTE: {
-		struct marshal_mute_elem *mme = data;
-
-		me->ret = flowmgr_set_mute(me->fm, *mme->mute);
-		break;
-	}
-
-	case MARSHAL_GET_MUTE: {
-		struct marshal_mute_elem *mme = data;
-
-		me->ret = flowmgr_get_mute(me->fm, mme->mute);
 		break;
 	}
 
@@ -333,36 +311,6 @@ int marshal_flowmgr_auplay_changed(struct flowmgr *fm,
 	me.a.fm = fm;
 
 	me.aplay = aplay;
-	
-	marshal_send(&me);
-
-	return me.a.ret;
-}
-
-
-int marshal_flowmgr_set_mute(struct flowmgr *fm, bool mute)
-{
-	struct marshal_mute_elem me;
-
-	me.a.id = MARSHAL_SET_MUTE;
-	me.a.fm = fm;
-
-	me.mute = &mute;
-	
-	marshal_send(&me);
-
-	return me.a.ret;
-}
-
-
-int marshal_flowmgr_get_mute(struct flowmgr *fm, bool *muted)
-{
-	struct marshal_mute_elem me;
-
-	me.a.id = MARSHAL_GET_MUTE;
-	me.a.fm = fm;
-
-	me.mute = muted;
 	
 	marshal_send(&me);
 

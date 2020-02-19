@@ -42,7 +42,7 @@ struct client {
 	char userid[256];
 	char clientid[64];
 	char pending_convid[64];
-	void *wuser;
+	WUSER_HANDLE wuser;
 	struct odict *odict;
 	struct tmr tmr_answer;
 	uint32_t answer_delay;
@@ -71,7 +71,7 @@ public:
 
 		msystem_enable_kase(flowmgr_msystem(), true);
 
-		err = wcall_init();
+		err = wcall_init(0);
 		ASSERT_EQ(0, err);
 	}
 
@@ -380,7 +380,6 @@ static void answer_timer(void *arg)
 static void incoming_handler(const char *convid, uint32_t msg_time,
 			     const char *userid, int video_call /*bool*/,
 			     int should_ring /*bool*/,
-			     int conv_type,
 			     void *arg)
 {
 	struct client *cli = (struct client *)arg;
@@ -610,7 +609,7 @@ static const char *json_config_fmt =
 	;
 
 
-static int config_req_handler(void *wuser, void *arg)
+static int config_req_handler(WUSER_HANDLE wuser, void *arg)
 {
 	struct client *cli = (struct client *)arg;
 	class Wcall *fix = cli->fixture;
@@ -649,18 +648,18 @@ void client_alloc(struct client **clip, struct list *lst,
 				     "voe",
 				     ready_handler,
 				     send_handler,
-				     NULL,
+				     NULL, /* sft_handler */
 				     incoming_handler,
-				     0,
-				     NULL,
+				     NULL, /* missed_handler */
+				     NULL, /* answer_handler */
 				     estab_handler,
 				     close_handler,
-				     0,
+				     NULL, /* metrics_handler */
 				     config_req_handler,
-				     0,
-				     0,
+				     NULL, /* audio_cbr_handler */
+				     NULL, /* video_state_handler */
 				     cli);
-	ASSERT_TRUE(cli->wuser != NULL);
+	ASSERT_TRUE(cli->wuser != WUSER_INVALID_HANDLE);
 
 	wcall_set_data_chan_estab_handler(cli->wuser, datachan_estab_handler);
 
@@ -675,7 +674,7 @@ TEST(wcall, double_close)
 {
 	int err;
 
-	err = wcall_init();
+	err = wcall_init(0);
 	ASSERT_EQ(0, err);
 
 	wcall_close();
@@ -698,13 +697,13 @@ TEST(wcall, create_multiple)
 {
 	int err;
 
-	err = wcall_init();
+	err = wcall_init(0);
 	ASSERT_EQ(0, err);
 
-	void *wuser1 = wcall_create("abc", "123", NULL, NULL, NULL, NULL, NULL, NULL,
+	WUSER_HANDLE wuser1 = wcall_create("abc", "123", NULL, NULL, NULL, NULL, NULL, NULL,
 		NULL, NULL, NULL, NULL, NULL, NULL);
 
-	void *wuser2 = wcall_create("abd", "234", NULL, NULL, NULL, NULL, NULL, NULL,
+	WUSER_HANDLE wuser2 = wcall_create("abd", "234", NULL, NULL, NULL, NULL, NULL, NULL,
 		NULL, NULL, NULL, NULL, NULL, NULL);
 
 
