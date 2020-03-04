@@ -245,18 +245,16 @@ public class AudioRouter {
 			return -1;
 		}
 		else {
-			if (!btScoConnected) {
-				int n = 5;
+			int n = 5;
 				
-				_audio_manager.startBluetoothSco();
-				while(!btScoConnected && n > 0) {
-					try {
-						Thread.sleep(1000);
-					}
-					catch (Exception e) {
-					}
-					n--;
+			_audio_manager.startBluetoothSco();
+			while(!btScoConnected && n > 0) {
+				try {
+					Thread.sleep(1000);
 				}
+				catch (Exception e) {
+				}
+				n--;
 			}
 			Log.i(logTag, "startBluetooth: scoConnected=" + btScoConnected);
 			if (btScoConnected) {
@@ -276,6 +274,9 @@ public class AudioRouter {
   public int EnableSpeaker(){
     DoLog("EnableSpeaker ");
 
+    if (_audio_manager.isBluetoothScoOn())
+	    stopBluetooth();
+    
     _audio_manager.setSpeakerphoneOn(true);
       
     return 0;
@@ -285,7 +286,7 @@ public class AudioRouter {
     DoLog("EnableHeadset ");
 
     if (_audio_manager.isBluetoothScoOn())
-	    _audio_manager.setBluetoothScoOn(false);
+	    stopBluetooth();
 
     _audio_manager.setSpeakerphoneOn(false);
     

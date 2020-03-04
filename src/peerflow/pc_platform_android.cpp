@@ -23,8 +23,6 @@
 
 #include "peerflow.h"
 
-static webrtc::AttachCurrentThreadIfNeeded *attacher = nullptr;
-
 int pc_platform_init(void)	
 {
 	info("pc_android: init thread: %p\n", pthread_self());

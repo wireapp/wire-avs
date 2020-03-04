@@ -102,6 +102,9 @@ contrib/webrtc/webrtc_72.local_osx.zip
 
 All zips are needed to build AVS, but can be empty files if not needed: e.g. you can run touch contrib/webrtc/webrtc_72.local_android.zip if you dont intend to build for Android.
 
+AVS has more dependencies that need to be updated with:
+
+./prepare.sh
 
 Next step is to build AVS itself. When building AVS with local webrtc, invoke make with: 
 

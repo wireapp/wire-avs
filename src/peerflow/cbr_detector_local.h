@@ -17,23 +17,19 @@
 */
 
 
-#ifndef FRAME_ENCRYPTOR_H_
-#define FRAME_ENCRYPTOR_H_
+#ifndef CBR_DETECTOR_LOCAL_H_
+#define CBR_DETECTOR_LOCAL_H_
 
 #include "api/crypto/frame_encryptor_interface.h"
 #include "rtc_base/ref_counted_object.h"
-#include <openssl/evp.h>
-#include <openssl/cipher.h>
 
 namespace wire {
 
-class FrameEncryptor : public rtc::RefCountedObject<webrtc::FrameEncryptorInterface>
+class CbrDetectorLocal : public rtc::RefCountedObject<webrtc::FrameEncryptorInterface>
 {
 public:
-	FrameEncryptor();
-	~FrameEncryptor();
-
-	void SetKey(const uint8_t *key);
+	CbrDetectorLocal();
+	~CbrDetectorLocal();
 
 	int Encrypt(cricket::MediaType media_type,
 		    uint32_t ssrc,
@@ -45,11 +41,14 @@ public:
 	size_t GetMaxCiphertextByteSize(cricket::MediaType media_type,
 					size_t frame_size);
 
+	bool Detected();
+
 private:
-	EVP_CIPHER_CTX *_ctx;
-	bool _ready;
+	bool detected;
+	uint32_t frame_count;
+	uint32_t frame_size;
 };
 
 }  // namespace wire
 
-#endif  // FRAME_ENCRYPTOR_H_
+#endif  // CBR_DETECTOR_LOCAL_H_

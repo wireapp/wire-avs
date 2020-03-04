@@ -1,13 +1,12 @@
 diff --git a/modules/utility/include/jvm_android.h b/modules/utility/include/jvm_android.h
-index eb18cc27f3..a70c9e7030 100644
+index 3caab87761..44f4c2260c 100644
 --- a/modules/utility/include/jvm_android.h
 +++ b/modules/utility/include/jvm_android.h
-@@ -147,9 +147,11 @@ class JNIEnvironment {
+@@ -149,9 +149,10 @@ class JNIEnvironment {
  //   JVM::Uninitialize();
  class JVM {
   public:
 +  static void Initialize(JavaVM* jvm);
-+  
    // Stores global handles to the Java VM interface.
    // Should be called once on a thread that is attached to the JVM.
 -  static void Initialize(JavaVM* jvm);
@@ -15,7 +14,7 @@ index eb18cc27f3..a70c9e7030 100644
    // Like the method above but also passes the context to the ContextUtils
    // class. This method should be used by pure-C++ Android users that can't call
    // ContextUtils.initialize directly.
-@@ -176,7 +178,7 @@ class JVM {
+@@ -178,7 +179,7 @@ class JVM {
    JavaVM* jvm() const { return jvm_; }
  
   protected:
@@ -25,10 +24,10 @@ index eb18cc27f3..a70c9e7030 100644
  
   private:
 diff --git a/modules/utility/source/jvm_android.cc b/modules/utility/source/jvm_android.cc
-index 2d48c2d7be..7af3c70207 100644
+index 8e24daa0f2..b94c059d28 100644
 --- a/modules/utility/source/jvm_android.cc
 +++ b/modules/utility/source/jvm_android.cc
-@@ -21,7 +21,38 @@
+@@ -21,6 +21,37 @@
  namespace webrtc {
  
  JVM* g_jvm;
@@ -42,7 +41,7 @@ index 2d48c2d7be..7af3c70207 100644
 +    attached = false;
 +    if (!env) {
 +      RTC_LOG(INFO) << "Jni_Env::Attaching thread to JVM";
-+      
++
 +      jint ret = g_vm->AttachCurrentThread(&env, nullptr);
 +      if (ret == JNI_OK) {
 +	attached = true;
@@ -56,17 +55,16 @@ index 2d48c2d7be..7af3c70207 100644
 +
 +  ~Jni_Env() {
 +    if (attached) {
-+      g_vm->DetachCurrentThread();	  
++      g_vm->DetachCurrentThread();
 +    }
 +  }
- 
++
 +  JNIEnv *env;
 +  bool attached;
 +};
-+  
+ 
  // TODO(henrika): add more clases here if needed.
  struct {
-   const char* name;
 @@ -49,11 +80,14 @@ void LoadClasses(JNIEnv* jni) {
      RTC_CHECK(globalRef) << c.name;
      c.clazz = globalRef;
@@ -188,7 +186,7 @@ index 2d48c2d7be..7af3c70207 100644
  
 @@ -196,36 +241,48 @@ std::unique_ptr<NativeRegistration> JNIEnvironment::RegisterNatives(
    RTC_LOG(INFO) << "JNIEnvironment::RegisterNatives: " << name;
-   RTC_DCHECK(thread_checker_.CalledOnValidThread());
+   RTC_DCHECK(thread_checker_.IsCurrent());
    jclass clazz = LookUpClass(name);
 -  jni_->RegisterNatives(clazz, methods, num_methods);
 -  CHECK_EXCEPTION(jni_) << "Error during RegisterNatives";
@@ -201,7 +199,7 @@ index 2d48c2d7be..7af3c70207 100644
  }
  
  std::string JNIEnvironment::JavaToStdString(const jstring& j_string) {
-   RTC_DCHECK(thread_checker_.CalledOnValidThread());
+   RTC_DCHECK(thread_checker_.IsCurrent());
 -  const char* jchars = jni_->GetStringUTFChars(j_string, nullptr);
 -  CHECK_EXCEPTION(jni_);
 -  const int size = jni_->GetStringUTFLength(j_string);
@@ -220,14 +218,13 @@ index 2d48c2d7be..7af3c70207 100644
  }
  
  // static
--void JVM::Initialize(JavaVM* jvm) {
-+ void JVM::Initialize(JavaVM* jvm) {
-+   Jni_Env jenv;
+ void JVM::Initialize(JavaVM* jvm) {
++  Jni_Env jenv;
 +
-+   Initialize(jvm, jenv.env);
-+ }
-+  
-+ void JVM::Initialize(JavaVM* jvm, JNIEnv *jni) {
++  Initialize(jvm, jenv.env);
++}
++
++void JVM::Initialize(JavaVM* jvm, JNIEnv *jni) {
    RTC_LOG(INFO) << "JVM::Initialize";
    RTC_CHECK(!g_jvm);
 -  g_jvm = new JVM(jvm);
@@ -239,7 +236,7 @@ index 2d48c2d7be..7af3c70207 100644
 +  g_vm = jvm;
 +  Jni_Env jenv;
 +  JNIEnv* jni = jenv.env;
-+  
++
 +  Initialize(jvm, jni);
  
    // Pass in the context to the new ContextUtils class.
@@ -253,7 +250,7 @@ index 2d48c2d7be..7af3c70207 100644
  }
  
 -JVM::JVM(JavaVM* jvm) : jvm_(jvm) {
-+  JVM::JVM(JavaVM* jvm, JNIEnv *jni) : jvm_(jvm) {
++JVM::JVM(JavaVM* jvm, JNIEnv *jni) : jvm_(jvm) {
    RTC_LOG(INFO) << "JVM::JVM";
 -  RTC_CHECK(jni()) << "AttachCurrentThread() must be called on this thread.";
 -  LoadClasses(jni());
@@ -263,7 +260,7 @@ index 2d48c2d7be..7af3c70207 100644
  }
  
  JVM::~JVM() {
-@@ -266,13 +324,15 @@ std::unique_ptr<JNIEnvironment> JVM::environment() {
+@@ -266,6 +324,7 @@ std::unique_ptr<JNIEnvironment> JVM::environment() {
    // its JNIEnv, we should share the JavaVM, and use GetEnv to discover the
    // thread's JNIEnv. (Assuming it has one, if not, use AttachCurrentThread).
    // See // http://developer.android.com/training/articles/perf-jni.html.
@@ -271,10 +268,10 @@ index 2d48c2d7be..7af3c70207 100644
    JNIEnv* jni = GetEnv(jvm_);
    if (!jni) {
      RTC_LOG(LS_ERROR)
-         << "AttachCurrentThread() has not been called on this thread";
+@@ -273,6 +332,8 @@ std::unique_ptr<JNIEnvironment> JVM::environment() {
      return std::unique_ptr<JNIEnvironment>();
    }
--  return std::unique_ptr<JNIEnvironment>(new JNIEnvironment(jni));
+   return std::unique_ptr<JNIEnvironment>(new JNIEnvironment(jni));
 +#endif
 +  return std::unique_ptr<JNIEnvironment>(new JNIEnvironment(nullptr));
  }

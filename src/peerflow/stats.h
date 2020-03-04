@@ -20,7 +20,7 @@
 #ifndef STATS_H
 #define STATS_H
 
-#include "api/stats/rtcstatscollectorcallback.h"
+#include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtcstats_objects.h"
 
 #include "re.h"

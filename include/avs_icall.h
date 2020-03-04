@@ -54,6 +54,15 @@ enum icall_vstate {
 	ICALL_VIDEO_STATE_SCREENSHARE = 4,
 };
 
+struct icall_client {
+	struct le le;
+	char *userid;
+	char *clientid;
+};
+
+struct icall_client *icall_client_alloc(const char *userid,
+					const char *clientid);
+
 /* Calls into icall */
 typedef int  (icall_add_turnserver)(struct icall *icall,
 				    struct zapi_ice_server *srv);

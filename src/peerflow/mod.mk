@@ -10,6 +10,8 @@ AVS_SRCS += \
 else
 AVS_SRCS += \
 	peerflow/capture_source.cpp \
+	peerflow/cbr_detector_local.cpp \
+	peerflow/cbr_detector_remote.cpp \
 	peerflow/frame_decryptor.cpp \
 	peerflow/frame_encryptor.cpp \
 	peerflow/peerflow.cpp \

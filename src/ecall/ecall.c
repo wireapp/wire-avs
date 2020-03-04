@@ -1370,8 +1370,7 @@ static void propsync_handler(struct ecall *ecall)
 {
 	int vstate = ICALL_VIDEO_STATE_STOPPED;
 	bool vstate_present = false;
-	const char *vr, *cr, *cl;
-	bool local_cbr, remote_cbr, cbr_enabled;
+	const char *vr;
 
 	if (!ecall) {
 		warning("ecall(%p): propsyc_handler ecall is NULL, "
@@ -1379,7 +1378,9 @@ static void propsync_handler(struct ecall *ecall)
 		return;
 	}
 
-	info("ecall(%p): propsync_handler, current recv_state %s\n",
+	info("econn(%p): c3_props_recv: %H\n", ecall->econn,
+	     econn_props_print, ecall->props_remote);
+	info("ecall(%p): propsync_handler current recv_state %s\n",
 	     ecall, icall_vstate_name(ecall->video.recv_state));
 
 	vr = ecall_props_get_remote(ecall, "videosend");
@@ -1420,27 +1421,6 @@ static void propsync_handler(struct ecall *ecall)
 			ecall->video.recv_state = vstate;
 		}
 	}
-    
-	cl = ecall_props_get_local(ecall, "audiocbr");
-	local_cbr = cl && (0 == strcmp(cl, "true"));
-
-	cr = ecall_props_get_remote(ecall, "audiocbr");
-	remote_cbr = cr && (0 == strcmp(cr, "true"));
-		
-	cbr_enabled = local_cbr && remote_cbr ? 1 : 0;
-
-	if (cbr_enabled != ecall->audio.cbr_state) {
-		info("ecall(%p): acbrh(%p) lcbr=%s rcbr=%s cbr=%d\n", ecall,
-			ecall->icall.acbr_changedh, local_cbr ? "true" : "false",
-			remote_cbr ? "true" : "false", cbr_enabled);
-
-		if (ecall->icall.acbr_changedh) {
-			ICALL_CALL_CB(ecall->icall, acbr_changedh,
-				&ecall->icall, ecall->userid_peer, ecall->clientid_peer,
-				 cbr_enabled, ecall->icall.arg);
-			ecall->audio.cbr_state = cbr_enabled;
-		}
-	}
 }
 
 
@@ -1459,7 +1439,6 @@ static int handle_propsync(struct ecall *ecall, struct econn_message *msg)
 				" econn_send_propsync"
 				" failed (%m)\n",
 				err);
-			goto out;
 		}
 	}
 
@@ -1470,7 +1449,6 @@ static int handle_propsync(struct ecall *ecall, struct econn_message *msg)
 
 	propsync_handler(ecall);
 
-out:
 	return err;
 }
 
@@ -1570,6 +1548,48 @@ static void rtp_start_handler(struct iflow *iflow,
 }
 
 
+static void acbr_detect_handler(struct iflow *iflow,
+				int enabled,
+				void *arg)
+{
+	bool cbr_enabled = false;
+	bool local_cbr = false;
+	bool remote_cbr = false;
+	const char *cr, *cl;
+
+	struct ecall *ecall = arg;
+
+	assert(ECALL_MAGIC == ecall->magic);
+
+	if (iflow != ecall->flow) {
+		info("ecall(%p): ignoring %s on wrong flow\n",
+		     ecall, __FUNCTION__);
+		return;
+	}
+
+	cl = ecall_props_get_local(ecall, "audiocbr");
+	local_cbr = cl && (0 == strcmp(cl, "true"));
+
+	cr = ecall_props_get_remote(ecall, "audiocbr");
+	remote_cbr = cr && (0 == strcmp(cr, "true"));
+
+	cbr_enabled = (enabled != 0) && (remote_cbr && local_cbr);
+	if (enabled != ecall->audio.cbr_state) {
+		info("ecall(%p): acbrh(%p) lcbr=%s rcbr=%s cbr=%d\n", ecall,
+		     ecall->icall.acbr_changedh,
+		     local_cbr ? "true" : "false",
+		     remote_cbr ? "true" : "false", cbr_enabled);
+
+		if (ecall->icall.acbr_changedh) {
+			ICALL_CALL_CB(ecall->icall, acbr_changedh,
+				      &ecall->icall, ecall->userid_peer,
+				      ecall->clientid_peer,
+				      cbr_enabled, ecall->icall.arg);
+			ecall->audio.cbr_state = cbr_enabled;
+		}
+	}
+}
+
 int ecall_set_media_laddr(struct ecall *ecall, struct sa *laddr)
 {
 	struct sa *maddr;
@@ -1627,6 +1647,7 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 			    channel_estab_handler,
 			    data_channel_handler,
 			    channel_close_handler,
+			    acbr_detect_handler,
 			    ecall);
 	info("ecall(%p): alloc_flow: user=%s client=%s mediaflow=%p "
 	     "call_type=%d audio_cbr=%d\n",

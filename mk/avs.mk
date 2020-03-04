@@ -188,7 +188,6 @@ $(AVS_CC_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.cpp
 		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) \
 		$(AVS_CPPFLAGS_$(dir $*)) $(AVS_CXXFLAGS_$(dir $*)) \
 		-c $< -o $@ $(DFLAGS)
-#		-fno-rtti -std=c++11 \
 
 $(AVS_M_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.m
 	@echo "  OC $(AVS_OS)-$(AVS_ARCH) src/$*.m"

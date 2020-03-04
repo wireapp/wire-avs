@@ -63,7 +63,6 @@ namespace webrtc {
 	    int32_t ActiveAudioLayer(AudioLayer* audioLayer) const {
 		    return -1;
 	    }
-	    ErrorCode LastError() const { return kAdmErrNone; }
 	    bool Initialized() const { return true; }
 	    int16_t PlayoutDevices() { return -1; }
 	    int16_t RecordingDevices() { return -1; }
@@ -135,8 +134,6 @@ namespace webrtc {
 		    return 0;
 	    }
 	    int32_t StereoRecording(bool* enabled) const { return 0; }
-	    int32_t SetRecordingChannel(const ChannelType channel) { return 0; }
-	    int32_t RecordingChannel(ChannelType* channel) const { return 0; }
 	    /*
 	    int32_t SetPlayoutBuffer(const BufferType type,
 				     uint16_t sizeMS = 0) {

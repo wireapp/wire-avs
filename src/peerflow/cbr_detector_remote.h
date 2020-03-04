@@ -17,39 +17,39 @@
 */
 
 
-#ifndef FRAME_ENCRYPTOR_H_
-#define FRAME_ENCRYPTOR_H_
+#ifndef CBR_DETECTOR_REMOTE_H_
+#define CBR_DETECTOR_REMOTE_H_
 
-#include "api/crypto/frame_encryptor_interface.h"
+#include "api/crypto/frame_decryptor_interface.h"
 #include "rtc_base/ref_counted_object.h"
 #include <openssl/evp.h>
 #include <openssl/cipher.h>
 
 namespace wire {
 
-class FrameEncryptor : public rtc::RefCountedObject<webrtc::FrameEncryptorInterface>
+class CbrDetectorRemote : public rtc::RefCountedObject<webrtc::FrameDecryptorInterface>
 {
 public:
-	FrameEncryptor();
-	~FrameEncryptor();
+	CbrDetectorRemote();
+	~CbrDetectorRemote();
 
-	void SetKey(const uint8_t *key);
+	Result Decrypt(cricket::MediaType media_type,
+			       const std::vector<uint32_t>& csrcs,
+			       rtc::ArrayView<const uint8_t> additional_data,
+			       rtc::ArrayView<const uint8_t> encrypted_frame,
+			       rtc::ArrayView<uint8_t> frame);
 
-	int Encrypt(cricket::MediaType media_type,
-		    uint32_t ssrc,
-		    rtc::ArrayView<const uint8_t> additional_data,
-		    rtc::ArrayView<const uint8_t> frame,
-		    rtc::ArrayView<uint8_t> encrypted_frame,
-		    size_t* bytes_written);
+	size_t GetMaxPlaintextByteSize(cricket::MediaType media_type,
+				       size_t encrypted_frame_size);
 
-	size_t GetMaxCiphertextByteSize(cricket::MediaType media_type,
-					size_t frame_size);
+	bool Detected();
 
 private:
-	EVP_CIPHER_CTX *_ctx;
-	bool _ready;
+	bool detected;
+	uint32_t frame_count;
+	uint32_t frame_size;
 };
 
 }  // namespace wire
 
-#endif  // FRAME_ENCRYPTOR_H_
+#endif  // CBR_DETECTOR_REMOTE_H_

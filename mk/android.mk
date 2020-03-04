@@ -89,7 +89,7 @@ $(AND_JAR): $(AND_CLSS)
 	@echo "  UNZ webrtc jars"
 	@unzip -o contrib/webrtc/$(WEBRTC_VER)/java/base.jar -d $(AND_CLS_TARGET)
 	@unzip -o contrib/webrtc/$(WEBRTC_VER)/java/audiodev.jar -d $(AND_CLS_TARGET)
-	@rm -r $(AND_CLS_TARGET)/META-INF
+	@rm -rf $(AND_CLS_TARGET)/META-INF
 	@echo "  ZIP  $(AVS_OS)-$(AVS_ARCH) $@"
 	@mkdir -p $(dir $@)
 	@( cd $(AND_CLS_TARGET) && zip -r $@ * )

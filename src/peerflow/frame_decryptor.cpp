@@ -62,16 +62,19 @@ void FrameDecryptor::SetKey(const uint8_t *key)
 	_ready = true;
 }
 
-int FrameDecryptor::Decrypt(cricket::MediaType media_type,
-			    const std::vector<uint32_t>& csrcs,
-			    rtc::ArrayView<const uint8_t> additional_data,
-			    rtc::ArrayView<const uint8_t> encrypted_frame,
-			    rtc::ArrayView<uint8_t> frame,
-			    size_t* bytes_written)
+FrameDecryptor::Result FrameDecryptor::Decrypt(cricket::MediaType media_type,
+				     const std::vector<uint32_t>& csrcs,
+				     rtc::ArrayView<const uint8_t> additional_data,
+				     rtc::ArrayView<const uint8_t> encrypted_frame,
+				     rtc::ArrayView<uint8_t> frame)
 {
 	const char *mt = "unknown";
 	int32_t dec_len = 0, blk_len = 0;
-	int err = 0;
+	FrameDecryptor::Status err = FrameDecryptor::Status::kOk;
+	const uint8_t *src;
+	uint8_t *dst;
+	uint32_t data_len;
+	uint32_t payload_size;
 
 	switch (media_type) {
 	case cricket::MEDIA_TYPE_AUDIO:
@@ -86,19 +89,20 @@ int FrameDecryptor::Decrypt(cricket::MediaType media_type,
 	}
 
 	if (!_ready) {
-		return EINVAL;
+		err = FrameDecryptor::Status::kRecoverable;
+		goto out;
 	}
 
-	const uint8_t *src = encrypted_frame.data();
-	uint8_t *dst = frame.data();
+	src = encrypted_frame.data();
+	dst = frame.data();
 
-	uint32_t data_len = ntohl(*(uint32_t*)src);
+	data_len = ntohl(*(uint32_t*)src);
 	src += sizeof(uint32_t);
-	uint32_t payload_size = frame.size() - sizeof(uint32_t) - BLOCK_SIZE;
+	payload_size = frame.size() - sizeof(uint32_t) - BLOCK_SIZE;
 
 	if (!EVP_DecryptInit_ex(_ctx, NULL, NULL, NULL, src)) {
 		warning("FrameDecryptor::Decrypt: init failed\n");
-		err = 1;
+		err = FrameDecryptor::Status::kFailedToDecrypt;
 		goto out;
 	}
 
@@ -106,17 +110,16 @@ int FrameDecryptor::Decrypt(cricket::MediaType media_type,
 	
 	if (!EVP_DecryptUpdate(_ctx, dst, &dec_len, src, payload_size)) {
 		warning("FrameDecryptor::Decrypt: update failed\n");
-		err = 1;
+		err = FrameDecryptor::Status::kFailedToDecrypt;
 		goto out;
 	}
 
 	if (!EVP_DecryptFinal_ex(_ctx, dst + dec_len, &blk_len)) {
 		warning("FrameDecryptor::Decrypt: final failed\n");
-		err = 1;
+		err = FrameDecryptor::Status::kFailedToDecrypt;
 		goto out;
 	}
 
-	*bytes_written = data_len;
 #if 0
 	warning("XXXXYYYY decrypt %s %u to %u bytes!\n", mt, encrypted_frame.size(), *bytes_written);
 	for (int s = 0; s < data_len; s += 8) {
@@ -127,7 +130,7 @@ int FrameDecryptor::Decrypt(cricket::MediaType media_type,
 #endif
 
 out:
-	return 0;
+	return FrameDecryptor::Result(err, err == FrameDecryptor::Status::kOk ? data_len : 0);
 }
 
 size_t FrameDecryptor::GetMaxPlaintextByteSize(cricket::MediaType media_type,

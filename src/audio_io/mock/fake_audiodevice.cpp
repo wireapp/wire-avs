@@ -66,7 +66,7 @@ int32_t fake_audiodevice::RegisterAudioCallback(AudioTransport* audioCallback)
 	bool is_playing = is_playing_;
 	bool is_recording = is_recording_;
 
-	info("audio_io_fake: Register");
+	info("audio_io_fake: Register\n");
 	
 	StopPlayout();
 	StopRecording(); // Stop the threads that uses audioCallback

@@ -127,6 +127,10 @@ typedef void (iflow_dce_recv_h)(struct iflow *flow,
 				void *arg);
 typedef void (iflow_dce_close_h)(struct iflow *flow, void *arg);
 
+typedef void (iflow_acbr_detect_h)(struct iflow *flow,
+				   int enabled,
+				   void *arg);
+
 /* Static callbacks */
 typedef void (iflow_video_size_h)(int w,
 				  int h,
@@ -170,7 +174,7 @@ struct iflow {
 	iflow_dce_estab_h		*dce_estabh;
 	iflow_dce_recv_h		*dce_recvh;
 	iflow_dce_close_h		*dce_closeh;
-
+	iflow_acbr_detect_h		*acbr_detecth;
 	void				*arg;
 }__attribute__ ((aligned (8)));
 
@@ -215,6 +219,7 @@ void iflow_set_callbacks(struct iflow *iflow,
 			 iflow_dce_estab_h		*dce_estabh,
 			 iflow_dce_recv_h		*dce_recvh,
 			 iflow_dce_close_h		*dce_closeh,
+			 iflow_acbr_detect_h		*acbr_detecth,
 			 void				*arg);
 
 void iflow_set_alloc(iflow_allocf *allocf);

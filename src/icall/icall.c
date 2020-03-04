@@ -117,4 +117,27 @@ const char *icall_vstate_name(enum icall_vstate state)
 	}
 }
 
+static void client_destructor(void *arg)
+{
+	struct icall_client *cli = arg;
+
+	mem_deref(cli->userid);
+	mem_deref(cli->clientid);
+	list_unlink(&cli->le);
+}
+struct icall_client *icall_client_alloc(const char *userid,
+					const char *clientid)
+{
+	struct icall_client *cli = NULL;
+
+	cli = mem_zalloc(sizeof(*cli), client_destructor);
+
+	if (cli) {
+		str_dup(&cli->userid,   userid);
+		str_dup(&cli->clientid, clientid);
+	}
+
+	return cli;
+
+}
 

@@ -781,7 +781,7 @@ function createSdp(
 			const typeStr = sdp.type;
 			const sdpStr = sdp.sdp || '';
 
-			pc_log(LOG_LEVEL_DEBUG, `createSdp: type=${typeStr} sdp=${sdpStr}`);
+			//pc_log(LOG_LEVEL_DEBUG, `createSdp: type=${typeStr} sdp=${sdpStr}`);
 			
 			const modSdp = sdpMap(sdpStr, true, false);
 			ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
@@ -876,7 +876,7 @@ function pc_SetLocalDescription(hnd: number, typePtr: number, sdpPtr: number) {
 	sdpStr = sdp;
     
 
-  pc_log(LOG_LEVEL_DEBUG, `pc_SetLocalDesription: type=${type} sdp=${sdpStr}`);
+    //pc_log(LOG_LEVEL_DEBUG, `pc_SetLocalDesription: type=${type} sdp=${sdpStr}`);
   rtc
     .setLocalDescription({ type: type, sdp: sdpStr })
     .then(() => {})

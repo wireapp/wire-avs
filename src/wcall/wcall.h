@@ -69,7 +69,7 @@ void wcall_i_invoke_incoming_handler(const char *convid,
 int wcall_i_dce_send(struct wcall *wcall, struct mbuf *mb);
 
 void wcall_i_set_media_laddr(struct wcall *wcall,const char *laddr);
-void wcall_i_set_clients_for_conv(struct wcall *wcall, struct list *clientl);
+void wcall_i_set_clients_for_conv(struct wcall *wcall, const char *json);
 void wcall_i_destroy(struct calling_instance *inst);
 void wcall_i_set_mute(int muted);
 void wcall_marshal_destroy(struct calling_instance *inst);

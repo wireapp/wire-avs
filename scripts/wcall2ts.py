@@ -103,7 +103,11 @@ def parse_param(param):
 	if pname == 'transient':
 		pname = 'trans'
 
-	return (pname, c2jstype(ptype), c2tstype(ptype))
+	tsType = c2tstype(ptype)
+	if len(parts) > 2 and parts[2] == '__optional':
+		tsType += ' | undefined'
+
+	return (pname, c2jstype(ptype), tsType)
 
 def convert_fn(fn):
 
@@ -409,9 +413,17 @@ if __name__ == '__main__':
 	cpnotice = None
 	start = data.find('/*')
 	while start > -1:
+		extra = None
 		end = data.find('*/', start + 1)
 		if end < 0:
 			break
+
+		if data[start:end+2] == '/*optional*/':
+			extra = ' __optional'
+
+		if data[start:end+2] == '/*bool*/':
+			extra = ' __bool'
+
 		if start > 0:
 			newdata = data[:start - 1]
 		else:
@@ -419,6 +431,10 @@ if __name__ == '__main__':
 
 		if not cpnotice:
 			cpnotice = data[start:end+2]
+
+		if extra:
+			newdata += extra
+			extra = None
 
 		newdata += data[end+2:]
 		data = newdata

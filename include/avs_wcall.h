@@ -64,7 +64,8 @@ typedef void (wcall_shutdown_h)(WUSER_HANDLE wuser, void *arg);
 /* Send calling message otr data */
 typedef int (wcall_send_h)(void *ctx, const char *convid,
 			   const char *userid_self, const char *clientid_self,
-			   const char *userid_dest, const char *clientid_dest,
+			   const char *userid_dest /*optional*/,
+			   const char *clientid_dest /*optional*/,
 			   const uint8_t *data, size_t len,
 			   int transient /*bool*/,
 			   void *arg);
@@ -443,8 +444,7 @@ void wcall_set_req_clients_handler(WUSER_HANDLE wuser,
 				   wcall_req_clients_h *reqch);
 int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
 			       const char *convid,
-			       const char *carray[],
-			       size_t clen);
+			       const char *json);
 
 int wcall_set_proxy(const char *host, int port);
 

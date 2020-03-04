@@ -22,15 +22,18 @@ else
 fi
 
 pushd src > /dev/null
-git checkout remotes/branch-heads/$WEBRTC_RELEASE
-
+if [ "$WEBRTC_COMMIT" == "" ]; then
+	git checkout remotes/branch-heads/$WEBRTC_RELEASE
+else
+	git checkout $WEBRTC_COMMIT
+fi
 gclient sync
 
 for PATCH in ../../patch/*.patch; do 
   patch -p1 < $PATCH
 done
 
-export ARGS="is_debug=false rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false"
+export ARGS="is_debug=false rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false use_custom_libcxx=false"
 gn gen out/osx-x86_64 -args="target_os=\"mac\" target_cpu=\"x64\" $ARGS"
 ninja -C out/osx-x86_64
 

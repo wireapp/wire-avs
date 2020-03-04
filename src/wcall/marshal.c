@@ -127,7 +127,7 @@ struct mq_data {
 		} incoming;
 
 		struct {
-			struct list clist;
+			char *json;
 		} set_clients;
 
 		struct {
@@ -182,7 +182,7 @@ static void md_destructor(void *arg)
 		break;
 
 	case WCALL_MEV_SET_CLIENTS:
-		list_flush(&md->u.set_clients.clist);
+		mem_deref(md->u.set_clients.json);
 		break;
 
 	default:
@@ -311,7 +311,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 	case WCALL_MEV_SET_CLIENTS:
 		wcall_i_set_clients_for_conv(md->wcall,
-				 &md->u.set_clients.clist);
+				 md->u.set_clients.json);
 		break;
 
 	case WCALL_MEV_DESTROY:
@@ -905,25 +905,14 @@ void wcall_invoke_incoming_handler(const char *convid,
 }
 
 
-static void strle_destructor(void *arg)
-{
-	struct str_le *strle = arg;
-
-	strle->str = mem_deref(strle->str);	
-}
-
-
 AVS_EXPORT
 int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
 			       const char *convid,
-			       const char *carray[],
-			       size_t clen)
+			       const char *json)
 {
 	struct calling_instance *inst;
 	struct mq_data *md = NULL;
 	struct wcall *wcall;
-	struct str_le *strle;
-	size_t c;
 	int err = 0;
 
 	if (!convid) {
@@ -940,7 +929,7 @@ int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
 	}
 
 
-	if (!carray || !clen) {
+	if (!json) {
 		warning("wcall_set_clients_for_conv: no clients for conv\n");
 		return EINVAL;
 	}
@@ -955,21 +944,9 @@ int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
 	if (!md)
 		return ENOMEM;
 
-	list_init(&md->u.set_clients.clist);
-
-	for (c = 0; c < clen; c++) {
-		strle = mem_zalloc(sizeof(*strle), strle_destructor);
-		if (!strle) {
-			err = ENOMEM;
-			goto out;
-		}
-
-		err = str_dup(&strle->str, carray[c]);
-		if (err)
-			goto out;
-
-		list_append(&md->u.set_clients.clist, &strle->le, strle);
-	}
+	err = str_dup(&md->u.set_clients.json, json);
+	if (err)
+		goto out;
 
 	err = md_enqueue(md);
 	if (err)

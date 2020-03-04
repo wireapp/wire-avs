@@ -25,7 +25,7 @@
 # Master version number
 #
 VER_MAJOR := 5
-VER_MINOR := 4
+VER_MINOR := 5
 
 ifeq ($(BUILD_NUMBER),)
 VER_PATCH := snapshot

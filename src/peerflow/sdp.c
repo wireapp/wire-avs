@@ -318,10 +318,10 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 	return sdp_sess2str(sess);
 }
 
-void sdp_check_remote_acbr(const char *sdp,
-			   bool offer,
-			   peerflow_acbr_h *acbrh,
-			   void *arg)
+void sdp_check_acbr(const char *sdp,
+		    bool offer,
+		    peerflow_acbr_h *acbrh,
+		    void *arg)
 {
 	struct sdp_session *rsess = NULL;
 	struct sa laddr;

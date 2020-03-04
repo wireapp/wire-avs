@@ -15,14 +15,15 @@ LOCAL_CFLAGS    := -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
 		   -DWEBRTC_ANDROID -DWEBRTC_POSIX -DDEBUG=$(BUILDDEBUG) \
 		   -pthread
 LOCAL_CXXFLAGS  := -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
-		   -x c++ -std=c++11 -stdlib=libc++ \
+		   -x c++ -std=c++14 -stdlib=libc++ \
 		   -DWEBRTC_ANDROID -DDEBUG=$(BUILDDEBUG) \
 		   -pthread
 
 LOCAL_C_INCLUDES := ../build/android-$(AVS_ARCH_NAME)/include \
 		    ../build/android-$(AVS_ARCH_NAME)/include/re \
 		    ../include \
-		    ../contrib/webrtc/$(WEBRTC_VER)/include
+		    ../contrib/webrtc/$(WEBRTC_VER)/include \
+		    ../contrib/webrtc/$(WEBRTC_VER)/include/third_party/abseil-cpp
 
 LOCAL_SRC_FILES := \
 		flow_manager.cc \

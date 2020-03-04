@@ -187,19 +187,19 @@ int apply_effect_to_pcm(const char* pcmIn,
     webrtc::AudioProcessing::Config apmConfig;
 
     apmConfig.high_pass_filter.enabled = true;
-    apm->ApplyConfig(apmConfig);    
-    
     
     // Enable Noise Supression
     if(reduce_noise){
-        apm->noise_suppression()->Enable(true);
+	apmConfig.noise_suppression.enabled = true;
         if(effect_type == AUDIO_EFFECT_VOCODER_MED){
-            apm->noise_suppression()->set_level(webrtc::NoiseSuppression::kModerate);
+	    apmConfig.noise_suppression.level = webrtc::AudioProcessing::Config::NoiseSuppression::kModerate;
         } else {
-            apm->noise_suppression()->set_level(webrtc::NoiseSuppression::kLow);
+	    apmConfig.noise_suppression.level = webrtc::AudioProcessing::Config::NoiseSuppression::kLow;
         }
     }
     
+    apm->ApplyConfig(apmConfig);    
+
     int16_t circ_buf[(1 << LOG2_CIRC_BUF_SZ)];
     int write_idx = 0;
     int read_idx = 0;

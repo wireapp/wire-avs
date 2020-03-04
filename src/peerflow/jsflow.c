@@ -153,6 +153,7 @@ struct jsflow {
 	enum icall_vstate vstate;
 
 	struct {
+		bool req_local_cbr;
 		bool local_cbr;
 		bool remote_cbr;
 	} audio;
@@ -527,8 +528,8 @@ void jsflow_set_audio_cbr(struct iflow *iflow, bool enabled)
 		return;
 
 	/* If CBR is already set, do not reset mid-call */
-	if (!jsflow->audio.local_cbr)
-		jsflow->audio.local_cbr = enabled;
+	if (!jsflow->audio.req_local_cbr)
+		jsflow->audio.req_local_cbr = enabled;
 }
 
 
@@ -566,15 +567,14 @@ int  jsflow_gather_all_turn(struct iflow *flow, bool offer)
 	return 0;
 }
 
-static void jsflow_acbr_handler(bool enabled, bool offer, void *arg)
+static void remote_acbr_handler(bool enabled, bool offer, void *arg)
 {
 	struct jsflow *jsflow = (struct jsflow*)arg;
 	bool local_cbr;
-
 	
 	local_cbr = jsflow->audio.local_cbr;
 	jsflow->audio.remote_cbr = enabled;
-	jsflow->audio.local_cbr = enabled && g_jf.env != ENV_FIREFOX;
+	jsflow->audio.req_local_cbr = enabled;// && g_jf.env != ENV_FIREFOX;
 
 	if (offer) {
 		/* If this is an offer, then we just need to set
@@ -598,7 +598,7 @@ int jsflow_handle_offer(struct iflow *flow,
 	if (jsflow->handle == PC_INVALID_HANDLE)
 		create_pc(jsflow);
 
-	sdp_check_remote_acbr(sdp_str, true, jsflow_acbr_handler, jsflow);
+	sdp_check_acbr(sdp_str, true, remote_acbr_handler, jsflow);
 	
 	pc_SetRemoteDescription(jsflow->handle, SDP_TYPE_OFFER, sdp_str);
 
@@ -616,7 +616,7 @@ int jsflow_handle_answer(struct iflow *flow,
 	if (!flow)
 		return EINVAL;
 
-	sdp_check_remote_acbr(sdp_str, false, jsflow_acbr_handler, jsflow);
+	sdp_check_acbr(sdp_str, false, remote_acbr_handler, jsflow);
 	
 	has_video = pc_HasVideo(jsflow->handle);
 
@@ -636,6 +636,19 @@ int jsflow_handle_answer(struct iflow *flow,
 	return 0;
 }
 
+static void local_acbr_handler(bool enabled, bool offer, void *arg)
+{
+	struct jsflow *flow = arg;
+	bool is_cbr;
+
+	flow->audio.local_cbr = enabled;
+
+	is_cbr = flow->audio.local_cbr && flow->audio.remote_cbr;
+	
+	IFLOW_CALL_CB(flow->iflow, acbr_detecth,
+		      is_cbr ? 1 : 0, flow->iflow.arg);
+}
+
 static int jsflow_generate_offer_answer(struct iflow *flow,
 					const char *type,
 					char *sdp,
@@ -646,6 +659,7 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 	char *sdpstr = NULL;
 	size_t len;
 	int err = 0;
+	bool isoffer;
 
 	if (!jsflow || !sdp || !sz)
 		return EINVAL;
@@ -653,14 +667,29 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 	sdpstr = pc_LocalDescription(jsflow->handle, type);
 	if (!sdpstr)
 		return ENOENT;
+
+	isoffer = streq(type, "offer");
+	sdp_check_acbr(sdpstr, isoffer,
+		       local_acbr_handler, jsflow);
 	
 	sdp_dup(&sess, sdpstr, true);
+	if (isoffer) {
+		sdp_modify_offer(sess,
+				 jsflow->conv_type,
+				 jsflow->audio.req_local_cbr);
+	}
+	else {
+		sdp_modify_answer(sess,
+				  jsflow->conv_type,
+				  jsflow->audio.req_local_cbr);
+	}
+	
 	(void)sdp_session_set_lattr(sess, true, "tool", "wasm-%s: %s",
 				    (g_jf.env == ENV_FIREFOX) ? "firefox" : "default",
 				    avs_version_str());	
 
 	sdpstr = (char *)sdp_sess2str(sess);
-	len = str_len(sdp);
+	len = str_len(sdpstr);
 
 	info("jsflow(%p): generate SDP-%s(%zu(%zu) bytes):\n"
 	     "%s\n", jsflow,
@@ -888,11 +917,11 @@ void pc_local_sdp_handler(int self, int err,
 	/* Modify SDP here */
 	if (streq(type, "offer")) {
 		sdp_dup(&sess, sdp, true);
-		modsdp = sdp_modify_offer(sess, flow->conv_type, flow->audio.local_cbr);
+		modsdp = sdp_modify_offer(sess, flow->conv_type, flow->audio.req_local_cbr);
 	}
 	else if (streq(type, "answer")) {
 		sdp_dup(&sess, sdp, false);		
-		modsdp = sdp_modify_answer(sess, flow->conv_type, flow->audio.local_cbr);
+		modsdp = sdp_modify_answer(sess, flow->conv_type, flow->audio.req_local_cbr);
 	}
 	else {
 		str_dup((char **)&modsdp, sdp);

@@ -239,7 +239,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 72.5
+WEBRTC_VER := m79.7
 endif
 
 JAVAC := javac
@@ -274,7 +274,7 @@ CPPFLAGS += \
 
 CXXFLAGS += \
          -fvisibility=hidden -fno-rtti -ffunction-sections -fdata-sections \
-	-Os -g -std=c++11 -stdlib=libc++ 
+	-Os -g -std=c++11
 
 ifeq ($(ENABLE_COVERAGE),1)
 CFLAGS += -fprofile-instr-generate -fcoverage-mapping

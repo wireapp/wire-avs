@@ -506,7 +506,8 @@ static void icall_start_handler(struct icall *icall,
 
 	wcall->video.video_call = video;
 
-	if (inst->mm) {
+	wcall->disable_audio = !should_ring;
+	if (inst->mm && should_ring) {
 		enum mediamgr_state state;
 
 		state = video ?	MEDIAMGR_STATE_INCOMING_VIDEO_CALL
@@ -1016,7 +1017,7 @@ static void egcall_leave_handler(struct icall* icall, int reason, uint32_t msg_t
 		return;
 	}
 
-	info(APITAG "wcall(%p): closeh(%p) group=yes state=%s reason=%s\n",
+	info(APITAG "wcall(%p): egcall_leave_handler(%p) group=yes state=%s reason=%s\n",
 	     wcall, inst->closeh, wcall_state_name(wcall->state),
 	     wcall_reason_name(reason));
 
@@ -1040,8 +1041,13 @@ static void egcall_leave_handler(struct icall* icall, int reason, uint32_t msg_t
 		}
 		uint64_t now = tmr_jiffies();
 		inst->closeh(wreason, wcall->convid, msg_time, inst->userid, inst->arg);
-		info(APITAG "wcall(%p): closeh took %llu ms\n",
+		info(APITAG "wcall(%p): egcall_leave_handler: closeh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
+	}
+	wcall->disable_audio = true;
+	if (!wcall_has_calls(inst) && inst->mm) {
+		mediamgr_set_call_state(inst->mm,
+					MEDIAMGR_STATE_NORMAL);
 	}
 }
 
@@ -1181,7 +1187,7 @@ static int icall_send_handler(struct icall *icall, const char *userid,
 			    dest_user, dest_client, (uint8_t *)str, strlen(str),
 			    msg->transient ? 1 : 0, inst->arg);
 
-	info(">>> %s\n", str);
+	// info(">>> %s\n", str);
 	
 	mem_deref(str);
 
@@ -1237,13 +1243,12 @@ static void destructor(void *arg)
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall->inst;
 	bool has_calls;
-	//size_t i;
 
 	info("wcall(%p): dtor -- started\n", wcall);
 	
 	lock_write_get(inst->lock);
 	list_unlink(&wcall->le);
-	has_calls = inst->wcalls.head != NULL;
+	has_calls = wcall_has_calls(inst);
 	lock_rel(inst->lock);
 
 	if (!has_calls) {
@@ -3273,23 +3278,72 @@ void wcall_set_req_clients_handler(WUSER_HANDLE wuser,
 }
 
 
-void wcall_i_set_clients_for_conv(struct wcall *wcall, struct list *clientl)
+void wcall_i_set_clients_for_conv(struct wcall *wcall, const char *json)
 {
+	struct json_object *jobj, *jclients;
+	size_t nclients, i;
+	struct list clientl = LIST_INIT;
+	
+	size_t len;
+	int err = 0;
+
 	if (!wcall) {
 		warning("wcall; set_clients_for_conv: no wcall\n");
 		return;
 	}
 	
-	info(APITAG "wcall(%p): set_clients_for_conv %zu clients\n",
-	     wcall, list_count(clientl));
-
 	if (!wcall->icall) {
 		warning("wcall; set_clients_for_conv: no icall\n");
 		return;
 	}
 
+	info(APITAG "wcall(%p): set_clients_for_conv\n", wcall);
+
+	len = strlen(json);
+	err = jzon_decode(&jobj, json, len);
+	if (err)
+		return;
+
+#if 0
+	jzon_dump(jobj);
+#endif
+
+	err = jzon_array(&jclients, jobj, "clients");
+	if (err)
+		goto out;
+
+	if (!jzon_is_array(jclients)) {
+		warning("json object is not an array\n");
+		goto out;
+	}
+
+	nclients = json_object_array_length(jclients);
+
+	for (i = 0; i < nclients; ++i) {
+		const char *uid, *cid;
+		struct json_object *jcli;
+		struct icall_client *cli;
+
+		jcli = json_object_array_get_idx(jclients, i);
+		if (!jcli) {
+			goto out;
+		}
+
+		uid = jzon_str(jcli, "userid");
+		cid = jzon_str(jcli, "clientid");
+		if (uid && cid) {
+			cli = icall_client_alloc(uid, cid);
+			list_append(&clientl, &cli->le, cli);
+		}
+	}
+
 	ICALL_CALL(wcall->icall, set_clients,
-		clientl);
+		&clientl);
+
+out:
+	mem_deref(jobj);
+	list_flush(&clientl);
+	return;
 }
 
 AVS_EXPORT

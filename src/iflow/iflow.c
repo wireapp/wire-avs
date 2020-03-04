@@ -81,6 +81,7 @@ void iflow_set_callbacks(struct iflow *iflow,
 			 iflow_dce_estab_h		*dce_estabh,
 			 iflow_dce_recv_h		*dce_recvh,
 			 iflow_dce_close_h		*dce_closeh,
+			 iflow_acbr_detect_h		*acbr_detecth,
 			 void				*arg)
 {
 	if (!iflow) {
@@ -95,6 +96,7 @@ void iflow_set_callbacks(struct iflow *iflow,
 	iflow->gatherh			= gatherh;
 	iflow->dce_estabh		= dce_estabh;
 	iflow->dce_recvh		= dce_recvh;
+	iflow->acbr_detecth		= acbr_detecth;
 	iflow->arg			= arg;
 }
 

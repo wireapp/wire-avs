@@ -19,7 +19,7 @@
 #ifndef CAPTURE_SOURCE_H
 #define CAPTURE_SOURCE_H
 
-#include "api/mediastreaminterface.h"
+#include "api/media_stream_interface.h"
 #include "api/notifier.h"
 
 namespace wire {

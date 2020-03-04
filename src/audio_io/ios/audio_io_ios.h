@@ -93,7 +93,6 @@ public:
 	int32_t ActiveAudioLayer(AudioLayer* audioLayer) const {
 		return -1;
 	}
-	ErrorCode LastError() const { return kAdmErrNone; }
 	bool Initialized() const { return true; }
 	int16_t PlayoutDevices() { return -1; }
 	int16_t RecordingDevices() { return -1; }
@@ -160,8 +159,6 @@ public:
 		return 0;
 	}
 	int32_t StereoRecording(bool* enabled) const { return 0; }
-	int32_t SetRecordingChannel(const ChannelType channel) { return 0; }
-	int32_t RecordingChannel(ChannelType* channel) const { return 0; }
 	int32_t PlayoutDelay(uint16_t* delayMS) const { return 0; }
 	int32_t RecordingDelay(uint16_t* delayMS) const { return 0; }
 	int32_t CPULoad(uint16_t* load) const { return 0; }

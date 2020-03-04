@@ -24,8 +24,8 @@
 #include <avs.h>
 #include <avs_peerflow.h>
 
-#include "rtc_base/scoped_ref_ptr.h"
-#include "api/peerconnectioninterface.h"
+#include "api/scoped_refptr.h"
+#include "api/peer_connection_interface.h"
 
 #define STATS_DELAY 10000
 

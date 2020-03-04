@@ -290,7 +290,7 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 	uint64_t msec = now - _ts_fps;
 	if (msec > STATS_DELAY) {
 		if (msec < STATS_DELAY + 1000) {
-			info("%s: res: %dx%d fps: %0.2f str: %u\n", __FUNCTION__,
+			info("CaptureSource::HandleFrame: res: %dx%d fps: %0.2f str: %u\n",
 				frame->w, frame->h,
 				(float)_fps_count * 1000.0f / msec,
 				list_count(&_streaml));

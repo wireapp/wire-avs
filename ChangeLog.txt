@@ -1,6 +1,24 @@
 ChangeLog for AVS -- latest on top!
 
 ==============================================================================
+AVS Release 5.5
+
+Date:	    NA
+GIT:	    https://github.com/wearezeta/avs/tree/release-5.5
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - WebRTC update
+                - CBR detection
+                - Improved SDP handling of CBR
+                - Fix missing BT on Android emulator
+                - Bug fixes
+                
+Hotfixes:	
+
+==============================================================================
 AVS Release 5.4
 
 Date:	    28. November 2019

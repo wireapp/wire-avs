@@ -66,8 +66,7 @@ void VideoRendererSink::OnFrame(const webrtc::VideoFrame& frame)
 	uint64_t msec = now - ts_fps_;
 	if (msec > STATS_DELAY) {
 		if (msec < STATS_DELAY + 1000) {
-			info("%s: user: %s.%s res: %dx%d fps: %0.2f\n",
-				__FUNCTION__,
+			info("VideoRenderSync::OnFrame: user: %s.%s res: %dx%d fps: %0.2f\n",
 				anon_id(userid_anon, userid_remote_),
 				anon_client(clientid_anon, clientid_remote_),
 				fw, fh,
@@ -84,7 +83,7 @@ void VideoRendererSink::OnFrame(const webrtc::VideoFrame& frame)
 	}
 
 	struct avs_vidframe avsframe;
-	rtc::scoped_refptr<webrtc::I420BufferInterface> i420;
+	const webrtc::I420BufferInterface *i420;
 
 	avsframe.type = AVS_VIDFRAME_I420;
 	avsframe.w = fw;

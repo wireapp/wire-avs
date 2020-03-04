@@ -1085,6 +1085,8 @@ int econn_send_propsync(struct econn *econn, bool resp,
 	struct econn_message msg;
 	int err;
 
+	info("econn(%p): c3_props_send: %H\n", econn,
+	     econn_props_print, props);
 	if (!econn || !props)
 		return EINVAL;
 
