@@ -70,9 +70,8 @@ typedef int  (iflow_remove_decoders_for_user)(struct iflow *flow,
 					      uint32_t ssrca,
 					      uint32_t ssrcv);
 
-typedef int  (iflow_set_e2ee_key)(struct iflow *flow,
-				  uint32_t idx,
-				  uint8_t e2ee_key[E2EE_SESSIONKEY_SIZE]);
+typedef int  (iflow_set_keystore)(struct iflow *flow,
+				  struct keystore *keystore);
 
 typedef void (iflow_stop_media)(struct iflow *flow);
 typedef void (iflow_close)(struct iflow *flow);
@@ -119,6 +118,7 @@ typedef void (iflow_restart_h)(struct iflow *flow,
 			       bool force_cbr,
 			       void *arg);
 typedef void (iflow_gather_h)(struct iflow *flow, void *arg);
+typedef void (iflow_norelay_h)(struct iflow *flow, bool local, void *arg);
 
 typedef void (iflow_dce_estab_h)(struct iflow *flow, void *arg);
 typedef void (iflow_dce_recv_h)(struct iflow *flow,
@@ -135,6 +135,7 @@ typedef void (iflow_acbr_detect_h)(struct iflow *flow,
 typedef void (iflow_video_size_h)(int w,
 				  int h,
 				  const char *userid,
+				  const char *clientid,
 				  void *arg);
 typedef int (iflow_render_frame_h)(struct avs_vidframe *frame,
 				   const char *userid,
@@ -158,7 +159,7 @@ struct iflow {
 	iflow_gather_all_turn		*gather_all_turn;
 	iflow_add_decoders_for_user	*add_decoders_for_user;
 	iflow_remove_decoders_for_user	*remove_decoders_for_user;
-	iflow_set_e2ee_key		*set_e2ee_key;
+	iflow_set_keystore		*set_keystore;
 	iflow_dce_send			*dce_send;
 	iflow_stop_media		*stop_media;
 	iflow_close			*close;
@@ -171,6 +172,8 @@ struct iflow {
 	iflow_rtp_state_h		*rtp_stateh;
 	iflow_restart_h			*restarth;
 	iflow_gather_h			*gatherh;
+	iflow_norelay_h			*norelayh;
+	
 	iflow_dce_estab_h		*dce_estabh;
 	iflow_dce_recv_h		*dce_recvh;
 	iflow_dce_close_h		*dce_closeh;
@@ -202,7 +205,7 @@ void iflow_set_functions(struct iflow *iflow,
 			 iflow_gather_all_turn		*gather_all_turn,
 			 iflow_add_decoders_for_user	*add_decoders_for_user,
 			 iflow_remove_decoders_for_user	*remove_decoders_for_user,
-			 iflow_set_e2ee_key		*set_e2ee_key,
+			 iflow_set_keystore		*set_keystore,
 			 iflow_dce_send			*dce_send,
 			 iflow_stop_media		*stop_media,
 			 iflow_close			*close,
@@ -220,6 +223,7 @@ void iflow_set_callbacks(struct iflow *iflow,
 			 iflow_dce_recv_h		*dce_recvh,
 			 iflow_dce_close_h		*dce_closeh,
 			 iflow_acbr_detect_h		*acbr_detecth,
+			 iflow_norelay_h		*norelayh,
 			 void				*arg);
 
 void iflow_set_alloc(iflow_allocf *allocf);
@@ -246,7 +250,8 @@ void iflow_set_video_handlers(iflow_render_frame_h *render_frame_h,
 
 void iflow_video_sizeh(int w,
 		       int h,
-		       const char *userid);
+		       const char *userid,
+		       const char *clientid);
 int iflow_render_frameh(struct avs_vidframe *frame,
 			const char *userid,
 			const char *clientid);

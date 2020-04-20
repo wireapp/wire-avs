@@ -181,7 +181,7 @@ struct wcall_ctx {
 };
 
 static void wcall_end_internal(struct wcall *wcall);
-static bool wcall_has_calls(struct calling_instance *inst);
+static bool wcall_has_calls(void);
 
 
 struct calling_instance *wuser2inst(WUSER_HANDLE wuser)
@@ -417,6 +417,7 @@ struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid)
 void wcall_i_invoke_incoming_handler(const char *convid,
 				     uint32_t msg_time,
 				     const char *userid,
+				     const char *clientid,
 				     int video_call,
 				     int should_ring,
 				     int conv_type,
@@ -443,7 +444,7 @@ void wcall_i_invoke_incoming_handler(const char *convid,
 	}
 
 	if (inst->incomingh) {
-		inst->incomingh(convid, msg_time, userid,
+		inst->incomingh(convid, msg_time, userid, clientid,
 				video_call, should_ring, inst->arg);
 	}
 
@@ -523,6 +524,7 @@ static void icall_start_handler(struct icall *icall,
 						  wcall_invoke_incoming_handler,
 						  wcall->convid, msg_time,
 						  userid_sender,
+						  clientid_sender,
 						  video ? 1 : 0,
 						  should_ring ? 1 : 0,
 						  ct,
@@ -531,6 +533,7 @@ static void icall_start_handler(struct icall *icall,
 		else {
 			wcall_i_invoke_incoming_handler(wcall->convid, msg_time,
 						userid_sender,
+						clientid_sender,
 						video ? 1 : 0,
 						should_ring ? 1 : 0,
 						ct,
@@ -601,7 +604,7 @@ static void icall_media_estab_handler(struct icall *icall,
 	set_state(wcall, WCALL_STATE_MEDIA_ESTAB);
 
 	if (inst->mestabh) {
-		inst->mestabh(wcall->convid, icall, userid, inst->arg);
+		inst->mestabh(wcall->convid, icall, userid, clientid, inst->arg);
 	}
 	
 	if (inst->mm) {
@@ -683,7 +686,7 @@ static int members_json(struct wcall *wcall, char **mjson)
 
 		jzon_add_str(jmemb, "userid", memb->userid);
 		jzon_add_str(jmemb, "clientid", memb->clientid);
-		jzon_add_int(jmemb, "aestab", memb->audio_estab);
+		jzon_add_int(jmemb, "aestab", memb->audio_state);
 		jzon_add_int(jmemb, "vrecv", memb->video_recv);
 
 		json_object_array_add(jmembs, jmemb);
@@ -733,6 +736,7 @@ static void icall_audio_estab_handler(struct icall *icall, const char *userid,
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
 	char peer_userid_anon[ANON_ID_LEN];
+	char peer_clientid_anon[ANON_CLIENT_LEN];
 	char convid_anon[ANON_ID_LEN];
 
 	if (!wcall_valid(wcall)) {
@@ -742,10 +746,11 @@ static void icall_audio_estab_handler(struct icall *icall, const char *userid,
 	}
 
 	info("wcall(%p): audio established(video=%d): "
-	     "convid=%s peer_userid=%s inst=%p mm=%p\n",
+	     "convid=%s peer_userid=%s peer_clientid=%s inst=%p mm=%p\n",
 	     wcall, wcall->video.video_call,
 	     anon_id(convid_anon, wcall->convid),
-	     anon_id(peer_userid_anon, userid), inst, inst->mm);
+	     anon_id(peer_userid_anon, userid),
+	     anon_client(peer_clientid_anon, clientid), inst, inst->mm);
 
 	// TODO: check this, it should not be necessary
 	msystem_stop_silencing();
@@ -755,7 +760,7 @@ static void icall_audio_estab_handler(struct icall *icall, const char *userid,
 
 	if (!update && inst->estabh) {
 		uint64_t now = tmr_jiffies();
-		inst->estabh(wcall->convid, userid, inst->arg);
+		inst->estabh(wcall->convid, userid, clientid, inst->arg);
 
 		info(APITAG "wcall(%p): estabh took %llu ms \n",
 		     wcall, tmr_jiffies() - now);
@@ -776,6 +781,7 @@ static void icall_datachan_estab_handler(struct icall *icall,
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
 	char peer_userid_anon[ANON_ID_LEN];
+	char peer_clientid_anon[ANON_CLIENT_LEN];
 	char convid_anon[ANON_ID_LEN];
 
 	if (!wcall_valid(wcall)) {
@@ -791,10 +797,11 @@ static void icall_datachan_estab_handler(struct icall *icall,
 	     wcall, anon_id(convid_anon, wcall->convid), update);
 
 	info(APITAG "wcall(%p): dcestabh(%p) "
-	     "conv=%s peer_userid=%s update=%d\n",
+	     "conv=%s peer_userid=%s peer_clientid=%s update=%d\n",
 	     wcall, inst ? inst->dcestabh : NULL,
 	     anon_id(convid_anon, wcall->convid),
 	     anon_id(peer_userid_anon, userid),
+	     anon_client(peer_clientid_anon, clientid),
 	     update);
 
 	if (inst && inst->dcestabh) {
@@ -802,6 +809,7 @@ static void icall_datachan_estab_handler(struct icall *icall,
 
 		inst->dcestabh(wcall->convid,
 			       userid,
+			       clientid,
 			       inst->arg);
 
 		info(APITAG "wcall(%p): dcestabh took %llu ms \n",
@@ -876,6 +884,7 @@ static void icall_audiocbr_handler(struct icall *icall, const char *userid,
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
 	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 
 	(void)clientid;
 
@@ -899,11 +908,12 @@ static void icall_audiocbr_handler(struct icall *icall, const char *userid,
 		return;
 	}
 
-	info(APITAG "wcall(%p): acbrh(%p) usr=%s cbr=%d\n", wcall, inst->acbrh,
-	     anon_id(userid_anon, userid), enabled);
+	info(APITAG "wcall(%p): acbrh(%p) user=%s client=%s cbr=%d\n", wcall, inst->acbrh,
+	     anon_id(userid_anon, userid),
+	     anon_client(clientid_anon, clientid), enabled);
 	if (inst->acbrh) {
 		uint64_t now = tmr_jiffies();
-		inst->acbrh(userid, enabled, inst->arg);
+		inst->acbrh(userid, clientid, enabled, inst->arg);
 		info(APITAG "wcall(%p): acbrh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
 	}
@@ -988,7 +998,7 @@ static void icall_close_handler(struct icall *icall, int err,
 	if (inst->closeh) {
 		uint64_t now = tmr_jiffies();
 		inst->closeh(reason, wcall->convid,
-			     msg_time, userid, inst->arg);
+			     msg_time, userid, clientid, inst->arg);
 		info(APITAG "wcall(%p): closeh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
 	}
@@ -1040,12 +1050,13 @@ static void egcall_leave_handler(struct icall* icall, int reason, uint32_t msg_t
 			break;
 		}
 		uint64_t now = tmr_jiffies();
-		inst->closeh(wreason, wcall->convid, msg_time, inst->userid, inst->arg);
+		inst->closeh(wreason, wcall->convid, msg_time,
+			     inst->userid, inst->clientid, inst->arg);
 		info(APITAG "wcall(%p): egcall_leave_handler: closeh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
 	}
 	wcall->disable_audio = true;
-	if (!wcall_has_calls(inst) && inst->mm) {
+	if (!wcall_has_calls() && inst->mm) {
 		mediamgr_set_call_state(inst->mm,
 					MEDIAMGR_STATE_NORMAL);
 	}
@@ -1248,7 +1259,7 @@ static void destructor(void *arg)
 	
 	lock_write_get(inst->lock);
 	list_unlink(&wcall->le);
-	has_calls = wcall_has_calls(inst);
+	has_calls = wcall_has_calls();
 	lock_rel(inst->lock);
 
 	if (!has_calls) {
@@ -1270,6 +1281,7 @@ static void destructor(void *arg)
 
 static void icall_quality_handler(struct icall *icall,
 				  const char *userid,
+				  const char *clientid,
 				  int rtt, int uploss, int downloss,
 				  void *arg)
 {
@@ -1287,6 +1299,9 @@ static void icall_quality_handler(struct icall *icall,
 	if (!inst->quality.netqh)
 		return;
 
+	if (uploss == ICALL_NETWORK_PROBLEM
+	    && downloss == ICALL_NETWORK_PROBLEM)
+		quality = WCALL_QUALITY_NETWORK_PROBLEM;
 	if (rtt > 800 || uploss > 20 || downloss > 20)
 		quality = WCALL_QUALITY_POOR;
 	else if (rtt > 400 || uploss > 5 || downloss > 5)
@@ -1297,6 +1312,7 @@ static void icall_quality_handler(struct icall *icall,
 	now = tmr_jiffies();
 	inst->quality.netqh(wcall->convid,
 			    userid,
+			    clientid,
 			    quality,
 			    rtt,
 			    uploss,
@@ -1405,6 +1421,7 @@ int wcall_add(struct calling_instance *inst,
 				    icall_vstate_handler,
 				    icall_audiocbr_handler,
 				    icall_quality_handler,
+				    NULL,
 				    icall_req_clients_handler,
 				    wcall);		
 		}
@@ -1441,6 +1458,7 @@ int wcall_add(struct calling_instance *inst,
 				    icall_vstate_handler,
 				    icall_audiocbr_handler,
 				    icall_quality_handler,
+				    NULL,
 				    icall_req_clients_handler,
 				    wcall);
 		}
@@ -1479,6 +1497,7 @@ int wcall_add(struct calling_instance *inst,
 				    icall_audiocbr_handler,
 				    icall_quality_handler,
 				    icall_req_clients_handler,
+				    NULL,
 				    wcall);
 
 		err = ICALL_CALLE(wcall->icall, set_sft,
@@ -1872,6 +1891,8 @@ static void ide_handler(void *arg)
 
 static void instance_destroy(struct calling_instance *inst)
 {
+	struct le *le;
+
 	if (inst->thread_run) {
 		inst->thread_run = false;
 
@@ -1886,7 +1907,18 @@ static void instance_destroy(struct calling_instance *inst)
 	msystem_unregister_listener((void*)vuser);
 	tmr_cancel(&inst->tmr_roam);
 
-	list_flush(&inst->wcalls);	
+	/* Dont call list_flush as we expect a valid list
+	   in the wcall destructor */
+	le = inst->wcalls.head;
+	while(le) {
+		if (le->data) {
+			mem_deref(le->data);
+			le = inst->wcalls.head;
+		}
+		else {
+			le = le->next;
+		}
+	}
 	list_flush(&inst->ctxl);
 
 	lock_write_get(inst->lock);
@@ -2390,8 +2422,9 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 			if (inst->missedh) {
 				uint64_t now = tmr_jiffies();
 				inst->missedh(convid, msg_time,
-						userid, is_video ? 1 : 0,
-						inst->arg);
+					      userid, clientid,
+					      is_video ? 1 : 0,
+					      inst->arg);
 
 				info("wcall(%p): inst->missedh (%s) "
 				     "took %llu ms\n",
@@ -2455,24 +2488,31 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 }
 
 
-static bool wcall_has_calls(struct calling_instance *inst)
+static bool wcall_has_calls(void)
 {
-	struct le *le;
+	struct le *instle;
 
-	LIST_FOREACH(&inst->wcalls, le) {
-		struct wcall *wcall = le->data;
+	LIST_FOREACH(&calling.instances, instle) {
+		struct calling_instance *inst = instle->data;
+		struct le *le;
+		
+		LIST_FOREACH(&inst->wcalls, le) {
+			struct wcall *wcall = le->data;
 
-		switch(wcall->state) {
-		case WCALL_STATE_NONE:
-		case WCALL_STATE_TERM_LOCAL:
-		case WCALL_STATE_TERM_REMOTE:
-			break;
-
-		default:
-			if (wcall->disable_audio)
+			if (!wcall)
+				continue;
+			switch(wcall->state) {
+			case WCALL_STATE_NONE:
+			case WCALL_STATE_TERM_LOCAL:
+			case WCALL_STATE_TERM_REMOTE:
 				break;
-			else
-				return true;
+
+			default:
+				if (wcall->disable_audio)
+					break;
+				else
+					return true;
+			}
 		}
 	}
 	return false;
@@ -2495,7 +2535,7 @@ static void wcall_end_internal(struct wcall *wcall)
 	ICALL_CALL(wcall->icall, end);
 
 	wcall->disable_audio = true;
-	if (!wcall_has_calls(wcall->inst)) {
+	if (!wcall_has_calls()) {
 		if (wcall->inst->mm) {
 			mediamgr_set_call_state(wcall->inst->mm,
 						MEDIAMGR_STATE_NORMAL);
@@ -2521,7 +2561,7 @@ int wcall_i_reject(struct wcall *wcall)
 
 
 	wcall->disable_audio = true;
-	if (!wcall_has_calls(wcall->inst)) {
+	if (!wcall_has_calls()) {
 		if (wcall->inst->mm) {
 			mediamgr_set_call_state(wcall->inst->mm,
 						MEDIAMGR_STATE_NORMAL);
@@ -2534,7 +2574,8 @@ int wcall_i_reject(struct wcall *wcall)
 
 	if (inst->closeh) {
 		inst->closeh(WCALL_REASON_STILL_ONGOING, wcall->convid,
-			ECONN_MESSAGE_TIME_UNKNOWN, inst->userid, inst->arg);
+			ECONN_MESSAGE_TIME_UNKNOWN, inst->userid,
+			inst->clientid, inst->arg);
 	}
 
 	return 0;

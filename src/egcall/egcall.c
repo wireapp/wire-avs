@@ -28,6 +28,7 @@
 #define EGCALL_ACTIVE_ROSTER_TIMEOUT   (60000)
 #define EGCALL_ACTIVE_ROSTER_RAND      (30000)
 #define EGCALL_PASSIVE_ROSTER_TIMEOUT (120000)
+#define EGCALL_NOCONN_TIMEOUT           (5000)
 
 struct media_entry {
 	struct ecall *ecall;
@@ -59,6 +60,7 @@ struct egcall {
 	bool is_call_answered;
 	struct tmr call_timer;
 	struct tmr roster_timer;
+	struct tmr noconn_timer;
 
 	bool audio_cbr;
 
@@ -76,7 +78,7 @@ struct roster_item {
 	char *clientid;
 	char *key;
 
-	bool audio_estab;
+	enum icall_audio_state audio_state;
 	int video_recv;
 };
 
@@ -191,9 +193,6 @@ static void update_conf_pos(struct egcall *egcall)
 	if (err) {
 		warning("egcall: msystem_update_conf_parts error (%m)\n", err);
 	}
-
-	ICALL_CALL_CB(egcall->icall, group_changedh,
-		&egcall->icall, egcall->icall.arg);	
 }
 
 static struct roster_item *roster_add(struct egcall *egcall,
@@ -243,7 +242,10 @@ static struct roster_item *roster_add(struct egcall *egcall,
 	}
 
 	egcall->is_call_answered = false;
-
+	
+	ICALL_CALL_CB(egcall->icall, group_changedh,
+		&egcall->icall, egcall->icall.arg);	
+	
 	info("egcall(%p): roster_add %s.%s len=%u\n", egcall,
 	      anon_id(userid_anon, userid), anon_client(clientid_anon, clientid),
 	      dict_count(egcall->roster));
@@ -281,6 +283,9 @@ static void roster_remove(struct egcall *egcall, const char* userid,
 		ecall_set_conf_part(ecall, NULL);
 		update_conf_pos(egcall);
 	}
+
+	ICALL_CALL_CB(egcall->icall, group_changedh,
+		&egcall->icall, egcall->icall.arg);	
 	
 out:
 	mem_deref(userclient);
@@ -315,6 +320,7 @@ static void destructor(void *arg)
 
 	tmr_cancel(&egcall->call_timer);
 	tmr_cancel(&egcall->roster_timer);
+	tmr_cancel(&egcall->noconn_timer);
 	list_flush(&egcall->media_startl);
 	list_flush(&egcall->ecalll);
 	mem_deref(egcall->convid);
@@ -562,6 +568,7 @@ int egcall_alloc(struct egcall **egcallp,
 	
 	tmr_init(&egcall->call_timer);
 	tmr_init(&egcall->roster_timer);
+	tmr_init(&egcall->noconn_timer);
 
 	icall_set_functions(&egcall->icall,
 			    egcall_add_turnserver,
@@ -809,12 +816,17 @@ static void ecall_media_stopped_handler(struct icall *icall, void *arg)
 
 
 static void ecall_audio_estab_handler(struct icall *icall, const char *userid,
-				      const char *clientid, bool update, void *arg)
+				      const char *clientid, bool update,
+				      void *arg)
 {
 	struct egcall *egcall = arg;
 	struct ecall *ecall = (struct ecall*)icall;
 
-	info("ecall_audio_estab_handler: userid=%s clientid=%s\n", userid, clientid);
+	info("egcall: ecall(%p): audio_estab_handler: userid=%s clientid=%s\n",
+	     ecall, userid, clientid);
+
+	/* At least one connection worked, cancel noconnection timer */
+	tmr_cancel(&egcall->noconn_timer);
 	
 	if (egcall->state == EGCALL_STATE_ANSWERED) {
 		set_state(egcall, EGCALL_STATE_ACTIVE);
@@ -831,8 +843,13 @@ static void ecall_audio_estab_handler(struct icall *icall, const char *userid,
 		ri = roster_add(egcall,
 				ecall_get_peer_userid(ecall),
 				ecall_get_peer_clientid(ecall));
-		if (ri)
-			ri->audio_estab = true;
+		if (ri) {
+			ri->audio_state = ICALL_AUDIO_STATE_ESTABLISHED;
+			ICALL_CALL_CB(egcall->icall, audio_estabh,
+				      icall, userid, clientid, update, egcall->icall.arg);
+			ICALL_CALL_CB(egcall->icall, group_changedh,
+				      &egcall->icall, egcall->icall.arg);	
+		}
 
 		cp = ecall_get_conf_part(ecall);
 
@@ -851,11 +868,7 @@ static void ecall_audio_estab_handler(struct icall *icall, const char *userid,
 				update_conf_pos(egcall);
 			}
 		}
-	}
-
-	
-	ICALL_CALL_CB(egcall->icall, audio_estabh,
-		icall, userid, clientid, update, egcall->icall.arg);
+	}	
 }
 
 
@@ -904,6 +917,60 @@ static void ecall_audiocbr_handler(struct icall *icall, const char *userid,
 		icall, userid, enabled, egcall->icall.arg);
 #endif
 }
+
+static bool roster_conn_handler(char *key, void *val, void *arg)
+{
+	struct egcall *egcall = arg;
+	struct roster_item *ri = val;
+
+	(void)egcall;
+
+	return ri->audio_state == ICALL_AUDIO_STATE_ESTABLISHED;
+}
+
+
+static void noconn_handler(void *arg)
+{
+	struct egcall *egcall = arg;
+
+	ICALL_CALL_CB(egcall->icall, qualityh,
+		      &egcall->icall,
+		      egcall->userid_self,
+		      egcall->clientid_self,
+		      0, ICALL_NETWORK_PROBLEM, ICALL_NETWORK_PROBLEM,
+		      egcall->icall.arg);
+}
+
+static void ecall_norelay_handler(struct icall *icall, bool local, void *arg)
+{
+	struct ecall *ecall = (struct ecall*)icall;
+	struct egcall *egcall = arg;
+	struct roster_item *ri;
+
+	if (local) {
+		if (dict_count(egcall->roster) == 0)
+			return;
+		
+		ri = dict_apply(egcall->roster, roster_conn_handler, egcall);
+		if (!ri) {
+			if (!tmr_isrunning(&egcall->noconn_timer)) {
+				tmr_start(&egcall->noconn_timer,
+					  EGCALL_NOCONN_TIMEOUT,
+					  noconn_handler,
+					  egcall);
+			}
+		}
+	}
+	else {
+		ri = roster_lookup(egcall, ecall);
+		if (ri && ri->audio_state != ICALL_AUDIO_STATE_ESTABLISHED) {
+			ri->audio_state = ICALL_AUDIO_STATE_NETWORK_PROBLEM;
+			ICALL_CALL_CB(egcall->icall, group_changedh,
+				      &egcall->icall, egcall->icall.arg);	
+		}
+	}
+}
+
 
 static void ecall_close_handler(struct icall *icall,
 				int err,
@@ -977,13 +1044,15 @@ static int ecall_transp_send_handler(struct icall *icall, const char *userid,
 
 static void ecall_quality_handler(struct icall *icall,
 				  const char *userid,
+				  const char *clientid,
 				  int rtt, int uploss, int downloss,
 				  void *arg)
 {
 	struct egcall *egcall = arg;
 
 	ICALL_CALL_CB(egcall->icall, qualityh,
-		icall, userid, rtt, uploss, downloss, egcall->icall.arg);
+		icall, userid, clientid,
+		rtt, uploss, downloss, egcall->icall.arg);
 }
 
 
@@ -1040,6 +1109,7 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 			    ecall_vstate_handler,
 			    ecall_audiocbr_handler,
 			    ecall_quality_handler,
+			    ecall_norelay_handler,
 			    NULL,
 			    egcall);
 
@@ -1466,7 +1536,7 @@ static bool roster_members_handler(char *key, void *val, void *arg)
 
 	str_dup(&memb->userid, ri->userid);
 	str_dup(&memb->clientid, ri->clientid);
-	memb->audio_estab = (int)ri->audio_estab;
+	memb->audio_state = (int)ri->audio_state;
 	memb->video_recv = ri->video_recv;
 
 	(mm->membc)++;

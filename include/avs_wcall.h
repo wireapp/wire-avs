@@ -37,7 +37,7 @@ struct avs_vidframe;
 struct wcall_member {
 	char *userid;
 	char *clientid;
-	int audio_estab;
+	int audio_state;
 	int video_recv;
 };
 
@@ -77,22 +77,25 @@ typedef int (wcall_sft_req_h)(void *ctx, const char *url,
 
 /* Incoming call */
 typedef void (wcall_incoming_h)(const char *convid, uint32_t msg_time,
-				const char *userid,
+				const char *userid, const char *clientid,
 				int video_call /*bool*/,
 				int should_ring /*bool*/,
 				void *arg);
 
 /* Missed Incoming call */
 typedef void (wcall_missed_h)(const char *convid, uint32_t msg_time,
-			      const char *userid, int video_call /*bool*/,
+			      const char *userid, const char *clientid,
+			      int video_call /*bool*/,
 			      void *arg);
 
 /* Network quality info */
-#define WCALL_QUALITY_NORMAL 1
-#define WCALL_QUALITY_MEDIUM 2
-#define WCALL_QUALITY_POOR   3
+#define WCALL_QUALITY_NORMAL          1
+#define WCALL_QUALITY_MEDIUM          2
+#define WCALL_QUALITY_POOR            3
+#define WCALL_QUALITY_NETWORK_PROBLEM 4
 typedef void (wcall_network_quality_h)(const char *convid,
 				       const char *userid,
+				       const char *clientid,
 				       int quality, /*  WCALL_QUALITY_ */
 				       int rtt, /* round trip time in ms */
 				       int uploss, /* upstream pkt loss % */
@@ -112,7 +115,9 @@ typedef void (wcall_answered_h)(const char *convid, void *arg);
 	
 /* Call established (with media) */
 typedef void (wcall_estab_h)(const char *convid,
-			   const char *userid, void *arg);
+			     const char *userid,
+			     const char *clientid,
+			     void *arg);
 
 /** 
  * Callback used to inform the user that the participant list
@@ -132,6 +137,7 @@ typedef void (wcall_participant_changed_h)(const char *convid,
 typedef void (wcall_media_estab_h)(const char *convid,
 				   void *peer,
 				   const char *userid,
+				   const char *clientid,
 				   void *arg);
 	
 /* All media has been stopped */
@@ -140,8 +146,9 @@ typedef void (wcall_media_stopped_h)(const char *convid, void *arg);
 	
 /* Data channel established */
 typedef void (wcall_data_chan_estab_h)(const char *convid,
-				       const char *userid, void *arg);
-
+				       const char *userid,
+				       const char *clientid,
+				       void *arg);
 /* Mute handler */
 typedef void (wcall_mute_h)(int muted, void *arg);
 
@@ -161,9 +168,12 @@ const char *wcall_reason_name(int reason);
 
 
 /* Call terminated */
-typedef void (wcall_close_h)(int reason, const char *convid, uint32_t msg_time,
-			   const char *userid, void *arg);
-
+typedef void (wcall_close_h)(int reason,
+			     const char *convid,
+			     uint32_t msg_time,
+			     const char *userid,
+			     const char *clientid,
+			     void *arg);
 /* Call metrics */
 typedef void (wcall_metrics_h)(const char *convid,
     const char *metrics_json, void *arg);
@@ -175,7 +185,15 @@ typedef void (wcall_metrics_h)(const char *convid,
 #define WCALL_LOG_LEVEL_ERROR 3
 
 typedef void (wcall_log_h)(int level, const char *msg, void *arg);
-    
+
+/* Audio call-progress states */
+/* Audio is in the proess of connecting */	
+#define WCALL_AUDIO_STATE_CONNECTING       0
+/* Audio has been established -- audio media flowing */	
+#define WCALL_AUDIO_STATE_ESTABLISHED      1
+/* No relay candidate -- audio MAY still connect */	
+#define WCALL_AUDIO_STATE_NETWORK_PROBLEM  2 
+
 /* Video receive state */
 #define	WCALL_VIDEO_STATE_STOPPED     0
 #define	WCALL_VIDEO_STATE_STARTED     1
@@ -201,9 +219,14 @@ typedef void (wcall_video_state_change_h)(const char *convid,
  * @paran w        New video width
  * @param h        New video height
  * @param userid   User ID for the participant whose video to render
+ * @param clientid Client ID for the participant whose video to render
  * @param arg      The handler argument passed to the callback
  */
-typedef void (wcall_video_size_h)(int w, int h, const char *userid, void *arg);
+typedef void (wcall_video_size_h)(int w,
+				  int h,
+				  const char *userid,
+				  const char *clientid,
+				  void *arg);
 	
 /**
  * Callback used to render frames
@@ -215,6 +238,7 @@ typedef void (wcall_video_size_h)(int w, int h, const char *userid, void *arg);
  *
  * @param frame    Pointer to the frame object to render
  * @param userid   User ID for the participant whose video to render
+ * @param clientid Client ID for the participant whose video to render
  * @param arg      The handler argument passed to the callback
  */
 typedef int (wcall_render_frame_h)(struct avs_vidframe *frame,
@@ -225,7 +249,10 @@ typedef int (wcall_render_frame_h)(struct avs_vidframe *frame,
 /**
  * Callback used to inform user that call uses CBR (in both directions)
  */
-typedef void (wcall_audio_cbr_change_h)(const char *userid, int enabled, void *arg);
+typedef void (wcall_audio_cbr_change_h)(const char *userid,
+					const char *clientid,
+					int enabled,
+					void *arg);
 
 typedef int (wcall_config_req_h)(WUSER_HANDLE wuser, void *arg);	
 

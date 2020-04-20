@@ -191,6 +191,8 @@ struct ecall {
 
 	struct sa *media_laddr;
 	bool ifs_added;
+
+	struct keystore *keystore;
 };
 
 

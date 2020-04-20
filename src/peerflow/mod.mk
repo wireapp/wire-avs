@@ -14,6 +14,7 @@ AVS_SRCS += \
 	peerflow/cbr_detector_remote.cpp \
 	peerflow/frame_decryptor.cpp \
 	peerflow/frame_encryptor.cpp \
+	peerflow/frame_hdr.c \
 	peerflow/peerflow.cpp \
 	peerflow/video_renderer.cpp \
 	peerflow/sdp.c

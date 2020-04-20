@@ -153,9 +153,8 @@ int ecall_remove_decoders_for_user(struct ecall *ecall,
 				   uint32_t ssrca,
 				   uint32_t ssrcv);
 
-int ecall_set_e2ee_key(struct ecall *ecall,
-		       uint32_t idx,
-		       uint8_t e2ee_key[E2EE_SESSIONKEY_SIZE]);
+int ecall_set_keystore(struct ecall *ecall,
+		       struct keystore *keystore);
 
 
 void ecall_activate(void);

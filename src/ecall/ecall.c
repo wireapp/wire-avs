@@ -23,6 +23,7 @@
 #include "avs_base.h"
 #include "avs_zapi.h"
 #include "avs_icall.h"
+#include "avs_keystore.h"
 #include "avs_iflow.h"
 #include "avs_peerflow.h"
 #include "avs_uuid.h"
@@ -579,6 +580,7 @@ static void ecall_destructor(void *data)
 
 	mem_deref(ecall->props_remote);
 	mem_deref(ecall->props_local);
+	mem_deref(ecall->keystore);
 
 	mem_deref(ecall->econn);
 
@@ -1590,6 +1592,16 @@ static void acbr_detect_handler(struct iflow *iflow,
 	}
 }
 
+
+static void norelay_handler(struct iflow *iflow, bool local, void *arg)
+{
+	struct ecall *ecall = arg;
+
+	ICALL_CALL_CB(ecall->icall, norelayh, &ecall->icall, local, ecall->icall.arg);
+}
+
+	
+
 int ecall_set_media_laddr(struct ecall *ecall, struct sa *laddr)
 {
 	struct sa *maddr;
@@ -1648,6 +1660,7 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 			    data_channel_handler,
 			    channel_close_handler,
 			    acbr_detect_handler,
+			    norelay_handler,
 			    ecall);
 	info("ecall(%p): alloc_flow: user=%s client=%s mediaflow=%p "
 	     "call_type=%d audio_cbr=%d\n",
@@ -1655,7 +1668,7 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 	     anon_id(userid_anon, ecall->userid_peer),
 	     anon_client(clientid_anon, ecall->clientid_peer),
 	     ecall->flow, call_type, audio_cbr);
-	
+
 	ecall->audio_cbr = audio_cbr;
 	IFLOW_CALL(ecall->flow, set_audio_cbr, audio_cbr);
 
@@ -1673,11 +1686,11 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 			t->username,
 			t->credential);
 	}
-/*
-	if (enable_kase) {
-		IFLOW_CALL(ecall->flow, set_fallback_crypto, CRYPTO_KASE);
+
+	if (ecall->keystore) {
+		IFLOW_CALL(ecall->flow, set_keystore,
+			   ecall->keystore);
 	}
-*/
 	re_snprintf(tag, sizeof(tag), "%s.%s",
 		    ecall->userid_self, ecall->clientid_self);
 	//mediaflow_set_tag(ecall->flow, tag);
@@ -2552,6 +2565,7 @@ static void quality_handler(void *arg)
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall, 
 			      ecall->userid_peer,
+			      ecall->clientid_peer,
 			      stats.rtt,
 			      stats.dloss,
 			      0.0f,
@@ -2623,19 +2637,19 @@ int ecall_remove_decoders_for_user(struct ecall *ecall,
 	return err;
 }
 
-int ecall_set_e2ee_key(struct ecall *ecall,
-		       uint32_t idx,
-		       uint8_t e2ee_key[E2EE_SESSIONKEY_SIZE])
+int ecall_set_keystore(struct ecall *ecall,
+		       struct keystore *keystore)
 {
-	int err = 0;
-	
-	if (!ecall || !ecall->flow) {
+	if (!ecall || !keystore) {
 		return EINVAL;
 	}
 
-	err = IFLOW_CALLE(ecall->flow, set_e2ee_key,
-		idx, e2ee_key);
+	info("ecall(%p): set_keystore %p\n", ecall, keystore);
+	ecall->keystore = mem_deref(ecall->keystore);
+	ecall->keystore = mem_ref(keystore);
 
-	return err;
+	IFLOW_CALL(ecall->flow, set_keystore,
+		   keystore);
+	return 0;
 }
 

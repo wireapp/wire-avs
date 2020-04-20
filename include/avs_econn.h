@@ -166,7 +166,7 @@ struct econn_message {
 		} confpart;
 
 		struct confkey {
-			int idx;
+			uint32_t idx;
 			uint8_t *keydata;
 			uint32_t keylen;
 		} confkey;

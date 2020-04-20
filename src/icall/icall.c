@@ -78,6 +78,7 @@ void icall_set_callbacks(struct icall *icall,
 			 icall_vstate_changed_h	*vstate_changedh,
 			 icall_acbr_changed_h	*acbr_changedh,
 			 icall_quality_h	*qualityh,
+			 icall_norelay_h	*norelayh,
 			 icall_req_clients_h	*req_clientsh,
 			 void			*arg)
 {
@@ -100,6 +101,7 @@ void icall_set_callbacks(struct icall *icall,
 	icall->vstate_changedh	= vstate_changedh;
 	icall->acbr_changedh	= acbr_changedh;
 	icall->qualityh		= qualityh;
+	icall->norelayh		= norelayh;
 	icall->req_clientsh	= req_clientsh;
 	icall->arg		= arg;
 }

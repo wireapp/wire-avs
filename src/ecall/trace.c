@@ -22,6 +22,7 @@
 #include "avs_msystem.h"
 #include "avs_zapi.h"
 #include "avs_base.h"
+#include "avs_keystore.h"
 #include "avs_icall.h"
 #include "avs_econn.h"
 #include "avs_econn_fmt.h"

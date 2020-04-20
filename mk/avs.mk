@@ -50,6 +50,7 @@ AVS_MODULES += jzon
 ifneq ($(HAVE_CRYPTOBOX),)
 AVS_MODULES += kase
 endif
+AVS_MODULES += keystore
 AVS_MODULES += log
 AVS_MODULES += mediamgr
 AVS_MODULES += msystem

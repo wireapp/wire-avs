@@ -11,6 +11,8 @@ int peerflow_set_funcs(void);
 int peerflow_init(void);
 
 typedef void (peerflow_acbr_h)(bool enabled, bool offer, void *arg);
+typedef void (peerflow_norelay_h)(bool local, void *arg);
+
 void peerflow_start_log(void);
 
 int peerflow_alloc(struct iflow		**flowp,

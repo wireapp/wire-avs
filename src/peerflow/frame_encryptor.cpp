@@ -21,36 +21,39 @@
 #include <avs.h>
 
 #include "frame_encryptor.h"
+#include "frame_hdr.h"
 
 namespace wire {
 
 const size_t BLOCK_SIZE = 32;
 
 FrameEncryptor::FrameEncryptor() :
-	_ready(false)
+	_keystore(NULL),
+	_ctx(NULL),
+	_kidx(0)
 {
-	_ctx = EVP_CIPHER_CTX_new();
-#if 0
-	uint8_t key[] = {
-		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-		0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-		0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-		0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F};
-	EVP_EncryptInit_ex(_ctx, EVP_aes_256_cbc(), NULL, key, NULL);
-	_ready = true;
-#endif
 }
 
 FrameEncryptor::~FrameEncryptor()
 {
+	_keystore = (struct keystore*)mem_deref(_keystore);
+	EVP_CIPHER_CTX_free(_ctx);
+	_ctx = NULL;
 }
 
+void FrameEncryptor::SetKeystore(struct keystore *keystore)
+{
+	info("FrameEncryptor::SetKeystore %p\n", keystore);
+	_keystore = (struct keystore*)mem_ref(keystore);
+}
+
+#if 0
 void FrameEncryptor::SetKey(const uint8_t *key)
 {
 #if 0
-	warning("XXXXYYYY encrypt set_key\n");
+	info("FrameEncryptor::SetKey\n");
 	for (int s = 0; s < 32; s += 8) {
-		warning("XXXXYYYY %08x %02x %02x %02x %02x %02x %02x %02x %02x\n", s,
+		warning("%08x %02x %02x %02x %02x %02x %02x %02x %02x\n", s,
 			key[s + 0], key[s + 1], key[s + 2], key[s + 3], 
 			key[s + 4], key[s + 5], key[s + 6], key[s + 7]);
 	}
@@ -62,7 +65,7 @@ void FrameEncryptor::SetKey(const uint8_t *key)
 	EVP_EncryptInit_ex(_ctx, EVP_aes_256_cbc(), NULL, key, NULL);
 	_ready = true;
 }
-
+#endif
 
 int FrameEncryptor::Encrypt(cricket::MediaType media_type,
 			    uint32_t ssrc,
@@ -74,6 +77,11 @@ int FrameEncryptor::Encrypt(cricket::MediaType media_type,
 	const char *mt = "unknown";
 	int32_t enc_len = 0, blk_len = 0;
 	uint8_t iv[BLOCK_SIZE];
+	struct frame_hdr *hdr;
+	const uint8_t *src;
+	uint8_t *dst;
+	uint32_t kid = 0;
+	const uint8_t *key;
 	int err = 0;
 
 	switch (media_type) {
@@ -88,12 +96,30 @@ int FrameEncryptor::Encrypt(cricket::MediaType media_type,
 		break;
 	}
 
-	if (!_ready) {
-		warning("FrameEncryptor::Encrypt: not ready\n");
+	if (!_keystore) {
 		return EINVAL;
 	}
-	const uint8_t *src = frame.data();
-	uint8_t *dst = encrypted_frame.data();
+
+	err = keystore_get_current_key(_keystore, &kid, &key);
+	if (err) {
+		warning("FrameEncryptor::Encrypt: not ready\n");
+		goto out;
+	}
+
+	if (kid != _kidx && _ctx) {
+		EVP_CIPHER_CTX_free(_ctx);
+		_ctx = NULL;
+	}
+
+	if (!_ctx) {
+		info("FrameEncryptor(%p) encrypting with key %u\n", this, kid);
+		_ctx = EVP_CIPHER_CTX_new();
+		EVP_EncryptInit_ex(_ctx, EVP_aes_256_cbc(), NULL, key, NULL);
+		_kidx = kid;
+	}
+
+	src = frame.data();
+	dst = encrypted_frame.data();
 
 	// TODO: randomize iv
 	memset(iv, 0, BLOCK_SIZE);
@@ -104,9 +130,9 @@ int FrameEncryptor::Encrypt(cricket::MediaType media_type,
 		goto out;
 	}
 
-	*((uint32_t*)dst) = htonl(frame.size());
-	//warning("XXXXYYYY encrypt %02x%02x%02x%02x\n", dst[0], dst[1], dst[2], dst[3]);
-	dst += sizeof(uint32_t);
+	hdr = (struct frame_hdr*)dst;
+	frame_hdr_init(hdr, kid, frame.size());
+	dst += sizeof(*hdr);
 
 	memcpy(dst, iv, BLOCK_SIZE);
 	dst += BLOCK_SIZE;
@@ -126,15 +152,16 @@ int FrameEncryptor::Encrypt(cricket::MediaType media_type,
 
 	enc_len += blk_len;
 
-	*bytes_written = enc_len + sizeof(uint32_t) + BLOCK_SIZE;
+	*bytes_written = enc_len + sizeof(*hdr) + BLOCK_SIZE;
 
-	//warning("XXXXYYYY encrypt %s %u to %u bytes!\n", mt, frame.size(), *bytes_written);
 
 #if 0
+	info("frameEncryptor::Encrypt %s %u to %u bytes!\n", mt, frame.size(), *bytes_written);
+
 	for (int s = 0; s < frame.size(); s += 8) {
-		warning("%08x %02x %02x %02x %02x %02x %02x %02x %02x\n", s,
-			src[s + 0], src[s + 1], src[s + 2], src[s + 3], 
-			src[s + 4], src[s + 5], src[s + 6], src[s + 7]);
+		info("%08x %02x %02x %02x %02x %02x %02x %02x %02x\n", s,
+		     src[s + 0], src[s + 1], src[s + 2], src[s + 3], 
+		     src[s + 4], src[s + 5], src[s + 6], src[s + 7]);
 	}
 #endif
 out:
@@ -145,7 +172,7 @@ out:
 size_t FrameEncryptor::GetMaxCiphertextByteSize(cricket::MediaType media_type,
 						size_t frame_size)
 {
-	  return frame_size + BLOCK_SIZE * 2 + sizeof(uint32_t);
+	  return frame_size + BLOCK_SIZE * 2 + sizeof(struct frame_hdr);
 }
 
 }  // namespace wire

@@ -24,6 +24,9 @@
 
 #include "sdp.h"
 
+struct norelay_elem {
+	peerflow_norelay_h *h;
+};
 
 static bool sess_rattr_handler(const char *name, const char *value, void *arg)
 {
@@ -33,6 +36,14 @@ static bool sess_rattr_handler(const char *name, const char *value, void *arg)
 
 	return false;
 }
+
+static bool cand_handler(const char *name, const char *value, void *arg)
+{
+	debug("sdp: cand_handler: name=%s value=%s\n", name, value);
+
+	return strstr(value, "relay") != NULL;
+}
+
 
 static bool fmt_handler(struct sdp_format *fmt, void *arg)
 {
@@ -318,15 +329,18 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 	return sdp_sess2str(sess);
 }
 
-void sdp_check_acbr(const char *sdp,
-		    bool offer,
-		    peerflow_acbr_h *acbrh,
-		    void *arg)
+void sdp_check(const char *sdp,
+	       bool local,
+	       bool offer,
+	       peerflow_acbr_h *acbrh,
+	       peerflow_norelay_h *norelayh,
+	       void *arg)
 {
 	struct sdp_session *rsess = NULL;
 	struct sa laddr;
 	struct mbuf mbsdp;
 	const struct list *medial;
+	const char *relay;
 	struct le *le;
 	int err = 0;
 
@@ -348,6 +362,14 @@ void sdp_check_acbr(const char *sdp,
 		warning("sdp_decode: failed to parse sdp: %m\n", err);
 		goto out;
 	}
+
+	if (norelayh) {
+		relay = sdp_session_rattr_apply(rsess, "candidate", cand_handler, NULL);
+		if (!relay) {
+			norelayh(local, arg);
+		}
+	}
+	
 	medial = sdp_session_medial(rsess, false);
 	LIST_FOREACH(medial, le) {
 		struct sdp_media *sdpm = (struct sdp_media *)le->data;

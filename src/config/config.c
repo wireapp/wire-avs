@@ -24,6 +24,7 @@
 #define EXPIRY_MIN   300  /* in seconds (5 minutes)  */
 #define EXPIRY_MAX  3600  /* in seconds (60 minutes) */
 
+#define DEFAULT_SFT_URL "http://18.185.29.166:8282"
 
 struct config {
 	config_update_h *updh;
@@ -161,6 +162,11 @@ int config_update(struct config *cfg, int err,
 	cfg->config.sft_url = mem_deref(cfg->config.sft_url);
 	if (jzon_str(jobj, "sft_url")) {
 		str_dup(&cfg->config.sft_url, jzon_str(jobj, "sft_url"));
+	}
+	else {
+		info("config(%p): no SFT URL supplied, using default %s\n",
+		     cfg, DEFAULT_SFT_URL);
+		str_dup(&cfg->config.sft_url, DEFAULT_SFT_URL);
 	}
  out:
 	if (err) {

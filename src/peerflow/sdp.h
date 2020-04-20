@@ -33,10 +33,12 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 			      enum icall_conv_type conv_type,
 			      bool audio_cbr);
 
-void sdp_check_acbr(const char *sdp,
-		    bool offer,
-		    peerflow_acbr_h *acbrh,
-		    void *arg);
+void sdp_check(const char *sdp,
+	       bool local,
+	       bool offer,
+	       peerflow_acbr_h *acbrh,
+	       peerflow_norelay_h *norelayh,
+	       void *arg);
 
 int sdp_strip_video(char **sdp, const char *osdp);
 	

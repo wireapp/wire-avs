@@ -20,38 +20,40 @@
 #include <avs.h>
 
 #include "frame_decryptor.h"
+#include "frame_hdr.h"
 
 namespace wire {
 
 const size_t BLOCK_SIZE = 32;
 
-FrameDecryptor::FrameDecryptor()
-	: _ready(false)
+FrameDecryptor::FrameDecryptor() :
+	_kidx(0),
+	_ctx(NULL),
+	_keystore(NULL)
 {
-	_ctx = EVP_CIPHER_CTX_new();
-#if 0
-	uint8_t key[] = {
-		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-		0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-		0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-		0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F};
-	EVP_DecryptInit_ex(_ctx, EVP_aes_256_cbc(), NULL, key, NULL);
-	_ready = true;
-#endif
 }
 
 FrameDecryptor::~FrameDecryptor()
 {
+	_keystore = (struct keystore*)mem_deref(_keystore);
+	EVP_CIPHER_CTX_free(_ctx);
+	_ctx = NULL;
 }
 
+void FrameDecryptor::SetKeystore(struct keystore *keystore)
+{
+	_keystore = (struct keystore*)mem_ref(keystore);
+}
+
+#if 0
 void FrameDecryptor::SetKey(const uint8_t *key)
 {
 #if 0
-	warning("XXXXYYYY decrypt set_key\n");
+	info("FrameDecryptor::SetKey\n");
 	for (int s = 0; s < 32; s += 8) {
-		warning("XXXXYYYY %08x %02x %02x %02x %02x %02x %02x %02x %02x\n", s,
-			key[s + 0], key[s + 1], key[s + 2], key[s + 3], 
-			key[s + 4], key[s + 5], key[s + 6], key[s + 7]);
+		info("%08x %02x %02x %02x %02x %02x %02x %02x %02x\n", s,
+		     key[s + 0], key[s + 1], key[s + 2], key[s + 3], 
+		     key[s + 4], key[s + 5], key[s + 6], key[s + 7]);
 	}
 #endif
 	if (_ctx) {
@@ -61,6 +63,7 @@ void FrameDecryptor::SetKey(const uint8_t *key)
 	EVP_DecryptInit_ex(_ctx, EVP_aes_256_cbc(), NULL, key, NULL);
 	_ready = true;
 }
+#endif
 
 FrameDecryptor::Result FrameDecryptor::Decrypt(cricket::MediaType media_type,
 				     const std::vector<uint32_t>& csrcs,
@@ -68,13 +71,15 @@ FrameDecryptor::Result FrameDecryptor::Decrypt(cricket::MediaType media_type,
 				     rtc::ArrayView<const uint8_t> encrypted_frame,
 				     rtc::ArrayView<uint8_t> frame)
 {
+	uint32_t kid = 0;
+	const uint8_t *key = NULL;
 	const char *mt = "unknown";
 	int32_t dec_len = 0, blk_len = 0;
 	FrameDecryptor::Status err = FrameDecryptor::Status::kOk;
-	const uint8_t *src;
+	const uint8_t *src, *iv, *enc;
 	uint8_t *dst;
-	uint32_t data_len;
-	uint32_t payload_size;
+	struct frame_hdr *hdr;
+	uint32_t enc_size;
 
 	switch (media_type) {
 	case cricket::MEDIA_TYPE_AUDIO:
@@ -88,27 +93,47 @@ FrameDecryptor::Result FrameDecryptor::Decrypt(cricket::MediaType media_type,
 		break;
 	}
 
-	if (!_ready) {
+	src = encrypted_frame.data();
+	dst = frame.data();
+
+	hdr = (struct frame_hdr*)src;
+
+	if (!frame_hdr_check_magic(hdr)) {
+		err = FrameDecryptor::Status::kFailedToDecrypt;
+		goto out;
+	}
+
+	iv = src + sizeof(*hdr);
+	enc = iv + BLOCK_SIZE;
+	enc_size = frame.size() - sizeof(*hdr) - BLOCK_SIZE;
+	kid = frame_hdr_get_key(hdr);
+
+	if (keystore_get_key(_keystore, kid, &key) != 0) {
+		warning("FrameDecryptor::Encrypt: cant find key %u\n", kid);
 		err = FrameDecryptor::Status::kRecoverable;
 		goto out;
 	}
 
-	src = encrypted_frame.data();
-	dst = frame.data();
+	if (kid != _kidx && _ctx) {
+		EVP_CIPHER_CTX_free(_ctx);
+		_ctx = NULL;
+	}
 
-	data_len = ntohl(*(uint32_t*)src);
-	src += sizeof(uint32_t);
-	payload_size = frame.size() - sizeof(uint32_t) - BLOCK_SIZE;
+	if (!_ctx) {
+		info("FrameDecryptor(%p) decrypting with key %u\n", this, kid);
+		_ctx = EVP_CIPHER_CTX_new();
+		EVP_DecryptInit_ex(_ctx, EVP_aes_256_cbc(), NULL, key, NULL);
+		_kidx = kid;
+	}
 
-	if (!EVP_DecryptInit_ex(_ctx, NULL, NULL, NULL, src)) {
+	if (!EVP_DecryptInit_ex(_ctx, NULL, NULL, NULL, iv)) {
 		warning("FrameDecryptor::Decrypt: init failed\n");
 		err = FrameDecryptor::Status::kFailedToDecrypt;
 		goto out;
 	}
 
-	src += BLOCK_SIZE;
 	
-	if (!EVP_DecryptUpdate(_ctx, dst, &dec_len, src, payload_size)) {
+	if (!EVP_DecryptUpdate(_ctx, dst, &dec_len, enc, enc_size)) {
 		warning("FrameDecryptor::Decrypt: update failed\n");
 		err = FrameDecryptor::Status::kFailedToDecrypt;
 		goto out;
@@ -121,7 +146,8 @@ FrameDecryptor::Result FrameDecryptor::Decrypt(cricket::MediaType media_type,
 	}
 
 #if 0
-	warning("XXXXYYYY decrypt %s %u to %u bytes!\n", mt, encrypted_frame.size(), *bytes_written);
+	info("decrypt %s %u to %u bytes!\n", mt, encrypted_frame.size(),
+					     frame_hdr_get_psize(hdr));
 	for (int s = 0; s < data_len; s += 8) {
 		warning("%08x %02x %02x %02x %02x %02x %02x %02x %02x\n", s,
 			dst[s + 0], dst[s + 1], dst[s + 2], dst[s + 3], 
@@ -130,7 +156,8 @@ FrameDecryptor::Result FrameDecryptor::Decrypt(cricket::MediaType media_type,
 #endif
 
 out:
-	return FrameDecryptor::Result(err, err == FrameDecryptor::Status::kOk ? data_len : 0);
+	return FrameDecryptor::Result(err, err == FrameDecryptor::Status::kOk ?
+					   frame_hdr_get_psize(hdr) : 0);
 }
 
 size_t FrameDecryptor::GetMaxPlaintextByteSize(cricket::MediaType media_type,

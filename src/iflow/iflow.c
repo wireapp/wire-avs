@@ -36,7 +36,7 @@ void iflow_set_functions(struct iflow *iflow,
 			 iflow_gather_all_turn		*gather_all_turn,
 			 iflow_add_decoders_for_user	*add_decoders_for_user,
 			 iflow_remove_decoders_for_user	*remove_decoders_for_user,
-			 iflow_set_e2ee_key		*set_e2ee_key,
+			 iflow_set_keystore		*set_keystore,
 			 iflow_dce_send			*dce_send,
 			 iflow_stop_media		*stop_media,
 			 iflow_close			*close,
@@ -63,7 +63,7 @@ void iflow_set_functions(struct iflow *iflow,
 	iflow->gather_all_turn		= gather_all_turn;
 	iflow->add_decoders_for_user	= add_decoders_for_user;
 	iflow->remove_decoders_for_user	= remove_decoders_for_user;
-	iflow->set_e2ee_key		= set_e2ee_key;
+	iflow->set_keystore		= set_keystore;
 	iflow->dce_send			= dce_send;
 	iflow->stop_media		= stop_media;
 	iflow->close			= close;
@@ -82,6 +82,7 @@ void iflow_set_callbacks(struct iflow *iflow,
 			 iflow_dce_recv_h		*dce_recvh,
 			 iflow_dce_close_h		*dce_closeh,
 			 iflow_acbr_detect_h		*acbr_detecth,
+			 iflow_norelay_h		*norelayh,
 			 void				*arg)
 {
 	if (!iflow) {
@@ -97,6 +98,7 @@ void iflow_set_callbacks(struct iflow *iflow,
 	iflow->dce_estabh		= dce_estabh;
 	iflow->dce_recvh		= dce_recvh;
 	iflow->acbr_detecth		= acbr_detecth;
+	iflow->norelayh                 = norelayh;
 	iflow->arg			= arg;
 }
 
@@ -121,10 +123,13 @@ void iflow_set_video_handlers(iflow_render_frame_h *render_frameh,
 }
 
 
-void iflow_video_sizeh(int w, int h, const char *userid)
+void iflow_video_sizeh(int w,
+		       int h,
+		       const char *userid,
+		       const char *clientid)
 {
 	if (video.sizeh) {
-		video.sizeh(w, h, userid, video.arg);
+		video.sizeh(w, h, userid, clientid, video.arg);
 	}
 }
 

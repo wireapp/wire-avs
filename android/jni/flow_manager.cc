@@ -805,7 +805,9 @@ static void audio_state_handler(enum flowmgr_audio_receive_state state,
 	audio_change_state_handler(state);
 }
 
-static void video_size_handler(int w, int h, const char *userid, void *arg)
+static void video_size_handler(int w, int h,
+			       const char *userid, const char *clientid,
+			       void *arg)
 {
 	struct jfm *jfm = java.jfm;	
 	struct jni_env je;

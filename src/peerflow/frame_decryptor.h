@@ -33,7 +33,7 @@ public:
 	FrameDecryptor();
 	~FrameDecryptor();
 
-	void SetKey(const uint8_t *key);
+	void SetKeystore(struct keystore *keystore);
 
 	Result Decrypt(cricket::MediaType media_type,
 			       const std::vector<uint32_t>& csrcs,
@@ -45,8 +45,9 @@ public:
 				       size_t encrypted_frame_size);
 
 private:
+	uint32_t _kidx;
 	EVP_CIPHER_CTX *_ctx;
-	bool _ready;
+	struct keystore *_keystore;
 };
 
 }  // namespace wire

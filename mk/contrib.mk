@@ -469,7 +469,27 @@ $(CONTRIB_SODIUM_CONFIG_TARGET):	$(CONTRIB_SODIUM_PATH)/autogen.sh
 #
 # NOTE: cannot use --enable-minimal as wide api used by cryptobox
 #
-CONTRIB_SODIUM_OPTIONS := \
+CONTRIB_SODIUM_OS_OPTIONS_android := \
+	--enable-static \
+	--enable-shared \
+	--host=arm-none-eabi
+
+CONTRIB_SODIUM_OS_OPTIONS_ios := \
+	--enable-static \
+	--disable-shared \
+	--host=arm-none-eabi
+
+CONTRIB_SODIUM_OS_OPTIONS_osx := \
+	--enable-static \
+	--disable-shared \
+	--host=arm-none-eabi
+
+CONTRIB_SODIUM_OS_OPTIONS_linux := \
+	--enable-static \
+	--disable-shared \
+	--host=arm-none-eabi
+
+CONTRIB_SODIUM_OS_OPTIONS_wasm := \
 	--enable-static \
 	--disable-shared \
 	--host=arm-none-eabi
@@ -489,7 +509,7 @@ $(CONTRIB_SODIUM_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_SODIUM_CONFIG_TARGET) \
 		LDFLAGS="$(CONTRIB_SODIUM_LDFLAGS) --specs=nosys.specs" \
 		\
 		$(CONTRIB_SODIUM_PATH)/configure \
-			$(CONTRIB_SODIUM_OPTIONS) \
+			$(CONTRIB_SODIUM_OS_OPTIONS_$(AVS_OS)) \
 			--prefix="$(BUILD_TARGET)" \
 			$(HOST_OPTIONS)
 		$(MAKE) -C $(CONTRIB_SODIUM_BUILD_PATH) clean

@@ -160,6 +160,23 @@ probably to add ``build/$(your-platform)/lib`` to your library path and
 then add all ``.a`` files in there as ``-l`` arguments.
 
 
+# Tools
+
+A tool for testing basic functionality called zcall can be built with e.g.
+
+``make WEBRTC_VER=72.local zcall``
+
+Use ``zcall -help`` to see available options. To log into the client:
+
+``./zcall -e <Wire-login-email> -p <password>``
+
+Next step is to register a client:
+
+``:reg_client``
+
+Please note that only 7 clients can be registered and it may become necessary to delete a client before a new one can be registered.
+
+
 # Architecture overview:
 
 

@@ -64,9 +64,8 @@ int peerflow_add_decoders_for_user(struct iflow *iflow,
 				   uint32_t ssrca,
 				   uint32_t ssrcv);
 
-int peerflow_set_e2ee_key(struct iflow *iflow,
-			  uint32_t idx,
-			  uint8_t e2ee_key[E2EE_SESSIONKEY_SIZE]);
+int peerflow_set_keystore(struct iflow *iflow,
+			  struct keystore *keystore);
 
 void peerflow_stop_media(struct iflow *iflow);
 void peerflow_close(struct iflow *iflow);

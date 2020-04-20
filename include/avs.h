@@ -46,6 +46,7 @@ extern "C" {
 #include "avs_log.h"
 #include "avs_extmap.h"
 #include "avs_zapi.h"
+#include "avs_keystore.h"
 #include "avs_icall.h"	
 #include "avs_iflow.h"	
 #include "avs_peerflow.h"	

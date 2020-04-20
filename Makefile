@@ -25,10 +25,10 @@
 # Master version number
 #
 VER_MAJOR := 5
-VER_MINOR := 5
+VER_MINOR := 6
 
 ifeq ($(BUILD_NUMBER),)
-VER_PATCH := snapshot
+VER_PATCH := local
 else
 VER_PATCH := $(BUILD_NUMBER)
 endif
@@ -50,7 +50,7 @@ AVS_VERSION := $(VER_MAJOR).$(VER_MINOR).$(VER_PATCH)
 endif
 
 
-MK_COMPONENTS := toolchain contrib avs test android iosx dist
+MK_COMPONENTS := toolchain contrib avs tools test android iosx dist
 
 #--- Configuration ---
 

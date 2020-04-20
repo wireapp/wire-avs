@@ -83,7 +83,9 @@ static int render_frame_h(struct avs_vidframe * frame,
 
 static void audio_state_change_h(enum flowmgr_audio_receive_state state, void *arg);
 
-static void video_size_h(int width, int height, const char *userid, void *arg);
+static void video_size_h(int width, int height,
+			 const char *userid, const char *clientid,
+			 void *arg);
 
 @implementation AVSVideoCaptureDevice
 
@@ -1083,7 +1085,9 @@ static void audio_state_change_h(enum flowmgr_audio_receive_state state,
 	avs_flow_manager_send_notification(FlowManagerAudioReceiveStateNotification, info);
 }
 
-static void video_size_h(int width, int height, const char *userid, void *arg)
+static void video_size_h(int width, int height,
+			 const char *userid, const char *clientid,
+			 void *arg)
 {
 	/* Send notification about video size change here ... */
 }

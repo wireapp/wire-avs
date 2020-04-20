@@ -567,6 +567,14 @@ int  jsflow_gather_all_turn(struct iflow *flow, bool offer)
 	return 0;
 }
 
+static void jf_norelay_handler(bool local, void *arg)
+{
+	struct jsflow *jf = (struct jsflow *)arg;
+
+	IFLOW_CALL_CB(jf->iflow, norelayh, local, jf->iflow.arg);
+}
+
+
 static void remote_acbr_handler(bool enabled, bool offer, void *arg)
 {
 	struct jsflow *jsflow = (struct jsflow*)arg;
@@ -598,7 +606,9 @@ int jsflow_handle_offer(struct iflow *flow,
 	if (jsflow->handle == PC_INVALID_HANDLE)
 		create_pc(jsflow);
 
-	sdp_check_acbr(sdp_str, true, remote_acbr_handler, jsflow);
+	sdp_check(sdp_str, false, true,
+		  remote_acbr_handler, jf_norelay_handler,
+		  jsflow);
 	
 	pc_SetRemoteDescription(jsflow->handle, SDP_TYPE_OFFER, sdp_str);
 
@@ -616,7 +626,9 @@ int jsflow_handle_answer(struct iflow *flow,
 	if (!flow)
 		return EINVAL;
 
-	sdp_check_acbr(sdp_str, false, remote_acbr_handler, jsflow);
+	sdp_check(sdp_str, false, false,
+		  remote_acbr_handler, jf_norelay_handler,
+		  jsflow);
 	
 	has_video = pc_HasVideo(jsflow->handle);
 
@@ -669,8 +681,7 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 		return ENOENT;
 
 	isoffer = streq(type, "offer");
-	sdp_check_acbr(sdpstr, isoffer,
-		       local_acbr_handler, jsflow);
+	sdp_check(sdpstr, true, isoffer, local_acbr_handler, NULL, jsflow);
 	
 	sdp_dup(&sess, sdpstr, true);
 	if (isoffer) {
@@ -685,8 +696,8 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 	}
 	
 	(void)sdp_session_set_lattr(sess, true, "tool", "wasm-%s: %s",
-				    (g_jf.env == ENV_FIREFOX) ? "firefox" : "default",
-				    avs_version_str());	
+			(g_jf.env == ENV_FIREFOX) ? "firefox" : "default",
+			 avs_version_str());	
 
 	sdpstr = (char *)sdp_sess2str(sess);
 	len = str_len(sdpstr);
@@ -901,6 +912,7 @@ void pc_local_sdp_handler(int self, int err,
 	struct jsflow *flow = self2pc(self);
 	struct sdp_session *sess = NULL;
 	const char *modsdp = NULL;
+	bool isoffer;
 
 	if (!flow) {
 		warning("jsflow: local_sdp_handler: instance: 0x%08X not found\n",
@@ -913,9 +925,13 @@ void pc_local_sdp_handler(int self, int err,
 		return;
 	}
 
+
+	isoffer = streq(type, "offer");
+	sdp_check(sdp, true, isoffer, NULL, jf_norelay_handler, flow);
+	
 #if MODIFY_SDP
 	/* Modify SDP here */
-	if (streq(type, "offer")) {
+	if (isoffer) {
 		sdp_dup(&sess, sdp, true);
 		modsdp = sdp_modify_offer(sess, flow->conv_type, flow->audio.req_local_cbr);
 	}

@@ -121,6 +121,7 @@ struct mq_data {
 			char *convid;
 			uint32_t msg_time;
 			char *userid;
+			char *clientid;
 			int video_call;
 			int should_ring;
 			int conv_type;
@@ -175,6 +176,7 @@ static void md_destructor(void *arg)
 	case WCALL_MEV_INCOMING:
 		mem_deref(md->u.incoming.convid);
 		mem_deref(md->u.incoming.userid);
+		mem_deref(md->u.incoming.clientid);
 		break;
 
 	case WCALL_MEV_DCE_SEND:
@@ -299,6 +301,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 		wcall_i_invoke_incoming_handler(md->u.incoming.convid,
 				    md->u.incoming.msg_time,
 				    md->u.incoming.userid,
+				    md->u.incoming.clientid,
 				    md->u.incoming.video_call,
 				    md->u.incoming.should_ring,
 				    md->u.incoming.conv_type,
@@ -869,6 +872,7 @@ AVS_EXPORT
 void wcall_invoke_incoming_handler(const char *convid,
 			           uint32_t msg_time,
 			           const char *userid,
+			           const char *clientid,
 			           int video_call,
 			           int should_ring,
 				   int conv_type,
@@ -891,6 +895,7 @@ void wcall_invoke_incoming_handler(const char *convid,
 	md->u.incoming.conv_type = conv_type;
 	err = str_dup(&md->u.incoming.convid, convid);
 	err |= str_dup(&md->u.incoming.userid, userid);
+	err |= str_dup(&md->u.incoming.clientid, clientid);
 
 	if (err)
 		goto out;

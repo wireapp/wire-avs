@@ -619,9 +619,11 @@ int econn_message_decode(struct econn_message **msgp,
 		const char *key;
 		uint8_t *kdata;
 		size_t klen;
+		int32_t idx;
 		msg->msg_type = ECONN_CONF_KEY;
 
-		jzon_int(&msg->u.confkey.idx, jobj, "idx");
+		jzon_int(&idx, jobj, "idx");
+		msg->u.confkey.idx = idx;
 		key = jzon_str(jobj, "key");
 		if (!key || err)
 			return EBADMSG;

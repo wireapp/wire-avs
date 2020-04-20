@@ -33,7 +33,7 @@ public:
 	FrameEncryptor();
 	~FrameEncryptor();
 
-	void SetKey(const uint8_t *key);
+	void SetKeystore(struct keystore *keystore);
 
 	int Encrypt(cricket::MediaType media_type,
 		    uint32_t ssrc,
@@ -46,10 +46,12 @@ public:
 					size_t frame_size);
 
 private:
+	uint32_t _kidx;
 	EVP_CIPHER_CTX *_ctx;
-	bool _ready;
+	struct keystore *_keystore;
 };
 
 }  // namespace wire
 
 #endif  // FRAME_ENCRYPTOR_H_
+

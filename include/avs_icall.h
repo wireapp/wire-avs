@@ -54,11 +54,22 @@ enum icall_vstate {
 	ICALL_VIDEO_STATE_SCREENSHARE = 4,
 };
 
+enum icall_audio_state {
+	ICALL_AUDIO_STATE_CONNECTING      = 0,
+	ICALL_AUDIO_STATE_ESTABLISHED     = 1,
+	ICALL_AUDIO_STATE_NETWORK_PROBLEM = 2,
+};
+
 struct icall_client {
 	struct le le;
 	char *userid;
 	char *clientid;
 };
+
+/* Used in place of uploss/downloss in the quality handler,
+ * to indicate network problem (i.e. no relay)
+ */
+#define ICALL_NETWORK_PROBLEM 200
 
 struct icall_client *icall_client_alloc(const char *userid,
 					const char *clientid);
@@ -157,8 +168,11 @@ typedef void (icall_acbr_changed_h)(struct icall *icall, const char *userid,
 				    void *arg);
 typedef void (icall_quality_h)(struct icall *icall,
 			       const char *userid,
+			       const char *clientid,
 			       int rtt, int uploss, int downloss,
 			       void *arg);
+typedef void (icall_norelay_h)(struct icall *icall, bool local, void *arg);
+
 
 typedef void (icall_req_clients_h)(struct icall *icall, void *arg);
 
@@ -196,6 +210,7 @@ struct icall {
 	icall_vstate_changed_h		*vstate_changedh;
 	icall_acbr_changed_h		*acbr_changedh;
 	icall_quality_h			*qualityh;
+	icall_norelay_h			*norelayh;
 	icall_req_clients_h		*req_clientsh;
 
 	void				*arg;
@@ -242,6 +257,7 @@ void icall_set_callbacks(struct icall *icall,
 			 icall_vstate_changed_h	*vstate_changedh,
 			 icall_acbr_changed_h	*acbr_changedh,
 			 icall_quality_h	*qualityh,
+			 icall_norelay_h	*norelayh,
 			 icall_req_clients_h	*req_clientsh,
 			 void			*arg);
 

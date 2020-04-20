@@ -1,9 +1,24 @@
-ChangeLog for AVS -- latest on top!
+lChangeLog for AVS -- latest on top!
+
+==============================================================================
+AVS Release 5.6
+
+Date:	    February 21
+GIT:	    https://github.com/wearezeta/avs/tree/release-5.6
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - API Update
+		- Network quality indicator for missing relay candiates
+                
+Hotfixes:	
 
 ==============================================================================
 AVS Release 5.5
 
-Date:	    NA
+Date:	    January 22
 GIT:	    https://github.com/wearezeta/avs/tree/release-5.5
 Android:    Android NDK r14b
 iOS:	    iOS SDK 12.2

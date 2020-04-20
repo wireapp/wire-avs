@@ -77,7 +77,7 @@ void VideoRendererSink::OnFrame(const webrtc::VideoFrame& frame)
 	}
 
 	if (fw != last_width_ || fh != last_height_) {
-		iflow_video_sizeh(fw, fh, userid_remote_);
+		iflow_video_sizeh(fw, fh, userid_remote_, clientid_remote_);
 		last_width_ = fw;
 		last_height_ = fh;
 	}

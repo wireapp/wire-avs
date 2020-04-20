@@ -110,7 +110,8 @@ void mediamgr_stop_recording(struct mediamgr *mm);
 	
 
 typedef void (mediamgr_incoming_h)(const char *convid, uint32_t msg_time,
-				   const char *userid, int video_call /*bool*/,
+				   const char *userid, const char *clientid,
+				   int video_call /*bool*/,
 				   int should_ring /*bool*/,
 				   int conv_type,
 				   void *arg);
@@ -118,7 +119,8 @@ typedef void (mediamgr_incoming_h)(const char *convid, uint32_t msg_time,
 int mediamgr_invoke_incomingh(struct mediamgr *mm,
 			      mediamgr_incoming_h *incomingh,
 			      const char *convid, uint32_t msg_time,
-			      const char *userid, int video_call,
+			      const char *userid, const char *clientid,
+			      int video_call,
 			      int should_ring,
 			      int conv_type,
 			      void *arg);
