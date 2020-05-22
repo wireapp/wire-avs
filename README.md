@@ -2,11 +2,11 @@
 
 This repository is part of the source code of Wire. You can find more information at [wire.com](https://wire.com) or by contacting opensource@wire.com.
 
-You can find the published source code at [github.com/wireapp](https://github.com/wireapp). 
+You can find the published source code at [github.com/wireapp](https://github.com/wireapp).
 
 For licensing information, see the attached LICENSE file and the list of third-party licenses at [wire.com/legal/licenses/](https://wire.com/legal/licenses/).
 
-# Build Requirements
+## Build Requirements
 
 Apart from the basic toolchain for each system, you need these:
 
@@ -49,71 +49,54 @@ one-off, you probably want to add them to your ``.bash_profile``.
 
 For **Linux**, you need to install the packages for the stuff mentioned
 above or, of course, build it all from scratch. If you are on a
-Debian-esque system, do this: 
+Debian-esque system:
 
-```bash
-$ sudo apt-get install \
-  autoconf \
-  automake \
-  clang \
-  libasound2-dev \
-  libc++-dev \
-  libc++abi-dev \
-  libevent-dev \
-  libprotobuf-c-dev \
-  libreadline-dev \
-  libsodium-dev \
-  libtool \
-  libx11-dev \
-  libxcomposite-dev \
-  libxdamage-dev \
-  libxrender-dev \
-  make \
-  pkgconf \
-  protobuf-c-compiler \
-  yasm \
-  zlib1g-dev \
-  zip
-
-$ curl -sSf https://static.rust-lang.org/rustup.sh | sh -s -- --channel=nightly
-```
-
+* If you use ubuntu 18.04: `./scripts/ubuntu_18.04_dependencies.sh`
 
 
 For **Windows**, you will have to start by adding your system to the build
 system. Good luck!
 
 
-# Build Instructions
+## Build Instructions
 
 
 AVS will work with Google WebRTC which first needs to be pulled from Google and pre-compiled. To do that go to the webrtc directory and run:
 
+```
 ./scripts/build.sh
 ./scripts/package.sh
+```
 
 This should be done on OSX for headers and iOS+OSX libs and on Linux for Linux+Android libs. The scripts pull from Googles repos, apply a patch for Android (in patches dir), build and package the libs into zips, which get copied to contrib/webrtc. Expected zips are:
 
-contrib/webrtc/webrtc_72.local_android.zip
-contrib/webrtc/webrtc_72.local_headers.zip
-contrib/webrtc/webrtc_72.local_ios.zip
-contrib/webrtc/webrtc_72.local_linux.zip
-contrib/webrtc/webrtc_72.local_osx.zip
+```
+contrib/webrtc/webrtc_m79.local_android.zip
+contrib/webrtc/webrtc_m79.local_headers.zip
+contrib/webrtc/webrtc_m79.local_ios.zip
+contrib/webrtc/webrtc_m79.local_linux.zip
+contrib/webrtc/webrtc_m79.local_osx.zip
+```
 
-All zips are needed to build AVS, but can be empty files if not needed: e.g. you can run touch contrib/webrtc/webrtc_72.local_android.zip if you dont intend to build for Android.
+All zips are needed to build AVS, but can be empty files if not needed: e.g. you can run touch contrib/webrtc/webrtc_m79.local_android.zip if you dont intend to build for Android.
 
 AVS has more dependencies that need to be updated with:
 
+```
 ./prepare.sh
+```
 
-Next step is to build AVS itself. When building AVS with local webrtc, invoke make with: 
+Next step is to build AVS itself. When building AVS with local webrtc, invoke make with:
 
+```
 make WEBRTC_VER <release>.local
+```
 
 For example:
 
-make WEBRTC_VER=72.local
-
+```
+make WEBRTC_VER=m79.local
+```
 
 The deliverables are being built by saying ``make WEBRTC_VER <release>.local dist``. You can limit
 this to only select target platforms through ``make WEBRTC_VER <release>.local dist_android``,
@@ -139,7 +122,7 @@ all the necessary architectures but builds quicker, you can pass
 architecture:
 
 ```bash
-$ make WEBRTC_VER=72.local dist_ios DIST_ARCH=armv7
+$ make WEBRTC_VER=m79.local dist_ios DIST_ARCH=armv7
 ```
 
 will build an iOS distribution that will only contain armv7 instead of
@@ -147,7 +130,7 @@ the usual five architectures.
 
 
 
-# Using the Library
+## Using the Library
 
 During the build, a set of static libraries is being built. You can use
 this library in your own projects. 
@@ -160,11 +143,11 @@ probably to add ``build/$(your-platform)/lib`` to your library path and
 then add all ``.a`` files in there as ``-l`` arguments.
 
 
-# Tools
+## Tools
 
 A tool for testing basic functionality called zcall can be built with e.g.
 
-``make WEBRTC_VER=72.local zcall``
+``make WEBRTC_VER=m79.local zcall``
 
 Use ``zcall -help`` to see available options. To log into the client:
 
@@ -177,7 +160,7 @@ Next step is to register a client:
 Please note that only 7 clients can be registered and it may become necessary to delete a client before a new one can be registered.
 
 
-# Architecture overview:
+## Architecture overview:
 
 
 ```
@@ -226,8 +209,7 @@ Please note that only 7 clients can be registered and it may become necessary to
 
 
 
-Some specifications implemented:
--------------------------------
+## Some specifications implemented:
 
 * https://tools.ietf.org/html/draft-ietf-mmusic-trickle-ice-01
 * https://tools.ietf.org/html/draft-ietf-rtcweb-stun-consent-freshness-11
@@ -235,7 +217,7 @@ Some specifications implemented:
 * https://tools.ietf.org/html/draft-ietf-rtcweb-data-channel-13
 
 
-# Reporting bugs
+## Reporting bugs
 
 When reporting bugs against AVS please include the following:
 
