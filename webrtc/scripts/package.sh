@@ -14,16 +14,13 @@ DEST_DIR="../contrib/webrtc"
 
 HOST_OS=$(uname)
 
-if [ "$HOST_OS" == "Darwin" ]; then
-	echo "Packaging header files"
-	rm -r $WEBRTC_RB 2> /dev/null
-	mkdir -p $WEBRTC_RB/include
-	echo WEBRTC_RELEASE=$WEBRTC_RELEASE > $WEBRTC_RB/version.txt
-	echo WEBRTC_COMMIT=$WEBRTC_COMMIT >> $WEBRTC_RB/version.txt
-	find webrtc_checkout/src -type f -iname "*.h" -exec scripts/cpheader.sh {} $WEBRTC_RB \;
-	zip -9r webrtc_${WEBRTC_RB}_headers.zip $WEBRTC_RB version.txt
-
-fi
+echo "Packaging header files"
+rm -r $WEBRTC_RB 2> /dev/null
+mkdir -p $WEBRTC_RB/include
+echo WEBRTC_RELEASE=$WEBRTC_RELEASE > $WEBRTC_RB/version.txt
+echo WEBRTC_COMMIT=$WEBRTC_COMMIT >> $WEBRTC_RB/version.txt
+find webrtc_checkout/src -type f -iname "*.h" -exec scripts/cpheader.sh {} $WEBRTC_RB \;
+zip -9r webrtc_${WEBRTC_RB}_headers.zip $WEBRTC_RB version.txt
 
 for OS in $AVS_OS; do
 	echo "Packaging $OS files"
