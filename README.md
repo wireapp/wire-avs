@@ -51,8 +51,8 @@ For **Linux**, you need to install the packages for the stuff mentioned
 above or, of course, build it all from scratch. If you are on a
 Debian-esque system:
 
-* If you use ubuntu 18.04: `./scripts/ubuntu_18.04_dependencies.sh`
-
+* If you use ubuntu 18.04: `sudo ./scripts/ubuntu_18.04_dependencies.sh`
+* If you use debian 10 (buster): `sudo ./scripts/debian_10_dependencies.sh`
 
 For **Windows**, you will have to start by adding your system to the build
 system. Good luck!
