@@ -1,0 +1,98 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-18.04
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: check space
+      run: df -h
+
+    - name: free disk space
+      run: |
+        # as suggested in https://github.community/t/bug-strange-no-space-left-on-device-ioexceptions-on-github-runners/17616/10
+        sudo df -h
+        sudo swapoff -a
+        sudo rm -f /swapfile
+        sudo apt clean
+        docker rmi $(docker image ls -aq)
+        sudo df -h
+        # as suggested in https://github.com/actions/virtual-environments/issues/709
+        sudo rm -rf "/usr/local/share/boost"
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        # as found by  sudo du -a / 2>/dev/null | sort -n -r | head -n 20
+        # 55736870	/
+        # 42457696	/usr
+        # 23670452	/usr/share
+        # 20008260	/usr/share/dotnet
+        # 15058296	/usr/share/dotnet/sdk
+        # 11700320	/usr/local
+        # 10668520	/opt
+        # 10352428	/usr/local/lib
+        # 10027456	/usr/local/lib/android
+        # 10027452	/usr/local/lib/android/sdk
+        # 8972128	/opt/ghc
+        # 5464160	/usr/lib
+        # 4830476	/usr/share/dotnet/shared
+        # 4020384	/usr/local/lib/android/sdk/ndk-bundle
+        # 3413736	/usr/local/lib/android/sdk/build-tools
+        # 2964396	/usr/local/lib/android/sdk/ndk-bundle/toolchains
+        # 2692472	/usr/share/dotnet/shared/Microsoft.NETCore.App
+        # 2451944	/usr/local/lib/android/sdk/ndk-bundle/toolchains/llvm
+        # 2451940	/usr/local/lib/android/sdk/ndk-bundle/toolchains/llvm/prebuilt
+        # 2451936	/usr/local/lib/android/sdk/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64
+        sudo rm -rf /usr/share/dotnet
+
+    - name: check space
+      run: df -h
+
+    - name: download dependencies for webrtc / AVS
+      run: |
+        sudo apt-get update
+        sudo ./scripts/ubuntu_18.04_dependencies.sh
+        sudo apt-get install -y openjdk-8-jdk openjdk-8-jre
+        sudo update-java-alternatives --jre-headless --jre --plugin -s java-1.8.0-openjdk-amd64 || true
+        sudo apt-get clean -y
+
+    - name: check space
+      run: df -h
+
+    - name: build webrtc
+      run: |
+        cd webrtc
+        ./scripts/build.sh
+
+    - name: package webrtc
+      run: |
+        cd webrtc
+        ./scripts/package.sh
+
+    - name: create empty files for iOS when compiling on linux
+      run: |
+        . ./webrtc/scripts/version.sh
+        touch contrib/webrtc/webrtc_$WEBRTC_RELEASE.local_ios.zip
+        touch contrib/webrtc/webrtc_$WEBRTC_RELEASE.local_osx.zip
+
+    - name: submodule fetch
+      run: ./prepare.sh
+
+    - name: build AVS
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        . ./webrtc/scripts/version.sh
+        make WEBRTC_VER=$WEBRTC_RELEASE.local
+
+    - name: build zcall
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        . ./webrtc/scripts/version.sh
+        make WEBRTC_VER=$WEBRTC_RELEASE.local zcall
