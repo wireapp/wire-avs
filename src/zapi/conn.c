@@ -172,8 +172,8 @@ int zapi_connection_update(struct rest_cli *cli, int pri, const char *id,
 			   const struct zapi_connection *conn,
 			   zapi_error_h *errh, void *arg)
 {
-	struct json_object *jobj;
-	struct zapi_error_data *data;
+	struct json_object *jobj = NULL;
+	struct zapi_error_data *data = NULL;
 	int err;
 
 	jobj = json_object_new_object();

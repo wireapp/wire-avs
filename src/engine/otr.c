@@ -33,8 +33,8 @@ struct context {
 	struct list userl;           /* list of users */
 	struct engine_user *self;    /* pointer */
 
-	char target_userid[MAX_ID_LEN];
-	char target_clientid[MAX_ID_LEN];
+	struct otr_target *targets;
+	size_t num_targets;
 	char local_clientid[MAX_ID_LEN];
 
 	bool waiting_for_otr;
@@ -69,6 +69,7 @@ static void context_destructor(void *data)
 	list_flush(&ctx->userl);
 	list_flush(&ctx->msgl);
 	mem_deref(ctx->data);
+	mem_deref(ctx->targets);
 }
 
 #ifdef HAVE_CRYPTOBOX
@@ -112,15 +113,22 @@ static void otr_missing_handler(const char *userid, const char *clientid, void *
 	struct context *ctx = arg;
 	struct ctx_user *cu;
 	struct le *ule;
+	size_t t;
+	bool found = false;
 
-	// Dont add clients for non targeted users
-	if (str_isset(ctx->target_userid) && 0 != str_casecmp(userid, ctx->target_userid)) {
-		return;
-	}
+	if (ctx->targets && ctx->num_targets > 0) {
 
-	// Dont add non targeted clients
-	if (str_isset(ctx->target_clientid) && 0 != str_casecmp(clientid, ctx->target_clientid)) {
-		return;
+		for (t = 0; t < ctx->num_targets; t++) {
+			if (0 == str_casecmp(userid, ctx->targets[t].userid) &&
+			    0 == str_casecmp(clientid, ctx->targets[t].clientid)) {
+				found = true;
+				break;
+			}
+		}
+
+		if (!found) {
+			return;
+		}
 	}
 
 	ule = list_head(&ctx->userl);
@@ -319,8 +327,8 @@ static int send_otr_if_ready(struct context *ctx, bool ignore_missing)
 int engine_send_otr_message(struct engine *engine,
 			    void *cb,
 			    struct engine_conv *conv,
-			    const char *target_userid,
-			    const char *target_clientid,
+			    struct otr_target *targets,
+			    size_t num_targets,
 			    const char *local_clientid,
 			    const uint8_t *data, size_t data_len,
 			    bool transient,
@@ -373,12 +381,12 @@ int engine_send_otr_message(struct engine *engine,
 	ctx->missing_prekeys = 0;
 	ctx->retries = 3;
 
-	if (target_userid) {
-		strncpy(ctx->target_userid, target_userid, MAX_ID_LEN - 1);
-	}
+	if (targets && num_targets > 0) {
+		size_t tsz = num_targets * sizeof(struct otr_target);
 
-	if (target_clientid) {
-		strncpy(ctx->target_clientid, target_clientid, MAX_ID_LEN - 1);
+		ctx->targets = mem_zalloc(tsz, NULL);
+		memcpy(ctx->targets, targets, tsz);
+		ctx->num_targets = num_targets;
 	}
 
 	// First time will fail with 412 and fill the user-client list

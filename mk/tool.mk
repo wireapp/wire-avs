@@ -30,6 +30,6 @@ endif
 $(BUILD_BIN)/$(TOOL)$(BIN_SUFFIX): $($(TOOL)_OBJS) $($(TOOL)_LIB_FILES)
 	@echo "  LD   $(AVS_PAIR) $@"
 	@mkdir -p $(BUILD_BIN)
-	$(CXX) $(LFLAGS) -fno-rtti -std=c++11 \
+	$(CXX) $(LFLAGS) -fno-rtti -std=c++14 \
 		$($(basename $(notdir $@))_LFLAGS) \
 		$^ $($(basename $(notdir $@))_LIBS) $(LIBS) -o $@

@@ -29,14 +29,18 @@
 #include "cli.h"
 #include "view.h"
 
+#include "mute.h"
 
-#define WIN_W         1280
-#define WIN_H          960
+#define WIN_W         1024
+#define WIN_H          768
+#define ICON_WH         64
+#define ICON_BW         16
 
 static struct {
 	NSWindow *win;
 	NSMutableArray  *views;
 	NSView *preview;
+	NSView *muteView;
 	NSTimer *timer;
 
 	AVSCapturer *capturer;
@@ -46,7 +50,11 @@ static struct {
 	NSString *local_userid;
 	NSString *local_clientid;
 	struct tmr tmr;
+
+	bool muted;
 } vidloop;
+
+WUSER_HANDLE calling3_get_wuser(void);
 
 int osx_view_init(struct view** v);
 static void osx_arrange_views(void);
@@ -55,6 +63,38 @@ static void osx_arrange_views(void);
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification;
 @end
 
+@interface MuteView : NSView
+- (void)drawRect:(NSRect)dirtyRect;
+
+@end
+
+@implementation MuteView
+{
+	NSImage *img;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect
+{
+	NSData *data = [NSData dataWithBytes: muteImg length: muteImgLen];
+	img = [[NSImage alloc] initWithData: data];
+	return [super initWithFrame: frameRect];
+}
+
+- (void)drawRect:(NSRect)rect
+{
+	[[NSColor clearColor] set];
+	NSRect muteRect = NSMakeRect(0, 0, ICON_WH, ICON_WH);
+	NSRectFill(muteRect);
+	NSRectFillUsingOperation(rect, NSCompositeSourceOver);
+
+	NSSize isz = [img size];
+	NSRect irect = NSMakeRect(0, 0, isz.width, isz.height);
+	[img drawInRect:irect fromRect:irect operation:NSCompositeSourceOver fraction:1];
+
+	[super drawRect:rect];
+}
+
+@end
 
 static void tmr_handler(void *arg)
 {
@@ -93,6 +133,7 @@ static void osx_view_show(void)
 	[vidloop.win makeKeyAndOrderFront:app];
 	[NSApp activateIgnoringOtherApps:YES];
 	[vidloop.preview display];
+	[vidloop.muteView display];
 	osx_arrange_views();
 
 }
@@ -104,6 +145,13 @@ static void osx_view_hide(void)
 	osx_arrange_views();
 }
 
+
+static void osx_view_show_mute(bool muted)
+{
+	vidloop.muted = muted;
+	[vidloop.muteView setHidden:muted ? NO : YES];
+	[vidloop.preview setNeedsDisplay: YES];
+}
 
 static void osx_arrange_views(void)
 {
@@ -142,7 +190,9 @@ static void osx_arrange_views(void)
 	yp = (h - vh) / 2; 
 	NSRect rect = NSMakeRect(xp, yp, w, vh);
 	vidloop.preview.frame = rect;
-
+	rect = NSMakeRect(w - ICON_WH - ICON_BW, ICON_BW, ICON_WH, ICON_WH);
+	vidloop.muteView.frame = rect;
+	osx_view_show_mute(wcall_get_mute(calling3_get_wuser()));
 	NSApplication *app = [NSApplication sharedApplication];
 	[vidloop.win makeKeyAndOrderFront:app];
 	[NSApp activateIgnoringOtherApps:YES];
@@ -151,10 +201,31 @@ static void osx_arrange_views(void)
 	[vidloop.preview display];
 }
 
+static const char *video_state_name(int vstate)
+{
+	switch(vstate) {
+	case WCALL_VIDEO_STATE_STOPPED:
+		return "STOPPED";
+	case WCALL_VIDEO_STATE_STARTED:
+		return "STARTED";
+	case WCALL_VIDEO_STATE_BAD_CONN:
+		return "BAD_CONN";
+	case WCALL_VIDEO_STATE_PAUSED:
+		return "PAUSED";
+	case WCALL_VIDEO_STATE_SCREENSHARE:
+		return "SCREENSHARE";
+	default:
+		return "???";
+	}
+}
+
 static void osx_vidstate_changed(const char *userid, const char *clientid, int state)
 {
 	NSString *uid = [NSString stringWithUTF8String: userid];
 	NSString *cid = [NSString stringWithUTF8String: clientid];
+
+	info("osx_vidstate_changed for %s.%s -> %s\n",
+		userid, clientid, video_state_name(state));
 
 	dispatch_async(dispatch_get_main_queue(), ^{
 		bool found = false;
@@ -238,20 +309,7 @@ static int osx_render_frame(struct avs_vidframe * frame,
 			return 0;
 		}
 	}
-/*
-	NSRect rect = NSMakeRect(0, 0, WIN_W, WIN_W * 3 / 4);
-	AVSVideoViewOSX *v = [[AVSVideoViewOSX alloc] initWithFrame:rect];
-	v.userid = uid;
-	v.clientid = cid;
-	[vidloop.views addObject: v];
-	[[vidloop.win contentView] addSubview:v];
-	[v display];
-
-	info("osx_view adding renderer for %s now %u\n",
-		[uid UTF8String], vidloop.views.count);
-	osx_arrange_views();
-	[v handleFrame:frame];
-*/
+	//osx_vidstate_changed(userid, clientid, WCALL_VIDEO_STATE_STARTED);
 	return 0;
 }
 
@@ -297,7 +355,8 @@ static struct view _view = {
 	.vidstate_changed = osx_vidstate_changed,
 	.render_frame = osx_render_frame,
 	.preview_start = osx_preview_start,
-	.preview_stop = osx_preview_stop
+	.preview_stop = osx_preview_stop,
+	.view_show_mute = osx_view_show_mute
 };
 
 
@@ -322,8 +381,13 @@ int osx_view_init(struct view** v)
 	NSRect previewRect = NSMakeRect(0, 0, WIN_W, WIN_H);
 	vidloop.preview = [[NSView alloc] initWithFrame:previewRect];
 
+	NSRect muteRect = NSMakeRect(0, 0, 32, 32);
+	vidloop.muteView = [[MuteView alloc] initWithFrame:muteRect];
+
+	[vidloop.preview addSubview:vidloop.muteView];
 	[[vidloop.win contentView] addSubview:vidloop.preview];
 	[vidloop.preview display];
+	[vidloop.muteView display];
 
 	VideoDelegate *videoDelegate = [VideoDelegate new];
 	app.delegate = (id)videoDelegate;

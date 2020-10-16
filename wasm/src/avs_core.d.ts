@@ -1,1 +1,2 @@
-export default function avs_core(): Promise<any>;
+declare function avs_core(): Promise<any>;
+export = avs_core;

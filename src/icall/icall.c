@@ -18,13 +18,15 @@
 
 #include <re.h>
 #include <avs.h>
+#include <ctype.h>
 
 void icall_set_functions(struct icall *icall,
 			 icall_add_turnserver		*add_turnserver,
-			 icall_set_sft			*set_sft,
+			 icall_add_sft			*add_sft,
 			 icall_start			*start,
 			 icall_answer			*answer,
 			 icall_end			*end,
+			 icall_reject			*reject,
 			 icall_media_start		*media_start,
 			 icall_media_stop		*media_stop,
 			 icall_set_media_laddr          *set_media_laddr,
@@ -35,6 +37,7 @@ void icall_set_functions(struct icall *icall,
 			 icall_set_quality_interval	*set_quality_interval,
 			 icall_dce_send                 *dce_send,
 			 icall_set_clients		*set_clients,
+			 icall_update_mute_state	*update_mute_state,
 			 icall_debug			*debug,
 			 icall_stats			*stats)
 {
@@ -43,10 +46,11 @@ void icall_set_functions(struct icall *icall,
 		return;
 	}
 	icall->add_turnserver		= add_turnserver;
-	icall->set_sft			= set_sft;
+	icall->add_sft			= add_sft;
 	icall->start			= start;
 	icall->answer			= answer;
 	icall->end			= end;
+	icall->reject			= reject;
 	icall->media_start		= media_start;
 	icall->media_stop		= media_stop;
 	icall->set_media_laddr          = set_media_laddr;
@@ -57,6 +61,7 @@ void icall_set_functions(struct icall *icall,
 	icall->set_quality_interval	= set_quality_interval;
 	icall->dce_send                 = dce_send;
 	icall->set_clients		= set_clients;
+	icall->update_mute_state	= update_mute_state;
 	icall->debug			= debug;
 	icall->stats			= stats;
 }
@@ -77,6 +82,7 @@ void icall_set_callbacks(struct icall *icall,
 			 icall_metrics_h	*metricsh,
 			 icall_vstate_changed_h	*vstate_changedh,
 			 icall_acbr_changed_h	*acbr_changedh,
+			 icall_muted_changed_h	*muted_changedh,
 			 icall_quality_h	*qualityh,
 			 icall_norelay_h	*norelayh,
 			 icall_req_clients_h	*req_clientsh,
@@ -100,6 +106,7 @@ void icall_set_callbacks(struct icall *icall,
 	icall->metricsh		= metricsh;
 	icall->vstate_changedh	= vstate_changedh;
 	icall->acbr_changedh	= acbr_changedh;
+	icall->muted_changedh	= muted_changedh;
 	icall->qualityh		= qualityh;
 	icall->norelayh		= norelayh;
 	icall->req_clientsh	= req_clientsh;
@@ -127,6 +134,16 @@ static void client_destructor(void *arg)
 	mem_deref(cli->clientid);
 	list_unlink(&cli->le);
 }
+
+static void make_lower(char *str)
+{
+	char *p = str;
+	while(*p) {
+		*p = tolower(*p);
+		++p;
+	}
+}
+
 struct icall_client *icall_client_alloc(const char *userid,
 					const char *clientid)
 {
@@ -137,6 +154,13 @@ struct icall_client *icall_client_alloc(const char *userid,
 	if (cli) {
 		str_dup(&cli->userid,   userid);
 		str_dup(&cli->clientid, clientid);
+		if (cli->userid) {
+			make_lower(cli->userid);
+		}
+
+		if (cli->clientid) {
+			make_lower(cli->clientid);
+		}
 	}
 
 	return cli;

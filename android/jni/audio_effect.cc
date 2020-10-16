@@ -30,11 +30,16 @@
 /* JNI interface */
 #include "com_waz_audioeffect_AudioEffect.h"
 
-#ifdef ANDROID
-#define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "AudioEffect C++", __VA_ARGS__))
-#else
+
+//#ifdef ANDROID
+//#define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "AudioEffect C++", __VA_ARGS__))
+//#else
+//#define LOGI(...)
+//#endif
+//#endif
+
 #define LOGI(...)
-#endif
+
 
 JNIEXPORT jint JNICALL Java_com_waz_audioeffect_AudioEffect_applyEffectWav(JNIEnv* env, jobject self, jstring jfile_name_in, jstring jfile_name_out, jint effect, jboolean reduce_noise)
 {

@@ -81,7 +81,7 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     auto_corr[ 0 ] += auto_corr[ 0 ] * 1e-3f + 1;
     
     /* Calculate the reflection coefficients using Schur */
-    res_nrg = silk_schur_FLP( refl_coef, auto_corr, Z_LPC_ORDER );
+    res_nrg = silk_schur_FLP( refl_coef, auto_corr, Z_LPC_ORDER );    
     
     /* Convert reflection coefficients to prediction coefficients */
     silk_k2a_FLP( A, refl_coef, Z_LPC_ORDER );
@@ -112,6 +112,7 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     }
     pest->LTPCorr_Q15 = (opus_int)(LTPCorr * (float)((int)1 << 15));
     memmove(&pest->buf[0], &pest->buf[L_re], ((Z_FS_KHZ*Z_PEST_BUF_SZ_MS) - L_re)*sizeof(int16_t));
+    (void)res_nrg;
 #else
     opus_int16 Wsig[16*Z_PEST_BUF_SZ_MS];
     opus_int16 res[16*Z_PEST_BUF_SZ_MS];
@@ -173,6 +174,8 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
         pest->voiced = false;
     }
     memmove(&pest->buf[0], &pest->buf[L_re], ((16*Z_PEST_BUF_SZ_MS) - L_re)*sizeof(int16_t));
+
+    (void)res_nrg;
 #endif
 }
 

@@ -64,6 +64,11 @@ static void mqueue_handler(int id, void *data, void *arg)
 	(void)id;
 	(void)arg;
 
+	/* The lookup thread is done;
+	 * need to join to release its resources
+	 */
+	pthread_join(lent->tid, NULL);
+
 	if (lent->lookuph)
 		lent->lookuph(lent->err, &lent->srv, lent->arg);
 	

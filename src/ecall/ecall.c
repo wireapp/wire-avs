@@ -38,6 +38,7 @@
 #include "avs_ztime.h"
 #include "avs_version.h"
 #include "avs_wcall.h"
+#include "avs_string.h"
 #include "ecall.h"
 
 
@@ -96,6 +97,9 @@ void ecall_close(struct ecall *ecall, int err, uint32_t msg_time)
 	
 	ecall->icall.qualityh = NULL;
 	tmr_cancel(&ecall->quality.tmr);
+	tmr_cancel(&ecall->dc_tmr);
+	tmr_cancel(&ecall->media_start_tmr);
+	tmr_cancel(&ecall->connection_tmr);
 
 	closeh = ecall->icall.closeh;
 
@@ -113,7 +117,11 @@ void ecall_close(struct ecall *ecall, int err, uint32_t msg_time)
 	ecall->flow = NULL;
 	ecall->conf_part = mem_deref(ecall->conf_part);
 	IFLOW_CALL(flow, close);
-	IFLOW_CALL(ecall->oldflow, close);
+
+	flow = ecall->oldflow;
+	ecall->oldflow = NULL;
+	IFLOW_CALL(flow, close);
+
 	/* NOTE: calling the callback handlers MUST be done last,
 	 *       to make sure that all states are correct.
 	 */
@@ -228,6 +236,8 @@ static void econn_conn_handler(struct econn *econn,
 		ecall->sdp.async = ASYNC_NONE;
 		ecall->update = false;
 		err = ecall_answer(ecall, ecall->call_type, ecall->audio_cbr);
+		if (err)
+			goto error;
 	}
 	else {
 		ICALL_CALL_CB(ecall->icall, starth,
@@ -491,10 +501,7 @@ static void econn_alert_handler(struct econn *econn, uint32_t level,
 
 
 static void econn_confpart_handler(struct econn *econn,
-				   const struct list *partlist,
-				   bool should_start,
-				   uint64_t timestamp,
-				   uint32_t seqno,
+				   const struct econn_message *msg,
 				   void *arg)
 {
 	struct ecall *ecall = arg;
@@ -503,13 +510,9 @@ static void econn_confpart_handler(struct econn *econn,
 
 	if (ecall->confparth) {
 		info("ecall(%p): confpart: parts: %u should_start %s\n",
-		     ecall, list_count(partlist), should_start ? "YES" : "NO");
-		ecall->confparth(ecall,
-				 partlist,
-				 should_start,
-				 timestamp,
-				 seqno,
-				 ecall->icall.arg);
+		     ecall, list_count(&msg->u.confpart.partl),
+		     msg->u.confpart.should_start ? "YES" : "NO");
+		ecall->confparth(ecall, msg, ecall->icall.arg);
 	}
 }
 
@@ -522,6 +525,18 @@ int ecall_set_confpart_handler(struct ecall *ecall,
 	}
 
 	ecall->confparth = confparth;
+	return 0;
+}
+
+
+int ecall_set_propsync_handler(struct ecall *ecall,
+			       ecall_propsync_h propsynch)
+{
+	if (!ecall) {
+		return EINVAL;
+	}
+
+	ecall->propsynch = propsynch;
 	return 0;
 }
 
@@ -570,10 +585,16 @@ static void ecall_destructor(void *data)
 	flow = ecall->flow;
 	ecall->flow = NULL;
 	IFLOW_CALL(flow, close);
+	flow = ecall->oldflow;
+	ecall->oldflow = NULL;
+	IFLOW_CALL(flow, close);
+
 	mem_deref(ecall->userid_self);
 	mem_deref(ecall->userid_peer);
 	mem_deref(ecall->clientid_self);
 	mem_deref(ecall->clientid_peer);
+	mem_deref(ecall->clientid_real);
+	mem_deref(ecall->sessid);
 	mem_deref(ecall->convid);
 	mem_deref(ecall->msys);
 	mem_deref(ecall->usrd);
@@ -600,6 +621,11 @@ static int send_handler(struct econn *conn,
 	struct ecall *ecall = arg;
 	int err = 0;
 	int try_otr = 0, try_dce = 0;
+	char convid_anon[ANON_ID_LEN];
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	char dest_userid_anon[ANON_ID_LEN];
+	char dest_clientid_anon[ANON_CLIENT_LEN];
 
 	assert(ECALL_MAGIC == ecall->magic);
 
@@ -657,13 +683,22 @@ static int send_handler(struct econn *conn,
 	}
 
 	//if (try_dce && IFLOW_CALLE(ecall->flow, has_data)) {
-	if (try_dce)
+	if (try_dce) {
+		info("ecall(%p): dce_message_send: convid=%s from=%s.%s to=%s.%s "
+		     "msg=%H\n",
+		     ecall, anon_id(convid_anon, ecall->convid),
+		     anon_id(userid_anon, ecall->userid_self),
+		     anon_client(clientid_anon, ecall->clientid_self),
+		     anon_id(dest_userid_anon, ecall->userid_peer),
+		     anon_client(dest_clientid_anon, ecall->clientid_peer),
+		     econn_message_print, msg);
 		ecall_dce_sendmsg(ecall, msg);
+	}
 	else if (try_otr) {
 		ecall_trace(ecall, msg, true, ECONN_TRANSP_BACKEND,
 			    "SE %H\n", econn_message_brief, msg);
 		err = ICALL_CALL_CBE(ecall->icall, sendh,
-			&ecall->icall, ecall->userid_self, msg, ecall->icall.arg);
+			&ecall->icall, ecall->userid_self, msg, NULL, ecall->icall.arg);
 	}
 
 out:
@@ -690,6 +725,12 @@ static int _icall_answer(struct icall *icall, enum icall_call_type call_type,
 {
 	return ecall_answer((struct ecall*)icall, call_type,
 			    audio_cbr);
+}
+
+
+static void _icall_reject(struct icall *icall)
+{
+	ecall_reject((struct ecall*)icall);
 }
 
 
@@ -721,49 +762,72 @@ static int _icall_set_video_send_state(struct icall *icall, enum icall_vstate vs
 	return ecall_set_video_send_state((struct ecall*)icall, vstate);
 }
 
+
+static void _icall_set_clients(struct icall* icall,
+			       struct list *clientl)
+{
+	ecall_set_clients((struct ecall*)icall, clientl);
+}
+
+
 static void members_destructor(void *arg)
 {
 	struct wcall_members *mm = arg;
 	size_t i;
 
-	for(i = 0; i < mm->membc; ++i) {
-		mem_deref(mm->membv);
+	for (i = 0; i < mm->membc; ++i) {
+		mem_deref(mm->membv[i].userid);
+		mem_deref(mm->membv[i].clientid);
 	}
-}
 
-static void member_destructor(void *arg)
-{
-	struct wcall_member *memb = arg;
-
-	mem_deref(memb->userid);
-	mem_deref(memb->clientid);
+	mem_deref(mm->membv);
 }
 
 static int _icall_get_members(struct icall *icall, struct wcall_members **mmp)
 {
 	struct ecall *ecall = (struct ecall *) icall;
-	struct wcall_members *mm;
-	struct wcall_member *memb;
+	struct wcall_members *mm = NULL;
+	struct wcall_member *memb = NULL;
+	int n = 1;
 	int err = 0;
 
 	if (!ecall)
 		return EINVAL;
 
+	if (ecall->userid_peer && ecall->clientid_peer)
+		n++;
+	
 	mm = mem_zalloc(sizeof(*mm), members_destructor);
 	if (!mm) {
 		err = ENOMEM;
 		goto out;
 	}
-	memb = mem_zalloc(sizeof(*(mm->membv)), member_destructor);
-	if (!memb) {
+
+	mm->membv = mem_zalloc(n * sizeof(*memb), NULL);
+	if (!mm->membv) {
 		err = ENOMEM;
 		goto out;
 	}
+	mm->membc = n;	
 
-	mm->membc = 1;	
-	mm->membv = memb;
-	str_dup(&memb->userid, ecall->userid_peer);
-	str_dup(&memb->clientid, ecall->clientid_peer);	
+	memb = &mm->membv[0];
+	str_dup(&memb->userid, ecall->userid_self);
+	str_dup(&memb->clientid, ecall->clientid_self);
+	memb->audio_state = ecall->audio.estab ?
+		ICALL_AUDIO_STATE_ESTABLISHED : ICALL_AUDIO_STATE_CONNECTING;
+	memb->video_recv = (int)ecall->vstate;
+	memb->muted = msystem_get_muted();
+	
+	if (mm->membc > 1) {
+		memb = &mm->membv[1];
+
+		str_dup(&memb->userid, ecall->userid_peer);
+		str_dup(&memb->clientid, ecall->clientid_peer);
+		memb->audio_state = ecall->audio.estab ?
+			ICALL_AUDIO_STATE_ESTABLISHED : ICALL_AUDIO_STATE_CONNECTING;
+		memb->video_recv = (int)ecall->video.recv_state;
+		memb->muted = ecall->audio.remote_muted_state;
+	}
 
  out:
 	if (err) {
@@ -840,6 +904,10 @@ static int _icall_set_quality_interval(struct icall *icall,
 	return ecall_set_quality_interval((struct ecall*)icall, interval);
 }
 
+static int _icall_update_mute_state(const struct icall* icall)
+{
+	return ecall_update_mute_state((struct ecall*)icall);
+}
 
 static int _icall_debug(struct re_printf *pf, const struct icall *icall)
 {
@@ -861,6 +929,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		const char *clientid)
 {
 	struct ecall *ecall;
+	bool muted;
 	int err = 0;
 
 	if (!msys || !str_isset(convid))
@@ -902,6 +971,11 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 	if (err)
 		goto out;
 
+	muted = msystem_get_muted();
+	err = econn_props_add(ecall->props_local, "muted", muted ? "true" : "false");
+	if (err)
+		goto out;
+
 	err |= str_dup(&ecall->convid, convid);
 	err |= str_dup(&ecall->userid_self, userid_self);
 	err |= str_dup(&ecall->clientid_self, clientid);
@@ -915,10 +989,11 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 
 	icall_set_functions(&ecall->icall,
 			    _icall_add_turnserver,
-			    NULL, // _icall_set_sft
+			    NULL, // _icall_add_sft
 			    _icall_start,
 			    _icall_answer,
 			    _icall_end,
+			    _icall_reject,
 			    _icall_media_start,
 			    _icall_media_stop,
 			    _icall_set_media_laddr,
@@ -928,7 +1003,8 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 			    _icall_get_members,
 			    _icall_set_quality_interval,
 			    _icall_dce_send,
-			    NULL, // icall_set_clients
+			    _icall_set_clients,
+			    _icall_update_mute_state,
 			    _icall_debug,
 			    _icall_stats);
 
@@ -937,6 +1013,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 
 	ecall->ts_start = tmr_jiffies();
 
+	info("ecall(%p): allocated\n", ecall);
  out:
 	if (err)
 		mem_deref(ecall);
@@ -1108,6 +1185,13 @@ static void connection_timeout_handler(void *arg)
 	if (ecall->conv_type == ICALL_CONV_TYPE_GROUP) {
 		ecall_restart(ecall, ecall->call_type);
 	}
+	/* If we don't have a media_estabh the app will never get
+	 * notified about the closed call, so trigger a close for this
+	 * specific case.
+	 */
+	else if (!ecall->icall.media_estabh) {
+		ecall_close(ecall, ETIMEDOUT, ECONN_MESSAGE_TIME_UNKNOWN);
+	}
 }
 
 
@@ -1152,6 +1236,9 @@ static void mf_estab_handler(struct iflow *iflow,
 	if (ecall->call_estab_time < 0 && ecall->ts_answered) {
 		ecall->call_estab_time = tmr_jiffies() - ecall->ts_answered;
 	}
+
+	if (!ecall->audio.estab)
+		ecall->audio.estab = true;
 
 	ecall->established = true;
 	tmr_cancel(&ecall->connection_tmr);
@@ -1206,13 +1293,21 @@ static void mf_close_handler(struct iflow *iflow, int err, void *arg)
 
 	assert(ECALL_MAGIC == ecall->magic);
 
+	info("ecall(%p): flow(%p) closed user=%s err=%m\n", ecall, iflow,
+		anon_id(userid_anon, ecall->userid_self), err);
+
+	if (iflow == ecall->oldflow) {
+		struct iflow *oldflow = ecall->oldflow;
+
+		info("ecall(%p): %s oldflow: %p closed\n", ecall, __FUNCTION__, oldflow);
+		ecall->oldflow = NULL;
+		IFLOW_CALL(oldflow, close);
+		return;
+	}
 	if (iflow != ecall->flow) {
 		info("ecall(%p): ignoring %s on wrong flow\n", ecall, __FUNCTION__);
 		return;
 	}
-
-	info("ecall(%p): flow(%p) closed user=%s err=%m\n", ecall, iflow,
-		anon_id(userid_anon, ecall->userid_self), err);
 
 	enum econn_state state = econn_current_state(ecall->econn);
 	if (ECONN_ANSWERED == state && ETIMEDOUT == err &&
@@ -1368,11 +1463,64 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 }
 
 
+void propsync_get_states(struct econn_props *props,
+			 bool *vstate_present, 
+			 int  *vstate, 
+			 bool *muted_present,
+			 bool *muted)
+{
+	const char *vr;
+	const char *mt;
+
+	if (!props) {
+		return;
+	}
+
+	*vstate = ICALL_VIDEO_STATE_STOPPED;
+	*vstate_present = false;
+	*muted = 0;
+	*muted_present = false;
+
+	vr = econn_props_get(props, "videosend");
+	if (vr) {
+		*vstate_present = true;
+		if (strcmp(vr, "true") == 0) {
+			*vstate = ICALL_VIDEO_STATE_STARTED;
+		}
+		else if (strcmp(vr, "paused") == 0) {
+			*vstate = ICALL_VIDEO_STATE_PAUSED;
+		}
+	}
+
+	vr = econn_props_get(props, "screensend");
+	if (vr) {
+		*vstate_present = true;
+		if (strcmp(vr, "true") == 0) {
+			// screenshare overrides video started
+			*vstate = ICALL_VIDEO_STATE_SCREENSHARE;
+		}
+		else if (strcmp(vr, "paused") == 0 &&
+			ICALL_VIDEO_STATE_STARTED != *vstate) {
+			// video started overrides screenshare paused
+			*vstate = ICALL_VIDEO_STATE_PAUSED;
+		}
+	}
+    
+	mt = econn_props_get(props, "muted");
+	if (mt) {
+		*muted_present = true;
+		*muted = (strcmp(mt, "true") == 0);
+	}
+
+}
+
+
 static void propsync_handler(struct ecall *ecall)
 {
 	int vstate = ICALL_VIDEO_STATE_STOPPED;
 	bool vstate_present = false;
-	const char *vr;
+	bool muted = false;
+	bool muted_present = false;
 
 	if (!ecall) {
 		warning("ecall(%p): propsyc_handler ecall is NULL, "
@@ -1385,30 +1533,11 @@ static void propsync_handler(struct ecall *ecall)
 	info("ecall(%p): propsync_handler current recv_state %s\n",
 	     ecall, icall_vstate_name(ecall->video.recv_state));
 
-	vr = ecall_props_get_remote(ecall, "videosend");
-	if (vr) {
-		vstate_present = true;
-		if (strcmp(vr, "true") == 0) {
-			vstate = ICALL_VIDEO_STATE_STARTED;
-		}
-		else if (strcmp(vr, "paused") == 0) {
-			vstate = ICALL_VIDEO_STATE_PAUSED;
-		}
-	}
-
-	vr = ecall_props_get_remote(ecall, "screensend");
-	if (vr) {
-		vstate_present = true;
-		if (strcmp(vr, "true") == 0) {
-			// screenshare overrides video started
-			vstate = ICALL_VIDEO_STATE_SCREENSHARE;
-		}
-		else if (strcmp(vr, "paused") == 0 &&
-			ICALL_VIDEO_STATE_STARTED != vstate) {
-			// video started overrides screenshare paused
-			vstate = ICALL_VIDEO_STATE_PAUSED;
-		}
-	}
+	propsync_get_states(ecall->props_remote,
+			    &vstate_present,
+			    &vstate,
+			    &muted_present,
+			    &muted);
     
 	if (vstate_present && vstate != ecall->video.recv_state) {
 		info("ecall(%p): propsync_handler updating recv_state "
@@ -1416,13 +1545,32 @@ static void propsync_handler(struct ecall *ecall)
 		     ecall,
 		     icall_vstate_name(ecall->video.recv_state),
 		     icall_vstate_name(vstate));
+		
+		ecall->video.recv_state = vstate;
+
 		if (ecall->icall.vstate_changedh) {
 			ICALL_CALL_CB(ecall->icall, vstate_changedh,
 				      &ecall->icall, ecall->userid_peer,
 				      ecall->clientid_peer, vstate, ecall->icall.arg);
-			ecall->video.recv_state = vstate;
 		}
 	}
+
+	if (muted_present && muted != ecall->audio.remote_muted_state) {
+		info("ecall(%p): propsync_handler updating mute_state "
+		     "%s -> %s\n",
+		     ecall,
+		     muted ? "true" : "false",
+		     ecall->audio.remote_muted_state ? "true" : "false");
+		ecall->audio.remote_muted_state = muted;
+
+		ICALL_CALL_CB(ecall->icall, muted_changedh,
+			      &ecall->icall, 
+			      ecall->userid_peer,
+			      ecall->clientid_peer,
+			      muted ? 1 : 0,
+			      ecall->icall.arg);
+	}
+
 }
 
 
@@ -1444,6 +1592,10 @@ static int handle_propsync(struct ecall *ecall, struct econn_message *msg)
 		}
 	}
 
+	if (ecall->propsynch) {
+		return ecall->propsynch(ecall, msg, ecall->icall.arg);
+	}
+
 	if (msg->u.propsync.props) {
 		mem_deref(ecall->props_remote);
 		ecall->props_remote = mem_ref(msg->u.propsync.props);
@@ -1461,6 +1613,11 @@ static void data_channel_handler(struct iflow *iflow,
 {
 	struct ecall *ecall = arg;
 	struct econn_message *msg = 0;
+	char convid_anon[ANON_ID_LEN];
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	char dest_userid_anon[ANON_ID_LEN];
+	char dest_clientid_anon[ANON_CLIENT_LEN];
 	int err;
 
 	assert(ECALL_MAGIC == ecall->magic);
@@ -1482,6 +1639,15 @@ static void data_channel_handler(struct iflow *iflow,
 		warning("ecall: dc_recv: wrong transport for type %s\n",
 			econn_msg_name(msg->msg_type));
 	}
+
+	info("ecall(%p): dce_message_recv: convid=%s from=%s.%s to=%s.%s "
+	     "msg=%H\n",
+	     ecall, anon_id(convid_anon, ecall->convid),
+	     anon_id(dest_userid_anon, ecall->userid_peer),
+	     anon_client(dest_clientid_anon, ecall->clientid_peer),
+	     anon_id(userid_anon, ecall->userid_self),
+	     anon_client(clientid_anon, ecall->clientid_self),
+	     econn_message_print, msg);
 
 	ecall_trace(ecall, msg, false, ECONN_TRANSP_DIRECT,
 		    "DataChan %H\n", econn_message_brief, msg);
@@ -1577,10 +1743,13 @@ static void acbr_detect_handler(struct iflow *iflow,
 
 	cbr_enabled = (enabled != 0) && (remote_cbr && local_cbr);
 	if (enabled != ecall->audio.cbr_state) {
-		info("ecall(%p): acbrh(%p) lcbr=%s rcbr=%s cbr=%d\n", ecall,
-		     ecall->icall.acbr_changedh,
+		info("ecall(%p): acbrh(%p) enabled=%d "
+		     "lcbr=%s rcbr=%s cbr=%d\n",
+		     ecall, ecall->icall.acbr_changedh,
+		     enabled,
 		     local_cbr ? "true" : "false",
-		     remote_cbr ? "true" : "false", cbr_enabled);
+		     remote_cbr ? "true" : "false",
+		     cbr_enabled);
 
 		if (ecall->icall.acbr_changedh) {
 			ICALL_CALL_CB(ecall->icall, acbr_changedh,
@@ -1638,6 +1807,7 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 
 	err = iflow_alloc(&ecall->flow,
 			  ecall->convid,
+			  ecall->userid_self,
 			  ecall->conv_type,
 			  call_type,
 			  ecall->vstate,
@@ -1745,6 +1915,7 @@ int ecall_create_econn(struct ecall *ecall)
 	err = econn_alloc(&ecall->econn, &ecall->conf.econf,
 			  ecall->userid_self,
 			  ecall->clientid_self,
+			  ecall->sessid,
 			  &ecall->transp,
 			  econn_conn_handler,
 			  econn_answer_handler,
@@ -2064,6 +2235,106 @@ void ecall_end(struct ecall *ecall)
 }
 
 
+int icall_send_reject_msg(struct icall *icall,
+			  const struct list *clientl,
+			  const char *userid_local,
+			  const char *clientid_local)
+{
+	struct list targets = LIST_INIT;
+	struct le *le = NULL;
+	struct econn_message *msg = NULL;
+	int err = 0;
+
+	if (!icall || !clientl || !userid_local || !clientid_local)
+		return EINVAL;
+
+	info("icall(%p): send_reject_msg\n",
+	     icall);
+
+	LIST_FOREACH(clientl, le) {
+		struct icall_client *cli = le->data;
+		if (cli && strcaseeq(cli->userid, userid_local) &&
+		    !strcaseeq(cli->clientid, clientid_local)) {
+			struct icall_client *tgt;
+
+			tgt = icall_client_alloc(cli->userid,
+						 cli->clientid);
+			if (!tgt) {
+				warning("icall(%p): send_reject_msg "
+					"unable to alloc target\n", icall);
+				goto out;
+			}
+			list_append(&targets, &tgt->le, tgt);
+		}
+	}
+
+	info("icall(%p): send_reject_msg targets=%u\n",
+	     icall,
+	     list_count(&targets));
+
+	if (list_count(&targets) > 0) {
+
+	msg = econn_message_alloc();
+	if (!msg) {
+		err = ENOMEM;
+		goto out;
+	}
+
+	str_ncpy(msg->src_userid, userid_local, ECONN_ID_LEN);
+	str_ncpy(msg->src_clientid, clientid_local, ECONN_ID_LEN);
+	msg->msg_type = ECONN_REJECT;
+	msg->resp = false;
+
+	err = ICALL_CALL_CBE((*icall), sendh,
+			     icall,
+			     userid_local,
+			     msg, &targets, icall->arg);
+	}
+
+out:
+	mem_deref(msg);
+	list_flush(&targets);
+	return err;
+}
+
+
+void ecall_set_clients(struct ecall* ecall,
+		       struct list *clientl)
+{
+	int err = 0;
+
+	if (!ecall || !clientl)
+		return;
+
+	if (ecall->should_reject) {
+		ecall_end(ecall);
+		err = icall_send_reject_msg(&ecall->icall,
+					    clientl,
+					    ecall->userid_self,
+					    ecall->clientid_self);
+		ecall->should_reject = false;
+		if (err)
+			warning("ecall(%p): send_reject_message failed %m\n",
+				ecall, err);
+	}
+}
+
+
+void ecall_reject(struct ecall *ecall)
+{
+	char userid_anon[ANON_ID_LEN];
+	if (!ecall)
+		return;
+
+	info("ecall(%p): [self=%s] reject\n", ecall, anon_id(userid_anon, ecall->userid_self));
+
+	ecall->should_reject = true;
+	ICALL_CALL_CB(ecall->icall, req_clientsh,
+		      &ecall->icall, ecall->icall.arg);
+	
+}
+
+
 enum econn_state ecall_state(const struct ecall *ecall)
 {
 	if (!ecall)
@@ -2089,7 +2360,6 @@ struct econn *ecall_get_econn(const struct ecall *ecall)
 
 int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 {
-	bool active = false;
 	int err = 0;
 
 	if (!ecall)
@@ -2107,12 +2377,10 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 	case ICALL_VIDEO_STATE_STARTED:
 		vstate_string = "true";
 		sstate_string = "false";
-		active = true;
 		break;
 	case ICALL_VIDEO_STATE_SCREENSHARE:
 		vstate_string = "false";
 		sstate_string = "true";
-		active = true;
 		break;
 	case ICALL_VIDEO_STATE_PAUSED:
 		vstate_string = "paused";
@@ -2240,7 +2508,7 @@ int ecall_media_start(struct ecall *ecall)
 		econn_set_error(ecall->econn, err);
 		goto out;
 	}
-*/	info("ecall(%p): media started on ecall:%p\n", ecall, ecall);
+*/	info("ecall(%p): media started on flow:%p\n", ecall, ecall->flow);
 
 	tmr_cancel(&ecall->media_start_tmr);
 
@@ -2362,9 +2630,7 @@ int ecall_debug(struct re_printf *pf, const struct ecall *ecall)
 				  dce_status, peerflow_get_dce(ecall->flow));
 	}
 */
-	err = ecall_show_trace(pf, ecall);
-	if (err)
-		return err;
+	err |= ecall_show_trace(pf, ecall);
 
 	return err;
 }
@@ -2391,6 +2657,19 @@ int ecall_stats(struct re_printf *pf, const struct ecall *ecall)
 	jzon_print(pf, jfstats);
 
 	mem_deref(jfstats);
+	return err;
+}
+
+int ecall_set_sessid(struct ecall *ecall, const char *sessid)
+{
+	int err;
+
+	if (!ecall)
+		return EINVAL;
+
+	mem_deref(ecall->sessid);
+	err = str_dup(&ecall->sessid, sessid);
+
 	return err;
 }
 
@@ -2444,6 +2723,29 @@ const char *ecall_get_peer_clientid(const struct ecall *ecall)
 }
 
 
+int ecall_set_real_clientid(struct ecall *ecall, const char *clientid)
+{
+	char clientid_anon[ANON_CLIENT_LEN];
+	int err = 0;
+
+	if (!ecall)
+		return EINVAL;
+
+	ecall->clientid_real = mem_deref(ecall->clientid_real);
+	if (clientid) {
+		err = str_dup(&ecall->clientid_real, clientid);
+		if (err)
+			return err;
+
+		debug("ecall(%p): set_real_clientid %s\n", 
+			ecall,
+			anon_client(clientid_anon, clientid));
+	}
+
+	return err;
+}
+
+
 struct ecall *ecall_find_userclient(const struct list *ecalls,
 				    const char *userid,
 				    const char *clientid)
@@ -2482,6 +2784,19 @@ int ecall_restart(struct ecall *ecall, enum icall_call_type call_type)
 		warning("ecall(%p): restart: cannot restart in state: '%s'\n",
 			ecall, econn_state_name(state));
 		return EPROTO;
+	}
+
+	if (ecall->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
+		ICALL_CALL_CB(ecall->icall, closeh,
+			      &ecall->icall,
+			      EAGAIN,
+			      NULL,
+			      0,
+			      NULL,
+			      NULL, 
+			      ecall->icall.arg);
+			
+		return 0;
 	}
 
 	ecall->call_type = call_type;
@@ -2554,13 +2869,15 @@ static void quality_handler(void *arg)
 	struct iflow_stats stats;
 	int err = 0;
 
+	memset(&stats, 0, sizeof(stats));
+
 	tmr_start(&ecall->quality.tmr, ecall->quality.interval,
 		  quality_handler, arg);
 
 	if (!ecall->icall.qualityh || !ecall->flow)
 		return;
-	err  = IFLOW_CALLE(ecall->flow, get_stats,
-		&stats);
+	err = IFLOW_CALLE(ecall->flow, get_stats,
+			  &stats);
 	if (!err) {
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall, 
@@ -2590,10 +2907,52 @@ int ecall_set_quality_interval(struct ecall *ecall,
 	return 0;
 }
 
+int ecall_update_mute_state(const struct ecall *ecall)
+{
+	const char *muted_string;
+	bool muted;
+	int err = 0;
+	
+	if (!ecall) {
+		return EINVAL;
+	}
+
+	muted = msystem_get_muted();
+
+	muted_string = muted ? "true" : "false";
+	err = econn_props_update(ecall->props_local, "muted", muted_string);
+	if (err) {
+		warning("ecall(%p): econn_props_update(muted)",
+			" failed (%m)\n", ecall, err);
+		return err;
+	}
+
+	/* sync the properties to the remote peer */
+	if (!ecall->devpair
+	    && !ecall->update
+	    && econn_can_send_propsync(ecall->econn)) {
+		info("ecall(%p): update_mute_state: setting props "
+			"muted:%s\n",
+			ecall, muted_string);
+
+		err = econn_send_propsync(ecall->econn, false,
+					  ecall->props_local);
+		if (err) {
+			warning("ecall: update_mute_state: econn_send_propsync"
+				" failed (%m)\n",
+				err);
+			goto out;
+		}
+	}
+
+out:
+	return err;
+}
 
 int ecall_add_decoders_for_user(struct ecall *ecall,
 				const char *userid,
 				const char *clientid,
+				const char *userid_hash,
 				uint32_t ssrca,
 				uint32_t ssrcv)
 {
@@ -2608,7 +2967,7 @@ int ecall_add_decoders_for_user(struct ecall *ecall,
 	}
 
 	err = IFLOW_CALLE(ecall->flow, add_decoders_for_user,
-		userid, clientid, ssrca, ssrcv);
+		userid, clientid, userid_hash, ssrca, ssrcv);
 
 	return err;
 }
@@ -2626,14 +2985,27 @@ int ecall_remove_decoders_for_user(struct ecall *ecall,
 		return EINVAL;
 	}
 
-	if (ssrca ==0 && ssrcv == 0) {
+	if (ssrca == 0 && ssrcv == 0) {
 		return EINVAL;
 	}
 
-#if USE_AVSLIB
+#if 0
 	err = IFLOW_CALLE(ecall->flow, remove_decoders_for_user,
-		userid, clientid, ssrca, ssrcv);
+			  userid, clientid);
 #endif
+
+	return err;
+}
+
+int ecall_sync_decoders(struct ecall *ecall)
+{
+	int err;
+
+	if (!ecall)
+		return EINVAL;
+
+	err = IFLOW_CALLE(ecall->flow, sync_decoders);
+
 	return err;
 }
 

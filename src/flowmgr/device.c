@@ -71,6 +71,8 @@ int flowmgr_auplay_changed(struct flowmgr *fm, enum flowmgr_auplay aplay)
 
 #if USE_AVSLIB
 	err = voe_set_auplay(dev);
+#else
+	(void)dev;
 #endif
 
 	return err;

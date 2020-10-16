@@ -157,7 +157,7 @@ const char indices[] = {0, 1, 2, 3};
 #if DBG_BGCOLOR
 	glClearColor(_clearClr[0], _clearClr[1], _clearClr[2], _clearClr[3]);
 #else
-	glClearColor(0.0, 0.0, 0.0, 1.0);
+	glClearColor(0.0, 0.0, 0.0, 0.0);
 #endif
 	glClear(GL_COLOR_BUFFER_BIT);
 

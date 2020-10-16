@@ -1,0 +1,45 @@
+
+
+Changes introduced in AVS 6.2
+=============================
+
+In order to optimize sending key messages to multiple clients (but still targeted) the footprint of wcall_send_h/WcallSendHandler has changed:
+
+typedef int (wcall_send_h)(void *ctx, const char *convid,
+			   const char *userid_self, const char *clientid_self,
+			   const char *targets /*optional*/,
+			   const uint8_t *data, size_t len,
+			   int transient /*bool*/,
+			   void *arg);
+
+export type WcallSendHandler = (
+  ctx: number,
+  convid: string,
+  userid_self: string,
+  clientid_self: string,
+  targets: string | undefined,
+  data: string,
+  len: number,
+  trans: number,
+  arg: number
+) => number;
+
+The userid_dest and clientid_dest params have been replaced with a single targets string. The json string will contain a json object with the same format that is used for wcall_set_clients_for_conv, which is as follows:
+
+{
+  "clients": [
+    {"userid": "xxxx", "clientid" "xxxx"},
+    {"userid": "xxxx", "clientid" "xxxx"},
+    ...
+  ]
+}
+
+There is also an interface for web to aid conversion to objects:
+
+export interface WcallClient {
+  userid: string;
+  clientid: string;
+}
+
+The targets string is optional, if it is NULL/undefined you are to send to all clients in the conversation.
+

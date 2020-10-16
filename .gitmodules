@@ -19,3 +19,6 @@
 [submodule "contrib/sodium"]
 	path = contrib/sodium
 	url = https://github.com/jedisct1/libsodium.git
+[submodule "contrib/openssl"]
+	path = contrib/openssl
+	url = https://github.com/openssl/openssl.git

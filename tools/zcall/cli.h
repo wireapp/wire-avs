@@ -90,11 +90,15 @@ void user_close(void);
 /* Get your engine here.  */
 struct engine *zcall_engine;
 struct store *zcall_store;
+extern bool zcall_auto_answer;
+extern bool zcall_video;
+extern bool zcall_av_test;
 extern bool event_estab;
 extern int g_trace;
 extern bool g_ice_privacy;
 extern bool g_use_kase;
 extern bool g_use_conference;
+extern char *g_sft_url;
 #ifdef HAVE_CRYPTOBOX
 extern struct cryptobox *g_cryptobox;
 #endif

@@ -260,7 +260,7 @@ int engine_send_message(struct engine_conv *conv,
 	}
 	
 	/* Build the outer object */
-	err = jzon_add_str(jobj, "sender", sender_clientid);
+	err = jzon_add_str(jobj, "sender", "%s", sender_clientid);
 	if (err)
 		goto out;
 
@@ -322,6 +322,9 @@ int engine_send_data(struct engine_conv *conv, const char *ctype,
 		    conv->id, dgst64, dgst64_len);
 
 	err = rest_req_add_header(rr, "Content-Disposition: %s\r\n", disp);
+	if (err)
+		goto out;
+
 	err = rest_req_add_body_raw(rr, ctype, data, len);
 	if (err)
 		goto out;

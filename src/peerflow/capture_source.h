@@ -50,6 +50,14 @@ public:
 
 	bool GetStats(Stats* stats) { return false; }
 
+	bool SupportsEncodedOutput() const { return false; }
+
+	void GenerateKeyFrame() {}
+
+	void AddEncodedSink(rtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>* sink) {}
+
+	void RemoveEncodedSink(rtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>* sink) {}
+
 private:
 	CaptureSource();
 	~CaptureSource();

@@ -1048,6 +1048,16 @@ out:
     return ret;
 }
 
+- (void) setPreviewShouldFill:(BOOL)fill
+{
+	_capturer.previewShouldFill = fill;
+}
+
+- (BOOL) previewShouldFill
+{
+	return _capturer.previewShouldFill;
+}
+
 @end
 
 

@@ -157,6 +157,7 @@ static void find_res(struct vocoder_effect *ve, int16_t x[], int L, int16_t res[
     memcpy(a, A, Z_REST_LPC_ORDER*sizeof(silk_float));
     
     memmove(&ve->rest.buf[0], &ve->rest.buf[L], ((PROC_FS_KHZ*Z_REST_BUF_SZ_MS) - L)*sizeof(int16_t));
+    (void)res_nrg;
 #else
     opus_int16 Wsig[16*Z_REST_BUF_SZ_MS];
     opus_int16 res_buf[16*Z_REST_BUF_SZ_MS];
@@ -222,6 +223,7 @@ static void find_res(struct vocoder_effect *ve, int16_t x[], int L, int16_t res[
     }
     
     memmove(&ve->rest.buf[0], &ve->rest.buf[L], ((PROC_FS_KHZ*Z_REST_BUF_SZ_MS) - L)*sizeof(int16_t));
+    (void)res_nrg;
 #endif
 }
 

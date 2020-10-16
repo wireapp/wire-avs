@@ -22,17 +22,47 @@
 
 #include "avs_peerflow.h"
 
-#include "sdp.h"
+enum {
+      AUDIO_ONEONE_BANDWIDTH = 50,
+      AUDIO_GROUP_BANDWIDTH = 32,
+      VIDEO_ONEONE_BANDWIDTH = 800,
+      VIDEO_GROUP_BANDWIDTH = 300,
+};
+      
 
 struct norelay_elem {
 	peerflow_norelay_h *h;
 };
 
+struct conv_sdp {
+	struct sdp_media *sdpm;
+	enum icall_conv_type conv_type;
+};
+
+void sdp_safe_session_set_lattr(struct sdp_session *sess, bool replace,
+				const char *name, const char *value)
+{
+	if (value && *value != '\0')
+		sdp_session_set_lattr(sess, replace, name, "%s", value);
+	else
+		sdp_session_set_lattr(sess, replace, name, "");
+}
+
+void sdp_safe_media_set_lattr(struct sdp_media *sdpm, bool replace,
+			const char *name, const char *value)
+{
+	if (value && *value != '\0')
+		sdp_media_set_lattr(sdpm, replace, name, "%s", value);
+	else
+		sdp_media_set_lattr(sdpm, replace, name, "");
+}
+
+
 static bool sess_rattr_handler(const char *name, const char *value, void *arg)
 {
 	struct sdp_session *sess = (struct sdp_session *)arg;
 
-	sdp_session_set_lattr(sess, false, name, value);
+	sdp_safe_session_set_lattr(sess, false, name, value);
 
 	return false;
 }
@@ -53,21 +83,24 @@ static bool fmt_handler(struct sdp_format *fmt, void *arg)
 		if (streq(fmt->name, "opus")) {
 			sdp_format_add(NULL, sdpm, false,
 				       fmt->id, fmt->name, fmt->srate, fmt->ch,
-				       NULL, NULL, NULL, false, fmt->params);
+				       NULL, NULL, NULL, false,
+				       "%s", fmt->params);
 		}
 	}
 	else if (streq(sdp_media_name(sdpm), "video")) {
 		if (strcaseeq(fmt->name, "vp8")) {
 			sdp_format_add(NULL, sdpm, false,
 				       fmt->id, fmt->name, fmt->srate, fmt->ch,
-				       NULL, NULL, NULL, false, fmt->params);
+				       NULL, NULL, NULL, false,
+				       "%s", fmt->params);
 		}
 	}
 	else if (streq(sdp_media_name(sdpm), "application")) {
 
 		sdp_format_add(NULL, sdpm, false,
-				       fmt->id, fmt->name, fmt->srate, fmt->ch,
-				       NULL, NULL, NULL, false, fmt->params);
+			       fmt->id, fmt->name, fmt->srate, fmt->ch,
+			       NULL, NULL, NULL, false,
+			       "%s", fmt->params);
 	}
 
 	return false;
@@ -88,20 +121,34 @@ static bool has_payload(int pt, struct sdp_media *sdpm)
 
 static bool media_rattr_handler(const char *name, const char *value, void *arg)
 {
-	struct sdp_media *sdpm = (struct sdp_media *)arg;
-	
-	if (streq(name, "rtcp-fb")) {
+	struct conv_sdp *csdp = (struct conv_sdp *)arg;
+	struct sdp_media *sdpm = csdp->sdpm;
+
+	if (streq(name, "extmap")) {
+		int xid;
+		char rval[256];
+			
+		sscanf(value, "%d %255s", &xid, rval);
+
+		if (strstr(rval, "generic-frame-descriptor")) {
+			if (csdp->conv_type != ICALL_CONV_TYPE_CONFERENCE)
+				return false;
+		}
+		if (xid > 0)
+			sdp_safe_media_set_lattr(sdpm, false, name, value);
+	}
+	else if (streq(name, "rtcp-fb")) {
 		int pt;
 		char rval[256];
-
-		sscanf(value, "%d %s", &pt, rval);
+		
+		sscanf(value, "%d %255s", &pt, rval);
 		if (has_payload(pt, sdpm))
-			sdp_media_set_lattr(sdpm, false, name, value);
+			sdp_safe_media_set_lattr(sdpm, false, name, value);
 		else
 			return false;
 	}
 	else {
-		sdp_media_set_lattr(sdpm, false, name, value);
+		sdp_safe_media_set_lattr(sdpm, false, name, value);
 	}
 			
 	return false;
@@ -110,6 +157,7 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 
 
 static int sdp_dup_int(struct sdp_session **sessp,
+		enum icall_conv_type conv_type,
 		const char *sdp,
 		bool offer,
 		bool strip_video)
@@ -149,6 +197,7 @@ static int sdp_dup_int(struct sdp_session **sessp,
 		const char *mname = sdp_media_name(sdpm);
 		enum sdp_dir rdir;
 		int rport;
+		struct conv_sdp csdp;
 
 		rport = sdp_media_rport(sdpm);
 		sdp_media_add(NULL, sess, mname,
@@ -161,12 +210,14 @@ static int sdp_dup_int(struct sdp_session **sessp,
 		sdp_media_format_apply(sdpm, false, NULL, -1, NULL,
 				       -1, -1, fmt_handler, sdpm);
 
+		csdp.sdpm = sdpm;
+		csdp.conv_type = conv_type;
 		sdp_media_rattr_apply(sdpm, NULL,
-				      media_rattr_handler, sdpm);
+				      media_rattr_handler, &csdp);
+		sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS,
+				 sdp_media_rbandwidth(sdpm, SDP_BANDWIDTH_AS));
 
 		rdir = sdp_media_rdir(sdpm); 
-		debug("sdp_dup: strip_video=%d mname=%s rdir=%s\n",
-		      strip_video, mname, sdp_dir_name(rdir));
 		if (strip_video) {
 			if (streq(mname, "video")) {
 				if (rdir == SDP_SENDONLY) 
@@ -194,10 +245,11 @@ static int sdp_dup_int(struct sdp_session **sessp,
 }
 
 int sdp_dup(struct sdp_session **sessp,
+	    enum icall_conv_type conv_type,
 	    const char *sdp,
 	    bool offer)
 {
-	return sdp_dup_int(sessp, sdp, offer, false);
+	return sdp_dup_int(sessp, conv_type, sdp, offer, false);
 }
 
 
@@ -218,15 +270,19 @@ const char *sdp_modify_offer(struct sdp_session *sess,
 
 		if (streq(sdp_media_name(sdpm), "video")) {
 			uint32_t bw = conv_type == ICALL_CONV_TYPE_ONEONONE ?
-				800 : 300;
+				VIDEO_ONEONE_BANDWIDTH : VIDEO_GROUP_BANDWIDTH;
+
 			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, bw);
 		}
 		else if (streq(sdp_media_name(sdpm), "audio")) {
-			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, 50);
+			uint32_t bw = conv_type == ICALL_CONV_TYPE_ONEONONE ?
+				AUDIO_ONEONE_BANDWIDTH : AUDIO_GROUP_BANDWIDTH;
+			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, bw);
 
 			if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
 
-				info("sdp_modify_offer: group mode, setting ptime\n");
+				info("sdp_modify_offer: group mode, "
+				     "setting ptime\n");
 				sdp_media_set_lattr(sdpm, true, "ptime", "40");
 			}
 
@@ -283,21 +339,27 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 		
 		if (streq(sdp_media_name(sdpm), "video")) {
 			uint32_t bw = conv_type == ICALL_CONV_TYPE_ONEONONE ?
-				800 : 300;
+				VIDEO_ONEONE_BANDWIDTH : VIDEO_GROUP_BANDWIDTH;
 			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, bw);
 		}
 		else if (streq(sdp_media_name(sdpm), "audio")) {
-			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, 50);
+			uint32_t bw = conv_type == ICALL_CONV_TYPE_ONEONONE ?
+				AUDIO_ONEONE_BANDWIDTH : AUDIO_GROUP_BANDWIDTH;
+			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, bw);
 
 			if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
 				const struct list *fmtl;
 				struct le *fle;
 
-				debug("sdp_modify_answer: group mode setting ptime and dtx\n", audio_cbr);				
+				debug("sdp_modify_answer: group mode setting "
+				      "ptime and dtx\n", audio_cbr);
+
 				sdp_media_set_lattr(sdpm, true, "ptime", "40");
-				fmtl = sdp_media_format_lst(sdpm, true);				
+				fmtl = sdp_media_format_lst(sdpm, true);
+
 				LIST_FOREACH(fmtl, fle) {
-					struct sdp_format *fmt = (struct sdp_format *)fle->data;
+					struct sdp_format *fmt =
+						(struct sdp_format *)fle->data;
 					char *params;
 
 					str_dup(&params, fmt->params);
@@ -397,15 +459,16 @@ void sdp_check(const char *sdp,
 	mem_deref(rsess);
 }
 
-int sdp_strip_video(char **sdp, const char *osdp)
+int sdp_strip_video(char **sdp, enum icall_conv_type conv_type,
+		    const char *osdp)
 {
-	struct sdp_session *sess;
+	struct sdp_session *sess = NULL;
 	int err = 0;
 
 	if (!sdp)
 		return EINVAL;
 
-	err = sdp_dup_int(&sess, osdp, true, true);
+	err = sdp_dup_int(&sess, conv_type, osdp, true, true);
 	if (!err) {		
 		*sdp = (char *)sdp_sess2str(sess);
 	}
@@ -413,3 +476,4 @@ int sdp_strip_video(char **sdp, const char *osdp)
 
 	return err;
 }
+

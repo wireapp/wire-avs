@@ -233,8 +233,7 @@ void *fake_audiodevice::record_thread()
 		}
                 
 		if(audioCallback_) {
-			int32_t ret;
-			ret = audioCallback_->RecordedDataIsAvailable(
+			audioCallback_->RecordedDataIsAvailable(
 					(void*)audio_buf,
 					FRAME_LEN, 2, 1, FS_KHZ*1000, 0, 0,
 					currentMicLevel, false, newMicLevel);
@@ -279,9 +278,7 @@ void *fake_audiodevice::playout_thread()
 		timeradd(&next_io_time, &delta, &next_io_time);
 
 		if(audioCallback_) {
-			int32_t ret;
-
-			ret = audioCallback_->NeedMorePlayData(
+			audioCallback_->NeedMorePlayData(
 					FRAME_LEN, 2, 1, FS_KHZ*1000,
 					(void*)audio_buf, nSamplesOut,
 					&elapsed_time_ms, &ntp_time_ms);

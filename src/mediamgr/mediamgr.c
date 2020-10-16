@@ -1410,8 +1410,10 @@ static void audio_alloc(struct mm *mm)
 		return;
 	}
 
+#if ENABLE_AUDIO_IO
 	info("mediamgr: allocating audio\n");
 	err = audio_io_alloc(&mm->aio, AUDIO_IO_MODE_NORMAL);
+#endif
 	if (err) {
 		/* if we fail to alloc audio, we need to fail the call */
 		warning("mediamgr: audio_alloc: failed to alloc audio\n");
@@ -1465,9 +1467,11 @@ static void audio_reset(struct mm *mm)
 	info("mediamgr: audio_reset: aio=%p\n", mm->aio);
 
 	if (mm->aio) {
-		int res;
+		int res = 0;
 
+#if ENABLE_AUDIO_IO
 		res = audio_io_reset(mm->aio);
+#endif
 		if (res < 0) {
 			warning("mediamgr: audio_reset failed\n");
 

@@ -67,6 +67,7 @@ void econn_message_reset(struct econn_message *msg)
 	case ECONN_GROUP_SETUP:
 		msg->u.setup.sdp_msg = mem_deref(msg->u.setup.sdp_msg);
 		msg->u.setup.props = mem_deref(msg->u.setup.props);
+		msg->u.setup.url = mem_deref(msg->u.setup.url);
 		break;
 
 	case ECONN_PROPSYNC:
@@ -94,6 +95,10 @@ void econn_message_reset(struct econn_message *msg)
 		break;
 
 	case ECONN_CONF_CONN:
+		msg->u.confconn.turnv = mem_deref(msg->u.confconn.turnv);
+		msg->u.confconn.turnc = 0;
+		msg->u.confconn.tool = mem_deref(msg->u.confconn.tool);
+		msg->u.confconn.toolver = mem_deref(msg->u.confconn.toolver);
 		break;
 
 	case ECONN_CONF_START:
@@ -102,15 +107,21 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.confstart.secret = mem_deref(msg->u.confstart.secret);
 		break;
 
+	case ECONN_CONF_CHECK:
+		msg->u.confcheck.sft_url = mem_deref(msg->u.confcheck.sft_url);
+		msg->u.confcheck.secret = mem_deref(msg->u.confcheck.secret);
+		break;
+
 	case ECONN_CONF_PART:
 		list_flush(&msg->u.confpart.partl);
+		msg->u.confpart.entropy = mem_deref(msg->u.confpart.entropy);
 		break;
 
 	case ECONN_CONF_END:
 		break;
 
 	case ECONN_CONF_KEY:
-		msg->u.confkey.keydata = mem_deref(msg->u.confkey.keydata);
+		list_flush(&msg->u.confkey.keyl);
 		break;
 		
 
@@ -135,7 +146,7 @@ int econn_message_print(struct re_printf *pf, const struct econn_message *msg)
 	if (!msg)
 		return 0;
 
-	err = re_hprintf(pf, "%s | %s | sessid_sender=%s\n",
+	err = re_hprintf(pf, "%s | %s | sessid_sender=%s",
 			 econn_msg_name(msg->msg_type),
 			 msg->resp ? "Response" : "Request",
 			 msg->sessid_sender);
@@ -143,7 +154,7 @@ int econn_message_print(struct re_printf *pf, const struct econn_message *msg)
 	switch (msg->msg_type) {
 
 	case ECONN_SETUP:
-		err |= re_hprintf(pf, "sdp: \"%s\"\n",
+		err |= re_hprintf(pf, "\nsdp: \"%s\"\n",
 				  msg->u.setup.sdp_msg);
 		break;
 
@@ -156,9 +167,28 @@ int econn_message_print(struct re_printf *pf, const struct econn_message *msg)
 	case ECONN_REJECT:
 		break;
 
+	case ECONN_CONF_PART:
+		err |= re_hprintf(pf, " ts: %u.%u\n",
+				  msg->u.confpart.timestamp,
+				  msg->u.confpart.seqno);
+		break;
+
+	case ECONN_CONF_START:
+		err |= re_hprintf(pf, " ts: %u.%u\n",
+				  msg->u.confstart.timestamp,
+				  msg->u.confstart.seqno);
+		break;
+
+	case ECONN_CONF_CHECK:
+		err |= re_hprintf(pf, " ts: %u.%u\n",
+				  msg->u.confcheck.timestamp,
+				  msg->u.confcheck.seqno);
+		break;
+
 	default:
 		break;
 	}
+	err |= re_hprintf(pf, "\n");
 
 	return err;
 }

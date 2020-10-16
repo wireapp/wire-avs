@@ -46,6 +46,9 @@ struct msystem {
 	bool crypto_kase;
 	char ifname[256];
 
+	char version[256];
+	char project[256];
+
 	struct list mutel;
 
 	struct msystem_proxy *proxy;
@@ -79,6 +82,40 @@ int msystem_get_env(void)
 {
 	return msys_env;
 }
+
+void msystem_set_version(const char *ver)
+{
+	if (!g_msys)
+		return;
+
+	str_ncpy(g_msys->version, ver, sizeof(g_msys->version));
+}
+
+const char *msystem_get_version(void)
+{
+	if (!g_msys)
+		return NULL;
+
+	return g_msys->version[0] == '\0' ? NULL : g_msys->version;
+}
+
+void msystem_set_project(const char *proj)
+{
+	if (!g_msys)
+		return;
+
+	str_ncpy(g_msys->project, proj, sizeof(g_msys->project));
+}
+
+const char *msystem_get_project(void)
+{
+	if (!g_msys)
+		return NULL;
+
+	return g_msys->project[0] == '\0' ? NULL : g_msys->project;
+}
+
+
 
 static void msystem_destructor(void *data)
 {

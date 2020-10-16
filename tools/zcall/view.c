@@ -136,3 +136,10 @@ void size_handler(int w,
 	info("size_handler: video size for %s changed to %dx%d\n", userid, w, h);
 }
 
+void view_show_mute(bool muted)
+{
+	if (_view) {
+		_view->view_show_mute(muted);
+	}
+}
+

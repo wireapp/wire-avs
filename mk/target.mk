@@ -239,7 +239,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := m79.7
+WEBRTC_VER := 20200603.12
 endif
 
 JAVAC := javac
@@ -261,7 +261,10 @@ CPPFLAGS += \
 	 -DSSL_USE_OPENSSL -DFEATURE_ENABLE_SSL -D__STDC_FORMAT_MACROS=1 \
 	 -DAVS_VERSION='"$(AVS_VERSION)"' -DAVS_PROJECT='"$(AVS_PROJECT)"' \
 	 -DAVS_OS='"$(AVS_OS)"' -DAVS_ARCH='"$(AVS_ARCH)"' \
-	 -I$(BUILD_TARGET)/include -Iinclude \
+	 -I$(BUILD_TARGET)/include -Iinclude
+
+ifeq ($(HAVE_WEBRTC),1)
+CPPFLAGS += \
 	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include \
 	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/sdk/objc \
 	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/sdk/objc/base \
@@ -271,10 +274,11 @@ CPPFLAGS += \
 	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/third_party/opus/src/include \
 	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/third_party/opus/src/celt \
 	 -I$(CONTRIB_BASE)/webrtc/$(WEBRTC_VER)/include/third_party/opus/src/silk
+endif
 
 CXXFLAGS += \
          -fvisibility=hidden -fno-rtti -ffunction-sections -fdata-sections \
-	-Os -g -std=c++11
+	-Os -g -std=c++14
 
 ifeq ($(ENABLE_COVERAGE),1)
 CFLAGS += -fprofile-instr-generate -fcoverage-mapping

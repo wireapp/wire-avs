@@ -23,13 +23,27 @@
 struct call_config {
 	struct zapi_ice_server *iceserverv;
 	size_t iceserverc;
-	char *sft_url;
+	struct zapi_ice_server *sftserverv;
+	size_t sftserverc;
+	struct zapi_ice_server *sfticeserverv;
+	size_t sfticeserverc;
 };
+
 
 typedef int (config_req_h)(void *arg);
 typedef void (config_update_h)(struct call_config *config, void *arg);
 
 struct config;
+
+struct config_update_elem {
+	config_update_h *updh;
+	void *arg;
+
+	/* Internal use */
+	struct config *cfg;
+	struct le le;
+};
+
 
 int  config_alloc(struct config **cfgp,
 		  config_req_h *reqh, config_update_h *updh, void *arg);
@@ -37,9 +51,17 @@ int  config_update(struct config *cfg, int err,
 		   const char *conf_json, size_t len);
 int  config_start(struct config *cfg);
 void config_stop(struct config *cfg);
+int  config_request(struct config *cfg);
+int  config_register_update_handler(struct config_update_elem *upe, struct config *cfg);
+int  config_unregister_update_handler(struct config_update_elem *upe);
+int  config_unregister_all_updates(struct config *cfg, void *arg);
 
 struct zapi_ice_server *config_get_iceservers(struct config *cfg,
 					      size_t *count);
 
-const char *config_get_sft_url(struct config *cfg);
+struct zapi_ice_server *config_get_sftservers(struct config *cfg,
+					      size_t *count);
+
+struct zapi_ice_server *config_get_sfticeservers(struct config *cfg,
+						 size_t *count);
 

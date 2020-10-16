@@ -16,33 +16,21 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+struct frame_decryptor;
 
-#include <re.h>
-#include <avs.h>
-#include "frame_hdr.h"
+int frame_decryptor_alloc(struct frame_decryptor **pdec,
+			  const char *userid_hash,
+			  enum frame_media_type mtype);
 
-#define HDR_MAGIC 0x4546524D
+int frame_decryptor_set_keystore(struct frame_decryptor *dec,
+				 struct keystore *keystore);
 
-void frame_hdr_init(struct frame_hdr *hdr, uint32_t key, uint32_t psize)
-{
-	hdr->magic = htonl(HDR_MAGIC);
-	hdr->key = htonl(key);
-	hdr->psize = htonl(psize);
-}
+int frame_decryptor_decrypt(struct frame_decryptor *dec,
+			    const uint8_t *src,
+			    size_t srcsz,
+			    uint8_t *dst,
+			    size_t *dstsz);
 
-bool frame_hdr_check_magic(struct frame_hdr *hdr)
-{
-	return ntohl(hdr->magic) == HDR_MAGIC;
-}
-
-uint32_t frame_hdr_get_key(struct frame_hdr *hdr)
-{
-	return ntohl(hdr->key);
-}
-
-uint32_t frame_hdr_get_psize(struct frame_hdr *hdr)
-{
-	return ntohl(hdr->psize);
-}
-
+size_t frame_decryptor_max_size(struct frame_decryptor *dec,
+				size_t srcsz);
 

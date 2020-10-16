@@ -105,11 +105,16 @@
 		});
 	}
 
-	if (![self.delegate canStartPlayingMedia:self])
+	if (![self.delegate canStartPlayingMedia:self]) {
+		warning("AVSSound: cannot start playing media: %s\n",
+			[self.name UTF8String]);
 		return;
+	}
 	
 	dispatch_sync(dispatch_get_main_queue(), ^{
 		[self.player setCurrentTime:0];
+		self.player.volume = 1.0f;
+		self.player.pan = 0.0f;
 		[self.player play];
 	});
 

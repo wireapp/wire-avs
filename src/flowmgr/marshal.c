@@ -263,6 +263,7 @@ int marshal_flowmgr_alloc(struct flowmgr **fmp, flowmgr_req_h *reqh,
 
 	me.a.id = MARSHAL_ALLOC;
 	me.a.fm = NULL;
+	me.a.ret = 0;
 
 	me.reqh = reqh;
 	me.errh = errh;
@@ -284,6 +285,7 @@ int marshal_flowmgr_start(void)
 
 	me.id = MARSHAL_START;
 	me.fm = NULL;
+	me.ret = 0;
 
 	marshal_send(&me);
 
@@ -309,6 +311,7 @@ int marshal_flowmgr_auplay_changed(struct flowmgr *fm,
 
 	me.a.id = MARSHAL_AUPLAY;
 	me.a.fm = fm;
+	me.a.ret = 0;
 
 	me.aplay = aplay;
 	
@@ -337,6 +340,7 @@ int marshal_flowmgr_can_send_video(struct flowmgr *fm, const char *convid)
 
 	me.a.id = MARSHAL_CAN_SEND_VIDEO;
 	me.a.fm = fm;
+	me.a.ret = 0;
 
 	me.convid = convid;
 
@@ -352,6 +356,7 @@ int marshal_flowmgr_is_sending_video(struct flowmgr *fm,
 
 	me.a.id = MARSHAL_IS_SENDING_VIDEO;
 	me.a.fm = fm;
+	me.a.ret = 0;
 
 	me.convid = convid;
 	me.partid = partid;

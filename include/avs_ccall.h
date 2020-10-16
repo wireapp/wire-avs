@@ -38,9 +38,11 @@ int ccall_alloc(struct ccall **ccallp,
 
 struct icall *ccall_get_icall(struct ccall* ccall);
 
+int ccall_set_config(struct ccall *ccall, struct config *cfg);
+
 int  ccall_add_turnserver(struct icall *icall, struct zapi_ice_server *srv);
 
-int  ccall_set_sft(struct icall *icall, const char *sft_url);
+int  ccall_add_sft(struct icall *icall, const char *sft_url);
 
 int  ccall_start(struct icall *icall,
 		 enum icall_call_type call_type,
@@ -52,6 +54,8 @@ int  ccall_answer(struct icall *icall,
 
 void ccall_end(struct icall *icall);
 
+void ccall_reject(struct icall *icall);
+
 int  ccall_media_start(struct icall *icall);
 
 void ccall_media_stop(struct icall *icall);
@@ -61,6 +65,8 @@ int  ccall_set_vstate(struct icall *icall, enum icall_vstate state);
 int  ccall_get_members(struct icall *icall, struct wcall_members **mmp);
 
 int  ccall_set_quality_interval(struct icall *icall, uint64_t interval);
+
+int  ccall_update_mute_state(const struct icall* icall);
 
 int  ccall_msg_recv(struct icall* icall,
 		    uint32_t curr_time,
@@ -73,9 +79,10 @@ int  ccall_sft_msg_recv(struct icall* icall,
 			int status,
 		        struct econn_message *msg);
 
-void ccall_set_clients(const struct icall* icall, struct list *clientl);
+void ccall_set_clients(struct icall* icall, struct list *clientl);
+
+int  ccall_stats(struct re_printf *pf, const struct icall *icall);
 
 int  ccall_debug(struct re_printf *pf, const struct icall* icall);
 
 const char *ccall_state_name(enum ccall_state state);
-

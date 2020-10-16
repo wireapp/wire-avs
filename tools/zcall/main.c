@@ -57,6 +57,9 @@ struct store *zcall_store = NULL;
 bool zcall_pending_nw_change = false;
 bool zcall_audio_cbr = false;
 bool zcall_force_audio = false;
+bool zcall_auto_answer = false;
+bool zcall_video = false;
+bool zcall_av_test = false;
 static uint64_t ts_start;
 bool event_estab = false;
 int g_trace = 0;
@@ -114,6 +117,9 @@ static void usage(void)
 				 DEFAULT_STORE_DIR
 				 "\n");
 	(void)re_fprintf(stderr, "URLs default to regular backend.\n");
+	(void)re_fprintf(stderr, "\t-W             Enable video for calls\n");
+	(void)re_fprintf(stderr, "\t-Z             Auto-answer incoming "
+			 "calls\n");
 }
 
 
@@ -382,7 +388,6 @@ int main(int argc, char *argv[])
 	char log_file_name[100];
 	int err = 0;
 	bool clear_cookies = false;
-	int enable_av_test = 0;
 	uint16_t rest_lport = 0;
 	bool rest_lport_set = false;
 	bool do_login = false;
@@ -403,7 +408,7 @@ int main(int argc, char *argv[])
 
 	for (;;) {
 		const int c = getopt(argc, argv,
-				     "c:ABCdDe:fhiIsl:m:n:p:P:q:r:tTV:KG");
+				     "c:ABCdDe:fhiIsl:m:n:p:P:q:r:tTV:KGWZ");
 		if (c < 0)
 			break;
 
@@ -446,9 +451,19 @@ int main(int argc, char *argv[])
 			flush = true;
 			break;
 
+		case 'G':
+#if ENABLE_CONFERENCE_CALLS
+			g_use_conference = true;
+#endif
+			break;
+
 		case 'i':
 			re_printf("enable ICE privacy\n");
 			g_ice_privacy = true;
+			break;
+
+		case 'K':
+			g_use_kase = false;
 			break;
 
 		case 'l':
@@ -484,26 +499,31 @@ int main(int argc, char *argv[])
 			trace_stdout = true;
 			break;
 
+		case 'S':
+#if ENABLE_CONFERENCE_CALLS
+			str_dup(&g_sft_url, optarg);
+#endif
+			break;
+
 		case 't':
 			++g_trace;
 			break;
 
 		case 'T':
-			enable_av_test = 1;
+			zcall_av_test = true;
 			break;
                 
 		case 'V':
 			str_dup(&zcall_vfile, optarg);
 			break;
-                
-		case 'K':
-			g_use_kase = false;
+
+
+		case 'W':
+			zcall_video = true;
 			break;
 
-		case 'G':
-#if ENABLE_CONFERENCE_CALLS
-			g_use_conference = true;
-#endif
+		case 'Z':
+			zcall_auto_answer = true;
 			break;
 
 		case '?':
@@ -582,7 +602,8 @@ int main(int argc, char *argv[])
 
 	info("libre inited (%s)\n", sys_libre_version_get());
     
-	err = avs_init(AVS_FLAG_EXPERIMENTAL | (enable_av_test * AVS_FLAG_AUDIO_TEST));
+	err = avs_init(AVS_FLAG_EXPERIMENTAL
+		       | (zcall_av_test ? AVS_FLAG_AUDIO_TEST : 0));
 	if (err) {
 		(void)re_fprintf(stderr, "avs init failed: %m\n", err);
 		goto out;
@@ -685,7 +706,7 @@ int main(int argc, char *argv[])
 
 	wcall_set_video_handlers(render_handler, size_handler, NULL);
 
-	view_init(enable_av_test);
+	view_init(zcall_av_test);
 	runloop_start();
 
 	re_main(signal_handler);

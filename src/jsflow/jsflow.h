@@ -61,8 +61,14 @@ int jsflow_gather_all_turn(struct iflow *iflow, bool offer);
 int jsflow_add_decoders_for_user(struct iflow *iflow,
 				   const char *userid,
 				   const char *clientid,
+				   const char *userid_hash,
 				   uint32_t ssrca,
 				   uint32_t ssrcv);
+int jsflow_remove_decoders_for_user(struct iflow *iflow,
+				    const char *userid,
+				    const char *clientid);
+	int jsflow_sync_decoders(struct iflow *iflow);
+	
 
 void jsflow_stop_media(struct iflow *iflow);
 void jsflow_close(struct iflow *iflow);

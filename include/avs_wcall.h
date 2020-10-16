@@ -39,6 +39,7 @@ struct wcall_member {
 	char *clientid;
 	int audio_state;
 	int video_recv;
+	int muted;
 };
 
 struct wcall_members {
@@ -46,6 +47,10 @@ struct wcall_members {
 	size_t membc;
 };
 
+struct wcall_client {
+	char *userid;
+	char *clientid;
+};
 
 /* Returns a constant string of the current AVS library version in the
  * format <major>.<minor>.<build> e.g. 5.1.25 for a 5.1 build,
@@ -64,8 +69,8 @@ typedef void (wcall_shutdown_h)(WUSER_HANDLE wuser, void *arg);
 /* Send calling message otr data */
 typedef int (wcall_send_h)(void *ctx, const char *convid,
 			   const char *userid_self, const char *clientid_self,
-			   const char *userid_dest /*optional*/,
-			   const char *clientid_dest /*optional*/,
+			   const char *targets /*optional*/,
+			   const char *unused /*optional*/,
 			   const uint8_t *data, size_t len,
 			   int transient /*bool*/,
 			   void *arg);
@@ -80,6 +85,7 @@ typedef void (wcall_incoming_h)(const char *convid, uint32_t msg_time,
 				const char *userid, const char *clientid,
 				int video_call /*bool*/,
 				int should_ring /*bool*/,
+				int conv_type, /*WCALL_CONV_TYPE...*/
 				void *arg);
 
 /* Missed Incoming call */
@@ -163,7 +169,8 @@ typedef void (wcall_mute_h)(int muted, void *arg);
 #define WCALL_REASON_TIMEOUT_ECONN      8
 #define WCALL_REASON_DATACHANNEL        9
 #define WCALL_REASON_REJECTED          10
-    
+#define WCALL_REASON_OUTDATED_CLIENT   11
+
 const char *wcall_reason_name(int reason);
 
 
@@ -184,7 +191,9 @@ typedef void (wcall_metrics_h)(const char *convid,
 #define WCALL_LOG_LEVEL_WARN  2
 #define WCALL_LOG_LEVEL_ERROR 3
 
-typedef void (wcall_log_h)(int level, const char *msg, void *arg);
+typedef void (wcall_log_h)(int level,
+			   const char *msg,
+			   void *arg /*any*/);
 
 /* Audio call-progress states */
 /* Audio is in the proess of connecting */	
@@ -266,6 +275,7 @@ WUSER_HANDLE wcall_create(const char *userid,
 			  const char *clientid,
 			  wcall_ready_h *readyh,
 			  wcall_send_h *sendh,
+			  wcall_sft_req_h *sfth,
 			  wcall_incoming_h *incomingh,
 			  wcall_missed_h *missedh,
 			  wcall_answered_h *answerh,
@@ -465,7 +475,8 @@ struct mediamgr *wcall_mediamgr(WUSER_HANDLE wuser);
 
 void wcall_handle_frame(struct avs_vidframe *frame);
 
-typedef void (wcall_req_clients_h)(const char *convid, void *arg);
+typedef void (wcall_req_clients_h)(WUSER_HANDLE wuser,
+				   const char *convid, void *arg);
 
 void wcall_set_req_clients_handler(WUSER_HANDLE wuser,
 				   wcall_req_clients_h *reqch);

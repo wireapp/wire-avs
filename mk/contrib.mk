@@ -66,6 +66,102 @@ CONTRIB_BASE := $(shell pwd)/contrib
 
 CONTRIB_INCLUDE_PATH := $(CONTRIB_BASE)/include
 
+#--- OpenSSL ---
+
+ifneq ($(HAVE_WEBRTC),1)
+
+CONTRIB_PARTS += OPENSSL
+
+CONTRIB_OPENSSL_PATH := $(CONTRIB_BASE)/openssl
+CONTRIB_OPENSSL_BUILD_PATH := $(BUILD_TARGET)/contrib/openssl
+
+CONTRIB_OPENSSL_OPTIONS := \
+	no-threads \
+	no-bf \
+	no-blake2 \
+	no-camellia \
+	no-capieng \
+	no-cast \
+	no-comp \
+	no-dso \
+	no-engine \
+        no-err \
+	no-gost \
+	no-heartbeats \
+	no-hw \
+	no-idea \
+	no-md2 \
+	no-md4 \
+	no-mdc2 \
+	no-psk \
+	no-rc2 \
+	no-rc4 \
+	no-rc5 \
+	no-sctp \
+	no-seed \
+	no-shared \
+	no-srp \
+	no-ssl3 \
+	no-async \
+
+CONTRIB_OPENSSL_COMPILER_android_armv7 := android
+CONTRIB_OPENSSL_COMPILER_android_i386  := android-x86
+CONTRIB_OPENSSL_COMPILER_ios_armv7     := cc
+CONTRIB_OPENSSL_COMPILER_ios_armv7s    := cc
+CONTRIB_OPENSSL_COMPILER_ios_arm64     := cc
+CONTRIB_OPENSSL_COMPILER_ios_i386      := darwin-i386-cc
+CONTRIB_OPENSSL_COMPILER_ios_x86_64    := darwin64-x86_64-cc
+CONTRIB_OPENSSL_COMPILER_linux_x86_64  := linux-x86_64
+CONTRIB_OPENSSL_COMPILER_linux_i386    := linux-generic32
+CONTRIB_OPENSSL_COMPILER_linux_armv6   := cc
+CONTRIB_OPENSSL_COMPILER_linux_armv7   := cc
+CONTRIB_OPENSSL_COMPILER_linux_armv7l  := cc
+CONTRIB_OPENSSL_COMPILER_osx_x86_64    := darwin64-x86_64-cc
+CONTRIB_OPENSSL_COMPILER_wasm_generic  := linux-generic32
+CONTRIB_OPENSSL_OPTIONS_android        := --cross-compile-prefix=$(BIN_PATH)-
+CONTRIB_OPENSSL_OPTIONS_wasm	       := \
+	no-asm \
+	--cross-compile-prefix=$(BIN_PATH)/em
+ifeq ($(AVS_OS),wasm)
+CONTRIB_OPENSSL_CC 		       := CC=cc
+endif
+
+CONTRIB_OPENSSL_FILES := $(shell git ls-files contrib/openssl | grep -v opensslconf.h )
+CONTRIB_OPENSSL_TARGET := $(BUILD_TARGET)/stamp/openssl
+
+CONTRIB_OPENSSL_LIBS := -lssl -lcrypto 
+CONTRIB_OPENSSL_LIB_FILES := \
+	$(BUILD_TARGET)/lib/libssl.a \
+	$(BUILD_TARGET)/lib/libcrypto.a
+
+
+$(CONTRIB_OPENSSL_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_OPENSSL_FILES)
+	@mkdir -p $(CONTRIB_OPENSSL_BUILD_PATH)
+	@rsync -aq $(CONTRIB_OPENSSL_PATH)/ $(CONTRIB_OPENSSL_BUILD_PATH)/
+	@$(MAKE) -C $(CONTRIB_OPENSSL_BUILD_PATH) clean || echo ""
+	cd $(CONTRIB_OPENSSL_BUILD_PATH) && \
+	        $(CONTRIB_OPENSSL_CC) ./Configure --prefix="$(BUILD_TARGET)" \
+		$(CONTRIB_OPENSSL_OPTIONS) \
+		$(CONTRIB_OPENSSL_OPTIONS_$(AVS_OS)) \
+		$(CONTRIB_OPENSSL_COMPILER_$(AVS_OS)_$(AVS_ARCH)) \
+		"$(CPPFLAGS) $(CFLAGS)" -D__STDC_NO_ATOMICS__ -DPURIFY
+	@$(MAKE) -C $(CONTRIB_OPENSSL_BUILD_PATH) clean
+	@$(MAKE) -C $(CONTRIB_OPENSSL_BUILD_PATH) depend
+	CROSS_SYSROOT="$(TOOLCHAIN_PATH)/sysroot/" \
+		$(MAKE) -C $(CONTRIB_OPENSSL_BUILD_PATH) \
+		build_libs
+	@$(MAKE) -C $(CONTRIB_OPENSSL_BUILD_PATH) install_dev
+	mkdir -p $(dir $@)
+	touch $@
+
+contrib_openssl: $(CONTRIB_OPENSSL_TARGET)
+
+contrib_openssl_clean:
+	rm -f $(CONTRIB_OPENSSL_TARGET)
+	rm -rf $(CONTRIB_OPENSSL_BUILD_PATH)
+
+endif
+
 #--- breakpad ---
 
 CONTRIB_BREAKPAD_PATH   := $(CONTRIB_BASE)/breakpad
@@ -138,6 +234,8 @@ contrib_gtest: $(CONTRIB_GTEST_TARGET)
 
 #--- prebuilt webrtc libs ---
 
+ifeq ($(HAVE_WEBRTC),1)
+
 CONTRIB_WEBRTC_ROOT := $(CONTRIB_BASE)/webrtc
 CONTRIB_WEBRTC_CFLAGS := -I$(CONTRIB_WEBRTC_ROOT)/$(WEBRTC_VER)/include \
 			 -I$(CONTRIB_WEBRTC_ROOT)/$(WEBRTC_VER)/include/third_party/opus/src/include \
@@ -176,7 +274,7 @@ contrib_webrtc: $(CONTRIB_WEBRT_TARGET)
 
 contrib_webrtc_clean:
 	@rm -rf $(CONTRIB_WEBRTC_ROOT)
-
+endif
 
 #--- libre ---
 
@@ -227,7 +325,7 @@ CONTRIB_LIBRE_OS_OPTIONS_wasm := \
 	HAVE_EPOLL= \
 	HAVE_KQUEUE= \
 	HAVE_SELECT= \
-	USE_OPENSSL= \
+	USE_OPENSSL=yes \
 	USE_OPENSSL_DTLS= \
 	USE_OPENSSL_SRTP= \
 	USE_OPENSSL_AES= \
@@ -246,10 +344,24 @@ endif
 CONTRIB_LIBRE_LIB_FILES := \
 	$(CONTRIB_LIBRE_TARGET) 
 
+ifeq ($(HAVE_WEBRTC),1)
+LIBRE_SSLFLAGS = "-DUSE_BORINGSSL"
+else
+LIBRE_SSLFLAGS = ""
+CONTRIB_LIBRE_LIBS += $(CONTRIB_OPENSSL_LIBS)
+CONTRIB_LIBRE_LIB_FILES += $(CONTRIB_OPENSSL_LIB_FILES)
+endif
+
+
+
+
+
+
 
 $(CONTRIB_LIBRE_TARGET): $(TOOLCHAIN_MASTER) \
 			 $(CONTRIB_LIBRE_FILES) \
-			 $(CONTRIB_WEBRTC_TARGET)
+			 $(CONTRIB_WEBRTC_TARGET) \
+			 $(CONTRIB_OPENSSL_TARGET)
 	cd $(CONTRIB_LIBRE_PATH) && \
 		rm -f libre.a && \
 		make libre.a $(JOBS) \
@@ -258,7 +370,7 @@ $(CONTRIB_LIBRE_TARGET): $(TOOLCHAIN_MASTER) \
 		AR="$(AR)" \
 		RANLIB="$(RANLIB)" \
 		EXTRA_CFLAGS="$(CPPFLAGS) $(CFLAGS) \
-			-DMAIN_DEBUG=0 -DTMR_DEBUG=0 -DUSE_BORINGSSL" \
+			-DMAIN_DEBUG=0 -DTMR_DEBUG=0 $(LIBRE_SSLFLAGS)" \
 		EXTRA_LFLAGS="$(LFLAGS) $(LIBS)" \
 		SYSROOT="$(SYSROOT)" \
 		SYSROOT_ALT="$(BUILD_TARGET)" \

@@ -105,7 +105,10 @@ def parse_param(param):
 
 	tsType = c2tstype(ptype)
 	if len(parts) > 2 and parts[2] == '__optional':
-		tsType += ' | undefined'
+		tsType += ' | null'
+       	if len(parts) > 2 and parts[2] == '__any':
+		tsType = 'any'
+
 
 	return (pname, c2jstype(ptype), tsType)
 
@@ -355,6 +358,38 @@ def convert_constants(lines):
 
 	return ctext
 
+def convert_structs(lines):
+	state = 0
+	stext = ''
+	ignore_structs = ['wcall_members']
+	convert_names = {
+		'audio_state': 'aestab',
+		'video_recv': 'vrecv'
+	}
+
+	for l in lines:
+		if state == 0:
+			m = re.search('struct (\w+) {', l)
+			if m:
+				if m.group(1) not in ignore_structs:
+					sname = convert_to_camel(m.group(1), True)
+					state = 1
+					stext += 'export interface {}'.format(sname) + ' {\n'
+		elif state == 1:
+			m = re.search('};', l)
+			if m:
+				state = 0
+				stext += '\n};\n'
+			else:
+				param = parse_param(l.rstrip().replace('\t', '').replace(';', ''))
+				if param:
+					if param[0] in convert_names:
+						pname = convert_names[param[0]]
+					else:
+						pname = param[0]
+					stext += '\t{}: {};\n'.format(pname, param[2])
+	return stext
+
 def convert_callbacks(lines):
 	state = 0
 	ctext = ''
@@ -424,6 +459,9 @@ if __name__ == '__main__':
 		if data[start:end+2] == '/*bool*/':
 			extra = ' __bool'
 
+       		if data[start:end+2] == '/*any*/':
+			extra = ' __any'
+
 		if start > 0:
 			newdata = data[:start - 1]
 		else:
@@ -454,6 +492,8 @@ if __name__ == '__main__':
 			pl = m.group(1)
 			if pl == 'CONSTANTS':
 				write_blk(outfile, convert_constants(lines))
+			if pl == 'STRUCTS':
+				write_blk(outfile, convert_structs(lines))
 			elif pl == 'CALLBACK_TYPES':
 				write_blk(outfile, convert_callbacks(lines))
 			elif pl == 'FUNCTIONS':

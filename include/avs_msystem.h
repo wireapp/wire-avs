@@ -48,6 +48,10 @@ int msystem_get(struct msystem **msysp, const char *msysname,
 void msystem_unregister_listener(void *arg);
 bool msystem_is_initialized(struct msystem *msys);
 struct msystem *msystem_instance(void);
+void msystem_set_version(const char *ver);
+const char *msystem_get_version(void);
+void msystem_set_project(const char *proj);
+const char *msystem_get_project(void);
 struct tls *msystem_dtls(struct msystem *msys);
 struct list *msystem_aucodecl(struct msystem *msys);
 struct list *msystem_vidcodecl(struct msystem *msys);

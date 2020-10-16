@@ -24,8 +24,8 @@
 
 # Master version number
 #
-VER_MAJOR := 5
-VER_MINOR := 6
+VER_MAJOR := 6
+VER_MINOR := 4
 
 ifeq ($(BUILD_NUMBER),)
 VER_PATCH := local
@@ -55,6 +55,15 @@ MK_COMPONENTS := toolchain contrib avs tools test android iosx dist
 #--- Configuration ---
 
 -include config.mk
+
+
+ifeq ($(HAVE_WEBRTC),)
+ifeq ($(AVS_OS),wasm)
+HAVE_WEBRTC := 0
+else
+HAVE_WEBRTC := 1
+endif
+endif
 
 include mk/target.mk
 include mk/re.mk
@@ -127,6 +136,7 @@ info:
 	@echo "           SDK: $(SDK)"
 	@echo " HAVE_PROTOBUF: $(HAVE_PROTOBUF)"
 	@echo "HAVE_CRYPTOBOX: $(HAVE_CRYPTOBOX)"
+	@echo "   HAVE_WEBRTC: $(HAVE_WEBRTC)"
 
 version:
 	@echo "$(AVS_VERSION)"

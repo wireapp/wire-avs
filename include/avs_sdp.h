@@ -16,11 +16,8 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 int sdp_dup(struct sdp_session **sessp,
+	    enum icall_conv_type conv_type,
 	    const char *sdp,
 	    bool offer);
 
@@ -33,6 +30,9 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 			      enum icall_conv_type conv_type,
 			      bool audio_cbr);
 
+int sdp_strip_video(char **sdp, enum icall_conv_type conv_type,
+		    const char *osdp);
+	
 void sdp_check(const char *sdp,
 	       bool local,
 	       bool offer,
@@ -40,9 +40,19 @@ void sdp_check(const char *sdp,
 	       peerflow_norelay_h *norelayh,
 	       void *arg);
 
-int sdp_strip_video(char **sdp, const char *osdp);
-	
-#ifdef __cplusplus
-}
-#endif
-	
+void sdp_safe_session_set_lattr(struct sdp_session *sess, bool replace,
+				const char *name, const char *value);
+
+void sdp_safe_media_set_lattr(struct sdp_media *sdpm, bool replace,
+			      const char *name, const char *value);
+
+/* bundle */
+
+typedef int (bundle_flow_update_h)(struct iflow *flow, const char *sdp);
+
+int bundle_update(struct iflow *flow,
+		  enum icall_conv_type conv_type,
+		  const char *remote_sdp,
+		  struct list *conf_membl,
+		  bundle_flow_update_h *flow_updateh);
+

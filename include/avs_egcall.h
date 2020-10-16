@@ -68,6 +68,11 @@ int egcall_answer(struct icall *icall,
 
 void egcall_end(struct icall *icall);
 
+void egcall_set_clients(struct icall* icall,
+			struct list *clientl);
+
+void egcall_reject(struct icall *icall);
+
 int egcall_msg_recv(struct icall *icall,
 		     uint32_t curr_time,
 		     uint32_t msg_time,
@@ -84,6 +89,8 @@ struct wcall_members;
 int egcall_get_members(struct icall *icall, struct wcall_members **mmp);
 
 int egcall_set_quality_interval(struct icall *icall, uint64_t interval);
+
+int egcall_update_mute_state(const struct icall* icall);
 
 int egcall_debug(struct re_printf *pf, const struct icall *arg);
 int egcall_stats(struct re_printf *pf, const struct icall *arg);

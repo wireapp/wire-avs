@@ -44,9 +44,8 @@ extern "C" {
 #include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "rtc_base/logging.h"
 #include "media/engine/webrtc_media_engine.h"
+#include "system_wrappers/include/field_trial.h"
 
-//#include "media/base/device.h"
-//#include "media/base/fake_video_capturer.h"
 #include "modules/video_capture/video_capture_factory.h"
 
 #include "p2p/client/basic_port_allocator.h"
@@ -54,15 +53,14 @@ extern "C" {
 #include "capture_source.h"
 #include "cbr_detector_local.h"
 #include "cbr_detector_remote.h"
-#include "frame_encryptor.h"
-#include "frame_decryptor.h"
+#include "frame_encryptor_wrapper.h"
+#include "frame_decryptor_wrapper.h"
 #include "video_renderer.h"
 #include "stats.h"
 
 #include <avs_peerflow.h>
 
 #include "peerflow.h"
-#include "sdp.h"
 
 #define TMR_STATS_INTERVAL  5000
 #define TMR_CBR_INTERVAL    2500
@@ -71,6 +69,8 @@ extern "C" {
 
 #define GROUP_PTIME 40
 
+static const char trials_str[] =
+	"WebRTC-GenericDescriptorAdvertised/Enabled/WebRTC-GenericDescriptor/Enabled/";
 
 static struct {
 	std::unique_ptr<rtc::Thread> thread;
@@ -101,6 +101,9 @@ static struct {
 	.initialized = false,
 	.lock = NULL,
 	.pfl = LIST_INIT,
+	.audio = {
+		  .muted = false,
+	},
 #if  PC_STANDALONE
 	.dnsc = NULL,
 	.http_cli = NULL,
@@ -111,6 +114,7 @@ static struct {
 struct peerflow {
 	struct iflow iflow;
 	char *convid;
+	char *userid_self;
 
 	enum icall_call_type call_type;
 	enum icall_conv_type conv_type;
@@ -136,7 +140,6 @@ struct peerflow {
 	
 	rtc::scoped_refptr<webrtc::RtpSenderInterface> rtpSender;
 
-	rtc::scoped_refptr<wire::FrameEncryptor> encryptor;
 	struct keystore *keystore;
 
 	rtc::scoped_refptr<wire::CbrDetectorLocal> cbr_det_local;
@@ -177,13 +180,10 @@ struct peerflow {
 	std::string remoteSdp;
 };
 
+
 static webrtc::SessionDescriptionInterface *sdp_interface(const char *sdp,
 							  webrtc::SdpType type);
-static struct sdp_media *find_media(struct sdp_session *sess,
-				    const char *type);
 
-static bool fmt_handler(struct sdp_format *fmt, void *arg);
-static bool media_rattr_handler(const char *name, const char *value, void *arg);
 static void pf_norelay_handler(bool local, void *arg);
 
 
@@ -232,114 +232,6 @@ struct mq_data {
 		} dcdata;
 	} u;
 };
-
-
-struct conf_member {
-	char *label;
-	char *userid;
-	char *clientid;
-	uint32_t ssrca;
-	uint32_t ssrcv;
-
-	struct peerflow *pf;
-
-	rtc::scoped_refptr<webrtc::AudioTrackInterface> audio;
-	rtc::scoped_refptr<webrtc::RtpSenderInterface> track;
-	
-	struct le le;
-};
-
-static void cm_destructor(void *arg)
-{
-	struct conf_member *cm = (struct conf_member *)arg;
-
-	// Lock?
-	list_unlink(&cm->le);
-	
-	mem_deref(cm->label);
-	mem_deref(cm->userid);
-	mem_deref(cm->clientid);
-}
-
-
-
-	
-static int conf_member_alloc(struct conf_member **cmp,
-			     struct peerflow *pf,
-			     const char *userid,
-			     const char *clientid,
-			     uint32_t ssrca,
-			     uint32_t ssrcv,
-			     const char *label)
-{
-	struct conf_member *cm;
-	int err = 0;
-
-	cm = (struct conf_member *)mem_zalloc(sizeof(*cm), cm_destructor);
-	if (!cm)
-		return ENOMEM;
-
-	cm->pf = pf;
-	cm->ssrca = ssrca;
-	cm->ssrcv = ssrcv;
-	err = str_dup(&cm->userid, userid);
-	err |= str_dup(&cm->clientid, clientid);
-	err |= str_dup(&cm->label, label);				
-	if (err)
-		goto out;
-
-
-	cm->audio = g_pf.pc_factory->CreateAudioTrack(cm->label, pf->audio.source);
-	cm->audio->set_enabled(false);
-
-	list_append(&pf->cml, &cm->le, cm);
- out:
-	if (err)
-		mem_deref(cm);
-	else
-		*cmp = cm;
-
-	return err;
-}
-
-
-static struct conf_member *conf_member_find_by_userclient(
-		  struct peerflow *pf,
-		  const char *userid,
-		  const char *clientid)
-{
-	struct conf_member *cm;	
-	bool found = false;
-	struct le *le;
-
-	for(le = pf->cml.head; !found && le; le = le->next) {
-		cm = (struct conf_member *)le->data;
-
-		found = streq(cm->userid, userid)
-			&& streq(cm->clientid, clientid);
-	}
-
-	return found ? cm : NULL;
-}
-
-
-static struct conf_member *conf_member_find_by_label(
-		  struct peerflow *pf,
-		  const char *label)
-{
-	struct conf_member *cm;	
-	bool found = false;
-	struct le *le;
-
-	for(le = pf->cml.head; !found && le; le = le->next) {
-		cm = (struct conf_member *)le->data;
-
-		found = streq(cm->label, label);
-	}
-
-	return found ? cm : NULL;
-}
-
 
 
 static bool valid_pf(struct peerflow *pf)
@@ -715,17 +607,18 @@ static void peerflow_set_mute(bool muted)
 {
 	struct mq_data *md;
 	
-	if (!g_pf.initialized) {
-		warning("pf: set_mute: not initialized\n");
-		return;
-	}
-
 	info("pf: set_mute: %d muted=%d\n", muted, g_pf.audio.muted);
 	
 	if (g_pf.audio.muted == muted)
 		return;
 	
 	g_pf.audio.muted = muted;
+
+	if (!g_pf.initialized) {
+		warning("pf: set_mute: not initialized\n");
+		return;
+	}
+
 	md = (struct mq_data *)mem_zalloc(sizeof(*md), md_destructor);
 	if (!md) {
 		warning("pf: set_mute: failed to alloc md\n");
@@ -750,6 +643,7 @@ int peerflow_set_funcs(void)
 	iflow_register_statics(peerflow_destroy,
 			       peerflow_set_mute,
 			       peerflow_get_mute);
+
 	return 0;
 }
 
@@ -780,11 +674,12 @@ int peerflow_init(void)
 
 	//rtc::LogMessage::LogToDebug(rtc::LS_INFO);
 
+#ifndef ANDROID	/* webrtc logging crashes on Android due to JNI/JNA mix */
 	//peerflow_start_log();
+#endif
 	
 	//pf_platform_init();
 
-	g_pf.audio.muted = false;
 	g_pf.thread = rtc::Thread::Create();
 	g_pf.thread->Start();
 	g_pf.thread->Invoke<void>(RTC_FROM_HERE, [] {
@@ -792,6 +687,8 @@ int peerflow_init(void)
 		pc_platform_init();
 		info("pf: platform initialized\n");		
 	});
+
+	webrtc::field_trial::InitFieldTrialsFromString(trials_str);
 
 	adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
 
@@ -825,7 +722,9 @@ int peerflow_init(void)
 void peerflow_destroy(void)
 {
 	info("peerflow_destroy: initialized=%d\n", g_pf.initialized);
-	
+
+	wire::CaptureSource::ReleaseInstance();
+
 	if (!g_pf.initialized)
 		return;
 
@@ -843,8 +742,6 @@ void peerflow_destroy(void)
 	rtc::LogMessage::RemoveLogToStream(g_pf.logsink);
 	delete g_pf.logsink;
 	g_pf.logsink = nullptr;
-
-	wire::CaptureSource::ReleaseInstance();
 }
 
 
@@ -1293,16 +1190,18 @@ public:
 		const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>& streams) {
 		rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track =
 			rx->track();
-		const char *label;
-		const char *kind;
+		char *label = NULL;
+		char *kind = NULL;
 		const char *userid = NULL;
 		const char *clientid = NULL;
+		const char *dec_uid = NULL;
+		int err = 0;
 
 		if (track == nullptr)
 			return;
 
-		label = track->id().c_str();
-		kind = track->kind().c_str();
+		str_dup(&label, track->id().c_str());
+		str_dup(&kind, track->kind().c_str());
 			
 		info("pf(%p): OnAddTrack %s track added id=%s\n", pf_, kind, label);
 
@@ -1310,19 +1209,21 @@ public:
 
 		struct conf_member *cm;
 
-		cm = conf_member_find_by_label(pf_, label);
+		cm = conf_member_find_by_label(&pf_->cml, label);
 		if (cm) {
 			userid = cm->userid;
 			clientid = cm->clientid;
+			dec_uid = cm->userid_hash;
 		}
-		else if (pf_->userid_remote && pf_->clientid_remote) {
+		else if (pf_->conv_type != ICALL_CONV_TYPE_CONFERENCE &&
+			 pf_->userid_remote && pf_->clientid_remote) {
 			userid = pf_->userid_remote;
 			clientid = pf_->clientid_remote;
 		}
 		else {
 			warning("pf(%p); no conf member for label: %s\n",
-				pf_, track->id().c_str());
-			return;
+				pf_, label);
+			goto out;
 		}
 
 		if (streq(kind, webrtc::MediaStreamTrackInterface::kVideoKind))
@@ -1343,9 +1244,16 @@ public:
 
 #if DOUBLE_ENCRYPTION
 			if (pf_->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
+				assert(dec_uid != NULL);
 				rtc::scoped_refptr<wire::FrameDecryptor> decryptor =
-					new wire::FrameDecryptor();
-				decryptor->SetKeystore(pf_->keystore);
+					new wire::FrameDecryptor(dec_uid,
+								 FRAME_MEDIA_VIDEO);
+				err = decryptor->SetKeystore(pf_->keystore);
+				if (err) {
+					warning("pf(%p): failed to set keystore for "
+						"decryptor (%m)\n",
+						pf_, err);
+				}
 				rx->SetFrameDecryptor(decryptor);
 			}
 #endif
@@ -1354,9 +1262,16 @@ public:
 		{
 #if DOUBLE_ENCRYPTION
 			if (pf_->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
+				assert(dec_uid != NULL);
 				rtc::scoped_refptr<wire::FrameDecryptor> decryptor =
-					new wire::FrameDecryptor();
-				decryptor->SetKeystore(pf_->keystore);
+					new wire::FrameDecryptor(dec_uid,
+								 FRAME_MEDIA_AUDIO);
+				err = decryptor->SetKeystore(pf_->keystore);
+				if (err) {
+					warning("pf(%p): failed to set keystore for "
+						"decryptor (%m)\n",
+						pf_, err);
+				}
 				rx->SetFrameDecryptor(decryptor);
 			}
 			else
@@ -1366,6 +1281,9 @@ public:
 			}
 		}
 
+out:
+		mem_deref(label);
+		mem_deref(kind);
 	}
 
 	// This is called when signaling indicates a transceiver will
@@ -1528,69 +1446,37 @@ private:
 	struct peerflow *pf_;
 };
 
-class AddDecoderObserver
-	:
-	public webrtc::SetRemoteDescriptionObserverInterface {
-public:
-	AddDecoderObserver(struct peerflow *pf)
-		:
-		pf_(pf) {
-	};
-	~AddDecoderObserver() {
-	};
 
-	void AddRef() const {
-	}
-
-	virtual rtc::RefCountReleaseStatus Release() const {
-		return rtc::RefCountReleaseStatus::kDroppedLastRef;
-	}
-	
-	virtual void OnSetRemoteDescriptionComplete(webrtc::RTCError err) {
-
-		info("AddDecoderObserver::OnSetRemote: remote SDP complete: %s\n", err.message());
-		if (err.ok()) {
-			pf_->peerConn->CreateAnswer(pf_->addDecoderSdpObserver, *pf_->answerOptions);
-		}
-	}
-
-private:
-	struct peerflow *pf_;
-};
-
-
-static webrtc::SessionDescriptionInterface *sdp_interface(const char *sdp,
-							  webrtc::SdpType type)
+webrtc::SessionDescriptionInterface *sdp_interface(const char *sdp,
+						   webrtc::SdpType type)
 {
 	webrtc::SdpParseError parse_err;
-	webrtc::SessionDescriptionInterface *sess = nullptr;
+	webrtc::SessionDescriptionInterface *isdp = nullptr;
 
-	debug("sdp_interface: sdp=%p\n", sdp);
-	
 	if (!sdp)
 		return nullptr;
 
 	switch (type) {
 	case webrtc::SdpType::kOffer:
-		sess = webrtc::CreateSessionDescription(webrtc::SessionDescriptionInterface::kOffer, sdp, &parse_err);
+		isdp = webrtc::CreateSessionDescription(webrtc::SessionDescriptionInterface::kOffer, sdp, &parse_err);
 		break;
 		
 	case webrtc::SdpType::kAnswer:
-		sess = webrtc::CreateSessionDescription(webrtc::SessionDescriptionInterface::kAnswer, sdp, &parse_err);
+		isdp = webrtc::CreateSessionDescription(webrtc::SessionDescriptionInterface::kAnswer, sdp, &parse_err);
 		break;
 
 	default:
 		break;
 	}
 
-	if (sess == nullptr) {
+	if (isdp == nullptr) {
 		warning("peerflow: failed to parse SDP: "
 			"line=%s reason=%s\n",
 			parse_err.line.c_str(),
 			parse_err.description.c_str());
 	}
 
-	return sess;
+	return isdp;
 }
 
 
@@ -1631,7 +1517,8 @@ public:
 		
 		switch(type) {
 		case webrtc::SdpType::kOffer:
-			err = sdp_dup(&sess, sdp_str.c_str(), true);
+			err = sdp_dup(&sess, pf_->conv_type,
+				      sdp_str.c_str(), true);
 			if (err) {
 				warning("pf(%p): sdp_dup failed: %m\n", err);
 				return;
@@ -1650,7 +1537,8 @@ public:
 			break;
 
 		case webrtc::SdpType::kAnswer:			
-			err = sdp_dup(&sess, sdp_str.c_str(), false);
+			err = sdp_dup(&sess, pf_->conv_type,
+				      sdp_str.c_str(), false);
 			if (err) {
 				warning("pf(%p): sdp_dup failed: %m\n", err);
 				return;
@@ -1679,6 +1567,37 @@ public:
 
 private:
 	struct peerflow *pf_;
+};
+
+
+class AddDecoderObserver
+       :
+       public webrtc::SetRemoteDescriptionObserverInterface {
+public:
+       AddDecoderObserver(struct peerflow *pf)
+               :
+               pf_(pf) {
+       };
+       ~AddDecoderObserver() {
+       };
+
+       void AddRef() const {
+       }
+
+       virtual rtc::RefCountReleaseStatus Release() const {
+               return rtc::RefCountReleaseStatus::kDroppedLastRef;
+       }
+       
+       virtual void OnSetRemoteDescriptionComplete(webrtc::RTCError err) {
+
+               info("AddDecoderObserver::OnSetRemote: remote SDP complete: %s\n", err.message());
+               if (err.ok()) {
+                       pf_->peerConn->CreateAnswer(pf_->addDecoderSdpObserver, *pf_->answerOptions);
+               }
+       }
+
+private:
+       struct peerflow *pf_;
 };
 
 class AddDecoderSdpObserver : public webrtc::CreateSessionDescriptionObserver {
@@ -1755,7 +1674,15 @@ static int create_pf(struct peerflow *pf)
 		webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
 	pf->config->sdp_semantics =
 		webrtc::SdpSemantics::kUnifiedPlan;
-	
+
+#if DOUBLE_ENCRYPTION
+	if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
+		webrtc::CryptoOptions crypto = webrtc::CryptoOptions::NoGcm();
+		crypto.sframe.require_frame_encryption = true;
+		pf->config->crypto_options = crypto;
+	}
+#endif
+
 	bool privacy = msystem_get_privacy(msystem_instance());
 	if (privacy)
 		pf->config->type = webrtc::PeerConnectionInterface::kRelay; 
@@ -1800,10 +1727,6 @@ static int create_pf(struct peerflow *pf)
 	if (g_pf.audio.muted)
 		pf->audio.track->set_enabled(false);
 
-	pf->encryptor = new wire::FrameEncryptor();
-	if (pf->keystore) {
-		pf->encryptor->SetKeystore(pf->keystore);
-	}
 	pf->cbr_det_local = new wire::CbrDetectorLocal();
 	pf->cbr_det_remote = new wire::CbrDetectorRemote();
 
@@ -1814,9 +1737,19 @@ static int create_pf(struct peerflow *pf)
 					       {rtc::CreateRandomUuid()}).value();
 
 #if DOUBLE_ENCRYPTION
-	if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
-		pf->rtpSender->SetFrameEncryptor(pf->encryptor);
-	}
+	if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
+		rtc::scoped_refptr<wire::FrameEncryptor> encryptor;
+		encryptor = new wire::FrameEncryptor(pf->userid_self,
+						     FRAME_MEDIA_AUDIO);
+		err = encryptor->SetKeystore(pf->keystore);
+		if (err) {
+			warning("pf(%p): failed to set keystore for "
+				"encryptor (%m)\n",
+				pf, err);
+			goto out;
+		}
+		pf->rtpSender->SetFrameEncryptor(encryptor);
+	} else
 #endif
 	if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
 		pf->rtpSender->SetFrameEncryptor(pf->cbr_det_local);
@@ -1837,8 +1770,18 @@ static int create_pf(struct peerflow *pf)
 
 
 #if DOUBLE_ENCRYPTION
-		if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
-			video_track->SetFrameEncryptor(pf->encryptor);
+		if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
+			rtc::scoped_refptr<wire::FrameEncryptor> encryptor;
+			encryptor = new wire::FrameEncryptor(pf->userid_self,
+							     FRAME_MEDIA_VIDEO);
+			err = encryptor->SetKeystore(pf->keystore);
+			if (err) {
+				warning("pf(%p): failed to set keystore for "
+					"encryptor (%m)\n",
+					pf, err);
+				goto out;
+			}
+			video_track->SetFrameEncryptor(encryptor);
 		}
 #endif
 	}
@@ -1877,13 +1820,14 @@ static void pf_destructor(void *arg)
 
 	pf->peerConn = NULL;
 	pf->sdpObserver = NULL;
-	pf->addDecoderSdpObserver = NULL;
 	pf->sdpRemoteObserver = NULL;
 	pf->offerObserver = NULL;
 	pf->answerObserver = NULL;
-	pf->encryptor = NULL;
+	pf->rtpSender = NULL;
 
+	mem_deref(pf->keystore);
 	mem_deref(pf->convid);
+	mem_deref(pf->userid_self);
 	mem_deref(pf->userid_remote);
 	mem_deref(pf->clientid_remote);
 
@@ -1904,6 +1848,7 @@ static void timer_stats(void *arg)
 
 int peerflow_alloc(struct iflow		**flowp,
 		   const char		*convid,
+		   const char		*userid_self,
 		   enum icall_conv_type	conv_type,
 		   enum icall_call_type	call_type,
 		   enum icall_vstate	vstate,
@@ -1925,30 +1870,32 @@ int peerflow_alloc(struct iflow		**flowp,
 	if (!pf)
 		return ENOMEM;
 	iflow_set_functions(&pf->iflow,
-			 peerflow_set_video_state,
-			 peerflow_generate_offer,
-			 peerflow_generate_answer,
-			 peerflow_handle_offer,
-			 peerflow_handle_answer,
-			 peerflow_has_video,
-			 peerflow_is_gathered,
-			 NULL, // peerflow_enable_privacy
-			 peerflow_set_call_type,
-			 peerflow_get_audio_cbr,
-			 peerflow_set_audio_cbr,
-			 peerflow_set_remote_userclientid,
-			 peerflow_add_turnserver,
-			 peerflow_gather_all_turn,
-			 peerflow_add_decoders_for_user,
-			 NULL, //peerflow_remove_decoders_for_user,
-			 peerflow_set_keystore,
-			 peerflow_dce_send,
-			 peerflow_stop_media,
-			 peerflow_close,
-			 peerflow_get_stats,
-			 peerflow_debug);
+			    peerflow_set_video_state,
+			    peerflow_generate_offer,
+			    peerflow_generate_answer,
+			    peerflow_handle_offer,
+			    peerflow_handle_answer,
+			    peerflow_has_video,
+			    peerflow_is_gathered,
+			    NULL, // peerflow_enable_privacy
+			    peerflow_set_call_type,
+			    peerflow_get_audio_cbr,
+			    peerflow_set_audio_cbr,
+			    peerflow_set_remote_userclientid,
+			    peerflow_add_turnserver,
+			    peerflow_gather_all_turn,
+			    peerflow_add_decoders_for_user,
+			    peerflow_remove_decoders_for_user,
+			    peerflow_sync_decoders,
+			    peerflow_set_keystore,
+			    peerflow_dce_send,
+			    peerflow_stop_media,
+			    peerflow_close,
+			    peerflow_get_stats,
+			    peerflow_debug);
 
 	str_dup(&pf->convid, convid);
+	str_dup(&pf->userid_self, userid_self);
 	pf->conv_type = conv_type;
 	pf->call_type = call_type;
 	pf->vstate = vstate;
@@ -1967,7 +1914,7 @@ int peerflow_alloc(struct iflow		**flowp,
 	pf->dc.ch->RegisterObserver(pf->dc.observer);
 #endif
 	pf->sdpObserver = new SdpObserver(pf);
-	pf->addDecoderSdpObserver = new AddDecoderSdpObserver(pf);
+	pf->addDecoderSdpObserver = new AddDecoderSdpObserver(pf);	
 	pf->sdpRemoteObserver = new SdpRemoteObserver(pf);
 	pf->offerObserver = new OfferObserver(pf);
 	pf->answerObserver = new AnswerObserver(pf);
@@ -2038,7 +1985,7 @@ bool peerflow_is_gathered(const struct iflow *iflow)
 	return pf->gathered;	
 }
 
-
+#if 0
 static void set_group_audio_params(struct peerflow *pf)
 {
 	std::vector<rtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
@@ -2058,16 +2005,15 @@ static void set_group_audio_params(struct peerflow *pf)
 		}
 		tx->SetParameters(params);
 	}
-	
-	
-	
 }
+#endif
 
 
 int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
 {
 	struct peerflow *pf = (struct peerflow*)iflow;
 	webrtc::PeerConnectionInterface::SignalingState state;
+	int err = 0;
 
 	if (!pf)
 		return EINVAL;
@@ -2075,8 +2021,11 @@ int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
 	pf->gathered = false;
 	pf->video.negotiated = pf->call_type == ICALL_CALL_TYPE_VIDEO;
 	
-	if (!pf->peerConn)
-		create_pf(pf);
+	if (!pf->peerConn) {
+		err = create_pf(pf);
+		if (err)
+			goto out;
+	}
 	
 	state = pf->peerConn->signaling_state();
 	info("pf(%p): gather in signal state: %s \n",
@@ -2102,7 +2051,8 @@ int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
 	else if (state == webrtc::PeerConnectionInterface::kHaveRemoteOffer)
 		pf->peerConn->CreateAnswer(pf->sdpObserver, *pf->answerOptions);
 
-	return 0;
+out:
+	return err;
 }
 
 
@@ -2212,8 +2162,11 @@ int peerflow_handle_offer(struct iflow *iflow,
 		err = EPROTO;
 	}
 	else {
-		if (!pf->peerConn)
-			create_pf(pf);
+		if (!pf->peerConn) {
+			err = create_pf(pf);
+			if (err)
+				goto out;
+		}
 
 		pf->peerConn->SetRemoteDescription(std::move(sdp),
 						   pf->sdpRemoteObserver);
@@ -2222,6 +2175,7 @@ int peerflow_handle_offer(struct iflow *iflow,
 		rsdp->ToString(&pf->remoteSdp);
 	}
 
+out:
 	return err;
 }
 
@@ -2259,29 +2213,6 @@ int peerflow_handle_answer(struct iflow *iflow,
 	}
 
 	return err;
-}
-
-static struct sdp_media *find_media(struct sdp_session *sess,
-				    const char *type)
-{
-	struct sdp_media *sdpm;
-	const struct list *medial;
-	struct le *le;
-	bool found = false;
-
-	if (!sess) {
-		return NULL;
-	}
-
-	medial = sdp_session_medial(sess, false);
-
-	for (le = medial->head; le && !found; le = le->next) {
-		sdpm = (struct sdp_media *)le->data;
-		
-		found = streq(type, sdp_media_name(sdpm));
-	}
-
-	return found ? sdpm : NULL;
 }
 
 
@@ -2346,181 +2277,62 @@ int peerflow_set_remote_userclientid(struct iflow *iflow,
 	return err;
 }
 
-static bool fmt_handler(struct sdp_format *fmt, void *arg)
+
+static int peerflow_bundle_update(struct iflow *flow, const char *sdp)
 {
-	struct sdp_media *sdpm = (struct sdp_media *)arg;
+	struct peerflow *pf = (struct peerflow *)flow;
+	rtc::scoped_refptr<webrtc::SetRemoteDescriptionObserverInterface> observer;
+	webrtc::SessionDescriptionInterface *isdp;
 
-	if (streq(sdp_media_name(sdpm), "audio")) {
-		if (streq(fmt->name, "opus")) {
-			sdp_format_add(NULL, sdpm, false,
-				       fmt->id, fmt->name, fmt->srate, fmt->ch,
-				       NULL, NULL, NULL, false, fmt->params);
-		}
-	}
-	else if (streq(sdp_media_name(sdpm), "video")) {
-		if (strcaseeq(fmt->name, "vp8")) {
-			sdp_format_add(NULL, sdpm, false,
-				       fmt->id, fmt->name, fmt->srate, fmt->ch,
-				       NULL, NULL, NULL, false, fmt->params);
-		}
-	}
-	else if (streq(sdp_media_name(sdpm), "application")) {
+	isdp = sdp_interface(sdp, webrtc::SdpType::kOffer);
 
-		sdp_format_add(NULL, sdpm, false,
-				       fmt->id, fmt->name, fmt->srate, fmt->ch,
-				       NULL, NULL, NULL, false, fmt->params);
-	}
-
-	return false;	
-}
-
-static bool media_rattr_handler(const char *name, const char *value, void *arg)
-{
-	struct sdp_media *sdpm = (struct sdp_media *)arg;
-	bool should_set = false;
-
-	should_set = streq(name, "fingerprint")
-		|| streq(name, "ice-ufrag")
-		|| streq(name, "ice-pwd")
-		|| streq(name, "rtcp-mux");
+	std::string sdpoffer;
 	
-	if (should_set)
-		sdp_media_set_lattr(sdpm, false, name, value);
+	isdp->ToString(&sdpoffer);
+	info("peerflow_bundle_update(%p): sdp: %s\n", flow, sdpoffer.c_str());
 
-#if 0
-	if (streq(name, "rtcp-fb")) {
-		int pt;
-		char rval[256];
+	observer = new AddDecoderObserver(pf);
+	pf->peerConn->SetRemoteDescription(
+		std::unique_ptr<webrtc::SessionDescriptionInterface>(isdp),
+		observer);
 
-		sscanf(value, "%d %s", &pt, rval);
-		if (sdp_media_format(sdpm, true, NULL, pt, NULL, -1, -1) != NULL)
-			sdp_media_set_lattr(sdpm, false, name, value);
-		else
-			return false;
-	}
-	else {
-		sdp_media_set_lattr(sdpm, false, name, value);
-	}
-#endif
-			
-	return false;
+	return 0;
 }
 
 
 int peerflow_add_decoders_for_user(struct iflow *iflow,
 				   const char *userid,
 				   const char *clientid,
+				   const char *userid_hash,
 				   uint32_t ssrca,
 				   uint32_t ssrcv)
 {
 	struct peerflow *pf = (struct peerflow*)iflow;
-	struct sdp_media *sdpm = NULL;
-	struct sdp_media *newm = NULL;
-	char cname[16];             /* common for audio+video */
-	char msid[36];
-	struct mbuf *mb;
-	char *grpstr;
-	char *label;
+	char *label = NULL;
 	struct conf_member *memb;
-	rtc::scoped_refptr<webrtc::SetRemoteDescriptionObserverInterface> observer;
-	webrtc::SessionDescriptionInterface *isdp;
-	const char *sdp;
 	int err = 0;
-	size_t cnt;
-	rtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track;
-	std::vector<std::string> labels;
-	struct le *le;
-	enum sdp_dir rdir;
-	int rport;
-	struct sdp_session *sess;
-	uint32_t mid = 0;
-	
 
 	if (!pf)
 		return EINVAL;
 
-	info("pf(%pf): add_decoders_for_user: %s.%s ssrca: %u ssrcv: %u\n",
+	info("pf(%p): add_decoders_for_user: %s.%s ssrca: %u ssrcv: %u\n",
 	     pf, userid, clientid, ssrca, ssrcv);
 
-	//memb = conf_member_find_by_userclient(pf, userid, clientid);
-	//if (memb)
-	//	memb = (struct conf_member *)mem_deref(memb);
+	memb = conf_member_find_by_userclient(&pf->cml, userid, clientid);
+	/* Only allow the addition if the ssrcs don't match */
+	if (memb && memb->ssrca == ssrca && memb->ssrcv == ssrcv)
+		return 0;
 
-#if 1
-	sdp_dup(&sess, pf->remoteSdp.c_str(), false);
-	sdpm = find_media(sess, "audio");
-	
-	rand_str(cname, sizeof(cname));
-	rand_str(msid, sizeof(msid));
+	if (memb)
+		memb->active = false;
+
 	uuid_v4(&label);
 	
-	err = conf_member_alloc(&memb, pf,
-				userid, clientid, ssrca, ssrcv, label);
+	err = conf_member_alloc(&memb, &pf->cml, (struct iflow *)pf,
+				userid, clientid, userid_hash,
+				ssrca, ssrcv, label);
 	if (err)
 		goto out;
-
-	mb = mbuf_alloc(128);
-	mbuf_printf(mb, "BUNDLE audio video data");
-	
-	list_flush((struct list *)sdp_session_medial(sess, true));
-	
-	LIST_FOREACH(&pf->cml, le) {
-		struct conf_member *cm = (struct conf_member *)le->data;
-		struct sdp_media *newm;
-
-		err = sdp_media_add(&newm, sess, "audio", 9, sdp_media_proto(sdpm));
-		if (err)
-			warning("sdp_media_add failed: %m\n", err);
-
-		sdp_media_set_disabled(newm, false);
-		sdp_media_set_laddr(newm, sdp_media_raddr(sdpm));
-		sdp_media_set_lport(newm, 9);
-		sdp_media_set_lattr(newm, false, "mid", "%u", mid);
-		sdp_media_set_lattr(newm, false, "ssrc", "%u cname:%s", cm->ssrca, cname);
-		sdp_media_set_lattr(newm, false, "ssrc", "%u msid:%s %s", cm->ssrca, msid, label);
-		sdp_media_set_lattr(newm, false, "ssrc", "%u mslabel:%s", cm->ssrca, msid);
-		sdp_media_set_lattr(newm, false, "ssrc", "%u label:%s", cm->ssrca, label);
-	
-		sdp_media_format_apply(sdpm, false, NULL, -1, NULL,
-				       -1, -1, fmt_handler, newm);
-
-		sdp_media_rattr_apply(sdpm, NULL,
-				      media_rattr_handler, newm);
-
-		sdp_media_set_ldir(newm, SDP_SENDONLY);
-
-		mbuf_printf(mb, " %u", mid);
-		++mid;
-	}
-	mb->pos = 0;
-	mbuf_strdup(mb, &grpstr, mbuf_get_left(mb));
-	sdp_session_set_lattr(sess, true, "group", grpstr);
-	mem_deref(grpstr);
-	mem_deref(mb);
-	
-
-	{
-		char *sdpres = NULL;
-		struct mbuf *mbb;
-
-		sdp_encode(&mbb, sess, true);
-		mbuf_strdup(mbb, &sdpres, mbb->end);
-		mem_deref(mbb);
-		
-		info("pf(%p): add_decoder: offer: %s\n", pf, sdpres);
-
-		isdp = sdp_interface(sdpres, webrtc::SdpType::kOffer);
-
-		mem_deref(sdpres);
-	}
-
-	observer = new AddDecoderObserver(pf);
-	pf->peerConn->SetRemoteDescription(
-		std::unique_ptr<webrtc::SessionDescriptionInterface>(isdp),
-		observer);
-	mem_deref(sess);
-
-#endif	
 
  out:
 	mem_deref(label);
@@ -2528,6 +2340,51 @@ int peerflow_add_decoders_for_user(struct iflow *iflow,
 	return err;
 }
 
+
+int peerflow_remove_decoders_for_user(struct iflow *iflow,
+				      const char *userid,
+				      const char *clientid)
+{
+	struct peerflow *pf = (struct peerflow*)iflow;
+	struct conf_member *memb;
+
+	if (!pf)
+		return EINVAL;
+
+	info("pf(%p): remove_decoders_for_user: %s.%s\n",
+	     pf, userid, clientid);
+
+	memb = conf_member_find_by_userclient(&pf->cml, userid, clientid);	
+	if (memb)
+		memb->active = false;
+
+	return 0;
+}
+
+int peerflow_sync_decoders(struct iflow *iflow)
+{
+	struct peerflow *pf = (struct peerflow *)iflow;
+	char *sdp = NULL;
+	int err = 0;
+
+	info("pf(%p): sync_decoders\n", pf);
+
+	if (!pf)
+		return EINVAL;
+	
+	str_dup(&sdp, pf->remoteSdp.c_str());
+	err = bundle_update((struct iflow *)pf,
+			    pf->conv_type, sdp,
+			    &pf->cml,
+			    peerflow_bundle_update);
+	if (err)
+		goto out;
+
+ out:
+	mem_deref(sdp);
+
+	return err;
+}
 
 static int peerflow_generate_offer_answer(struct iflow *iflow,
 					  webrtc::SdpType type,
@@ -2556,7 +2413,7 @@ static int peerflow_generate_offer_answer(struct iflow *iflow,
 
 	if (isdp->ToString(&sdp_str)) {
 
-		sdp_dup(&sess, sdp_str.c_str(), true);
+		sdp_dup(&sess, pf->conv_type, sdp_str.c_str(), true);
 		(void)sdp_session_set_lattr(sess, true, "tool", "%s", avs_version_str());		
 		sdpstr = (char *)sdp_sess2str(sess);
 		len = sdp_str.length();
@@ -2637,10 +2494,6 @@ int peerflow_set_keystore(struct iflow *iflow,
 	struct peerflow *pf = (struct peerflow*)iflow;
 
 	info("pf(%p): set_keystore ks:%p\n", pf, keystore);
-	if (pf->encryptor) {
-		pf->encryptor->SetKeystore(keystore);
-	}
-
 	mem_deref(pf->keystore);
 	pf->keystore = (struct keystore*)mem_ref(keystore);
 
@@ -2650,15 +2503,18 @@ int peerflow_set_keystore(struct iflow *iflow,
 void peerflow_close(struct iflow *iflow)
 {
 	struct peerflow *pf = (struct peerflow*)iflow;
+
 	debug("pf(%p): close: peerConn=%p tid=%p\n",
 	      pf, pf ? pf->peerConn.get() : NULL, pthread_self());
 	
-	if (!pf || !pf->peerConn)
+	if (!pf)
 		return;
 
-	pf->peerConn->Close();
-	debug("pf(%p): close: peerConn=%p closed\n",
-	      pf, pf ? pf->peerConn.get() : NULL);
+	if (pf->peerConn) {
+		pf->peerConn->Close();
+		debug("pf(%p): close: peerConn=%p closed\n",
+		      pf, pf ? pf->peerConn.get() : NULL);
+	}
 
 	/* Ensure we empty the mqueue associated with this peerflow,
 	 * BEFORE we return. This ensures that all entries in the mqueue,

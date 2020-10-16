@@ -265,9 +265,9 @@ int cryptobox_session_add_send(struct cryptobox *cb,
 
 	sess = mem_zalloc(sizeof(*sess), session_destructor);
 
-	err = str_dup(&sess->remote_userid, remote_userid);
-	err = str_dup(&sess->remote_clientid, remote_clientid);
-	err = str_dup(&sess->local_clientid, local_clientid);
+	err  = str_dup(&sess->remote_userid, remote_userid);
+	err |= str_dup(&sess->remote_clientid, remote_clientid);
+	err |= str_dup(&sess->local_clientid, local_clientid);
 	if (err)
 		goto out;
 
@@ -335,10 +335,12 @@ struct session *cryptobox_session_find(struct cryptobox *cb,
 	}
 
 	sess = mem_zalloc(sizeof(*sess), session_destructor);
+	if (!sess)
+		return NULL;
 
-	err = str_dup(&sess->remote_userid, remote_userid);
-	err = str_dup(&sess->remote_clientid, remote_clientid);
-	err = str_dup(&sess->local_clientid, local_clientid);
+	err  = str_dup(&sess->remote_userid, remote_userid);
+	err |= str_dup(&sess->remote_clientid, remote_clientid);
+	err |= str_dup(&sess->local_clientid, local_clientid);
 	if (err)
 		goto out;
 

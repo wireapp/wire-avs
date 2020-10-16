@@ -144,6 +144,8 @@ struct flowmgr;
 
 AVS_EXPORT @interface AVSFlowManager : NSObject
 
+@property (nonatomic) BOOL previewShouldFill;
+
 + (void)setLogLevel:(AVSFlowManagerLogLevel)logLevel;
 + (NSComparator)conferenceComparator;
 

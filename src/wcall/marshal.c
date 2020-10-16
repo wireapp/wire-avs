@@ -337,11 +337,9 @@ static void mqueue_handler(int id, void *data, void *arg)
 static void wm_destructor(void *arg)
 {
 	struct wcall_marshal *wmarsh = arg;
-	size_t n;
-	
+
 	wmarsh->mq = mem_deref(wmarsh->mq);
-	
-	n = list_count(&wmarsh->mdl);
+
 	if (!list_isempty(&wmarsh->mdl)) {
 		debug("wcall: marshal(%p): flush pending events: %u\n",
 		      wmarsh, list_count(&wmarsh->mdl));
@@ -502,7 +500,7 @@ void wcall_resp(WUSER_HANDLE wuser, int status, const char *reason, void *arg)
 	
 	md = md_new(inst, NULL, WCALL_MEV_RESP);
 	if (!md) {
-		err = ENOMEM;
+		warning("wcall: resp: failed to alloc md\n");
 		return;
 	}
 

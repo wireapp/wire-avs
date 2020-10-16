@@ -35,7 +35,6 @@
 #endif
 
 #import "iosx/include/AVSCapturer.h"
-#include "common_video/libyuv/include/webrtc_libyuv.h"
 #include <re/re.h>
 #include <avs.h>
 #include <avs_wcall.h>
@@ -71,6 +70,7 @@ enum AVSDeviceOrientation {
 	BOOL _firstFrame;
 	NSString* _captureDevice;
 	BOOL _isFront;
+	AVLayerVideoGravity _previewGravity;
 #if TARGET_OS_IPHONE
 	AVSDeviceOrientation _orientation;
 #endif
@@ -109,9 +109,9 @@ enum AVSDeviceOrientation {
 		if (!_captureSession) {
 			return nil;
 		}
-
+		_previewGravity = AVLayerVideoGravityResizeAspectFill;
 		_previewLayer = [AVCaptureVideoPreviewLayer layerWithSession:_captureSession];
-		[_previewLayer setVideoGravity:AVLayerVideoGravityResizeAspectFill];
+		[_previewLayer setVideoGravity:_previewGravity];
 		[_previewLayer setDelegate: self];
 		for (CALayer *layer in _previewLayer.sublayers) {
 			[layer setDelegate: self];
@@ -394,7 +394,7 @@ enum AVSDeviceOrientation {
 	return err;
 }
 
-- (void)attachPreviewInt:(UIView*)preview
+- (void)attachPreview:(UIView*)preview
 {
 	dispatch_async(
 		dispatch_get_main_queue(), 
@@ -421,18 +421,10 @@ enum AVSDeviceOrientation {
 	});
 }
 
-- (void)attachPreview:(UIView*)preview
+- (void)detachPreview:(UIView*)preview
 {
 	dispatch_async(
-		_cmdQueue, 
-			^(void) { [self attachPreviewInt:preview];
-	});
-}
-
-- (void)detachPreviewInt:(UIView*)preview
-{
-	dispatch_sync(
-		dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), 
+		dispatch_get_main_queue(), 
 		^(void) {
 			if (preview == _preview) {
 #if TARGET_OS_IPHONE
@@ -443,14 +435,6 @@ enum AVSDeviceOrientation {
 #endif
 				_preview = nil;
 			}
-	});
-}
-
-- (void)detachPreview:(UIView*)preview
-{
-	dispatch_async(
-		_cmdQueue, 
-			^(void) { [self detachPreviewInt:preview];
 	});
 }
 
@@ -574,6 +558,25 @@ out:
                         forKey:(NSString *)event
 {
 	return NSNull.null;
+}
+
+- (void) setPreviewShouldFill:(BOOL)fill
+{
+
+	_previewGravity = fill ? AVLayerVideoGravityResizeAspectFill :
+				 AVLayerVideoGravityResizeAspect;
+	dispatch_async(
+		dispatch_get_main_queue(),
+		^(void) {
+			if (_previewLayer) {
+				[_previewLayer setVideoGravity:_previewGravity];
+			}
+	});
+}
+
+- (BOOL) previewShouldFill
+{
+	return _previewGravity == AVLayerVideoGravityResizeAspectFill;
 }
 
 #if TARGET_OS_IPHONE

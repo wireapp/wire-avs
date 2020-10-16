@@ -901,6 +901,7 @@ OSStatus audio_io_ios::play_process_impl(
 		}
 		++pos;
 	}
+
 	play_avail_ -= needed;
 	if (play_avail_ > 0) {
 		memmove(play_buffer_,

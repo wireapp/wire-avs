@@ -26,10 +26,7 @@
 #include "view.h"
 #include "options.h"
 
-#define SFT_URL "http://3.126.116.55:8282"
-//#define SFT_URL "http://18.185.29.166:8282"
-//#define SFT_URL "http://18.185.29.166:8585"
-//#define SFT_URL "http://127.0.0.1:8282"
+#define HANGUP_TIMEOUT 300000
 
 WUSER_HANDLE calling3_get_wuser(void);
 
@@ -96,10 +93,24 @@ static void econn_otr_resp_handler(int err, void *arg)
 }
 #endif
 
+static const char *conv_type_name(int conv_type)
+{
+	switch (conv_type) {
+	case WCALL_CONV_TYPE_ONEONONE:
+		return "oneonone";
+	case WCALL_CONV_TYPE_GROUP:
+		return "group";
+	case WCALL_CONV_TYPE_CONFERENCE:
+		return "conference";
+	default:
+		return "?";
+	}
+}
 
 static void wcall_incoming_handler(const char *convid, uint32_t msg_time,
 				   const char *userid, const char *clientid,
 				   int video_call, int should_ring,
+				   int conv_type, /*WCALL_CONV_TYPE...*/
 				   void *arg)
 {
 	struct engine_conv *conv = NULL;
@@ -119,10 +130,11 @@ static void wcall_incoming_handler(const char *convid, uint32_t msg_time,
 		dname = ruser->display_name;
 	}
 
-	output("calling: incoming %s call in conv: %H from \"%s:%s\""
+	output("calling: incoming %s call in conv: %H (%s) from \"%s:%s\""
 	       " ring: %s ts: %u\n",
 	       video_call ? "video" : "audio",
 	       engine_print_conv_name, conv,
+	       conv_type_name(conv_type),
 	       dname, clientid, should_ring ? "yes" : "no",
 	       msg_time);
 
@@ -151,6 +163,13 @@ static void wcall_answered_handler(const char *convid, void *arg)
 	output("call answered in conv %s\n", convid);
 }
 
+static void hangup_handler(void *arg)
+{
+	struct engine_conv *conv = arg;
+
+	wcall_end(calling3.wuser, conv->id);
+}
+
 
 static void wcall_estab_handler(const char *convid,
 				const char *userid,
@@ -168,7 +187,20 @@ static void wcall_estab_handler(const char *convid,
 
 	output("call established with user \"%s\"\n", dname);
 
-	wcall_set_video_send_state(calling3.wuser, convid,calling3.video_send_state);
+	wcall_set_video_send_state(calling3.wuser,
+				   convid,calling3.video_send_state);
+	if (zcall_av_test && zcall_auto_answer && g_use_conference) {
+		struct engine_conv *conv;
+		int err;
+
+		err = engine_lookup_conv(&conv, zcall_engine, convid);
+		if (!err) {
+			if (conv->type == ENGINE_CONV_REGULAR) {
+				tmr_start(&conv->hangup_tmr, HANGUP_TIMEOUT,
+					  hangup_handler, conv);
+			}
+		}		
+	}
 }
 
 
@@ -179,8 +211,16 @@ static void wcall_close_handler(int reason,
 				const char *clientid,
 				void *arg)
 {
+	struct engine_conv *conv;
+	int err;
+
 	output("calling: call in convid=%s closed reason=\"%s\" time=%u\n",
 	       convid, wcall_reason_name(reason), msg_time);
+
+	err = engine_lookup_conv(&conv, zcall_engine, convid);
+	if (!err) {
+		tmr_cancel(&conv->hangup_tmr);
+	}
 }
 
 
@@ -190,6 +230,11 @@ static void wcall_metrics_handler(const char *convid,
 	if(metrics_json){
 		output("calling: metrics json : %s \n", metrics_json);
 	}
+}
+
+static void wcall_mute_handler(int muted, void *arg)
+{
+	view_show_mute(muted);
 }
 
 static const char *audio_state_name(int astate)
@@ -242,6 +287,7 @@ static void wcall_group_changed_handler(const char *convid, void *arg)
 {
 	struct wcall_members *members;
 	size_t i;
+	bool hangup;
 
 	members = wcall_get_members(calling3.wuser, convid);
 	if (!members) {
@@ -249,6 +295,8 @@ static void wcall_group_changed_handler(const char *convid, void *arg)
 	}
 
 	output("Member list changed for conv %s\n", convid);
+
+	hangup = zcall_auto_answer && members->membc == 0;
 
 	for (i = 0; i < members->membc; i++) {
 		struct wcall_member *m = &(members->membv[i]);
@@ -258,6 +306,19 @@ static void wcall_group_changed_handler(const char *convid, void *arg)
 		       video_state_name(m->video_recv));
 	}
 	wcall_free_members(members);
+
+	if (hangup) {
+		struct engine_conv *conv;
+		int err;
+
+		err = engine_lookup_conv(&conv, zcall_engine, convid);
+		if (!err) {
+			if (conv->type == ENGINE_CONV_REGULAR
+			 && g_use_conference) {
+				wcall_end(calling3.wuser, convid);
+			}
+		}
+	}
 }
 
 
@@ -384,18 +445,41 @@ static void ctx_destructor(void *arg)
 }
 	
 static void cfg_resp_handler(int err, const struct http_msg *msg,
-			     struct mbuf *mb, struct json_object *jobj,
+			     struct mbuf *mb, struct json_object *raw_jobj,
 			     void *arg)
 {
 	struct c3_req_ctx *c3ctx = arg;
 	char *json_str = NULL;
+	struct json_object *jobj = raw_jobj;
 
 	if (err == ECONNABORTED)
 		goto error;
 
 #if ENABLE_CONFERENCE_CALLS
-	if (!jzon_str(jobj, "sft_url")) {
-		jzon_add_str(jobj, "sft_url", "%s", SFT_URL);
+	if (g_sft_url) {
+		struct json_object *jices;
+		struct json_object *jsfts;
+		struct json_object *jurls;
+		struct json_object *jsft;
+		struct json_object *jurl;
+
+		jobj = json_object_new_object();
+		err = jzon_array(&jices, raw_jobj, "ice_servers");
+		if (!err)
+			json_object_object_add(jobj, "ice_servers", jices);
+		
+		jsfts = json_object_new_array();
+		jurls = json_object_new_array();
+		jsft = jzon_alloc_object();
+		jurl = json_object_new_string(g_sft_url);
+		if (!jsfts || !jurls || !jsft || !jurl) {
+			err = ENOMEM;
+			goto out;
+		}
+		json_object_array_add(jurls, jurl);
+		json_object_object_add(jsft, "urls", jurls);
+		json_object_array_add(jsfts, jsft);
+		json_object_object_add(jobj, "sft_servers", jsfts);
 	}
 #endif
 
@@ -405,9 +489,12 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 			goto out;
 	}
  out:
+	printf("json_str=%s\n", json_str);
 	wcall_config_update(c3ctx->wuser, err, json_str);
 
  error:
+	if (jobj != raw_jobj)
+		mem_deref(jobj);
 	mem_deref(json_str);
 	mem_deref(c3ctx);
 }
@@ -435,8 +522,8 @@ static int wcall_cfg_req_handler(WUSER_HANDLE wuser, void *arg)
 static int wcall_send_handler(void *ctx, const char *convid,
 			      const char *userid_self,
 			      const char *clientid_self,
-			      const char *userid_dest,
-			      const char *clientid_dest,
+			      const char *target_json,
+			      const char *unused,
 			      const uint8_t *data, size_t len,
 			      int transient,
 			      void *arg)
@@ -445,8 +532,14 @@ static int wcall_send_handler(void *ctx, const char *convid,
 	uint8_t *pbuf = NULL;
 	size_t pbuf_len = 8192;
 	char lclientid[64];
+	struct json_object *jobj = NULL, *jclients = NULL;
+	size_t i, nclients = 0;
+	struct otr_target *clients = NULL;
+
 	int err;
 
+	(void)unused;
+	
 	pbuf = mem_zalloc(pbuf_len, NULL);
 
 #if defined (HAVE_PROTOBUF)
@@ -484,10 +577,50 @@ static int wcall_send_handler(void *ctx, const char *convid,
 		goto out;
 	}
 
+	if (target_json) {
+		size_t jlen = strlen(target_json);
+		err = jzon_decode(&jobj, target_json, jlen);
+		if (err)
+			goto out;
+
+#if 0
+		jzon_dump(jobj);
+#endif
+
+		err = jzon_array(&jclients, jobj, "clients");
+		if (err)
+			goto out;
+
+		if (!jzon_is_array(jclients)) {
+			warning("json object is not an array\n");
+			goto out;
+		}
+
+		nclients = json_object_array_length(jclients);
+		clients = mem_zalloc(nclients * sizeof(struct otr_target), NULL);
+
+		for (i = 0; i < nclients; ++i) {
+			const char *uid, *cid;
+			struct json_object *jcli;
+
+			jcli = json_object_array_get_idx(jclients, i);
+			if (!jcli) {
+				goto out;
+			}
+
+			uid = jzon_str(jcli, "userid");
+			cid = jzon_str(jcli, "clientid");
+			if (uid && cid) {
+				str_ncpy(clients[i].userid, uid, sizeof(clients[i].userid));
+				str_ncpy(clients[i].clientid, cid, sizeof(clients[i].clientid));
+			}
+		}
+	}
+
 #ifdef HAVE_CRYPTOBOX
 	err = engine_send_otr_message(zcall_engine, g_cryptobox, conv,
-		userid_dest, clientid_dest, lclientid, pbuf, pbuf_len,
-		transient != 0, userid_dest, econn_otr_resp_handler, conv);
+		clients, nclients, lclientid, pbuf, pbuf_len,
+		transient != 0, nclients > 0, econn_otr_resp_handler, conv);
 	if (err) {
 		warning("calling: transp_send: otr_encrypt_and_send %zu bytes"
 			" failed (%m)\n", pbuf_len, err);
@@ -502,6 +635,8 @@ static int wcall_send_handler(void *ctx, const char *convid,
  out:
 	wcall_resp(calling3.wuser, 200, "", ctx);
 	mem_deref(pbuf);
+	mem_deref(jobj);
+	mem_deref(clients);
 
 	return err;
 }
@@ -538,12 +673,11 @@ static void sft_resp_handler(int err, const struct http_msg *msg,
 			     void *arg)
 {
 	struct c3_req_ctx *c3ctx = arg;
-	char *json_str = NULL;
 	const uint8_t *buf = NULL;
 	int sz = 0;
 
 	info("sft_resp: done err %d, %d bytes to send\n",
-		err, c3ctx->mb_body ? mbuf_get_left(c3ctx->mb_body) : 0);
+	     err, c3ctx->mb_body ? (int)c3ctx->mb_body->end : 0);
 	if (err == ECONNABORTED)
 		goto error;
 
@@ -559,7 +693,6 @@ static void sft_resp_handler(int err, const struct http_msg *msg,
 		       buf, sz,
 		       c3ctx->arg);
  error:
-	mem_deref(json_str);
 	mem_deref(c3ctx);
 }
 
@@ -596,6 +729,9 @@ static int wcall_sft_handler(void* ctx, const char *url,
 			   "\r\n"
 			   "%b",
 			   len, data, len);
+	if (err) {
+		warning("wcall(%p): sft_handler failed to send request: %m\n", c3ctx, err);
+	}
 
 out:
 	if (err) {
@@ -630,6 +766,7 @@ void calling3_recv_msg(const char *convid,
 {
 	int err;
 	struct ztime now = {0, 0};
+	size_t len = 0;
 	
 	if (!calling3.initialized)
 		calling3_init();
@@ -657,7 +794,13 @@ void calling3_recv_msg(const char *convid,
 		warning("could not get current time (%m)\n", err);
 	}
 
-	err = wcall_recv_msg(calling3.wuser, (uint8_t *)data, strlen(data),
+	len = strlen(data);
+	if (len == 0) {
+		error("calling3: recv_msg data is 0\n");
+		return;
+	}
+
+	err = wcall_recv_msg(calling3.wuser, (uint8_t *)data, len,
 		       now.sec, timestamp->sec,
 		       convid, from_userid, from_clientid);
 
@@ -666,7 +809,7 @@ void calling3_recv_msg(const char *convid,
 	}
 	else if (err) {
 		warning("calling3: recv_msg: error returned %d\n", err);
-	}
+	}	
 }
 
 struct client_ctx {
@@ -761,11 +904,13 @@ out:
 }
 
 
-static void wcall_req_clients_handler(const char *convid, void *arg)
+static void wcall_req_clients_handler(WUSER_HANDLE wuser,
+				      const char *convid, void *arg)
 {
 	struct engine_conv *conv = NULL;
 	int err;
 
+	(void)wuser;
 	(void)arg;
 
 	err = engine_lookup_conv(&conv, zcall_engine, convid);
@@ -807,7 +952,17 @@ int calling3_start(struct engine_conv *conv)
 
 	switch (conv->type) {
 	case ENGINE_CONV_REGULAR:
-		conv_type = g_use_conference ? WCALL_CONV_TYPE_CONFERENCE : WCALL_CONV_TYPE_GROUP;;
+		/* According to new rules for "team" conversations:
+		 * If conv-type is REGULAR, and only 1 more participant, and
+		 * no user defined name, this should be treated as a 1/1 conv-type.
+		 */
+		if (list_count(&conv->memberl) == 1 && conv->name == NULL) {
+			conv_type = WCALL_CONV_TYPE_ONEONONE;
+		}
+		else {
+			conv_type = g_use_conference ? WCALL_CONV_TYPE_CONFERENCE
+				                     : WCALL_CONV_TYPE_GROUP;
+		}
 		break;
 	case ENGINE_CONV_ONE:
 		conv_type = WCALL_CONV_TYPE_ONEONONE;
@@ -826,9 +981,11 @@ int calling3_start(struct engine_conv *conv)
 	output("starting call in %sconversation \"%H\"\n",
 	       conv_type == WCALL_CONV_TYPE_GROUP ? "group-" : "", engine_print_conv_name, conv);
 
+#if ENABLE_AUDIO_IO
 	if (avs_get_flags() & AVS_FLAG_AUDIO_TEST)
 		audio_io_enable_sine();
-			
+#endif
+
 	ret = wcall_start(calling3.wuser, conv->id,
 			  call_type, conv_type,
 			  zcall_audio_cbr);
@@ -866,8 +1023,10 @@ void calling3_answer(struct engine_conv *conv)
 	call_type = zcall_force_audio ? WCALL_CALL_TYPE_FORCED_AUDIO :
 		calling3.video_send_state != WCALL_VIDEO_STATE_STOPPED ? WCALL_CALL_TYPE_VIDEO :
 		WCALL_CALL_TYPE_NORMAL;
+#if ENABLE_AUDIO_IO
 	if (avs_get_flags() & AVS_FLAG_AUDIO_TEST)
 		audio_io_enable_sine();
+#endif
 	ret = wcall_answer(calling3.wuser, conv->id,
 			   call_type, zcall_audio_cbr);
 	if (ret < 0)
@@ -1041,6 +1200,8 @@ int calling3_init(void)
 
 	wcall_set_req_clients_handler(calling3.wuser,
 				   wcall_req_clients_handler);
+
+	wcall_set_mute_handler(calling3.wuser, wcall_mute_handler, NULL);
 	if (g_ice_privacy)
 		wcall_enable_privacy(calling3.wuser, 1);
 

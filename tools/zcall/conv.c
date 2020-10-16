@@ -198,6 +198,7 @@ static void otr_add_message_handler(struct engine_conv *conv,
 			warning("failed to decode protobuf (%zu bytes)\n",
 				plain_len);
 		}
+		info("plain=%p(%zu)\n", plain, plain_len);
 
 		gm = msg->gm;
 
@@ -883,6 +884,8 @@ static bool call_key_handler(int ch)
 		return true;
 	}
 
+	if (zcall_video)
+		vstart_cmd_handler(0, NULL);
 	calling3_start(conv_data.curr);
 
 	return true;
@@ -1004,6 +1007,9 @@ static bool accept_key_handler(int ch)
 	conv = le->data;
 	set_curr_conv(conv);
 
+	if (zcall_video) {
+		vstart_cmd_handler(0, NULL);
+	}
 	calling3_answer(conv);
 	
 	return true;
@@ -1207,7 +1213,7 @@ static void say_cmd_handler(int argc, char *argv[])
 		goto out;
 	}
 
-	err = engine_send_otr_message(zcall_engine, g_cryptobox, conv, NULL, NULL,
+	err = engine_send_otr_message(zcall_engine, g_cryptobox, conv, NULL, 0,
 		 lclientid, pbuf, pbuf_len, false, false,
 		 otr_resp_handler, NULL);
 	if (err)
@@ -1802,7 +1808,7 @@ static void vstop_cmd_help(void)
 static void vstop_cmd_handler(int argc, char *argv[])
 {
 	if (WCALL_VIDEO_STATE_STOPPED != conv_data.video_state) {
-		output("Disbling preview, send state STOPPED\n");
+		output("Disabling preview, send state STOPPED\n");
 		preview_stop();
 		conv_data.video_state = WCALL_VIDEO_STATE_STOPPED;
 		calling3_set_video_send_state(conv_data.curr, conv_data.video_state);
@@ -1956,7 +1962,7 @@ void conv_close(void)
 
 void calling_incoming(void)
 {
-	if (conv_data.auto_answer) {
+	if (conv_data.auto_answer || zcall_auto_answer) {
 		uint32_t delay = 1;
 
 		output("auto-answering incoming call"

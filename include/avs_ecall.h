@@ -54,8 +54,11 @@ int ecall_msg_recv(struct ecall *ecall,
 		   const char *clientid_sender,
 		   struct econn_message *msg);
 void ecall_end(struct ecall *ecall);
+void ecall_reject(struct ecall *ecall);
+int ecall_set_sessid(struct ecall *ecall, const char *sessid);
 void ecall_set_peer_userid(struct ecall *ecall, const char *userid);
 void ecall_set_peer_clientid(struct ecall *ecall, const char *clientid);
+int ecall_set_real_clientid(struct ecall *ecall, const char *clientid);
 const char *ecall_get_peer_userid(const struct ecall *ecall);
 const char *ecall_get_peer_clientid(const struct ecall *ecall);
 struct ecall *ecall_find_convid(const struct list *ecalls,
@@ -84,6 +87,8 @@ int  ecall_restart(struct ecall *ecall, enum icall_call_type call_type);
 struct conf_part *ecall_get_conf_part(struct ecall *ecall);
 void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp);
 
+void ecall_set_clients(struct ecall* ecall,
+		       struct list *clientl);
 
 #define MAX_USER_DATA_SIZE (1024*64) // 64 kByte
 
@@ -112,10 +117,7 @@ int ecall_user_data_register_ft_handlers(struct ecall *ecall,
                 ecall_user_data_file_snd_h *f_snd_h);
 
 typedef void (ecall_confpart_h)(struct ecall *ecall,
-				const struct list *partlist,
-				bool should_start,
-				uint64_t timestamp,
-				uint32_t seqno,
+				const struct econn_message *msg,
 				void *arg);
 
 
@@ -129,6 +131,14 @@ int ecall_dce_sendmsg(struct ecall *ecall, struct econn_message *msg);
 int ecall_set_quality_interval(struct ecall *ecall,
 			       uint64_t interval);
 
+int ecall_update_mute_state(const struct ecall* ecall);
+
+typedef int (ecall_propsync_h)(struct ecall *ecall,
+			       struct econn_message *msg,
+			       void *arg);
+
+int ecall_set_propsync_handler(struct ecall *ecall,
+			       ecall_propsync_h propsynch);
 
 /* Device pairing */
 void ecall_set_devpair(struct ecall *ecall, bool devpair);
@@ -145,6 +155,7 @@ int ecall_remove(struct ecall *ecall);
 int ecall_add_decoders_for_user(struct ecall *ecall,
 				const char *userid,
 				const char *clientid,
+				const char *userid_hash,
 				uint32_t ssrca,
 				uint32_t ssrcv);
 int ecall_remove_decoders_for_user(struct ecall *ecall,
@@ -152,10 +163,23 @@ int ecall_remove_decoders_for_user(struct ecall *ecall,
 				   const char *clientid,
 				   uint32_t ssrca,
 				   uint32_t ssrcv);
+int ecall_sync_decoders(struct ecall *ecall);
+
 
 int ecall_set_keystore(struct ecall *ecall,
 		       struct keystore *keystore);
 
 
 void ecall_activate(void);
+
+void propsync_get_states(struct econn_props *props,
+			 bool *vstate_present, 
+			 int  *vstate, 
+			 bool *muted_present,
+			 bool *muted);
+
+int icall_send_reject_msg(struct icall *icall,
+			  const struct list *clientl,
+			  const char *userid_local,
+			  const char *clientid_local);
 

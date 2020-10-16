@@ -46,7 +46,7 @@ fi
 
 if [ ! -e $ANDROID_SDK_TARGET ]; then
 	if [ ! -e $ANDROID_SDK_PKG_FILE ]; then
-		echo "Downloading SDK ($ANDROID_SDK_VER)"
+		echo "Downloading SDK ($ANDROID_SDK_VER) ($ANDROID_SDK_PKG_FILE)"
 		curl https://dl.google.com/android/$ANDROID_SDK_PKG_FILE > $ANDROID_SDK_PKG_FILE
 	fi
 	echo "Unpacking SDK ($ANDROID_SDK_VER)"

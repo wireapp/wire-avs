@@ -17,41 +17,38 @@
 */
 
 
-#ifndef FRAME_ENCRYPTOR_H_
-#define FRAME_ENCRYPTOR_H_
+#ifndef FRAME_DECRYPTOR_H_
+#define FRAME_DECRYPTOR_H_
 
-#include "api/crypto/frame_encryptor_interface.h"
+#include "api/crypto/frame_decryptor_interface.h"
 #include "rtc_base/ref_counted_object.h"
-#include <openssl/evp.h>
-#include <openssl/cipher.h>
+
+struct frame_decryptor;
 
 namespace wire {
 
-class FrameEncryptor : public rtc::RefCountedObject<webrtc::FrameEncryptorInterface>
+class FrameDecryptor : public rtc::RefCountedObject<webrtc::FrameDecryptorInterface>
 {
 public:
-	FrameEncryptor();
-	~FrameEncryptor();
+	FrameDecryptor(const char *userid_hash,
+		       enum frame_media_type mtype);
+	~FrameDecryptor();
 
-	void SetKeystore(struct keystore *keystore);
+	int SetKeystore(struct keystore *keystore);
 
-	int Encrypt(cricket::MediaType media_type,
-		    uint32_t ssrc,
-		    rtc::ArrayView<const uint8_t> additional_data,
-		    rtc::ArrayView<const uint8_t> frame,
-		    rtc::ArrayView<uint8_t> encrypted_frame,
-		    size_t* bytes_written);
+	Result Decrypt(cricket::MediaType media_type,
+			       const std::vector<uint32_t>& csrcs,
+			       rtc::ArrayView<const uint8_t> additional_data,
+			       rtc::ArrayView<const uint8_t> encrypted_frame,
+			       rtc::ArrayView<uint8_t> frame);
 
-	size_t GetMaxCiphertextByteSize(cricket::MediaType media_type,
-					size_t frame_size);
+	size_t GetMaxPlaintextByteSize(cricket::MediaType media_type,
+				       size_t encrypted_frame_size);
 
 private:
-	uint32_t _kidx;
-	EVP_CIPHER_CTX *_ctx;
-	struct keystore *_keystore;
+	struct frame_decryptor *_dec;
 };
 
 }  // namespace wire
 
-#endif  // FRAME_ENCRYPTOR_H_
-
+#endif  // FRAME_DECRYPTOR_H_

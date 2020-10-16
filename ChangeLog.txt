@@ -1,9 +1,88 @@
-lChangeLog for AVS -- latest on top!
+ChangeLog for AVS -- latest on top!
+
+==============================================================================
+AVS Release 6.4
+
+Date:	    September 23 2020
+GIT:	    https://github.com/wearezeta/avs/tree/release-6.4
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Security updates
+		- Calls time out gracefully when SFT is not online
+		- Request key when not available at start of call
+		- Default to group calls when no SFT is advertised
+                
+Hotfixes:	
+
+==============================================================================
+AVS Release 6.3
+
+Date:	    September 03 2020
+GIT:	    https://github.com/wearezeta/avs/tree/release-6.3
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Additional devices stop ringing when answered elseshere
+		- Additional devices stop ringing when rejected on one device
+		- Fix audio interruption when audio calls are escalated to video
+		- Performance improvements for conference calls
+		- iOS: Unify displaying of video for remote and self clients
+		- OpenSSL update
+		- Bug fixes
+                
+Hotfixes:	
+
+==============================================================================
+AVS Release 6.2
+
+Date:	    July 09 2020
+GIT:	    https://github.com/wearezeta/avs/tree/release-6.2
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Enable e2ee for next generation conference calling
+                
+Hotfixes:	
+
+==============================================================================
+AVS Release 6.1
+
+Date:	    June 26 2020
+GIT:	    https://github.com/wearezeta/avs/tree/release-6.1
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - WebRTC Update (commit: 301eb5370b150ee4c25ffc380a9064e48373bf27)
+                
+Hotfixes:	
+
+==============================================================================
+AVS Release 6.0
+
+Date:	    March 12 2020
+GIT:	    https://github.com/wearezeta/avs/tree/release-6.0
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Enable next generation conference calling
+                
+Hotfixes:	- Fixed https://github.com/wireapp/wire-audio-video-signaling/security/advisories/GHSA-v7c5-r8hh-wjp7
 
 ==============================================================================
 AVS Release 5.6
 
-Date:	    February 21
+Date:	    February 21 2020
 GIT:	    https://github.com/wearezeta/avs/tree/release-5.6
 Android:    Android NDK r14b
 iOS:	    iOS SDK 12.2
@@ -12,13 +91,15 @@ Linux:	    Ubuntu x86_64 18.04 (LTS)
 
 Summary:        - API Update
 		- Network quality indicator for missing relay candiates
+		- Add CBR to web
                 
-Hotfixes:	
+Hotfixes:
+		- Security fix	
 
 ==============================================================================
 AVS Release 5.5
 
-Date:	    January 22
+Date:	    January 22 2020
 GIT:	    https://github.com/wearezeta/avs/tree/release-5.5
 Android:    Android NDK r14b
 iOS:	    iOS SDK 12.2

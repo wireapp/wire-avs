@@ -92,20 +92,20 @@ static int reverse_stream(const char* pcmIn,
     for( int i = 0; i < n_frames; i++){
         fseek(in_file, -L*sizeof(int16_t), SEEK_CUR);
         
-        count = fread(bufIn, sizeof(int16_t), L, in_file);
-
+        fread(bufIn, sizeof(int16_t), L, in_file);
+	
         for( int j = 0; j < L; j++){
             bufOut[j] = bufIn[L - j - 1];
         }
         
-        count = fwrite(bufOut, sizeof(int16_t), L, out_file);
+        fwrite(bufOut, sizeof(int16_t), L, out_file);
         
         fseek(in_file, -L*sizeof(int16_t), SEEK_CUR);
     }
     fseek(in_file, 0, SEEK_SET);
     for( int i = 0; i < n_frames; i++){
-        count = fread(bufIn, sizeof(int16_t), L, in_file);
-        count = fwrite(bufIn, sizeof(int16_t), L, out_file);
+        fread(bufIn, sizeof(int16_t), L, in_file);
+        fwrite(bufIn, sizeof(int16_t), L, out_file);
     }
     
     fclose(in_file);
@@ -224,12 +224,17 @@ int apply_effect_to_pcm(const char* pcmIn,
         }
         
         input_resampler.Resample( bufIn, L, near_frame.mutable_data(), L_proc);
-        
-        ret = apm->ProcessStream(&near_frame);
+
+        webrtc::StreamConfig inConfig(near_frame.sample_rate_hz_, 1);
+        webrtc::StreamConfig outConfig(near_frame.sample_rate_hz_, 1);
+        ret = apm->ProcessStream(near_frame.data(),
+                                 inConfig,
+                                 outConfig,
+                                 near_frame.mutable_data());
         if( ret < 0 ){
             error("apm->ProcessStream returned %d \n", ret);
         }
-        
+
         size_t L_proc_out;
         aueffect_process(aue, near_frame.data(), procOut, L_proc, &L_proc_out);
         
@@ -251,10 +256,7 @@ int apply_effect_to_pcm(const char* pcmIn,
             }
             output_resampler.Resample( procOut, L_proc, bufIn, L);
             
-            count = fwrite(bufIn,
-                           sizeof(int16_t),
-                           L,
-                           out_file);
+            fwrite(bufIn, sizeof(int16_t), L, out_file);
             n_samp_out+=L;
             
             buf_smpls = (write_idx - read_idx) & CIRC_BUF_MASK;

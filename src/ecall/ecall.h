@@ -131,12 +131,15 @@ struct ecall {
 
 	struct econn_props *props_local;
 	struct econn_props *props_remote;
+	ecall_propsync_h *propsynch;
 
 	char *convid;
 	char *userid_self;
 	char *clientid_self;
+	char *clientid_real;
 	char *userid_peer;
 	char *clientid_peer;
+	char *sessid;
 
 	uint32_t max_retries;
 	uint32_t num_retries;
@@ -175,7 +178,9 @@ struct ecall {
 	} video;
 
 	struct {
+		bool estab;
 		int cbr_state;
+		bool remote_muted_state;
 	} audio;
 
 	struct {
@@ -193,6 +198,8 @@ struct ecall {
 	bool ifs_added;
 
 	struct keystore *keystore;
+
+	bool should_reject;
 };
 
 

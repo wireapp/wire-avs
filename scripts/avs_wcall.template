@@ -4,21 +4,26 @@
  * system and any changes you make will be lost.
  */
 
-import avs_core from './avs_core.js';
-import avs_pc, {UserMediaHandler, MediaStreamHandler} from './avs_pc.js';
+import avs_core = require('./avs_core');
+import avs_pc, {UserMediaHandler, MediaStreamHandler} from './avs_pc';
 
 
 %CONSTANTS%
+%STRUCTS%
 %CALLBACK_TYPES%
 
 let instance: Wcall | undefined;
 let logFn: WcallLogHandler;
 
-const logHandler: WcallLogHandler = (level, msg) => {
+const logHandler: WcallLogHandler = (level, msg, err) => {
   if (logFn)
-    logFn(level, msg, 0);
-  else
-    console.log(msg)
+    logFn(level, msg, err);
+  else {
+    if (err)
+      console.log(msg, err);
+    else
+      console.log(msg);
+  }
 }
 
 export class Wcall {
@@ -45,6 +50,14 @@ export class Wcall {
   getStats(convid: string): Promise<Array<{userid: string, stats: RTCStatsReport}>> {
       return avs_pc.getStats(convid);
   }
+  
+  static supportsConferenceCalls(): boolean {
+    const pt : any = RTCRtpSender.prototype;  
+    const insertable_legacy = !!pt.createEncodedVideoStreams;
+    const insertable_streams = !!pt.createEncodedStreams;
+
+    return insertable_legacy || insertable_streams;
+  }
 };
 
 export const getAvsInstance = function(): Promise<Wcall> {
@@ -54,7 +67,7 @@ export const getAvsInstance = function(): Promise<Wcall> {
 
   return new Promise(resolve => {
     avs_core().then((em_module: any) => {
-      instance = new Wcall(em_module); 				
+      instance = new Wcall(em_module);
       resolve(instance);
     });
   });

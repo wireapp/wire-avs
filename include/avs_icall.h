@@ -27,6 +27,7 @@
 #define ICALL_REASON_TIMEOUT_ECONN      8
 #define ICALL_REASON_DATACHANNEL        9
 #define ICALL_REASON_REJECTED          10
+#define ICALL_REASON_OUTDATED_CLIENT   11
 
 struct icall;
 struct econn_message;
@@ -78,13 +79,14 @@ struct icall_client *icall_client_alloc(const char *userid,
 typedef int  (icall_add_turnserver)(struct icall *icall,
 				    struct zapi_ice_server *srv);
 
-typedef int  (icall_set_sft)(struct icall *icall,
+typedef int  (icall_add_sft)(struct icall *icall,
 			     const char *sft_url);
 typedef int  (icall_start)(struct icall *icall,
 			   enum icall_call_type call_type, bool audio_cbr);
 typedef int  (icall_answer)(struct icall *icall,
 			    enum icall_call_type call_type, bool audio_cbr);
 typedef void (icall_end)(struct icall *icall);
+typedef void (icall_reject)(struct icall *icall);
 typedef int  (icall_media_start)(struct icall *icall);
 typedef void (icall_media_stop)(struct icall *icall);
 typedef int  (icall_set_media_laddr)(struct icall *icall, struct sa *laddr);
@@ -103,7 +105,9 @@ typedef int  (icall_sft_msg_recv)(struct icall* icall,
 typedef int  (icall_set_quality_interval)(struct icall *icall,
 					  uint64_t interval);
 typedef int  (icall_dce_send)(struct icall *icall, struct mbuf *mb);
-typedef void (icall_set_clients)(const struct icall* icall, struct list *clientl);
+typedef void (icall_set_clients)(struct icall* icall, struct list *clientl);
+typedef int  (icall_update_mute_state)(const struct icall* icall);
+
 typedef int  (icall_debug)(struct re_printf *pf, const struct icall* icall);
 typedef int  (icall_stats)(struct re_printf *pf, const struct icall* icall);
 
@@ -115,6 +119,7 @@ typedef int  (icall_sft_h)(struct icall *icall,
 typedef int  (icall_send_h)(struct icall *icall,
 			    const char *userid_sender,
 			    struct econn_message *msg,
+			    struct list *targets,
 			    void *arg);
 typedef void (icall_start_h)(struct icall *icall,
 			     uint32_t msg_time,
@@ -166,6 +171,9 @@ typedef void (icall_vstate_changed_h)(struct icall *icall,
 typedef void (icall_acbr_changed_h)(struct icall *icall, const char *userid,
 				    const char *clientid, int enabled,
 				    void *arg);
+typedef void (icall_muted_changed_h)(struct icall *icall, const char *userid,
+				     const char *clientid, int mute_state,
+				     void *arg);
 typedef void (icall_quality_h)(struct icall *icall,
 			       const char *userid,
 			       const char *clientid,
@@ -178,10 +186,11 @@ typedef void (icall_req_clients_h)(struct icall *icall, void *arg);
 
 struct icall {
 	icall_add_turnserver		*add_turnserver;
-	icall_set_sft			*set_sft;
+	icall_add_sft			*add_sft;
 	icall_start			*start;
 	icall_answer			*answer;
 	icall_end			*end;
+	icall_reject			*reject;
 	icall_media_start		*media_start;
 	icall_media_stop		*media_stop;
 	icall_set_media_laddr           *set_media_laddr;
@@ -192,6 +201,7 @@ struct icall {
 	icall_set_quality_interval	*set_quality_interval;
 	icall_dce_send                  *dce_send;
 	icall_set_clients		*set_clients;
+	icall_update_mute_state		*update_mute_state;
 	icall_debug			*debug;
 	icall_stats			*stats;
 
@@ -209,6 +219,7 @@ struct icall {
 	icall_metrics_h			*metricsh;
 	icall_vstate_changed_h		*vstate_changedh;
 	icall_acbr_changed_h		*acbr_changedh;
+	icall_muted_changed_h		*muted_changedh;
 	icall_quality_h			*qualityh;
 	icall_norelay_h			*norelayh;
 	icall_req_clients_h		*req_clientsh;
@@ -224,10 +235,11 @@ struct icall {
 
 void icall_set_functions(struct icall *icall,
 			 icall_add_turnserver		*add_turnserver,
-			 icall_set_sft			*set_sft,
+			 icall_add_sft			*add_sft,
 			 icall_start			*start,
 			 icall_answer			*answer,
 			 icall_end			*end,
+			 icall_reject			*reject,
 			 icall_media_start		*media_start,
 			 icall_media_stop		*media_stop,
 			 icall_set_media_laddr          *set_media_laddr,
@@ -238,6 +250,7 @@ void icall_set_functions(struct icall *icall,
 			 icall_set_quality_interval	*set_quality_interval,
 			 icall_dce_send                 *dce_send,
 			 icall_set_clients		*set_clients,
+			 icall_update_mute_state	*update_ute_state,
 			 icall_debug			*debug,
 			 icall_stats			*stats);
 
@@ -256,6 +269,7 @@ void icall_set_callbacks(struct icall *icall,
 			 icall_metrics_h	*metricsh,
 			 icall_vstate_changed_h	*vstate_changedh,
 			 icall_acbr_changed_h	*acbr_changedh,
+			 icall_muted_changed_h	*muted_changedh,
 			 icall_quality_h	*qualityh,
 			 icall_norelay_h	*norelayh,
 			 icall_req_clients_h	*req_clientsh,

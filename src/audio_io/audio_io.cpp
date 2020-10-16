@@ -75,7 +75,7 @@ void *audio_io_create_adm(void)
 #endif
 	}
 
-	if (g_enable_sine)
+	if (g_aioc && g_enable_sine)
 		g_aioc->EnableSine();
 
 	return (void *)g_aioc;
@@ -180,7 +180,7 @@ int  audio_io_enable_sine(void)
 
 int audio_io_reset(struct audio_io *aio)
 {
-	int res;
+	int res = 0;
 	
 	if(aio->aioc) {
 		webrtc::audio_io_class *aioc;

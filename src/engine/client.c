@@ -67,10 +67,6 @@ static void get_clients_handler(int err, const struct http_msg *msg,
 		}
 		clientid = e->u.str;
 
-		e = odict_lookup(ae->u.odict, "time");
-
-		e = odict_lookup(ae->u.odict, "address");
-
 		e = odict_lookup(ae->u.odict, "model");
 		model = e ? e->u.str : "?";
 
@@ -441,7 +437,7 @@ int engine_register_client(struct engine *eng,
 	jlastkey   = json_object_new_object();
 	jsigkeys   = json_object_new_object();
 
-	err = jzon_add_str(jobj, "cookie", cookie);
+	err = jzon_add_str(jobj, "cookie", "%s", cookie);
 	if (err)
 		goto out;
 
@@ -465,8 +461,8 @@ int engine_register_client(struct engine *eng,
 
 	json_object_object_add(jobj, "sigkeys", jsigkeys);
 
-	err |= jzon_add_str(jobj, "password", eng->password);
-	err |= jzon_add_str(jobj, "model", eng->user_agent);
+	err |= jzon_add_str(jobj, "password", "%s", eng->password);
+	err |= jzon_add_str(jobj, "model", "%s", eng->user_agent);
 	err |= jzon_add_str(jobj, "type", "permanent");
 	if (err)
 		goto out;

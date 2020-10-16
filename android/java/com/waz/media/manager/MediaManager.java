@@ -19,7 +19,8 @@ package com.waz.media.manager;
 
 import android.content.Context;
 import android.media.AudioManager;
-import android.media.AudioManager;
+//import android.media.AudioAttributes;
+//import android.media.AudioFocusRequest;
 
 import android.media.AudioManager.OnAudioFocusChangeListener;
 
@@ -84,13 +85,12 @@ public class MediaManager implements OnAudioFocusChangeListener {
     private int prev_mode = AudioManager.MODE_INVALID;
     
     private String convId = null;
-    
     private IntensityLevel _intensity = IntensityLevel.FULL;
-    
-    public long mmPointer;
-    
     private Configuration config;
-        
+    //private AudioFocusRequest focusRequest = null;
+
+    public long mmPointer;
+	    
     private MediaManager ( final Context context) {
         attach(context);
       
@@ -352,14 +352,44 @@ public class MediaManager implements OnAudioFocusChangeListener {
     public void onAudioFocusChange ( int focusChange ) {
         DoLog("onAudioFocusChange focusChange = " + focusChange);
     }
-    
+
+    private void requestAudioFocus() {
+	    audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+	    audioManager.requestAudioFocus(this, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN);
+	    
+	    /* Focus is handled differently from ANDROID-8 (aka Android-Oreo aka SDK 26) */
+	    /*
+	    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) {
+		    audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+		    audioManager.requestAudioFocus(this, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN);
+		    
+	    }
+	    else {
+		    AudioAttributes attr = new AudioAttributes.Builder()
+			    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+			    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+			    .build();
+		    this.focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+			    .setAudioAttributes(attr)
+			    .setAcceptsDelayedFocusGain(true)
+			    .setOnAudioFocusChangeListener(this)
+			    .build();
+		
+		    int res = this.audioManager.requestAudioFocus(this.focusRequest);
+		    DoLog("focusRequest=" + res);
+	    }
+	    */
+    }
+
     public void onEnterCall(){
 	    DoLog("onEnterCall: mode=" + this.audioManager.getMode());
         if(this.prev_mode == AudioManager.MODE_INVALID){
             this.prev_mode = this.audioManager.getMode();
         }
-        audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
-        audioManager.requestAudioFocus(this, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN);
+
+	requestAudioFocus();
+        //audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+        //audioManager.requestAudioFocus(this, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN);
         
         this.audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
     }
@@ -367,13 +397,28 @@ public class MediaManager implements OnAudioFocusChangeListener {
     public void onAudioFocus() {
 	    DoLog("onAudioFocus: mode=" + this.audioManager.getMode());
 
-	    this.audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
-	    this.audioManager.requestAudioFocus(this, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN);
+	    requestAudioFocus();
+	    //this.audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+	    //this.audioManager.requestAudioFocus(this, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN);
     }
 
+    private void abandonAudioFocus() {
+	    audioManager.abandonAudioFocus(this);
+
+	/*
+	if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) {
+		audioManager.abandonAudioFocus(this);
+	}
+	else {
+		if (this.focusRequest != null) {
+			audioManager.abandonAudioFocusRequest(this.focusRequest);
+		}
+	}
+	*/
+    }
     public void onExitCall(){
-        audioManager.abandonAudioFocus(this);
-	    DoLog("onExitCall prev_mode=" + this.prev_mode);
+	abandonAudioFocus();
+	DoLog("onExitCall prev_mode=" + this.prev_mode);
         if(this.prev_mode != AudioManager.MODE_INVALID){
             this.audioManager.setMode(this.prev_mode);
         }

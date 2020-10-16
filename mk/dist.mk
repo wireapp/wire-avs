@@ -3,7 +3,7 @@
 #
 #
 # This snippet builds the final distributions for the various platforms.
-# 
+#
 # The main target "dist" builds distributions for Android, iOS, and OSX
 # if run on an OSX host system or for Linux if run on a Linux host system.
 #
@@ -12,7 +12,7 @@
 #    o  an Android AAR build/dist/android/avs.aar with the release code for
 #       armv7 and i386 architectures. 64 bit architectures will follow as
 #       soon as certain build troubles are sorted out.
-#    
+#
 #    o  a Zip archive build/dist/android/avs.zip with the NDK shared
 #       libraries for Android armv7 and i386 as well as for OSX x86_64, and
 #       the class files in non-jar form.
@@ -372,11 +372,15 @@ $(DIST_WASM_JS_TARGET):
 	$(EMCC) -o $(DIST_WASM_JS_TARGET) \
 		$(BUILD_BASE)/wasm-generic/lib/libavscore.a \
 		$(BUILD_BASE)/wasm-generic/lib/libre.a \
+		$(BUILD_BASE)/wasm-generic/lib/libsodium.a \
+		$(BUILD_BASE)/wasm-generic/lib/libssl.a \
+		$(BUILD_BASE)/wasm-generic/lib/libcrypto.a \
 		-s EXTRA_EXPORTED_RUNTIME_METHODS='["ccall", "cwrap", "addFunction", "UTF8ToString", "lengthBytesUTF8", "stringToUTF8"]' \
+                -s TOTAL_MEMORY=134217728 \
 		-s RESERVED_FUNCTION_POINTERS=128 \
 		-s SINGLE_FILE=1 \
-		-s MODULARIZE=1 -s EXPORT_NAME='avs_core' \
-		-s EXPORT_ES6=1
+		-s MODULARIZE=1 \
+		-s EXPORT_NAME='avs_core'
 
 $(DIST_WASM_PC_TARGET):
 	@mkdir -p $(BUILD_DIST_WASM)

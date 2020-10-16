@@ -83,6 +83,8 @@ static void engine_conv_destructor(void *arg)
 {
 	struct engine_conv *conv = arg;
 
+	tmr_cancel(&conv->hangup_tmr);
+
 	mem_deref(conv->id);
 	mem_deref(conv->name);
 	list_flush(&conv->memberl);
@@ -106,7 +108,9 @@ static int conv_alloc(struct engine_conv **convp, struct engine *engine,
 	if (err)
 		goto out;
 
+	tmr_init(&conv->hangup_tmr);
 	conv->engine = engine;
+	
 
 	err = dict_add(engine->conv->convd, id, conv);
 	if (err)
@@ -657,7 +661,7 @@ static void get_asset_handler(int err, const struct http_msg *msg,
 	debug("get_asset_handler: len=%zu err=%d status=%d\n",
 	      mb->end, err, msg ? msg->scode : 0);
 
-	if (err || (msg->scode < 200 || msg->scode >= 300)) {
+	if (err || !msg || (msg->scode < 200 || msg->scode >= 300)) {
 		warning("get_asset_handler: failed: err=%d status=%d\n",
 			err, msg ? msg->scode : 0);
 		goto out;
@@ -1244,14 +1248,13 @@ static void get_convlist_handler(int err, const struct http_msg *msg,
 	count = json_object_array_length(carray);
 	for (i = 0; i < count; ++i) {
 		struct json_object *cobj;
-		struct engine_conv *conv;
 
 		cobj = json_object_array_get_idx(carray, i);
 		if (cobj == NULL)
 			continue;
 
 		id = jzon_str(cobj, "id");
-		conv = import_conv(step->engine, cobj);
+		import_conv(step->engine, cobj);
 	}
 
 	err = jzon_bool(&more, jobj, "has_more");

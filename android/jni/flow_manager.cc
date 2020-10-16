@@ -395,7 +395,7 @@ static int setup_breakpad(JNIEnv *env, jobject ctx)
 }
 #endif
 #endif
-
+/*
 static void log_handler(uint32_t level, const char *msg, void *arg)
 {
 	__android_log_write(ANDROID_LOG_INFO, "AVS-N", msg);
@@ -406,7 +406,7 @@ struct log logh = {
 	.h = log_handler,
 	.arg = NULL,
 };
-
+*/
 static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 {
 	jint res;
@@ -415,16 +415,15 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 	int err = 0;
 
 	log_set_min_level(LOG_LEVEL_DEBUG);
-	log_register_handler(&logh);
-
-	__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: init\n");
+	//log_register_handler(&logh);
+	//__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: init\n");
 	info("jni: init\n");
 
 #ifdef ANDROID
 	//info("Calling SetAndroidObjects\n");
 	//	webrtc::VoiceEngine::SetAndroidObjects(java.vm, ctx);
 
-	__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: setting ctx\n");
+	//__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: setting ctx\n");
 	info("calling webrtc::JVM:Initialize: vm=%p ctx=%p\n",
 	     java.vm, ctx);
 
@@ -1319,8 +1318,8 @@ static int vie_jni_get_view_size_handler(const void *view, int *w, int *h)
 
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved)
 {
-	info("JNI_OnLoad\n");
-	__android_log_write(ANDROID_LOG_INFO, "AVS-I", "JNI_OnLoad\n");
+	//info("JNI_OnLoad\n");
+	//__android_log_write(ANDROID_LOG_INFO, "AVS-I", "JNI_OnLoad\n");
 
 	(void)reserved;
 

@@ -20,25 +20,15 @@
 #ifndef FRAME_HDR_H_
 #define FRAME_HDR_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+size_t frame_hdr_max_size(void);
 
-struct frame_hdr
-{
-	uint32_t magic;
-	uint32_t key;
-	uint32_t psize;
-};
+size_t frame_hdr_write(uint8_t  *buf,
+		       uint64_t frame,
+		       uint64_t key);
 
-void frame_hdr_init(struct frame_hdr *hdr, uint32_t key, uint32_t psize);
-bool frame_hdr_check_magic(struct frame_hdr *hdr);
-uint32_t frame_hdr_get_key(struct frame_hdr *hdr);
-uint32_t frame_hdr_get_psize(struct frame_hdr *hdr);
-
-#ifdef __cplusplus
-};
-#endif
+size_t frame_hdr_read(const uint8_t *buf,
+		      uint64_t *frame,
+		      uint64_t *key);
 
 #endif  // FRAME_HDR_H_
 

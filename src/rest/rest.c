@@ -657,6 +657,11 @@ static void wake_request(struct rest_req *rr)
 {
 	int err;
 
+	if (!rr) {
+		warning("rest_req: wake_request: NULL rr\n");
+		return;
+	}
+
 	rr->ts_req = tmr_jiffies();
 
 	if (rr->req_body) {

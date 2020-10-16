@@ -39,6 +39,7 @@ enum econn_msg {
 	ECONN_CONF_END   = 0x0B,
 	ECONN_CONF_PART  = 0x0C,
 	ECONN_CONF_KEY   = 0x0D,
+	ECONN_CONF_CHECK = 0x0E,
 
 	ECONN_UPDATE = 0x10,
 	ECONN_REJECT = 0x11,
@@ -78,6 +79,11 @@ enum econn_transport {
 enum econn_alert_level {
 	ECONN_ALERT_LEVEL_WARNING = 1,
 	ECONN_ALERT_LEVEL_FATAL   = 2,
+};
+
+enum econn_confconn_status {
+	ECONN_CONFCONN_OK                  = 0,
+	ECONN_CONFCONN_REJECTED_BLACKLIST  = 1,
 };
 
 #define ECONN_MESSAGE_TIME_UNKNOWN (0)
@@ -123,6 +129,7 @@ struct econn_message {
 		struct setup {
 			char *sdp_msg;
 			struct econn_props *props;
+			char *url;
 		} setup;
 
 		struct propsync {
@@ -149,6 +156,15 @@ struct econn_message {
 			struct econn_props *props;
 		} groupstart;
 
+		struct confconn {
+			struct zapi_ice_server *turnv;
+			size_t turnc;
+			bool update;
+			char *tool;
+			char *toolver;
+			enum econn_confconn_status status;
+		} confconn;
+
 		struct confstart {
 			struct econn_props *props;
 			char *sft_url;
@@ -158,17 +174,25 @@ struct econn_message {
 			uint32_t seqno;
 		} confstart;
 
+		struct confcheck {
+			char *sft_url;
+			uint8_t *secret;
+			uint32_t secretlen;
+			uint64_t timestamp;
+			uint32_t seqno;
+		} confcheck;
+
 		struct confpart {
 			uint64_t timestamp;
 			uint32_t seqno;
 			bool should_start;
 			struct list partl; /* list of struct econn_group_part */
+			uint8_t *entropy;
+			uint32_t entropylen;
 		} confpart;
 
 		struct confkey {
-			uint32_t idx;
-			uint8_t *keydata;
-			uint32_t keylen;
+			struct list keyl; /* list of struct econn_key_info */
 		} confkey;
 	} u;
 };
@@ -176,6 +200,7 @@ struct econn_message {
 
 struct econn;
 
+/* member of participant list */
 struct econn_group_part {
 	char *userid;
 	char *clientid;
@@ -183,9 +208,16 @@ struct econn_group_part {
 	uint32_t ssrca;
 	uint32_t ssrcv;
 
-	struct le le; /* member of participant list */
+	struct le le;
 };
 
+/* key data for CONF_KEY message */
+struct econn_key_info {
+	uint32_t idx;
+	uint8_t *data;
+	uint32_t dlen;
+	struct le le;
+};
 /**
  * Indicates an incoming call on this ECONN.
  * Should only be called once per ECONN.
@@ -229,10 +261,7 @@ typedef void (econn_alert_h)(struct econn *econn, uint32_t level,
 			     const char *descr, void *arg);
 
 typedef void (econn_confpart_h)(struct econn *econn,
-				const struct list *partlist,
-				bool should_start,
-				uint64_t timestamp,
-				uint32_t seqno,
+				const struct econn_message *msg,
 				void *arg);
 
 /**
@@ -269,6 +298,7 @@ int  econn_alloc(struct econn **econnp,
 		 const struct econn_conf *conf,
 		 const char *userid_self,
 		 const char *clientid,
+		 const char *sessid,
 		 struct econn_transp *transp,
 		 econn_conn_h *connh,
 		 econn_answer_h *answerh,
@@ -356,6 +386,8 @@ int econn_send_propsync(struct econn *conn, bool resp,
 
 struct econn_group_part *econn_part_alloc(const char *userid,
 					  const char *clientid);
+
+struct econn_key_info *econn_key_info_alloc(size_t keysz);
 
 struct vector {
 	uint8_t *bytes;

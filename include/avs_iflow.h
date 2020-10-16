@@ -62,13 +62,15 @@ typedef int  (iflow_gather_all_turn)(struct iflow *flow, bool offer);
 typedef int  (iflow_add_decoders_for_user)(struct iflow *flow,
 					   const char *userid,
 					   const char *clientid,
+					   const char *userid_hash,
 					   uint32_t ssrca,
 					   uint32_t ssrcv);
 typedef int  (iflow_remove_decoders_for_user)(struct iflow *flow,
 					      const char *userid,
-					      const char *clientid,
-					      uint32_t ssrca,
-					      uint32_t ssrcv);
+					      const char *clientid);
+
+typedef int  (iflow_sync_decoders)(struct iflow *flow);
+
 
 typedef int  (iflow_set_keystore)(struct iflow *flow,
 				  struct keystore *keystore);
@@ -88,6 +90,7 @@ typedef int  (iflow_debug)(struct re_printf *pf, const struct iflow *flow);
 /* Static functions */
 typedef int (iflow_allocf)(struct iflow		**flowp,
 			   const char		*convid,
+			   const char		*userid_self,
 			   enum icall_conv_type	conv_type,
 			   enum icall_call_type	call_type,
 			   enum icall_vstate	vstate,
@@ -159,6 +162,7 @@ struct iflow {
 	iflow_gather_all_turn		*gather_all_turn;
 	iflow_add_decoders_for_user	*add_decoders_for_user;
 	iflow_remove_decoders_for_user	*remove_decoders_for_user;
+	iflow_sync_decoders	        *sync_decoders;
 	iflow_set_keystore		*set_keystore;
 	iflow_dce_send			*dce_send;
 	iflow_stop_media		*stop_media;
@@ -205,6 +209,7 @@ void iflow_set_functions(struct iflow *iflow,
 			 iflow_gather_all_turn		*gather_all_turn,
 			 iflow_add_decoders_for_user	*add_decoders_for_user,
 			 iflow_remove_decoders_for_user	*remove_decoders_for_user,
+			 iflow_sync_decoders	        *sync_decoders,
 			 iflow_set_keystore		*set_keystore,
 			 iflow_dce_send			*dce_send,
 			 iflow_stop_media		*stop_media,
@@ -234,6 +239,7 @@ void iflow_register_statics(iflow_destroyf *destroy,
 
 int iflow_alloc(struct iflow		**flowp,
 		const char		*convid,
+		const char		*userid_self,
 		enum icall_conv_type	conv_type,
 		enum icall_call_type	call_type,
 		enum icall_vstate	vstate,

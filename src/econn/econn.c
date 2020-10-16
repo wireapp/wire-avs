@@ -103,6 +103,7 @@ static int econn_send_setup(struct econn *conn, bool resp, const char *sdp,
 {
 	struct econn_message msg;
 	enum econn_msg mtype;
+	bool has_msg = false;
 	int err = 0;
 
 	if (!conn)
@@ -113,6 +114,7 @@ static int econn_send_setup(struct econn *conn, bool resp, const char *sdp,
 	if (err)
 		return err;
 
+	has_msg = true;
 	msg.u.setup.sdp_msg = (char *)sdp;
 	msg.u.setup.props = (struct econn_props *)props;
 
@@ -129,6 +131,10 @@ static int econn_send_setup(struct econn *conn, bool resp, const char *sdp,
 	}
 
  out:
+	if (has_msg) {
+		if (msg.u.setup.url)
+			mem_deref(msg.u.setup.url);
+	}
 	if (err) {
 		conn->setup_err = err;
 		econn_set_state(conn, ECONN_TERMINATING);
@@ -645,12 +651,7 @@ static void recv_confpart(struct econn *econn,
 	char clientid_anon[ANON_CLIENT_LEN];
 
 	if (econn->confparth) {
-		econn->confparth(econn,
-				 &msg->u.confpart.partl,
-				 msg->u.confpart.should_start,
-				 msg->u.confpart.timestamp,
-				 msg->u.confpart.seqno,
-				 econn->arg);
+		econn->confparth(econn, msg, econn->arg);
 	}
 	else {
 		warning("econn(%p): received CONFPART from %s.%s (%s)\n",
@@ -727,6 +728,7 @@ int  econn_alloc(struct econn **connp,
 		 const struct econn_conf *conf,
 		 const char *userid_self,
 		 const char *clientid,
+		 const char *sessid,
 		 struct econn_transp *transp,
 		 econn_conn_h *connh,
 		 econn_answer_h *answerh,
@@ -768,7 +770,13 @@ int  econn_alloc(struct econn **connp,
 	conn->arg          = arg;
 
 	/* Generate a new random (unique) local Session-ID */
-	rand_str(conn->sessid_local, 5);
+	if (sessid) {		
+		str_ncpy(conn->sessid_local, sessid,
+			 sizeof(conn->sessid_local));
+	}
+	else {
+		rand_str(conn->sessid_local, 5);
+	}
 
 	tmr_start(&conn->tmr_local, conn->conf.timeout_setup,
 		  tmr_local_handler, conn);
@@ -1104,6 +1112,8 @@ int econn_send_propsync(struct econn *econn, bool resp,
 		return err;
 	}
 
+	str_ncpy(msg.src_userid, econn->userid_self, sizeof(msg.src_userid));
+	str_ncpy(msg.src_clientid, econn->clientid, sizeof(msg.src_userid));
 	msg.resp = resp;
 	msg.u.propsync.props = props;
 

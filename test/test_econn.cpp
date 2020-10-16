@@ -326,6 +326,7 @@ static void client_new_econn(struct client *cli)
 	err = econn_alloc(&cli->econn, &cli->conf,
 			  cli->userid,
 			  cli->clientid,
+			  NULL,
 			  &cli->transp,
 			  econn_conn_handler,
 			  econn_answer_handler,

@@ -36,6 +36,8 @@ void view_set_local_user(const char *userid, const char *clientid);
 void vidstate_handler(const char *userid, enum flowmgr_video_receive_state state,
 	enum flowmgr_video_reason reason, void *arg);
 
+void view_show_mute(bool muted);
+
 int  render_handler(struct avs_vidframe * frame,
 		    const char *userid,
 		    const char *clientid,

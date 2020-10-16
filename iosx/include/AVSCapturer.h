@@ -46,6 +46,8 @@ typedef enum {
 AVS_EXPORT @interface AVSCapturer : NSObject<AVCaptureVideoDataOutputSampleBufferDelegate,
 	CALayerDelegate>
 
+@property (nonatomic) BOOL previewShouldFill;
+
 - (id)init;
 - (int)startWithWidth:(uint32_t)width Height:(uint32_t)height MaxFps:(uint32_t)max_fps;
 - (int)stop;

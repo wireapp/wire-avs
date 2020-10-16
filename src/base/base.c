@@ -17,9 +17,8 @@
 */
 #include <openssl/crypto.h>
 #include <re.h>
-#ifdef HAVE_CRYPTOBOX
 #include <sodium.h>
-#endif
+
 
 #include "avs_log.h"
 #include "avs_base.h"
@@ -81,13 +80,14 @@ static void debug_handler(int level, const char *p, size_t len, void *arg)
 
 int avs_init(uint64_t flags)
 {
-#ifdef HAVE_CRYPTOBOX
 	if (sodium_init() == -1) {
 		warning("init: could not init libsodium\n");
 		return ENOSYS;
 	}
-#endif
-
+	else {
+		info("avs_init: sodium initialized\n");
+	}
+	
 	base.flags = flags;
 	base.inited = true;
 
@@ -148,9 +148,7 @@ void avs_print_versions(void)
 	     SSLeay_version(SSLEAY_VERSION),
 	     SSLeay_version(SSLEAY_PLATFORM));
 #endif
-#ifdef HAVE_CRYPTOBOX
 	info("init: sodium:   %s\n", sodium_version_string());
-#endif
 }
 
 /*

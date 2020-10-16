@@ -263,7 +263,7 @@ void json_object_object_add(struct json_object *jobj, const char *key,
 
 #if 1
 	/* NOTE: ownership transferred to obj */
-	val = mem_deref(val);
+	mem_deref(val);
 #endif
 }
 

@@ -240,6 +240,16 @@ static void set_active(bool active)
 		set_active_sync(false);
 }
 
+- (BOOL)isAnyPlaying
+{
+	NSUInteger n;
+	[_lock lock];
+	n = [_playingDict count];
+	[_lock unlock];	
+
+	return n > 0;
+}
+
 - (BOOL)isPlaying:(id<AVSMedia>)media
 {
 	[_lock lock];
@@ -248,6 +258,26 @@ static void set_active(bool active)
 
 	return  playing;
 }
+
+- (void)restartAllPlaying
+{
+	NSMutableArray *playing = [NSMutableArray new];
+	[_lock lock];
+	for (NSString *key in _playingDict) {
+		id<AVSMedia> media = _playingDict[key];
+		[playing addObject:media];
+	}
+	[_lock unlock];
+
+	for (id<AVSMedia> media in playing) {
+		info("mm_platform_ios: restartAllPlaying: stopping: %s\n",
+		     [media.name UTF8String]);
+		[media stop];
+		info("mm_platform_ios: restartAllPlaying: starting: %s\n",
+		     [media.name UTF8String]);
+		[media play];		
+	}
+}	
 
 @end
 
@@ -447,10 +477,12 @@ static void interrupt_action(bool interrupted)
 	}
 	else {
 		mm_ios.interrupted = false;
-		if (msystem_audio_is_activated() || mm_ios.incall) {
-			set_category_sync(AVAudioSessionCategoryPlayAndRecord,
-					  mediamgr_get_speaker(mm_ios.mm));
-			set_active_sync(true);
+		if (mm_ios.incall) {
+			if (msystem_audio_is_activated()) {
+				set_category_sync(AVAudioSessionCategoryPlayAndRecord,
+						  mediamgr_get_speaker(mm_ios.mm));
+				set_active_sync(true);
+			}
 			mediamgr_set_call_state_mm(mm_ios.mm,
 						   MEDIAMGR_STATE_RESUME);
 		}

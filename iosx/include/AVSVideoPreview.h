@@ -29,6 +29,8 @@
 
 AVS_EXPORT @interface AVSVideoPreview: UIView
 
+@property (nonatomic) BOOL shouldFill;
+
 - (void)didMoveToWindow;
 - (void)startVideoCapture;
 - (void)stopVideoCapture;

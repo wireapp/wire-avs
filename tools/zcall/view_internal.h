@@ -38,6 +38,8 @@ typedef int  (render_framef)(struct avs_vidframe * frame,
 typedef void (preview_startf)(void);
 typedef void (preview_stopf)(void);
 
+typedef void (view_show_mutef)(bool muted);
+
 struct view {
 	runloop_startf    *runloop_start;
 	runloop_stopf     *runloop_stop;
@@ -49,6 +51,7 @@ struct view {
 	render_framef     *render_frame;
 	preview_startf    *preview_start;
 	preview_stopf     *preview_stop;
+	view_show_mutef   *view_show_mute;
 };
 
 #endif

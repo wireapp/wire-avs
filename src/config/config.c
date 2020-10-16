@@ -24,8 +24,6 @@
 #define EXPIRY_MIN   300  /* in seconds (5 minutes)  */
 #define EXPIRY_MAX  3600  /* in seconds (60 minutes) */
 
-#define DEFAULT_SFT_URL "http://18.185.29.166:8282"
-
 struct config {
 	config_update_h *updh;
 	config_req_h *reqh;
@@ -34,6 +32,8 @@ struct config {
 	struct tmr tmr;
 
 	struct call_config config;
+
+	struct list updl; /* list of update handlers */
 };
 
 
@@ -72,7 +72,7 @@ static void cfg_destructor(void *arg)
 
 	tmr_cancel(&cfg->tmr);
 	mem_deref(cfg->config.iceserverv);	
-	mem_deref(cfg->config.sft_url);
+	mem_deref(cfg->config.sftserverv);	
 }
 
 
@@ -109,6 +109,7 @@ int config_update(struct config *cfg, int err,
 {
 	struct json_object *jobj;
 	struct json_object *jices;
+	struct json_object *jsfts;
 	uint32_t ttl = 0;
 
 	if (!cfg || !conf_json)
@@ -159,24 +160,79 @@ int config_update(struct config *cfg, int err,
 		}
 	}
 
-	cfg->config.sft_url = mem_deref(cfg->config.sft_url);
-	if (jzon_str(jobj, "sft_url")) {
-		str_dup(&cfg->config.sft_url, jzon_str(jobj, "sft_url"));
+	if (0 == jzon_array(&jsfts, jobj, "sft_servers")) {
+		size_t i;
+
+		cfg->config.sftserverv = mem_deref(cfg->config.sftserverv);
+		err = zapi_iceservers_decode(jsfts,
+					     &cfg->config.sftserverv,
+					     &cfg->config.sftserverc);
+		if (err) {
+			warning("config(%p): failed to decode sftservers(%m)\n",
+				cfg, err);
+			goto out;
+		}
+
+		info("config(%p): got sftservers: %zu\n",
+		     cfg, cfg->config.sftserverc);
+
+		for(i = 0; i < cfg->config.sftserverc; ++i) {
+			struct zapi_ice_server *sft = &cfg->config.sftserverv[i];
+
+			info("config(%p): sft(%d): %s\n", cfg, i, sft->url);
+		}
+
+		if (!cfg->config.sftserverc) {
+			warning("config: got no sftservers!\n");
+			err = ENOENT;
+			goto out;
+		}
 	}
-	else {
-		info("config(%p): no SFT URL supplied, using default %s\n",
-		     cfg, DEFAULT_SFT_URL);
-		str_dup(&cfg->config.sft_url, DEFAULT_SFT_URL);
+
+	if (0 == jzon_array(&jsfts, jobj, "sft_ice_servers")) {
+		size_t i;
+
+		cfg->config.sfticeserverv = mem_deref(cfg->config.sfticeserverv);
+		err = zapi_iceservers_decode(jsfts,
+					     &cfg->config.sfticeserverv,
+					     &cfg->config.sfticeserverc);
+		if (err) {
+			warning("config(%p): failed to decode sftservers(%m)\n",
+				cfg, err);
+			goto out;
+		}
+
+		info("config(%p): got sfticeservers: %zu\n",
+		     cfg, cfg->config.sfticeserverc);
+		for(i = 0; i < cfg->config.sfticeserverc; ++i) {
+			struct zapi_ice_server *sft = &cfg->config.sfticeserverv[i];
+
+			info("config(%p): sft-TURN(%d): %s\n", cfg, i, sft->url);
+		}
+
+		if (!cfg->config.sfticeserverc)
+			warning("config(%p): got no sfticeservers!\n", cfg);
 	}
+	
  out:
 	if (err) {
 		warning("config(%p): config error (%m)\n", cfg, err);
 		tmr_start(&cfg->tmr, 60 * 1000, tmr_handler, cfg);
 	}
 	else {
+		struct le *le;
 		tmr_start(&cfg->tmr, ttl * 9/10 * 1000, tmr_handler, cfg);
 		if (cfg->updh)
 			cfg->updh(&cfg->config, cfg->arg);
+		le = cfg->updl.head;
+		while(le) {
+			struct config_update_elem *upel = le->data;
+
+			le = le->next;
+
+			if (upel->updh)
+				upel->updh(&upel->cfg->config, upel->arg);
+		}
 	}
 
 	mem_deref(jobj);
@@ -213,11 +269,85 @@ struct zapi_ice_server *config_get_iceservers(struct config *cfg,
 	return cfg->config.iceserverv;
 }
 
-const char *config_get_sft_url(struct config *cfg)
+struct zapi_ice_server *config_get_sftservers(struct config *cfg,
+					      size_t *count)
 {
-	if (!cfg)
+	if (!cfg || cfg->config.sftserverc == 0)
 		return NULL;
 
-	return cfg->config.sft_url;
+	*count = cfg->config.sftserverc;
+
+	return cfg->config.sftserverv;
 }
 
+struct zapi_ice_server *config_get_sfticeservers(struct config *cfg,
+						 size_t *count)
+{
+	if (!cfg || cfg->config.sfticeserverc == 0)
+		return NULL;
+
+	*count = cfg->config.sfticeserverc;
+
+	return cfg->config.sfticeserverv;
+}
+
+int config_request(struct config *cfg)
+{
+	int err;
+
+	if (!cfg)
+		return EINVAL;
+
+	err = do_request(cfg);
+
+	return err;
+}
+
+int config_register_update_handler(struct config_update_elem *upe, struct config *cfg)
+{
+	if (!upe || !cfg)
+		return EINVAL;
+
+	if (!upe->updh)
+		return ENOSYS;
+
+	upe->cfg = cfg;
+	
+	list_append(&cfg->updl, &upe->le, upe);
+
+	return 0;
+}
+
+int config_unregister_update_handler(struct config_update_elem *upe)
+{
+	if (!upe)
+		return EINVAL;
+
+	if (!upe->cfg)
+		return ENOSYS;
+
+	list_unlink(&upe->le);
+
+	return 0;
+}
+
+int config_unregister_all_updates(struct config *cfg, void *arg)
+{
+	struct le *le;
+
+	if (!cfg || !arg)
+		return EINVAL;
+
+	le = cfg->updl.head;
+	while(le) {
+		struct config_update_elem *upel = le->data;
+
+		le = le->next;
+
+		if (upel->arg == arg) {
+			config_unregister_update_handler(upel);
+		}
+	}
+
+	return 0;
+}

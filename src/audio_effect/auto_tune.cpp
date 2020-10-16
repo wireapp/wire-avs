@@ -61,8 +61,9 @@ static int find_nearest_lag(struct auto_tune_effect *ate, int lag_in)
     int bestE = 1 << 10;
     int E, abs_E;
     int strength = 2 + ate->strength;
+    int n = strength == 0 ? 0 : ATE_NUM_LAGS/strength;
     
-    for(int i = 0; i < ATE_NUM_LAGS/strength; i++){
+    for(int i = 0; i < n; i++){
         E = (lag_in - lag_table[i*strength]);
         abs_E = E;
         if(abs_E < 0){

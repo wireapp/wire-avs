@@ -78,11 +78,13 @@ static void time_scale_insert_one(struct time_scale *ts, int best_d, int L)
     int16_t buf1[L+L1];
     int idx1 = (ts->write_idx - L - L1) & TS_MASK;
     int idx2 = (ts->write_idx - L - best_d - L1) & TS_MASK;
+    memset(buf1, 0, sizeof(buf1));
     for(int i = 0; i < (L + L1); i++){
         buf1[i] = ts->buf[idx1];
         idx1 = (idx1 + 1) & TS_MASK;
     }
     int16_t buf2[best_d+L1];
+    memset(buf2, 0, sizeof(buf2));    
     for(int i = 0; i < (best_d + L1); i++){
         buf2[i] = ts->buf[idx2];
         idx2 = (idx2 + 1) & TS_MASK;

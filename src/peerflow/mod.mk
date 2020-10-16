@@ -2,23 +2,14 @@
 # mod.mk
 #
 
-ifeq ($(AVS_OS),wasm)
-AVS_SRCS += \
-	peerflow/dummy_lock.c \
-	peerflow/jsflow.c \
-	peerflow/sdp.c
-else
 AVS_SRCS += \
 	peerflow/capture_source.cpp \
 	peerflow/cbr_detector_local.cpp \
 	peerflow/cbr_detector_remote.cpp \
-	peerflow/frame_decryptor.cpp \
-	peerflow/frame_encryptor.cpp \
-	peerflow/frame_hdr.c \
+	peerflow/frame_decryptor_wrapper.cpp \
+	peerflow/frame_encryptor_wrapper.cpp \
 	peerflow/peerflow.cpp \
-	peerflow/video_renderer.cpp \
-	peerflow/sdp.c
-endif
+	peerflow/video_renderer.cpp
 
 AVS_CPPFLAGS_src/peerflow := \
 	-Imediaengine \

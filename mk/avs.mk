@@ -30,11 +30,13 @@
 # For information on argument variables, see mk/target.mk.
 #
 
+
 #--- AVS Core Modules ---
 
 AVS_MODULES += base
 AVS_MODULES += cert
 AVS_MODULES += conf_pos
+AVS_MODULES += conf_member
 AVS_MODULES += config
 ifneq ($(HAVE_CRYPTOBOX),)
 AVS_MODULES += cryptobox
@@ -46,6 +48,8 @@ AVS_MODULES += econn
 AVS_MODULES += econn_fmt
 AVS_MODULES += extmap
 AVS_MODULES += flowmgr
+AVS_MODULES += frame_hdr
+AVS_MODULES += frame_enc
 AVS_MODULES += jzon
 ifneq ($(HAVE_CRYPTOBOX),)
 AVS_MODULES += kase
@@ -55,12 +59,19 @@ AVS_MODULES += log
 AVS_MODULES += mediamgr
 AVS_MODULES += msystem
 AVS_MODULES += nevent
+ifeq ($(AVS_OS),wasm)
+AVS_MODULES += jsflow
+else
+ifeq ($(HAVE_WEBRTC),1)
+AVS_MODULES += peerflow
+endif
+endif
 ifneq ($(HAVE_PROTOBUF),)
 AVS_MODULES += protobuf
 endif
-AVS_MODULES += peerflow
 AVS_MODULES += queue
 AVS_MODULES += rest
+AVS_MODULES += sdp
 AVS_MODULES += sem
 AVS_MODULES += serial
 AVS_MODULES += string
@@ -74,12 +85,13 @@ AVS_MODULES += egcall
 ifeq ($(ENABLE_CONFERENCE_CALLS),1)
 AVS_MODULES += ccall
 endif
-AVS_MODULES += audio_io
-ifneq ($(AVS_OS),wasm)
-AVS_MODULES += audio_effect
-endif
 AVS_MODULES += zapi
 AVS_MODULES += ztime
+
+ifeq ($(HAVE_WEBRTC),1)
+AVS_MODULES += audio_effect
+AVS_MODULES += audio_io
+endif
 
 ifeq ($(BUILD_NETWORK_MODULES),1)
 AVS_MODULES += network
@@ -125,12 +137,21 @@ ifneq ($(HAVE_CRYPTOBOX),)
 AVS_CPPFLAGS += -DHAVE_CRYPTOBOX=1
 endif
 
+ifeq ($(HAVE_WEBRTC),1)
+AVS_CPPFLAGS += -DHAVE_WEBRTC=1 -DENABLE_AUDIO_IO=1 -DENABLE_PEERFLOW=1
+endif
+
 AVS_DEPS := $(CONTRIB_LIBRE_TARGET) \
 	$(CONTRIB_LIBREW_TARGET) \
 	$(CONTRIB_SODIUM_TARGET)
 AVS_LIBS += $(CONTRIB_LIBRE_LIBS) \
-	$(CONTRIB_LIBREW_LIBS) \
-	$(CONTRIB_WEBRTC_LIBS)
+	$(CONTRIB_LIBREW_LIBS)
+
+ifeq ($(HAVE_WEBRTC),1)
+AVS_LIBS += $(CONTRIB_WEBRTC_LIBS)
+else
+ABS_LIBS += $(CONTRIB_OPENSSL_LIBS)
+endif
 
 ifneq ($(HAVE_CRYPTOBOX),)
 AVS_DEPS += $(CONTRIB_CRYPTOBOX_TARGET)
@@ -163,7 +184,8 @@ AVS_LIB_FILES += $(CONTRIB_LIBRE_LIB_FILES) \
 
 $(AVS_OBJS): $(TOOLCHAIN_MASTER) \
 	     $(CONTRIB_LIBRE_TARGET) \
-	     $(CONTRIB_LIBREW_TARGET)
+	     $(CONTRIB_LIBREW_TARGET) \
+	     $(CONTRIB_SODIUM_TARGET)
 
 ifeq ($(SKIP_MK_DEPS),)
 $(AVS_OBJS):  $(AVS_MKS)

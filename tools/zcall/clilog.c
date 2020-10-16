@@ -60,7 +60,7 @@ static void log_handler(uint32_t level, const char *msg, void *arg)
 		if (color)
 			re_printf("\x1b[31m"); /* Red */
 
-		output(msg);
+		output("%s", msg);
 
 		if (color)
 			re_printf("\x1b[;m");

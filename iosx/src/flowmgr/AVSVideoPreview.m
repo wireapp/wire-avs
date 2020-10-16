@@ -39,6 +39,33 @@
 	BOOL _attached;
 }
 
+- (id)init
+{
+	self = [super init];
+	AVSFlowManager *fm = [AVSFlowManager getInstance];
+	if (fm) {
+		fm.previewShouldFill = YES;
+	}
+	return self;
+}
+
+- (void) setShouldFill:(BOOL)fill
+{
+	AVSFlowManager *fm = [AVSFlowManager getInstance];
+	if (fm) {
+		fm.previewShouldFill = fill;
+	}
+}
+
+- (BOOL) shouldFill
+{
+	AVSFlowManager *fm = [AVSFlowManager getInstance];
+	if (fm) {
+		return fm.previewShouldFill;
+	}
+	return NO;
+}
+
 - (void)didMoveToWindow
 {
 	info("Preview(%p) didMoveToWindow %p attached %s\n", self, self.window,

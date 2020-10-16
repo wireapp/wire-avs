@@ -243,6 +243,8 @@ struct engine_conv {
 	char *last_read;
 	bool unread;
 
+	struct tmr hangup_tmr;
+	
 	/* User data. Will be derefed on shutdown.
 	 */
 	void *arg;
@@ -334,13 +336,19 @@ int engine_recipient_msg_alloc(struct recipient_msg **rmsgp);
 
 /* OTR high-level APIs */
 
+struct otr_target {
+	struct le le;
+	char userid[64];
+	char clientid[64];
+};
+
 typedef void (otr_resp_h)(int err, void *arg);
 
 int engine_send_otr_message(struct engine *engine,
 			    void *cb,
 			    struct engine_conv *conv,
-			    const char *target_userid,
-			    const char *target_clientid,
+			    struct otr_target *targets,
+			    size_t num_targets,
 			    const char *local_clientid,
 			    const uint8_t *data, size_t data_len,
 			    bool transient,

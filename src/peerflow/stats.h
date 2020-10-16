@@ -104,10 +104,10 @@ public:
 
 			if (s->media_type.is_defined()) {
 				if (*s->media_type == "video") {
-					vpkts_recv = *s->packets_received;
+					vpkts_recv += *s->packets_received;
 				}
 				else if (*s->media_type == "audio") {
-					apkts_recv = *s->packets_received;
+					apkts_recv += *s->packets_received;
 				}
 			}
 			if (s->packets_received.is_defined()) {
@@ -128,10 +128,10 @@ public:
 
 			if (s->media_type.is_defined()) {
 				if (*s->media_type == "video") {
-					vpkts_sent = *s->packets_sent;
+					vpkts_sent += *s->packets_sent;
 				}
 				else if (*s->media_type == "audio") {
-					apkts_sent = *s->packets_sent;
+					apkts_sent += *s->packets_sent;
 				}
 			}
 		}

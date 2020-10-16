@@ -18,6 +18,7 @@
 
 #include <string.h>
 #include <re.h>
+#include <sodium.h>
 #include "avs_log.h"
 #include "avs_jzon.h"
 #include "avs_uuid.h"
@@ -71,13 +72,13 @@ static int econn_parts_encode(struct json_object *jobj,
 			err = ENOMEM;
 			goto out;
 		}
-		jzon_add_str(jpart, "userid", part->userid);
-		jzon_add_str(jpart, "clientid", part->clientid);
+		jzon_add_str(jpart, "userid", "%s", part->userid);
+		jzon_add_str(jpart, "clientid", "%s", part->clientid);
 		jzon_add_bool(jpart, "authorized", part->authorized);
 		re_snprintf(ssrc, sizeof(ssrc), "%u", part->ssrca);
-		jzon_add_str(jpart, "ssrc_audio", ssrc);
+		jzon_add_str(jpart, "ssrc_audio", "%s", ssrc);
 		re_snprintf(ssrc, sizeof(ssrc), "%u", part->ssrcv);
-		jzon_add_str(jpart, "ssrc_video", ssrc);
+		jzon_add_str(jpart, "ssrc_video", "%s", ssrc);
 
 		json_object_array_add(jparts, jpart);
 	}
@@ -91,6 +92,8 @@ static int econn_parts_encode(struct json_object *jobj,
 static void part_destructor(void *arg)
 {
 	struct econn_group_part *part = arg;
+
+	list_unlink(&part->le);
 
 	mem_deref(part->userid);
 	mem_deref(part->clientid);
@@ -175,6 +178,137 @@ static int econn_parts_decode(struct list *partl, struct json_object *jobj)
 
 	return 0;
 }
+
+static int econn_keys_encode(struct json_object *jobj,
+			     const struct list *keyl)
+{
+	struct le *le;
+	struct json_object *jkeys;
+	int err = 0;
+
+	jkeys = jzon_alloc_array();
+	if (!jkeys)
+		return ENOMEM;
+	
+	LIST_FOREACH(keyl, le) {
+		struct econn_key_info *key = le->data;
+		struct json_object *jkey;
+
+		jkey = jzon_alloc_object();
+		if (!jkey) {
+			err = ENOMEM;
+			goto out;
+		}
+		jzon_add_int(jkey, "idx", key->idx);
+		jzon_add_base64(jkey, "data",
+				key->data, key->dlen);
+
+		json_object_array_add(jkeys, jkey);
+	}
+
+	json_object_object_add(jobj, "keys", jkeys);
+
+ out:
+	return err;
+}
+
+static void key_destructor(void *arg)
+{
+	struct econn_key_info *key = arg;
+
+	list_unlink(&key->le);
+	if (key->data && key->dlen)
+		sodium_memzero(key->data, key->dlen);
+	key->data = mem_deref(key->data);
+	key->dlen = 0;
+}
+
+struct econn_key_info *econn_key_info_alloc(size_t keysz)
+{
+	struct econn_key_info *key;
+
+	key = mem_zalloc(sizeof(*key), key_destructor);
+	if (!key) {
+		warning("econn: key_decode_handler: could not alloc key\n");
+		return NULL;
+	}
+
+	key->data = mem_zalloc(keysz, NULL);
+	if (!key->data) {
+		warning("econn: key_decode_handler: could not alloc key\n");
+		mem_deref(key);
+		return NULL;
+	}
+	key->dlen = keysz;
+
+	return key;
+}
+
+static bool key_decode_handler(const char *keystr,
+			       struct json_object *jobj,
+			       void *arg)
+{
+	struct econn_key_info *key;
+	struct list *keyl = arg;
+	int32_t i;
+	const char *dstr;
+	uint8_t *d;
+	size_t sz;
+	int err;
+
+	key = mem_zalloc(sizeof(*key), key_destructor);
+	if (!key) {
+		warning("econn: key_decode_handler: could not alloc part\n");
+		return false;
+	}
+
+	err = jzon_int(&i, jobj, "idx");
+	if (err)
+		return false;
+
+	key->idx = i;
+
+	dstr = jzon_str(jobj, "data");
+	if (!dstr)
+		return false;
+
+	sz = str_len(dstr);
+
+	d = mem_zalloc(sz, NULL);
+	if (!d)
+		return false;
+
+	err = base64_decode(dstr, str_len(dstr), d, &sz);
+	if (err) {
+		warning("econn: failed to base64 decode key\n");
+		mem_deref(d);
+		return err;
+	}
+
+	key->data = d;
+	key->dlen = sz;
+
+	list_append(keyl, &key->le, key);
+
+	return false;
+}
+
+static int econn_keys_decode(struct list *keyl, struct json_object *jobj)
+{
+	struct json_object *jkeys;
+	int err = 0;
+
+	err = jzon_array(&jkeys, jobj, "keys");
+	if (err) {
+		warning("econn: keys decode: no keys\n");
+		return err;
+	}
+
+	jzon_apply(jkeys, key_decode_handler, keyl);
+
+	return 0;
+}
+
 #endif
 
 
@@ -195,25 +329,28 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		return err;
 
 	if (str_isset(msg->src_userid)) {
-		err = jzon_add_str(jobj, "src_userid", msg->src_userid);
+		err = jzon_add_str(jobj, "src_userid", "%s", msg->src_userid);
 		if (err)
 			goto out;
 	}
 
 	if (str_isset(msg->src_clientid)) {
-		err = jzon_add_str(jobj, "src_clientid", msg->src_clientid);
+		err = jzon_add_str(jobj, "src_clientid",
+				   "%s", msg->src_clientid);
 		if (err)
 			goto out;
 	}
 
 	if (str_isset(msg->dest_userid)) {
-		err = jzon_add_str(jobj, "dest_userid", msg->dest_userid);
+		err = jzon_add_str(jobj, "dest_userid",
+				   "%s", msg->dest_userid);
 		if (err)
 			goto out;
 	}
 
 	if (str_isset(msg->dest_clientid)) {
-		err = jzon_add_str(jobj, "dest_clientid", msg->dest_clientid);
+		err = jzon_add_str(jobj, "dest_clientid",
+				   "%s", msg->dest_clientid);
 		if (err)
 			goto out;
 	}
@@ -227,13 +364,18 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 	case ECONN_SETUP:
 	case ECONN_GROUP_SETUP:
 	case ECONN_UPDATE:
-		err = jzon_add_str(jobj, "sdp", msg->u.setup.sdp_msg);
+		err = jzon_add_str(jobj, "sdp", "%s", msg->u.setup.sdp_msg);
 		if (err)
 			goto out;
 
 		/* props is optional for SETUP */
 		if (msg->u.setup.props) {
 			err = econn_props_encode(jobj, msg->u.setup.props);
+			if (err)
+				goto out;
+		}
+		if (msg->u.setup.url) {
+			err = jzon_add_str(jobj, "url", "%s", msg->u.setup.url);
 			if (err)
 				goto out;
 		}
@@ -277,10 +419,24 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 
 #if ENABLE_CONFERENCE_CALLS
 	case ECONN_CONF_CONN:
+		err = zapi_iceservers_encode(jobj,
+					     msg->u.confconn.turnv,
+					     msg->u.confconn.turnc);
+		if (err)
+			goto out;
+
+		jzon_add_bool(jobj, "update",
+			      msg->u.confconn.update);
+		jzon_add_str(jobj, "tool",
+			      msg->u.confconn.tool);
+		jzon_add_str(jobj, "toolver",
+			      msg->u.confconn.toolver);
+		jzon_add_int(jobj, "status",
+			      msg->u.confconn.status);
 		break;
 
 	case ECONN_CONF_START:
-		jzon_add_str(jobj, "sft_url", msg->u.confstart.sft_url);
+		jzon_add_str(jobj, "sft_url", "%s", msg->u.confstart.sft_url);
 		jzon_add_base64(jobj, "secret",
 				msg->u.confstart.secret, msg->u.confstart.secretlen);
 		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confstart.timestamp);
@@ -293,6 +449,14 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		}
 		break;
 
+	case ECONN_CONF_CHECK:
+		jzon_add_str(jobj, "sft_url", "%s", msg->u.confcheck.sft_url);
+		jzon_add_base64(jobj, "secret",
+				msg->u.confcheck.secret, msg->u.confcheck.secretlen);
+		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confcheck.timestamp);
+		jzon_add_str(jobj, "seqno", "%u", msg->u.confcheck.seqno);
+		break;
+
 	case ECONN_CONF_END:
 		break;
 
@@ -301,14 +465,13 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 			      msg->u.confpart.should_start);
 		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confpart.timestamp);
 		jzon_add_str(jobj, "seqno", "%u", msg->u.confpart.seqno);
+		jzon_add_base64(jobj, "entropy",
+				msg->u.confpart.entropy, msg->u.confpart.entropylen);
 		econn_parts_encode(jobj, &msg->u.confpart.partl);
 		break;
 
 	case ECONN_CONF_KEY:
-		jzon_add_int(jobj, "idx",
-			     msg->u.confkey.idx);
-		jzon_add_base64(jobj, "key",
-				msg->u.confkey.keydata, msg->u.confkey.keylen);
+		econn_keys_encode(jobj, &msg->u.confkey.keyl);
 		break;
 #endif
 
@@ -320,23 +483,23 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 			goto out;
 
 		err = jzon_add_str(jobj, "sdp",
-				   msg->u.devpair_publish.sdp);
+				   "%s", msg->u.devpair_publish.sdp);
 		err |= jzon_add_str(jobj, "username",
-				    msg->u.devpair_publish.username);
+				    "%s", msg->u.devpair_publish.username);
 		if (err)
 			goto out;
 		break;
 
 	case ECONN_DEVPAIR_ACCEPT:
 		err = jzon_add_str(jobj, "sdp",
-				   msg->u.devpair_accept.sdp);
+				   "%s", msg->u.devpair_accept.sdp);
 		if (err)
 			goto out;
 		break;
 
 	case ECONN_ALERT:
 		err  = jzon_add_int(jobj, "level", msg->u.alert.level);
-		err |= jzon_add_str(jobj, "descr", msg->u.alert.descr);
+		err |= jzon_add_str(jobj, "descr", "%s", msg->u.alert.descr);
 		if (err)
 			goto out;
 		break;
@@ -459,6 +622,7 @@ int econn_message_decode(struct econn_message **msgp,
 	}
 
 	if (0 == str_casecmp(type, econn_msg_name(ECONN_SETUP))) {
+		const char *url;
 
 		msg->msg_type = ECONN_SETUP;
 
@@ -476,6 +640,10 @@ int econn_message_decode(struct econn_message **msgp,
 		err = econn_props_decode(&msg->u.setup.props, jobj);
 		if (err)
 			goto out;
+
+		url = jzon_str(jobj, "url");
+		if (url)
+			str_dup(&msg->u.setup.url, url);
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_GROUP_SETUP))) {
 
@@ -594,14 +762,97 @@ int econn_message_decode(struct econn_message **msgp,
 		if (econn_props_decode(&msg->u.confstart.props, jobj))
 			info("econn: decode CONFSTART: no props\n");
 	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_CHECK))) {
+		struct pl pl = PL_INIT;
+		const char *secret;
+		uint8_t *sdata;
+		size_t slen;
+
+		msg->msg_type = ECONN_CONF_CHECK;
+
+		err = jzon_strdup(&msg->u.confcheck.sft_url, jobj, "sft_url");
+		if (err) {
+			warning("econn: decode CONFCHECK: couldnt read SFT URL\n");
+			goto out;
+		}
+		pl_set_str(&pl, jzon_str(jobj, "timestamp"));
+		msg->u.confcheck.timestamp = pl_u64(&pl);
+		pl_set_str(&pl, jzon_str(jobj, "seqno"));
+		msg->u.confcheck.seqno = pl_u32(&pl);
+
+		secret = jzon_str(jobj, "secret");
+		if (!secret || err)
+			return EBADMSG;
+
+		slen = str_len(secret) * 3 / 4;
+
+		sdata = mem_zalloc(slen, NULL);
+		if (!sdata) {
+			return ENOMEM;
+		}
+		err = base64_decode(secret, str_len(secret), sdata, &slen);
+		if (err) {
+			mem_deref(sdata);
+			return err;
+		}
+
+		msg->u.confcheck.secret = sdata;
+		msg->u.confcheck.secretlen = slen;
+	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_CONN))) {
+		struct json_object *jturns;
+		const char *tool_str = NULL;
+		int32_t status = 0;
+
 		msg->msg_type = ECONN_CONF_CONN;
+
+		err = jzon_array(&jturns, jobj, "ice_servers");
+		if (err) {
+			warning("econn: confconn: no ICE servers\n");
+			goto out;
+		}
+
+		err = zapi_iceservers_decode(jturns,
+					     &msg->u.confconn.turnv,
+					     &msg->u.confconn.turnc);
+		if (err) {
+			warning("econn: confconn: "
+				"could not decode ICE servers (%m)\n", err);
+			goto out;
+		}
+
+		jzon_bool(&msg->u.confconn.update, jobj,
+			  "update");
+
+		tool_str = jzon_str(jobj, "tool");
+		if (tool_str) {
+			err = str_dup(&msg->u.confconn.tool, tool_str);
+			if (err)
+				goto out;
+		}
+
+		tool_str = jzon_str(jobj, "toolver");
+		if (tool_str) {
+			err = str_dup(&msg->u.confconn.toolver, tool_str);
+			if (err)
+				goto out;
+		}
+
+		/* status is optional, missing = 0 */
+		err = jzon_int(&status, jobj, "status");
+		if (err)
+			status = 0;
+
+		msg->u.confconn.status = (enum econn_confconn_status) status;
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_END))) {
 		msg->msg_type = ECONN_CONF_END;
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_PART))) {
 		struct pl pl = PL_INIT;
+		const char *entropy;
+		uint8_t *edata;
+		size_t elen;
 
 		msg->msg_type = ECONN_CONF_PART;
 
@@ -611,37 +862,33 @@ int econn_message_decode(struct econn_message **msgp,
 		msg->u.confpart.timestamp = pl_u64(&pl);
 		pl_set_str(&pl, jzon_str(jobj, "seqno"));
 		msg->u.confpart.seqno = pl_u32(&pl);
-		
+
+		entropy = jzon_str(jobj, "entropy");
+		if (entropy) {
+			elen = str_len(entropy) * 3 / 4;
+
+			edata = mem_zalloc(elen, NULL);
+			if (!edata) {
+				return ENOMEM;
+			}
+			err = base64_decode(entropy, str_len(entropy), edata, &elen);
+			if (err) {
+				mem_deref(edata);
+				return err;
+			}
+
+			msg->u.confpart.entropy = edata;
+			msg->u.confpart.entropylen = elen;
+		}
+
 		if (econn_parts_decode(&msg->u.confpart.partl, jobj))
 			warning("econn: decode: CONF_PART no parts\n");
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_KEY))) {
-		const char *key;
-		uint8_t *kdata;
-		size_t klen;
-		int32_t idx;
 		msg->msg_type = ECONN_CONF_KEY;
-
-		jzon_int(&idx, jobj, "idx");
-		msg->u.confkey.idx = idx;
-		key = jzon_str(jobj, "key");
-		if (!key || err)
-			return EBADMSG;
-
-		klen = str_len(key) * 3 / 4;
-
-		kdata = mem_zalloc(klen, NULL);
-		if (!kdata) {
-			return ENOMEM;
-		}
-		err = base64_decode(key, str_len(key), kdata, &klen);
-		if (err) {
-			mem_deref(kdata);
+		err = econn_keys_decode(&msg->u.confkey.keyl, jobj);
+		if (err)
 			return err;
-		}
-
-		msg->u.confkey.keydata = kdata;
-		msg->u.confkey.keylen = klen;
 	}
 #endif
 	else if (0 == str_casecmp(type,

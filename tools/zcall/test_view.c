@@ -127,6 +127,10 @@ static void test_view_set_local_user(const char *userid, const char *clientid)
 {
 }
 
+static void test_view_show_mute(bool muted)
+{
+}
+
 static struct view _view = {
 	.runloop_start = test_runloop_start,
 	.runloop_stop = test_runloop_stop,
@@ -137,7 +141,8 @@ static struct view _view = {
 	.vidstate_changed = test_vidstate_changed,
 	.render_frame = test_render_frame,
 	.preview_start = test_preview_start,
-	.preview_stop = test_preview_stop
+	.preview_stop = test_preview_stop,
+	.view_show_mute = test_view_show_mute
 };
 
 
