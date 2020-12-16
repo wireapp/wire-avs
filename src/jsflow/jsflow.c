@@ -20,6 +20,7 @@
 #include "avs.h"
 #include "avs_peerflow.h"
 #include "avs_version.h"
+#include "avs_audio_level.h"
 
 #include "jsflow.h"
 
@@ -34,7 +35,7 @@
 
 #define GATHER_TIMEOUT    10000
 #define DISCONNECT_TIMEOUT 2000
-#define TMR_STATS_INTERVAL  5000
+#define TMR_STATS_INTERVAL  1000
 #define TMR_CBR_INTERVAL    2500
 
 #define PC_INVALID_HANDLE 0
@@ -79,7 +80,8 @@ typedef void (pc_CreateOffer_t)(int handle, int call_type, int vstate);
 typedef void (pc_CreateAnswer_t)(int handle, int call_type, int vstate);
 typedef void (pc_AddDecoderAnswer_t)(int handle);
 typedef void (pc_AddUserInfo_t)(int handle, const char *label,
-				const char *userid, const char *clientid);
+				const char *userid, const char *clientid,
+				uint32_t ssrca, uint32_t ssrcv);
 typedef void (pc_RemoveUserInfo_t)(int handle, const char *label);
 
 typedef void (pc_SetRemoteDescription_t)(int handle,
@@ -171,6 +173,9 @@ struct jsflow {
 	bool closed;
 
 	char *convid;
+	char *userid_self;
+	char *clientid_self;
+
 	enum icall_call_type call_type;
 	enum icall_conv_type conv_type;
 	enum icall_vstate vstate;
@@ -209,6 +214,7 @@ struct jsflow {
 	bool gather;
 	bool pending_gather;
 	uint32_t bundle_update;
+	char *bundle_sync;
 	struct tmr tmr_gather;
 	struct tmr tmr_disconnect;
 	struct tmr tmr_stats;
@@ -386,7 +392,12 @@ static void destructor(void *arg)
 	list_flush(&flow->cml);
 
 	mem_deref(flow->remote_sdp);
-	
+	mem_deref(flow->bundle_sync);
+
+	mem_deref(flow->convid);
+	mem_deref(flow->userid_self);
+	mem_deref(flow->clientid_self);
+
 	// Close?
 }
 
@@ -411,6 +422,8 @@ static int create_pc(struct jsflow *flow)
 	int err = 0;
 	int i;
 	bool privacy = 0;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 
 	if (g_jf.env == ENV_NONE) {
 		g_jf.env = msystem_get_env();
@@ -428,7 +441,9 @@ static int create_pc(struct jsflow *flow)
 	}
 
 	info("create_pc(%p): new pc created. hnd=%d userid=%s clientid=%s\n",
-	     flow, flow->handle, flow->remote_userid, flow->remote_clientid);
+	     flow, flow->handle,
+	     anon_id(userid_anon, flow->remote_userid),
+	     anon_client(clientid_anon, flow->remote_clientid));
 
 	pc_SetMute(flow->handle, g_jf.muted);
 	pc_SetRemoteUserClientId(flow->handle,
@@ -491,6 +506,7 @@ static struct jsflow *self2pc(int self)
 int jsflow_alloc(struct iflow		**flowp,
 		 const char		*convid,
 		 const char		*userid_self,
+		 const char		*clientid_self,
 		 enum icall_conv_type	conv_type,
 		 enum icall_call_type	call_type,
 		 enum icall_vstate	vstate,
@@ -536,10 +552,14 @@ int jsflow_alloc(struct iflow		**flowp,
 			    jsflow_stop_media,
 			    jsflow_close,
 			    jsflow_get_stats,
+			    jsflow_get_aulevel,
 			    NULL); //jsflow_debug);
 	pc2self(flow);
 
 	str_dup(&flow->convid, convid);
+	str_dup(&flow->userid_self, userid_self);
+	str_dup(&flow->clientid_self, clientid_self);
+
 	flow->vstate = vstate;
 	flow->handle = PC_INVALID_HANDLE;
 	flow->conv_type = conv_type;
@@ -575,8 +595,10 @@ void jsflow_close(struct iflow *flow)
 		return;
 
 	jsflow->closed = true;
+	tmr_cancel(&jsflow->tmr_disconnect);
 	tmr_cancel(&jsflow->tmr_stats);
 	tmr_cancel(&jsflow->tmr_cbr);
+	tmr_cancel(&jsflow->tmr_gather);	
 
 	if (jsflow->dc.handle != PC_INVALID_HANDLE)
 		pc_DataChannelClose(jsflow->dc.handle);
@@ -586,7 +608,9 @@ void jsflow_close(struct iflow *flow)
 	jsflow->dc.handle = PC_INVALID_HANDLE;
 	jsflow->handle = PC_INVALID_HANDLE;
 
-	list_unlink(&jsflow->le);
+	//list_unlink(&jsflow->le);
+
+	mem_deref(jsflow);
 }
 
 
@@ -907,9 +931,22 @@ int jsflow_generate_answer(struct iflow *iflow,
 static int jsflow_bundle_update(struct iflow *flow, const char *sdp)
 {
 	struct jsflow *jsflow = (struct jsflow *)flow;
+	int state;
 
-	jsflow->bundle_update++;
-	pc_SetRemoteDescription(jsflow->handle, SDP_TYPE_OFFER, sdp);
+	state = pc_SignallingState(jsflow->handle);
+	if (state == PC_SIG_STATE_STABLE) {
+		jsflow->bundle_update++;
+		pc_SetRemoteDescription(jsflow->handle, SDP_TYPE_OFFER, sdp);
+	}
+	else {
+		/* Save off the SDP so we can sync it when we transition to
+		 * stable signalling state.
+		 */
+		info("jsflow(%p): bundle_update in non-stable state sync=%p\n",
+		     jsflow, jsflow->bundle_sync);
+		jsflow->bundle_sync = mem_deref(jsflow->bundle_sync);
+		str_dup(&jsflow->bundle_sync, sdp);
+	}
 
 	return 0;
 }
@@ -927,12 +964,17 @@ int jsflow_add_decoders_for_user(struct iflow *iflow,
 	char *label = NULL;
 	struct conf_member *memb;
 	int err = 0;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 
 	if (!jf || !userid || !clientid || !userid_hash)
 		return EINVAL;
 
 	info("jf(%p): add_decoders_for_user: %s.%s ssrca: %u ssrcv: %u\n",
-	     jf, userid, clientid, ssrca, ssrcv);
+	     jf,
+	     anon_id(userid_anon, userid),
+	     anon_client(clientid_anon, clientid),
+	     ssrca, ssrcv);
 
 	memb = conf_member_find_by_userclient(&jf->cml, userid, clientid);
 	/* Only allow the addition if the ssrcs don't match */
@@ -952,7 +994,7 @@ int jsflow_add_decoders_for_user(struct iflow *iflow,
 	if (err)
 		goto out;
 
-	pc_AddUserInfo(jf->handle, label, userid, clientid);
+	pc_AddUserInfo(jf->handle, label, userid, clientid, ssrca, ssrcv);
 
 #if DOUBLE_ENCRYPTION
 	finfo = mem_zalloc(sizeof(*finfo), finfo_destructor);
@@ -999,12 +1041,16 @@ int jsflow_remove_decoders_for_user(struct iflow *iflow,
 {
 	struct jsflow *jf = (struct jsflow *)iflow;
 	struct conf_member *memb;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 
 	if (!jf)
 		return EINVAL;
 
 	info("jsflow(%p): remove_decoders_for_user: %s.%s\n",
-	     jf, userid, clientid);
+	     jf,
+	     anon_id(userid_anon, userid),
+	     anon_client(clientid_anon, clientid));
 
 	memb = conf_member_find_by_userclient(&jf->cml, userid, clientid);
 	if (memb) {
@@ -1042,6 +1088,8 @@ int jsflow_set_remote_userclientid(struct iflow *iflow,
 {
 	struct jsflow *jsflow = (struct jsflow*)iflow;
 	int err = 0;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 
 	if (!jsflow)
 		return EINVAL;
@@ -1051,7 +1099,10 @@ int jsflow_set_remote_userclientid(struct iflow *iflow,
 	err = str_dup(&jsflow->remote_userid, userid);
 	err |= str_dup(&jsflow->remote_clientid, clientid);
 	info("jsflow: set_remote_userclientid: handle=%d userid: %s clientid: %s\n",
-	     jsflow->handle, jsflow->remote_userid, jsflow->remote_clientid);
+	     jsflow->handle,
+	     anon_id(userid_anon, jsflow->remote_userid),
+	     anon_client(clientid_anon, jsflow->remote_clientid));
+
 	if (!err && jsflow->handle) {
 		pc_SetRemoteUserClientId(jsflow->handle,
 					 jsflow->remote_userid,
@@ -1184,6 +1235,42 @@ int jsflow_get_stats(struct iflow *flow,
 	return 0;
 }
 
+int jsflow_get_aulevel(struct iflow *iflow,
+		       struct list *levell)
+{
+	struct jsflow *jf = (struct jsflow *)iflow;
+	struct audio_level *aulevel;
+	struct le *le;
+	int err;
+
+	if (!levell)
+		return EINVAL;	
+
+	err = audio_level_alloc(&aulevel, levell, true,
+				jf->userid_self, jf->clientid_self,
+				jf->stats.audio_level);
+	if (err)
+		goto out;
+
+	LIST_FOREACH(&jf->cml, le) {
+		struct conf_member *cm = le->data;
+
+		err = audio_level_alloc(&aulevel, levell, false,
+					cm->userid, cm->clientid,
+					cm->audio_level);
+		if (err)
+			goto out;
+
+	}
+	list_sort(levell, audio_level_list_cmp, jf);
+
+ out:
+	if (err)
+		list_flush(levell);
+
+	return err;
+}
+
 void pc_local_sdp_handler(int self, int err,
 			  const char *creator, /* e.g. firefox, chrome... */
 			  const char *type, const char *sdp);
@@ -1269,7 +1356,7 @@ void pc_signalling_handler(int self, int state)
 	struct jsflow *flow = self2pc(self);
 
 	if (!flow) {
-		warning("pc_signalling_handler: pc=%08X not found\n", self);
+		warning("flow(%p): pc_signalling_handler: pc=%08X not found\n", flow, self);
 		return;
 	}
 
@@ -1283,11 +1370,23 @@ void pc_signalling_handler(int self, int state)
 		}
 		if (flow->bundle_update > 0) {
 			--flow->bundle_update;
-			info("jsflow(%p): createAnswer for bundle_update\n");
+			info("jsflow(%p): createAnswer for bundle_update\n", flow);
 			pc_AddDecoderAnswer(flow->handle);
 		}
 		break;
-		
+
+	case PC_SIG_STATE_STABLE:
+		if (flow->bundle_sync) {
+			info("jsflow(%p): sync bundle on stable state\n", flow);
+
+			flow->bundle_update++;
+			pc_SetRemoteDescription(flow->handle,
+						SDP_TYPE_OFFER,
+						flow->bundle_sync);
+			flow->bundle_sync = mem_deref(flow->bundle_sync);
+		}
+		break;
+
 	default:
 		break;
 	}
@@ -1359,6 +1458,7 @@ void pc_connection_handler(int self, const char *state)
 }
 
 void pc_set_stats(int self,
+		  int audio_level,
 		  int apkts_recv,
 		  int vpkts_recv,
 		  int apkts_sent,
@@ -1368,6 +1468,7 @@ void pc_set_stats(int self,
 
 EMSCRIPTEN_KEEPALIVE
 void pc_set_stats(int self,
+		  int audio_level,
 		  int apkts_recv,
 		  int vpkts_recv,
 		  int apkts_sent,
@@ -1382,9 +1483,10 @@ void pc_set_stats(int self,
 		return;
 	}
 
-	info("pc_set_stats: ar: %d vr: %d as: %d vs: %d rtt=%d dloss=%d\n",
-	     apkts_recv, vpkts_recv, apkts_sent, vpkts_sent, rtt, downloss);
-	
+	info("pc_set_stats: level: %d ar: %d vr: %d as: %d vs: %d rtt=%d dloss=%d\n",
+	     audio_level, apkts_recv, vpkts_recv, apkts_sent, vpkts_sent, rtt, downloss);
+
+	flow->stats.audio_level = audio_level;
 	flow->stats.apkts_recv = apkts_recv;
 	flow->stats.vpkts_recv = vpkts_recv;
 	flow->stats.apkts_sent = apkts_sent;
@@ -1392,6 +1494,31 @@ void pc_set_stats(int self,
 	flow->stats.dloss = (float)downloss;
 	flow->stats.rtt = (float)rtt;	
 }
+
+
+
+void pc_set_audio_level(int self,
+			uint32_t ssrc,
+			int audio_level);
+
+EMSCRIPTEN_KEEPALIVE
+void pc_set_audio_level(int self,
+			uint32_t ssrc,
+			int audio_level)
+{
+	struct jsflow *jf = self2pc(self);
+	struct conf_member *cm;
+
+	if (!jf) {
+		warning("pc: set_audio_level: invalid handle: 0x%08X\n", self);
+		return;
+	}
+	cm = conf_member_find_by_ssrca(&jf->cml, ssrc);
+	if (cm) {
+		cm->audio_level = audio_level;
+	}
+}
+
 
 void dc_estab_handler(int self, int dc);
 

@@ -419,11 +419,13 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 
 #if ENABLE_CONFERENCE_CALLS
 	case ECONN_CONF_CONN:
-		err = zapi_iceservers_encode(jobj,
-					     msg->u.confconn.turnv,
-					     msg->u.confconn.turnc);
-		if (err)
-			goto out;
+		if (msg->u.confconn.turnc > 0) {
+			err = zapi_iceservers_encode(jobj,
+						     msg->u.confconn.turnv,
+						     msg->u.confconn.turnc);
+			if (err)
+				goto out;
+		}
 
 		jzon_add_bool(jobj, "update",
 			      msg->u.confconn.update);
@@ -502,6 +504,9 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		err |= jzon_add_str(jobj, "descr", "%s", msg->u.alert.descr);
 		if (err)
 			goto out;
+		break;
+
+	case ECONN_PING:
 		break;
 
 	default:
@@ -807,18 +812,15 @@ int econn_message_decode(struct econn_message **msgp,
 		msg->msg_type = ECONN_CONF_CONN;
 
 		err = jzon_array(&jturns, jobj, "ice_servers");
-		if (err) {
-			warning("econn: confconn: no ICE servers\n");
-			goto out;
-		}
-
-		err = zapi_iceservers_decode(jturns,
-					     &msg->u.confconn.turnv,
-					     &msg->u.confconn.turnc);
-		if (err) {
-			warning("econn: confconn: "
-				"could not decode ICE servers (%m)\n", err);
-			goto out;
+		if (!err) {
+			err = zapi_iceservers_decode(jturns,
+						     &msg->u.confconn.turnv,
+						     &msg->u.confconn.turnc);
+			if (err) {
+				warning("econn: confconn: "
+					"could not decode ICE servers (%m)\n", err);
+				goto out;
+			}
 		}
 
 		jzon_bool(&msg->u.confconn.update, jobj,
@@ -959,6 +961,9 @@ int econn_message_decode(struct econn_message **msgp,
 				"could not find descr in message\n");
 			goto out;
 		}
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_PING))) {
+		msg->msg_type = ECONN_PING;
 	}
 	else {
 		warning("econn: decode: unknown message type '%s'\n", type);

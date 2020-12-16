@@ -1,6 +1,35 @@
 ChangeLog for AVS -- latest on top!
 
 ==============================================================================
+AVS Release 6.6
+
+Date:	    November 19 2020
+GIT:	    https://github.com/wearezeta/avs/tree/release-6.6
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Detect active speakers
+		- Bug fixes and improvements
+
+Hotfixes:	
+
+==============================================================================
+AVS Release 6.5
+
+Date:	    November 10 2020
+GIT:	    https://github.com/wearezeta/avs/tree/release-6.5
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Fixed hashing of user ID's with random component
+
+Hotfixes:	
+
+==============================================================================
 AVS Release 6.4
 
 Date:	    September 23 2020
@@ -15,7 +44,11 @@ Summary:        - Security updates
 		- Request key when not available at start of call
 		- Default to group calls when no SFT is advertised
                 
-Hotfixes:	
+Hotfixes:       - Avoid infinite leave/join loops
+		- Improved key distribution
+		- Automatic reconnect in case a problem is detected 
+		- Allow to join calls without an audio device
+		- Improved logging
 
 ==============================================================================
 AVS Release 6.3

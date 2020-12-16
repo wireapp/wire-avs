@@ -36,6 +36,10 @@ struct frame_encryptor
 	struct keystore *keystore;
 	uint8_t iv[IV_SIZE];
 	enum frame_media_type mtype;
+
+	bool frame_recv;
+	bool frame_enc;
+	uint64_t updated_ts;
 };
 
 static void destructor(void *arg)
@@ -47,6 +51,19 @@ static void destructor(void *arg)
 		EVP_CIPHER_CTX_free(enc->ctx);
 		enc->ctx = NULL;
 	}
+}
+
+const char *frame_type_name(enum frame_media_type mtype)
+{
+	switch(mtype) {
+	case FRAME_MEDIA_AUDIO:
+		return "audio";
+
+	case FRAME_MEDIA_VIDEO:
+		return "video";
+	}
+
+	return "unknown";
 }
 
 int frame_encryptor_xor_iv(const uint8_t *srciv,
@@ -89,6 +106,10 @@ int frame_encryptor_alloc(struct frame_encryptor **penc,
 	uint32_t fstart;
 	int err = 0;
 
+	if (!penc || !userid_hash) {
+		return EINVAL;
+	}
+
 	enc = mem_zalloc(sizeof(*enc), destructor);
 	if (!enc) {
 		return ENOMEM;
@@ -104,6 +125,10 @@ int frame_encryptor_alloc(struct frame_encryptor **penc,
 	enc->mtype = mtype;
 	*penc = enc;
 
+	info("frame_enc(%p): alloc type: %s uid: %s\n",
+	     enc,
+	     frame_type_name(mtype),
+	     userid_hash);
 out:
 	if (err) {
 		mem_deref(enc);
@@ -138,6 +163,7 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 	uint8_t iv[IV_SIZE];
 	uint8_t *tag;
 	uint64_t kid = 0;
+	uint64_t updated_ts = 0;
 	uint32_t kid32 = 0;
 	size_t hlen = 0;
 	uint8_t key[E2EE_SESSIONKEY_SIZE];
@@ -149,16 +175,26 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 		return EINVAL;
 	}
 
-	err = keystore_get_current(enc->keystore, &kid32);
+	if (!enc->frame_recv) {
+		info("frame_enc(%p): encrypt: first frame received "
+		     "type: %s uid: %s fid: %u\n",
+		     enc,
+		     frame_type_name(enc->mtype),
+		     enc->userid_hash,
+		     enc->frameid);
+		enc->frame_recv = true;
+	}
+
+	err = keystore_get_current(enc->keystore, &kid32, &updated_ts);
 	if (err) {
 		err = EAGAIN;
-		//warning("frame_encryptor_encrypt(%p): not ready ks: %p err: %u\n",
+		//warning("frame_enc(%p): encrypt: not ready ks: %p err: %u\n",
 		//	enc, enc->keystore, err);
 		goto out;
 	}
 	kid = (uint64_t)kid32;
 
-	if (kid != enc->kidx && enc->ctx) {
+	if (enc->ctx && (kid != enc->kidx || updated_ts != enc->updated_ts)) {
 		EVP_CIPHER_CTX_free(enc->ctx);
 		enc->ctx = NULL;
 	}
@@ -167,7 +203,7 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 		err = keystore_get_media_key(enc->keystore, kid, key, sizeof(key));
 		if (err) {
 			err = EAGAIN;
-			//warning("frame_encryptor_encrypt(%p): not ready ks: %p err: %m\n",
+			//warning("frame_enc(%p): encrypt: not ready ks: %p err: %m\n",
 			//	enc, enc->keystore, err);
 			goto out;
 		}
@@ -175,6 +211,7 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 		enc->ctx = EVP_CIPHER_CTX_new();
 		EVP_EncryptInit_ex(enc->ctx, EVP_aes_256_gcm(), NULL, key, NULL);
 		enc->kidx = kid;
+		enc->updated_ts = updated_ts;
 	}
 
 	hlen = frame_hdr_write(dst, enc->frameid, kid);
@@ -185,13 +222,13 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 	}
 
 	if (!EVP_EncryptInit_ex(enc->ctx, NULL, NULL, NULL, iv)) {
-		warning("frame_encryptor_encrypt(%p): init failed\n", enc);
+		warning("frame_enc(%p): encrypt: init failed\n", enc);
 		err = ENOSYS;
 		goto out;
 	}
 
 	if (!EVP_EncryptUpdate(enc->ctx, NULL, &enc_len, dst, hlen)) {
-		warning("frame_encryptor_encrypt(%p): add header failed\n", enc);
+		warning("frame_enc(%p): encrypt: add header failed\n", enc);
 		err = EIO;
 		goto out;
 	}
@@ -199,13 +236,13 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 	dst = dst + hlen;
 
 	if (!EVP_EncryptUpdate(enc->ctx, dst, &enc_len, src, srcsz)) {
-		warning("frame_encryptor_encrypt(%p): update failed\n", enc);
+		warning("frame_enc(%p): encrypt: update failed\n", enc);
 		err = EIO;
 		goto out;
 	}
 
 	if (!EVP_EncryptFinal_ex(enc->ctx, dst + enc_len, &blk_len)) {
-		warning("frame_encryptor_encrypt(%p): final failed\n", enc);
+		warning("frame_enc(%p): encrypt: final failed\n", enc);
 		err = EBADF;
 		goto out;
 	}
@@ -214,23 +251,22 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 	tag = dst + enc_len;
 
 	if (!EVP_CIPHER_CTX_ctrl(enc->ctx, EVP_CTRL_GCM_GET_TAG, TAG_SIZE, tag)) {
-		warning("frame_encryptor_encrypt(%p): set tag failed\n", enc);
+		warning("frame_enc(%p): encrypt: set tag failed\n", enc);
 		err = EIO;
 		goto out;
 	}
 
 	*dstsz = hlen + enc_len + TAG_SIZE;
 
-#if 0
-	info("frame_encryptor_encrypt(%p): %s frame %u %u to %u bytes!\n",
-	     enc, mt, enc->frameid, frame.size(), *bytes_written);
-
-	for (int s = 0; s < frame.size(); s += 8) {
-		info("E %08x %02x %02x %02x %02x %02x %02x %02x %02x\n", s,
-		     src[s + 0], src[s + 1], src[s + 2], src[s + 3], 
-		     src[s + 4], src[s + 5], src[s + 6], src[s + 7]);
+	if (!err && !enc->frame_enc) {
+		info("frame_enc(%p): encrypt: first frame encrypted "
+		     "type: %s uid: %s fid: %u\n",
+		     enc,
+		     frame_type_name(enc->mtype),
+		     enc->userid_hash,
+		     enc->frameid);
+		enc->frame_enc = true;
 	}
-#endif
 out:
 	sodium_memzero(key, E2EE_SESSIONKEY_SIZE);
 	return err;

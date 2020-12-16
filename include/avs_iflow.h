@@ -24,6 +24,7 @@ struct iflow;
 struct avs_vidframe;
 
 struct iflow_stats {
+	uint8_t audio_level;
 	uint32_t apkts_recv;
 	uint32_t apkts_sent;
 	uint32_t vpkts_recv;
@@ -85,12 +86,17 @@ typedef int (iflow_dce_send)(struct iflow *flow,
 typedef int  (iflow_get_stats)(struct iflow *flow,
 			       struct iflow_stats *stats);
 
+typedef int  (iflow_get_audio_level)(struct iflow *flow,
+				     struct list *levell);
+
+
 typedef int  (iflow_debug)(struct re_printf *pf, const struct iflow *flow);
 
 /* Static functions */
 typedef int (iflow_allocf)(struct iflow		**flowp,
 			   const char		*convid,
 			   const char		*userid_self,
+			   const char           *clientid_self,
 			   enum icall_conv_type	conv_type,
 			   enum icall_call_type	call_type,
 			   enum icall_vstate	vstate,
@@ -168,6 +174,7 @@ struct iflow {
 	iflow_stop_media		*stop_media;
 	iflow_close			*close;
 	iflow_get_stats			*get_stats;
+	iflow_get_audio_level           *get_audio_level;
 	iflow_debug			*debug;
 
 	iflow_estab_h			*estabh;
@@ -215,6 +222,7 @@ void iflow_set_functions(struct iflow *iflow,
 			 iflow_stop_media		*stop_media,
 			 iflow_close			*close,
 			 iflow_get_stats		*get_stats,
+			 iflow_get_audio_level          *get_audio_level,
 			 iflow_debug			*debug);
 
 void iflow_set_callbacks(struct iflow *iflow,
@@ -240,6 +248,7 @@ void iflow_register_statics(iflow_destroyf *destroy,
 int iflow_alloc(struct iflow		**flowp,
 		const char		*convid,
 		const char		*userid_self,
+		const char		*clientid_self,
 		enum icall_conv_type	conv_type,
 		enum icall_call_type	call_type,
 		enum icall_vstate	vstate,

@@ -181,6 +181,11 @@ struct ecall {
 		bool estab;
 		int cbr_state;
 		bool remote_muted_state;
+
+		struct {
+			struct list l;
+			struct tmr tmr;
+		}level;
 	} audio;
 
 	struct {
@@ -200,6 +205,7 @@ struct ecall {
 	struct keystore *keystore;
 
 	bool should_reject;
+	ecall_ping_h *pingh;
 };
 
 

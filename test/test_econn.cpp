@@ -334,6 +334,7 @@ static void client_new_econn(struct client *cli)
 			  econn_update_resp_handler,
 			  NULL,
 			  NULL,
+			  NULL,
 			  econn_close_handler,
 			  cli);
 	ASSERT_EQ(0, err);

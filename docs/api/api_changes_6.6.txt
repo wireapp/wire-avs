@@ -1,0 +1,33 @@
+
+
+Changes introduced in AVS 6.6
+=============================
+
+In order to facilitate the indication of an active speaker, the following API has been added.
+
+First, register a acitve speaker change callback by using:
+
+void wcall_set_active_speaker_handler(WUSER_HANDLE wuser,
+				      wcall_active_speaker_h *activeh);
+
+The signature of the callback needs to conform to:
+typedef void (wcall_active_speaker_h)(WUSER_HANDLE wuser,
+				      const char *convid,
+				      const char *json_levels, void *arg);
+
+The string json_levels will be a sorted json array in order of audio level.
+With highest levels first.
+
+Something along these lines:
+{
+  "audio_levels": [
+    {"userid": "486cca25-8aa5-40a9-9844-3fc834857200", "clientid": "c80ae41dbc938c69", "audio_level": 106},
+    {"userid": "12345678-abcd-1234-4567-1234567890ab", "clientid": "1234567890abcdef", "audio_level": 22},
+    ...
+  ]
+}
+
+The active speaker callback will be called everytime the order in the list of
+active speakers changes. It will not be called on individial audio_level changes,
+if the order in the list remains the same.
+

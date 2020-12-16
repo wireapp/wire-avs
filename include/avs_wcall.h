@@ -484,6 +484,14 @@ int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
 			       const char *convid,
 			       const char *json);
 
+
+typedef void (wcall_active_speaker_h)(WUSER_HANDLE wuser,
+				      const char *convid,
+				      const char *json_levels, void *arg);
+	
+void wcall_set_active_speaker_handler(WUSER_HANDLE wuser,
+				      wcall_active_speaker_h *activeh);
+	
 int wcall_set_proxy(const char *host, int port);
 
 		     

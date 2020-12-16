@@ -183,3 +183,12 @@ int icall_send_reject_msg(struct icall *icall,
 			  const char *userid_local,
 			  const char *clientid_local);
 
+int ecall_ping(struct ecall *ecall, bool reponse);
+
+typedef int (ecall_ping_h)(struct ecall *ecall,
+			   bool response,
+			   void *arg);
+
+int ecall_set_ping_handler(struct ecall *ecall,
+			   ecall_ping_h *pingh);
+

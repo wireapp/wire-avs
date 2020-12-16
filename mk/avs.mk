@@ -82,6 +82,7 @@ AVS_MODULES += wcall
 AVS_MODULES += icall
 AVS_MODULES += iflow
 AVS_MODULES += egcall
+AVS_MODULES += audio_level
 ifeq ($(ENABLE_CONFERENCE_CALLS),1)
 AVS_MODULES += ccall
 endif

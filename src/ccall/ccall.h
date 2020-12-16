@@ -25,8 +25,11 @@
 #define CCALL_ONGOING_CALL_TIMEOUT     ( 90000)
 #define CCALL_ROTATE_KEY_TIMEOUT       ( 30000)
 #define CCALL_ROTATE_KEY_FIRST_TIMEOUT (  5000)
+#define CCALL_DECRYPT_CHECK_TIMEOUT    (  5000)
+#define CCALL_KEEPALIVE_TIMEOUT        (  5000)
 
 #define CCALL_SECRET_LEN               (    16)
+#define CCALL_MAX_RECONNECT_ATTEMPTS   (     2)
 
 struct userinfo {
 	struct le le;
@@ -96,7 +99,10 @@ struct ccall {
 	enum icall_vstate vstate;
 
 	bool someone_left;
+	bool became_kg;
 	bool request_key;
+	int reconnect_attempts;
+	int received_confpart;
 	int error;
 
 	struct tmr tmr_connect;
@@ -107,6 +113,8 @@ struct ccall {
 	struct tmr tmr_ring;
 	struct tmr tmr_blacklist;
 	struct tmr tmr_vstate;
+	struct tmr tmr_decrypt_check;
+	struct tmr tmr_keepalive;
 
 	struct config *cfg;
 };

@@ -39,6 +39,7 @@
 #include "avs_version.h"
 #include "avs_wcall.h"
 #include "avs_string.h"
+#include "avs_audio_level.h"
 #include "ecall.h"
 
 
@@ -48,6 +49,7 @@
 #define TIMEOUT_DC_CLOSE     10000
 #define TIMEOUT_MEDIA_START  10000
 #define TIMEOUT_CONNECTION    5000
+#define TIMEOUT_AUDIO_LEVEL   1000
 
 static struct list g_ecalls = LIST_INIT;
 
@@ -65,6 +67,9 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 static int generate_answer(struct ecall *ecall, struct econn *econn);
 static int handle_propsync(struct ecall *ecall, struct econn_message *msg);
 static void propsync_handler(struct ecall *ecall);
+static void econn_ping_handler(struct econn *econn,
+			       bool response,
+			       void *arg);
 static void connection_timeout_handler(void *arg);
 
 
@@ -577,6 +582,7 @@ static void ecall_destructor(void *data)
 	tmr_cancel(&ecall->connection_tmr);
 
 	tmr_cancel(&ecall->quality.tmr);
+	tmr_cancel(&ecall->audio.level.tmr);
 
 	if (ecall->conf_part) {
 		//ecall->conf_part->data = NULL;
@@ -608,6 +614,8 @@ static void ecall_destructor(void *data)
 	mem_deref(ecall->sdp.offer);
 	mem_deref(ecall->media_laddr);
 
+	list_flush(&ecall->audio.level.l);
+	
 	list_flush(&ecall->tracel);
 
 	/* last thing to do */
@@ -626,6 +634,7 @@ static int send_handler(struct econn *conn,
 	char clientid_anon[ANON_CLIENT_LEN];
 	char dest_userid_anon[ANON_ID_LEN];
 	char dest_clientid_anon[ANON_CLIENT_LEN];
+	int silent = 0;
 
 	assert(ECALL_MAGIC == ecall->magic);
 
@@ -674,6 +683,12 @@ static int send_handler(struct econn *conn,
 		try_otr = 0;
 		break;
 
+	case ECONN_PING:
+		try_dce = 1;
+		try_otr = 0;
+		silent = 1;
+		break;
+
 	default:
 		warning("ecall: send_handler: message not supported (%s)\n",
 			econn_msg_name(msg->msg_type));
@@ -684,14 +699,16 @@ static int send_handler(struct econn *conn,
 
 	//if (try_dce && IFLOW_CALLE(ecall->flow, has_data)) {
 	if (try_dce) {
-		info("ecall(%p): dce_message_send: convid=%s from=%s.%s to=%s.%s "
-		     "msg=%H\n",
-		     ecall, anon_id(convid_anon, ecall->convid),
-		     anon_id(userid_anon, ecall->userid_self),
-		     anon_client(clientid_anon, ecall->clientid_self),
-		     anon_id(dest_userid_anon, ecall->userid_peer),
-		     anon_client(dest_clientid_anon, ecall->clientid_peer),
-		     econn_message_print, msg);
+		if (!silent) {
+			info("ecall(%p): dce_message_send: convid=%s from=%s.%s to=%s.%s "
+			     "msg=%H\n",
+			     ecall, anon_id(convid_anon, ecall->convid),
+			     anon_id(userid_anon, ecall->userid_self),
+			     anon_client(clientid_anon, ecall->clientid_self),
+			     anon_id(dest_userid_anon, ecall->userid_peer),
+			     anon_client(dest_clientid_anon, ecall->clientid_peer),
+			     econn_message_print, msg);
+		}
 		ecall_dce_sendmsg(ecall, msg);
 	}
 	else if (try_otr) {
@@ -880,9 +897,11 @@ int ecall_dce_sendmsg(struct ecall *ecall, struct econn_message *msg)
 		goto out;
 	}
 
-	ecall_trace(ecall, msg, true, ECONN_TRANSP_DIRECT,
-		    "DataChan %H\n",
-		    econn_message_brief, msg);
+	if (msg->msg_type != ECONN_PING) {
+		ecall_trace(ecall, msg, true, ECONN_TRANSP_DIRECT,
+			    "DataChan %H\n",
+			    econn_message_brief, msg);
+	}
 
 	err = IFLOW_CALLE(ecall->flow, dce_send,
 			  (const uint8_t *)str, str_len(str));
@@ -1403,6 +1422,82 @@ static void mf_gather_handler(struct iflow *iflow, void *arg)
 	ecall_close(ecall, err, ECONN_MESSAGE_TIME_UNKNOWN);
 }
 
+
+static bool audio_level_update(struct ecall *ecall,
+			       struct list *levell)
+{
+	bool upd = false;
+	struct le *le;
+	struct le *ple;
+
+	ple = ecall->audio.level.l.head;
+	if (!ple) {
+		if (!levell->head) {
+			return false;
+		}
+		else {
+			ecall->audio.level.l = *levell;
+			return true;
+		}			
+	}
+
+	for(le = levell->head; le && ple && !upd; le = le->next) {
+		struct audio_level *aulevel = le->data;
+		struct audio_level *plevel = ple->data;
+
+		upd = !audio_level_eq(aulevel, plevel);
+		ple = ple->next;
+	}
+
+	if (!(le == NULL && ple == NULL))
+		upd = true;
+
+	if (upd) {
+		list_flush(&ecall->audio.level.l);
+		ecall->audio.level.l = *levell;
+	}
+
+	return upd;
+}
+
+
+static void audio_level_handler(void *arg)
+{
+	struct ecall *ecall = arg;
+	struct list levell = LIST_INIT;
+	int err = 0;
+	
+	tmr_start(&ecall->audio.level.tmr, TIMEOUT_AUDIO_LEVEL,
+		  audio_level_handler, ecall);
+
+	if (!ecall->icall.audio_levelh)
+		return;
+
+#if 0
+	(void)err;
+#else
+	err = IFLOW_CALLE(ecall->flow, get_audio_level, &levell);
+	if (err) {
+		warning("ecall(%p): could not get audio levels: %m\n", ecall, err);
+		return;
+	}
+#endif
+
+	//info("levels from flow: %H\n", audio_level_list_debug, &levell);
+	
+	/* Compare previous levels to these levels, if order has changed,
+	 * trigger callback
+	 */
+	if (audio_level_update(ecall, &levell)) {
+		ICALL_CALL_CB(ecall->icall, audio_levelh,
+			      &ecall->icall, &ecall->audio.level.l, ecall->icall.arg);
+	}
+	else {
+		list_flush(&levell);
+	}
+}
+
+
 static void channel_estab_handler(struct iflow *iflow, void *arg)
 {
 	struct ecall *ecall = arg;
@@ -1452,6 +1547,11 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 	ecall->update = false;
 	ecall->num_retries = 0;
 
+	if (ecall->icall.audio_levelh) {
+		tmr_start(&ecall->audio.level.tmr, TIMEOUT_AUDIO_LEVEL,
+			  audio_level_handler, ecall);
+	}
+	
 	ICALL_CALL_CB(ecall->icall, datachan_estabh,
 		&ecall->icall, ecall->userid_peer, ecall->clientid_peer,
 		ecall->update, ecall->icall.arg);
@@ -1640,21 +1740,19 @@ static void data_channel_handler(struct iflow *iflow,
 			econn_msg_name(msg->msg_type));
 	}
 
-	info("ecall(%p): dce_message_recv: convid=%s from=%s.%s to=%s.%s "
-	     "msg=%H\n",
-	     ecall, anon_id(convid_anon, ecall->convid),
-	     anon_id(dest_userid_anon, ecall->userid_peer),
-	     anon_client(dest_clientid_anon, ecall->clientid_peer),
-	     anon_id(userid_anon, ecall->userid_self),
-	     anon_client(clientid_anon, ecall->clientid_self),
-	     econn_message_print, msg);
+	if (msg->msg_type != ECONN_PING) {
+		info("ecall(%p): dce_message_recv: convid=%s from=%s.%s to=%s.%s "
+		     "msg=%H\n",
+		     ecall, anon_id(convid_anon, ecall->convid),
+		     anon_id(dest_userid_anon, ecall->userid_peer),
+		     anon_client(dest_clientid_anon, ecall->clientid_peer),
+		     anon_id(userid_anon, ecall->userid_self),
+		     anon_client(clientid_anon, ecall->clientid_self),
+		     econn_message_print, msg);
 
-	ecall_trace(ecall, msg, false, ECONN_TRANSP_DIRECT,
-		    "DataChan %H\n", econn_message_brief, msg);
-
-	info("ecall(%p): channel: [%s] receive message type '%s'\n", ecall,
-	     econn_state_name(econn_current_state(ecall->econn)),
-	     econn_msg_name(msg->msg_type));
+		ecall_trace(ecall, msg, false, ECONN_TRANSP_DIRECT,
+			    "DataChan %H\n", econn_message_brief, msg);
+	}
 
 	if (msg->msg_type == ECONN_PROPSYNC) {
 		handle_propsync(ecall, msg);
@@ -1808,6 +1906,7 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 	err = iflow_alloc(&ecall->flow,
 			  ecall->convid,
 			  ecall->userid_self,
+			  ecall->clientid_self,
 			  ecall->conv_type,
 			  call_type,
 			  ecall->vstate,
@@ -1923,6 +2022,7 @@ int ecall_create_econn(struct ecall *ecall)
 			  econn_update_resp_handler,
 			  econn_alert_handler,
 			  econn_confpart_handler,
+			  econn_ping_handler,
 			  econn_close_handler,
 			  ecall);
 	if (err) {
@@ -3022,6 +3122,42 @@ int ecall_set_keystore(struct ecall *ecall,
 
 	IFLOW_CALL(ecall->flow, set_keystore,
 		   keystore);
+	return 0;
+}
+
+int ecall_ping(struct ecall *ecall, bool response)
+{
+	if (!ecall || !ecall->econn)
+		return EINVAL;
+
+	return econn_send_ping(ecall->econn, response);
+}
+
+static void econn_ping_handler(struct econn *econn,
+			       bool response,
+			       void *arg)
+{
+	struct ecall *ecall = arg;
+
+	if (!ecall || !econn) {
+		return;
+	}
+
+	assert(ECALL_MAGIC == ecall->magic);
+
+	if (ecall->pingh) {
+		ecall->pingh(ecall, response, ecall->icall.arg);
+	}
+}
+
+int ecall_set_ping_handler(struct ecall *ecall,
+			   ecall_ping_h *pingh)
+{
+	if (!ecall) {
+		return EINVAL;
+	}
+
+	ecall->pingh = pingh;
 	return 0;
 }
 

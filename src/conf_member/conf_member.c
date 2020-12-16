@@ -129,3 +129,38 @@ struct conf_member *conf_member_find_by_label(struct list *membl,
 
 	return found ? cm : NULL;
 }
+
+static struct conf_member *find_ssrc(struct list *membl,
+				     uint32_t ssrc, bool audio)
+{
+	struct conf_member *cm;	
+	bool found = false;
+	struct le *le;
+
+	for(le = membl->head; !found && le; le = le->next) {
+		cm = (struct conf_member *)le->data;
+
+		found = audio ? ssrc == cm->ssrca : ssrc == cm->ssrcv;
+	}
+
+	return found ? cm : NULL;
+	
+}
+
+
+struct conf_member *conf_member_find_by_ssrca(struct list *membl,
+					      uint32_t ssrc)
+{
+	return find_ssrc(membl, ssrc, true);
+}
+
+
+struct conf_member *conf_member_find_by_ssrcv(struct list *membl,
+					      uint32_t ssrc)
+{
+	return find_ssrc(membl, ssrc, false);
+}
+	
+	
+
+

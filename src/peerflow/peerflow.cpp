@@ -25,6 +25,7 @@ extern "C" {
 #include <avs.h>
 #include <avs_version.h>
 #include <avs_audio_io.h>
+#include <avs_audio_level.h>
 
 #ifdef __cplusplus
 }
@@ -62,7 +63,7 @@ extern "C" {
 
 #include "peerflow.h"
 
-#define TMR_STATS_INTERVAL  5000
+#define TMR_STATS_INTERVAL  1000
 #define TMR_CBR_INTERVAL    2500
 
 #define DOUBLE_ENCRYPTION 1
@@ -115,6 +116,7 @@ struct peerflow {
 	struct iflow iflow;
 	char *convid;
 	char *userid_self;
+	char *clientid_self;
 
 	enum icall_call_type call_type;
 	enum icall_conv_type conv_type;
@@ -877,15 +879,10 @@ public:
 	virtual void OnFirstPacketReceived(cricket::MediaType media_type)
 	{
 		std::vector<std::string> streams = rcvr_->stream_ids();
-		printf("OnFirstPacketReceived: mediatype=%s\n",
-		       cricket::MediaTypeToString(media_type).c_str());
-
-		printf("There are %zu RTP sources %zu streams\n",
-		       rcvr_->GetSources().size(), streams.size());
-
-		for (auto &i: streams) {
-			printf("Stream: %s\n", i.c_str());
-		}
+		info("pf(%p): OnFirstPacketReceived: mediatype=%s "
+		     "sources: %zu streams=%zu\n",
+		     pf_, cricket::MediaTypeToString(media_type).c_str(),
+		     rcvr_->GetSources().size(), streams.size());
 	}
 
 private:
@@ -1174,9 +1171,6 @@ public:
 
 	// Called when the ICE connection receiving status changes.
 	virtual void OnIceConnectionReceivingChange(bool receiving) {
-
-		printf("OnIceConnectionReceivingChange: receiving=%d\n",
-		       receiving);
 	}
 
 	// This is called when a receiver and its track are created.
@@ -1342,8 +1336,6 @@ out:
 	// The heuristics for defining what constitutes "interesting" are
 	// implementation-defined.
 	virtual void OnInterestingUsage(int usage_pattern) {
-
-		printf("OnInterestingUsage\n");
 	}
 
 private:
@@ -1436,10 +1428,7 @@ public:
 		return rtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
 	
-	virtual void OnSetRemoteDescriptionComplete(webrtc::RTCError err) {
-
-		
-		printf("remote SDP complete: %s\n", err.message());
+	virtual void OnSetRemoteDescriptionComplete(webrtc::RTCError err) {		
 	}
 
 private:
@@ -1562,7 +1551,7 @@ public:
 	}
 
 	virtual void OnFailure(webrtc::RTCError err) {
-		printf("SDP-Failure: %s\n", err.message());
+		warning("pf(5p); SDP-Failure: %s\n", err.message());
 	}
 
 private:
@@ -1829,6 +1818,7 @@ static void pf_destructor(void *arg)
 	mem_deref(pf->convid);
 	mem_deref(pf->userid_self);
 	mem_deref(pf->userid_remote);
+	mem_deref(pf->clientid_self);
 	mem_deref(pf->clientid_remote);
 
 	list_flush(&pf->cml);
@@ -1840,15 +1830,78 @@ static void timer_stats(void *arg)
 {
 	struct peerflow *pf = (struct peerflow *)arg;
 
-	if (pf && pf->peerConn) {
-		pf->peerConn->GetStats(pf->netStatsCb);
+	std::vector<rtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
+
+	if (!pf || !pf->peerConn)
+		goto out;
+
+	trxs = pf->peerConn->GetTransceivers();
+
+	for(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
+		rtc::scoped_refptr<webrtc::RtpReceiverInterface> rx = trx->receiver();
+		std::vector<webrtc::RtpSource> sources;
+
+		if (rx) {
+			sources = rx->GetSources();
+		}
+
+		for(webrtc::RtpSource src: sources) {
+			uint32_t ssrc = src.source_id();
+			struct conf_member *cm = conf_member_find_by_ssrca(&pf->cml, ssrc);
+			if (cm) {
+				cm->audio_level = 2 * (127 - *src.audio_level());
+			}
+		}
 	}
+
+	pf->peerConn->GetStats(pf->netStatsCb);
+
+ out:
 	tmr_start(&pf->tmr_stats, TMR_STATS_INTERVAL, timer_stats, pf);
+}
+
+static int peerflow_get_aulevel(struct iflow *iflow,
+				struct list *levell)
+{
+	struct peerflow *pf = (struct peerflow *)iflow;
+	struct audio_level *aulevel;
+	struct le *le;
+	int err = 0;
+
+	if (!levell)
+		return EINVAL;	
+
+
+	err = audio_level_alloc(&aulevel, levell, true,
+				pf->userid_self, pf->clientid_self,
+				pf->stats.audio_level);
+	if (err)
+		goto out;
+	
+	LIST_FOREACH(&pf->cml, le) {
+		struct conf_member *cm = (struct conf_member *)le->data;
+
+		if (cm && cm->userid && cm->clientid) {
+			err = audio_level_alloc(&aulevel, levell, false,
+						cm->userid, cm->clientid,
+						cm->audio_level);
+			if (err)
+				goto out;
+		}
+	}
+	list_sort(levell, audio_level_list_cmp, pf);
+
+ out:
+	if (err)
+		list_flush(levell);
+
+	return err;
 }
 
 int peerflow_alloc(struct iflow		**flowp,
 		   const char		*convid,
 		   const char		*userid_self,
+		   const char		*clientid_self,
 		   enum icall_conv_type	conv_type,
 		   enum icall_call_type	call_type,
 		   enum icall_vstate	vstate,
@@ -1892,10 +1945,12 @@ int peerflow_alloc(struct iflow		**flowp,
 			    peerflow_stop_media,
 			    peerflow_close,
 			    peerflow_get_stats,
+			    peerflow_get_aulevel,			    
 			    peerflow_debug);
 
 	str_dup(&pf->convid, convid);
 	str_dup(&pf->userid_self, userid_self);
+	str_dup(&pf->clientid_self, clientid_self);
 	pf->conv_type = conv_type;
 	pf->call_type = call_type;
 	pf->vstate = vstate;
@@ -1978,9 +2033,6 @@ bool peerflow_is_gathered(const struct iflow *iflow)
 		return false;
 
 	state = pf->peerConn->ice_gathering_state();
-
-	printf("pf_is_gathered: gathering state=%d gathered=%d\n",
-	       state, pf->gathered);
 
 	return pf->gathered;	
 }
@@ -2308,6 +2360,8 @@ int peerflow_add_decoders_for_user(struct iflow *iflow,
 				   uint32_t ssrcv)
 {
 	struct peerflow *pf = (struct peerflow*)iflow;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 	char *label = NULL;
 	struct conf_member *memb;
 	int err = 0;
@@ -2316,8 +2370,10 @@ int peerflow_add_decoders_for_user(struct iflow *iflow,
 		return EINVAL;
 
 	info("pf(%p): add_decoders_for_user: %s.%s ssrca: %u ssrcv: %u\n",
-	     pf, userid, clientid, ssrca, ssrcv);
-
+	     pf,
+	     anon_id(userid_anon, userid),
+	     anon_client(clientid_anon, clientid),
+	     ssrca, ssrcv);
 	memb = conf_member_find_by_userclient(&pf->cml, userid, clientid);
 	/* Only allow the addition if the ssrcs don't match */
 	if (memb && memb->ssrca == ssrca && memb->ssrcv == ssrcv)
@@ -2346,13 +2402,17 @@ int peerflow_remove_decoders_for_user(struct iflow *iflow,
 				      const char *clientid)
 {
 	struct peerflow *pf = (struct peerflow*)iflow;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 	struct conf_member *memb;
 
 	if (!pf)
 		return EINVAL;
 
 	info("pf(%p): remove_decoders_for_user: %s.%s\n",
-	     pf, userid, clientid);
+	     pf,
+	     anon_id(userid_anon, userid),
+	     anon_client(clientid_anon, clientid));
 
 	memb = conf_member_find_by_userclient(&pf->cml, userid, clientid);	
 	if (memb)
@@ -2572,6 +2632,7 @@ void peerflow_stop_media(struct iflow *iflow)
 }
 
 void peerflow_set_stats(struct peerflow* pf,
+			int audio_level,
 			uint32_t apkts_recv,
 			uint32_t vpkts_recv,
 			uint32_t apkts_sent,
@@ -2583,6 +2644,7 @@ void peerflow_set_stats(struct peerflow* pf,
 		return;
 	}
 
+	pf->stats.audio_level = audio_level;
 	pf->stats.apkts_recv = apkts_recv;
 	pf->stats.vpkts_recv = vpkts_recv;
 	pf->stats.apkts_sent = apkts_sent;

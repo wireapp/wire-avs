@@ -51,7 +51,9 @@ int keystore_get_next_session_key(struct keystore *ks,
 
 int keystore_rotate(struct keystore *ks);
 
-int keystore_get_current(struct keystore *ks, uint32_t *pindex);
+int keystore_get_current(struct keystore *ks,
+			 uint32_t *pindex,
+			 uint64_t *updated_ts);
 
 int keystore_get_current_media_key(struct keystore *ks,
 				   uint32_t *pindex,
@@ -71,3 +73,11 @@ int keystore_generate_iv(struct keystore *ks,
 			 uint8_t *iv,
 			 size_t ivsz);
 
+bool keystore_has_keys(struct keystore *ks);
+
+int  keystore_set_decrypt_successful(struct keystore *ks);
+int  keystore_set_decrypt_attempted(struct keystore *ks);
+
+void keystore_get_decrypt_states(struct keystore *ks,
+				 bool *attempted,
+				 bool *successful);

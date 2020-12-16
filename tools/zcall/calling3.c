@@ -689,6 +689,9 @@ static void sft_resp_handler(int err, const struct http_msg *msg,
 		sz = mbuf_get_left(c3ctx->mb_body);
 	}
 
+	if (buf)
+		info("sft_resp: msg %s\n", buf);
+
 	wcall_sft_resp(c3ctx->wuser, err,
 		       buf, sz,
 		       c3ctx->arg);
@@ -920,6 +923,15 @@ static void wcall_req_clients_handler(WUSER_HANDLE wuser,
 	}
 
 	set_clients_for_conv(conv);
+}
+
+static void wcall_active_speaker_handler(WUSER_HANDLE wuser,
+					 const char *convid,
+					 const char *json_levels,
+					 void *arg)
+{
+	(void)arg;
+	info("Active speaker(s) changed on convid:%s -> %s\n", convid, json_levels);
 }
 
 int calling3_start(struct engine_conv *conv)
@@ -1204,6 +1216,9 @@ int calling3_init(void)
 	wcall_set_mute_handler(calling3.wuser, wcall_mute_handler, NULL);
 	if (g_ice_privacy)
 		wcall_enable_privacy(calling3.wuser, 1);
+
+	wcall_set_active_speaker_handler(calling3.wuser,
+					 wcall_active_speaker_handler);
 
 	/* NOTE: must be done after wcall_create */
 	if (!g_use_kase)

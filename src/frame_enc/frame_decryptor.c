@@ -34,6 +34,9 @@ struct frame_decryptor
 	struct keystore *keystore;
 	uint8_t iv[IV_SIZE];
 	enum frame_media_type mtype;
+
+	bool frame_recv;
+	bool frame_dec;
 };
 
 static void destructor(void *arg)
@@ -54,6 +57,10 @@ int frame_decryptor_alloc(struct frame_decryptor **pdec,
 	struct frame_decryptor *dec;
 	int err = 0;
 
+	if (!pdec || !userid_hash) {
+		return EINVAL;
+	}
+
 	dec = mem_zalloc(sizeof(*dec), destructor);
 	if (!dec) {
 		return ENOMEM;
@@ -68,6 +75,10 @@ int frame_decryptor_alloc(struct frame_decryptor **pdec,
 
 	*pdec = dec;
 
+	info("frame_dec(%p): alloc type: %s uid: %s\n",
+	     dec,
+	     frame_type_name(mtype),
+	     userid_hash);
 out:
 	if (err) {
 		mem_deref(dec);
@@ -119,8 +130,19 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 	}
 
 	hsize = frame_hdr_read(src, &frameid, &kid);
-
 	fid32 = (uint32_t)frameid;
+
+	if (!dec->frame_recv) {
+		info("frame_dec(%p): decrypt: first frame received "
+		     "type: %s uid: %s fid: %u\n",
+		     dec,
+		     frame_type_name(dec->mtype),
+		     dec->userid_hash,
+		     fid32);
+		dec->frame_recv = true;
+		keystore_set_decrypt_attempted(dec->keystore);
+	}
+
 	err = frame_encryptor_xor_iv(dec->iv, fid32, kid, iv, IV_SIZE);
 	if (err) {
 		goto out;
@@ -137,63 +159,65 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 
 	if (!dec->ctx) {
 		if (keystore_get_media_key(dec->keystore, kid, key, sizeof(key)) != 0) {
-			//warning("frame_decryptor_decrypt(%p): cant find key %u\n", dec, kid);
+			//warning("frame_dec(%p): decrypt: cant find key %u\n", dec, kid);
 			err = EAGAIN;
 			goto out;
 		}
 
 		dec->ctx = EVP_CIPHER_CTX_new();
 		if (!EVP_DecryptInit_ex(dec->ctx, EVP_aes_256_gcm(), NULL, key, NULL))
-			warning("frame_decryptor_decrypt(%p): init 256_gcm failed\n", dec);
+			warning("frame_dec(%p): decrypt: init 256_gcm failed\n", dec);
 			
 		dec->kidx = kid;
 	}
 
 	if (!EVP_DecryptInit_ex(dec->ctx, NULL, NULL, NULL, iv)) {
-		warning("frame_decryptor_decrypt(%p): init failed\n", dec);
+		warning("frame_dec(%p): decrpyt: init failed\n", dec);
 		err = EIO;
 		goto out;
 	}
 
 	if (!EVP_CIPHER_CTX_ctrl(dec->ctx, EVP_CTRL_GCM_SET_TAG, TAG_SIZE, (uint8_t*)tag)) {
-		warning("frame_decryptor_decrypt(%p): set tag failed\n", dec);
+		warning("frame_dec(%p): decrpyt: set tag failed\n", dec);
 		err = EIO;
 		goto out;
 	}
 	
 	if (!EVP_DecryptUpdate(dec->ctx, NULL, &dec_len, src, (int)hsize)) {
-		warning("frame_decryptor_decrypt(%p): add header failed\n", dec);
+		warning("frame_dec(%p): decrpyt: add header failed\n", dec);
 		err = EIO;
 		goto out;
 	}
 	if (!EVP_DecryptUpdate(dec->ctx, dst, &dec_len, enc, enc_size)) {
-		warning("frame_decryptor_decrypt(%p): update failed\n", dec);
+		warning("frame_dec(%p): decrpyt: update failed\n", dec);
 		err = EIO;
 		goto out;
 	}
 	
 	if (!EVP_DecryptFinal_ex(dec->ctx, dst + dec_len, &blk_len)) {
-		warning("frame_decryptor_decrypt(%p): final failed\n", dec);
+		warning("frame_dec(%p): decrpyt: final failed\n", dec);
 		err = EIO;
 		goto out;
 	}
 
 	*dstsz = dec_len + blk_len;
-#if 0
-	info("decrypt %s frame %u %u to %u bytes!\n", mt, frameid, encrypted_frame.size(),
-					     dec_len);
-	for (int s = 0; s < dec_len; s += 8) {
-		warning("D %08x %02x %02x %02x %02x %02x %02x %02x %02x\n", s,
-			dst[s + 0], dst[s + 1], dst[s + 2], dst[s + 3], 
-			dst[s + 4], dst[s + 5], dst[s + 6], dst[s + 7]);
-	}
-#endif
 
 out:
 	sodium_memzero(key, E2EE_SESSIONKEY_SIZE);
 	if (err != 0 && dec->ctx) {
 		EVP_CIPHER_CTX_free(dec->ctx);
 		dec->ctx = NULL;
+	}
+
+	if (!err && !dec->frame_dec) {
+		info("frame_dec(%p): decrypt: first frame decrypted "
+		     "type: %s uid: %s fid: %u\n",
+		     dec,
+		     frame_type_name(dec->mtype),
+		     dec->userid_hash,
+		     fid32);
+		dec->frame_dec = true;
+		keystore_set_decrypt_successful(dec->keystore);
 	}
 	return err;
 }

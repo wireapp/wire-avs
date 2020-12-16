@@ -351,9 +351,6 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 				const struct list *fmtl;
 				struct le *fle;
 
-				debug("sdp_modify_answer: group mode setting "
-				      "ptime and dtx\n", audio_cbr);
-
 				sdp_media_set_lattr(sdpm, true, "ptime", "40");
 				fmtl = sdp_media_format_lst(sdpm, true);
 
@@ -369,7 +366,6 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 				}
 			}
 
-			debug("sdp_modify_answer: audio_cbr=%d\n", audio_cbr);
 			if (audio_cbr) {
 				const struct list *fmtl;
 				struct le *fle;

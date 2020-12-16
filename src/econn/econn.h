@@ -47,6 +47,7 @@ struct econn {
 	econn_update_resp_h *update_resph;
 	econn_alert_h *alerth;
 	econn_confpart_h *confparth;
+	econn_ping_h *pingh;
 	econn_close_h *closeh;
 	void *arg;
 	int err;

@@ -67,7 +67,7 @@ int jsflow_add_decoders_for_user(struct iflow *iflow,
 int jsflow_remove_decoders_for_user(struct iflow *iflow,
 				    const char *userid,
 				    const char *clientid);
-	int jsflow_sync_decoders(struct iflow *iflow);
+int jsflow_sync_decoders(struct iflow *iflow);
 	
 
 void jsflow_stop_media(struct iflow *iflow);
@@ -80,6 +80,10 @@ int jsflow_dce_send(struct iflow *flow,
 void jsflow_set_stats(struct jsflow* flow, float downloss, float rtt);
 int jsflow_get_stats(struct iflow *flow,
 		     struct iflow_stats *stats);
+
+int jsflow_get_aulevel(struct iflow *iflow,
+		       struct list *levell);
+	
 
 int jsflow_debug(struct re_printf *pf, const struct iflow *flow);
 

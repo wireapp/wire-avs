@@ -21,6 +21,8 @@ enum frame_media_type {
 	FRAME_MEDIA_VIDEO = 1,
 };
 
+const char *frame_type_name(enum frame_media_type mtype);
+
 struct frame_encryptor;
 
 int frame_encryptor_alloc(struct frame_encryptor **penc,

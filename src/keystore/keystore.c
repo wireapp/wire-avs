@@ -57,8 +57,12 @@ struct keystore
 	uint8_t *salt;
 	size_t slen;
 
+	bool has_keys;
+	bool decrypt_successful;
+	bool decrypt_attempted;
 	const EVP_MD *hash_md;
 
+	uint64_t update_ts;
 	struct lock *lock;	
 };
 
@@ -93,6 +97,7 @@ int keystore_alloc(struct keystore **pks)
 	if (err)
 		goto out;
 
+	ks->update_ts = tmr_jiffies();
 	ks->hash_md = EVP_sha512();
 	*pks = ks;
 
@@ -110,11 +115,15 @@ int keystore_reset_keys(struct keystore *ks)
 
 	info("keystore(%p): reset_keys\n", ks);
 	lock_write_get(ks->lock);
-	sodium_memzero(ks->keys, sizeof(*ks->keys));
+	sodium_memzero(ks->keys, sizeof(*ks->keys) * NUM_KEYS);
 
 	ks->current = 0;
 	ks->head = 0;
 	ks->init = false;
+	ks->has_keys = false;
+	ks->decrypt_attempted = false;
+	ks->decrypt_successful = false;
+
 	lock_rel(ks->lock);
 
 	return 0;
@@ -127,13 +136,18 @@ int keystore_reset(struct keystore *ks)
 
 	info("keystore(%p): reset\n", ks);
 	lock_write_get(ks->lock);
-	sodium_memzero(ks->keys, sizeof(*ks->keys));
+
+	sodium_memzero(ks->keys, sizeof(*ks->keys) * NUM_KEYS);
 
 	ks->current = 0;
 	ks->head = 0;
 	ks->init = false;
 	ks->slen = 0;
 	ks->salt = mem_deref(ks->salt);
+	ks->has_keys = false;
+	ks->decrypt_attempted = false;
+	ks->decrypt_successful = false;
+
 	lock_rel(ks->lock);
 
 	return 0;
@@ -150,6 +164,7 @@ int keystore_set_salt(struct keystore *ks,
 		return EINVAL;
 	}
 
+	info("keystore(%p): set_salt %zu bytes\n", ks, saltlen);
 	tsalt = mem_zalloc(saltlen, NULL);
 	if (!tsalt) {
 		return ENOMEM;
@@ -161,6 +176,7 @@ int keystore_set_salt(struct keystore *ks,
 	ks->salt = mem_deref(ks->salt);
 	ks->salt = tsalt;
 	ks->slen = saltlen;
+	ks->update_ts = tmr_jiffies();
 	lock_rel(ks->lock);
 
 	return 0;
@@ -172,7 +188,7 @@ int keystore_set_session_key(struct keystore *ks,
 			     size_t ksz)
 {
 	uint32_t sz;
-	size_t h;
+	size_t h, k;
 	int err = 0;
 
 	if (!ks) {
@@ -184,15 +200,43 @@ int keystore_set_session_key(struct keystore *ks,
 
 	lock_write_get(ks->lock);
 
-	if (ks->keys[ks->head].isset && 
-	    index <= ks->keys[ks->head].index) {
-		info("keystore(%p): set_session_key ignoring old key 0x%08x head %08x\n",
-		     ks, index, ks->keys[ks->head].index);
+	if (ks->keys[ks->current].isset && 
+	    index < ks->keys[ks->current].index) {
+		info("keystore(%p): set_session_key ignoring old key 0x%08x current %08x\n",
+		     ks, index, ks->keys[ks->current].index);
 		err = EALREADY;
 		goto out;
 	}
 
-	h = (ks->head + 1) % NUM_KEYS;
+	for (k = 0; k < NUM_KEYS; k++) {
+		if (ks->keys[k].isset && index == ks->keys[k].index) {
+			if (memcmp(ks->keys[k].skey, key, sz) == 0) {
+				//info("keystore(%p): set_session_key key 0x%08x already set, "
+				//     "ignoring\n", ks, index);
+				err = EALREADY;
+				goto out;
+			}
+			else {
+				warning("keystore(%p): set_session_key key 0x%08x changed, "
+					"overwriting\n", ks, index);
+				memset(ks->keys[k].skey, 0, E2EE_SESSIONKEY_SIZE);
+				memcpy(ks->keys[k].skey, key, sz);
+				ks->update_ts = tmr_jiffies();
+				err = keystore_derive_media_key(ks, k);
+				goto out;
+			}
+		}
+	}
+
+	if (ks->head != ks->current && ks->keys[ks->head].isset && 
+	    index < ks->keys[ks->head].index) {
+		warning("keystore(%p): set_session_key key 0x%08x is older than head 0x%08x, "
+			"overwriting\n", ks, index, ks->keys[ks->head].index);
+		h = (ks->current + 1) % NUM_KEYS;
+	}
+	else {
+		h = (ks->head + 1) % NUM_KEYS;
+	}
 
 	memset(ks->keys[h].skey, 0, E2EE_SESSIONKEY_SIZE);
 	memcpy(ks->keys[h].skey, key, sz);
@@ -202,11 +246,13 @@ int keystore_set_session_key(struct keystore *ks,
 		ks->init = true;
 	}
 	ks->head = h;
+	ks->update_ts = tmr_jiffies();
 	err = keystore_derive_media_key(ks, h);
 	if (err)
 		goto out;
 
 	ks->keys[h].isset = true;
+	ks->has_keys = true;
 
 	info("keystore(%p): set_session_key 0x%08x at index %zu\n",
 	     ks, ks->keys[h].index, h);
@@ -342,7 +388,9 @@ out:
 	return err;
 }
 
-int keystore_get_current(struct keystore *ks, uint32_t *pindex)
+int keystore_get_current(struct keystore *ks,
+			 uint32_t *pindex,
+			 uint64_t *updated_ts)
 {
 	if (!ks) {
 		return EINVAL;
@@ -350,6 +398,7 @@ int keystore_get_current(struct keystore *ks, uint32_t *pindex)
 
 	if (ks->keys[ks->current].isset) {
 		*pindex = ks->keys[ks->current].index;
+		*updated_ts = ks->update_ts;
 		return 0;
 	}
 
@@ -507,5 +556,57 @@ int keystore_generate_iv(struct keystore *ks,
 		 NULL, 0);
 
 	return s ? 0 : EINVAL;
+}
+
+int keystore_set_decrypt_attempted(struct keystore *ks)
+{
+	if (!ks)
+		return EINVAL;
+
+	info("keystore(%p): decrypt_attempted\n", ks);
+	lock_write_get(ks->lock);
+	ks->decrypt_attempted = true;
+	lock_rel(ks->lock);
+
+	return 0;
+}
+
+int keystore_set_decrypt_successful(struct keystore *ks)
+{
+	if (!ks)
+		return EINVAL;
+
+	info("keystore(%p): decrypt_successful\n", ks);
+	lock_write_get(ks->lock);
+	ks->decrypt_successful = true;
+	lock_rel(ks->lock);
+
+	return 0;
+}
+
+bool keystore_has_keys(struct keystore *ks)
+{
+	bool keys = false;
+	if (!ks)
+		return false;
+
+	lock_write_get(ks->lock);
+	keys = ks->has_keys;
+	lock_rel(ks->lock);
+
+	return keys;
+}
+
+void keystore_get_decrypt_states(struct keystore *ks,
+				 bool *attempted,
+				 bool *successful)
+{
+	if (!ks || !attempted || !successful)
+		return;
+
+	lock_write_get(ks->lock);
+	*attempted = ks->decrypt_attempted;
+	*successful = ks->decrypt_successful;
+	lock_rel(ks->lock);
 }
 

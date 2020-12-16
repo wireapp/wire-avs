@@ -476,7 +476,15 @@ static void set_video_route(struct mm *mm)
 {
 	enum mediamgr_auplay route;
 
+#ifdef __ANDROID__
+	if (mm->router.bt_device_is_connected
+	    || mm->router.wired_hs_is_connected)
+		mm->router.prefer_loudspeaker = false;
+	else
+		mm->router.prefer_loudspeaker = true;
+#else
 	mm->router.prefer_loudspeaker = true;
+#endif
 	
 	route = mm_platform_get_route();
 	switch(route) {
@@ -487,7 +495,8 @@ static void set_video_route(struct mm *mm)
 		break;
 
 	default:
-		enable_speaker(mm, true);
+		if (mm->router.prefer_loudspeaker)
+			enable_speaker(mm, true);
 		break;
 	}
 }
@@ -713,7 +722,7 @@ static void enable_speaker(struct mm *mm, bool enable)
 	enum mediamgr_auplay wanted_route = MEDIAMGR_AUPLAY_UNKNOWN;
 
 	info("enable_speaker: enable=%d\n", enable);
-	
+
 	mm->router.prefer_loudspeaker = enable;
 	
 	wanted_route = get_wanted_route(mm);

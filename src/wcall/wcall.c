@@ -24,6 +24,7 @@
 
 #include <avs_wcall.h>
 #include <avs_peerflow.h>
+#include <avs_audio_level.h>
 
 #include "wcall.h"
 
@@ -112,6 +113,7 @@ struct calling_instance {
 	wcall_media_stopped_h *mstoph;
 	wcall_data_chan_estab_h *dcestabh;
 	wcall_req_clients_h *clients_reqh;
+	wcall_active_speaker_h *active_speakerh;
 	wcall_shutdown_h *shuth;
 	void *shuth_arg;
 	struct {
@@ -1541,6 +1543,49 @@ static  void icall_req_clients_handler(struct icall *icall, void *arg)
 }
 
 
+static void icall_aulevel_handler(struct icall *icall, struct list *levell, void *arg)
+{
+	struct wcall *wcall = arg;
+	struct calling_instance *inst = wcall ? wcall->inst : NULL;
+	char *json_str = NULL;
+	char *info_str = NULL;
+	uint64_t now;
+	int err = 0;
+
+	if (!WCALL_VALID(wcall)) {
+		warning("wcall(%p): icall_aulevel_handler wcall not valid\n",
+			wcall);
+		return;
+	}
+
+	info("icall_aulevel_handler(%p): %d levels\n", wcall, list_count(levell));
+	
+
+	if (!inst->active_speakerh)
+		return;
+	
+	err = audio_level_json(levell,
+			       inst->userid, inst->clientid,
+			       &json_str, &info_str);
+	if (err) {
+		warning("icall_aulevel_handler(%p): could not create json\n", wcall);
+		return;
+	}
+		
+	info(APITAG "wcall(%p): calling active_speakerh:%p with: %s\n",
+	     wcall, inst->clients_reqh, info_str);
+	now = tmr_jiffies();
+	
+	inst->active_speakerh(inst2wuser(inst), wcall->convid, json_str, inst->arg);
+	
+	info(APITAG "wcall(%p): active_speakerh took %llu ms\n",
+	     wcall, tmr_jiffies() - now);
+
+	mem_deref(json_str);
+	mem_deref(info_str);
+}
+
+
 int wcall_add(struct calling_instance *inst,
 	      struct wcall **wcallp,
 	      const char *convid,
@@ -1629,6 +1674,7 @@ int wcall_add(struct calling_instance *inst,
 				    icall_quality_handler,
 				    NULL, // no_relay_handler,
 				    icall_req_clients_handler,
+				    icall_aulevel_handler,
 				    wcall);		
 		}
 		break;
@@ -1667,6 +1713,7 @@ int wcall_add(struct calling_instance *inst,
 				    icall_quality_handler,
 				    NULL, // no_relay_handler,
 				    icall_req_clients_handler,
+				    icall_aulevel_handler,
 				    wcall);
 		}
 		break;
@@ -1706,6 +1753,7 @@ int wcall_add(struct calling_instance *inst,
 				    icall_quality_handler,
 				    NULL, // no_relay_handler,
 				    icall_req_clients_handler,
+				    icall_aulevel_handler,
 				    wcall);
 
 		ccall_set_config(ccall, inst->cfg);
@@ -3574,6 +3622,26 @@ void wcall_set_req_clients_handler(WUSER_HANDLE wuser,
 	info(APITAG "wcall: set_req_clients_handler %p inst=%p\n", reqch, inst);
 	
 	inst->clients_reqh = reqch;
+}
+
+
+AVS_EXPORT	
+void wcall_set_active_speaker_handler(WUSER_HANDLE wuser,
+				      wcall_active_speaker_h *activeh)
+{
+	struct calling_instance *inst;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: set_req_clients_handler: "
+			"invalid wuser=0x%08X\n",
+			wuser);
+		return;
+	}	
+	
+	info(APITAG "wcall: set_active_speaker_handler %p inst=%p\n", activeh, inst);
+	
+	inst->active_speakerh = activeh;	
 }
 
 

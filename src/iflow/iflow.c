@@ -42,6 +42,7 @@ void iflow_set_functions(struct iflow *iflow,
 			 iflow_stop_media		*stop_media,
 			 iflow_close			*close,
 			 iflow_get_stats		*get_stats,
+			 iflow_get_audio_level          *get_audio_level,			 
 			 iflow_debug			*debug)
 {
 	if (!iflow) {
@@ -70,6 +71,7 @@ void iflow_set_functions(struct iflow *iflow,
 	iflow->stop_media		= stop_media;
 	iflow->close			= close;
 	iflow->get_stats		= get_stats;
+	iflow->get_audio_level          = get_audio_level;
 	iflow->debug			= debug;
 }
 
@@ -211,6 +213,7 @@ void iflow_set_alloc(iflow_allocf *allocf)
 int iflow_alloc(struct iflow		**flowp,
 		const char		*convid,
 		const char		*userid_self,
+		const char		*clientid_self,
 		enum icall_conv_type	conv_type,
 		enum icall_call_type	call_type,
 		enum icall_vstate	vstate,
@@ -223,6 +226,7 @@ int iflow_alloc(struct iflow		**flowp,
 	return statics.alloc(flowp,
 			     convid,
 			     userid_self,
+			     clientid_self,
 			     conv_type,
 			     call_type,
 			     vstate,

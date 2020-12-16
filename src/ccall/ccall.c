@@ -44,6 +44,8 @@ static void ccall_connect_timeout(void *arg);
 static void ccall_stop_ringing_timeout(void *arg);
 static void ccall_ongoing_call_timeout(void *arg);
 static void ccall_sync_vstate_timeout(void *arg);
+static void ccall_decrypt_check_timeout(void *arg);
+static void ccall_keepalive_timeout(void *arg);
 static void ccall_end_with_err(struct ccall *ccall, int err);
 static int  ccall_send_msg(struct ccall *ccall,
 			   enum econn_msg type,
@@ -61,6 +63,7 @@ static int  ccall_join(struct ccall *ccall,
 		       bool audio_cbr);
 static int ccall_send_keys(struct ccall *ccall,
 			   bool send_to_all);
+static int ccall_request_keys(struct ccall *ccall);
 static void ccall_stop_others_ringing(struct ccall *ccall);
 
 static void ccall_track_keygenerator_change(struct ccall *ccall,
@@ -114,6 +117,8 @@ static void destructor(void *arg)
 	tmr_cancel(&ccall->tmr_ring);
 	tmr_cancel(&ccall->tmr_blacklist);
 	tmr_cancel(&ccall->tmr_vstate);
+	tmr_cancel(&ccall->tmr_decrypt_check);
+	tmr_cancel(&ccall->tmr_keepalive);
 
 	mem_deref(ccall->sft_url);
 	mem_deref(ccall->convid_real);
@@ -239,6 +244,12 @@ static int ccall_hash_user(const uint8_t *secret,
 		goto out;
 	}
 
+	err = crypto_hash_sha256_update(&ctx, secret, secretlen);
+	if (err) {
+		warning("ccall_hash_id: hash update failed\n");
+		goto out;
+	}
+
 	err = crypto_hash_sha256_update(&ctx, (const uint8_t*)userid, strlen(userid));
 	if (err) {
 		warning("ccall_hash_id: hash update failed\n");
@@ -301,7 +312,9 @@ static int ccall_set_secret(struct ccall *ccall,
 			    const uint8_t *secret,
 			    size_t secretlen)
 {
+	struct le *le;
 	int err = 0;
+
 	info("ccall(%p): set_secret: %02x%02x%02x%02x len: %u\n",
 	     ccall,
 	     secret[0], secret[1], secret[2], secret[3],
@@ -323,10 +336,19 @@ static int ccall_set_secret(struct ccall *ccall,
 			&ccall->convid_hash);
 
 	ccall_hash_userinfo(ccall, ccall->convid_real, ccall->self);
+
+	LIST_FOREACH(&ccall->partl, le) {
+		struct userinfo *u = le->data;
+		ccall_hash_userinfo(ccall, ccall->convid_real, u);
+	}
+
 	err = keystore_set_salt(ccall->keystore,
 				(const uint8_t*)ccall->convid_hash,
 				ccall->convid_hash ? strlen(ccall->convid_hash) : 0);
-		
+
+	if (ccall->ecall)
+		ecall_set_sessid(ccall->ecall, ccall->convid_hash);
+
 	return err;
 }
 
@@ -394,26 +416,34 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 	switch(ccall->state) {
 	case CCALL_STATE_IDLE:
 		ccall->keygenerator = NULL;
+		ccall->received_confpart = false;
 		keystore_reset(ccall->keystore);
 		tmr_cancel(&ccall->tmr_rotate_key);
 		tmr_cancel(&ccall->tmr_send_check);
 		tmr_cancel(&ccall->tmr_connect);
+		tmr_cancel(&ccall->tmr_decrypt_check);
+		tmr_cancel(&ccall->tmr_keepalive);
 		break;
 
 	case CCALL_STATE_INCOMING:
 		ccall->keygenerator = NULL;
+		ccall->received_confpart = false;
 		keystore_reset_keys(ccall->keystore);
 		tmr_cancel(&ccall->tmr_rotate_key);
 		tmr_cancel(&ccall->tmr_send_check);
 		tmr_start(&ccall->tmr_ongoing, CCALL_ONGOING_CALL_TIMEOUT,
 			  ccall_ongoing_call_timeout, ccall);
+		tmr_cancel(&ccall->tmr_decrypt_check);
+		tmr_cancel(&ccall->tmr_keepalive);
 		break;
 
 	case CCALL_STATE_CONNSENT:
+		ccall->received_confpart = false;
 		tmr_cancel(&ccall->tmr_ring);
 		tmr_cancel(&ccall->tmr_send_check);
 		tmr_start(&ccall->tmr_connect, CCALL_CONNECT_TIMEOUT,
 			  ccall_connect_timeout, ccall);
+		tmr_cancel(&ccall->tmr_keepalive);
 		break;
 
 	case CCALL_STATE_SETUPRECV:
@@ -428,11 +458,16 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 
 	case CCALL_STATE_ACTIVE:
 		tmr_cancel(&ccall->tmr_connect);
+		tmr_start(&ccall->tmr_decrypt_check, CCALL_DECRYPT_CHECK_TIMEOUT,
+			  ccall_decrypt_check_timeout, ccall);
+		tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
+			  ccall_keepalive_timeout, ccall);
 		break;
 
 	case CCALL_STATE_TERMINATING:
 		tmr_cancel(&ccall->tmr_send_check);
 		tmr_cancel(&ccall->tmr_connect);
+		tmr_cancel(&ccall->tmr_keepalive);
 		break;
 
 	case CCALL_STATE_NONE:
@@ -516,6 +551,129 @@ static void ccall_sync_vstate_timeout(void *arg)
 	ccall_set_vstate(&ccall->icall, ccall->vstate);
 }
 
+static void ccall_reconnect(struct ccall *ccall,
+			    uint32_t msg_time)
+{
+	bool decrypt_attempted = false;
+	bool decrypt_successful = false;
+
+	if (!ccall || !ccall->keystore) {
+		return;
+	}
+
+	keystore_get_decrypt_states(ccall->keystore,
+				    &decrypt_attempted,
+				    &decrypt_successful);
+	info("ccall(%p): reconnect: cp: %s da: %s ds: %s att: %u\n",
+	     ccall,
+	     ccall->received_confpart ? "YES" : "NO",
+	     decrypt_attempted ? " YES" : "NO",
+	     decrypt_successful ? "YES" : "NO",
+	     ccall->reconnect_attempts);
+
+	if (!ccall->received_confpart || 
+	    (decrypt_attempted && !decrypt_successful)) {
+		if (ccall->reconnect_attempts >= CCALL_MAX_RECONNECT_ATTEMPTS) {
+			ccall_end_with_err(ccall, ETIMEDOUT);
+			ICALL_CALL_CB(ccall->icall, leaveh, 
+				&ccall->icall, ICALL_REASON_STILL_ONGOING,
+				msg_time, ccall->icall.arg);
+			return;
+		}
+		ccall->reconnect_attempts++;
+	}
+	else {
+		ccall->reconnect_attempts = 0;
+	}
+
+	incall_clear(ccall, true);
+	set_state(ccall, CCALL_STATE_CONNSENT);
+	ccall_send_conf_conn(ccall, ccall->sft_url, true);
+}
+
+static void ccall_decrypt_check_timeout(void *arg)
+{
+	struct ccall *ccall = arg;
+	bool has_keys = false;
+	bool decrypt_attempted = false;
+	bool decrypt_successful = false;
+
+	if (!ccall)
+		return;
+
+	if (ccall->state != CCALL_STATE_ACTIVE) {
+		info("ccall(%p): decrypt_check_timeout in state %s, ignoring\n",
+		     ccall,
+		     ccall_state_name(ccall->state));
+		return;
+	}
+
+	if (!ccall->received_confpart) {
+		info("ccall(%p): decrypt_check_timeout no confpart received, "
+		     "reconnecting\n",
+		     ccall);
+		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN);
+		return;
+	}
+
+	if (!ccall->keygenerator) {
+		info("ccall(%p): decrypt_check_timeout no keygenerator, waiting\n",
+		     ccall);
+		
+		tmr_start(&ccall->tmr_decrypt_check, CCALL_DECRYPT_CHECK_TIMEOUT,
+			  ccall_decrypt_check_timeout, ccall);
+		return;
+	}
+
+	if (ccall->keygenerator == ccall->self) {
+		info("ccall(%p): decrypt_check_timeout keygenerator is me\n",
+		     ccall);
+		return;
+	}
+
+	has_keys = keystore_has_keys(ccall->keystore);
+	keystore_get_decrypt_states(ccall->keystore,
+				    &decrypt_attempted,
+				    &decrypt_successful);
+
+	info("ccall(%p): decrypt_check_timeout state: %s key: %s att: %s succ: %s\n",
+	     ccall,
+	     ccall_state_name(ccall->state),
+	     has_keys ? "YES" : "NO",
+	     decrypt_attempted ? "YES" : "NO",
+	     decrypt_successful ? "YES" : "NO");
+
+	if (!has_keys || (decrypt_attempted && !decrypt_successful)) {
+		ccall_request_keys(ccall);
+	}
+}
+
+static void ccall_keepalive_timeout(void *arg)
+{
+	struct ccall *ccall = arg;
+
+	if (!ccall)
+		return;
+
+	if (ccall->state != CCALL_STATE_ACTIVE) {
+		info("ccall(%p): keepalive_timeout in state %s, ignoring\n",
+		     ccall,
+		     ccall_state_name(ccall->state));
+		return;
+	}
+
+	if (!ccall->ecall) {
+		info("ccall(%p): keepalive_timeout no ecall, ignoring\n",
+		     ccall);
+		return;
+	}
+
+	ecall_ping(ccall->ecall, false);
+
+	tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
+		  ccall_keepalive_timeout, ccall);
+}
+
 static int ccall_generate_session_key(struct ccall *ccall,
 			      bool is_first)
 {
@@ -530,7 +688,11 @@ static int ccall_generate_session_key(struct ccall *ccall,
 	if (!is_first) {
 		idx = keystore_get_max_key(ccall->keystore) | 0xFFFF;
 		idx++;
+		if (ccall->became_kg) {
+			idx += 0x10000;
+		}
 	}
+	ccall->became_kg = false;
 	info("ccall(%p): generate_session_key %08x\n", ccall, idx);
 	randombytes_buf(session_key, E2EE_SESSIONKEY_SIZE);
 
@@ -572,7 +734,7 @@ static int ccall_send_keys(struct ccall *ccall,
 				c = icall_client_alloc(u->userid_real,
 						       u->clientid_real);
 				if (!c) {
-					warning("ccall(%p): ecall_confpart_handler "
+					warning("ccall(%p): send_keys "
 						"unable to alloc target\n", ccall);
 					err = ENOMEM;
 					goto out;
@@ -726,6 +888,7 @@ static void ecall_media_estab_handler(struct icall *icall, const char *userid,
 
 	ICALL_CALL_CB(ccall->icall, media_estabh,
 		icall, userid, clientid, update, ccall->icall.arg);
+	set_state(ccall, CCALL_STATE_ACTIVE);
 	incall_clear(ccall, true);
 }
 
@@ -737,10 +900,22 @@ static void ecall_audio_estab_handler(struct icall *icall, const char *userid,
 	if (!ccall)
 		return;
 
-	set_state(ccall, CCALL_STATE_ACTIVE);
 	ICALL_CALL_CB(ccall->icall, audio_estabh,
 		icall, userid, clientid, update, ccall->icall.arg);
 }
+
+
+static void ecall_aulevel_handler(struct icall *icall, struct list *levell, void *arg)
+{
+	struct ccall *ccall = arg;
+
+	if (!ccall)
+		return;
+
+	ICALL_CALL_CB(ccall->icall, audio_levelh,
+		      icall, levell, ccall->icall.arg);
+}
+
 
 static uint32_t incall_count(struct ccall *ccall)
 {
@@ -782,7 +957,7 @@ static void ecall_close_handler(struct icall *icall,
 {
 	struct ecall *ecall = (struct ecall*)icall;
 	struct ccall *ccall = arg;
-	bool should_end;
+	bool should_end = false;
 	struct le *le;
 
 	should_end = incall_count(ccall) == 0;
@@ -810,9 +985,7 @@ static void ecall_close_handler(struct icall *icall,
 	}
 
 	if (err == EAGAIN) {
-		incall_clear(ccall, true);
-		set_state(ccall, CCALL_STATE_CONNSENT);
-		ccall_send_conf_conn(ccall, ccall->sft_url, true);
+		ccall_reconnect(ccall, msg_time);
 		return;
 	}
 
@@ -830,7 +1003,7 @@ static void ecall_close_handler(struct icall *icall,
 		set_state(ccall, CCALL_STATE_IDLE);
 
 		ICALL_CALL_CB(ccall->icall, closeh, 
-			&ccall->icall, 0, NULL, ECONN_MESSAGE_TIME_UNKNOWN,
+			&ccall->icall, 0, NULL, msg_time,
 			NULL, NULL, ccall->icall.arg);
 	}
 	else {
@@ -878,6 +1051,7 @@ static int ccall_send_msg_sft(struct ccall *ccall,
 		     "msg: %s transp: sft url: %s hndlr: %p conv: %s\n",
 		     ccall, econn_msg_name(msg->msg_type), url, ccall->icall.sfth, ccall->convid_hash);
 
+		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
 		err = ICALL_CALL_CBE(ccall->icall, sfth,
 			&ccall->icall, url, msg, ccall->icall.arg);
 		if (err)
@@ -1159,6 +1333,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 	struct le *le, *cle;
 	bool first = true;
 	bool list_changed = false;
+	bool sync_decoders = false;
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
 	struct userinfo *prev_keygenerator;
@@ -1180,6 +1355,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		return;
 	}
 
+	ccall->received_confpart = true;
 	ccall_keep_confpart_data(ccall, msg);
 
 	if (should_start && ccall->is_caller) {
@@ -1234,14 +1410,16 @@ static void ecall_confpart_handler(struct ecall *ecall,
 			if (u->incall_prev && 
 			    (u->ssrca != p->ssrca ||
 			    u->ssrcv != p->ssrcv)) {
+#if 0
 				if (ccall->ecall) {
 					ecall_remove_decoders_for_user(ccall->ecall,
 								       u->userid_hash,
 								       u->clientid_hash,
 								       u->ssrca,
 								       u->ssrcv);
-					ccall->someone_left = true;
 				}
+#endif
+				ccall->someone_left = true;
 				u->incall_prev = false;
 			}
 
@@ -1282,7 +1460,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		if (u && u->se_approved) {
 			if (u->force_decoder ||
 			   (u->incall_now && !u->incall_prev)) {
-				if (ccall->ecall) {
+				if (ccall->ecall && (u->ssrca != 0 || u->ssrcv != 0)) {
 					info("ccall(%p): add_decoders_for_user: ecall: %p "
 					        "u: %s.%s a: %u v: %u\n",
 						ccall, ccall->ecall,
@@ -1295,19 +1473,22 @@ static void ecall_confpart_handler(struct ecall *ecall,
 								    u->userid_hash,
 								    u->ssrca,
 								    u->ssrcv);
-				}
 
+					sync_decoders = true;
+				}
 				u->force_decoder = false;
 				u->needs_key = true;
 				list_changed = true;
 			}
 			else if (!u->incall_now && u->incall_prev) {
 				if (ccall->ecall) {
+#if 0
 					ecall_remove_decoders_for_user(ccall->ecall,
 								       u->userid_real,
 								       u->clientid_real,
 								       u->ssrca,
 								       u->ssrcv);
+#endif
 					ccall->someone_left = true;
 				}
 				if (u->video_state != ICALL_VIDEO_STATE_STOPPED) {
@@ -1324,7 +1505,8 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		}
 	}
 
-	if (list_changed) {
+	if (sync_decoders) {
+		info("ccall(%p): sync_decoders\n", ccall);
 		ecall_sync_decoders(ccall->ecall);
 	}
 
@@ -1641,6 +1823,7 @@ static int create_ecall(struct ccall *ccall)
 			    NULL, // ecall_quality_handler,
 			    NULL, // ecall_req_clients_handler,
 			    NULL, // ecall_norelay_handler,
+			    ecall_aulevel_handler,
 			    ccall);
 
 	ecall_set_confpart_handler(ecall, ecall_confpart_handler);
@@ -1655,6 +1838,9 @@ static int create_ecall(struct ccall *ccall)
 		if (err)
 			goto out;
 	}
+
+	if (ccall->convid_hash)
+		ecall_set_sessid(ecall, ccall->convid_hash);
 
 	ccall->ecall = ecall;
 	tmr_start(&ccall->tmr_vstate,
@@ -1798,6 +1984,7 @@ static int  ccall_join(struct ccall *ccall,
 		goto out;
 	}
 
+	ccall->reconnect_attempts = 0;
 	set_state(ccall, CCALL_STATE_CONNSENT);
 	ccall->call_type = call_type;
 
@@ -1911,9 +2098,10 @@ int  ccall_start(struct icall *icall,
 	switch (ccall->state) {
 	case CCALL_STATE_INCOMING:
 		warning("ccall(%p): call_start attempt to start call in "
-			" state %s, trying anyway\n",
+			" state %s, answering instead\n",
 			ccall, ccall_state_name(ccall->state));
-		/* drop through */
+		return ccall_answer(icall, call_type, audio_cbr);
+
 	case CCALL_STATE_IDLE:
 		ccall->is_caller = true;
 		err = ccall_req_cfg_join(ccall, call_type, audio_cbr);
@@ -2183,6 +2371,7 @@ static void ccall_track_keygenerator_change(struct ccall *ccall,
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
 	uint32_t kid = 0;
+	uint64_t updated_ts = 0;
 	int err = 0;
 
 	if (!ccall ||
@@ -2196,12 +2385,15 @@ static void ccall_track_keygenerator_change(struct ccall *ccall,
 		info("ccall(%p): track_keygenerator: new keygenerator is me\n",
 		      ccall);
 
-		err = keystore_get_current(ccall->keystore, &kid);
+		err = keystore_get_current(ccall->keystore, &kid, &updated_ts);
 		if (err == ENOENT) {
 			/* no current key, generate and send */
 			info("ccall(%p): track_keygenerator: generate initial keys\n",
 			      ccall);
 			ccall_generate_session_key(ccall, true);
+		}
+		else {
+			ccall->became_kg = true;
 		}
 
 		tmr_start(&ccall->tmr_send_check,
@@ -2237,6 +2429,7 @@ void ccall_set_clients(struct icall* icall, struct list *clientl)
 	struct le *le;
 	struct ccall *ccall = (struct ccall*)icall;
 	bool list_changed = false;
+	bool sync_decoders = false;
 	struct userinfo *user;
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
@@ -2289,6 +2482,7 @@ void ccall_set_clients(struct icall* icall, struct list *clientl)
 								    user->userid_hash,
 								    user->ssrca,
 								    user->ssrcv);
+					sync_decoders = true;
 				}
 
 				if (user->listpos == 0) {
@@ -2313,9 +2507,12 @@ void ccall_set_clients(struct icall* icall, struct list *clientl)
 		}
 	}
 
-	if (list_changed) {
+	if (sync_decoders) {
+		info("ccall(%p): sync_decoders\n", ccall);
 		ecall_sync_decoders(ccall->ecall);
+	}
 
+	if (list_changed) {
 		ICALL_CALL_CB(ccall->icall, group_changedh,
 			      &ccall->icall, ccall->icall.arg);	
 	}

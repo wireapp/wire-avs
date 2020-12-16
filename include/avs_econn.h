@@ -44,6 +44,7 @@ enum econn_msg {
 	ECONN_UPDATE = 0x10,
 	ECONN_REJECT = 0x11,
 	ECONN_ALERT  = 0x12,
+	ECONN_PING   = 0x13,
 	
 	/* Device pairing messages */
 	ECONN_DEVPAIR_PUBLISH = 0x21,
@@ -264,6 +265,8 @@ typedef void (econn_confpart_h)(struct econn *econn,
 				const struct econn_message *msg,
 				void *arg);
 
+typedef void (econn_ping_h)(struct econn *econn, bool response, void *arg);
+
 /**
  * Indicates that this ECONN was closed, locally or by remote peer
  * Should only be called once per ECONN.
@@ -306,6 +309,7 @@ int  econn_alloc(struct econn **econnp,
 		 econn_update_resp_h *update_resph,
 		 econn_alert_h *alerth,
 		 econn_confpart_h *confparth,
+		 econn_ping_h *pingh,
 		 econn_close_h *closeh, void *arg);
 int  econn_start(struct econn *conn, const char *sdp,
 		 const struct econn_props *props);
@@ -388,6 +392,8 @@ struct econn_group_part *econn_part_alloc(const char *userid,
 					  const char *clientid);
 
 struct econn_key_info *econn_key_info_alloc(size_t keysz);
+
+int econn_send_ping(struct econn *conn, bool response);
 
 struct vector {
 	uint8_t *bytes;

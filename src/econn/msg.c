@@ -117,6 +117,9 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.confpart.entropy = mem_deref(msg->u.confpart.entropy);
 		break;
 
+	case ECONN_PING:
+		break;
+
 	case ECONN_CONF_END:
 		break;
 
@@ -188,7 +191,6 @@ int econn_message_print(struct re_printf *pf, const struct econn_message *msg)
 	default:
 		break;
 	}
-	err |= re_hprintf(pf, "\n");
 
 	return err;
 }

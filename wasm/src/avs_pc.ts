@@ -7,6 +7,7 @@ export type UserMediaHandler = (
   useScreenShare: boolean
 ) => Promise<MediaStream>;
 
+
 export type MediaStreamHandler = (
   convid: string,
   remote_userid: string,
@@ -31,8 +32,12 @@ type LocalStats = {
 };
 
 type UserInfo = {
+    label: string;
     userid: string;
     clientid: string;
+    ssrca: number;
+    ssrcv: number;
+    audio_level: number;
 };
 
 interface PeerConnection {
@@ -152,6 +157,16 @@ const connectionsStore = (() => {
 function pc_log(level: number, msg: string, err = null) {
     if (logFn)
 	logFn(level, msg, err);
+}
+
+function uinfo_from_ssrca(pc: PeerConnection, ssrc: number)
+{
+  for (const [key, uinfo] of pc.users) {
+    if (uinfo.ssrca === ssrc) {
+      return uinfo;
+    }
+  }
+  return null;
 }
 
 function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
@@ -593,7 +608,8 @@ function pc_New(self: number, convidPtr: number) {
     },
 
     encryptedFrame: null,
-    decryptedFrame: null
+    decryptedFrame: null,
+
   };
 
   const hnd = connectionsStore.storePeerConnection(pc);
@@ -625,8 +641,6 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
     rtcpMuxPolicy: 'require',
     iceTransportPolicy: transportPolicy,
     encodedInsertableStreams: useEncoding,
-    forceEncodedVideoInsertableStreams: useEncoding, 
-    forceEncodedAudioInsertableStreams: useEncoding,
   };
 
   pc_log(
@@ -880,6 +894,7 @@ function encryptFrame(pc: PeerConnection, mtype: number, rtcFrame: any, controll
   em_module._free(ptr);
 }
 
+
 function pc_SetEncryptedFrame(hnd: number, mtype: number, framePtr: number, frameLen: number) {
 
   const pc = connectionsStore.getPeerConnection(hnd);
@@ -932,9 +947,15 @@ function setupSenderTransform(pc: PeerConnection, sender: any) {
   const transformStream = new TransformStream({
     transform: (frame, controller) => encryptFrame(pc, mtype, frame, controller)
   });
-  senderStreams.readableStream
+
+  pc_log(LOG_LEVEL_INFO, `setupSenderTransform: senderStream: ${senderStreams.readable}/${senderStreams.readableStream}`);
+  
+  const readableStream = senderStreams.readable || senderStreams.readableStream;
+  const writableStream = senderStreams.writable || senderStreams.writableStream;
+
+  readableStream
       .pipeThrough(transformStream)
-      .pipeTo(senderStreams.writableStream);
+      .pipeTo(writableStream);
 }
 
 function decryptFrame(pc: PeerConnection, mtype: number, uinfo: UserInfo, rtcFrame: any, controller: any) {
@@ -957,7 +978,6 @@ function decryptFrame(pc: PeerConnection, mtype: number, uinfo: UserInfo, rtcFra
 
 
 function setupReceiverTransform(pc: PeerConnection, uinfo: UserInfo, receiver: any) {
-  console.log(`setupReceiverTransform: receiver=${receiver}`);
   if (!receiver || !receiver.track) {
       pc_log(LOG_LEVEL_INFO, "setupReceiverTransform: receiver or track missing");
       return false;
@@ -978,9 +998,15 @@ function setupReceiverTransform(pc: PeerConnection, uinfo: UserInfo, receiver: a
   const transformStream = new TransformStream({
     transform: (frame, controller) => decryptFrame(pc, mtype, uinfo, frame, controller),
   });
-  receiverStreams.readableStream
+
+  pc_log(LOG_LEVEL_INFO, `setupReceiverTransform: receiverStream: ${receiverStreams.readable}/${receiverStreams.readableStream}`);
+
+  const readableStream = receiverStreams.readable || receiverStreams.readableStream;
+  const writableStream = receiverStreams.writable || receiverStreams.writableStream;
+
+  readableStream
     .pipeThrough(transformStream)
-    .pipeTo(receiverStreams.writableStream);
+    .pipeTo(writableStream);
 
   return true;
 }
@@ -1098,7 +1124,8 @@ function pc_AddDecoderAnswer(hnd: number) {
 }
 
 function pc_AddUserInfo(hnd: number, labelPtr: number,
-	 		useridPtr: number, clientidPtr: number) {
+	                useridPtr: number, clientidPtr: number,
+			ssrca: number, ssrcv: number) {
   pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: hnd=${hnd}`);
 
   const pc = connectionsStore.getPeerConnection(hnd);
@@ -1111,8 +1138,12 @@ function pc_AddUserInfo(hnd: number, labelPtr: number,
   const clientId = em_module.UTF8ToString(clientidPtr);
 
   const uinfo : UserInfo = {
+  	label: label,
   	userid: userId,
 	clientid: clientId,
+	ssrca: ssrca,
+	ssrcv: ssrcv,
+	audio_level: 0
   };
 
   pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: label=${label} ${userId}/${clientId}`);
@@ -1464,7 +1495,7 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_CreateOffer, "nn"],
     [pc_CreateAnswer, "nn"],
     [pc_AddDecoderAnswer, "vn"],
-    [pc_AddUserInfo, "vnsss"],
+    [pc_AddUserInfo, "vnsssnn"],
     [pc_RemoveUserInfo, "vns"],
     [pc_SetRemoteDescription, "nss"],
     [pc_SetLocalDescription, "nss"],
@@ -1538,6 +1569,28 @@ function pc_GetLocalStats(hnd: number) {
     return;
   }
 
+  const txrxs = rtc.getTransceivers();
+  txrxs.forEach(txrx => {
+    const rx = txrx.receiver;
+    if (rx) {
+      const ssrcs = rx.getSynchronizationSources();
+      ssrcs.forEach(ssrc => {
+        const uinfo = uinfo_from_ssrca(pc, ssrc.source);
+	if (uinfo) {
+	   
+	  uinfo.audio_level = ssrc.audioLevel ? ((ssrc.audioLevel * 255.0) | 0) : 0;
+	  em_module.ccall(
+	    "pc_set_audio_level",
+	    null,
+	    ["number", "number", "number"],
+	    [pc.self, uinfo.ssrca, uinfo.audio_level]);
+	  }
+	});
+     }
+  });
+
+  let self_audio_level = 0;
+
   rtc.getStats()
     .then((stats) => {
 	let rtt = 0;
@@ -1550,32 +1603,40 @@ function pc_GetLocalStats(hnd: number) {
 		pc.stats.bytes = stat.bytesReceived;
 		
 		const p = stat.packetsReceived;		
-		if (stat.kind === "audio") {
+		if (stat.kind === 'audio') {
 		    pc.stats.recv_apkts = p;
 		}
-		else if (stat.kind === "video") {
+		else if (stat.kind === 'video') {
 		    pc.stats.recv_vpkts = p;
 		}		
 	    }
 	    else if (stat.type === 'outbound-rtp') {
 		const p = stat.packetsSent;		
-		if (stat.kind === "audio") {
+		if (stat.kind === 'audio') {
 		    pc.stats.sent_apkts = p;
 		}
-		else if (stat.kind === "video") {
+		else if (stat.kind === 'video') {
 		    pc.stats.sent_vpkts = p;
 		}		
 	    }	    
 	    else if (stat.type === 'candidate-pair') {
 		rtt = stat.currentRoundTripTime * 1000;
 	    }
+	    else if (stat.type === 'media-source') {
+	        self_audio_level = stat.audioLevel ? ((stat.audioLevel * 255.0) | 0) : 0;
+	    }
 	});
+
 	em_module.ccall(
 	    "pc_set_stats",
 	    null,
-	    ["number", "number", "number", "number",
-	     "number", "number", "number"],
+	    ["number",
+	     "number",
+	     "number", "number",
+	     "number", "number",
+	     "number", "number"],
 	    [pc.self,
+	     self_audio_level,
 	     pc.stats.recv_apkts, pc.stats.recv_vpkts,
 	     pc.stats.sent_apkts, pc.stats.sent_vpkts,
 	     pc.stats.ploss, rtt]

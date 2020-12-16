@@ -313,3 +313,140 @@ TEST_F(KeystoreTest, sync_keys)
 }
 #endif
 
+TEST_F(KeystoreTest, overwrite_current_key)
+{
+	uint8_t b1[KEYSZ];
+	uint8_t b2[KEYSZ];
+	uint8_t b3[KEYSZ];
+	uint32_t idx;
+	uint64_t ts1, ts2;
+
+	memset(b1, 0xAA, KEYSZ);
+	memset(b2, 0xBB, KEYSZ);
+	memset(b3, 0x00, KEYSZ);
+
+	ASSERT_EQ(keystore_set_session_key(ks, 0, b1, KEYSZ), 0);
+	keystore_get_current(ks, &idx, &ts1);
+	ASSERT_EQ(idx, 0);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b3, KEYSZ), 0);
+	ASSERT_TRUE(memcmp(b1, b3, KEYSZ) == 0);
+
+	/* Overwrite key 0, check that it is updated and the ts also */
+	usleep(100000);
+	ASSERT_EQ(keystore_set_session_key(ks, 0, b2, KEYSZ), 0);
+	keystore_get_current(ks, &idx, &ts2);
+	ASSERT_EQ(idx, 0);
+	ASSERT_FALSE(ts1 == ts2);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b3, KEYSZ), 0);
+	ASSERT_TRUE(memcmp(b2, b3, KEYSZ) == 0);
+}
+
+TEST_F(KeystoreTest, overwrite_future_key)
+{
+	uint8_t b1[KEYSZ];
+	uint8_t b2[KEYSZ];
+	uint8_t b3[KEYSZ];
+	uint8_t b4[KEYSZ];
+	uint32_t idx;
+	uint64_t ts1, ts2;
+
+	memset(b1, 0xAA, KEYSZ);
+	memset(b2, 0xBB, KEYSZ);
+	memset(b3, 0xCC, KEYSZ);
+	memset(b4, 0x00, KEYSZ);
+
+	ASSERT_EQ(keystore_set_session_key(ks, 0, b1, KEYSZ), 0);
+	keystore_get_current(ks, &idx, &ts1);
+	ASSERT_EQ(idx, 0);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b4, KEYSZ), 0);
+	ASSERT_TRUE(memcmp(b1, b4, KEYSZ) == 0);
+
+	ASSERT_EQ(keystore_set_session_key(ks, 100, b2, KEYSZ), 0);
+	keystore_get_current(ks, &idx, &ts1);
+	ASSERT_EQ(idx, 0);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b4, KEYSZ), 0);
+	ASSERT_TRUE(memcmp(b1, b4, KEYSZ) == 0);
+
+	usleep(100000);
+
+	/* Overwrite key 100 with key 1 */
+	ASSERT_EQ(keystore_set_session_key(ks, 1, b3, KEYSZ), 0);
+	keystore_get_current(ks, &idx, &ts2);
+	ASSERT_EQ(idx, 0);
+	ASSERT_FALSE(ts1 == ts2);
+
+	/* Check we can rotate to key 1 */
+	ASSERT_EQ(keystore_rotate(ks), 0);
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 1);
+	ASSERT_TRUE(memcmp(b3, b4, KEYSZ) == 0);
+}
+
+TEST_F(KeystoreTest, set_same_key)
+{
+	uint8_t b1[KEYSZ];
+	uint8_t b2[KEYSZ];
+	uint8_t b3[KEYSZ];
+	uint32_t idx;
+	uint64_t ts1, ts2;
+
+	memset(b1, 0xAA, KEYSZ);
+	memset(b2, 0x00, KEYSZ);
+	memset(b3, 0x00, KEYSZ);
+
+	ASSERT_EQ(keystore_set_session_key(ks, 0, b1, KEYSZ), 0);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b2, KEYSZ), 0);
+	ASSERT_EQ(idx, 0);
+	ASSERT_TRUE(memcmp(b1, b2, KEYSZ) == 0);
+
+	/* Set key 0 again - should fail */
+	ASSERT_EQ(keystore_set_session_key(ks, 0, b1, KEYSZ), EALREADY);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b3, KEYSZ), 0);
+	ASSERT_EQ(idx, 0);
+	ASSERT_TRUE(memcmp(b1, b3, KEYSZ) == 0);
+}
+
+TEST_F(KeystoreTest, ignore_old_key)
+{
+	uint8_t b1[KEYSZ];
+	uint8_t b2[KEYSZ];
+	uint8_t b3[KEYSZ];
+	uint8_t b4[KEYSZ];
+	uint32_t idx;
+	uint64_t ts1, ts2;
+
+	memset(b1, 0xAA, KEYSZ);
+	memset(b2, 0xBB, KEYSZ);
+	memset(b3, 0xCC, KEYSZ);
+	memset(b4, 0x00, KEYSZ);
+
+	ASSERT_EQ(keystore_set_session_key(ks, 0, b1, KEYSZ), 0);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 0);
+	ASSERT_TRUE(memcmp(b1, b4, KEYSZ) == 0);
+
+	ASSERT_EQ(keystore_set_session_key(ks, 1, b2, KEYSZ), 0);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 0);
+	ASSERT_TRUE(memcmp(b1, b4, KEYSZ) == 0);
+
+	ASSERT_EQ(keystore_rotate(ks), 0);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 1);
+	ASSERT_TRUE(memcmp(b2, b4, KEYSZ) == 0);
+
+	/* Set key 0 to b3 - should fail */
+	ASSERT_EQ(keystore_set_session_key(ks, 0, b3, KEYSZ), EALREADY);
+	keystore_get_current(ks, &idx, &ts2);
+	ASSERT_EQ(idx, 1);
+}
+

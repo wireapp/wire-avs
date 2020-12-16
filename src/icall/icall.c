@@ -86,6 +86,7 @@ void icall_set_callbacks(struct icall *icall,
 			 icall_quality_h	*qualityh,
 			 icall_norelay_h	*norelayh,
 			 icall_req_clients_h	*req_clientsh,
+			 icall_audio_level_h    *audio_levelh,			 
 			 void			*arg)
 {
 	if (!icall) {
@@ -110,6 +111,7 @@ void icall_set_callbacks(struct icall *icall,
 	icall->qualityh		= qualityh;
 	icall->norelayh		= norelayh;
 	icall->req_clientsh	= req_clientsh;
+	icall->audio_levelh     = audio_levelh;
 	icall->arg		= arg;
 }
 

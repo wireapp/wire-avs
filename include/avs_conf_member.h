@@ -45,6 +45,8 @@ struct conf_member {
 	void *uinfo;
 
 	struct le le;
+
+	uint8_t audio_level;
 };
 
 int conf_member_alloc(struct conf_member **cmp,
@@ -67,6 +69,13 @@ struct conf_member *conf_member_find_active_by_userclient(struct list *membl,
 
 struct conf_member *conf_member_find_by_label(struct list *membl,
 					      const char *label);
+
+struct conf_member *conf_member_find_by_ssrca(struct list *membl,
+					      uint32_t ssrc);
+
+struct conf_member *conf_member_find_by_ssrcv(struct list *membl,
+					      uint32_t ssrc);
+	
 
 #ifdef __cplusplus
 }

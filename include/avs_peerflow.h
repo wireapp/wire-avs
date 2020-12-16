@@ -18,6 +18,7 @@ void peerflow_start_log(void);
 int peerflow_alloc(struct iflow		**flowp,
 		   const char		*convid,
 		   const char		*userid_self,
+		   const char		*clientid_self,
 		   enum icall_conv_type	conv_type,
 		   enum icall_call_type	call_type,
 		   enum icall_vstate	vstate,

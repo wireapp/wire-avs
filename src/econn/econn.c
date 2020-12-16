@@ -663,6 +663,17 @@ static void recv_confpart(struct econn *econn,
 }
 
 
+static void recv_ping(struct econn *econn,
+		      const char *userid_sender,
+		      const char *clientid_sender,
+		      const struct econn_message *msg)
+{
+	if (econn && econn->pingh && msg) {
+		econn->pingh(econn, msg->resp, econn->arg);
+	}
+}
+
+
 void econn_recv_message(struct econn *conn,
 			const char *userid_sender,
 			const char *clientid_sender,
@@ -711,6 +722,10 @@ void econn_recv_message(struct econn *conn,
 		recv_confpart(conn, userid_sender, clientid_sender, msg);
 		break;
 
+	case ECONN_PING:
+		recv_ping(conn, userid_sender, clientid_sender, msg);
+		break;
+
 	default:
 		warning("econn(%p): recv: message not supported (%s)\n",
 			conn, econn_msg_name(msg->msg_type));
@@ -736,6 +751,7 @@ int  econn_alloc(struct econn **connp,
 		 econn_update_resp_h *update_resph,
 		 econn_alert_h *alerth,
 		 econn_confpart_h *confparth,
+		 econn_ping_h *pingh,
 		 econn_close_h *closeh,
 		 void *arg)
 {
@@ -766,6 +782,7 @@ int  econn_alloc(struct econn **connp,
 	conn->update_resph = update_resph;
 	conn->alerth       = alerth;
 	conn->confparth    = confparth;
+	conn->pingh        = pingh;
 	conn->closeh       = closeh;
 	conn->arg          = arg;
 
@@ -1233,3 +1250,30 @@ int econn_send_alert(struct econn *conn, uint32_t level, const char *descr)
 
 	return err;
 }
+
+
+int econn_send_ping(struct econn *conn, bool response)
+{
+	struct econn_message msg;
+	int err = 0;
+
+	if (!conn)
+		return EINVAL;
+
+	err = econn_message_init(&msg, ECONN_PING, conn->sessid_local);
+	if (err)
+		return err;
+
+	msg.resp = response;
+
+	err = econn_transp_send(conn, &msg);
+	if (err)
+		goto out;
+
+ out:
+	econn_message_reset(&msg);
+
+	return err;
+}
+
+

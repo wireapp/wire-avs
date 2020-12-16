@@ -89,11 +89,11 @@ public:
 
 		lock_write_get(lock_);	       		
 		err = str_dup(&tmp, stats);
-		info("peerflow(%p): OnStatsDelivered err=%d len=%d\n", pf_, err, (int)str_len(tmp));
+		//info("peerflow(%p): OnStatsDelivered err=%d len=%d stats=%s\n", pf_, err, (int)str_len(tmp), stats);
 		mem_deref(current_stats_);
 		current_stats_ = tmp;
 		lock_rel(lock_);
-		
+
 		std::vector<const webrtc::RTCInboundRTPStreamStats*> streamStats =
 			report->GetStatsOfType<webrtc::RTCInboundRTPStreamStats>();
 		std::vector<const webrtc::RTCInboundRTPStreamStats*>::iterator it;
@@ -165,10 +165,19 @@ public:
 			}
 		}
 
-		info("stats callback: pl: %.02f rtt: %.02f\n", downloss, rtt);
+		int audio_level = 0;
+
+		const webrtc::RTCAudioSourceStats *asrc_stats =
+			report->GetAs<webrtc::RTCAudioSourceStats>("RTCAudioSource_1");
+
+		if (asrc_stats)
+			audio_level = (int)(*asrc_stats->audio_level * 255.0);
+
+		//info("stats callback: pl: %.02f rtt: %.02f\n", downloss, rtt);
 		lock_write_get(lock_);
 		if (active_) {
 			peerflow_set_stats(pf_,
+					   audio_level,
 					   apkts_recv,
 					   vpkts_recv,
 					   apkts_sent,
