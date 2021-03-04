@@ -1,5 +1,6 @@
 /*eslint-disable sort-keys, no-console */
 import {WcallLogHandler} from "./avs_wcall";
+ 
 export type UserMediaHandler = (
   convid: string,
   useAudio: boolean,
@@ -35,8 +36,10 @@ type UserInfo = {
     label: string;
     userid: string;
     clientid: string;
-    ssrca: number;
-    ssrcv: number;
+    ssrca: string;
+    ssrcv: string;
+    iva: Uint8Array;
+    ivv: Uint8Array;
     audio_level: number;
 };
 
@@ -55,6 +58,8 @@ interface PeerConnection {
   cands: any[];
   stats: LocalStats;
   users: any;
+  iva: Uint8Array;
+  ivv: Uint8Array;
 
   insertable_legacy: boolean;
   insertable_streams: boolean;
@@ -71,7 +76,487 @@ let userMediaHandler: UserMediaHandler | null = null;
 let mediaStreamHandler: MediaStreamHandler | null = null;
 let pc_env = 0;
 let pc_envver = 0;
+let worker: Worker;
 
+// Use inlined worker instead....
+//let worker = new Worker('/worker/avs-worker.js', {name: 'AVS worker'});
+
+// This is the content of the avs-worker.js file, copied here.
+
+const workerContent = `
+
+var coders = {};
+
+const HDR_VERSION = 0;
+
+/*
+Header
+
+                     1 1 1 1 1 1
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| V=0 |E|  RES  |S|LEN  |1|KLEN |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     KID...  (length=KLEN)     |
++-------------------------------+
+|      CTR... (length=LEN)      |
++-------------------------------+
+
+Extensions
+
+ 0 1 2 3 4 5 6 7
++-+-+-+-+-+-+-+-+---------------------------+
+|M| ELN |  EID  |   VAL... (length=ELEN)    |
++-+-+-+-+-+-+-+-+---------------------------+
+*/
+
+function calcLen(val) {
+    let l = 0;
+
+    if (val == 0)
+	return 1;
+
+    while (val != 0) {
+	l++;
+	val = val >>> 8;	
+    }
+
+    return l;
+}
+
+function writeBytes(buf, p, len, val)
+{
+    switch (len) {
+    case 8:
+	buf[p] = (val >>> 56) & 0xff;
+	p++;
+
+    case 7:
+	buf[p] = (val >>> 48) & 0xff;
+	p++;
+
+    case 6:
+	buf[p] = (val >>> 40) & 0xff;
+	p++;
+	
+    case 5:
+	buf[p] = (val >>> 32) & 0xff;
+	p++;
+
+    case 4:
+	buf[p] = (val >>> 24) & 0xff;
+	p++;
+
+    case 3:
+	buf[p] = (val >>> 16) & 0xff;
+	p++;
+
+    case 2:
+	buf[p] = (val >>> 8) & 0xff;
+	p++;
+
+    case 1:
+	buf[p] = val & 0xff;
+	break;
+
+    default:
+	return 0;
+    }
+    
+    return len;
+}
+
+function readBytes(buf, p, len) {
+    let l = len;
+    let v = 0;
+
+    while (l > 0) {
+	v = v * 256;
+	v = v + buf[p];
+	p++;
+	l--;
+    }
+
+    const lv = {
+	len: len,
+	val: v
+    };
+    
+    return lv;
+}
+
+function frameHeaderDecode(buf) {
+
+    let ext = buf[0] & 0x10;
+    const flen = ((buf[1] >>> 4) & 0x7) + 1;
+    const x = (buf[1] >>> 3) & 0x1;
+    const klen = buf[1] & 0x7;
+    let p = 2;
+    let kid = -1;
+    let fid = -1;
+
+    if (x) {
+	const lv = readBytes(buf, p, klen + 1);
+
+	p += lv.len;
+	kid = lv.val;
+    }
+    else {
+	kid = klen;
+    }
+
+    const lv = readBytes(buf, p, flen);
+    p += lv.len;
+    fid = lv.val;
+
+    // Code below handles extensions, we don't use them for now...
+    /*
+    while(ext) {
+	const b = buf[p];
+	ext = b & 0x80;
+	const elen = ((b >>> 4) & 0x7) + 2;
+	p += elen;
+    }
+    */
+
+    if (kid < 0 || fid < 0) {
+	return null;
+    }
+    else {
+	const frameHdr = {
+	    len: p,
+	    frameId: fid,
+	    keyId: kid
+	}
+	return frameHdr;
+    }
+}
+
+function frameHeaderEncode(fid, kid)
+{
+    const ab = new ArrayBuffer(32);
+    const buf = new Uint8Array(ab);
+    let sig = 0;
+    let x = 0;
+    let klen = 0;
+    let flen = 0;
+    let p = 2;
+    let ext = 0;
+
+    if (kid > 7) {
+	x = 1;
+	klen = calcLen(kid) - 1;
+    }
+    else {
+	klen = kid;
+    }
+
+    flen = calcLen(fid);
+
+    buf[0] = (HDR_VERSION << 5) + (ext << 4);
+    buf[1] = (sig << 7) + ((flen - 1) << 4) + (x << 3) + klen;
+    if (x) {
+	p += writeBytes(buf, p, klen + 1, kid);
+    }
+    p += writeBytes(buf, p, flen, fid);
+
+    return buf.subarray(0, p);
+}
+
+function xor_iv(iv, fid, kid) {
+  var oiv = new Uint8Array(iv);
+
+  oiv[0] = oiv[0] ^ ((fid >> 24) & 0xFF);
+  oiv[1] = oiv[1] ^ ((fid >> 16) & 0xFF);
+  oiv[2] = oiv[2] ^ ((fid >>  8) & 0xFF);
+  oiv[3] = oiv[3] ^ ((fid      ) & 0xFF);
+  oiv[4] = oiv[4] ^ ((kid >> 24) & 0xFF);
+  oiv[5] = oiv[5] ^ ((kid >> 16) & 0xFF);
+  oiv[6] = oiv[6] ^ ((kid >>  8) & 0xFF);
+  oiv[7] = oiv[7] ^ ((kid      ) & 0xFF);
+
+  return oiv;
+}
+
+function getMediaKey(self, index) {
+    postMessage({
+	op: "getMediaKey",
+	self: self,
+	index: index
+    });
+}
+
+function getCurrentMediaKey(self, index) {
+    postMessage({
+	op: "getCurrentMediaKey",
+	self: self
+    });
+}
+
+function doLog(str) {
+  postMessage({
+	op: "log",
+	level: 1,
+	logString: str
+  });
+}
+
+function encryptFrame(coder, rtcFrame, controller) {
+  const dataBuf = rtcFrame.data;
+  const data = new Uint8Array(dataBuf);
+  const t = Object.prototype.toString.call(rtcFrame);
+  const isVideo = t === '[object RTCEncodedVideoFrame]';
+
+  if (coder.currentKey == null) {
+    getCurrentMediaKey(coder.self);
+    return;
+  }
+
+  const baseiv = isVideo ? coder.video.iv : coder.audio.iv;
+  const iv = xor_iv(baseiv, coder.frameId, coder.currentKey.id);
+    
+  const hdr = frameHeaderEncode(coder.frameId, coder.currentKey.id);
+  crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv: iv,
+      tagLength: 128,
+      additionalData: hdr
+    },
+    coder.currentKey.key,
+    data
+  )
+  .then(function(encdata){
+    const enc8 = new Uint8Array(encdata);  	    
+    const enc = new Uint8Array(hdr.length + enc8.length);
+      
+    enc.set(hdr);
+    enc.set(enc8, hdr.length);
+
+    rtcFrame.data = enc.buffer;
+    controller.enqueue(rtcFrame);
+
+    coder.frameId++;
+  });
+}
+
+function decryptFrame(user, coder, rtcFrame, controller) {
+  const dataBuf = rtcFrame.data;
+  const data = new Uint8Array(dataBuf);
+  let uinfo = null;
+  //  const ssrc = rtcFrame.synchronizationSource.toString();
+  const t = Object.prototype.toString.call(rtcFrame);
+
+  const isVideo = t === '[object RTCEncodedVideoFrame]'
+
+  let ssrc = null;
+  if (isVideo) {
+     ssrc = user.ssrcv;
+     uinfo = coder.video.users[ssrc];
+  }
+  else {
+     ssrc = user.ssrca;
+     uinfo = coder.audio.users[ssrc];
+  }
+  
+  if (!uinfo || !ssrc) {
+      doLog('decryptFrame: no userinfo for ssrc: ' + ssrc);
+      return;
+  }
+    
+  const frameHdr = frameHeaderDecode(data);
+
+  if (frameHdr == null) {
+    doLog('decryptFrame: failed to decode frame header');
+    return;
+  }
+
+  /*
+  console.log("coder[" + coder.self + "]"
+	+ " len=" + frameHdr.len
+	+ " kid="+ frameHdr.keyId
+	+ " fid=" + frameHdr.frameId);
+  */
+
+  var kinfo = null;
+  for (i = 0; i < coder.keys.length; i++) {
+    if (coder.keys[i].id == frameHdr.keyId) {
+      kinfo = coder.keys[i];
+      break;
+    }
+  }
+
+  if (!kinfo) {
+    getMediaKey(coder.self, frameHdr.keyId);
+    return;
+  }
+
+  if (isVideo) {
+    iv = xor_iv(uinfo.ivv, frameHdr.frameId, frameHdr.keyId);
+  }
+  else {
+    iv = xor_iv(uinfo.iva, frameHdr.frameId, frameHdr.keyId);
+  }
+
+  const hdr = data.subarray(0, frameHdr.len);
+  const dec = data.subarray(frameHdr.len);
+  crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: iv,
+      tagLength: 128,
+      additionalData: hdr
+    },
+    kinfo.key,
+    dec
+  )
+  .then(function(decdata){
+    rtcFrame.data = decdata;
+    controller.enqueue(rtcFrame);
+  })
+  .catch(err => {
+     console.log(err);
+  });
+}
+
+onmessage = async (event) => {
+    const {op, self} = event.data;
+    doLog('AVS worker op=' + op + ' self=' + self);
+
+    let coder = coders[self];
+    if (!coder) {
+	doLog('AVS worker: no coder for self=' + self);
+    }    
+    /*
+    const {opinfo, readableStream, writableStream} = event.data;
+    const mval = opinfo.mtype === 'video' ? 1 : 0; // corresponds to enum frame_media_type
+    */
+    if (op === 'create') {
+	const { iva, ivv } = event.data;
+	if (!coder) {
+	    coder = {
+		self: self,
+		frameId: Math.random() * 4294967296,		
+		currentKey: null,
+		keys: [],
+		audio: {
+		    iv: iva,
+		    users: [],
+		},
+		video: {
+		    iv: ivv,
+		    users: [],
+		},
+	    }
+	    coders[self] = coder;
+
+	    doLog('AVS worker: adding coder for self=' + self);
+	}
+    }
+    else if (op === 'destroy') {
+	coders[self] = null;
+    }
+    else if (op === 'addUser') {
+	if (!coder) {
+	    doLog('addUser: no coder');
+	    return;
+	}
+	const {userInfo} = event.data;
+
+	doLog('addUser: adding audio ssrc: '+userInfo.ssrca);
+	coder.audio.users[userInfo.ssrca] = userInfo;
+	if (userInfo.ssrcv != 0) {
+	    coder.video.users[userInfo.ssrcv] = userInfo;
+	}
+    }
+    else if (op === 'setupSender') {
+	const {readableStream, writableStream} = event.data;
+
+	const transformStream = new TransformStream({
+	    transform: (frame, controller) => {encryptFrame(coder, frame, controller);},
+	});
+	readableStream
+          .pipeThrough(transformStream)
+            .pipeTo(writableStream);
+    }
+    else if (op === 'setupReceiver') {
+       const {userInfo} = event.data;
+       const {readableStream, writableStream} = event.data;
+
+       if (!coder) {
+	   doLog('setupSender: no coder for self=' + self);
+           return;
+       }
+
+       const transformStream = new TransformStream({
+	   transform: (frame, controller) => {decryptFrame(userInfo, coder, frame, controller);},
+       });
+       readableStream
+        .pipeThrough(transformStream)
+        .pipeTo(writableStream);       
+   }
+   else if (op === 'setMediaKey') {
+       const {index, current, key} = event.data;
+
+       doLog("setMediaKey: got key for: " + self
+		   + " index=" + index + " current=" + current
+		   + " keyLen=" + key.length);
+
+       crypto.subtle.importKey(
+         "raw",
+         key,
+         "AES-GCM",
+         false,
+         ["encrypt", "decrypt"]
+       )
+       .then(function(k){
+         var kinfo = null;
+         for (i = 0; i < coder.keys.length; i++) {
+           if (coder.keys[i].id == index) {
+             coder.keys[i].key = k;
+             kinfo = coder.keys[i];
+             break;
+           }
+         }
+         if (!kinfo) {
+           kinfo = {id:index, key:k};
+           coder.keys.push(kinfo);
+         }
+         if (index == current)
+           coder.currentKey = kinfo;
+
+         while (coder.keys.length > 4) {
+           coder.keys.shift();
+         }
+       });
+   }    
+};
+`
+
+function createWorker() {
+  pc_log(LOG_LEVEL_INFO, "Creating AVS worker");
+  const blob = new Blob([workerContent], { type: 'text/javascript' });
+  const url = URL.createObjectURL(blob);
+
+  worker = new Worker(url , {name: 'AVS worker'});
+  worker.onmessage = (event) => {
+    const {op, self} = event.data;
+  
+    if (op === 'getMediaKey') {
+       const {index} = event.data;
+
+       ccallGetMediaKey(self, index);
+    }
+    else if (op === 'getCurrentMediaKey') {
+       ccallGetCurrentMediaKey(self);
+    }
+    else if (op === 'log') {
+       const {level, logString} = event.data;
+       pc_log(level, logString);
+    }
+  }
+  
+}
 
 /* The following constants closely reflect the values
  * defined in the the C-land counterpart peerconnection_js.c
@@ -159,11 +644,12 @@ function pc_log(level: number, msg: string, err = null) {
 	logFn(level, msg, err);
 }
 
-function uinfo_from_ssrca(pc: PeerConnection, ssrc: number)
+function uinfo_from_ssrca(pc: PeerConnection, ssrc: string) : UserInfo | null
 {
-  for (const [key, uinfo] of pc.users) {
+  for (const key of Object.keys(pc.users)) {
+    const uinfo : UserInfo = pc.users[key];
     if (uinfo.ssrca === ssrc) {
-      return uinfo;
+       return uinfo;
     }
   }
   return null;
@@ -407,6 +893,31 @@ function ccallDecryptFrame(
 }
 
 
+function ccallGetMediaKey(
+  self: number,
+  index: number)
+{
+  em_module.ccall(
+    "pc_get_media_key",
+    null,
+    ["number", "number"],
+    [self, index]
+  );
+}
+
+
+function ccallGetCurrentMediaKey(
+  self: number)
+{
+  em_module.ccall(
+    "pc_get_current_media_key",
+    null,
+    ["number"],
+    [self]
+  );
+}
+
+
 function gatheringHandler(pc: PeerConnection) {
   const rtc = pc.rtc;
   if (!rtc) {
@@ -576,8 +1087,19 @@ function pc_SetEnv(env: number) {
     pc_env = env;
 }
 
-function pc_New(self: number, convidPtr: number) {
+function pc_New(self: number, convidPtr: number,
+	        audioIvPtr: number, videoIvPtr: number, ivlen: number) {
   pc_log(LOG_LEVEL_INFO, "pc_New");
+
+  const iva = new ArrayBuffer(ivlen);
+  const aptr = new Uint8Array(em_module.HEAPU8.buffer, audioIvPtr, ivlen);
+  const iva8 = new Uint8Array(iva); 
+  iva8.set(aptr);
+
+  const ivv = new ArrayBuffer(ivlen);
+  const vptr = new Uint8Array(em_module.HEAPU8.buffer, videoIvPtr, ivlen);
+  const ivv8 = new Uint8Array(ivv); 
+  ivv8.set(vptr);
 
   const pc: PeerConnection = {
     self: self,
@@ -593,6 +1115,8 @@ function pc_New(self: number, convidPtr: number) {
     muted: false,
     cands: [null, null, null],
     users: {},
+    iva: iva8,
+    ivv: ivv8,
     insertable_legacy: false,
     insertable_streams: false,
     stats: {
@@ -611,6 +1135,8 @@ function pc_New(self: number, convidPtr: number) {
     decryptedFrame: null,
 
   };
+
+  worker.postMessage({op: 'create', self: pc.self, iva: iva8, ivv: ivv8});
 
   const hnd = connectionsStore.storePeerConnection(pc);
 
@@ -641,6 +1167,8 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
     rtcpMuxPolicy: 'require',
     iceTransportPolicy: transportPolicy,
     encodedInsertableStreams: useEncoding,
+    forceEncodedVideoInsertableStreams: useEncoding,
+    forceEncodedAudioInsertableStreams: useEncoding,
   };
 
   pc_log(
@@ -718,6 +1246,8 @@ function pc_Close(hnd: number) {
   if (pc == null) {
     return;
   }
+
+  worker.postMessage({op: 'destroy', self: pc.self});
 
   connectionsStore.removePeerConnection(hnd);
     
@@ -875,24 +1405,6 @@ function sdpMap(sdp: string, local: boolean, bundle: boolean): string {
     return sdpLines.join('\r\n');
 }
 
-function encryptFrame(pc: PeerConnection, mtype: number, rtcFrame: any, controller: any) {
-  const dataBuf = rtcFrame.data;
-  const dataLen = dataBuf.byteLength;
-  const data = new Uint8Array(dataBuf);
-  
-  const ptr = em_module._malloc(dataLen);
-
-  em_module.HEAPU8.set(data, ptr);
-
-  pc.encryptedFrame = null;
-  ccallEncryptFrame(pc, mtype, ptr, dataLen);
-  if (pc.encryptedFrame) {
-      rtcFrame.data = pc.encryptedFrame;
-      controller.enqueue(rtcFrame);
-  }
-
-  em_module._free(ptr);
-}
 
 
 function pc_SetEncryptedFrame(hnd: number, mtype: number, framePtr: number, frameLen: number) {
@@ -924,10 +1436,30 @@ function pc_SetDecryptedFrame(hnd: number, mtype: number, framePtr: number, fram
   pc.decryptedFrame = buf;
 }
 
+function pc_SetMediaKey(hnd: number, index: number, current: number, keyPtr: number, keyLen: number) {
+
+  const pc = connectionsStore.getPeerConnection(hnd);
+
+  if (pc == null) {
+    return;
+  }
+
+  const buf = new ArrayBuffer(keyLen);
+  const ptr = new Uint8Array(em_module.HEAPU8.buffer, keyPtr, keyLen);
+  const buf8 = new Uint8Array(buf); 
+  buf8.set(ptr);
+
+  worker.postMessage({
+    op: 'setMediaKey',
+    self: pc.self,
+    index: index,
+    current: current,
+    key: buf8
+  });
+}
 
 function setupSenderTransform(pc: PeerConnection, sender: any) {
   if (!sender || !sender.track) {
-     //pc_log(LOG_LEVEL_WARN, "setupSenderTransform: no sender or track");
      return;
   }
 
@@ -944,48 +1476,29 @@ function setupSenderTransform(pc: PeerConnection, sender: any) {
   else
      senderStreams = mtype === 1 ? sender.createEncodedVideoStreams() : sender.createEncodedAudioStreams();
 
-  const transformStream = new TransformStream({
-    transform: (frame, controller) => encryptFrame(pc, mtype, frame, controller)
-  });
-
   pc_log(LOG_LEVEL_INFO, `setupSenderTransform: senderStream: ${senderStreams.readable}/${senderStreams.readableStream}`);
   
   const readableStream = senderStreams.readable || senderStreams.readableStream;
   const writableStream = senderStreams.writable || senderStreams.writableStream;
 
-  readableStream
-      .pipeThrough(transformStream)
-      .pipeTo(writableStream);
-}
 
-function decryptFrame(pc: PeerConnection, mtype: number, uinfo: UserInfo, rtcFrame: any, controller: any) {
-  const dataBuf = rtcFrame.data;
-  const dataLen = dataBuf.byteLength;
-  const data = new Uint8Array(dataBuf);
-  
-  const ptr = em_module._malloc(dataLen);
-  em_module.HEAPU8.set(data, ptr);
-
-  pc.decryptedFrame = null;
-  ccallDecryptFrame(pc, mtype, uinfo.userid, uinfo.clientid, ptr, dataLen);
-  if (pc.decryptedFrame) {
-      rtcFrame.data = pc.decryptedFrame;
-      controller.enqueue(rtcFrame);
-  }
-  
-  em_module._free(ptr);
+  worker.postMessage({   
+    op: 'setupSender',
+    self: pc.self,
+    readableStream,
+    writableStream,
+  }, [readableStream, writableStream]);
 }
 
 
 function setupReceiverTransform(pc: PeerConnection, uinfo: UserInfo, receiver: any) {
   if (!receiver || !receiver.track) {
-      pc_log(LOG_LEVEL_INFO, "setupReceiverTransform: receiver or track missing");
-      return false;
+      return;
   }
 
   if (!pc.insertable_legacy && !pc.insertable_streams) {
       pc_log(LOG_LEVEL_WARN, "setupReceiverTransform: insertable streams not supported");
-      return false;
+      return;
   }
 
   const mtype = receiver.track.kind === 'video' ? 1 : 0 // corresponds to enum frame_media_type
@@ -995,20 +1508,18 @@ function setupReceiverTransform(pc: PeerConnection, uinfo: UserInfo, receiver: a
   else  
     receiverStreams =  mtype === 1 ? receiver.createEncodedVideoStreams() : receiver.createEncodedAudioStreams();
 
-  const transformStream = new TransformStream({
-    transform: (frame, controller) => decryptFrame(pc, mtype, uinfo, frame, controller),
-  });
-
   pc_log(LOG_LEVEL_INFO, `setupReceiverTransform: receiverStream: ${receiverStreams.readable}/${receiverStreams.readableStream}`);
 
   const readableStream = receiverStreams.readable || receiverStreams.readableStream;
   const writableStream = receiverStreams.writable || receiverStreams.writableStream;
 
-  readableStream
-    .pipeThrough(transformStream)
-    .pipeTo(writableStream);
-
-  return true;
+  worker.postMessage({
+    op: 'setupReceiver',
+    self: pc.self,
+    userInfo: uinfo,
+    readableStream,
+    writableStream,
+  }, [readableStream, writableStream]);
 }
 
 function createSdp(
@@ -1125,7 +1636,8 @@ function pc_AddDecoderAnswer(hnd: number) {
 
 function pc_AddUserInfo(hnd: number, labelPtr: number,
 	                useridPtr: number, clientidPtr: number,
-			ssrca: number, ssrcv: number) {
+			ssrcaPtr: number, ssrcvPtr: number,
+	                audioIvPtr: number, videoIvPtr: number, ivlen: number) {
   pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: hnd=${hnd}`);
 
   const pc = connectionsStore.getPeerConnection(hnd);
@@ -1136,6 +1648,18 @@ function pc_AddUserInfo(hnd: number, labelPtr: number,
   const label = em_module.UTF8ToString(labelPtr);
   const userId = em_module.UTF8ToString(useridPtr);
   const clientId = em_module.UTF8ToString(clientidPtr);
+  const ssrca = em_module.UTF8ToString(ssrcaPtr);
+  const ssrcv = em_module.UTF8ToString(ssrcvPtr);
+
+  const iva = new ArrayBuffer(ivlen);
+  const aptr = new Uint8Array(em_module.HEAPU8.buffer, audioIvPtr, ivlen);
+  const iva8 = new Uint8Array(iva); 
+  iva8.set(aptr);
+
+  const ivv = new ArrayBuffer(ivlen);
+  const vptr = new Uint8Array(em_module.HEAPU8.buffer, videoIvPtr, ivlen);
+  const ivv8 = new Uint8Array(ivv); 
+  ivv8.set(vptr);
 
   const uinfo : UserInfo = {
   	label: label,
@@ -1143,12 +1667,20 @@ function pc_AddUserInfo(hnd: number, labelPtr: number,
 	clientid: clientId,
 	ssrca: ssrca,
 	ssrcv: ssrcv,
+	iva: iva8,
+	ivv: ivv8,
 	audio_level: 0
   };
 
-  pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: label=${label} ${userId}/${clientId}`);
+  pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: label=${label} ${userId}/${clientId} ssrc:${ssrca}/${ssrcv}`);
 
   pc.users[label] = uinfo;
+
+  worker.postMessage({
+    op: 'addUser',
+    self: pc.self,
+    userInfo: uinfo
+  });
 }
 
 function pc_RemoveUserInfo(hnd: number, labelPtr: number) {
@@ -1477,6 +2009,7 @@ function pc_DataChannelClose(hnd: number) {
 /* Internal functions, used by avs_wcall directly */
 
 function pc_InitModule(module: any, logh: WcallLogHandler) {
+  createWorker();
   em_module = module;
   logFn = logh;
     
@@ -1495,7 +2028,7 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_CreateOffer, "nn"],
     [pc_CreateAnswer, "nn"],
     [pc_AddDecoderAnswer, "vn"],
-    [pc_AddUserInfo, "vnsssnn"],
+    [pc_AddUserInfo, "vnsssss"],
     [pc_RemoveUserInfo, "vns"],
     [pc_SetRemoteDescription, "nss"],
     [pc_SetLocalDescription, "nss"],
@@ -1511,7 +2044,8 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_DataChannelSend, "vnsn"],
     [pc_DataChannelClose, "vn"],
     [pc_SetEncryptedFrame, "nnnnn"],
-    [pc_SetDecryptedFrame, "nnnnn"]
+    [pc_SetDecryptedFrame, "nnnnn"],
+    [pc_SetMediaKey, "nnnn"],
   ].map(([callback, signature]) => em_module.addFunction(callback, signature));
 
   em_module.ccall(
@@ -1575,10 +2109,12 @@ function pc_GetLocalStats(hnd: number) {
     if (rx) {
       const ssrcs = rx.getSynchronizationSources();
       ssrcs.forEach(ssrc => {
-        const uinfo = uinfo_from_ssrca(pc, ssrc.source);
+        const uinfo = uinfo_from_ssrca(pc, ssrc.source.toString());
 	if (uinfo) {
-	   
-	  uinfo.audio_level = ssrc.audioLevel ? ((ssrc.audioLevel * 255.0) | 0) : 0;
+	  uinfo.audio_level = 0;
+	  if (typeof ssrc.audioLevel !== 'undefined')
+	    uinfo.audio_level = ((ssrc.audioLevel * 255.0) | 0);
+
 	  em_module.ccall(
 	    "pc_set_audio_level",
 	    null,
@@ -1594,8 +2130,10 @@ function pc_GetLocalStats(hnd: number) {
   rtc.getStats()
     .then((stats) => {
 	let rtt = 0;
+
         stats.forEach(stat => {
 	    if (stat.type === 'inbound-rtp') {
+
 		const ploss = stat.packetsLost;		    
 		pc.stats.ploss = ploss - pc.stats.lastploss;
 		pc.stats.lastploss = ploss;
@@ -1623,7 +2161,8 @@ function pc_GetLocalStats(hnd: number) {
 		rtt = stat.currentRoundTripTime * 1000;
 	    }
 	    else if (stat.type === 'media-source') {
-	        self_audio_level = stat.audioLevel ? ((stat.audioLevel * 255.0) | 0) : 0;
+	    	 if (stat.kind === 'audio')
+	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 255.0) | 0) : 0;
 	    }
 	});
 

@@ -183,8 +183,9 @@ struct ecall {
 		bool remote_muted_state;
 
 		struct {
-			struct list l;
+			//struct list l;
 			struct tmr tmr;
+			//int cycle;
 		}level;
 	} audio;
 

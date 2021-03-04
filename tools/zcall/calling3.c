@@ -689,8 +689,24 @@ static void sft_resp_handler(int err, const struct http_msg *msg,
 		sz = mbuf_get_left(c3ctx->mb_body);
 	}
 
-	if (buf)
+	if (buf) {
 		info("sft_resp: msg %s\n", buf);
+		if (buf[0] == '<') {
+			uint8_t *c = (uint8_t*)strstr((char*)buf, "<title>");
+			int errcode = 0;
+
+			if (c) {
+				c += 7;
+				while (c - buf < sz && *c >= '0' && *c <= '9') {
+					errcode *= 10;
+					errcode += *c - '0';
+					c++;
+				}
+
+				warning("sft_resp_handler: HTML error code %d\n", errcode);
+			}
+		}
+	}
 
 	wcall_sft_resp(c3ctx->wuser, err,
 		       buf, sz,
@@ -994,8 +1010,12 @@ int calling3_start(struct engine_conv *conv)
 	       conv_type == WCALL_CONV_TYPE_GROUP ? "group-" : "", engine_print_conv_name, conv);
 
 #if ENABLE_AUDIO_IO
-	if (avs_get_flags() & AVS_FLAG_AUDIO_TEST)
-		audio_io_enable_sine();
+	if (avs_get_flags() & AVS_FLAG_AUDIO_TEST) {
+		if (zcall_noise)
+			audio_io_enable_noise();
+		else
+			audio_io_enable_sine();
+	}
 #endif
 
 	ret = wcall_start(calling3.wuser, conv->id,
@@ -1036,8 +1056,12 @@ void calling3_answer(struct engine_conv *conv)
 		calling3.video_send_state != WCALL_VIDEO_STATE_STOPPED ? WCALL_CALL_TYPE_VIDEO :
 		WCALL_CALL_TYPE_NORMAL;
 #if ENABLE_AUDIO_IO
-	if (avs_get_flags() & AVS_FLAG_AUDIO_TEST)
-		audio_io_enable_sine();
+	if (avs_get_flags() & AVS_FLAG_AUDIO_TEST) {
+		if (zcall_noise)
+			audio_io_enable_noise();
+		else
+			audio_io_enable_sine();
+	}
 #endif
 	ret = wcall_answer(calling3.wuser, conv->id,
 			   call_type, zcall_audio_cbr);

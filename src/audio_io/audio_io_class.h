@@ -31,6 +31,7 @@ namespace webrtc {
         virtual int32_t ResetAudioDevice() = 0;
                 
         virtual int32_t EnableSine() = 0;
+        virtual int32_t EnableNoise() = 0;
     };
 }
 

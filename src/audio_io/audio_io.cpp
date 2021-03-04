@@ -39,6 +39,7 @@ extern "C" {
 
 static webrtc::audio_io_class *g_aioc = nullptr;
 static bool g_enable_sine = false;
+static bool g_enable_noise = false;
 
 static void audio_io_destructor(void *arg)
 {
@@ -77,6 +78,8 @@ void *audio_io_create_adm(void)
 
 	if (g_aioc && g_enable_sine)
 		g_aioc->EnableSine();
+	else if (g_aioc && g_enable_noise)
+		g_aioc->EnableNoise();
 
 	return (void *)g_aioc;
 }
@@ -170,10 +173,18 @@ int  audio_io_terminate(struct audio_io *aio)
 
 int  audio_io_enable_sine(void)
 {
+	g_enable_sine = true;
 	if (g_aioc)
 		g_aioc->EnableSine();
-	else
-		g_enable_sine = true;
+
+	return 0;
+}
+
+int  audio_io_enable_noise(void)
+{
+	g_enable_noise = true;
+	if (g_aioc)
+		g_aioc->EnableNoise();
 	
 	return 0;
 }

@@ -81,3 +81,14 @@ int  keystore_set_decrypt_attempted(struct keystore *ks);
 void keystore_get_decrypt_states(struct keystore *ks,
 				 bool *attempted,
 				 bool *successful);
+
+typedef void (ks_cchangedh)(struct keystore *ks,
+			    void *arg);
+
+int  keystore_add_listener(struct keystore *ks,
+			   ks_cchangedh *changedh,
+			   void *arg);
+
+int  keystore_remove_listener(struct keystore *ks,
+			      void *arg);
+

@@ -1,6 +1,37 @@
 ChangeLog for AVS -- latest on top!
 
 ==============================================================================
+AVS Release 6.7
+
+Date:	    Feburary 02 2021
+GIT:	    https://github.com/wearezeta/avs/tree/release-6.7
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Better handling of speaker activity
+                - Improved threading for wasm encryption
+
+Hotfixes:
+
+==============================================================================
+AVS Release 6.6
+
+Date:	    November 19 2020
+GIT:	    https://github.com/wearezeta/avs/tree/release-6.6
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Detect active speakers
+		- Bug fixes and improvements
+
+Hotfixes:	- Capturer sends black frames when requested to do so
+
+
+==============================================================================
 AVS Release 6.6
 
 Date:	    November 19 2020

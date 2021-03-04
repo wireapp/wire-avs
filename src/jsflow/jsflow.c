@@ -25,6 +25,7 @@
 #include "jsflow.h"
 
 #include <emscripten.h>
+#include <sodium.h>
 
 #define MODIFY_SDP 1
 
@@ -61,10 +62,16 @@
 #define DC_STATE_CLOSED     3
 #define DC_STATE_ERROR      4
 
+static const size_t IV_SIZE    = 12;
+
 /* JS functions */
 
 typedef void (pc_SetEnv_t)(int env);
-typedef int  (pc_New_t)(int self, const char *convid);
+typedef int  (pc_New_t)(int self,
+			const char *convid,
+			const uint8_t *audio_iv,
+			const uint8_t *video_iv,
+			int iv_len);
 typedef void (pc_Create_t)(int handle, int privacy, int conv_type);
 typedef void (pc_Close_t)(int handle);
 typedef void (pc_HeapFree_t)(const void *ptr);
@@ -81,7 +88,10 @@ typedef void (pc_CreateAnswer_t)(int handle, int call_type, int vstate);
 typedef void (pc_AddDecoderAnswer_t)(int handle);
 typedef void (pc_AddUserInfo_t)(int handle, const char *label,
 				const char *userid, const char *clientid,
-				uint32_t ssrca, uint32_t ssrcv);
+				const char *ssrca, const char *ssrcv,
+				const uint8_t *audio_iv,
+				const uint8_t *video_iv,
+				int iv_len);
 typedef void (pc_RemoveUserInfo_t)(int handle, const char *label);
 
 typedef void (pc_SetRemoteDescription_t)(int handle,
@@ -110,6 +120,7 @@ typedef void (pc_DataChannelClose_t)(int handle);
 /* Frame enc/dec */
 typedef void (pc_SetEncryptedFrame_t)(int handle, int mtype, const uint8_t *frame, int len);
 typedef void (pc_SetDecryptedFrame_t)(int handle, int mtype, const uint8_t *frame, int len);
+typedef void (pc_SetMediaKey_t)(int handle, int index, int current, const uint8_t *key, int len);
 
 static pc_SetEnv_t *pc_SetEnv = NULL;
 static pc_New_t *pc_New = NULL;
@@ -145,6 +156,7 @@ static pc_DataChannelClose_t *pc_DataChannelClose = NULL;
 /* Frame enc/dec */
 static pc_SetEncryptedFrame_t *pc_SetEncryptedFrame = NULL;
 static pc_SetDecryptedFrame_t *pc_SetDecryptedFrame = NULL;
+static pc_SetMediaKey_t *pc_SetMediaKey = NULL;
 
 #define ENV_NONE -1
 #define ENV_DEFAULT 0
@@ -304,6 +316,45 @@ int jsflow_dce_send(struct iflow *flow,
 	return 0;
 }
 
+static void keystore_cchanged_handler(struct keystore *keystore,
+				      void *arg)
+{
+#if DOUBLE_ENCRYPTION
+	struct jsflow *flow = (struct jsflow *)arg;
+	uint8_t media_key[E2EE_SESSIONKEY_SIZE];
+	uint32_t current;
+	uint64_t ts;
+
+	int err = 0;
+
+	if (!flow)
+		return;
+
+	if (flow->handle == PC_INVALID_HANDLE) {
+		warning("flow(%p): keystore_cchanged_handler: no flow\n", flow);
+		return;
+	}
+
+	err = keystore_get_current(flow->frame.keystore, &current, &ts);
+	if (err)
+		goto out;
+
+	info("jsflow(%p): keystore_cchanged_handler curr: %u\n", flow, current);
+	err = keystore_get_media_key(flow->frame.keystore, current,
+				     media_key, E2EE_SESSIONKEY_SIZE);
+	if (err)
+		goto out;
+
+	pc_SetMediaKey(flow->handle,
+		       current,
+		       current,
+		       media_key,
+		       E2EE_SESSIONKEY_SIZE);
+
+out:
+	sodium_memzero(media_key, E2EE_SESSIONKEY_SIZE);
+#endif
+}
 
 static int jsflow_set_keystore(struct iflow *iflow,
 			       struct keystore *keystore)
@@ -323,6 +374,9 @@ static int jsflow_set_keystore(struct iflow *iflow,
 					     jf->frame.keystore);
 	}
 
+	keystore_add_listener(keystore,
+			      keystore_cchanged_handler,
+			      jf);
 	return 0;
 }
 
@@ -382,6 +436,7 @@ static void destructor(void *arg)
 {
 	struct jsflow *flow = arg;
 
+	keystore_remove_listener(flow->frame.keystore, flow);
 	tmr_cancel(&flow->tmr_gather);
 	tmr_cancel(&flow->tmr_disconnect);
 	tmr_cancel(&flow->tmr_stats);
@@ -424,6 +479,8 @@ static int create_pc(struct jsflow *flow)
 	bool privacy = 0;
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
+	uint8_t audio_iv[IV_SIZE];
+	uint8_t video_iv[IV_SIZE];
 
 	if (g_jf.env == ENV_NONE) {
 		g_jf.env = msystem_get_env();
@@ -433,7 +490,33 @@ static int create_pc(struct jsflow *flow)
 	if (flow->handle != PC_INVALID_HANDLE)
 		return EALREADY;
 
-	flow->handle = pc_New(flow->self, flow->convid);
+	if (flow->frame.keystore) {
+		err = keystore_generate_iv(flow->frame.keystore,
+					   flow->userid_self,
+					   "audio_iv",
+					   audio_iv,
+					   IV_SIZE);
+		if (err)
+			goto out;
+
+		err = keystore_generate_iv(flow->frame.keystore,
+					   flow->userid_self,
+					   "video_iv",
+					   video_iv,
+					   IV_SIZE);
+		if (err)
+			goto out;
+	}
+	else {
+		memset(audio_iv, 0, IV_SIZE);
+		memset(video_iv, 0, IV_SIZE);
+	}
+
+	flow->handle = pc_New(flow->self,
+			      flow->convid,
+			      audio_iv,
+			      video_iv,
+			      IV_SIZE);
 	if (flow->handle == PC_INVALID_HANDLE) {
 		warning("pc: could not create jsflow\n");
 		err = ENOENT;
@@ -466,6 +549,8 @@ static int create_pc(struct jsflow *flow)
 		tmr_start(&flow->tmr_cbr, TMR_CBR_INTERVAL, timer_cbr, flow);
 	
  out:
+	sodium_memzero(audio_iv, IV_SIZE);
+	sodium_memzero(video_iv, IV_SIZE);
 	return err;
 }
 
@@ -506,7 +591,7 @@ static struct jsflow *self2pc(int self)
 int jsflow_alloc(struct iflow		**flowp,
 		 const char		*convid,
 		 const char		*userid_self,
-		 const char		*clientid_self,
+		 const char             *clientid_self,
 		 enum icall_conv_type	conv_type,
 		 enum icall_call_type	call_type,
 		 enum icall_vstate	vstate,
@@ -967,6 +1052,11 @@ int jsflow_add_decoders_for_user(struct iflow *iflow,
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
 
+	char ssrca_str[16];
+	char ssrcv_str[16];
+	uint8_t audio_iv[IV_SIZE];
+	uint8_t video_iv[IV_SIZE];
+
 	if (!jf || !userid || !clientid || !userid_hash)
 		return EINVAL;
 
@@ -994,7 +1084,34 @@ int jsflow_add_decoders_for_user(struct iflow *iflow,
 	if (err)
 		goto out;
 
-	pc_AddUserInfo(jf->handle, label, userid, clientid, ssrca, ssrcv);
+	if (jf->frame.keystore) {
+		err = keystore_generate_iv(jf->frame.keystore,
+					   userid_hash,
+					   "audio_iv",
+					   audio_iv,
+					   IV_SIZE);
+		if (err)
+			goto out;
+
+		err = keystore_generate_iv(jf->frame.keystore,
+					   userid_hash,
+					   "video_iv",
+					   video_iv,
+					   IV_SIZE);
+		if (err)
+			goto out;
+	}
+	else {
+		memset(audio_iv, 0, IV_SIZE);
+		memset(video_iv, 0, IV_SIZE);
+	}
+
+	re_snprintf(ssrca_str, sizeof(ssrca_str), "%u", ssrca);
+	re_snprintf(ssrcv_str, sizeof(ssrcv_str), "%u", ssrcv);
+
+	pc_AddUserInfo(jf->handle, label, userid, clientid,
+		       ssrca_str, ssrcv_str,
+		       audio_iv, video_iv, IV_SIZE);
 
 #if DOUBLE_ENCRYPTION
 	finfo = mem_zalloc(sizeof(*finfo), finfo_destructor);
@@ -1030,6 +1147,8 @@ int jsflow_add_decoders_for_user(struct iflow *iflow,
 	
 
  out:
+	sodium_memzero(audio_iv, IV_SIZE);
+	sodium_memzero(video_iv, IV_SIZE);
 	mem_deref(label);
 
 	return err;
@@ -1246,21 +1365,30 @@ int jsflow_get_aulevel(struct iflow *iflow,
 	if (!levell)
 		return EINVAL;	
 
-	err = audio_level_alloc(&aulevel, levell, true,
-				jf->userid_self, jf->clientid_self,
-				jf->stats.audio_level);
-	if (err)
-		goto out;
+	if (jf->stats.audio_level_smooth > 0
+	    || jf->stats.audio_level > AUDIO_LEVEL_FLOOR) {
+		err = audio_level_alloc(&aulevel, levell, true,
+					jf->userid_self, jf->clientid_self,
+					jf->stats.audio_level,
+					jf->stats.audio_level_smooth);
+		if (err)
+			goto out;
+	}
 
 	LIST_FOREACH(&jf->cml, le) {
 		struct conf_member *cm = le->data;
 
-		err = audio_level_alloc(&aulevel, levell, false,
-					cm->userid, cm->clientid,
-					cm->audio_level);
-		if (err)
-			goto out;
-
+		if (!cm || !cm->active)
+			continue;
+		
+		if (cm->audio_level_smooth > 0 || cm->audio_level > AUDIO_LEVEL_FLOOR) {
+			err = audio_level_alloc(&aulevel, levell, false,
+						cm->userid, cm->clientid,
+						cm->audio_level,
+						cm->audio_level_smooth);
+			if (err)
+				goto out;
+		}
 	}
 	list_sort(levell, audio_level_list_cmp, jf);
 
@@ -1486,7 +1614,20 @@ void pc_set_stats(int self,
 	info("pc_set_stats: level: %d ar: %d vr: %d as: %d vs: %d rtt=%d dloss=%d\n",
 	     audio_level, apkts_recv, vpkts_recv, apkts_sent, vpkts_sent, rtt, downloss);
 
-	flow->stats.audio_level = audio_level;
+
+	flow->stats.audio_level = g_jf.muted ? 0 : audio_level;
+	
+	if (g_jf.muted) {
+		if (flow->stats.audio_level_smooth > 0)
+			flow->stats.audio_level_smooth--;
+		else
+			flow->stats.audio_level_smooth = 0;
+	}
+	else if (audio_level > AUDIO_LEVEL_FLOOR)
+		flow->stats.audio_level_smooth = AUDIO_LEVEL_CEIL;
+	else if (flow->stats.audio_level_smooth > 0)
+		flow->stats.audio_level_smooth--;
+	
 	flow->stats.apkts_recv = apkts_recv;
 	flow->stats.vpkts_recv = vpkts_recv;
 	flow->stats.apkts_sent = apkts_sent;
@@ -1513,9 +1654,13 @@ void pc_set_audio_level(int self,
 		warning("pc: set_audio_level: invalid handle: 0x%08X\n", self);
 		return;
 	}
+
 	cm = conf_member_find_by_ssrca(&jf->cml, ssrc);
 	if (cm) {
-		cm->audio_level = audio_level;
+		conf_member_set_audio_level(cm, audio_level);
+	}
+	else {
+		warning("jsflow(%p): no conf member for ssrc: %u\n", jf, ssrc);
 	}
 }
 
@@ -1741,6 +1886,102 @@ void pc_decrypt_frame(int self, int mtype,
 #endif
 }
 
+void pc_get_media_key(int self, int index);
+
+EMSCRIPTEN_KEEPALIVE
+void pc_get_media_key(int self, int index)
+{
+#if DOUBLE_ENCRYPTION
+	struct jsflow *flow = self2pc(self);
+	uint8_t media_key[E2EE_SESSIONKEY_SIZE];
+	uint32_t current;
+	uint64_t ts;
+
+	int err = 0;
+
+	if (!flow) {
+		warning("jsflow: pc_get_key: invalid handle: 0x%08X\n",
+			self);
+		return;
+	}
+
+	if (flow->handle == PC_INVALID_HANDLE) {
+		warning("flow(%p): pc_get_key: no flow\n", flow);
+		return;
+	}
+
+	info("pc_get_media_key idx %d\n", index);
+
+	err = keystore_get_media_key(flow->frame.keystore, index,
+				     media_key, E2EE_SESSIONKEY_SIZE);
+	if (err)
+		goto out;
+
+	err = keystore_get_current(flow->frame.keystore, &current, &ts);
+	if (err)
+		goto out;
+
+	pc_SetMediaKey(flow->handle,
+		       index,
+		       current,
+		       media_key,
+		       E2EE_SESSIONKEY_SIZE);
+
+out:
+	sodium_memzero(media_key, E2EE_SESSIONKEY_SIZE);
+#endif
+}
+
+
+void pc_get_current_media_key(int self);
+
+EMSCRIPTEN_KEEPALIVE
+void pc_get_current_media_key(int self)
+{
+#if DOUBLE_ENCRYPTION
+	struct jsflow *flow = self2pc(self);
+	uint8_t media_key[E2EE_SESSIONKEY_SIZE];
+	uint32_t current;
+	uint64_t ts;
+
+	int err = 0;
+
+	if (!flow) {
+		warning("jsflow: pc_get_current_media_key: invalid handle: 0x%08X\n",
+			self);
+		return;
+	}
+
+	if (flow->handle == PC_INVALID_HANDLE) {
+		warning("flow(%p): pc_get_current_media_key: no flow\n", flow);
+		return;
+	}
+
+	info("pc_get_current_media_key\n");
+
+	err = keystore_get_current(flow->frame.keystore, &current, &ts);
+	if (err)
+		goto out;
+
+	err = keystore_get_media_key(flow->frame.keystore, current,
+				     media_key, E2EE_SESSIONKEY_SIZE);
+	if (err)
+		goto out;
+
+	pc_SetMediaKey(flow->handle,
+		       current,
+		       current,
+		       media_key,
+		       E2EE_SESSIONKEY_SIZE);
+
+out:
+	sodium_memzero(media_key, E2EE_SESSIONKEY_SIZE);
+	if (err) {
+		warning("pc_get_current_media_key err=%d\n", err);
+	}
+#endif
+}
+
 
 void pc_set_callbacks(
 	pc_SetEnv_t *setEnv,
@@ -1774,7 +2015,8 @@ void pc_set_callbacks(
 	pc_DataChannelClose_t *dataChannelClose,
 
 	pc_SetEncryptedFrame_t *setEncryptedFrame,
-	pc_SetDecryptedFrame_t *setDecryptedFrame);
+	pc_SetDecryptedFrame_t *setDecryptedFrame,
+	pc_SetMediaKey_t *setMediaKey);
 
 EMSCRIPTEN_KEEPALIVE
 void pc_set_callbacks(
@@ -1809,7 +2051,8 @@ void pc_set_callbacks(
 	pc_DataChannelClose_t *dataChannelClose,
 
 	pc_SetEncryptedFrame_t *setEncryptedFrame,
-	pc_SetDecryptedFrame_t *setDecryptedFrame)
+	pc_SetDecryptedFrame_t *setDecryptedFrame,
+	pc_SetMediaKey_t *setMediaKey)
 {
 	pc_SetEnv = setEnv;
 	pc_New = new;
@@ -1843,6 +2086,7 @@ void pc_set_callbacks(
 
 	pc_SetEncryptedFrame = setEncryptedFrame;
 	pc_SetDecryptedFrame = setDecryptedFrame;
+	pc_SetMediaKey = setMediaKey;
 
 	jsflow_init();
 }

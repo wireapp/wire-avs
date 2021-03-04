@@ -127,6 +127,7 @@ void handle_calling_event(struct engine_conv *conv,
 
 extern bool zcall_audio_cbr;
 extern bool zcall_force_audio;
+extern bool zcall_noise;
 
 int  calling3_init(void);
 void calling3_recv_msg(const char *convid,

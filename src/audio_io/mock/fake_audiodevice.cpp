@@ -54,6 +54,8 @@ fake_audiodevice::fake_audiodevice(bool realtime)
 	realtime_ = realtime;
 	delta_omega_ = 0.0f;
 	omega_ = 0.0f;
+	muted_ = false;
+	noise_ = false;
 }
 
 fake_audiodevice::~fake_audiodevice()
@@ -193,6 +195,15 @@ int32_t fake_audiodevice::Terminate()
 	return 0;
 }
 
+int32_t fake_audiodevice::EnableNoise()
+{
+	info("audio_io_fake: EnableNoise\n");
+
+	noise_ = true;
+
+	return 0;
+}
+
 int32_t fake_audiodevice::EnableSine()
 {
 	info("audio_io_fake: EnableSine\n");
@@ -222,11 +233,20 @@ void *fake_audiodevice::record_thread()
 	while(is_recording_) {
 		timeradd(&next_io_time, &delta, &next_io_time);
 
-		if (delta_omega_ > 0.0f){
+		if (noise_ || delta_omega_ > 0.0f){
 			float tmp;
 			for( int i = 0; i < FRAME_LEN; i++){
-				tmp = (int16_t)(sinf(omega_) * 8000.0f);
-				omega_ += delta_omega_;
+				if (muted_)
+					tmp = 0;
+				else if (noise_) {
+					tmp = ((float)rand()/RAND_MAX) * 2.0f;
+					tmp -= 1.0f;
+					tmp *= 16000.0f;
+				}
+				else {
+					tmp = (int16_t)(sinf(omega_) * 8000.0f);
+					omega_ += delta_omega_;
+				}
 				audio_buf[i] = (int16_t)tmp;
 			}
 			omega_ = fmod(omega_, 2*3.1415926536);
@@ -304,4 +324,22 @@ void *fake_audiodevice::playout_thread()
 	}
 	return NULL;
 }
+
+int32_t fake_audiodevice::MicrophoneMuteIsAvailable(bool* available)
+{
+	info("fake_audiodevice: MicrophoneMuteIsAvailable: available=%p\n", available);
+	if (available)
+		*available = true;
+
+	return 0;
 }
+int32_t fake_audiodevice::SetMicrophoneMute(bool enable)
+{
+	muted_ = enable;
+
+	return 0;
+}
+
+
+} // namespace webrtc
+

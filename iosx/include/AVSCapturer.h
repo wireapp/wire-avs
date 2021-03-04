@@ -36,9 +36,7 @@ typedef NSView UIView;
 
 typedef enum {
 	AVS_CAPTURER_STATE_STOPPED = 0,
-	AVS_CAPTURER_STATE_STARTING,
 	AVS_CAPTURER_STATE_RUNNING,
-	AVS_CAPTURER_STATE_STOPPING,
 	AVS_CAPTURER_STATE_ERROR
 }AVSCapturerState;
 
@@ -51,7 +49,6 @@ AVS_EXPORT @interface AVSCapturer : NSObject<AVCaptureVideoDataOutputSampleBuffe
 - (id)init;
 - (int)startWithWidth:(uint32_t)width Height:(uint32_t)height MaxFps:(uint32_t)max_fps;
 - (int)stop;
-- (AVSCapturerState)getState;
 - (int)setCaptureDevice:(NSString*)devId;
 - (void)attachPreview:(UIView*)preview;
 - (void)detachPreview:(UIView*)preview;

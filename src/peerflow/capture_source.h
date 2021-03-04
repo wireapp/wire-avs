@@ -68,6 +68,7 @@ private:
 	uint64_t     _ts_fps;
 	uint32_t     _fps_count;
 	uint32_t     _max_pixel_count;
+	bool         _black_frames;
 };
 
 };

@@ -47,6 +47,7 @@ struct conf_member {
 	struct le le;
 
 	uint8_t audio_level;
+	uint8_t audio_level_smooth;
 };
 
 int conf_member_alloc(struct conf_member **cmp,
@@ -75,7 +76,8 @@ struct conf_member *conf_member_find_by_ssrca(struct list *membl,
 
 struct conf_member *conf_member_find_by_ssrcv(struct list *membl,
 					      uint32_t ssrc);
-	
+
+void conf_member_set_audio_level(struct conf_member *cm, int level);
 
 #ifdef __cplusplus
 }

@@ -1560,7 +1560,6 @@ static void icall_aulevel_handler(struct icall *icall, struct list *levell, void
 
 	info("icall_aulevel_handler(%p): %d levels\n", wcall, list_count(levell));
 	
-
 	if (!inst->active_speakerh)
 		return;
 	

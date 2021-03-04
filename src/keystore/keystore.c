@@ -40,6 +40,13 @@ const size_t  MKEY_INFO_LEN = 9;
 const uint8_t CS_INFO[] = "cs";
 const size_t  CS_INFO_LEN = 2;
 
+struct listener
+{
+	struct le le;
+	ks_cchangedh *changedh;
+	void *arg;
+};
+
 struct keyinfo
 {
 	uint8_t skey[E2EE_SESSIONKEY_SIZE];
@@ -61,6 +68,8 @@ struct keystore
 	bool decrypt_successful;
 	bool decrypt_attempted;
 	const EVP_MD *hash_md;
+
+	struct list listeners;
 
 	uint64_t update_ts;
 	struct lock *lock;	
@@ -189,6 +198,7 @@ int keystore_set_session_key(struct keystore *ks,
 {
 	uint32_t sz;
 	size_t h, k;
+	struct le *le;
 	int err = 0;
 
 	if (!ks) {
@@ -244,6 +254,11 @@ int keystore_set_session_key(struct keystore *ks,
 	if (!ks->init) {
 		ks->current = h;
 		ks->init = true;
+
+		LIST_FOREACH(&ks->listeners, le) {
+			struct listener *l = le->data;
+			l->changedh(ks, l->arg);
+		}
 	}
 	ks->head = h;
 	ks->update_ts = tmr_jiffies();
@@ -362,6 +377,7 @@ int keystore_get_next_session_key(struct keystore *ks,
 
 int keystore_rotate(struct keystore *ks)
 {
+	struct le *le;
 	int err = 0;
 
 	if (!ks) {
@@ -378,6 +394,11 @@ int keystore_rotate(struct keystore *ks)
 		}
 	}
 	ks->current = ks->head;
+
+	LIST_FOREACH(&ks->listeners, le) {
+		struct listener *l = le->data;
+		l->changedh(ks, l->arg);
+	}
 
 	lock_rel(ks->lock);
 
@@ -608,5 +629,50 @@ void keystore_get_decrypt_states(struct keystore *ks,
 	*attempted = ks->decrypt_attempted;
 	*successful = ks->decrypt_successful;
 	lock_rel(ks->lock);
+}
+
+int  keystore_add_listener(struct keystore *ks,
+			   ks_cchangedh *changedh,
+			   void *arg)
+{
+	struct listener *listener;
+
+	if (!ks || !changedh)
+		return EINVAL;
+
+	listener = mem_zalloc(sizeof(*listener), NULL);
+	if (!listener)
+		return ENOMEM;
+
+	listener->changedh = changedh;
+	listener->arg = arg;
+
+	lock_write_get(ks->lock);
+	list_append(&ks->listeners, &listener->le, listener);
+	lock_rel(ks->lock);
+
+	return 0;
+}
+
+int  keystore_remove_listener(struct keystore *ks,
+			      void *arg)
+{
+	struct le *le;
+
+	if (!ks)
+		return EINVAL;
+
+	lock_write_get(ks->lock);
+	for(le = ks->listeners.head; le; le = le->next) {
+		struct listener *l = le->data;
+
+		if (l->arg == arg) {
+			list_unlink(&l->le);
+			break;
+		}
+	}
+	lock_rel(ks->lock);
+
+	return 0;
 }
 

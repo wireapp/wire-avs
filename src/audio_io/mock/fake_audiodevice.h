@@ -59,6 +59,7 @@ namespace webrtc {
 	    int32_t TerminateInternal() { return 0; }
         
 	    int32_t EnableSine();
+	    int32_t EnableNoise();
         
 	    int32_t ActiveAudioLayer(AudioLayer* audioLayer) const {
 		    return -1;
@@ -118,8 +119,8 @@ namespace webrtc {
 	    int32_t SpeakerMuteIsAvailable(bool* available) { return 0; }
 	    int32_t SetSpeakerMute(bool enable) { return 0; }
 	    int32_t SpeakerMute(bool* enabled) const { return 0; }
-	    int32_t MicrophoneMuteIsAvailable(bool* available) { return 0; }
-	    int32_t SetMicrophoneMute(bool enable) { return 0; }
+	    int32_t MicrophoneMuteIsAvailable(bool* available);
+	    int32_t SetMicrophoneMute(bool enable);
 	    int32_t MicrophoneMute(bool* enabled) const { return 0; }
 	    int32_t MicrophoneBoostIsAvailable(bool* available) { return 0; }
 	    int32_t SetMicrophoneBoost(bool enable) { return 0; }
@@ -199,5 +200,7 @@ namespace webrtc {
 	    bool realtime_;
 	    float delta_omega_;
 	    float omega_;
+	    bool muted_;
+	    bool noise_;
     };
 }

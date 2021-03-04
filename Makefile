@@ -25,7 +25,7 @@
 # Master version number
 #
 VER_MAJOR := 6
-VER_MINOR := 6
+VER_MINOR := 7
 
 ifeq ($(BUILD_NUMBER),)
 VER_PATCH := local

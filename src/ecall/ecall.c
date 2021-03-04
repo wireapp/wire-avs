@@ -49,7 +49,7 @@
 #define TIMEOUT_DC_CLOSE     10000
 #define TIMEOUT_MEDIA_START  10000
 #define TIMEOUT_CONNECTION    5000
-#define TIMEOUT_AUDIO_LEVEL   1000
+#define TIMEOUT_AUDIO_LEVEL   3000
 
 static struct list g_ecalls = LIST_INIT;
 
@@ -614,7 +614,7 @@ static void ecall_destructor(void *data)
 	mem_deref(ecall->sdp.offer);
 	mem_deref(ecall->media_laddr);
 
-	list_flush(&ecall->audio.level.l);
+	//list_flush(&ecall->audio.level.l);
 	
 	list_flush(&ecall->tracel);
 
@@ -1422,7 +1422,7 @@ static void mf_gather_handler(struct iflow *iflow, void *arg)
 	ecall_close(ecall, err, ECONN_MESSAGE_TIME_UNKNOWN);
 }
 
-
+#if 0
 static bool audio_level_update(struct ecall *ecall,
 			       struct list *levell)
 {
@@ -1438,7 +1438,7 @@ static bool audio_level_update(struct ecall *ecall,
 		else {
 			ecall->audio.level.l = *levell;
 			return true;
-		}			
+		}
 	}
 
 	for(le = levell->head; le && ple && !upd; le = le->next) {
@@ -1448,7 +1448,6 @@ static bool audio_level_update(struct ecall *ecall,
 		upd = !audio_level_eq(aulevel, plevel);
 		ple = ple->next;
 	}
-
 	if (!(le == NULL && ple == NULL))
 		upd = true;
 
@@ -1459,7 +1458,7 @@ static bool audio_level_update(struct ecall *ecall,
 
 	return upd;
 }
-
+#endif
 
 static void audio_level_handler(void *arg)
 {
@@ -1488,13 +1487,30 @@ static void audio_level_handler(void *arg)
 	/* Compare previous levels to these levels, if order has changed,
 	 * trigger callback
 	 */
+#if 1
+	ICALL_CALL_CB(ecall->icall, audio_levelh,
+		      &ecall->icall, &levell, ecall->icall.arg);
+	list_flush(&levell);
+#else
+	ecall->audio.level.cycle++;
+
 	if (audio_level_update(ecall, &levell)) {
 		ICALL_CALL_CB(ecall->icall, audio_levelh,
 			      &ecall->icall, &ecall->audio.level.l, ecall->icall.arg);
 	}
+	else if (ecall->audio.level.cycle > AUDIO_LEVEL_UPDATE_CYCLE) {
+		if (ecall->audio.level.l.head)
+			list_flush(&ecall->audio.level.l);
+		ecall->audio.level.l = levell;
+
+		ICALL_CALL_CB(ecall->icall, audio_levelh,
+			      &ecall->icall, &ecall->audio.level.l, ecall->icall.arg);
+		ecall->audio.level.cycle = 0;
+	}
 	else {
 		list_flush(&levell);
 	}
+#endif
 }
 
 

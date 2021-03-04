@@ -18,6 +18,7 @@
 
 #include <re.h>
 #include <avs.h>
+#include <avs_audio_level.h>
 
 static void cm_destructor(void *arg)
 {
@@ -162,5 +163,14 @@ struct conf_member *conf_member_find_by_ssrcv(struct list *membl,
 }
 	
 	
+void conf_member_set_audio_level(struct conf_member *cm, int level)
+{
+	if (!cm)
+		return;
 
-
+	cm->audio_level = level > AUDIO_LEVEL_FLOOR ? level : 0;
+	if (level > AUDIO_LEVEL_FLOOR)
+		cm->audio_level_smooth = AUDIO_LEVEL_CEIL;
+	else if (cm->audio_level_smooth > 0)
+		cm->audio_level_smooth--;		
+}

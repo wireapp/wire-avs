@@ -564,27 +564,23 @@ static void ccall_reconnect(struct ccall *ccall,
 	keystore_get_decrypt_states(ccall->keystore,
 				    &decrypt_attempted,
 				    &decrypt_successful);
-	info("ccall(%p): reconnect: cp: %s da: %s ds: %s att: %u\n",
+	info("ccall(%p): reconnect: cp: %s da: %s ds: %s att: %u p: %u\n",
 	     ccall,
 	     ccall->received_confpart ? "YES" : "NO",
 	     decrypt_attempted ? " YES" : "NO",
 	     decrypt_successful ? "YES" : "NO",
-	     ccall->reconnect_attempts);
+	     ccall->reconnect_attempts,
+	     ccall->expected_ping);
 
-	if (!ccall->received_confpart || 
-	    (decrypt_attempted && !decrypt_successful)) {
-		if (ccall->reconnect_attempts >= CCALL_MAX_RECONNECT_ATTEMPTS) {
-			ccall_end_with_err(ccall, ETIMEDOUT);
-			ICALL_CALL_CB(ccall->icall, leaveh, 
-				&ccall->icall, ICALL_REASON_STILL_ONGOING,
-				msg_time, ccall->icall.arg);
-			return;
-		}
-		ccall->reconnect_attempts++;
+	if (ccall->reconnect_attempts >= CCALL_MAX_RECONNECT_ATTEMPTS) {
+		ccall_end_with_err(ccall, ETIMEDOUT);
+		ICALL_CALL_CB(ccall->icall, leaveh, 
+			&ccall->icall, ICALL_REASON_STILL_ONGOING,
+			msg_time, ccall->icall.arg);
+		return;
 	}
-	else {
-		ccall->reconnect_attempts = 0;
-	}
+	ccall->reconnect_attempts++;
+	ccall->expected_ping = 0;
 
 	incall_clear(ccall, true);
 	set_state(ccall, CCALL_STATE_CONNSENT);
@@ -648,6 +644,18 @@ static void ccall_decrypt_check_timeout(void *arg)
 	}
 }
 
+static int ecall_ping_handler(struct ecall *ecall,
+			      bool response,
+			      void *arg)
+{
+	struct ccall *ccall = arg;
+
+	ccall->expected_ping = 0;
+	ccall->reconnect_attempts = 0;
+
+	return 0;
+}
+
 static void ccall_keepalive_timeout(void *arg)
 {
 	struct ccall *ccall = arg;
@@ -669,6 +677,10 @@ static void ccall_keepalive_timeout(void *arg)
 	}
 
 	ecall_ping(ccall->ecall, false);
+	ccall->expected_ping++;
+	if (ccall->expected_ping > CCALL_MAX_MISSING_PINGS) {
+		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN);
+	}
 
 	tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
 		  ccall_keepalive_timeout, ccall);
@@ -1828,6 +1840,7 @@ static int create_ecall(struct ccall *ccall)
 
 	ecall_set_confpart_handler(ecall, ecall_confpart_handler);
 	ecall_set_propsync_handler(ecall, ecall_propsync_handler);
+	ecall_set_ping_handler(ecall, ecall_ping_handler);
 	ecall_set_keystore(ecall, ccall->keystore);
 	err = ecall_set_real_clientid(ecall, ccall->self->clientid_real);
 	if (err)
@@ -1985,6 +1998,7 @@ static int  ccall_join(struct ccall *ccall,
 	}
 
 	ccall->reconnect_attempts = 0;
+	ccall->expected_ping = 0;
 	set_state(ccall, CCALL_STATE_CONNSENT);
 	ccall->call_type = call_type;
 

@@ -89,6 +89,7 @@ public:
 	int32_t TerminateInternal();
 
 	int32_t EnableSine() { return -1; }
+	int32_t EnableNoise() { return -1; }
 
 	int32_t ActiveAudioLayer(AudioLayer* audioLayer) const {
 		return -1;

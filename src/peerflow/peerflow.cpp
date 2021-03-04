@@ -1848,8 +1848,10 @@ static void timer_stats(void *arg)
 		for(webrtc::RtpSource src: sources) {
 			uint32_t ssrc = src.source_id();
 			struct conf_member *cm = conf_member_find_by_ssrca(&pf->cml, ssrc);
+			uint8_t level = src.audio_level() ? *src.audio_level() : 127;
 			if (cm) {
-				cm->audio_level = 2 * (127 - *src.audio_level());
+				float flevel = powf(10.0f, -level / 30.0f) * 255.0f;
+				conf_member_set_audio_level(cm, (uint8_t)flevel);
 			}
 		}
 	}
@@ -1872,19 +1874,28 @@ static int peerflow_get_aulevel(struct iflow *iflow,
 		return EINVAL;	
 
 
-	err = audio_level_alloc(&aulevel, levell, true,
-				pf->userid_self, pf->clientid_self,
-				pf->stats.audio_level);
+	if (pf->stats.audio_level > AUDIO_LEVEL_FLOOR ||
+	    pf->stats.audio_level_smooth > 0) {
+		err = audio_level_alloc(&aulevel, levell, true,
+					pf->userid_self, pf->clientid_self,
+					pf->stats.audio_level,
+					pf->stats.audio_level_smooth);
+	}
 	if (err)
 		goto out;
 	
 	LIST_FOREACH(&pf->cml, le) {
 		struct conf_member *cm = (struct conf_member *)le->data;
 
-		if (cm && cm->userid && cm->clientid) {
+		if (!cm || !cm->active)
+			continue;
+
+		if (cm->userid && cm->clientid &&
+		    (cm->audio_level > AUDIO_LEVEL_FLOOR || cm->audio_level_smooth > 0)) {
 			err = audio_level_alloc(&aulevel, levell, false,
 						cm->userid, cm->clientid,
-						cm->audio_level);
+						cm->audio_level,
+						cm->audio_level_smooth);
 			if (err)
 				goto out;
 		}
@@ -2644,7 +2655,18 @@ void peerflow_set_stats(struct peerflow* pf,
 		return;
 	}
 
-	pf->stats.audio_level = audio_level;
+	pf->stats.audio_level = g_pf.audio.muted ? 0 : audio_level;
+	if (g_pf.audio.muted) {
+		if (pf->stats.audio_level_smooth > 0)
+			pf->stats.audio_level_smooth--;
+		else
+			pf->stats.audio_level_smooth = 0;
+	}
+	else if (audio_level > AUDIO_LEVEL_FLOOR)
+		pf->stats.audio_level_smooth = AUDIO_LEVEL_CEIL;
+	else if (pf->stats.audio_level_smooth > 0)
+		pf->stats.audio_level_smooth--;
+	
 	pf->stats.apkts_recv = apkts_recv;
 	pf->stats.vpkts_recv = vpkts_recv;
 	pf->stats.apkts_sent = apkts_sent;

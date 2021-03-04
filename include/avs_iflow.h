@@ -25,6 +25,7 @@ struct avs_vidframe;
 
 struct iflow_stats {
 	uint8_t audio_level;
+	uint8_t audio_level_smooth;
 	uint32_t apkts_recv;
 	uint32_t apkts_sent;
 	uint32_t vpkts_recv;
@@ -96,7 +97,7 @@ typedef int  (iflow_debug)(struct re_printf *pf, const struct iflow *flow);
 typedef int (iflow_allocf)(struct iflow		**flowp,
 			   const char		*convid,
 			   const char		*userid_self,
-			   const char           *clientid_self,
+			   const char		*clientid_self,
 			   enum icall_conv_type	conv_type,
 			   enum icall_call_type	call_type,
 			   enum icall_vstate	vstate,

@@ -27,6 +27,7 @@
 #define CCALL_ROTATE_KEY_FIRST_TIMEOUT (  5000)
 #define CCALL_DECRYPT_CHECK_TIMEOUT    (  5000)
 #define CCALL_KEEPALIVE_TIMEOUT        (  5000)
+#define CCALL_MAX_MISSING_PINGS        (     2)
 
 #define CCALL_SECRET_LEN               (    16)
 #define CCALL_MAX_RECONNECT_ATTEMPTS   (     2)
@@ -101,7 +102,8 @@ struct ccall {
 	bool someone_left;
 	bool became_kg;
 	bool request_key;
-	int reconnect_attempts;
+	uint32_t reconnect_attempts;
+	uint32_t expected_ping;
 	int received_confpart;
 	int error;
 

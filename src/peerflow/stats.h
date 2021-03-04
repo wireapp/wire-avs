@@ -166,14 +166,20 @@ public:
 		}
 
 		int audio_level = 0;
-
-		const webrtc::RTCAudioSourceStats *asrc_stats =
-			report->GetAs<webrtc::RTCAudioSourceStats>("RTCAudioSource_1");
-
-		if (asrc_stats)
+		bool found = false;
+		const webrtc::RTCAudioSourceStats *asrc_stats = NULL;
+		for(webrtc::RTCStatsReport::ConstIterator cit = report->begin(); cit != report->end() && !found; cit++) {
+			if (streq(cit->type(), "media-source")) {
+				found = true;
+				const webrtc::RTCStats& cstats = *cit;
+				asrc_stats = (const webrtc::RTCAudioSourceStats *)&cstats;
+			}
+		}
+		if (asrc_stats) {
 			audio_level = (int)(*asrc_stats->audio_level * 255.0);
+		}
 
-		//info("stats callback: pl: %.02f rtt: %.02f\n", downloss, rtt);
+		//info("stats: pf(%p) audio_level: %d pl: %.02f rtt: %.02f\n", pf_, audio_level, downloss, rtt);
 		lock_write_get(lock_);
 		if (active_) {
 			peerflow_set_stats(pf_,

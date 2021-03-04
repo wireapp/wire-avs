@@ -393,7 +393,7 @@ $(DIST_WASM_PKG_TARGET):
 
 $(DIST_WASM_WC_TARGET):
 	@mkdir -p $(BUILD_DIST_WASM)
-	@python scripts/wcall2ts.py include/avs_wcall.h scripts/avs_wcall.template $@
+	@python wasm/wcall2ts.py include/avs_wcall.h wasm/avs_wcall.template $@
 	@prettier --write $@
 
 $(DIST_WASM_TARGETS): $(DIST_WASM_JS_TARGET) $(DIST_WASM_PC_TARGET) $(DIST_WASM_WC_TARGET) \

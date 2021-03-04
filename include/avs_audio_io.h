@@ -45,6 +45,7 @@ int  audio_io_init(struct audio_io *aio);
 int  audio_io_terminate(struct audio_io *aio);
     
 int  audio_io_enable_sine(void);
+int  audio_io_enable_noise(void);
 
 int  audio_io_reset(struct audio_io *aio);
 	

@@ -114,6 +114,8 @@ void CaptureSource::AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>*
 
 	lock_write_get(_lock);
 
+	_black_frames = wants.black_frames;
+
 	LIST_FOREACH(&_streaml, le) {
 		stream = (struct enc_stream *)le->data;
 		
@@ -195,36 +197,41 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 
 	frmbuf = webrtc::I420Buffer::Create(dw, dh);
 	frmbuf->InitializeData();
-	switch(frame->type) {
-	case AVS_VIDFRAME_NV12:
-		libyuv:: NV12ToI420(frame->y + yoff, frame->ys,
-			frame->u + yoff, frame->us,
-			(uint8_t *)frmbuf->DataY(), frmbuf->StrideY(),
-			(uint8_t *)frmbuf->DataU(), frmbuf->StrideU(),
-			(uint8_t *)frmbuf->DataV(), frmbuf->StrideV(),
-			dw, dh);
-		break;
 
-	case AVS_VIDFRAME_NV21:
-		libyuv:: NV21ToI420(frame->y + yoff, frame->ys,
-			frame->u + yoff, frame->us,
-			(uint8_t *)frmbuf->DataY(), frmbuf->StrideY(),
-			(uint8_t *)frmbuf->DataU(), frmbuf->StrideU(),
-			(uint8_t *)frmbuf->DataV(), frmbuf->StrideV(),
-			dw, dh);
-		break;
+	if (_black_frames) {
+		webrtc::I420Buffer::SetBlack(frmbuf);
+	}
+	else {
+		switch(frame->type) {
+		case AVS_VIDFRAME_NV12:
+			libyuv:: NV12ToI420(frame->y + yoff, frame->ys,
+				frame->u + yoff, frame->us,
+				(uint8_t *)frmbuf->DataY(), frmbuf->StrideY(),
+				(uint8_t *)frmbuf->DataU(), frmbuf->StrideU(),
+				(uint8_t *)frmbuf->DataV(), frmbuf->StrideV(),
+				dw, dh);
+			break;
 
-	case AVS_VIDFRAME_I420:
-		uvoff = yoff / 2;
-		libyuv::I420Copy(frame->y + yoff, frame->ys,
-			frame->u + uvoff, frame->us,
-			frame->v + uvoff, frame->vs,
-			(uint8_t *)frmbuf->DataY(), frmbuf->StrideY(),
-			(uint8_t *)frmbuf->DataU(), frmbuf->StrideU(),
-			(uint8_t *)frmbuf->DataV(), frmbuf->StrideV(),
-			dw, dh);
-		break;
+		case AVS_VIDFRAME_NV21:
+			libyuv:: NV21ToI420(frame->y + yoff, frame->ys,
+				frame->u + yoff, frame->us,
+				(uint8_t *)frmbuf->DataY(), frmbuf->StrideY(),
+				(uint8_t *)frmbuf->DataU(), frmbuf->StrideU(),
+				(uint8_t *)frmbuf->DataV(), frmbuf->StrideV(),
+				dw, dh);
+			break;
 
+		case AVS_VIDFRAME_I420:
+			uvoff = yoff / 2;
+			libyuv::I420Copy(frame->y + yoff, frame->ys,
+				frame->u + uvoff, frame->us,
+				frame->v + uvoff, frame->vs,
+				(uint8_t *)frmbuf->DataY(), frmbuf->StrideY(),
+				(uint8_t *)frmbuf->DataU(), frmbuf->StrideU(),
+				(uint8_t *)frmbuf->DataV(), frmbuf->StrideV(),
+				dw, dh);
+			break;
+		}
 	}
 
 	uint32_t sw, sh;

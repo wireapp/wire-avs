@@ -60,6 +60,7 @@ bool zcall_force_audio = false;
 bool zcall_auto_answer = false;
 bool zcall_video = false;
 bool zcall_av_test = false;
+bool zcall_noise = false;
 static uint64_t ts_start;
 bool event_estab = false;
 int g_trace = 0;
@@ -67,6 +68,7 @@ bool g_ice_privacy = false;
 bool g_use_kase = true;
 bool g_use_conference = false;
 char *zcall_vfile = NULL;
+char *g_sft_url = NULL;
 
 #ifdef HAVE_CRYPTOBOX
 struct cryptobox *g_cryptobox;
@@ -97,7 +99,8 @@ static void usage(void)
 	(void)re_fprintf(stderr, "\t-d             Turn on debugging "
 			                          "(twice for more)\n");
 	(void)re_fprintf(stderr, "\t-t             Enable call tracing\n");
-	(void)re_fprintf(stderr, "\t-T             Enable audio test mode\n");
+	(void)re_fprintf(stderr, "\t-T             Enable audio test sine-mode\n");
+	(void)re_fprintf(stderr, "\t-N             Enable audio test noise-mode\n");
 	(void)re_fprintf(stderr, "\t-f             Flush store for the "
 						  "user.\n");
 	(void)re_fprintf(stderr, "\t-C             Clear cookies for the "
@@ -112,6 +115,10 @@ static void usage(void)
 	(void)re_fprintf(stderr, "\t-i             Enable ICE privacy mode\n");
 	(void)re_fprintf(stderr, "\t-K             Disable KASE crypto\n");
 	(void)re_fprintf(stderr, "\t-h             Show options\n");
+	(void)re_fprintf(stderr, "\t-G             Force group calls to use "
+			 "new conference protocol\n");
+	(void)re_fprintf(stderr, "\t-S <sft url>   Set SFT URL "
+			 "(in format http(s)://server:port)\n");
 	(void)re_fprintf(stderr, "\n");
 	(void)re_fprintf(stderr, "Config/cache directory defaults to "
 				 DEFAULT_STORE_DIR
@@ -408,7 +415,7 @@ int main(int argc, char *argv[])
 
 	for (;;) {
 		const int c = getopt(argc, argv,
-				     "c:ABCdDe:fhiIsl:m:n:p:P:q:r:tTV:KGWZ");
+				     "ABc:CdDe:fGhiIKl:m:n:Np:P:q:r:sS:tTV:WZ");
 		if (c < 0)
 			break;
 
@@ -507,6 +514,11 @@ int main(int argc, char *argv[])
 
 		case 't':
 			++g_trace;
+			break;
+
+		case 'N':
+			zcall_av_test = true;
+			zcall_noise = true;
 			break;
 
 		case 'T':
@@ -734,6 +746,7 @@ int main(int argc, char *argv[])
 	libre_close();
 
 	mem_deref(zcall_vfile);
+	mem_deref(g_sft_url);
 	/* check for memory leaks */
 	mem_debug();
 	tmr_debug();

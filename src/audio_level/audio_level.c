@@ -23,10 +23,15 @@
 #include "avs_jzon.h"
 #include "avs_audio_level.h"
 
+
+#define LEVEL_K 0.1f // 0.3f
+
+
 struct audio_level {
 	char *userid;
 	char *clientid;
 	uint8_t aulevel;
+	uint8_t aulevel_smooth;
 
 	bool is_self;
 
@@ -45,7 +50,7 @@ static void destructor(void *arg)
 int audio_level_alloc(struct audio_level **levelp,
 		      struct list *levell, bool is_self,
 		      const char *userid, const char *clientid,
-		      uint8_t aulevel)
+		      uint8_t aulevel, uint8_t aulevel_smooth)
 {
 	struct audio_level *level;
 	int err;
@@ -63,6 +68,7 @@ int audio_level_alloc(struct audio_level **levelp,
 		goto out;
 
 	level->aulevel = aulevel;
+	level->aulevel_smooth = aulevel_smooth;
 	level->is_self = is_self;
 
 	if (levell)
@@ -137,7 +143,10 @@ int audio_level_json(struct list *levell,
 		if (ja) {
 			jzon_add_str(ja, "userid", userid);
 			jzon_add_str(ja, "clientid", clientid);
-			jzon_add_int(ja, "audio_level", (int32_t)a->aulevel);
+			jzon_add_int(ja, "audio_level",
+				     (int32_t)a->aulevel_smooth);
+			jzon_add_int(ja, "audio_level_now",
+				     (int32_t)a->aulevel);
 		}
 		json_object_array_add(jarr, ja);
 
@@ -145,13 +154,12 @@ int audio_level_json(struct list *levell,
 		if (pmb) {
 			anon_id(uid_anon, userid);
 			anon_client(cid_anon, clientid);
-			mbuf_printf(pmb, "{[%s.%s] audio_level: %d}",
+			mbuf_printf(pmb, "{[%s.%s] audio_level: %d/%d}",
 				    uid_anon, cid_anon,
-				    a->aulevel);
+				    a->aulevel_smooth, a->aulevel);
 			if (le != levell->tail)
 				mbuf_printf(pmb, ",");
-		}
-		
+		}		
 	}
 	json_object_object_add(jobj, "audio_levels", jarr);
 
@@ -182,6 +190,13 @@ int audio_level_json_print(struct re_printf *pf, const struct audio_level *a)
 	return err;
 }
 
+uint8_t audio_level_smoothen(uint8_t level, uint8_t new_level)
+{
+	return (uint8_t)(LEVEL_K * (float)new_level
+			 + (1.0 - LEVEL_K) * (float)level);
+	
+}
+
 
 bool audio_level_list_cmp(struct le *le1, struct le *le2, void *arg)
 {
@@ -191,7 +206,7 @@ bool audio_level_list_cmp(struct le *le1, struct le *le2, void *arg)
 	if (!au1 || !au2)
 		return true;
 	
-	return au1->aulevel >= au2->aulevel;
+	return au1->aulevel_smooth >= au2->aulevel_smooth;
 }
 
 

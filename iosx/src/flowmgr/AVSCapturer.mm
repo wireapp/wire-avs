@@ -51,10 +51,22 @@ enum AVSDeviceOrientation {
 
 #endif
 
+static const char *avscapture_state_name(AVSCapturerState s) {
+	switch (s) {
+	case AVS_CAPTURER_STATE_STOPPED:
+		return "STOPPED";
+	case AVS_CAPTURER_STATE_RUNNING:
+		return "RUNNING";
+	case AVS_CAPTURER_STATE_ERROR:
+		return "ERROR";
+	default:
+		return "UNKNOWN";
+	}
+}
+
 @interface AVSCapturer ()
 {
 	AVSCapturerState _state;
-	NSCondition* _stateCondition;
 
 	AVCaptureSession *_captureSession;
 	AVCaptureVideoPreviewLayer *_previewLayer;
@@ -77,9 +89,6 @@ enum AVSDeviceOrientation {
 }
 
 - (void)startCaptureWithOutput: (AVCaptureVideoDataOutput*)currentOutput;
-- (void)stopCapture;
-
-- (void)setState: (AVSCapturerState)state;
 
 - (int)setCaptureDeviceInt:(NSString*)devid;
 
@@ -97,7 +106,6 @@ enum AVSDeviceOrientation {
 	if (self) {
 		//debug("%s\n", __FUNCTION__);
 		_state = AVS_CAPTURER_STATE_STOPPED;
-		_stateCondition = [[NSCondition alloc] init];
 		_cmdQueue = dispatch_queue_create(
 			"com.wire.avs_capture_cmd_queue",
 			DISPATCH_QUEUE_SERIAL);
@@ -179,17 +187,15 @@ enum AVSDeviceOrientation {
 		return EINVAL;
 	}
 
-	// TODO: check params are met also
-	if (_state == AVS_CAPTURER_STATE_RUNNING) {
-		info("%s: already running!\n", __FUNCTION__);
-		return 0;
-	}
-
-	[self setState:AVS_CAPTURER_STATE_STARTING];
-
 	dispatch_async(
 		_cmdQueue,
 		^(void) { 
+			if (_state != AVS_CAPTURER_STATE_STOPPED) {
+				warning("[AVSCapturer start]: ignoring start in state %s\n",
+				     avscapture_state_name(_state));
+				return;
+			}
+
 			_width = width;
 			_height = height;
 			_maxFps = max_fps;
@@ -199,11 +205,14 @@ enum AVSDeviceOrientation {
 
 			[self directOutputToSelf];
 			[self startCaptureWithOutput:currentOutput];
+			_state = AVS_CAPTURER_STATE_RUNNING;
 
 #if TARGET_OS_IPHONE
 			dispatch_async(
 				dispatch_get_main_queue(), 
 				^(void) { 
+					[[UIDevice currentDevice]
+						beginGeneratingDeviceOrientationNotifications];
 					[self deviceOrientationDidChange:nil];
 			});
 #endif
@@ -213,30 +222,35 @@ enum AVSDeviceOrientation {
 
 - (int)stop
 {
-	//debug("%s: stopping\n", __FUNCTION__);
+	info("%s: stopping\n", __FUNCTION__);
 	[self directOutputToNil];
 
 	if (!_captureSession) {
 		return ENODEV;
 	}
 
-	[self setState:AVS_CAPTURER_STATE_STOPPING];
 	dispatch_async(
 		_cmdQueue,
-			 ^(void) { [self stopCapture];
+		 ^(void) {
+			if (_state != AVS_CAPTURER_STATE_RUNNING) {
+				warning("[AVSCapturer stop]: ignoring stop in state %s\n",
+				     avscapture_state_name(_state));
+				return;
+			}
+
+			[_captureSession stopRunning];
+			_state = AVS_CAPTURER_STATE_STOPPED;
+#if TARGET_OS_IPHONE
+			dispatch_async(
+				dispatch_get_main_queue(), 
+				^(void) { 
+					[[UIDevice currentDevice]
+						endGeneratingDeviceOrientationNotifications];
+			});
+#endif
 	});
 
 	return 0;
-}
-
-- (void)stopCapture
-{
-	[_captureSession stopRunning];
-	[self setState:AVS_CAPTURER_STATE_STOPPED];
-
-#if TARGET_OS_IPHONE
-	[[UIDevice currentDevice] endGeneratingDeviceOrientationNotifications];
-#endif
 }
 
 - (void)startCaptureWithOutput: (AVCaptureVideoDataOutput*)currentOutput
@@ -283,11 +297,6 @@ enum AVSDeviceOrientation {
 	[_captureSession commitConfiguration];
 
 	[_captureSession startRunning];
-	[self setState:AVS_CAPTURER_STATE_RUNNING];
-
-#if TARGET_OS_IPHONE
-	[[UIDevice currentDevice] beginGeneratingDeviceOrientationNotifications];
-#endif
 }
 
 - (int)setCaptureDevice:(NSString*)devid
@@ -436,39 +445,6 @@ enum AVSDeviceOrientation {
 				_preview = nil;
 			}
 	});
-}
-
-- (void)setState: (AVSCapturerState)state
-{
-	//debug(">>%s state %d new %d\n", __FUNCTION__, _state, state);
-	[_stateCondition lock];
-	_state = state;
-	[_stateCondition signal];
-	[_stateCondition unlock];
-	//debug("<<%s state %d\n", __FUNCTION__, _state);
-}
-
-- (void)waitForStableState
-{
-	//debug(">>%s state %d\n", __FUNCTION__, _state);
-	[_stateCondition lock];
-	while (_state == AVS_CAPTURER_STATE_STARTING ||
-		_state == AVS_CAPTURER_STATE_STOPPING) {
-		[_stateCondition wait];
-	}
-	[_stateCondition unlock];
-	//debug("<<%s state %d\n", __FUNCTION__, _state);
-}
-
-- (AVSCapturerState)getState
-{
-	AVSCapturerState	state;
-
-	[_stateCondition lock];
-	state = _state;
-	[_stateCondition signal];
-
-	return state;
 }
 
 - (void)onVideoError:(NSNotification*)notification {

@@ -76,7 +76,6 @@ CONTRIB_OPENSSL_PATH := $(CONTRIB_BASE)/openssl
 CONTRIB_OPENSSL_BUILD_PATH := $(BUILD_TARGET)/contrib/openssl
 
 CONTRIB_OPENSSL_OPTIONS := \
-	no-threads \
 	no-bf \
 	no-blake2 \
 	no-camellia \
@@ -118,8 +117,14 @@ CONTRIB_OPENSSL_COMPILER_linux_armv7   := cc
 CONTRIB_OPENSSL_COMPILER_linux_armv7l  := cc
 CONTRIB_OPENSSL_COMPILER_osx_x86_64    := darwin64-x86_64-cc
 CONTRIB_OPENSSL_COMPILER_wasm_generic  := linux-generic32
-CONTRIB_OPENSSL_OPTIONS_android        := --cross-compile-prefix=$(BIN_PATH)-
+CONTRIB_OPENSSL_OPTIONS_android        := \
+	threads \
+	--cross-compile-prefix=$(BIN_PATH)-
+CONTRIB_OPENSSL_OPTIONS_linux          := threads
+CONTRIB_OPENSSL_OPTIONS_osx            := threads
+CONTRIB_OPENSSL_OPTIONS_ios            := threads
 CONTRIB_OPENSSL_OPTIONS_wasm	       := \
+	no-threads \
 	no-asm \
 	--cross-compile-prefix=$(BIN_PATH)/em
 ifeq ($(AVS_OS),wasm)
