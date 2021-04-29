@@ -42,8 +42,6 @@ struct conf_member {
 
 	struct iflow *flow;
 
-	void *uinfo;
-
 	struct le le;
 
 	uint8_t audio_level;

@@ -101,7 +101,7 @@ CONTRIB_OPENSSL_OPTIONS := \
 	no-shared \
 	no-srp \
 	no-ssl3 \
-	no-async \
+	no-async
 
 CONTRIB_OPENSSL_COMPILER_android_armv7 := android
 CONTRIB_OPENSSL_COMPILER_android_i386  := android-x86

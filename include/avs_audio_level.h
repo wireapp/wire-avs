@@ -21,7 +21,7 @@
 
 struct audio_level;
 
-#define AUDIO_LEVEL_FLOOR   5
+#define AUDIO_LEVEL_FLOOR   2
 #define AUDIO_LEVEL_CEIL   30
 #define AUDIO_LEVEL_UPDATE_CYCLE 3
 
@@ -35,6 +35,7 @@ int audio_level(struct audio_level *a);
 bool audio_level_eq(struct audio_level *a, struct audio_level *b);
 bool audio_level_list_cmp(struct le *le1, struct le *le2, void *arg);
 uint8_t audio_level_smoothen(uint8_t level, uint8_t new_level);
+uint8_t audio_level_smoothen_withk(uint8_t level, uint8_t new_level, float k);
 
 int audio_level_json(struct list *levell,
 		     const char *userid_self, const char *clientid_self,

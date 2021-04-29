@@ -28,6 +28,8 @@
 #define CCALL_DECRYPT_CHECK_TIMEOUT    (  5000)
 #define CCALL_KEEPALIVE_TIMEOUT        (  5000)
 #define CCALL_MAX_MISSING_PINGS        (     2)
+#define CCALL_NOONE_JOINED_TIMEOUT     (300000)
+#define CCALL_EVERYONE_LEFT_TIMEOUT    ( 30000)
 
 #define CCALL_SECRET_LEN               (    16)
 #define CCALL_MAX_RECONNECT_ATTEMPTS   (     2)
@@ -99,6 +101,7 @@ struct ccall {
 	enum icall_call_type call_type;
 	enum icall_vstate vstate;
 
+	bool someone_joined;
 	bool someone_left;
 	bool became_kg;
 	bool request_key;
@@ -117,6 +120,7 @@ struct ccall {
 	struct tmr tmr_vstate;
 	struct tmr tmr_decrypt_check;
 	struct tmr tmr_keepalive;
+	struct tmr tmr_alone;
 
 	struct config *cfg;
 };

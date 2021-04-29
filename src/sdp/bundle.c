@@ -20,7 +20,7 @@
 #include <avs.h>
 
 
-static uint32_t g_mid = 1;
+static uint32_t g_mid = 1000;
 
 enum bundle_type {
         BUNDLE_TYPE_AUDIO,
@@ -181,6 +181,7 @@ static void bundle_ssrc(enum bundle_type type, struct conf_member *cm,
 
 int bundle_update(struct iflow *flow,
 		  enum icall_conv_type conv_type,
+		  bool include_audio,
 		  const char *remote_sdp,
 		  struct list *membl,
 		  bundle_flow_update_h *flow_updateh)
@@ -201,16 +202,16 @@ int bundle_update(struct iflow *flow,
 	
 	bundle.mid = 0;
 	bundle.mb = mbuf_alloc(128);
-	mbuf_printf(bundle.mb, "BUNDLE audio video data");
-	
+	mbuf_printf(bundle.mb, sdp_session_rattr(sess, "group"));
+
 	list_flush((struct list *)sdp_session_medial(sess, true));
 	
 	LIST_FOREACH(membl, le) {
 		struct conf_member *cm = (struct conf_member *)le->data;
 
-		if (sdpa)
+		if (include_audio && sdpa)
 			bundle_ssrc(BUNDLE_TYPE_AUDIO, cm, &bundle, sess, sdpa);
-		if (sdpv)
+		if (sdpv && cm->ssrcv)
 			bundle_ssrc(BUNDLE_TYPE_VIDEO, cm, &bundle, sess, sdpv);
 	}
 

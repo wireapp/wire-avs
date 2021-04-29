@@ -197,6 +197,13 @@ uint8_t audio_level_smoothen(uint8_t level, uint8_t new_level)
 	
 }
 
+uint8_t audio_level_smoothen_withk(uint8_t level, uint8_t new_level, float k)
+{
+	return (uint8_t)(k * (float)new_level + (1.0 - k) * (float)level);
+	
+}
+
+
 
 bool audio_level_list_cmp(struct le *le1, struct le *le2, void *arg)
 {

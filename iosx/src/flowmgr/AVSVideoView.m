@@ -163,8 +163,9 @@ const char indices[] = {0, 1, 2, 3};
 
 	//if (_forceRecalc)
 	{
-		int w = self.frame.size.width;
-		int h = self.frame.size.height;
+		GLfloat scale = [UIScreen mainScreen].scale;
+		GLsizei w = (GLsizei)(self.frame.size.width * scale);
+		GLsizei h = (GLsizei)(self.frame.size.height * scale);
 
 		glViewport(0, 0, w, h);
 		[self setupVertices];
@@ -455,18 +456,33 @@ const char indices[] = {0, 1, 2, 3};
 
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, _texIds[0]);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
 		(GLsizei)frame->ys, frame->h, GL_LUMINANCE, GL_UNSIGNED_BYTE,
 		(const GLvoid*)frame->y);
 
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, _texIds[1]);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
 		(GLsizei)frame->us, frame->h / 2, GL_LUMINANCE, GL_UNSIGNED_BYTE,
 		(const GLvoid*)frame->u);
 
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, _texIds[2]);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
 		(GLsizei)frame->vs, frame->h / 2, GL_LUMINANCE, GL_UNSIGNED_BYTE,
 		(const GLvoid*)frame->v);
@@ -512,7 +528,11 @@ out:
 	self = [super initWithFrame:frame];
 	if (self) {
 		GLfloat scale = [UIScreen mainScreen].scale;
-		glViewport(0, 0, frame.size.width * scale, frame.size.height * scale);
+		GLsizei w = (GLsizei)(self.frame.size.width * scale);
+		GLsizei h = (GLsizei)(self.frame.size.height * scale);
+
+		glViewport(0, 0, w, h);
+		self.contentScaleFactor = [UIScreen mainScreen].scale;
 	}
 	return self;
 }

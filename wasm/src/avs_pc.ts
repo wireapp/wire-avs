@@ -9,7 +9,13 @@ export type UserMediaHandler = (
 ) => Promise<MediaStream>;
 
 
-export type MediaStreamHandler = (
+export type AudioStreamHandler = (
+  convid: string,
+  stream_id: string,
+  streams: readonly MediaStream[] | null
+) => void;
+
+export type VideoStreamHandler = (
   convid: string,
   remote_userid: string,
   remote_clientid: string,
@@ -41,6 +47,10 @@ type UserInfo = {
     iva: Uint8Array;
     ivv: Uint8Array;
     audio_level: number;
+    first_recv_audio: boolean;
+    first_succ_audio: boolean;
+    first_recv_video: boolean;
+    first_succ_video: boolean;
 };
 
 interface PeerConnection {
@@ -63,9 +73,6 @@ interface PeerConnection {
 
   insertable_legacy: boolean;
   insertable_streams: boolean;
-
-  encryptedFrame: ArrayBuffer | null;
-  decryptedFrame: ArrayBuffer | null;
 }
 
 const ENV_FIREFOX = 1;
@@ -73,7 +80,8 @@ const ENV_FIREFOX = 1;
 let em_module: any;
 let logFn: WcallLogHandler | null = null;
 let userMediaHandler: UserMediaHandler | null = null;
-let mediaStreamHandler: MediaStreamHandler | null = null;
+let audioStreamHandler: AudioStreamHandler | null = null;
+let videoStreamHandler: VideoStreamHandler | null = null;
 let pc_env = 0;
 let pc_envver = 0;
 let worker: Worker;
@@ -306,6 +314,20 @@ function encryptFrame(coder, rtcFrame, controller) {
   const data = new Uint8Array(dataBuf);
   const t = Object.prototype.toString.call(rtcFrame);
   const isVideo = t === '[object RTCEncodedVideoFrame]';
+  const userid = "self";
+
+  if (isVideo && !coder.video.first_recv) {
+    doLog("frame_enc: encrypt: first frame received type: video uid: " +
+          userid + " fid: " + coder.frameId + " csrc: " + coder.video.ssrc);
+    coder.video.first_recv = true;
+    coder.video.first_succ = false;
+  }
+  if (!isVideo && !coder.audio.first_recv) {
+    doLog("frame_enc: encrypt: first frame received type: audio uid: " +
+          userid + " fid: " + coder.frameId + " csrc: " + coder.audio.ssrc);
+    coder.audio.first_recv = true;
+    coder.audio.first_succ = false;
+  }
 
   if (coder.currentKey == null) {
     getCurrentMediaKey(coder.self);
@@ -336,34 +358,50 @@ function encryptFrame(coder, rtcFrame, controller) {
     rtcFrame.data = enc.buffer;
     controller.enqueue(rtcFrame);
 
+    if (isVideo && !coder.video.first_succ) {
+      doLog("frame_enc: encrypt: first frame encrypted type: video uid: " +
+            userid + " fid: " + coder.frameId + " csrc: " + coder.video.ssrc);
+      coder.video.first_succ = true;
+    }
+    if (!isVideo && !coder.audio.first_succ) {
+      doLog("frame_enc: encrypt: first frame encrypted type: audio uid: " +
+            userid + " fid: " + coder.frameId + " csrc: " + coder.audio.ssrc);
+      coder.audio.first_succ = true;
+    }
+
     coder.frameId++;
   });
 }
 
-function decryptFrame(user, coder, rtcFrame, controller) {
+function decryptFrame(coder, rtcFrame, controller) {
   const dataBuf = rtcFrame.data;
   const data = new Uint8Array(dataBuf);
-  let uinfo = null;
-  //  const ssrc = rtcFrame.synchronizationSource.toString();
-  const t = Object.prototype.toString.call(rtcFrame);
 
+  const t = Object.prototype.toString.call(rtcFrame);
   const isVideo = t === '[object RTCEncodedVideoFrame]'
 
+  const meta = rtcFrame.getMetadata();
   let ssrc = null;
+  if (meta.contributingSources && meta.contributingSources.length > 0) {
+     ssrc = meta.contributingSources[0].toString();
+  }
+  else {
+     ssrc = meta.synchronizationSource.toString();
+  }
+
   if (isVideo) {
-     ssrc = user.ssrcv;
      uinfo = coder.video.users[ssrc];
   }
   else {
-     ssrc = user.ssrca;
      uinfo = coder.audio.users[ssrc];
   }
-  
+
   if (!uinfo || !ssrc) {
       doLog('decryptFrame: no userinfo for ssrc: ' + ssrc);
       return;
   }
-    
+ 
+  //console.log('decryptFrame: video ' + isVideo + ' ssrc ' + ssrc + ' user ' + uinfo.userid);
   const frameHdr = frameHeaderDecode(data);
 
   if (frameHdr == null) {
@@ -371,6 +409,18 @@ function decryptFrame(user, coder, rtcFrame, controller) {
     return;
   }
 
+  if (isVideo && !uinfo.first_recv_video) {
+    doLog("frame_dec: decrypt: first frame received type: video uid: " +
+          uinfo.userid + " fid: " + frameHdr.frameId + " csrc: " + ssrc);
+    uinfo.first_recv_video = true;
+    uinfo.first_succ_video = false;
+  }
+  if (!isVideo && !uinfo.first_recv_audio) {
+    doLog("frame_dec: decrypt: first frame received type: audio uid: " +
+          uinfo.userid + " fid: " + frameHdr.frameId + " csrc: " + ssrc);
+    uinfo.first_recv_audio = true;
+    uinfo.first_succ_audio = false;
+  }
   /*
   console.log("coder[" + coder.self + "]"
 	+ " len=" + frameHdr.len
@@ -413,6 +463,16 @@ function decryptFrame(user, coder, rtcFrame, controller) {
   .then(function(decdata){
     rtcFrame.data = decdata;
     controller.enqueue(rtcFrame);
+    if (isVideo && !uinfo.first_succ_video) {
+      doLog("frame_dec: decrypt: first frame decrypted type: video uid: " +
+            uinfo.userid + " fid: " + frameHdr.frameId + " csrc: " + ssrc);
+      uinfo.first_succ_video = true;
+    }
+    if (!isVideo && !uinfo.first_succ_audio) {
+      doLog("frame_dec: decrypt: first frame decrypted type: audio uid: " +
+            uinfo.userid + " fid: " + frameHdr.frameId + " csrc: " + ssrc);
+      uinfo.first_succ_audio = true;
+    }
   })
   .catch(err => {
      console.log(err);
@@ -436,14 +496,18 @@ onmessage = async (event) => {
 	if (!coder) {
 	    coder = {
 		self: self,
-		frameId: Math.random() * 4294967296,		
+		frameId: Math.floor(Math.random() * 4294967295),
 		currentKey: null,
 		keys: [],
 		audio: {
+		    first_recv: false,
+		    first_succ: false,
 		    iv: iva,
 		    users: [],
 		},
 		video: {
+		    first_recv: false,
+		    first_succ: false,
 		    iv: ivv,
 		    users: [],
 		},
@@ -480,7 +544,6 @@ onmessage = async (event) => {
             .pipeTo(writableStream);
     }
     else if (op === 'setupReceiver') {
-       const {userInfo} = event.data;
        const {readableStream, writableStream} = event.data;
 
        if (!coder) {
@@ -489,7 +552,7 @@ onmessage = async (event) => {
        }
 
        const transformStream = new TransformStream({
-	   transform: (frame, controller) => {decryptFrame(userInfo, coder, frame, controller);},
+	   transform: (frame, controller) => {decryptFrame(coder, frame, controller);},
        });
        readableStream
         .pipeThrough(transformStream)
@@ -866,33 +929,6 @@ function ccallDcDataHandler(pc: PeerConnection, data: string) {
 }
 
 
-function ccallEncryptFrame(pc: PeerConnection, mtype: number, data: number, dataLen: number)
-{
-  em_module.ccall(
-    "pc_encrypt_frame",
-    null,
-    ["number", "number",  "number", "number"],
-    [pc.self, mtype, data, dataLen]
-  );
-}
-
-function ccallDecryptFrame(
-  pc: PeerConnection,
-  mtype: number,
-  userid: string,
-  clientid: string,
-  data: number,
-  dataLen: number)
-{
-  em_module.ccall(
-    "pc_decrypt_frame",
-    null,
-    ["number", "number", "string", "string", "number", "number"],
-    [pc.self, mtype, userid, clientid, data, dataLen]
-  );
-}
-
-
 function ccallGetMediaKey(
   self: number,
   index: number)
@@ -1130,10 +1166,6 @@ function pc_New(self: number, convidPtr: number,
       sent_vpkts: 0,
       rtt: 0
     },
-
-    encryptedFrame: null,
-    decryptedFrame: null,
-
   };
 
   worker.postMessage({op: 'create', self: pc.self, iva: iva8, ivv: ivv8});
@@ -1201,21 +1233,26 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
 		       	track.enabled = true;
 
 			if (pc.conv_type === CONV_TYPE_CONFERENCE) {
-        		  const uinfo = pc.users[label];
-			  if (uinfo) {
-			     try {
-			        setupReceiverTransform(pc, uinfo, event.receiver);
-			     }
-			     catch(err) {
-			        pc_log(LOG_LEVEL_WARN, "onTrack: setupReceiverTrasform failed: " + err, err);
-			     }
-      			 }
+			  try {
+			    setupReceiverTransform(pc, event.receiver);
+			  }
+			  catch(err) {
+			    pc_log(LOG_LEVEL_WARN, "onTrack: setupReceiverTransform failed: " + err, err);
+			  }
 		      }
 		  }
 	      }
 	  }
       }
-      if (mediaStreamHandler) {
+
+      if (event.track.kind == "audio" && audioStreamHandler) {
+          pc_log(LOG_LEVEL_INFO, `onTrack: calling ash(${pc.convid}, ${label}) with ${event.streams.length} streams`);
+	  audioStreamHandler(
+	      pc.convid,
+              label,
+	      event.streams);
+      }
+      if (event.track.kind == "video" && videoStreamHandler) {
           let userid = pc.remote_userid;
 	  let clientid = pc.remote_clientid;
 
@@ -1226,15 +1263,14 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
 	      clientid = uinfo.clientid;
 	  }
 
-	  if (userid === 'sft')
-	    return;
-	  
-          pc_log(LOG_LEVEL_INFO, `onTrack: calling msh(${pc.convid}, ${userid}, ${clientid}) with ${event.streams.length} streams`);
-	  mediaStreamHandler(
-	      pc.convid,
-	      userid,
-	      clientid,
-	      event.streams);
+          if (userid != "sft" && userid != "") {
+              pc_log(LOG_LEVEL_INFO, `onTrack: calling vsh(${pc.convid}, ${userid}, ${clientid}) with ${event.streams.length} streams`);
+	      videoStreamHandler(
+	          pc.convid,
+	          userid,
+	          clientid,
+	          event.streams);
+	  }
       }
   };
 }
@@ -1406,36 +1442,6 @@ function sdpMap(sdp: string, local: boolean, bundle: boolean): string {
 }
 
 
-
-function pc_SetEncryptedFrame(hnd: number, mtype: number, framePtr: number, frameLen: number) {
-
-  const pc = connectionsStore.getPeerConnection(hnd);
-
-  if (pc == null) {
-    return;
-  }
-
-  const buf = new ArrayBuffer(frameLen);
-  const ptr = new Uint8Array(em_module.HEAPU8.buffer, framePtr, frameLen);
-  const buf8 = new Uint8Array(buf); 
-  buf8.set(ptr);
-  pc.encryptedFrame = buf;
-}
-
-function pc_SetDecryptedFrame(hnd: number, mtype: number, framePtr: number, frameLen: number) {
-  const pc = connectionsStore.getPeerConnection(hnd);
-
-  if (pc == null) {
-    return;
-  }
-
-  const buf = new ArrayBuffer(frameLen);
-  const ptr = new Uint8Array(em_module.HEAPU8.buffer, framePtr, frameLen);
-  const buf8 = new Uint8Array(buf); 
-  buf8.set(ptr);
-  pc.decryptedFrame = buf;
-}
-
 function pc_SetMediaKey(hnd: number, index: number, current: number, keyPtr: number, keyLen: number) {
 
   const pc = connectionsStore.getPeerConnection(hnd);
@@ -1491,7 +1497,7 @@ function setupSenderTransform(pc: PeerConnection, sender: any) {
 }
 
 
-function setupReceiverTransform(pc: PeerConnection, uinfo: UserInfo, receiver: any) {
+function setupReceiverTransform(pc: PeerConnection, receiver: any) {
   if (!receiver || !receiver.track) {
       return;
   }
@@ -1516,7 +1522,6 @@ function setupReceiverTransform(pc: PeerConnection, uinfo: UserInfo, receiver: a
   worker.postMessage({
     op: 'setupReceiver',
     self: pc.self,
-    userInfo: uinfo,
     readableStream,
     writableStream,
   }, [readableStream, writableStream]);
@@ -1669,7 +1674,11 @@ function pc_AddUserInfo(hnd: number, labelPtr: number,
 	ssrcv: ssrcv,
 	iva: iva8,
 	ivv: ivv8,
-	audio_level: 0
+	audio_level: 0,
+	first_recv_audio: false,
+	first_succ_audio: false,
+	first_recv_video: false,
+	first_succ_video: false
   };
 
   pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: label=${label} ${userId}/${clientId} ssrc:${ssrca}/${ssrcv}`);
@@ -1684,15 +1693,21 @@ function pc_AddUserInfo(hnd: number, labelPtr: number,
 }
 
 function pc_RemoveUserInfo(hnd: number, labelPtr: number) {
-  pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: hnd=${hnd}`);
+  const label = em_module.UTF8ToString(labelPtr);
+
+  pc_log(LOG_LEVEL_INFO, `pc_RemoveUserInfo: hnd=${hnd} label=${label}`);
 
   const pc = connectionsStore.getPeerConnection(hnd);
   if (pc == null) {
     return;
   }
-  const label = em_module.UTF8ToString(labelPtr);
-  if (pc.users.hasOwnProperty(label))
+  if (pc.users.hasOwnProperty(label)) {
+    if (audioStreamHandler) {
+      pc_log(LOG_LEVEL_INFO, `pcRemoveUserInfo: calling ash(${pc.convid}, ${label}) with 0 streams`);
+      audioStreamHandler(pc.convid, label, null);
+    }
     delete pc.users[label];
+  }
 }
 
 function pc_SetRemoteDescription(hnd: number, typePtr: number, sdpPtr: number) {
@@ -2043,8 +2058,6 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_DataChannelState, "nn"],
     [pc_DataChannelSend, "vnsn"],
     [pc_DataChannelClose, "vn"],
-    [pc_SetEncryptedFrame, "nnnnn"],
-    [pc_SetDecryptedFrame, "nnnnn"],
     [pc_SetMediaKey, "nnnn"],
   ].map(([callback, signature]) => em_module.addFunction(callback, signature));
 
@@ -2060,8 +2073,12 @@ function pc_SetUserMediaHandler(umh: UserMediaHandler) {
   userMediaHandler = umh;
 }
 
-function pc_SetMediaStreamHandler(msh: MediaStreamHandler) {
-  mediaStreamHandler = msh;
+function pc_SetAudioStreamHandler(ash: AudioStreamHandler) {
+  audioStreamHandler = ash;
+}
+
+function pc_SetVideoStreamHandler(vsh: VideoStreamHandler) {
+  videoStreamHandler = vsh;
 }
 
 function pc_ReplaceTrack(convid: string, newTrack: MediaStreamTrack) {
@@ -2122,10 +2139,27 @@ function pc_GetLocalStats(hnd: number) {
 	    [pc.self, uinfo.ssrca, uinfo.audio_level]);
 	  }
 	});
+      const csrcs = rx.getContributingSources();
+      csrcs.forEach(csrc => {
+        const uinfo = uinfo_from_ssrca(pc, csrc.source.toString());
+	if (uinfo) {
+	  uinfo.audio_level = 0;
+	  if (typeof csrc.audioLevel !== 'undefined')
+	    uinfo.audio_level = ((csrc.audioLevel * 255.0) | 0);
+
+	  em_module.ccall(
+	    "pc_set_audio_level",
+	    null,
+	    ["number", "number", "number"],
+	    [pc.self, uinfo.ssrca, uinfo.audio_level]);
+	  }
+	});
      }
   });
 
   let self_audio_level = 0;
+  let max_apkts = 0;
+  let max_vpkts = 0;
 
   rtc.getStats()
     .then((stats) => {
@@ -2142,10 +2176,12 @@ function pc_GetLocalStats(hnd: number) {
 		
 		const p = stat.packetsReceived;		
 		if (stat.kind === 'audio') {
-		    pc.stats.recv_apkts = p;
+		    if (p > max_apkts)
+		        max_apkts = p;
 		}
 		else if (stat.kind === 'video') {
-		    pc.stats.recv_vpkts = p;
+		    if (p > max_vpkts)
+		        max_vpkts = p;
 		}		
 	    }
 	    else if (stat.type === 'outbound-rtp') {
@@ -2165,6 +2201,8 @@ function pc_GetLocalStats(hnd: number) {
 	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 255.0) | 0) : 0;
 	    }
 	});
+	pc.stats.recv_apkts = max_apkts;
+	pc.stats.recv_vpkts = max_vpkts;
 
 	em_module.ccall(
 	    "pc_set_stats",
@@ -2187,7 +2225,8 @@ function pc_GetLocalStats(hnd: number) {
 export default {
   init: pc_InitModule,
   setUserMediaHandler: pc_SetUserMediaHandler,
-  setMediaStreamHandler: pc_SetMediaStreamHandler,
+  setAudioStreamHandler: pc_SetAudioStreamHandler,
+  setVideoStreamHandler: pc_SetVideoStreamHandler,
   replaceTrack: pc_ReplaceTrack,
   getStats: pc_GetStats
 };

@@ -99,6 +99,9 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.confconn.turnc = 0;
 		msg->u.confconn.tool = mem_deref(msg->u.confconn.tool);
 		msg->u.confconn.toolver = mem_deref(msg->u.confconn.toolver);
+		msg->u.confconn.selective_audio = false;
+		msg->u.confconn.selective_video = false;
+		msg->u.confconn.vstreams = 0;
 		break;
 
 	case ECONN_CONF_START:

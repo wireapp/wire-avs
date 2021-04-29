@@ -435,6 +435,12 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 			      msg->u.confconn.toolver);
 		jzon_add_int(jobj, "status",
 			      msg->u.confconn.status);
+		jzon_add_bool(jobj, "selective_audio",
+			      msg->u.confconn.selective_audio);
+		jzon_add_bool(jobj, "selective_video",
+			      msg->u.confconn.selective_video);
+		jzon_add_int(jobj, "vstreams",
+			      msg->u.confconn.vstreams);
 		break;
 
 	case ECONN_CONF_START:
@@ -807,7 +813,8 @@ int econn_message_decode(struct econn_message **msgp,
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_CONN))) {
 		struct json_object *jturns;
 		const char *tool_str = NULL;
-		int32_t status = 0;
+		int32_t status = 0, vstreams = 0;
+		bool selective_audio = false, selective_video = false;
 
 		msg->msg_type = ECONN_CONF_CONN;
 
@@ -842,10 +849,41 @@ int econn_message_decode(struct econn_message **msgp,
 
 		/* status is optional, missing = 0 */
 		err = jzon_int(&status, jobj, "status");
-		if (err)
+		if (err) {
 			status = 0;
+			err = 0;
+		}
 
 		msg->u.confconn.status = (enum econn_confconn_status) status;
+
+		/* selective_audio is optional, missing = false */
+		err = jzon_bool(&selective_audio, jobj, "selective_audio");
+		if (err) {
+			selective_audio = false;
+			err = 0;
+		}
+		msg->u.confconn.selective_audio = selective_audio;
+
+		/* selective_video is optional, missing = false */
+		err = jzon_bool(&selective_video, jobj, "selective_video");
+		if (err) {
+			selective_video = false;
+			err = 0;
+		}
+		msg->u.confconn.selective_video = selective_video;
+
+		/* vstreams is optional, missing = 0, range 0 to 32 */
+		err = jzon_int(&vstreams, jobj, "vstreams");
+		if (err) {
+			vstreams = 0;
+			err = 0;
+		}
+		if (vstreams < 0)
+			vstreams = 0;
+		if (vstreams > 32)
+			vstreams = 32;
+		msg->u.confconn.vstreams = vstreams;
+
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_END))) {
 		msg->msg_type = ECONN_CONF_END;

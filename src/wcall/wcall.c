@@ -1069,6 +1069,12 @@ static int err2reason(int err)
 	case EREMOTE:
 		return WCALL_REASON_REJECTED;
 
+	case ENOONEJOINED:
+		return WCALL_REASON_NOONE_JOINED;
+
+	case EEVERYONELEFT:
+		return WCALL_REASON_EVERYONE_LEFT;
+
 	default:
 		/* TODO: please convert new errors */
 		warning("wcall: default reason (%d) (%m)\n", err, err);
@@ -1164,6 +1170,12 @@ static void egcall_leave_handler(struct icall* icall, int reason, uint32_t msg_t
 			break;
 		case ICALL_REASON_TIMEOUT:
 			wreason = WCALL_REASON_TIMEOUT;
+			break;
+		case ICALL_REASON_NOONE_JOINED:
+			wreason = WCALL_REASON_NOONE_JOINED;
+			break;
+		case ICALL_REASON_EVERYONE_LEFT:
+			wreason = WCALL_REASON_EVERYONE_LEFT;
 			break;
 		default:
 			wreason = WCALL_REASON_NORMAL;
@@ -3357,6 +3369,8 @@ const char *wcall_reason_name(int reason)
 	case WCALL_REASON_DATACHANNEL:        return "DataChannel";
 	case WCALL_REASON_REJECTED:           return "Rejected";
 	case WCALL_REASON_OUTDATED_CLIENT:    return "OutdatedClient";
+	case WCALL_REASON_NOONE_JOINED:       return "NooneJoined";
+	case WCALL_REASON_EVERYONE_LEFT:      return "EveryoneLeft";
 
 	default: return "???";
 	}

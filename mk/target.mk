@@ -610,7 +610,7 @@ SH_LFLAGS += -shared
 
 LIBS += -lX11 -lXcomposite -lXdamage -lXext -lXfixes -lXrender
 
-LIBS += -ldl -lrt -lm -lc++ -lc++abi
+LIBS += -ldl -lrt -lm -lc++ -lc++abi -lpthread
 
 ifneq ($(USE_X11),)
 LIBS += -lX11 -lXcomposite -lXdamage -lXext -lXfixes -lXrender

@@ -43,7 +43,7 @@
 #include "ecall.h"
 
 
-#define SDP_MAX_LEN 8192
+#define SDP_MAX_LEN 16384
 #define ECALL_MAGIC 0xeca1100f
 
 #define TIMEOUT_DC_CLOSE     10000
@@ -3105,10 +3105,8 @@ int ecall_remove_decoders_for_user(struct ecall *ecall,
 		return EINVAL;
 	}
 
-#if 0
 	err = IFLOW_CALLE(ecall->flow, remove_decoders_for_user,
 			  userid, clientid);
-#endif
 
 	return err;
 }
@@ -3176,4 +3174,3 @@ int ecall_set_ping_handler(struct ecall *ecall,
 	ecall->pingh = pingh;
 	return 0;
 }
-

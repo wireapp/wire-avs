@@ -47,6 +47,7 @@ static void ccall_sync_vstate_timeout(void *arg);
 static void ccall_decrypt_check_timeout(void *arg);
 static void ccall_keepalive_timeout(void *arg);
 static void ccall_end_with_err(struct ccall *ccall, int err);
+static void ccall_alone_timeout(void *arg);
 static int  ccall_send_msg(struct ccall *ccall,
 			   enum econn_msg type,
 			   bool resp,
@@ -119,6 +120,7 @@ static void destructor(void *arg)
 	tmr_cancel(&ccall->tmr_vstate);
 	tmr_cancel(&ccall->tmr_decrypt_check);
 	tmr_cancel(&ccall->tmr_keepalive);
+	tmr_cancel(&ccall->tmr_alone);
 
 	mem_deref(ccall->sft_url);
 	mem_deref(ccall->convid_real);
@@ -423,6 +425,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		tmr_cancel(&ccall->tmr_connect);
 		tmr_cancel(&ccall->tmr_decrypt_check);
 		tmr_cancel(&ccall->tmr_keepalive);
+		tmr_cancel(&ccall->tmr_alone);
 		break;
 
 	case CCALL_STATE_INCOMING:
@@ -435,6 +438,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 			  ccall_ongoing_call_timeout, ccall);
 		tmr_cancel(&ccall->tmr_decrypt_check);
 		tmr_cancel(&ccall->tmr_keepalive);
+		tmr_cancel(&ccall->tmr_alone);
 		break;
 
 	case CCALL_STATE_CONNSENT:
@@ -444,6 +448,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		tmr_start(&ccall->tmr_connect, CCALL_CONNECT_TIMEOUT,
 			  ccall_connect_timeout, ccall);
 		tmr_cancel(&ccall->tmr_keepalive);
+		tmr_cancel(&ccall->tmr_alone);
 		break;
 
 	case CCALL_STATE_SETUPRECV:
@@ -468,6 +473,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		tmr_cancel(&ccall->tmr_send_check);
 		tmr_cancel(&ccall->tmr_connect);
 		tmr_cancel(&ccall->tmr_keepalive);
+		tmr_cancel(&ccall->tmr_alone);
 		break;
 
 	case CCALL_STATE_NONE:
@@ -684,6 +690,34 @@ static void ccall_keepalive_timeout(void *arg)
 
 	tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
 		  ccall_keepalive_timeout, ccall);
+}
+
+static void ccall_alone_timeout(void *arg)
+{
+	struct ccall *ccall = arg;
+
+	if (!ccall)
+		return;
+
+	if (ccall->state != CCALL_STATE_ACTIVE) {
+		info("ccall(%p): alone_timeout in state %s, ignoring\n",
+		     ccall,
+		     ccall_state_name(ccall->state));
+		return;
+	}
+
+	if (!ccall->ecall) {
+		info("ccall(%p): alone_timeout no ecall, ignoring\n",
+		     ccall);
+		return;
+	}
+
+	info("ccall(%p): alone_timeout sj: %s\n",
+	     ccall, ccall->someone_joined ? "YES" : "NO");
+
+	ccall_end_with_err(ccall,
+			   ccall->someone_joined ? EEVERYONELEFT :
+						   ENOONEJOINED);
 }
 
 static int ccall_generate_session_key(struct ccall *ccall,
@@ -1005,17 +1039,22 @@ static void ecall_close_handler(struct icall *icall,
 	mem_deref(ecall);
 	ccall->ecall = NULL;
 
-	if (ccall->error) {
-		ccall->error = 0;
-		set_state(ccall, CCALL_STATE_IDLE);
+	switch (ccall->error) {
+	case 0:
+	case ENOONEJOINED:
+	case EEVERYONELEFT:
+		if (should_end) {
+			ccall_send_msg(ccall, ECONN_CONF_END,
+				       false, NULL, false);
+		}
+		break;
 	}
-	else if (should_end) {
-		ccall_send_msg(ccall, ECONN_CONF_END,
-			       false, NULL, false);
+
+	if (should_end) {
 		set_state(ccall, CCALL_STATE_IDLE);
 
 		ICALL_CALL_CB(ccall->icall, closeh, 
-			&ccall->icall, 0, NULL, msg_time,
+			&ccall->icall, ccall->error, NULL, msg_time,
 			NULL, NULL, ccall->icall.arg);
 	}
 	else {
@@ -1025,6 +1064,8 @@ static void ecall_close_handler(struct icall *icall,
 			&ccall->icall, ICALL_REASON_STILL_ONGOING,
 			msg_time, ccall->icall.arg);
 	}
+
+	ccall->error = 0;
 }
 
 
@@ -1165,12 +1206,15 @@ static int send_confpart_response(struct ccall *ccall)
 			part->authorized = true;
 			list_append(&msg->u.confpart.partl, &part->le, part);
 
-			info("ccall(%p) send_confpart adding %s.%s hash %s.%s\n",
-				ccall,
-				anon_id(userid_anon, u->userid_real),
-				anon_client(clientid_anon, u->clientid_real),
-				u->userid_hash,
-				u->clientid_hash);
+			info("ccall(%p) send_confpart adding %s.%s hash %s.%s "
+			     " ssrca %u ssrcv %u\n",
+			     ccall,
+			     anon_id(userid_anon, u->userid_real),
+			     anon_client(clientid_anon, u->clientid_real),
+			     u->userid_hash,
+			     u->clientid_hash,
+			     u->ssrca,
+			     u->ssrcv);
 		}
 	}
 
@@ -1379,6 +1423,17 @@ static void ecall_confpart_handler(struct ecall *ecall,
 			       false, NULL, false);
 	}
 
+	if (list_count(partlist) > 1) {
+		tmr_cancel(&ccall->tmr_alone);
+		ccall->someone_joined = true;
+	}
+	else {
+		tmr_start(&ccall->tmr_alone,
+			  ccall->someone_joined ? CCALL_EVERYONE_LEFT_TIMEOUT :
+						  CCALL_NOONE_JOINED_TIMEOUT,
+			  ccall_alone_timeout, ccall);
+	}
+		
 	LIST_FOREACH(&ccall->partl, cle) {
 		struct userinfo *u = cle->data;
 		if (!u)
@@ -1422,7 +1477,6 @@ static void ecall_confpart_handler(struct ecall *ecall,
 			if (u->incall_prev && 
 			    (u->ssrca != p->ssrca ||
 			    u->ssrcv != p->ssrcv)) {
-#if 0
 				if (ccall->ecall) {
 					ecall_remove_decoders_for_user(ccall->ecall,
 								       u->userid_hash,
@@ -1430,9 +1484,9 @@ static void ecall_confpart_handler(struct ecall *ecall,
 								       u->ssrca,
 								       u->ssrcv);
 				}
-#endif
 				ccall->someone_left = true;
 				u->incall_prev = false;
+				sync_decoders = true;
 			}
 
 			u->incall_now = true;
@@ -1494,14 +1548,13 @@ static void ecall_confpart_handler(struct ecall *ecall,
 			}
 			else if (!u->incall_now && u->incall_prev) {
 				if (ccall->ecall) {
-#if 0
 					ecall_remove_decoders_for_user(ccall->ecall,
 								       u->userid_real,
 								       u->clientid_real,
 								       u->ssrca,
 								       u->ssrcv);
-#endif
 					ccall->someone_left = true;
+					sync_decoders = true;
 				}
 				if (u->video_state != ICALL_VIDEO_STATE_STOPPED) {
 					ICALL_CALL_CB(ccall->icall, vstate_changedh,
@@ -1784,6 +1837,7 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 		goto out;
 	}
 	msg->u.confconn.update = update;
+	msg->u.confconn.selective_audio = true;
 	err = ccall_send_msg_sft(ccall, sft_url, msg);
 	if (err != 0) {
 		goto out;
@@ -3007,6 +3061,14 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 
 	case ETIMEDOUT:
 		reason = ICALL_REASON_TIMEOUT;
+		break;
+
+	case ENOONEJOINED:
+		reason = ICALL_REASON_NOONE_JOINED;
+		break;
+
+	case EEVERYONELEFT:
+		reason = ICALL_REASON_EVERYONE_LEFT;
 		break;
 
 	default:

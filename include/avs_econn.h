@@ -164,6 +164,9 @@ struct econn_message {
 			char *tool;
 			char *toolver;
 			enum econn_confconn_status status;
+			bool selective_audio;
+			bool selective_video;
+			uint32_t vstreams;
 		} confconn;
 
 		struct confstart {

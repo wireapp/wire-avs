@@ -38,6 +38,7 @@ void sdp_check(const char *sdp,
 	       bool offer,
 	       peerflow_acbr_h *acbrh,
 	       peerflow_norelay_h *norelayh,
+	       peerflow_tool_h *toolh,
 	       void *arg);
 
 void sdp_safe_session_set_lattr(struct sdp_session *sess, bool replace,
@@ -52,6 +53,7 @@ typedef int (bundle_flow_update_h)(struct iflow *flow, const char *sdp);
 
 int bundle_update(struct iflow *flow,
 		  enum icall_conv_type conv_type,
+		  bool include_audio,
 		  const char *remote_sdp,
 		  struct list *conf_membl,
 		  bundle_flow_update_h *flow_updateh);

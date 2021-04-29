@@ -22,19 +22,22 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <sodium.h>
+#include <assert.h>
 
 static const size_t TAG_SIZE   = 16;
 static const size_t IV_SIZE    = 12;
 
 struct frame_decryptor
 {
-	char *userid_hash;
+	struct peerflow *pf;
 	uint32_t kidx;
 	EVP_CIPHER_CTX *ctx;
 	struct keystore *keystore;
 	uint8_t iv[IV_SIZE];
 	enum frame_media_type mtype;
 
+	char *userid_hash;
+	uint32_t csrc;
 	bool frame_recv;
 	bool frame_dec;
 };
@@ -51,39 +54,60 @@ static void destructor(void *arg)
 }
 
 int frame_decryptor_alloc(struct frame_decryptor **pdec,
-			  const char *userid_hash,
 			  enum frame_media_type mtype)
 {
 	struct frame_decryptor *dec;
 	int err = 0;
 
-	if (!pdec || !userid_hash) {
+	if (!pdec) {
 		return EINVAL;
 	}
 
 	dec = mem_zalloc(sizeof(*dec), destructor);
-	if (!dec) {
+	if (!dec)
 		return ENOMEM;
-	}
-
-	err = str_dup(&dec->userid_hash, userid_hash);
-	if (err) {
-		goto out;
-	}
 
 	dec->mtype = mtype;
-
 	*pdec = dec;
 
-	info("frame_dec(%p): alloc type: %s uid: %s\n",
+	info("frame_dec(%p): alloc type: %s\n",
 	     dec,
-	     frame_type_name(mtype),
-	     userid_hash);
-out:
+	     frame_type_name(mtype));
+
 	if (err) {
 		mem_deref(dec);
 	}
 	return err;
+}
+
+int frame_decryptor_set_uid(struct frame_decryptor *dec,
+			    const char *userid_hash)
+{
+	int err = 0;
+
+	if (!dec || !userid_hash)
+		return EINVAL;
+
+	dec->userid_hash = mem_deref(dec->userid_hash);
+
+	err = str_dup(&dec->userid_hash, userid_hash);
+	if (err)
+		goto out;
+
+out:
+	return err;
+}
+
+int frame_decryptor_set_peerflow(struct frame_decryptor *dec,
+				 struct peerflow *pf)
+{
+	if (!dec || !pf)
+		return EINVAL;
+
+	mem_deref(dec->pf);
+	dec->pf = pf;
+
+	return 0;
 }
 
 int frame_decryptor_set_keystore(struct frame_decryptor *dec,
@@ -91,19 +115,17 @@ int frame_decryptor_set_keystore(struct frame_decryptor *dec,
 {
 	int err = 0;
 
+	if (!dec || !keystore)
+		return EINVAL;
+
 	mem_deref(dec->keystore);
 	dec->keystore = (struct keystore*)mem_ref(keystore);
-
-	err = keystore_generate_iv(dec->keystore,
-				   dec->userid_hash,
-				   dec->mtype == FRAME_MEDIA_VIDEO ? "video_iv" : "audio_iv",
-				   dec->iv,
-				   IV_SIZE);
 
 	return err;
 }
 
 int frame_decryptor_decrypt(struct frame_decryptor *dec,
+			    uint32_t csrc,
 			    const uint8_t *src,
 			    size_t srcsz,
 			    uint8_t *dst,
@@ -118,6 +140,7 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 	uint32_t fid32 = 0;
 	uint64_t kid = 0;
 	size_t hsize = 0;
+	bool new_user = false;
 	int err = 0;
 
 	if (!dec || !src || !dst) {
@@ -132,14 +155,47 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 	hsize = frame_hdr_read(src, &frameid, &kid);
 	fid32 = (uint32_t)frameid;
 
-	if (!dec->frame_recv) {
+	if (csrc != 0 && csrc != dec->csrc) {
+		dec->userid_hash = mem_deref(dec->userid_hash);
+
+		err = peerflow_get_userid_for_ssrc(dec->pf,
+						   csrc,
+						   dec->mtype == FRAME_MEDIA_VIDEO,
+						   &dec->userid_hash);
+		if (err) 
+			goto out;
+
+		new_user = true;
+		dec->csrc = csrc;
+		dec->frame_recv = true;
+	}
+	else if (!dec->frame_recv) {
+		new_user = true;
+		dec->frame_recv = true;
+		dec->frame_dec = false;
+	}
+
+	if(new_user) {
+		const char *typename;
+		typename = dec->mtype == FRAME_MEDIA_VIDEO ? "video_iv" : "audio_iv";
+
+		assert(dec->userid_hash);
+		err = keystore_generate_iv(dec->keystore,
+					   dec->userid_hash,
+					   typename,
+					   dec->iv,
+					   IV_SIZE);
+		if (err) 
+			goto out;
+
 		info("frame_dec(%p): decrypt: first frame received "
-		     "type: %s uid: %s fid: %u\n",
+		     "type: %s uid: %s fid: %u csrc: %u\n",
 		     dec,
 		     frame_type_name(dec->mtype),
 		     dec->userid_hash,
-		     fid32);
-		dec->frame_recv = true;
+		     fid32,
+		     csrc);
+		dec->frame_dec = false;
 		keystore_set_decrypt_attempted(dec->keystore);
 	}
 
@@ -172,30 +228,30 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 	}
 
 	if (!EVP_DecryptInit_ex(dec->ctx, NULL, NULL, NULL, iv)) {
-		warning("frame_dec(%p): decrpyt: init failed\n", dec);
+		warning("frame_dec(%p): decrypt: init failed\n", dec);
 		err = EIO;
 		goto out;
 	}
 
 	if (!EVP_CIPHER_CTX_ctrl(dec->ctx, EVP_CTRL_GCM_SET_TAG, TAG_SIZE, (uint8_t*)tag)) {
-		warning("frame_dec(%p): decrpyt: set tag failed\n", dec);
+		warning("frame_dec(%p): decrypt: set tag failed\n", dec);
 		err = EIO;
 		goto out;
 	}
 	
 	if (!EVP_DecryptUpdate(dec->ctx, NULL, &dec_len, src, (int)hsize)) {
-		warning("frame_dec(%p): decrpyt: add header failed\n", dec);
+		warning("frame_dec(%p): decrypt: add header failed\n", dec);
 		err = EIO;
 		goto out;
 	}
 	if (!EVP_DecryptUpdate(dec->ctx, dst, &dec_len, enc, enc_size)) {
-		warning("frame_dec(%p): decrpyt: update failed\n", dec);
+		warning("frame_dec(%p): decrypt: update failed\n", dec);
 		err = EIO;
 		goto out;
 	}
 	
 	if (!EVP_DecryptFinal_ex(dec->ctx, dst + dec_len, &blk_len)) {
-		warning("frame_dec(%p): decrpyt: final failed\n", dec);
+		warning("frame_dec(%p): decrypt: final failed\n", dec);
 		err = EIO;
 		goto out;
 	}
@@ -211,14 +267,16 @@ out:
 
 	if (!err && !dec->frame_dec) {
 		info("frame_dec(%p): decrypt: first frame decrypted "
-		     "type: %s uid: %s fid: %u\n",
+		     "type: %s uid: %s fid: %u csrc: %u\n",
 		     dec,
 		     frame_type_name(dec->mtype),
 		     dec->userid_hash,
-		     fid32);
+		     fid32,
+		     dec->csrc);
 		dec->frame_dec = true;
 		keystore_set_decrypt_successful(dec->keystore);
 	}
+
 	return err;
 }
 

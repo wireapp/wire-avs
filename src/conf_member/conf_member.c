@@ -32,7 +32,6 @@ static void cm_destructor(void *arg)
 	mem_deref(cm->label);
 	mem_deref(cm->cname);
 	mem_deref(cm->msid);
-	mem_deref(cm->uinfo);
 }
 
 

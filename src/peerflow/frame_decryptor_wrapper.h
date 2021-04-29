@@ -24,17 +24,20 @@
 #include "rtc_base/ref_counted_object.h"
 
 struct frame_decryptor;
+struct peerflow;
 
 namespace wire {
 
 class FrameDecryptor : public rtc::RefCountedObject<webrtc::FrameDecryptorInterface>
 {
 public:
-	FrameDecryptor(const char *userid_hash,
-		       enum frame_media_type mtype);
+	FrameDecryptor(enum frame_media_type mtype,
+		       struct peerflow *pf);
 	~FrameDecryptor();
 
 	int SetKeystore(struct keystore *keystore);
+
+	int SetUserID(const char *userid_hash);
 
 	Result Decrypt(cricket::MediaType media_type,
 			       const std::vector<uint32_t>& csrcs,

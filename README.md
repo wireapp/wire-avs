@@ -1,16 +1,20 @@
-# Wire - Audio, Video, and Signaling (AVS)
+Wire - Audio, Video, and Signaling (AVS)
+=============================
 
-This repository is part of the source code of Wire. You can find more information at [wire.com](https://wire.com) or by contacting opensource@wire.com.
+This repository is part of the source code of Wire. You can find more information at wire.com or by contacting opensource@wire.com.
 
-You can find the published source code at [github.com/wireapp](https://github.com/wireapp). 
+You can find the published source code at github.com/wireapp.
 
-For licensing information, see the attached LICENSE file and the list of third-party licenses at [wire.com/legal/licenses/](https://wire.com/legal/licenses/).
+For licensing information, see the attached LICENSE file and the list of third-party licenses at wire.com/legal/licenses/.
 
-# Build Requirements
+
+Build Requirements
+------------------
 
 Apart from the basic toolchain for each system, you need these:
 
 * clang, libc++
+* readline (for building zcall, only)
 * yasm (for video only)
 * alsa (for Linux only).
 
@@ -19,7 +23,7 @@ for your specific version of both OSX and Xcode. Things *will* break if
 you have the wrong version. You can install the latter via menu Xcode,
 then Open Developer Tool, then More Developer Tools.
 
-For getting autoconf, automake, libtool, and yasm, we suggest [Homebrew](http://brew.sh/).
+For getting autoconf, automake, libtool, readline and yasm, we suggest [Homebrew](http://brew.sh/).
 Follow the instructions there, then:
 
 ```bash
@@ -36,8 +40,6 @@ $ brew install \
   yasm
 $ multirust default nightly
 ```
-
-
 
 For **Android**, you need both the
 [Android SDK](https://developer.android.com/sdk/index.html) as well as the
@@ -79,48 +81,49 @@ $ curl -sSf https://static.rust-lang.org/rustup.sh | sh -s -- --channel=nightly
 ```
 
 
-
 For **Windows**, you will have to start by adding your system to the build
 system. Good luck!
 
 
-# Build Instructions
-
+Build Instructions
+------------------
 
 AVS will work with Google WebRTC which first needs to be pulled from Google and pre-compiled. To do that go to the webrtc directory and run:
 
-./scripts/build.sh
-./scripts/package.sh
+./scripts/build.sh ./scripts/package.sh
 
 This should be done on OSX for headers and iOS+OSX libs and on Linux for Linux+Android libs. The scripts pull from Googles repos, apply a patch for Android (in patches dir), build and package the libs into zips, which get copied to contrib/webrtc. Expected zips are:
 
-contrib/webrtc/webrtc_72.local_android.zip
-contrib/webrtc/webrtc_72.local_headers.zip
-contrib/webrtc/webrtc_72.local_ios.zip
-contrib/webrtc/webrtc_72.local_linux.zip
-contrib/webrtc/webrtc_72.local_osx.zip
+contrib/webrtc/webrtc_72.local_android.zip contrib/webrtc/webrtc_72.local_headers.zip contrib/webrtc/webrtc_72.local_ios.zip contrib/webrtc/webrtc_72.local_linux.zip contrib/webrtc/webrtc_72.local_osx.zip
 
 All zips are needed to build AVS, but can be empty files if not needed: e.g. you can run touch contrib/webrtc/webrtc_72.local_android.zip if you dont intend to build for Android.
 
-AVS has more dependencies that need to be updated with:
 
-./prepare.sh
+AVS has more dependencies that need to be updated. The first time you need to fetch the submodules by doing:
 
-Next step is to build AVS itself. When building AVS with local webrtc, invoke make with: 
+```
+$ ./prepare.sh
+```
 
-make WEBRTC_VER <release>.local
+Next step is to build AVS itself. When building AVS with local webrtc, invoke make with:
+
+make WEBRTC_VER .local
 
 For example:
 
 make WEBRTC_VER=72.local
 
+The deliverables are being built by saying make WEBRTC_VER <release>.local dist. You can limit this to only select target platforms through make WEBRTC_VER <release>.local dist_android, make WEBRTC_VER <release>.local dist_osx and make WEBRTC_VER <release>.local dist_ios. All of them take quite a while on a fresh checkout.
 
-The deliverables are being built by saying ``make WEBRTC_VER <release>.local dist``. You can limit
-this to only select target platforms through ``make WEBRTC_VER <release>.local dist_android``,
-``make WEBRTC_VER <release>.local dist_osx`` and ``make WEBRTC_VER <release>.local dist_ios``. All of them take quite a while
+If you simply say ``make``, a pre-compiled version of webrtc is included, and a selection of tools is being built for your
+host machine. You probably want ``zcall``, the AVS command line client.
+You can only build that by saying ``make zcall``. Similarly, you can
+build any other tool by giving its name to make.
+
+The deliverables are being built by saying ``make dist``. You can limit
+this to only select target platforms through ``make dist_android``,
+``make dist_osx`` and ``make dist_ios``. All of them take quite a while
 on a fresh checkout.
-
-
 
 You'll find the deliverables in ``build/dist/{android,ios,osx}``.
 
@@ -139,7 +142,7 @@ all the necessary architectures but builds quicker, you can pass
 architecture:
 
 ```bash
-$ make WEBRTC_VER=72.local dist_ios DIST_ARCH=armv7
+$ make dist_ios DIST_ARCH=armv7
 ```
 
 will build an iOS distribution that will only contain armv7 instead of
@@ -147,7 +150,8 @@ the usual five architectures.
 
 
 
-# Using the Library
+Using the Library
+-----------------
 
 During the build, a set of static libraries is being built. You can use
 this library in your own projects. 
@@ -160,50 +164,90 @@ probably to add ``build/$(your-platform)/lib`` to your library path and
 then add all ``.a`` files in there as ``-l`` arguments.
 
 
-# Tools
+Using the Command Line Client (zcall)
+-----------------------------
 
-A tool for testing basic functionality called zcall can be built with e.g.
+Start the command line client provding the email address of an existing
+account using the ``-e`` option. You can switch to staging (aka dev) by
+adding the ``-D`` option and to edge by adding the ``-E`` option. Since
+caching is currently a little broken, you probably want to add the ``-f``
+option, too. For further information on available options, try the ever
+helpful ``-h`` option.
 
-``make WEBRTC_VER=72.local zcall``
+Once started, hit ``h`` to see a list of key strokes available and
+type ``:help`` and enter to see a list of commands. All commands are
+entered by typing ``:`` first.
 
-Use ``zcall -help`` to see available options. To log into the client:
+**Creating a Client**
 
-``./zcall -e <Wire-login-email> -p <password>``
+The first thing you will need is a clientid. This can be done as follows:
 
-Next step is to register a client:
+`:get_clients`    lists clients for this user, the current one for zcall is marked with a `*`
+`:reg_client`     register a new client
 
-``:reg_client``
+There is a limit of 8 clients per user, if all are used you will need to remove one with:
 
-Please note that only 7 clients can be registered and it may become necessary to delete a client before a new one can be registered.
+`:delete_cient <clientid>`
+
+Beware that there is no "are you sure" question, use this only if you know what you are doing! If you delete an in-use client by accident bad things may happen.
+
+**Managing Conversations**
+
+Keys for listing, selecting and showing conversations are:
+
+`l` list conversations, the selected one is marked with `->`
+`j` select previous conversation
+`k` select next conversation
+`i` show selected conversation ID and members
+
+You can also select a conversation with the `:switch` command and send basic chat messages to the selected conversation with `:say`
+
+**Calling**
+
+Keys for calling are:
+
+`c` start a call in the selected conversation
+`a` answer the most recent incoming call
+`e` end/leave the call
+`m` toggle mute
+`V` toggle video sending
+
+Incoming calls are indicated by the following line:
+```
+calling: incoming audio call in conv: Conversation (conference) from "test_user:0123456789abcdef" ring: yes ts: 1614244695
+```
 
 
-# Architecture overview:
+Architecture overview:
+----------------------
 
 
 ```
-                      .----------.  .------.
-                      |  Engine  |  | Mill |
-                      '----------'  '------'
-                     /      |
-    .--------------.        |
-    |   EGCALL     |  .----------.  .-----------.  .----------.
-    |   ECALL      |  | REST     |  | Media-mgr |  | Netprobe |
-    |   ECONN      |  | Nevent   |  '-----------'  '----------'
-    '--------------'  '----------'
-       |      |
-  .---------. |  .-----.
-  |Mediaflow| |  | DCE |
-  '---------'\|  '-----'
-       |      |\                                   .----------.
-   .-------.  | \.--------.                        | Protobuf |
-   |aucodec|  |  |vidcodec|                        '----------'
-   '-------'  |  '--------'
-       |     / \     |                             .----------.
-   .-------./   \.--------.                        | Conf-Pos |
-   |  VOE  |     |  VIE   |                        '----------'
-   '-------'     '--------'
-
-
+           .-----------.                            .---------.  .----------.
+           |   wcall   |                            | engine  |  | mediamgr |
+           '-----------'                            '---------'  '----------'
+            /    |    \                                  |
+  .-----------.  |  .-----------.   .----------.    .---------.
+  |  egcall   |  |  |   ccall   |---| keystore |    |  REST   |
+  '-----------'  |  '-----------'   '----------'    |  nevent |
+            \    |    /                             | protobuf|
+           .-----------.   .-----------.            '---------'
+           |   ecall   |---|  econn    |
+           '-----------'   '-----------'
+             /        \
+     mobile /          \ web
+  .-----------.     .-----------.
+  | peerflow  |     |  jsflow   |
+  '-----------'     '-----------'
+        |                 |
+  .-----------.     .-----------.
+  |webrtc(C++)|     | avs_pc(JS)|
+  | peerconn  |     '-----------'
+  '-----------'           |
+                    .-----------.
+                    | webrtc(JS)|
+                    | peerconn  |
+                    '-----------'
 
     .------------------------------.
     | Low-level utility modules:   |
@@ -224,8 +268,6 @@ Please note that only 7 clients can be registered and it may become necessary to
 ```
 
 
-
-
 Some specifications implemented:
 -------------------------------
 
@@ -235,7 +277,71 @@ Some specifications implemented:
 * https://tools.ietf.org/html/draft-ietf-rtcweb-data-channel-13
 
 
-# Reporting bugs
+Maintainer Instructions
+-----------------------
+
+### Making Releases
+
+When making a new release, follow these steps:
+
+* Update the ChangeLog.txt file. See the older entries on how that should
+  look.
+
+* Branch off the new release by creating a branch release-x.y where x.y
+  is the release number and push it to origin (no, you can't just copy
+  and paste the following snippet):
+
+```bash
+$ git checkout -b release-x.y
+$ git push --set-upstream origin release-x.y
+```
+
+* Go back to master and update `Makefile` to have the number of the _next_
+  relase in `VER_MAJOR` and `VER_MINOR`. Push your changes.
+
+```bash
+$ git checkout master
+$ vim Makefile
+$ git push
+```
+
+* Go to Jenkins at http://[IP]:8080/job/avs-release/configure
+  and change "Branches to build" to the name of your new release branch.
+  Save and "build now".
+
+* Once Jenkins is done, issue Pull Requests to zclient-android,
+  zclient-ios, and zclient-osx.
+
+
+### Updating Contrib Libraries from Upstream
+
+The build system uses `git ls-files` to determine the build dependencies
+for `contrib` libraries in a vaguely reliable way. It is therefore
+important that only files are checked in that are not being updated on
+every build. Else that contrib library is re-build on every `make`
+defeating the purpose.
+
+Unfortunately, some source packages contains such files (notably, OpenSSL
+is a big giant mess). When updating such a package, make sure to delete
+these files before your `git add`.
+
+The easiest way to achieve this is by adding your new files, run a
+`make contrib_all` (or `make contrib_your_library`) and, if building
+succeeded, find the offending files by running
+
+```bash
+$ ls -latr `git ls-files contrib/your-library`
+```
+
+This will print all files in order of last access with newest files last.
+Find those that have been modified during the last build and carefully
+remove them.
+
+Please also check `contrib/.gitignore` that it contains all these files.
+
+
+Reporting bugs
+--------------
 
 When reporting bugs against AVS please include the following:
 
@@ -247,4 +353,3 @@ When reporting bugs against AVS please include the following:
 - Exact time when call was started/stopped
 - Name/OS of device
 - Adb logcat for Android
-

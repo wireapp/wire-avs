@@ -118,8 +118,6 @@ typedef void (pc_DataChannelSend_t)(int handle, const int8_t *data, int len);
 typedef void (pc_DataChannelClose_t)(int handle);
 
 /* Frame enc/dec */
-typedef void (pc_SetEncryptedFrame_t)(int handle, int mtype, const uint8_t *frame, int len);
-typedef void (pc_SetDecryptedFrame_t)(int handle, int mtype, const uint8_t *frame, int len);
 typedef void (pc_SetMediaKey_t)(int handle, int index, int current, const uint8_t *key, int len);
 
 static pc_SetEnv_t *pc_SetEnv = NULL;
@@ -154,8 +152,6 @@ static pc_DataChannelSend_t *pc_DataChannelSend = NULL;
 static pc_DataChannelClose_t *pc_DataChannelClose = NULL;
 
 /* Frame enc/dec */
-static pc_SetEncryptedFrame_t *pc_SetEncryptedFrame = NULL;
-static pc_SetDecryptedFrame_t *pc_SetDecryptedFrame = NULL;
 static pc_SetMediaKey_t *pc_SetMediaKey = NULL;
 
 #define ENV_NONE -1
@@ -219,8 +215,6 @@ struct jsflow {
 
 	struct {
 		struct keystore *keystore;
-		struct frame_encryptor *audio_enc;
-		struct frame_encryptor *video_enc;
 	} frame;
 
 	bool gather;
@@ -231,26 +225,12 @@ struct jsflow {
 	struct tmr tmr_disconnect;
 	struct tmr tmr_stats;
 	char *remote_sdp;	
+	bool selective_audio;
 
 	struct tmr tmr_cbr;
 	
 	struct le le;
 };
-
-struct frame_info {
-	struct frame_decryptor *audio_dec;
-	struct frame_decryptor *video_dec;
-};
-
-#if DOUBLE_ENCRYPTION
-static void finfo_destructor(void *arg)
-{
-	struct frame_info *finfo = arg;
-
-	mem_deref(finfo->audio_dec);
-	mem_deref(finfo->video_dec);
-}
-#endif
 
 
 void jsflow_stop_media(struct iflow *iflow)
@@ -364,15 +344,6 @@ static int jsflow_set_keystore(struct iflow *iflow,
 	info("jsflow(%p): set_keystore ks:%p\n", jf, keystore);
 	jf->frame.keystore = mem_deref(jf->frame.keystore);
 	jf->frame.keystore = (struct keystore *)mem_ref(keystore);
-
-	if (jf->frame.audio_enc) {
-		frame_encryptor_set_keystore(jf->frame.audio_enc,
-					     jf->frame.keystore);
-	}
-	if (jf->frame.video_enc) {
-		frame_encryptor_set_keystore(jf->frame.video_enc,
-					     jf->frame.keystore);
-	}
 
 	keystore_add_listener(keystore,
 			      keystore_cchanged_handler,
@@ -657,16 +628,6 @@ int jsflow_alloc(struct iflow		**flowp,
 	tmr_init(&flow->tmr_stats);
 	tmr_init(&flow->tmr_cbr);
 
-#if DOUBLE_ENCRYPTION
-	frame_encryptor_alloc(&flow->frame.audio_enc,
-			      userid_self,
-			      FRAME_MEDIA_AUDIO);
-
-	frame_encryptor_alloc(&flow->frame.video_enc,
-			      userid_self,
-			      FRAME_MEDIA_VIDEO);
-#endif
-	
 	*flowp = (struct iflow *)flow;
 
 	return 0;
@@ -843,6 +804,37 @@ static void remote_acbr_handler(bool enabled, bool offer, void *arg)
 }
 
 
+static void jsflow_tool_handler(const char *tool, void *arg)
+{
+	struct jsflow *jsflow = (struct jsflow*)arg;
+	char *tc = NULL, *v = NULL, *t = NULL;
+	int major = 0;
+	int err = 0;
+
+	if (!jsflow || !tool)
+		return;
+
+	err = str_dup(&tc, tool);
+	if (err) {
+		warning("jsflow(%p): tool_handler: failed to copy tool\n", jsflow);
+		return;
+	}
+
+	t = tc;
+	v = strsep(&t, " ");
+	if (v && t && strcmp(v, "sftd") == 0) {
+		v = strsep(&t, ".");
+		major = v ? atoi(v) : -1;
+		jsflow->selective_audio = major >= 2;
+		info("jsflow(%p): set_sft_options: selective_audio: %s\n",
+		     jsflow,
+		     jsflow->selective_audio ? "YES" : "NO");
+	}
+
+	mem_deref(tc);
+}
+
+
 int jsflow_handle_offer(struct iflow *flow,
 			const char *sdp_str)
 {
@@ -864,7 +856,7 @@ int jsflow_handle_offer(struct iflow *flow,
 	
 	sdp_check(sdp_str, false, true,
 		  remote_acbr_handler, jf_norelay_handler,
-		  jsflow);
+		  jsflow_tool_handler, jsflow);
 
 	jsflow->remote_sdp = mem_deref(jsflow->remote_sdp);
 	str_dup(&jsflow->remote_sdp, sdp_str);
@@ -885,7 +877,7 @@ int jsflow_handle_answer(struct iflow *flow,
 
 	sdp_check(sdp_str, false, false,
 		  remote_acbr_handler, jf_norelay_handler,
-		  jsflow);
+		  jsflow_tool_handler, jsflow);
 	
 	has_video = pc_HasVideo(jsflow->handle);
 
@@ -945,7 +937,7 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 		return ENOENT;
 
 	isoffer = streq(type, "offer");
-	sdp_check(sdpstr, true, isoffer, local_acbr_handler, NULL, jsflow);
+	sdp_check(sdpstr, true, isoffer, local_acbr_handler, NULL, NULL, jsflow);
 	
 	sdp_dup(&sess, jsflow->conv_type, sdpstr, true);
 
@@ -1012,7 +1004,6 @@ int jsflow_generate_answer(struct iflow *iflow,
 					    sdp,
 					    sz);
 }
-
 static int jsflow_bundle_update(struct iflow *flow, const char *sdp)
 {
 	struct jsflow *jsflow = (struct jsflow *)flow;
@@ -1036,7 +1027,6 @@ static int jsflow_bundle_update(struct iflow *flow, const char *sdp)
 	return 0;
 }
 
-
 int jsflow_add_decoders_for_user(struct iflow *iflow,
 				 const char *userid,
 				 const char *clientid,
@@ -1045,7 +1035,6 @@ int jsflow_add_decoders_for_user(struct iflow *iflow,
 				 uint32_t ssrcv)
 {
 	struct jsflow *jf = (struct jsflow*)iflow;
-	struct frame_info *finfo;
 	char *label = NULL;
 	struct conf_member *memb;
 	int err = 0;
@@ -1073,7 +1062,6 @@ int jsflow_add_decoders_for_user(struct iflow *iflow,
 
 	if (memb) {
 		memb->active = false;
-		memb->uinfo = mem_deref(memb->uinfo);
 	}
 
 	uuid_v4(&label);
@@ -1113,40 +1101,7 @@ int jsflow_add_decoders_for_user(struct iflow *iflow,
 		       ssrca_str, ssrcv_str,
 		       audio_iv, video_iv, IV_SIZE);
 
-#if DOUBLE_ENCRYPTION
-	finfo = mem_zalloc(sizeof(*finfo), finfo_destructor);
-	if (!finfo)
-		goto out;
-
-	err = frame_decryptor_alloc(&finfo->audio_dec,
-				    userid_hash,
-				    FRAME_MEDIA_AUDIO);
-	if (err) {
-		warning("jf(%p): add_decoders_for_user: cannot allocate audio decryptor\n", jf);
-		goto out;
-	}
-
-	frame_decryptor_set_keystore(finfo->audio_dec,
-				     jf->frame.keystore);
-
-	err = frame_decryptor_alloc(&finfo->video_dec,
-				    userid_hash,
-				    FRAME_MEDIA_VIDEO);
-	if (err) {
-		warning("jf(%p): add_decoders_for_user: cannot allocate video decryptor\n", jf);
-		goto out;
-	}
-
-	frame_decryptor_set_keystore(finfo->video_dec,
-				     jf->frame.keystore);
-
-	memb->uinfo = finfo;
-#else
-	(void)finfo;
-#endif
-	
-
- out:
+out:
 	sodium_memzero(audio_iv, IV_SIZE);
 	sodium_memzero(video_iv, IV_SIZE);
 	mem_deref(label);
@@ -1171,7 +1126,7 @@ int jsflow_remove_decoders_for_user(struct iflow *iflow,
 	     anon_id(userid_anon, userid),
 	     anon_client(clientid_anon, clientid));
 
-	memb = conf_member_find_by_userclient(&jf->cml, userid, clientid);
+	memb = conf_member_find_active_by_userclient(&jf->cml, userid, clientid);
 	if (memb) {
 		memb->active = false;
 
@@ -1191,7 +1146,9 @@ int jsflow_sync_decoders(struct iflow *iflow)
 		return EINVAL;
 	
 	err = bundle_update((struct iflow *)jf,
-			    jf->conv_type, jf->remote_sdp,
+			    jf->conv_type,
+			    !jf->selective_audio,
+			    jf->remote_sdp,
 			    &jf->cml,
 			    jsflow_bundle_update);
 	if (err)
@@ -1426,7 +1383,7 @@ void pc_local_sdp_handler(int self, int err,
 
 
 	isoffer = streq(type, "offer");
-	sdp_check(sdp, true, isoffer, NULL, jf_norelay_handler, flow);
+	sdp_check(sdp, true, isoffer, NULL, jf_norelay_handler, NULL, flow);
 	
 #if MODIFY_SDP
 	/* Modify SDP here */
@@ -1733,6 +1690,7 @@ void dc_state_handler(int self, int state)
 	}
 }
 
+
 void dc_data_handler(int self, const uint8_t *data, int len);
 
 EMSCRIPTEN_KEEPALIVE
@@ -1755,136 +1713,6 @@ void dc_data_handler(int self, const uint8_t *data, int len)
 		data, len, flow->iflow.arg);
 }
 
-void pc_encrypt_frame(int self, int mtype, const uint8_t *buf, int len);
-
-EMSCRIPTEN_KEEPALIVE
-void pc_encrypt_frame(int self, int mtype, const uint8_t *buf, int len)
-{
-	struct jsflow *flow = self2pc(self);
-#if DOUBLE_ENCRYPTION	
-	struct frame_encryptor *enc = NULL;
-	uint8_t *encbuf;
-	size_t enclen;
-	int err = 0;
-
-	if (!flow) {
-		warning("jsflow: pc_encrypt_frame: invalid handle: 0x%08X\n",
-			self);
-		return;
-	}
-
-	if (flow->handle == PC_INVALID_HANDLE) {
-		warning("flow(%p): pc_encrypt_frame: no flow\n", flow);
-		return;
-	}
-
-	switch(mtype) {
-	case FRAME_MEDIA_AUDIO:
-		enc = flow->frame.audio_enc;
-		break;
-
-	case FRAME_MEDIA_VIDEO:
-		enc = flow->frame.video_enc;
-		break;
-
-	default:
-		enc = NULL;
-		break;
-	}
-
-	if (!enc)
-		return;
-
-	encbuf = mem_alloc(frame_encryptor_max_size(enc, len), NULL);
-	err = frame_encryptor_encrypt(enc, buf, len, encbuf, &enclen);
-	if (err) {
-		if (err != EAGAIN)
-			warning("jsflow(%p): frame encrypt failed: %m\n", flow, err);
-		goto out;
-	}
-
-	pc_SetEncryptedFrame(flow->handle, mtype, encbuf, (uint32_t)enclen);
-
- out:
-	mem_deref(encbuf);
-#else
-	if (flow)
-		pc_SetEncryptedFrame(flow->handle, mtype, buf, len);
-#endif
-}
-
-void pc_decrypt_frame(int self, int mtype,
-		      const char *userid, const char *clientid,
-		      const uint8_t *buf, int len);
-
-EMSCRIPTEN_KEEPALIVE
-void pc_decrypt_frame(int self, int mtype,
-		      const char *userid, const char *clientid,
-		      const uint8_t *buf, int len)
-{
-	struct jsflow *flow = self2pc(self);
-#if DOUBLE_ENCRYPTION
-	struct frame_decryptor *dec = NULL;
-	struct conf_member *memb;
-	struct frame_info *finfo;
-	size_t maxlen;
-	uint8_t *decbuf;
-	size_t declen;
-	int err = 0;
-
-	if (!flow) {
-		warning("jsflow: pc_decrypt_frame: invalid handle: 0x%08X\n",
-			self);
-		return;
-	}
-
-	if (flow->handle == PC_INVALID_HANDLE) {
-		warning("flow(%p): pc_decrypt_frame: no flow\n", flow);
-		return;
-	}
-
-	memb = conf_member_find_active_by_userclient(&flow->cml, userid, clientid);
-
-	if (!memb || !memb->uinfo)
-		return;
-
-	finfo = (struct frame_info *)memb->uinfo;
-
-	switch(mtype) {
-	case FRAME_MEDIA_AUDIO:
-		dec = finfo->audio_dec;
-		break;
-
-	case FRAME_MEDIA_VIDEO:
-		dec = finfo->video_dec;
-		break;
-
-	default:
-		dec = NULL;
-		break;
-	}
-
-	if (!dec)
-		return;
-
-	maxlen = frame_decryptor_max_size(dec, len);
-	decbuf = mem_alloc(maxlen, NULL);
-	err = frame_decryptor_decrypt(dec, buf, (size_t)len, decbuf, &declen);
-	if (err) {
-		if (err != EAGAIN)
-			warning("jsflow(%p): frame decrypt failed: %m\n", flow, err);
-		goto out;
-	}
-
-	pc_SetDecryptedFrame(flow->handle, mtype, decbuf, (uint32_t)declen);
-
- out:
-	mem_deref(decbuf);
-#else
-	if (flow)
-		pc_SetDecryptedFrame(flow->handle, mtype, buf, len);	
-#endif
-}
 
 void pc_get_media_key(int self, int index);
 
@@ -2014,8 +1842,6 @@ void pc_set_callbacks(
 	pc_DataChannelSend_t *dataChannelSend,
 	pc_DataChannelClose_t *dataChannelClose,
 
-	pc_SetEncryptedFrame_t *setEncryptedFrame,
-	pc_SetDecryptedFrame_t *setDecryptedFrame,
 	pc_SetMediaKey_t *setMediaKey);
 
 EMSCRIPTEN_KEEPALIVE
@@ -2050,8 +1876,6 @@ void pc_set_callbacks(
 	pc_DataChannelSend_t *dataChannelSend,
 	pc_DataChannelClose_t *dataChannelClose,
 
-	pc_SetEncryptedFrame_t *setEncryptedFrame,
-	pc_SetDecryptedFrame_t *setDecryptedFrame,
 	pc_SetMediaKey_t *setMediaKey)
 {
 	pc_SetEnv = setEnv;
@@ -2084,8 +1908,6 @@ void pc_set_callbacks(
 	pc_DataChannelSend = dataChannelSend;
 	pc_DataChannelClose = dataChannelClose;
 
-	pc_SetEncryptedFrame = setEncryptedFrame;
-	pc_SetDecryptedFrame = setDecryptedFrame;
 	pc_SetMediaKey = setMediaKey;
 
 	jsflow_init();

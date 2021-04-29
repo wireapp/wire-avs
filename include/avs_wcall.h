@@ -170,6 +170,8 @@ typedef void (wcall_mute_h)(int muted, void *arg);
 #define WCALL_REASON_DATACHANNEL        9
 #define WCALL_REASON_REJECTED          10
 #define WCALL_REASON_OUTDATED_CLIENT   11
+#define WCALL_REASON_NOONE_JOINED      12
+#define WCALL_REASON_EVERYONE_LEFT     13
 
 const char *wcall_reason_name(int reason);
 

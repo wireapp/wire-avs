@@ -12,6 +12,7 @@ int peerflow_init(void);
 
 typedef void (peerflow_acbr_h)(bool enabled, bool offer, void *arg);
 typedef void (peerflow_norelay_h)(bool local, void *arg);
+typedef void (peerflow_tool_h)(const char *tool, void *arg);
 
 void peerflow_start_log(void);
 
@@ -26,6 +27,10 @@ int peerflow_alloc(struct iflow		**flowp,
 
 void capture_source_handle_frame(struct avs_vidframe *frame);
 
+int peerflow_get_userid_for_ssrc(struct peerflow* pf,
+				 uint32_t csrc,
+				 bool video,
+				 char **userid_hash);
 #ifdef __cplusplus
 }
 #endif

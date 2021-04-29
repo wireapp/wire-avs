@@ -23,10 +23,23 @@
 
 namespace wire {
 
-FrameDecryptor::FrameDecryptor(const char *userid_hash,
-			       enum frame_media_type mtype)
+FrameDecryptor::FrameDecryptor(enum frame_media_type mtype,
+			       struct peerflow *pf)
 {
-	frame_decryptor_alloc(&_dec, userid_hash, mtype);
+	int err;
+
+	err = frame_decryptor_alloc(&_dec, mtype);
+	if (err) {
+		warning("FrameDecryptor::ctor: alloc err %m\n", err);
+		return;
+	}
+
+	err = frame_decryptor_set_peerflow(_dec, pf);
+	if (err) {
+		warning("FrameDecryptor::ctor: set peerflow err %m\n", err);
+		return;
+	}
+
 	info("FrameDecryptor::ctor: %p\n", this);
 }
 
@@ -42,6 +55,11 @@ int FrameDecryptor::SetKeystore(struct keystore *keystore)
 	return frame_decryptor_set_keystore(_dec, keystore);
 }
 
+int FrameDecryptor::SetUserID(const char *userid_hash)
+{
+	return frame_decryptor_set_uid(_dec, userid_hash);
+}
+
 FrameDecryptor::Result FrameDecryptor::Decrypt(cricket::MediaType media_type,
 				     const std::vector<uint32_t>& csrcs,
 				     rtc::ArrayView<const uint8_t> additional_data,
@@ -50,8 +68,13 @@ FrameDecryptor::Result FrameDecryptor::Decrypt(cricket::MediaType media_type,
 {
 	size_t decsz = 0;
 	int err;
+	uint32_t csrc = 0;
 
+	if (csrcs.size() > 0)
+		csrc = csrcs[0];
+	
 	err = frame_decryptor_decrypt(_dec,
+				      csrc,
 				      encrypted_frame.data(),
 				      encrypted_frame.size(),
 				      frame.data(),

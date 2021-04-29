@@ -392,6 +392,7 @@ void sdp_check(const char *sdp,
 	       bool offer,
 	       peerflow_acbr_h *acbrh,
 	       peerflow_norelay_h *norelayh,
+	       peerflow_tool_h *toolh,
 	       void *arg)
 {
 	struct sdp_session *rsess = NULL;
@@ -450,6 +451,10 @@ void sdp_check(const char *sdp,
 				}
 			}
 		}
+	}
+
+	if (toolh) {
+		toolh(sdp_session_rattr(rsess, "tool"), arg);
 	}
  out:
 	mem_deref(rsess);

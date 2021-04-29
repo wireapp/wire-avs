@@ -5,7 +5,7 @@
  */
 
 import avs_core = require('./avs_core');
-import avs_pc, {UserMediaHandler, MediaStreamHandler} from './avs_pc';
+import avs_pc, {UserMediaHandler, AudioStreamHandler, VideoStreamHandler} from './avs_pc';
 
 
 %CONSTANTS%
@@ -39,8 +39,12 @@ export class Wcall {
     avs_pc.setUserMediaHandler(userMediaHandler);
   }
 
-  setMediaStreamHandler(mediaStreamHandler: MediaStreamHandler): void {
-    avs_pc.setMediaStreamHandler(mediaStreamHandler);
+  setAudioStreamHandler(audioStreamHandler: AudioStreamHandler): void {
+    avs_pc.setAudioStreamHandler(audioStreamHandler);
+  }
+
+  setVideoStreamHandler(videoStreamHandler: VideoStreamHandler): void {
+    avs_pc.setVideoStreamHandler(videoStreamHandler);
   }
 
   replaceTrack(convid: string, newTrack: MediaStreamTrack): void {

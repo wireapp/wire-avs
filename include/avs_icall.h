@@ -28,6 +28,8 @@
 #define ICALL_REASON_DATACHANNEL        9
 #define ICALL_REASON_REJECTED          10
 #define ICALL_REASON_OUTDATED_CLIENT   11
+#define ICALL_REASON_NOONE_JOINED      12
+#define ICALL_REASON_EVERYONE_LEFT     13
 
 struct icall;
 struct econn_message;

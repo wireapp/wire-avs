@@ -1,6 +1,22 @@
 ChangeLog for AVS -- latest on top!
 
 ==============================================================================
+AVS Release 7.0
+
+Date:	    Feburary 02 2021
+GIT:	    https://github.com/wearezeta/avs/tree/release-7.0
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Selective forwarding of audio
+                - 1-participant conference timeout
+
+Hotfixes:       - Tuning of active speaker detection
+                - iOS: Improve quality of screen share
+
+==============================================================================
 AVS Release 6.7
 
 Date:	    Feburary 02 2021

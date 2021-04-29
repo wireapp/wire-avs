@@ -17,15 +17,22 @@
 */
 
 struct frame_decryptor;
+struct peerflow;
 
 int frame_decryptor_alloc(struct frame_decryptor **pdec,
-			  const char *userid_hash,
 			  enum frame_media_type mtype);
+
+int frame_decryptor_set_peerflow(struct frame_decryptor *dec,
+				 struct peerflow *pf);
 
 int frame_decryptor_set_keystore(struct frame_decryptor *dec,
 				 struct keystore *keystore);
 
+int frame_decryptor_set_uid(struct frame_decryptor *dec,
+			    const char *userid_hash);
+
 int frame_decryptor_decrypt(struct frame_decryptor *dec,
+			    uint32_t csrc,
 			    const uint8_t *src,
 			    size_t srcsz,
 			    uint8_t *dst,
