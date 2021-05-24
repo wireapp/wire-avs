@@ -30,7 +30,6 @@
 # For information on argument variables, see mk/target.mk.
 #
 
-
 #--- AVS Core Modules ---
 
 AVS_MODULES += base
@@ -83,9 +82,7 @@ AVS_MODULES += icall
 AVS_MODULES += iflow
 AVS_MODULES += egcall
 AVS_MODULES += audio_level
-ifeq ($(ENABLE_CONFERENCE_CALLS),1)
 AVS_MODULES += ccall
-endif
 AVS_MODULES += zapi
 AVS_MODULES += ztime
 
@@ -170,10 +167,6 @@ AVS_LIBS += \
 
 ifeq ($(AVS_OS),android)
 AVS_LIBS += $(CONTRIB_AND_IFADDRS_LIBS)
-endif
-
-ifeq ($(ENABLE_CONFERENCE_CALLS),1)
-AVS_CPPFLAGS += -DENABLE_CONFERENCE_CALLS=1
 endif
 
 AVS_LIB_FILES += $(CONTRIB_LIBRE_LIB_FILES) \

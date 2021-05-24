@@ -52,6 +52,7 @@ int FrameEncryptor::Encrypt(cricket::MediaType media_type,
 			    size_t* bytes_written)
 {
 	return frame_encryptor_encrypt(_enc,
+				       ssrc,
 				       frame.data(),
 				       frame.size(),
 				       encrypted_frame.data(),

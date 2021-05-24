@@ -101,6 +101,7 @@ void iflow_set_callbacks(struct iflow *iflow,
 	iflow->gatherh			= gatherh;
 	iflow->dce_estabh		= dce_estabh;
 	iflow->dce_recvh		= dce_recvh;
+	iflow->dce_closeh		= dce_closeh;
 	iflow->acbr_detecth		= acbr_detecth;
 	iflow->norelayh                 = norelayh;
 	iflow->arg			= arg;

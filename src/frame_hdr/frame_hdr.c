@@ -20,6 +20,7 @@
 #include <re.h>
 #include <avs.h>
 
+#define MAX_EXTS 16
 /*
 
 Header
@@ -41,8 +42,6 @@ Extensions
 |M| ELN |  EID  |   VAL... (length=ELEN)    |
 +-+-+-+-+-+-+-+-+---------------------------+
 */
-
-#define HDR_WRITE_U32(d, v) {d[0]=(v>>24)&0xff;d[1]=(v>>16)&0xff;d[2]=(v>>8)&0xff;d[3]=v&0xff;d+=sizeof(uint32_t);}
 
 #define HDR_VERSION 0
 
@@ -117,24 +116,34 @@ static size_t read_bytes(const uint8_t *buf,
 }
 
 size_t frame_hdr_write(uint8_t  *buf,
+		       size_t   bsz,
 		       uint64_t frame,
-		       uint64_t key)
+		       uint64_t key,
+		       uint32_t csrc)
 {
 	uint8_t sig = 0;
 	uint8_t x = 0;
 	uint8_t klen, flen;
 	size_t p = 2;
-	uint8_t ext = 0;
+	uint8_t ext = csrc ? 1 : 0;
+	size_t xsz = csrc ? 5 : 0;
+	size_t hsz, ksz;
 
 	if (key > 7) {
 		x = 1;
-		klen = calc_len(key) - 1;
+		ksz = calc_len(key);
+		klen = ksz - 1;
 	}
 	else {
+		ksz = 0;
 		klen = key;
 	}
 
 	flen = calc_len(frame);
+
+	hsz = 2 + ksz + flen + xsz;
+	if (bsz < hsz)
+		return 0;
 
 	buf[0] = HDR_VERSION << 5 | ext << 4;
 	buf[1] = sig << 7 | (flen-1) << 4 | x << 3 | klen;
@@ -143,18 +152,29 @@ size_t frame_hdr_write(uint8_t  *buf,
 	}
 	p += write_bytes(buf + p, flen, frame);
 
+	if (csrc) {
+		buf[p] = 0x31;
+		p++;
+		write_bytes(buf + p, 4, csrc);
+		p += 4;
+	}
+
 	return p;
 }
 
 
 size_t frame_hdr_read(const uint8_t *buf,
+		      size_t   bsz,
 		      uint64_t *frameid,
-		      uint64_t *key)
+		      uint64_t *key,
+		      uint32_t *csrc)
 {
 	uint8_t x = 0;
 	uint8_t klen, flen, elen;
 	size_t p = 2;
-	uint8_t ext, b;
+	uint8_t ext, b, eid;
+	uint64_t csrc64;
+	uint32_t i = 0;
 
 	ext = buf[0] & 0x10;
 	flen = ((buf[1] >> 4) & 7) + 1;
@@ -170,11 +190,20 @@ size_t frame_hdr_read(const uint8_t *buf,
 
 	p += read_bytes(buf + p, flen, frameid);
 
-	while(ext) {
+	while(ext && p < bsz && i < MAX_EXTS) {
 		b = *(buf + p);
 		ext = b & 0x80;
-		elen = ((b >> 4) & 7) + 2;
-		p += elen;
+		elen = ((b >> 4) & 7) + 1;
+		if (p + elen + 1 >= bsz)
+			break;
+		eid = b &  0x0f;
+
+		if (eid == 0x01 && elen == 4) {
+			read_bytes(buf + p + 1, 4, &csrc64);
+			*csrc = csrc64;
+		}
+		p += elen + 1;
+		i++;
 	}
 
 	return p;

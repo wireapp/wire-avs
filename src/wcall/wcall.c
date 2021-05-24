@@ -517,11 +517,9 @@ static void icall_start_handler(struct icall *icall,
 	case ICALL_CONV_TYPE_GROUP:
 		ct = WCALL_CONV_TYPE_GROUP;
 		break;
-#if ENABLE_CONFERENCE_CALLS
 	case ICALL_CONV_TYPE_CONFERENCE:
 		ct = WCALL_CONV_TYPE_CONFERENCE;
 		break;
-#endif
 	case ICALL_CONV_TYPE_ONEONONE:
 		ct = WCALL_CONV_TYPE_ONEONONE;
 		break;
@@ -1404,7 +1402,6 @@ out:
 	return err;
 }
 
-#if ENABLE_CONFERENCE_CALLS
 static int icall_sft_handler(struct icall *icall,
 			     const char *url,
 			     struct econn_message *msg,
@@ -1449,7 +1446,6 @@ out:
 
 	return err;
 }
-#endif
 
 static void destructor(void *arg)
 {
@@ -1729,7 +1725,6 @@ int wcall_add(struct calling_instance *inst,
 		}
 		break;
 
-#if ENABLE_CONFERENCE_CALLS
 	case WCALL_CONV_TYPE_CONFERENCE: {
 		struct ccall* ccall;
 		err = ccall_alloc(&ccall,
@@ -1771,7 +1766,6 @@ int wcall_add(struct calling_instance *inst,
 
 		}
 		break;
-#endif
 	}
 
 	err = ICALL_CALLE(wcall->icall, set_quality_interval,
@@ -2741,7 +2735,6 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 			err = wcall_add(inst, &wcall, convid,
 					WCALL_CONV_TYPE_GROUP);
 		}
-#if ENABLE_CONFERENCE_CALLS
 		else if (msg->msg_type == ECONN_CONF_START
 		    && econn_message_isrequest(msg)) {
 			err = wcall_add(inst, &wcall, convid,
@@ -2752,7 +2745,6 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 			err = wcall_add(inst, &wcall, convid,
 					WCALL_CONV_TYPE_CONFERENCE);
 		}
-#endif
 		else if (econn_is_creator(inst->userid, userid, msg)) {
 			err = wcall_add(inst, &wcall, convid,
 					WCALL_CONV_TYPE_ONEONONE);

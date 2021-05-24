@@ -1338,11 +1338,18 @@ int jsflow_get_aulevel(struct iflow *iflow,
 		if (!cm || !cm->active)
 			continue;
 		
-		if (cm->audio_level_smooth > 0 || cm->audio_level > AUDIO_LEVEL_FLOOR) {
+		if (cm->audio_level_smooth > 0
+		    || cm->audio_level > AUDIO_LEVEL_FLOOR) {
+
 			err = audio_level_alloc(&aulevel, levell, false,
 						cm->userid, cm->clientid,
 						cm->audio_level,
 						cm->audio_level_smooth);
+			/* Make sure to count down the level if
+			 * the source is no longer in the list due to
+			 * selective audio.
+			 */
+			conf_member_set_audio_level(cm, 0);
 			if (err)
 				goto out;
 		}
@@ -1677,12 +1684,10 @@ void dc_state_handler(int self, int state)
 			flow->iflow.arg);
 		break;
 
+	case DC_STATE_ERROR:
 	case DC_STATE_CLOSED:
 		IFLOW_CALL_CB(flow->iflow, dce_closeh,
 			flow->iflow.arg);
-		break;
-
-	case DC_STATE_ERROR:
 		break;
 
 	default:

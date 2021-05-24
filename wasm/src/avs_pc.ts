@@ -195,6 +195,7 @@ function readBytes(buf, p, len) {
 
 function frameHeaderDecode(buf) {
 
+    const MAX_EXTS = 16;
     let ext = buf[0] & 0x10;
     const flen = ((buf[1] >>> 4) & 0x7) + 1;
     const x = (buf[1] >>> 3) & 0x1;
@@ -202,6 +203,8 @@ function frameHeaderDecode(buf) {
     let p = 2;
     let kid = -1;
     let fid = -1;
+    let csrc = "0";
+    let i = 0;
 
     if (x) {
 	const lv = readBytes(buf, p, klen + 1);
@@ -217,15 +220,19 @@ function frameHeaderDecode(buf) {
     p += lv.len;
     fid = lv.val;
 
-    // Code below handles extensions, we don't use them for now...
-    /*
-    while(ext) {
+    while(ext && p < buf.length && i < MAX_EXTS) {
 	const b = buf[p];
 	ext = b & 0x80;
-	const elen = ((b >>> 4) & 0x7) + 2;
-	p += elen;
+	const elen = ((b >>> 4) & 0x7) + 1;
+	const eid = (b & 0xf);
+
+        if (eid == 1 && elen == 4) {
+            const csrco = readBytes(buf, p + 1, elen);
+            csrc = csrco.val.toString();
+        }
+        p += elen + 1;
+        i++;
     }
-    */
 
     if (kid < 0 || fid < 0) {
 	return null;
@@ -234,7 +241,8 @@ function frameHeaderDecode(buf) {
 	const frameHdr = {
 	    len: p,
 	    frameId: fid,
-	    keyId: kid
+	    keyId: kid,
+	    csrc: csrc
 	}
 	return frameHdr;
     }
@@ -625,43 +633,43 @@ function createWorker() {
  * defined in the the C-land counterpart peerconnection_js.c
  */
 
-const PC_SIG_STATE_UNKNOWN = 0;
-const PC_SIG_STATE_STABLE = 1;
-const PC_SIG_STATE_LOCAL_OFFER = 2;
-const PC_SIG_STATE_LOCAL_PRANSWER = 3;
-const PC_SIG_STATE_REMOTE_OFFER = 4;
+const PC_SIG_STATE_UNKNOWN         = 0;
+const PC_SIG_STATE_STABLE          = 1;
+const PC_SIG_STATE_LOCAL_OFFER     = 2;
+const PC_SIG_STATE_LOCAL_PRANSWER  = 3;
+const PC_SIG_STATE_REMOTE_OFFER    = 4;
 const PC_SIG_STATE_REMOTE_PRANSWER = 5;
-const PC_SIG_STATE_CLOSED = 6;
+const PC_SIG_STATE_CLOSED          = 6;
 
-const PC_GATHER_STATE_UNKNOWN = 0;
-const PC_GATHER_STATE_NEW = 1;
-const PC_GATHER_STATE_GATHERING = 2;
-const PC_GATHER_STATE_COMPLETE = 3;
+const PC_GATHER_STATE_UNKNOWN      = 0;
+const PC_GATHER_STATE_NEW          = 1;
+const PC_GATHER_STATE_GATHERING    = 2;
+const PC_GATHER_STATE_COMPLETE     = 3;
 
-const PC_VIDEO_STATE_STOPPED     = 0;
-const PC_VIDEO_STATE_STARTED     = 1;
-const PC_VIDEO_STATE_BAD_CONN    = 2;
-const PC_VIDEO_STATE_PAUSED      = 3;
-const PC_VIDEO_STATE_SCREENSHARE = 4;
+const PC_VIDEO_STATE_STOPPED       = 0;
+const PC_VIDEO_STATE_STARTED       = 1;
+const PC_VIDEO_STATE_BAD_CONN      = 2;
+const PC_VIDEO_STATE_PAUSED        = 3;
+const PC_VIDEO_STATE_SCREENSHARE   = 4;
 
-const DC_STATE_CONNECTING = 0;
-const DC_STATE_OPEN = 1;
-const DC_STATE_CLOSING = 2;
-const DC_STATE_CLOSED = 3;
-const DC_STATE_ERROR = 4;
+const DC_STATE_CONNECTING          = 0;
+const DC_STATE_OPEN                = 1;
+const DC_STATE_CLOSING             = 2;
+const DC_STATE_CLOSED              = 3;
+const DC_STATE_ERROR               = 4;
 
-const LOG_LEVEL_DEBUG = 0;
-const LOG_LEVEL_INFO = 1;
-const LOG_LEVEL_WARN = 2;
-const LOG_LEVEL_ERROR = 3;
+const LOG_LEVEL_DEBUG              = 0;
+const LOG_LEVEL_INFO               = 1;
+const LOG_LEVEL_WARN               = 2;
+const LOG_LEVEL_ERROR              = 3;
 
-const CALL_TYPE_NORMAL = 0;
-const CALL_TYPE_VIDEO = 1;
-const CALL_TYPE_FORCED_AUDIO = 2;
+const CALL_TYPE_NORMAL             = 0;
+const CALL_TYPE_VIDEO              = 1;
+const CALL_TYPE_FORCED_AUDIO       = 2;
 
-const CONV_TYPE_ONEONONE   = 0;
-const CONV_TYPE_GROUP      = 1;
-const CONV_TYPE_CONFERENCE = 2;
+const CONV_TYPE_ONEONONE           = 0;
+const CONV_TYPE_GROUP              = 1;
+const CONV_TYPE_CONFERENCE         = 2;
 
 const connectionsStore = (() => {
   const peerConnections: (PeerConnection | null)[] = [null];
@@ -1283,6 +1291,18 @@ function pc_Close(hnd: number) {
     return;
   }
 
+  if (pc.rtc) {
+    pc.rtc.getTransceivers().forEach(trans => {
+      const track = trans.receiver.track;
+      if (track && track.kind === "audio") {
+        const label = track.label;
+        if (audioStreamHandler && pc.rtc) {
+          pc_log(LOG_LEVEL_INFO, `pc_Close: calling ash(${pc.convid}, ${label}) with 0 streams`);
+          audioStreamHandler(pc.convid, label, null);
+        }
+      }
+    });
+  }
   worker.postMessage({op: 'destroy', self: pc.self});
 
   connectionsStore.removePeerConnection(hnd);
@@ -1441,6 +1461,25 @@ function sdpMap(sdp: string, local: boolean, bundle: boolean): string {
     return sdpLines.join('\r\n');
 }
 
+function sdpCbrMap(sdp: string): string {
+    const sdpLines:  string[] = [];
+    
+    sdp.split('\r\n').forEach(sdpLine => {
+	let outline: string | null;
+
+	outline = sdpLine;
+
+	if(sdpLine.endsWith('sprop-stereo=0;useinbandfec=1')) {
+		outline = sdpLine + ";cbr=1";
+	}
+      
+	if (outline != null) {
+            sdpLines.push(outline);
+	}
+    });
+
+    return sdpLines.join('\r\n');
+}
 
 function pc_SetMediaKey(hnd: number, index: number, current: number, keyPtr: number, keyLen: number) {
 
@@ -1730,6 +1769,11 @@ function pc_SetRemoteDescription(hnd: number, typePtr: number, sdpPtr: number) {
   if (pc_env === ENV_FIREFOX) {
       sdpStr = sdp.replace(/ DTLS\/SCTP (5000|webrtc-datachannel)/, ' UDP/DTLS/SCTP webrtc-datachannel');
       sdpStr = sdpMap(sdpStr, false, false);
+  }
+
+  /* Ensure that we force CBR on the offer */
+  if (pc.conv_type == CONV_TYPE_CONFERENCE) {
+     sdpStr = sdpCbrMap(sdpStr);
   }
 
   pc_log(LOG_LEVEL_INFO, `pc_SetRemoteDescription: hnd=${hnd} SDP=${sdpStr}`);

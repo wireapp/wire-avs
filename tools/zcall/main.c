@@ -459,9 +459,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'G':
-#if ENABLE_CONFERENCE_CALLS
 			g_use_conference = true;
-#endif
 			break;
 
 		case 'i':
@@ -507,9 +505,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'S':
-#if ENABLE_CONFERENCE_CALLS
 			str_dup(&g_sft_url, optarg);
-#endif
 			break;
 
 		case 't':

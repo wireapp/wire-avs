@@ -154,6 +154,7 @@ int frame_encryptor_set_keystore(struct frame_encryptor *enc,
 }
 
 int frame_encryptor_encrypt(struct frame_encryptor *enc,
+			    uint32_t ssrc,
 			    const uint8_t *src,
 			    size_t srcsz,
 			    uint8_t *dst,
@@ -214,7 +215,12 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 		enc->updated_ts = updated_ts;
 	}
 
-	hlen = frame_hdr_write(dst, enc->frameid, kid);
+	// TODO: set SSRC once all clients handle it
+	hlen = frame_hdr_write(dst,
+			       frame_encryptor_max_size(enc, srcsz),
+			       enc->frameid,
+			       kid,
+			       0);
 
 	err = frame_encryptor_xor_iv(enc->iv, enc->frameid, kid, iv, IV_SIZE);
 	if (err) {

@@ -139,6 +139,7 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 	uint64_t frameid = 0;
 	uint32_t fid32 = 0;
 	uint64_t kid = 0;
+	uint32_t fcsrc = 0;
 	size_t hsize = 0;
 	bool new_user = false;
 	int err = 0;
@@ -152,9 +153,11 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 		goto out;
 	}
 
-	hsize = frame_hdr_read(src, &frameid, &kid);
+	hsize = frame_hdr_read(src, srcsz, &frameid, &kid, &fcsrc);
 	fid32 = (uint32_t)frameid;
 
+	if (fcsrc)
+		csrc = fcsrc;
 	if (csrc != 0 && csrc != dec->csrc) {
 		dec->userid_hash = mem_deref(dec->userid_hash);
 
@@ -179,7 +182,10 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 		const char *typename;
 		typename = dec->mtype == FRAME_MEDIA_VIDEO ? "video_iv" : "audio_iv";
 
-		assert(dec->userid_hash);
+		if (!dec->userid_hash) {
+			err = EAGAIN;
+			goto out;
+		}
 		err = keystore_generate_iv(dec->keystore,
 					   dec->userid_hash,
 					   typename,

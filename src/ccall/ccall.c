@@ -32,6 +32,8 @@
 
 #endif
 
+#define CCALL_CBR_ALWAYS_ON 1
+
 struct join_elem {
 	struct ccall *ccall;
 	enum icall_call_type call_type;
@@ -882,6 +884,13 @@ static void ecall_setup_handler(struct icall *icall,
 			        void *arg)
 {
 	struct ccall *ccall = arg;
+	bool audio_cbr;
+
+#ifdef CCALL_CBR_ALWAYS_ON
+	audio_cbr = true;
+#else
+	audio_cbr = false;
+#endif
 
 	(void)msg_time;
 	(void)icall; /* not really used, revise code below and use directly */
@@ -890,7 +899,7 @@ static void ecall_setup_handler(struct icall *icall,
 
 	ecall_answer(ccall->ecall,
 		     ccall->call_type,
-		     false);
+		     audio_cbr);
 }
 
 static void ecall_setup_resp_handler(struct icall *icall, void *arg)

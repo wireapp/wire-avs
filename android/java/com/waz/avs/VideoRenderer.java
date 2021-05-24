@@ -275,8 +275,13 @@ public class VideoRenderer extends TextureView implements TextureView.SurfaceTex
 	}
 
 	private void destroyGL() {
-		if (mEgl != null)
+		if (mEgl != null) {
+			if (mEglSurface != null
+			    && mEglSurface != EGL10.EGL_NO_SURFACE) {
+				mEgl.eglDestroySurface(mEglDisplay, mEglSurface);
+			}
 			mEgl.eglDestroyContext(mEglDisplay, mEglContext);
+		}
 		mGl = null;
 	}
 

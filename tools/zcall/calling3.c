@@ -455,7 +455,6 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 	if (err == ECONNABORTED)
 		goto error;
 
-#if ENABLE_CONFERENCE_CALLS
 	if (g_sft_url) {
 		struct json_object *jices;
 		struct json_object *jsfts;
@@ -481,7 +480,6 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 		json_object_array_add(jsfts, jsft);
 		json_object_object_add(jobj, "sft_servers", jsfts);
 	}
-#endif
 
 	if (!err && jobj) {
 		err = jzon_encode(&json_str, jobj);

@@ -51,6 +51,9 @@
 #define TIMEOUT_CONNECTION    5000
 #define TIMEOUT_AUDIO_LEVEL   3000
 
+//#define ECALL_CBR_ALWAYS_ON 1
+
+
 static struct list g_ecalls = LIST_INIT;
 
 static const struct ecall_conf default_conf = {
@@ -2062,6 +2065,10 @@ int ecall_start(struct ecall *ecall, enum icall_call_type call_type,
 	if (!ecall)
 		return EINVAL;
 
+#ifdef ECALL_CBR_ALWAYS_ON
+	audio_cbr = true;
+#endif
+
 	if (ecall->econn) {
 		if (ECONN_PENDING_INCOMING == econn_current_state(ecall->econn)) {
 			return ecall_answer(ecall, call_type, audio_cbr);
@@ -2136,6 +2143,11 @@ int ecall_answer(struct ecall *ecall, enum icall_call_type call_type,
 
 	if (!ecall)
 		return EINVAL;
+
+#ifdef ECALL_CBR_ALWAYS_ON
+	audio_cbr = true;
+#endif
+	
 
 	info("ecall(%p): answer on pending econn %p call_type=%d\n", ecall, ecall->econn, call_type);
 

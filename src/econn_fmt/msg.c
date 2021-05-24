@@ -50,7 +50,6 @@ static int econn_props_encode(struct json_object *jobj,
 	return err;
 }
 
-#if ENABLE_CONFERENCE_CALLS
 static int econn_parts_encode(struct json_object *jobj,
 			      const struct list *partl)
 {
@@ -309,8 +308,6 @@ static int econn_keys_decode(struct list *keyl, struct json_object *jobj)
 	return 0;
 }
 
-#endif
-
 
 int econn_message_encode(char **strp, const struct econn_message *msg)
 {
@@ -417,7 +414,6 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 	case ECONN_GROUP_CHECK:
 		break;
 
-#if ENABLE_CONFERENCE_CALLS
 	case ECONN_CONF_CONN:
 		if (msg->u.confconn.turnc > 0) {
 			err = zapi_iceservers_encode(jobj,
@@ -481,7 +477,6 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 	case ECONN_CONF_KEY:
 		econn_keys_encode(jobj, &msg->u.confkey.keyl);
 		break;
-#endif
 
 	case ECONN_DEVPAIR_PUBLISH:
 		err = zapi_iceservers_encode(jobj,
@@ -732,7 +727,6 @@ int econn_message_decode(struct econn_message **msgp,
 
 		msg->msg_type = ECONN_GROUP_CHECK;
 	}
-#if ENABLE_CONFERENCE_CALLS
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_START))) {
 		struct pl pl = PL_INIT;
 		const char *secret;
@@ -930,7 +924,6 @@ int econn_message_decode(struct econn_message **msgp,
 		if (err)
 			return err;
 	}
-#endif
 	else if (0 == str_casecmp(type,
 				  econn_msg_name(ECONN_DEVPAIR_PUBLISH))) {
 

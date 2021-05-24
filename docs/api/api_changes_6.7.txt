@@ -1,3 +1,4 @@
+
 Changes introduced in AVS 6.7
 =============================
 

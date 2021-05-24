@@ -20,6 +20,9 @@
 #include <avs.h>
 #include <avs_audio_level.h>
 
+#define TIMEOUT_UPDATE   1000
+
+
 static void cm_destructor(void *arg)
 {
 	struct conf_member *cm = (struct conf_member *)arg;
@@ -164,12 +167,28 @@ struct conf_member *conf_member_find_by_ssrcv(struct list *membl,
 	
 void conf_member_set_audio_level(struct conf_member *cm, int level)
 {
+	uint64_t now;
+	uint64_t tsdiff;
+	
 	if (!cm)
 		return;
 
+	now = tmr_jiffies();
+	tsdiff = now - cm->last_ts;
+	if (tsdiff < TIMEOUT_UPDATE)
+		return;
+
+	cm->last_ts = now;
 	cm->audio_level = level > AUDIO_LEVEL_FLOOR ? level : 0;
 	if (level > AUDIO_LEVEL_FLOOR)
 		cm->audio_level_smooth = AUDIO_LEVEL_CEIL;
-	else if (cm->audio_level_smooth > 0)
-		cm->audio_level_smooth--;		
+	else if (cm->audio_level_smooth > 0) {
+		/* we want to count down by the number of elapsed seconds */
+		uint64_t n = tsdiff / 1000;
+
+		if (n > (uint64_t)cm->audio_level_smooth)
+			cm->audio_level_smooth = 0;
+		else
+			cm->audio_level_smooth -= n;
+	}
 }

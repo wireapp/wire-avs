@@ -33,6 +33,7 @@ int frame_encryptor_set_keystore(struct frame_encryptor *enc,
 				 struct keystore *keystore);
 
 int frame_encryptor_encrypt(struct frame_encryptor *enc,
+			    uint32_t ssrc,
 			    const uint8_t *src,
 			    size_t srcsz,
 			    uint8_t *dst,

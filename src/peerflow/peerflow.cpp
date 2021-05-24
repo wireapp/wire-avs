@@ -1919,11 +1919,18 @@ static int peerflow_get_aulevel(struct iflow *iflow,
 			continue;
 
 		if (cm->userid && cm->clientid &&
-		    (cm->audio_level > AUDIO_LEVEL_FLOOR || cm->audio_level_smooth > 0)) {
+		    (cm->audio_level > AUDIO_LEVEL_FLOOR
+		     || cm->audio_level_smooth > 0)) {
 			err = audio_level_alloc(&aulevel, levell, false,
 						cm->userid, cm->clientid,
 						cm->audio_level,
 						cm->audio_level_smooth);
+			/* Make sure to count down the level if
+			 * the source is no longer in the list due to
+			 * selective audio.
+			 */
+			conf_member_set_audio_level(cm, 0);
+
 			if (err)
 				goto out;
 		}
