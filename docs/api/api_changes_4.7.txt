@@ -1,0 +1,15 @@
+
+Changes introduced in AVS 4.7
+=============================
+
+We've added a new video state:
+
+WCALL_VIDEO_STATE_SCREENSHARE = 4
+
+that comes from wcall_video_state_change_h when the other side is screensharing, also in the wcall_member struct for group calls. Should be handled the same as WCALL_VIDEO_STATE_STARTED or screensharing may no longer work.
+
+iOS AVSVideoRenderer has a property fillRatio to set the minimum ratio to always fill, < 1.0 means disabled, maybe a good place to start tweaking is 1.1
+
+Android VideoRenderer has a function void setFillRatio(float ratio) to do the same as fillRatio on iOS
+
+

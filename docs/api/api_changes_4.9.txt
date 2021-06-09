@@ -1,0 +1,15 @@
+
+Changes introduced in AVS 4.9
+=============================
+
+The function wcall_recv_msg returns an integer error number now. Specifically the error number 1000 can be handled to indicate that an unknown message was received and the user should update their client:
+
+#define WCALL_ERROR_UNKNOWN_PROTOCOL 1000
+
+int  wcall_recv_msg(void *wuser, const uint8_t *buf, size_t len,
+		    uint32_t curr_time, /* timestamp in seconds */
+		    uint32_t msg_time,  /* timestamp in seconds */
+		    const char *convid,
+		    const char *userid,
+		    const char *clientid);
+

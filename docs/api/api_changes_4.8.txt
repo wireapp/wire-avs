@@ -1,0 +1,20 @@
+
+Changes introduced in AVS 4.8
+=============================
+
+AVS video frame handling for rendering has been moved to the wcall interface. On Android and iOS this is hidden behind the wrappers & renderers, but changes are listed here anyway:
+
+
+wcall_video_size_h and wcall_render_frame_h functions added (and flwomgr versions removed):
+
+typedef void (wcall_video_size_h)(int w, int h, const char *userid, void *arg);
+
+typedef int (wcall_render_frame_h)(struct avs_vidframe *frame, const char *userid, void *arg);
+
+Function wcall_set_video_handlers added to set the callbacks:
+
+void wcall_set_video_handlers(wcall_render_frame_h *render_frame_h,
+			      wcall_video_size_h *size_h,
+			      void *arg);
+
+ 

@@ -1,0 +1,14 @@
+
+Changes introduced in AVS 6.7
+=============================
+
+Added web-workers for webapp. The API did not change for this.
+
+Added the smoothing of audio levels,
+sorting of active speakers is done using the smoothed audio_level.
+The JSON includes a list of actve participants, with the properties:
+    audio_level (Smoothed audio level)
+    audio_level_now (Current/instand audio level)
+
+
+

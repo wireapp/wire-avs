@@ -1,0 +1,2 @@
+#!/bin/bash
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --args --user-data-dir="tmp/chrome_dev3" --enable-logging=stderr --vmodule="*/webrtc/*=1" --disable-web-security --ignore-certificate-errors

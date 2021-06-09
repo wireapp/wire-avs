@@ -1,0 +1,38 @@
+
+Changes introduced in AVS 7.0
+=============================
+
+AVS 7.0 comes with an inactivity timer for conference calls. The call is ended if a client remains alone in the call for a certain time and wcall_closeh/WcallCloseHandler is called with one of two new reasons:
+
+#define WCALL_REASON_NOONE_JOINED      12
+#define WCALL_REASON_EVERYONE_LEFT     13
+
+export enum REASON {
+  ...
+  NOONE_JOINED = 12,
+  EVERYONE_LEFT = 13
+}
+
+NOONE_JOINED is given as the reason if the user was always the only one in the call. If there was ever another client in the call EVERYONE_LEFT is given instead.
+
+
+The API for web around media streams has changed due to the fact that audio streams are no longer one per user. The MediaStreamHandler type and setMediaHandler function have been replaced with separate audio and video handlers where the audio version passes a unique stream ID to represent the stream:
+
+export type AudioStreamHandler = (
+  convid: string,
+  stream_id: string,
+  streams: readonly MediaStream[] | null
+) => void;
+
+export type VideoStreamHandler = (
+  convid: string,
+  remote_userid: string,
+  remote_clientid: string,
+  streams: readonly MediaStream[]
+) => void;
+
+class Wcall {
+  ...
+  setAudioStreamHandler(audioStreamHandler: AudioStreamHandler);
+  setVideoStreamHandler(videoStreamHandler: VideoStreamHandler);
+};

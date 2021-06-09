@@ -1,0 +1,14 @@
+
+Changes introduced in AVS 5.2
+=============================
+
+A new function has been added to get the AVS library version at runtime. This can be used
+as a more reliable way than looking at what was requested during build time.
+
+const char *wcall_library_version(void);
+
+-----
+
+A new function has been added that sets a proxy for the AVS media transport.
+
+int wcall_set_proxy(const char *host, int port);

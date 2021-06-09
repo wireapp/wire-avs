@@ -1,0 +1,15 @@
+framework module avs {
+	  header "avs_wcall.h"
+	  header "AVSMediaManager.h"
+	  header "AVSAudioEffect.h"
+	  header "AVSMediaProtocols.h"
+	  header "AVSCapturer.h"
+	  header "AVSVideoConverter.h"
+	  header "AVSFlowManager.h"
+	  header "AVSVideoPreview.h"
+	  header "AVSMedia.h"
+	  header "AVSVideoView.h"
+	  header "AVSMediaManager+Client.h"
+
+	  export *
+}

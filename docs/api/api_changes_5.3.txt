@@ -1,0 +1,26 @@
+
+Changes introduced in AVS 5.3
+=============================
+
+In order to support users joining group calls from multiple clients at the same time, the clientid has been added to the video renderers.
+
+On iOS you now need to set the clientid as well as the userid:
+
+@interface AVSVideoView : UIView
+...
+@property (copy) NSString *userid;
+@property (copy) NSString *clientid;
+...
+
+On Android the clientid has been added as an extra parameter to the constructor of the AVSVideoView
+
+class VideoRenderer {
+	public VideoRenderer(Context context, String userId, String clientId, boolean rounded);
+...
+}
+
+The wcall_stats and wcall_debug functions were updated to accept a WUSER_HANDLE instead of void*:
+
+int  wcall_debug(struct re_printf *pf, WUSER_HANDLE wuser);
+int  wcall_stats(struct re_printf *pf, WUSER_HANDLE wuser);
+

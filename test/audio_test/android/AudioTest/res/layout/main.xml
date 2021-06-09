@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+/*
+ * Layout for Audio Test App
+ */
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    >
+    <Button
+    android:id="@+id/start_start_stop_stress_test"
+    android:text="Start Start Stop Stress Test"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    />
+    <Button
+    android:id="@+id/start_voe_loop_back_test"
+    android:text="Start Loop Back Test"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    />
+    <Button
+    android:id="@+id/start_voe_conf_test"
+    android:text="Start Stereo Conferencing Test"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    />
+    <Button
+    android:id="@+id/toggle_audio_mode"
+    android:text="Toggle Audio Mode"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    />
+    <Button
+    android:id="@+id/toggle_speaker"
+    android:text="Toggle Speaker"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    />
+    <Button
+    android:id="@+id/toggle_hw_aec"
+    android:text="Toggle Hw AEC usage"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    />
+    <Button
+    android:id="@+id/num_channels"
+    android:text="Toggle Number of Channels"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    />
+<TableLayout android:id="@+id/tableGPS"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="7px"
+    android:stretchColumns="1">
+    <TableRow
+        android:layout_margin="1px">
+        <TextView android:layout_gravity="right"
+        android:text="Audio Mode:"
+        android:layout_marginRight="7px"
+        android:layout_width="wrap_content" />
+        <TextView android:id="@+id/txtAudioMode"
+        android:gravity="left" />
+    </TableRow>
+    <TableRow
+        android:layout_margin="1px">
+        <TextView android:layout_gravity="right"
+        android:text="isSpeakerphoneOn:"
+        android:layout_marginRight="7px"
+        android:layout_width="wrap_content" />
+        <TextView android:id="@+id/txtIsSpeakerOn"
+        android:gravity="left" />
+    </TableRow>
+    <TableRow
+        android:layout_margin="1px">
+        <TextView android:layout_gravity="right"
+        android:text="Hw AEC enabled:"
+        android:layout_marginRight="7px"
+        android:layout_width="wrap_content" />
+        <TextView android:id="@+id/txtIsHwAecOn"
+        android:gravity="left" />
+    </TableRow>
+    <TableRow
+        android:layout_margin="1px">
+        <TextView android:layout_gravity="right"
+        android:text="Num Channels:"
+        android:layout_marginRight="7px"
+        android:layout_width="wrap_content" />
+        <TextView android:id="@+id/txtNumChannels"
+        android:gravity="left" />
+    </TableRow>
+</TableLayout> </LinearLayout>

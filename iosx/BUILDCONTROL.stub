@@ -1,0 +1,10 @@
+# Build control file
+#
+
+# Major version of this library. The minor version is the Jenkins
+# build number.
+#
+[config]
+component: avsstub
+major_version: 1
+

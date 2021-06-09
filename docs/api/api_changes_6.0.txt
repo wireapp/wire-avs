@@ -1,0 +1,130 @@
+
+Changes introduced in AVS 6.0
+=============================
+
+There are several API changes needed to support conference calling in AVS 6.0. This document will outline the changes needed.
+
+Client lists
+------------
+
+AVS now needs a list of the users and clients in a conversation, which it will request by calling the wcall_req_clients_h callback. You should implement this function and let AVS know by passing your function to wcall_set_req_clients_handler:
+
+typedef void (wcall_req_clients_h)(WUSER_HANDLE wuser,
+				   const char *convid, 
+				   void *arg);
+
+void wcall_set_req_clients_handler(WUSER_HANDLE wuser,
+				   wcall_req_clients_h *reqch);
+
+The function should call wcall_set_clients_for_conv once it has the list of clients:
+
+int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
+			       const char *convid,
+			       const char *json);
+
+The json string should contain a json object with the format as follows:
+
+{
+  "clients": [
+    {"userid": "xxxx", "clientid" "xxxx"},
+    {"userid": "xxxx", "clientid" "xxxx"},
+    ...
+  ]
+}
+
+Users with multiple clients will have one entry per client, so the same userid may appear multiple times.
+
+wcall_set_clients_for_conv can be called any time during a call, not only in response to wcall_req_clients_h. It is important to call it if a new client is added to the conversation during the call, otherwise the new client will be able to join the call but will will not ve authorized, so noone will be able to see or hear the user for that client. All clients should be passed to the function, not just the newly added ones, in this case.
+
+SFT communication
+-----------------
+
+The client communicates to the SFT via HTTPS. It is better for this to be done within the SyncEngine, so AVS will request SE to send via the wcall_sft_req_h callback passed into wcall_create:
+
+typedef int (wcall_sft_req_h)(void *ctx, const char *url,
+			      const uint8_t *data, size_t len,
+			      void *arg);
+
+wcall_create has a new param "stfh" to set the callback above:
+
+WUSER_HANDLE wcall_create(const char *userid,
+			  const char *clientid,
+			  wcall_ready_h *readyh,
+			  wcall_send_h *sendh,
+			  wcall_sft_req_h *sfth,
+			  wcall_incoming_h *incomingh,
+			  wcall_missed_h *missedh,
+			  wcall_answered_h *answerh,
+			  wcall_estab_h *estabh,
+			  wcall_close_h *closeh,
+			  wcall_metrics_h *metricsh,
+			  wcall_config_req_h *cfg_reqh,
+			  wcall_audio_cbr_change_h *acbrh,
+			  wcall_video_state_change_h *vstateh,
+			  void *arg);
+Responses should be passed to AVS by calling wcall_sft_resp:
+
+void wcall_sft_resp(WUSER_HANDLE wuser,
+		    int perr, const uint8_t *buf, size_t len, void *ctx);
+
+Conversation Type
+-----------------
+
+A new WCALL_CONV_TYPE define exists for starting conference calls:
+
+#define WCALL_CONV_TYPE_CONFERENCE      2
+
+Pass it into wcall_start in place of WCALL_CONV_TYPE_GROUP when we are to use the SFT:
+
+int wcall_start(WUSER_HANDLE wuser, const char *convid,
+		int call_type, /*WCALL_CALL_TYPE...*/
+		int conv_type, /*WCALL_CONV_TYPE...*/
+		int audio_cbr /*bool*/);
+
+The SE decides which conversations should use 1:1, group or conference calls. When answering, AVS uses the protocol that was used to answer (same as before).
+
+The conversation type is added as a param to the incoming handler, for information use only:
+
+typedef void (wcall_incoming_h)(const char *convid, uint32_t msg_time,
+				const char *userid, const char *clientid,
+				int video_call /*bool*/,
+				int should_ring /*bool*/,
+				int conv_type, /*WCALL_CONV_TYPE...*/
+				void *arg);
+
+Participant Mute State
+----------------------
+
+The mute state for each participant is now available in the json payload of the `wcall_participant_changed_h` handler. This can be used to update the UI to indicate who in a call has their microphone muted or not.
+
+An example of the json payload is:
+
+
+{
+  "convid": "df371578-65cf-4f07-9f49-c72a49877ae7",
+  "members": [
+    {
+      "userid": "3f49da1d-0d52-4696-9ef3-0dd181383e8a",
+      "clientid": "24cc758f602fb1f4",
+      "aestab": 1,
+      "vrecv": 0,
+      "muted": 0 // 0 = false, 1 = true
+    }
+  ]
+}
+
+Outdated Clients
+----------------
+
+In order to blacklist old clients when conneccting to the SFT, it is now possible for AVS to call the wcall_close_h handler with a new reason:
+
+#define WCALL_REASON_OUTDATED_CLIENT   11
+
+export enum REASON {
+  ...
+  OUTDATED_CLIENT = 11
+}
+
+This can be called at any time after wcall_start or wcall_answer has been called. OUTDATED_CLIENT should be handled the same as WCALL_ERROR_UNKNOWN_PROTOCOL, that is the "please update your client" notification should be shown. The call is also ended at this point the same way as for the other reasons (except STILL_ONGOING).
+
+

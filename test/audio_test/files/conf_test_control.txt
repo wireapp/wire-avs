@@ -1,0 +1,26 @@
+NUM_CHANNELS 3
+0 StartSend 0
+0 SetPacketSize 0 20
+5 StartSend 1
+5 SetPacketSize 0 40
+5 SetPacketSize 1 40
+6 StartSend 2
+6 SetPacketSize 2 40
+10 SetBitRate 0 14000
+12 SetBitRate 1 22000
+14 SetBitRate 2 14000
+16 SetBitRate 1 14000
+17 SetBitRate 0 32000
+18 SetBitRate 1 32000
+18 SetBitRate 2 32000
+30 SetBitRate 0 14000
+32 SetBitRate 1 22000
+34 SetBitRate 2 14000
+36 SetBitRate 1 14000
+40 SetBitRate 0 32000
+41 SetBitRate 1 32000
+42 SetBitRate 2 32000
+50 StopSend 0
+51 SetBitRate 2 18000
+58 StopSend 1
+60 Stop
