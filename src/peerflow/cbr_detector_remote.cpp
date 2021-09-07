@@ -21,6 +21,9 @@
 
 #include "cbr_detector_remote.h"
 
+#define MAX_MISSMATCH 10
+#define MIN_MATCH 100
+
 namespace wire {
 
 CbrDetectorRemote::CbrDetectorRemote()
@@ -43,21 +46,26 @@ CbrDetectorRemote::Result CbrDetectorRemote::Decrypt(cricket::MediaType media_ty
 
 	if (media_type == cricket::MEDIA_TYPE_AUDIO) {
 		if (data_len == frame_size && frame_size >= 40) {
+			missmatch_count = 0;
 			frame_count++;
-			if (frame_count > 200 && !detected) {
+			if (frame_count > MIN_MATCH && !detected) {
 				info("CBR detector: remote cbr detected\n");
 				detected = true;
 			}
 		}
 		else {
-			frame_count = 0;
-			frame_size = data_len;
-			if (detected) {
-				info("CBR detector: remote cbr detected disabled\n");
-				detected = false;
+			missmatch_count++;
+			if (!detected
+			    || (detected && missmatch_count > MAX_MISSMATCH)) {
+				frame_count = 0;
+				frame_size = data_len;
+				missmatch_count = 0;
+				if (detected) {
+					info("CBR detector: remote cbr detected disabled\n");
+					detected = false;
+				}
 			}
 		}
-
 	}
 
 	memcpy(dst, src, data_len);

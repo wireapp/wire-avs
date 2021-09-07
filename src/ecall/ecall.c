@@ -2060,7 +2060,8 @@ int ecall_start(struct ecall *ecall, enum icall_call_type call_type,
 {
 	int err;
 
-	info("ecall(%p): start\n", ecall);
+	info("ecall(%p): start call_type=%d cbr=%d\n",
+	     ecall, call_type, audio_cbr);
 
 	if (!ecall)
 		return EINVAL;
@@ -2149,7 +2150,7 @@ int ecall_answer(struct ecall *ecall, enum icall_call_type call_type,
 #endif
 	
 
-	info("ecall(%p): answer on pending econn %p call_type=%d\n", ecall, ecall->econn, call_type);
+	info("ecall(%p): answer on pending econn %p call_type=%d cbr=%d\n", ecall, ecall->econn, call_type, audio_cbr);
 
 	if (!ecall->econn) {
 		warning("ecall: answer: econn does not exist!\n");

@@ -636,6 +636,7 @@ namespace webrtc {
             }
             au_play_ = NULL;
         }
+
         return 0;
     }
     
@@ -1412,5 +1413,4 @@ namespace webrtc {
             rec_delay_ += (rec_buffer_total_size_ - noSamp10ms) / (rec_fs_hz_ / 1000);
         }
     }
-    
 }

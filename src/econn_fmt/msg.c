@@ -308,7 +308,6 @@ static int econn_keys_decode(struct list *keyl, struct json_object *jobj)
 	return 0;
 }
 
-
 int econn_message_encode(char **strp, const struct econn_message *msg)
 {
 	struct json_object *jobj = NULL;
@@ -425,10 +424,10 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 
 		jzon_add_bool(jobj, "update",
 			      msg->u.confconn.update);
-		jzon_add_str(jobj, "tool",
-			      msg->u.confconn.tool);
+		jzon_add_str(jobj, "tool", 
+			     "%s", msg->u.confconn.tool);
 		jzon_add_str(jobj, "toolver",
-			      msg->u.confconn.toolver);
+			     "%s", msg->u.confconn.toolver);
 		jzon_add_int(jobj, "status",
 			      msg->u.confconn.status);
 		jzon_add_bool(jobj, "selective_audio",

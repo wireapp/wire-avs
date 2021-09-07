@@ -33,24 +33,20 @@ else
 VER_PATCH := $(BUILD_NUMBER)
 endif
 
-VER_BRANCH := $(shell git rev-parse --abbrev-ref HEAD || echo "Fetching branch failed")
+VER_BRANCH := $(shell git rev-parse --abbrev-ref HEAD || echo "")
 
 ifeq ($(VER_BRANCH),master)
 AVS_PROJECT := avsmaster
 AVS_RELEASE := 0
-AVS_VERSION := 0.$(VER_PATCH)
-else ifeq ($(VER_BRANCH),open_source)
-AVS_PROJECT := avsopen
-AVS_RELEASE := 1
-AVS_VERSION := $(VER_MAJOR).$(VER_MINOR).$(VER_PATCH)
+AVS_VERSION := 0.0.$(VER_PATCH)
 else
 AVS_PROJECT := avs
 AVS_RELEASE := 1
 AVS_VERSION := $(VER_MAJOR).$(VER_MINOR).$(VER_PATCH)
 endif
 
-
 MK_COMPONENTS := toolchain contrib avs tools test android iosx dist
+
 
 #--- Configuration ---
 
@@ -91,7 +87,7 @@ endif
 
 #--- All My Targets ---
 
-all: test
+all: tools test
 
 ifeq ($(AVS_OS),android)
 wrapper: android

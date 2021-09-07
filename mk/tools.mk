@@ -2,7 +2,8 @@
 # tools.mk
 #
 
-TOOLS_ALL += zcall
+TOOLS_ALL += zcall verifyd
+#TOOLS_ALL += netprobe
 
 TOOLS_MKS := $(patsubst %,tools/%/tool.mk,$(TOOLS_ALL))
 TOOLS_OBJ_PATH := $(BUILD_OBJ)/tools

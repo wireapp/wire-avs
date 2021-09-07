@@ -1255,7 +1255,6 @@ static void prekey_handler(const char *userid,
 	output("prekey_handler: %zu bytes, user:%s[%u] -> %s\n",
 	       key_len, userid, id, clientid);
 
-
 	err = client_id_load(lclientid, sizeof(lclientid));
 	if (err) {
 		debug("my clientid not set -- cannot store prekeys\n");
@@ -1276,6 +1275,10 @@ static void prekey_handler(const char *userid,
 			warning("cryptobox_session_add_send failed (%m)\n",
 				err);
 		}
+	}
+
+	if (last) {
+		output("prekey_handler: all prekeys fetched\n");
 	}
 }
 

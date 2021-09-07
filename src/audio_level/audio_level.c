@@ -141,8 +141,8 @@ int audio_level_json(struct list *levell,
 
 		ja = jzon_alloc_object();
 		if (ja) {
-			jzon_add_str(ja, "userid", userid);
-			jzon_add_str(ja, "clientid", clientid);
+			jzon_add_str(ja, "userid", "%s", userid);
+			jzon_add_str(ja, "clientid", "%s", clientid);
 			jzon_add_int(ja, "audio_level",
 				     (int32_t)a->aulevel_smooth);
 			jzon_add_int(ja, "audio_level_now",

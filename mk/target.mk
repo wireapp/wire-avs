@@ -180,6 +180,10 @@ ifeq ($(AVS_OS),)
 AVS_OS := $(HOST_OS)
 AVS_ARCH := $(HOST_ARCH)
 endif
+ifeq ($(AVS_ARCH),arm64s)
+AVS_ARCH := arm64
+AVS_SIM := yes
+endif
 ifeq ($(AVS_ARCH),)
 ifeq ($(AVS_OS),android)
 AVS_ARCH := armv7
@@ -514,8 +518,13 @@ AVS_OS_FAMILY := darwin
 # SDK
 #
 ifeq ($(AVS_ARCH),x86_64)
+AVS_SIM = yes
+endif
+
+
+ifdef AVS_SIM
 SDK := iphonesimulator
-HOST_OPTIONS := --host=arm-apple-darwin
+HOST_OPTIONS := --host=arm-apple-darwin 
 else
 SDK := iphoneos
 endif
@@ -544,8 +553,7 @@ CPPFLAGS += \
 LFLAGS	 += \
 	 -arch $(AVS_ARCH) \
 	 -isysroot $(SDK_PATH) \
-	 -no-cpp-precomp \
-	 -Wl,-read_only_relocs,suppress
+	 -no-cpp-precomp
 SH_LFLAGS += -dynamiclib
 LIBS	 += \
 	-lz \

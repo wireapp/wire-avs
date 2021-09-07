@@ -48,6 +48,7 @@ private:
 	bool detected;
 	uint32_t frame_count;
 	uint32_t frame_size;
+	uint32_t missmatch_count;
 };
 
 }  // namespace wire

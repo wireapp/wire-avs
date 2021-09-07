@@ -1,4 +1,0 @@
-
-export WEBRTC_RELEASE=m79
-export WEBRTC_COMMIT=b484ec0082948ae086c2ba4142b4d2bf8bc4dd4b
-

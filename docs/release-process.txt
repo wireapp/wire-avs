@@ -1,0 +1,25 @@
+Release Process for AVS:
+-----------------------
+
+
+Different projects have different release policy:
+
+
+  avs:          master     This is the main development branch
+                release    This is the release branch, only for bugfixes
+                           (commits in release branch are merged back to master)
+
+
+  zcontrib:     master     Should always have production ready code in their master branch
+                           New features are kept in a feature-branch
+
+
+  mediaengine:  master     Should always have production ready code in their master branch
+                           New features are kept in a feature-branch
+
+
+
+NOTE:  The release branch would only need updating if externally relevant stuff has been updated.
+
+
+...

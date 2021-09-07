@@ -716,7 +716,6 @@ TEST(acm, wifi_channel_20ms_20pct_loss)
     EXPECT_LT( stats.avg_expand_rate, 25.0 );
 }
 
-#if 0
 TEST(acm, wifi_channel_20ms_20pct_loss_fec)
 {
     float cpu_load;
@@ -749,4 +748,3 @@ TEST(acm, wifi_channel_20ms_20pct_loss_fec)
     EXPECT_LT( stats.max_expand_rate, 10.0 );
     EXPECT_LT( stats.avg_expand_rate, 6.0 );
 }
-#endif

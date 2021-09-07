@@ -2552,8 +2552,8 @@ int wcall_i_answer(struct wcall *wcall,
 	call_type = (call_type == WCALL_CALL_TYPE_FORCED_AUDIO) ?
 		    WCALL_CALL_TYPE_NORMAL : call_type;
 
-	info(APITAG "wcall(%p): answer calltype=%s\n",
-	     wcall, wcall_call_type_name(call_type));
+	info(APITAG "wcall(%p): answer calltype=%s cbr=%d\n",
+	     wcall, wcall_call_type_name(call_type), audio_cbr);
 
 	if (wcall->disable_audio)
 		wcall->disable_audio = false;

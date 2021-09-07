@@ -53,7 +53,7 @@ ifeq ($(DIST_ARCH),)
 endif
 
 DIST_ARCH_android := $(filter armv7 arm64 i386 x86_64 osx,$(DIST_ARCH))
-DIST_ARCH_ios := $(filter armv7 arm64 x86_64,$(DIST_ARCH))
+DIST_ARCH_ios := $(filter arm64 x86_64,$(DIST_ARCH))
 
 DIST_FMWK_VERSION := A
 DIST_BUNDLE_LIB_NAME := AVS Library
@@ -106,7 +106,8 @@ DIST_BUNDLE_LIB := \
 DIST_AND_TARGETS := $(BUILD_DIST_AND)/avs.aar
 
 DIST_IOS_TARGETS := \
-	$(BUILD_DIST_IOS)/$(BUILD_LIB_REL).framework.zip
+	$(BUILD_DIST_IOS)/$(BUILD_LIB_REL).framework.zip \
+	$(BUILD_DIST_IOS)/$(BUILD_LIB_REL).xcframework.zip
 
 
 DIST_OSX_TARGETS := \
@@ -147,6 +148,7 @@ AVS_ARCH_NAME := $1\n\
 	mkdir -p $(BUILD_DIST_AND)/debug/$2/
 	cp android/obj/local/$2/libavs.so $(BUILD_DIST_AND)/debug/$2/libavs.so
 endef
+
 
 .PHONY: $(BUILD_DIST_AND)/avs.aar
 $(BUILD_DIST_AND)/avs.aar:
@@ -287,12 +289,27 @@ $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
 	@for arch in $(DIST_ARCH_ios) ; do \
 		$(MAKE) contrib AVS_OS=ios AVS_ARCH=$$arch && \
 		$(MAKE) $(JOBS) avs AVS_OS=ios AVS_ARCH=$$arch && \
-		$(MAKE) iosx AVS_OS=ios AVS_ARCH=$$arch ; \
+		$(MAKE) iosx AVS_OS=ios AVS_ARCH=$$arch && \
+		echo "creating dSYM for ios-$$arch" && \
+		dsymutil $(BUILD_BASE)/ios-$$arch/lib/avs.framework/avs \
+			2>/dev/null && \
+		mkdir -p $(BUILD_BASE)/ios-$$arch/lib/avs.framework/Headers && \
+		touch $(BUILD_BASE)/ios-$$arch/lib/avs.framework/Headers && \
+		cp -a iosx/include/* \
+			$(BUILD_BASE)/ios-$$arch/lib/avs.framework/Headers && \
+		cp -a include/avs_wcall.h \
+			$(BUILD_BASE)/ios-$$arch/lib/avs.framework/Headers && \
+		mkdir -p $(BUILD_BASE)/ios-$$arch/lib/avs.framework/Modules && \
+		touch $(BUILD_BASE)/ios-$$arch/lib/avs.framework/Modules && \
+		cp -a iosx/module.modulemap $(BUILD_BASE)/ios-$$arch/lib/avs.framework/Modules ; \
 	done
 	@mkdir -p $(dir $@)
+
 	lipo -create -output $@ \
 		$(foreach arch,$(DIST_ARCH_ios),\
 		-arch $(arch) $(BUILD_BASE)/ios-$(arch)/lib/avs.framework/avs)
+
+
 
 dist_test: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 
@@ -317,8 +334,29 @@ $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL).framework.zip: \
 	dsymutil -o $(BUILD_DIST_BASE)/$*/Carthage/Build/iOS/avs.framework.dSYM \
 		$(BUILD_DIST_BASE)/$*/$(BUILD_LIB_REL)/$(BUILD_LIB_REL) \
 		2>/dev/null
+
 	@( cd $(BUILD_DIST_BASE)/$* && \
 		zip --symlinks -r $@ Carthage )
+
+
+$(BUILD_DIST_IOS)/$(BUILD_LIB_REL).xcframework.zip:
+	@for arch in $(DIST_ARCH_ios) ; do \
+	     cp -a $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/Info.plist \
+			$(BUILD_BASE)/ios-$$arch/lib/avs.framework/ ; \
+	done
+	/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -create-xcframework \
+	     $(foreach arch,$(DIST_ARCH_ios),\
+                -framework $(BUILD_BASE)/ios-$(arch)/lib/avs.framework/) \
+		-output $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/avs.xcframework
+	@for arch in arm64 x86_64-simulator ; do \
+             mkdir -p $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/avs.xcframework/ios-$$arch/dSYMs && \
+	     mv $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/avs.xcframework/ios-$$arch/avs.framework/avs.dSYM \
+		$(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/avs.xcframework/ios-$$arch/dSYMs ; \
+	done
+	cp -R $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/avs.xcframework \
+		$(BUILD_DIST_BASE)/ios/avs.xcframework
+	@( cd $(BUILD_DIST_BASE)/ios && \
+		zip --symlinks -r avs.xcframework.zip avs.xcframework )
 
 #--- iOSX Tarballs ---
 
@@ -341,7 +379,7 @@ $(BUILD_DIST)/%/lib/libavsobjc.stripped.a: $(BUILD_DIST)/%/lib/libavsobjc.a
 #--- avscore Tarballs ---
 
 $(BUILD_DIST_BASE)/%/avscore.tar.bz2:
-	$(MAKE) contrib_librem AVS_OS=$* AVS_ARCH=x86_64 DIST=1
+	$(MAKE) tools contrib_librem AVS_OS=$* AVS_ARCH=x86_64 DIST=1
 	@mkdir -p $(dir $@)/avscore
 	@cp -a $(BUILD_BASE)/$*-x86_64/lib \
 	       $(BUILD_BASE)/$*-x86_64/share \
