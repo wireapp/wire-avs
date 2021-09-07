@@ -1550,6 +1550,8 @@ static void ecall_confpart_handler(struct ecall *ecall,
 
 		struct userinfo *u = find_userinfo_by_hash(ccall, p->userid, p->clientid);
 		if (u) {
+			bool muted;
+
 			if (first && u->se_approved) {
 				info("ccall(%p): setting %s.%s as keygenerator\n",
 				     ccall,
@@ -1571,12 +1573,30 @@ static void ecall_confpart_handler(struct ecall *ecall,
 				ccall->someone_left = true;
 				u->incall_prev = false;
 				sync_decoders = true;
+				list_changed = true;
 			}
 
 			u->incall_now = true;
 			u->ssrca = p->ssrca;
 			u->ssrcv = p->ssrcv;
-			list_changed = true;
+
+			switch (p->muted_state) {
+			case MUTED_STATE_UNKNOWN:
+				muted = u->muted;
+				break;
+			case MUTED_STATE_MUTED:
+				muted = true;
+				break;
+			case MUTED_STATE_UNMUTED:
+				muted = false;
+				break;
+			}
+
+			if (muted != u->muted) {
+				u->muted = muted;
+				list_changed = true;
+			}
+
 			u->listpos = listpos;
 			listpos++;
 		}
@@ -1599,7 +1619,6 @@ static void ecall_confpart_handler(struct ecall *ecall,
 			missing_parts = true;
 			u->listpos = listpos;
 			listpos++;
-			continue;
 		}
 
 	}

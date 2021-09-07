@@ -44,7 +44,7 @@ AVS_RELEASE := 0
 AVS_VERSION := 0.0.$(VER_PATCH)
 endif
 
-MK_COMPONENTS := toolchain contrib avs tools test android iosx dist
+MK_COMPONENTS := toolchain contrib avs tools test android iosx dist scan
 
 
 #--- Configuration ---

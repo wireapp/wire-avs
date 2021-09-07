@@ -210,11 +210,18 @@ struct econn_message {
 
 struct econn;
 
+enum group_part_muted_state {
+	MUTED_STATE_UNKNOWN,
+	MUTED_STATE_MUTED,
+	MUTED_STATE_UNMUTED
+};
+
 /* member of participant list */
 struct econn_group_part {
 	char *userid;
 	char *clientid;
 	bool authorized;
+	enum group_part_muted_state  muted_state;
 	uint32_t ssrca;
 	uint32_t ssrcv;
 

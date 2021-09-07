@@ -79,6 +79,19 @@ static int econn_parts_encode(struct json_object *jobj,
 		re_snprintf(ssrc, sizeof(ssrc), "%u", part->ssrcv);
 		jzon_add_str(jpart, "ssrc_video", "%s", ssrc);
 
+		switch(part->muted_state) {
+		case MUTED_STATE_UNMUTED:
+			jzon_add_bool(jpart, "muted", false);
+			break;
+
+		case MUTED_STATE_MUTED:
+			jzon_add_bool(jpart, "muted", true);
+			break;
+
+		default:
+			break;
+		}
+
 		json_object_array_add(jparts, jpart);
 	}
 
@@ -121,6 +134,7 @@ static bool part_decode_handler(const char *key, struct json_object *jobj,
 	struct econn_group_part *part;
 	struct list *partl = arg;
 	const char *ssrc;
+	bool muted;
 	int err;
 
 	part = mem_zalloc(sizeof(*part), part_destructor);
@@ -134,6 +148,16 @@ static bool part_decode_handler(const char *key, struct json_object *jobj,
 	err |= jzon_bool(&part->authorized, jobj, "authorized");
 	if (err)
 		goto out;
+
+	err = jzon_bool(&muted, jobj, "muted");
+	if (err) {
+		err = 0;
+		part->muted_state = MUTED_STATE_UNKNOWN;
+	}
+	else {
+		part->muted_state =
+			muted ? MUTED_STATE_MUTED : MUTED_STATE_UNMUTED;
+	}
 
 	ssrc = jzon_str(jobj, "ssrc_audio");
 	if (ssrc)
@@ -950,7 +974,6 @@ int econn_message_decode(struct econn_message **msgp,
 		err = jzon_int(&status, jobj, "status");
 		if (err) {
 			status = 0;
-			err = 0;
 		}
 
 		msg->u.confconn.status = (enum econn_confconn_status) status;
@@ -959,7 +982,6 @@ int econn_message_decode(struct econn_message **msgp,
 		err = jzon_bool(&selective_audio, jobj, "selective_audio");
 		if (err) {
 			selective_audio = false;
-			err = 0;
 		}
 		msg->u.confconn.selective_audio = selective_audio;
 
@@ -967,7 +989,6 @@ int econn_message_decode(struct econn_message **msgp,
 		err = jzon_bool(&selective_video, jobj, "selective_video");
 		if (err) {
 			selective_video = false;
-			err = 0;
 		}
 		msg->u.confconn.selective_video = selective_video;
 

@@ -87,8 +87,11 @@ public:
 		uint32_t apkts_sent = 0, vpkts_sent = 0;
 		int err;
 
-		lock_write_get(lock_);	       		
 		err = str_dup(&tmp, stats);
+		if (err)
+			return;
+
+		lock_write_get(lock_);	       		
 		//info("peerflow(%p): OnStatsDelivered err=%d len=%d stats=%s\n", pf_, err, (int)str_len(tmp), stats);
 		mem_deref(current_stats_);
 		current_stats_ = tmp;

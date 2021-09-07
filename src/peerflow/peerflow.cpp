@@ -2086,6 +2086,7 @@ bool peerflow_is_gathered(const struct iflow *iflow)
 		return false;
 
 	state = pf->peerConn->ice_gathering_state();
+	info("pf(%p): is_gathered state %d\n", iflow, state);
 
 	return pf->gathered;	
 }
