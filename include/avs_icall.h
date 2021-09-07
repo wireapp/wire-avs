@@ -63,10 +63,15 @@ enum icall_audio_state {
 	ICALL_AUDIO_STATE_NETWORK_PROBLEM = 2,
 };
 
+enum icall_stream_mode {
+	ICALL_STREAM_MODE_DEFAULT = 0
+};
+
 struct icall_client {
 	struct le le;
 	char *userid;
 	char *clientid;
+	int quality;
 };
 
 /* Used in place of uploss/downloss in the quality handler,
@@ -109,6 +114,9 @@ typedef int  (icall_set_quality_interval)(struct icall *icall,
 typedef int  (icall_dce_send)(struct icall *icall, struct mbuf *mb);
 typedef void (icall_set_clients)(struct icall* icall, struct list *clientl);
 typedef int  (icall_update_mute_state)(const struct icall* icall);
+typedef int  (icall_request_video_streams)(struct icall *icall,
+					   struct list *clientl,
+					   enum icall_stream_mode mode);
 
 typedef int  (icall_debug)(struct re_printf *pf, const struct icall* icall);
 typedef int  (icall_stats)(struct re_printf *pf, const struct icall* icall);
@@ -206,6 +214,7 @@ struct icall {
 	icall_dce_send                  *dce_send;
 	icall_set_clients		*set_clients;
 	icall_update_mute_state		*update_mute_state;
+	icall_request_video_streams	*request_video_streams;
 	icall_debug			*debug;
 	icall_stats			*stats;
 
@@ -256,6 +265,7 @@ void icall_set_functions(struct icall *icall,
 			 icall_dce_send                 *dce_send,
 			 icall_set_clients		*set_clients,
 			 icall_update_mute_state	*update_ute_state,
+			 icall_request_video_streams	*request_video_streams,
 			 icall_debug			*debug,
 			 icall_stats			*stats);
 

@@ -81,6 +81,8 @@ const char indices[] = {0, 1, 2, 3};
 	NSLock *_lock;
 	BOOL _newFrame;	
 	BOOL _firstFrame;
+	BOOL _drawBlank;
+	NSString *_userid;
 	CVDisplayLinkRef _displayLink;
 }
 
@@ -292,6 +294,7 @@ const char indices[] = {0, 1, 2, 3};
 			frame->w, frame->h);
 		_firstFrame = NO;
 	}
+	_drawBlank = NO;
 	[_context makeCurrentContext];
 
 	if (_texWidth != (GLsizei)frame->ys || _texHeight != frame->h) {
@@ -382,8 +385,10 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 	[_context makeCurrentContext];
 
 	if (_forceRecalc) {
+		NSScreen *nsscreen = [[NSScreen screens] objectAtIndex: 0];
+		GLfloat scale = nsscreen.backingScaleFactor;
 		NSRect frameRect = self.frame;
-		glViewport(0, 0, frameRect.size.width, frameRect.size.height);
+		glViewport(0, 0, frameRect.size.width * scale, frameRect.size.height * scale);
 		[self setupVertices];
 		_forceRecalc = NO;
 	}
@@ -391,7 +396,8 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 	glClearColor(0.0, 0.0, 0.0, 1.0);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, indices);
+	if (!_drawBlank)
+		glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, indices);
 
 	glSwapAPPLE();
 	_newFrame = NO;
@@ -451,6 +457,21 @@ out:
 
 	[super viewDidMoveToWindow];
 }
+
+- (void) setUserid:(NSString*)userid
+{
+	[_lock lock];
+	_userid = userid;
+	_drawBlank = YES;
+	_newFrame = YES;
+	[_lock unlock];
+}
+
+- (NSString*) userid
+{
+	return _userid;
+}
+
 - (void)dealloc
 {
 	CVDisplayLinkStop(_displayLink);

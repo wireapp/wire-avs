@@ -178,11 +178,12 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 
 	if (!enc->frame_recv) {
 		info("frame_enc(%p): encrypt: first frame received "
-		     "type: %s uid: %s fid: %u\n",
+		     "type: %s uid: %s fid: %u ssrc: %u\n",
 		     enc,
 		     frame_type_name(enc->mtype),
 		     enc->userid_hash,
-		     enc->frameid);
+		     enc->frameid,
+		     ssrc);
 		enc->frame_recv = true;
 	}
 
@@ -215,12 +216,11 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 		enc->updated_ts = updated_ts;
 	}
 
-	// TODO: set SSRC once all clients handle it
 	hlen = frame_hdr_write(dst,
 			       frame_encryptor_max_size(enc, srcsz),
 			       enc->frameid,
 			       kid,
-			       0);
+			       ssrc);
 
 	err = frame_encryptor_xor_iv(enc->iv, enc->frameid, kid, iv, IV_SIZE);
 	if (err) {
@@ -266,11 +266,12 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 
 	if (!err && !enc->frame_enc) {
 		info("frame_enc(%p): encrypt: first frame encrypted "
-		     "type: %s uid: %s fid: %u\n",
+		     "type: %s uid: %s fid: %u ssrc: %u\n",
 		     enc,
 		     frame_type_name(enc->mtype),
 		     enc->userid_hash,
-		     enc->frameid);
+		     enc->frameid,
+		     ssrc);
 		enc->frame_enc = true;
 	}
 out:

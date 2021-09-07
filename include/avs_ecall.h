@@ -120,9 +120,15 @@ typedef void (ecall_confpart_h)(struct ecall *ecall,
 				const struct econn_message *msg,
 				void *arg);
 
-
 int ecall_set_confpart_handler(struct ecall *ecall,
 			       ecall_confpart_h confparth);
+
+typedef void (ecall_confstreams_h)(struct ecall *ecall,
+				   const struct econn_message *msg,
+				   void *arg);
+
+int ecall_set_confstreams_handler(struct ecall *ecall,
+				  ecall_confstreams_h confstreamsh);
 
 int ecall_dce_send(struct ecall *ecall, struct mbuf *mb);
 

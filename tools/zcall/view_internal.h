@@ -29,7 +29,10 @@ typedef void (view_hidef)(void);
 
 typedef void (set_local_userf)(const char *userid, const char *clientid);
 
-typedef void (vidstate_changedf)(const char *userid, const char *clientid, int state);
+typedef void (vidstate_changedf)(const char *convid,
+				 const char *userid,
+				 const char *clientid,
+				 int state);
 
 typedef int  (render_framef)(struct avs_vidframe * frame,
 			     const char *userid,
@@ -38,7 +41,9 @@ typedef int  (render_framef)(struct avs_vidframe * frame,
 typedef void (preview_startf)(void);
 typedef void (preview_stopf)(void);
 
-typedef void (view_show_mutef)(bool muted);
+typedef void (show_mutef)(bool muted);
+
+typedef void (next_pagef)(void);
 
 struct view {
 	runloop_startf    *runloop_start;
@@ -51,7 +56,8 @@ struct view {
 	render_framef     *render_frame;
 	preview_startf    *preview_start;
 	preview_stopf     *preview_stop;
-	view_show_mutef   *view_show_mute;
+	show_mutef        *show_mute;
+	next_pagef        *next_page;
 };
 
 #endif

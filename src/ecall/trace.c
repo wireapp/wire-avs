@@ -96,7 +96,7 @@ int ecall_show_trace(struct re_printf *pf, const struct ecall *ecall)
 	for (le = list_head(&ecall->tracel); le; le = le->next) {
 		struct trace_entry *ent = le->data;
 
-		err = re_hprintf(pf, "* %.3fs  %s via %7s  %10s %-8s"
+		err = re_hprintf(pf, "* %.3fs  %s via %7s  %11s %-8s"
 				 ,
 				 .001 * ent->ts,
 				 ent->tx ? "send --->" : "recv <---",

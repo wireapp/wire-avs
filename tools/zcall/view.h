@@ -38,6 +38,8 @@ void vidstate_handler(const char *userid, enum flowmgr_video_receive_state state
 
 void view_show_mute(bool muted);
 
+void view_next_page(void);
+
 int  render_handler(struct avs_vidframe * frame,
 		    const char *userid,
 		    const char *clientid,

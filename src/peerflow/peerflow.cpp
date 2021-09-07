@@ -186,6 +186,7 @@ struct peerflow {
 	rtc::scoped_refptr<wire::NetStatsCallback> netStatsCb;
 	std::string remoteSdp;
 	bool selective_audio;
+	bool selective_video;
 };
 
 
@@ -1217,8 +1218,8 @@ public:
 			dec_uid = cm->userid_hash;
 		}
 		else if (pf_->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
-			userid = "user";
-			clientid = "client";
+			userid = "";
+			clientid = "";
 		}
 		else if (pf_->conv_type != ICALL_CONV_TYPE_CONFERENCE &&
 			 pf_->userid_remote && pf_->clientid_remote) {
@@ -2233,7 +2234,7 @@ static void pf_tool_handler(const char *tool, void *arg)
 {
 	struct peerflow *pf = (struct peerflow*)arg;
 	char *tc = NULL, *v = NULL, *t = NULL;
-	int major = 0;
+	int major = 0, minor = 0;
 	int err = 0;
 
 	if (!pf || !tool)
@@ -2249,11 +2250,19 @@ static void pf_tool_handler(const char *tool, void *arg)
 	v = strsep(&t, " ");
 	if (v && t && strcmp(v, "sftd") == 0) {
 		v = strsep(&t, ".");
-		major = v ? atoi(v) : -1;
+		major = v ? atoi(v) : 0;
+		if (v && t) {
+			v = strsep(&t, ".");
+			minor = v ? atoi(v) : 0;
+		}
 		pf->selective_audio = major >= 2;
-		info("peerflow(%p): set_sft_options: selective_audio: %s\n",
+		pf->selective_video = major > 2 || (major == 2 && minor >= 1);
+		info("peerflow(%p): set_sft_options: ver: %d.%d"
+		     " selective_audio: %s selective_video: %s\n",
 		     pf,
-		     pf->selective_audio ? "YES" : "NO");
+		     major, minor,
+		     pf->selective_audio ? "YES" : "NO",
+		     pf->selective_video ? "YES" : "NO");
 	}
 
 	mem_deref(tc);
@@ -2521,17 +2530,18 @@ int peerflow_sync_decoders(struct iflow *iflow)
 
 	if (!pf)
 		return EINVAL;
-	
-	str_dup(&sdp, pf->remoteSdp.c_str());
-	err = bundle_update((struct iflow *)pf,
-			    pf->conv_type,
-			    !pf->selective_audio,
-			    sdp,
-			    &pf->cml.list,
-			    peerflow_bundle_update);
-	if (err)
-		goto out;
 
+	if (!pf->selective_video) {
+		str_dup(&sdp, pf->remoteSdp.c_str());
+		err = bundle_update((struct iflow *)pf,
+				    pf->conv_type,
+				    !pf->selective_audio,
+				    sdp,
+				    &pf->cml.list,
+				    peerflow_bundle_update);
+		if (err)
+			goto out;
+	}
  out:
 	mem_deref(sdp);
 
@@ -2727,12 +2737,14 @@ void peerflow_stop_media(struct iflow *iflow)
 int peerflow_get_userid_for_ssrc(struct peerflow* pf,
 				 uint32_t csrc,
 				 bool video,
+				 char **userid_real,
+				 char **clientid_real,
 				 char **userid_hash)
 {
 	struct conf_member *cm;
 	int err = 0;
 
-	if (!pf || !userid_hash)
+	if (!pf)
 		return EINVAL;
 
 	lock_write_get(pf->cml.lock);
@@ -2746,7 +2758,12 @@ int peerflow_get_userid_for_ssrc(struct peerflow* pf,
 		goto out;
 	}
 
-	err = str_dup(userid_hash, cm->userid_hash);
+	if (userid_real)
+		err = str_dup(userid_real, cm->userid);
+	if (clientid_real)
+		err |= str_dup(clientid_real, cm->clientid);
+	if (userid_hash)
+		err |= str_dup(userid_hash, cm->userid_hash);
 	if (err)
 		goto out;
 

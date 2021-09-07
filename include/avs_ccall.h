@@ -68,6 +68,10 @@ int  ccall_set_quality_interval(struct icall *icall, uint64_t interval);
 
 int  ccall_update_mute_state(const struct icall* icall);
 
+int  ccall_request_video_streams(struct icall *icall,
+				 struct list *clientl,
+				 enum icall_stream_mode mode);
+
 int  ccall_msg_recv(struct icall* icall,
 		    uint32_t curr_time,
 		    uint32_t msg_time,

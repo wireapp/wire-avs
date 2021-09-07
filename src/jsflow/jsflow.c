@@ -226,6 +226,7 @@ struct jsflow {
 	struct tmr tmr_stats;
 	char *remote_sdp;	
 	bool selective_audio;
+	bool selective_video;
 
 	struct tmr tmr_cbr;
 	
@@ -808,7 +809,7 @@ static void jsflow_tool_handler(const char *tool, void *arg)
 {
 	struct jsflow *jsflow = (struct jsflow*)arg;
 	char *tc = NULL, *v = NULL, *t = NULL;
-	int major = 0;
+	int major = 0, minor = 0;
 	int err = 0;
 
 	if (!jsflow || !tool)
@@ -824,11 +825,19 @@ static void jsflow_tool_handler(const char *tool, void *arg)
 	v = strsep(&t, " ");
 	if (v && t && strcmp(v, "sftd") == 0) {
 		v = strsep(&t, ".");
-		major = v ? atoi(v) : -1;
+		major = v ? atoi(v) : 0;
+		if (v && t) {
+			v = strsep(&t, ".");
+			minor = v ? atoi(v) : 0;
+		}
 		jsflow->selective_audio = major >= 2;
-		info("jsflow(%p): set_sft_options: selective_audio: %s\n",
+		jsflow->selective_video = major > 2 || (major == 2 && minor >= 1);
+		info("jsflow(%p): set_sft_options: ver: %d.%d"
+		     " selective_audio: %s selective_video: %s\n",
 		     jsflow,
-		     jsflow->selective_audio ? "YES" : "NO");
+		     major, minor,
+		     jsflow->selective_audio ? "YES" : "NO",
+		     jsflow->selective_video ? "YES" : "NO");
 	}
 
 	mem_deref(tc);
@@ -1138,21 +1147,23 @@ int jsflow_remove_decoders_for_user(struct iflow *iflow,
 int jsflow_sync_decoders(struct iflow *iflow)
 {
 	struct jsflow *jf = (struct jsflow *)iflow;
-	int err;
+	int err = 0;
 
 	info("jsflow(%p): sync_decoders\n", jf);
 	
 	if (!jf)
 		return EINVAL;
 	
-	err = bundle_update((struct iflow *)jf,
-			    jf->conv_type,
-			    !jf->selective_audio,
-			    jf->remote_sdp,
-			    &jf->cml,
-			    jsflow_bundle_update);
-	if (err)
-		goto out;
+	if (!jf->selective_video) {
+		err = bundle_update((struct iflow *)jf,
+				    jf->conv_type,
+				    !jf->selective_audio,
+				    jf->remote_sdp,
+				    &jf->cml,
+				    jsflow_bundle_update);
+		if (err)
+			goto out;
+	}
 
  out:
 	return err;

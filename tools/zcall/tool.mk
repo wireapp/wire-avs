@@ -51,6 +51,8 @@ zcall_CPPFLAGS	+= -DHAVE_READLINE=1
 zcall_LIBS	+= -lreadline
 endif
 
+zcall_LIBS	+= -lpthread
+
 zcall_DEPS := $(AVS_DEPS) $(MENG_DEPS)
 zcall_LIB_FILES := $(AVS_STATIC) $(MENG_STATIC)
 

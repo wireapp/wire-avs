@@ -23,6 +23,7 @@
 #include "view_internal.h"
 
 static struct view *_view = NULL;
+WUSER_HANDLE calling3_get_wuser(void);
 
 int osx_view_init(struct view** v);
 int test_view_init(struct view** v);
@@ -101,6 +102,13 @@ void view_set_local_user(const char *userid, const char *clientid)
 	}
 }
 
+void view_next_page(void)
+{
+	if (_view) {
+		_view->next_page();
+	}
+}
+
 void wcall_vidstate_handler(const char *convid,
 			    const char *userid,
 			    const char *clientid,
@@ -109,7 +117,7 @@ void wcall_vidstate_handler(const char *convid,
 {
 
 	if (_view) {
-		_view->vidstate_changed(userid, clientid, state);
+		_view->vidstate_changed(convid, userid, clientid, state);
 	}
 }
 
@@ -139,7 +147,7 @@ void size_handler(int w,
 void view_show_mute(bool muted)
 {
 	if (_view) {
-		_view->view_show_mute(muted);
+		_view->show_mute(muted);
 	}
 }
 

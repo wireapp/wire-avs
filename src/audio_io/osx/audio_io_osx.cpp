@@ -608,6 +608,26 @@ namespace webrtc {
         
         init_play_audio_unit();
         
+#if 0
+        _useSoundLink = false;
+        if( _adbRecordSampFreq > 44000 &&
+           _adbPlaySampFreq > 44000) {
+            int soundLinkMode = 0;
+            int ret;
+            if( (ret = Init_SoundLink( _soundLink, soundLinkMode, _adbPlaySampFreq, _adbRecordSampFreq, NULL)) ) {
+                WEBRTC_TRACE(kTraceWarning, kTraceAudioDevice, _id,
+                             "  Error SoundLink returned %d", ret);
+                return 0;
+            }
+            // Register sound link callback
+            if( (ret = RegisterDetectionCallback( _soundLink, this )) ) {
+                WEBRTC_TRACE(kTraceWarning, kTraceAudioDevice, _id,
+                             "  Error SoundLink Callback not registered, returned %d", ret);
+                return 0;
+            }
+            _useSoundLink = true;
+        }
+#endif
         return 0;
     }
     
@@ -636,7 +656,10 @@ namespace webrtc {
             }
             au_play_ = NULL;
         }
-
+#if 0
+        // Unregister soundlink callback
+        UnregisterDetectionCallback( _soundLink );
+#endif
         return 0;
     }
     
@@ -1108,6 +1131,12 @@ namespace webrtc {
         rec_latency_ms_ = tmp_rec_latency_ms;
         
         if (is_recording_) {
+            // SoundLink Processing
+#if 0
+            if(_useSoundLink){
+                SoundLinkRecord( _soundLink, dataTmp, inNumberFrames );
+            }
+#endif
             const unsigned int noSamp10ms = rec_fs_hz_ / 100;
             unsigned int dataPos = 0;
             uint16_t bufPos = 0;
@@ -1274,6 +1303,24 @@ namespace webrtc {
                 // samples we shall quit loop anyway
                 dataPos += noSamp10ms;
             }
+#if 0
+            if(_useSoundLink){
+                int16_t dataTmpSL[dataSize];
+                
+                SoundLinkPlay( _soundLink, dataTmpSL, dataSize );
+                if( is_stereo){
+                    /* Mix into left channel */
+                    for( unsigned int i = 0 ; i < dataSize; i++){
+                        data[2*i] += dataTmpSL[i];
+                    }
+                }else{
+                    /* Mix with output */
+                    for(unsigned int i = 0 ; i < dataSize; i++){
+                        data[i] += dataTmpSL[i];
+                    }
+                }
+            }
+#endif
         }
         //_numRenderCalls+=1;
         
@@ -1411,6 +1458,16 @@ namespace webrtc {
         if (rec_buffer_total_size_ > noSamp10ms) {
             debug("audio_io_osx: error audio device mac AUHAL has buffered %d samples ", rec_buffer_total_size_ - noSamp10ms);
             rec_delay_ += (rec_buffer_total_size_ - noSamp10ms) / (rec_fs_hz_ / 1000);
+        }
+    }
+    
+    void audio_io_osx::DetectedSoundLink(const std::vector<uint8_t> &msg,
+                                                const struct tm timeLastDetected,
+                                                const int     deviceRoundTripLatencyMs)
+    {
+        if(deviceRoundTripLatencyMs > SOUNDLINK_LATENCY_FOR_RESET_MS){
+            warning(" High Device Round trip Latency = %d ms", deviceRoundTripLatencyMs);
+            rec_delay_warning_ = 1;
         }
     }
 }

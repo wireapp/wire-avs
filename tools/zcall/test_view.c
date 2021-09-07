@@ -78,7 +78,10 @@ static void test_preview_stop(void)
 	test_capturer_stop();
 }
 
-static void test_vidstate_changed(const char *userid, const char *clientid, int state)
+static void test_vidstate_changed(const char *convid,
+				  const char *userid,
+				  const char *clientid,
+				  int state)
 {
 	(void)userid;
 	(void)clientid;
@@ -131,6 +134,10 @@ static void test_view_show_mute(bool muted)
 {
 }
 
+static void test_view_next_page(void)
+{
+}
+
 static struct view _view = {
 	.runloop_start = test_runloop_start,
 	.runloop_stop = test_runloop_stop,
@@ -142,7 +149,8 @@ static struct view _view = {
 	.render_frame = test_render_frame,
 	.preview_start = test_preview_start,
 	.preview_stop = test_preview_stop,
-	.view_show_mute = test_view_show_mute
+	.show_mute = test_view_show_mute,
+	.next_page = test_view_next_page
 };
 
 

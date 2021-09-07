@@ -1257,6 +1257,81 @@ static int send_confpart_response(struct ccall *ccall)
 	return err;
 }
 
+int  ccall_request_video_streams(struct icall *icall,
+				 struct list *clientl,
+				 enum icall_stream_mode mode)
+{
+	struct ccall *ccall = (struct ccall*)icall;
+	struct econn_stream_info *sinfo;
+	struct econn_message *msg;
+	char *str = NULL;
+	struct mbuf mb;
+	struct le *le = NULL;
+	int err = 0;
+
+	if (!ccall)
+		return EINVAL;
+
+	err = alloc_message(&msg, ccall, ECONN_CONF_STREAMS, false,
+		ccall->self->userid_hash, ccall->self->clientid_hash,
+		"SFT", "SFT", false);
+	if (err) {
+		goto out;
+	}
+
+	str_dup(&msg->u.confstreams.mode, "list");
+	LIST_FOREACH(clientl, le) {
+		struct icall_client *cli = le->data;
+		struct userinfo *user;
+
+		user = find_userinfo_by_real(ccall, cli->userid, cli->clientid);
+		if (user) {
+			sinfo = econn_stream_info_alloc(user->userid_hash, 0);
+			if (!sinfo) {
+				err = ENOMEM;
+				goto out;
+			}
+		
+			list_append(&msg->u.confstreams.streaml, &sinfo->le, sinfo);
+		}
+	}
+
+	info("ccall(%p): request_video_streams mode: %u clients: %u matched: %u\n",
+	     ccall,
+	     mode,
+	     list_count(clientl),
+	     list_count(&msg->u.confstreams.streaml));
+
+	err = econn_message_encode(&str, msg);
+	if (err) {
+		warning("ccall(%p): request_video_streams: econn_message_encode"
+			" failed (%m)\n", err);
+		goto out;
+	}
+
+	ecall_trace(ccall->ecall, msg, true, ECONN_TRANSP_DIRECT,
+		    "DataChan %H\n",
+		    econn_message_brief, msg);
+
+	mb.pos = 0;
+	mb.size = str_len(str);
+	mb.end = mb.size;
+	mb.buf = (uint8_t *)str;
+
+	err =  ecall_dce_send(ccall->ecall, &mb);
+	if (err) {
+		warning("ccall(%p): request_video_streams: ecall_dce_send"
+			" failed (%m)\n", err);
+		goto out;
+	}
+
+ out:
+	mem_deref(str);
+	mem_deref(msg);
+
+	return err;
+}
+
 static  int ecall_propsync_handler(struct ecall *ecall,
 				   struct econn_message *msg,
 				   void *arg)
@@ -1739,6 +1814,9 @@ static int alloc_message(struct econn_message **msgp,
 	else if (type == ECONN_CONF_END) {
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
 	}
+	else if (type == ECONN_CONF_STREAMS) {
+		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
+	}
 out:
 skipprops:
 	if (err) {
@@ -1847,6 +1925,9 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	}
 	msg->u.confconn.update = update;
 	msg->u.confconn.selective_audio = true;
+	msg->u.confconn.selective_video = true;
+	msg->u.confconn.vstreams = CCALL_MAX_VSTREAMS;
+
 	err = ccall_send_msg_sft(ccall, sft_url, msg);
 	if (err != 0) {
 		goto out;
@@ -2007,6 +2088,7 @@ int ccall_alloc(struct ccall **ccallp,
 			    NULL, // ccall_dce_send
 			    ccall_set_clients,
 			    ccall_update_mute_state,
+			    ccall_request_video_streams,
 			    ccall_debug,
 			    ccall_stats);
 out:

@@ -477,6 +477,11 @@ struct mediamgr *wcall_mediamgr(WUSER_HANDLE wuser);
 
 void wcall_handle_frame(struct avs_vidframe *frame);
 
+int wcall_set_proxy(const char *host, int port);
+
+/**
+ * Client list management (conference calls).
+ */
 typedef void (wcall_req_clients_h)(WUSER_HANDLE wuser,
 				   const char *convid, void *arg);
 
@@ -486,17 +491,25 @@ int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
 			       const char *convid,
 			       const char *json);
 
-
+/**
+ * Active speaker (conference calls).
+ */
 typedef void (wcall_active_speaker_h)(WUSER_HANDLE wuser,
 				      const char *convid,
 				      const char *json_levels, void *arg);
 	
 void wcall_set_active_speaker_handler(WUSER_HANDLE wuser,
 				      wcall_active_speaker_h *activeh);
-	
-int wcall_set_proxy(const char *host, int port);
 
-		     
+#define WCALL_VSTREAMS_LIST 0
+/**
+ * Video stream selection (conference calls).
+ */
+int wcall_request_video_streams(WUSER_HANDLE wuser,
+				const char *convid,
+				int mode,
+				const char *json);
+
 /*
  * Netprobe
  */

@@ -1,6 +1,20 @@
 ChangeLog for AVS -- latest on top!
 
 ==============================================================================
+AVS Release 7.2
+
+Date:	    May 10, 2021
+GIT:	    https://github.com/wearezeta/avs/tree/release-7.2
+Android:    Android NDK r14b
+iOS:	    iOS SDK 12.2
+OSX:	    MacOS SDK 10.14
+Linux:	    Ubuntu x86_64 18.04 (LTS)
+
+Summary:        - Selective forwarding of video
+
+Hotfixes:       
+
+==============================================================================
 AVS Release 7.1
 
 Date:	    April 29, 2021

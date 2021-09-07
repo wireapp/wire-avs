@@ -36,9 +36,31 @@
 #define ICON_WH         64
 #define ICON_BW         16
 
+#define VIDEO_PAGE_SIZE  3
+
+@interface VideoClient : NSObject
+@property (copy) NSString *userid;
+@property (copy) NSString *clientid;
+- (id) initWithUser:(NSString*)uid client:(NSString*)cid;
+@end
+
+
+@implementation VideoClient
+- (id) initWithUser:(NSString*)uid client:(NSString*)cid
+{
+	self = [super init];
+	if (self) {
+		self.userid = uid;
+		self.clientid = cid;
+	}
+	return self;
+}
+@end
+
 static struct {
 	NSWindow *win;
 	NSMutableArray  *views;
+	NSMutableArray  *clients;
 	NSView *preview;
 	NSView *muteView;
 	NSTimer *timer;
@@ -51,13 +73,17 @@ static struct {
 	NSString *local_clientid;
 	struct tmr tmr;
 
+	uint32_t page;
+
 	bool muted;
+	char convid[ECONN_ID_LEN];
 } vidloop;
 
 WUSER_HANDLE calling3_get_wuser(void);
 
 int osx_view_init(struct view** v);
 static void osx_arrange_views(void);
+static void osx_view_next_page(void);
 
 @interface VideoDelegate : NSObject
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification;
@@ -158,6 +184,7 @@ static void osx_arrange_views(void)
 	uint32_t vcount, i, v;
 	uint32_t rows, cols, w, h, vh;
 	uint32_t xp, yp;
+	uint32_t cp;
 
 	vcount = vidloop.views.count + (vidloop.preview_visible ? 1 : 0);
 
@@ -176,6 +203,8 @@ static void osx_arrange_views(void)
 	h = WIN_H / rows;
 	vh = w * 3 / 4;
 
+	cp = vidloop.page;
+
 	for (v = 0; v < vidloop.views.count; v++) {
 		xp = (v % cols) * w;
 		yp = WIN_H - h - ((v / cols) * h) + (h - vh) / 2; 
@@ -183,6 +212,18 @@ static void osx_arrange_views(void)
 		NSRect rect = NSMakeRect(xp, yp, w, vh);
 		AVSVideoViewOSX *oview = [vidloop.views objectAtIndex: v];
 		oview.frame = rect;
+
+		if (cp < vidloop.clients.count) {
+			VideoClient *client = [vidloop.clients objectAtIndex:cp];
+			oview.userid = client.userid;
+			oview.clientid = client.clientid;
+		}
+		else {
+			oview.userid = @"";
+			oview.clientid = @"";
+		}
+		cp++;
+
 	}
 
 	vh = w * 3 / 4;
@@ -194,11 +235,16 @@ static void osx_arrange_views(void)
 	vidloop.muteView.frame = rect;
 	osx_view_show_mute(wcall_get_mute(calling3_get_wuser()));
 	NSApplication *app = [NSApplication sharedApplication];
-	[vidloop.win makeKeyAndOrderFront:app];
-	[NSApp activateIgnoringOtherApps:YES];
 
 	[[vidloop.win contentView] addSubview:vidloop.preview];
 	[vidloop.preview display];
+
+	if (vidloop.preview_visible || vidloop.view_visible) {
+		[vidloop.win makeKeyAndOrderFront:app];
+		[NSApp activateIgnoringOtherApps:YES];
+	}
+	else
+		[vidloop.win orderOut:nil];
 }
 
 static const char *video_state_name(int vstate)
@@ -219,60 +265,89 @@ static const char *video_state_name(int vstate)
 	}
 }
 
-static void osx_vidstate_changed(const char *userid, const char *clientid, int state)
+static void osx_request_streams(void)
+{
+	char *json_str = NULL;
+	struct json_object *jobj;
+	struct json_object *jcli;
+	struct json_object *jclients;
+	uint32_t cp = vidloop.page;
+	VideoClient *client;
+
+	uint32_t ep = MIN(cp + VIDEO_PAGE_SIZE, vidloop.clients.count);
+
+	jobj = jzon_alloc_object();
+
+	jclients = json_object_new_array();
+
+	while (cp < ep) {
+		client = [vidloop.clients objectAtIndex:cp];
+		jcli = jzon_alloc_object();
+		
+		jzon_add_str(jcli, "userid", "%s", [client.userid UTF8String]);
+		jzon_add_str(jcli, "clientid", "%s", [client.clientid UTF8String]);
+		json_object_array_add(jclients, jcli);
+
+		cp++;
+	}
+
+	jzon_add_str(jobj, "convid", "%s", vidloop.convid);
+	json_object_object_add(jobj, "clients", jclients);
+
+	jzon_encode(&json_str, jobj);
+
+	if (json_str) {
+		WUSER_HANDLE wuser = calling3_get_wuser();
+		wcall_request_video_streams(wuser,
+					    vidloop.convid,
+					    0,
+					    json_str);
+	}
+	mem_deref(jobj);
+	mem_deref(json_str);
+}
+
+static void osx_vidstate_changed(const char *convid,
+				 const char *userid,
+				 const char *clientid,
+				 int state)
 {
 	NSString *uid = [NSString stringWithUTF8String: userid];
 	NSString *cid = [NSString stringWithUTF8String: clientid];
+	NSString *coid = [NSString stringWithUTF8String: convid];
 
 	info("osx_vidstate_changed for %s.%s -> %s\n",
 		userid, clientid, video_state_name(state));
 
 	dispatch_async(dispatch_get_main_queue(), ^{
-		bool found = false;
+		VideoClient *client;
+		str_ncpy(vidloop.convid, [coid UTF8String], ECONN_ID_LEN);
 		if (![vidloop.local_userid isEqualToString: uid] ||
 		    ![vidloop.local_clientid isEqualToString: cid]) {
 			switch(state) {
 			case WCALL_VIDEO_STATE_STARTED:
 			case WCALL_VIDEO_STATE_SCREENSHARE:
-				for (unsigned int v = 0; v < vidloop.views.count; v++) {
-					AVSVideoViewOSX *view = [vidloop.views objectAtIndex: v];
 
-					if ([view.userid isEqualToString: uid] &&
-						[view.clientid isEqualToString: cid]) {
-						found = true;
-						break;
+				for (unsigned int c = 0; c < vidloop.clients.count; c++) {
+					client = [vidloop.clients objectAtIndex: c];
+
+					if ([client.userid isEqualToString: uid] &&
+						[client.clientid isEqualToString: cid]) {
+						return;
 					}
 				}
-
-				if (!found) {
-					NSRect rect = NSMakeRect(0, 0, WIN_W, WIN_W * 3 / 4);
-					AVSVideoViewOSX *v = [[AVSVideoViewOSX alloc] initWithFrame:rect];
-					v.userid = uid;
-					v.clientid = cid;
-					[vidloop.views addObject: v];
-					[[vidloop.win contentView] addSubview:v];
-					[v display];
-
-					info("osx_view adding renderer for %s now %u\n",
-						[uid UTF8String], vidloop.views.count);
-				}
+				client = [[VideoClient alloc] initWithUser: uid client: cid];
+				[vidloop.clients addObject: client];
 				break;
 
 			default:
 				{
+					for (unsigned int c = 0; c < vidloop.clients.count; c++) {
+						client = [vidloop.clients objectAtIndex: c];
 
-					info("osx_view removing renderer for %s\n",
-						[uid UTF8String]);
-					for (unsigned int v = 0; v < vidloop.views.count; v++) {
-						AVSVideoViewOSX *view = [vidloop.views objectAtIndex: v];
-
-						if ([view.userid isEqualToString: uid] &&
-							[view.clientid isEqualToString: cid]) {
-
-							[view removeFromSuperview];
-							[vidloop.views removeObject: view];
-							info("osx_view removing renderer for %s now %u\n",
-								userid, vidloop.views.count);
+						if ([client.userid isEqualToString: uid] &&
+							[client.clientid isEqualToString: cid]) {
+							[vidloop.clients removeObject: client];
 							break;
 						}
 					}
@@ -280,16 +355,16 @@ static void osx_vidstate_changed(const char *userid, const char *clientid, int s
 				break;
 			}
 		}
-		vidloop.view_visible = [vidloop.views count] > 0;
+		osx_request_streams();
+		vidloop.view_visible = (vidloop.clients.count > 0);
 
-
+		osx_arrange_views();
 		if (vidloop.view_visible || vidloop.preview_visible) {
 			view_show();
 		}
 		else {
 			view_hide();
 		}
-		osx_arrange_views();
 	}); 
 }
 
@@ -356,7 +431,8 @@ static struct view _view = {
 	.render_frame = osx_render_frame,
 	.preview_start = osx_preview_start,
 	.preview_stop = osx_preview_stop,
-	.view_show_mute = osx_view_show_mute
+	.show_mute = osx_view_show_mute,
+	.next_page = osx_view_next_page
 };
 
 
@@ -377,6 +453,7 @@ int osx_view_init(struct view** v)
 	[vidloop.win orderOut:nil];
 
 	vidloop.views = [[NSMutableArray alloc] init];
+	vidloop.clients = [[NSMutableArray alloc] init];
 
 	NSRect previewRect = NSMakeRect(0, 0, WIN_W, WIN_H);
 	vidloop.preview = [[NSView alloc] initWithFrame:previewRect];
@@ -397,11 +474,26 @@ int osx_view_init(struct view** v)
 	osx_view_hide();
 	vidloop.capturer = [[AVSCapturer alloc] init];
 
-	osx_arrange_views();
+	for (int i = 0; i < VIDEO_PAGE_SIZE; i++) {
+		NSRect rect = NSMakeRect(0, 0, WIN_W, WIN_W * 3 / 4);
+		AVSVideoViewOSX *cv = [[AVSVideoViewOSX alloc] initWithFrame:rect];
+		[vidloop.views addObject: cv];
+		[[vidloop.win contentView] addSubview:cv];
+		[cv display];
+	}
 	*v = &_view;
 	return 0;
 }
 
+static void osx_view_next_page(void)
+{
+	vidloop.page += VIDEO_PAGE_SIZE;
+	if (vidloop.page >= vidloop.clients.count)
+		vidloop.page = 0;
+
+	osx_request_streams();
+	osx_arrange_views();
+}
 
 @implementation VideoDelegate
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification

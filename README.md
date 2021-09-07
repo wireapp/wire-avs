@@ -353,3 +353,17 @@ When reporting bugs against AVS please include the following:
 - Exact time when call was started/stopped
 - Name/OS of device
 - Adb logcat for Android
+
+Run-time libraries
+------------------
+FROM ubuntu:16.04
+RUN apt-get install -qqy --no-install-recommends \
+    	libprotobuf-c-dev \
+    	libc6-dev-i386 \
+        libreadline-dev \
+        libx11-dev \
+        libxcomposite-dev \
+        libxdamage-dev \
+        libxrender-dev \
+        libc++-dev \
+        libc++abi-dev

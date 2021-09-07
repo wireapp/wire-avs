@@ -120,6 +120,11 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.confpart.entropy = mem_deref(msg->u.confpart.entropy);
 		break;
 
+	case ECONN_CONF_STREAMS:
+		list_flush(&msg->u.confstreams.streaml);
+		msg->u.confstreams.mode = mem_deref(msg->u.confstreams.mode);
+		break;
+
 	case ECONN_PING:
 		break;
 

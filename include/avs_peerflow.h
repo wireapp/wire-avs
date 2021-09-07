@@ -30,6 +30,8 @@ void capture_source_handle_frame(struct avs_vidframe *frame);
 int peerflow_get_userid_for_ssrc(struct peerflow* pf,
 				 uint32_t csrc,
 				 bool video,
+				 char **userid_real,
+				 char **clientid_real,
 				 char **userid_hash);
 #ifdef __cplusplus
 }

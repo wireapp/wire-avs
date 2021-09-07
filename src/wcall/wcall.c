@@ -2247,7 +2247,7 @@ static void instance_destructor(void *arg)
 
 static void msys_mute_handler(bool muted, void *arg)
 {
-	WUSER_HANDLE wuser = (WUSER_HANDLE)arg;
+	WUSER_HANDLE wuser = (WUSER_HANDLE)(unsigned long)arg;
 	struct calling_instance *inst;
 	struct le *le;
 	uint64_t now = tmr_jiffies();
@@ -2552,8 +2552,8 @@ int wcall_i_answer(struct wcall *wcall,
 	call_type = (call_type == WCALL_CALL_TYPE_FORCED_AUDIO) ?
 		    WCALL_CALL_TYPE_NORMAL : call_type;
 
-	info(APITAG "wcall(%p): answer calltype=%s cbr=%d\n",
-	     wcall, wcall_call_type_name(call_type), audio_cbr);
+	info(APITAG "wcall(%p): answer calltype=%s\n",
+	     wcall, wcall_call_type_name(call_type));
 
 	if (wcall->disable_audio)
 		wcall->disable_audio = false;
@@ -3660,12 +3660,12 @@ void wcall_i_set_clients_for_conv(struct wcall *wcall, const char *json)
 	int err = 0;
 
 	if (!wcall) {
-		warning("wcall; set_clients_for_conv: no wcall\n");
+		warning("wcall: set_clients_for_conv: no wcall\n");
 		return;
 	}
 	
 	if (!wcall->icall) {
-		warning("wcall; set_clients_for_conv: no icall\n");
+		warning("wcall: set_clients_for_conv: no icall\n");
 		return;
 	}
 
@@ -3711,6 +3711,77 @@ void wcall_i_set_clients_for_conv(struct wcall *wcall, const char *json)
 
 	ICALL_CALL(wcall->icall, set_clients,
 		&clientl);
+
+out:
+	mem_deref(jobj);
+	list_flush(&clientl);
+	return;
+}
+
+void wcall_i_request_video_streams(struct wcall *wcall,
+				   int mode,
+				   const char *json)
+{
+	struct json_object *jobj, *jclients;
+	size_t nclients, i;
+	struct list clientl = LIST_INIT;
+	
+	size_t len;
+	int err = 0;
+
+	if (!wcall) {
+		warning("wcall: request_video_streams: no wcall\n");
+		return;
+	}
+	
+	if (!wcall->icall) {
+		warning("wcall: request_video_streams: no icall\n");
+		return;
+	}
+
+	info(APITAG "wcall(%p): request_video_streams\n", wcall);
+
+	len = strlen(json);
+	err = jzon_decode(&jobj, json, len);
+	info(APITAG "wcall(%p): request_video_streams err=%d\n", wcall, err);
+	if (err)
+		return;
+
+#if 0
+	jzon_dump(jobj);
+#endif
+
+	err = jzon_array(&jclients, jobj, "clients");
+	if (err)
+		goto out;
+
+	if (!jzon_is_array(jclients)) {
+		warning("wcall(%p): request_video_streams: json object is not an array\n");
+		goto out;
+	}
+
+	nclients = json_object_array_length(jclients);
+	for (i = 0; i < nclients; ++i) {
+		const char *uid, *cid;
+		struct json_object *jcli;
+		struct icall_client *cli;
+
+		jcli = json_object_array_get_idx(jclients, i);
+		if (!jcli) {
+			goto out;
+		}
+
+		uid = jzon_str(jcli, "userid");
+		cid = jzon_str(jcli, "clientid");
+		//q = jzon_int(jcli, "quality");
+		if (uid && cid) {
+			cli = icall_client_alloc(uid, cid);
+			list_append(&clientl, &cli->le, cli);
+		}
+	}
+
+	ICALL_CALL(wcall->icall, request_video_streams,
+		&clientl, ICALL_STREAM_MODE_DEFAULT);
 
 out:
 	mem_deref(jobj);

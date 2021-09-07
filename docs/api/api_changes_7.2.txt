@@ -1,0 +1,44 @@
+
+Changes introduced in AVS 7.2
+=============================
+
+AVS 7.2 comes with selective video, allowing clients to request a subset of available videos to receive. An additional call and mode value are available:
+
+#define WCALL_VSTREAMS_LIST 0
+
+int wcall_request_video_streams(WUSER_HANDLE wuser,
+                                const char *convid,
+                                int mode,
+                                const char *json);
+
+
+export enum VSTREAMS {
+  LIST = 0
+}
+
+requestVideoStreams(
+  wuser: number,
+  convid: string,
+  mode: number,
+  json: string
+): number
+
+The mode parameter can only be WCALL_VSTREAMS_LIST at present. json is a string containing a JSON blob similar to wcall_set_clients_for_conv:
+
+{
+  "convid":"01234567-89ab-cdef-0123-456789abcdef",
+  "clients":[
+    {"userid":"01234567-89ab-cdef-0123-456789abcdef","clientid":"0123456789abcdef"}
+  ]
+}
+
+The videoStreamHandler callback on web can now receive null for the streams to allow the user for the stream to be switched. When receiving videoStreamHandler with null streams, the video element used to render the video for that user should be disconnected and/or removed. The function now looks as follows:
+
+export type VideoStreamHandler = (
+  convid: string,
+  remote_userid: string,
+  remote_clientid: string,
+  streams: readonly MediaStream[] | null
+) => void;
+
+

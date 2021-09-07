@@ -38,6 +38,7 @@ void icall_set_functions(struct icall *icall,
 			 icall_dce_send                 *dce_send,
 			 icall_set_clients		*set_clients,
 			 icall_update_mute_state	*update_mute_state,
+			 icall_request_video_streams	*request_video_streams,
 			 icall_debug			*debug,
 			 icall_stats			*stats)
 {
@@ -62,6 +63,7 @@ void icall_set_functions(struct icall *icall,
 	icall->dce_send                 = dce_send;
 	icall->set_clients		= set_clients;
 	icall->update_mute_state	= update_mute_state;
+	icall->request_video_streams	= request_video_streams;
 	icall->debug			= debug;
 	icall->stats			= stats;
 }

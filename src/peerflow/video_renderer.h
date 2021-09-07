@@ -69,6 +69,7 @@ private:
 	uint64_t ts_fps_;
 	uint32_t fps_count_;
 	uint32_t frame_count_;
+	uint32_t ssrc_;
 };
 
 }

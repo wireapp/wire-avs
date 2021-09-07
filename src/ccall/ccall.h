@@ -34,6 +34,8 @@
 #define CCALL_SECRET_LEN               (    16)
 #define CCALL_MAX_RECONNECT_ATTEMPTS   (     2)
 
+#define CCALL_MAX_VSTREAMS             (     9)
+
 struct userinfo {
 	struct le le;
 	char *userid_real;

@@ -978,6 +978,25 @@ struct key_stroke interrupt_stroke = {
 };
 
 
+/*** 'n' ... Next video page
+ */
+
+static bool vpage_key_handler(int ch)
+{
+	(void) ch;
+
+	view_next_page();
+
+	return true;
+}
+
+struct key_stroke vpage_stroke = {
+	.ch = 'n',
+	.h = vpage_key_handler,
+	.help = "next page of incoming videos"
+};
+
+
 /*** 'a' ... Accept first pending call
  */
 
@@ -1898,6 +1917,7 @@ int conv_init(void)
 	register_key_stroke(&videop_stroke);
 	register_key_stroke(&interrupt_stroke);
 	register_key_stroke(&propsync_stroke);
+	register_key_stroke(&vpage_stroke);
 
 	register_command(&switch_command);
 	register_command(&log_command);

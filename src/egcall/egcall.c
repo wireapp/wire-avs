@@ -606,6 +606,7 @@ int egcall_alloc(struct egcall **egcallp,
 			    NULL, // egcall_dce_send
 			    egcall_set_clients,
 			    egcall_update_mute_state,
+			    NULL, // egcall_request_video_streams
 			    egcall_debug,
 			    egcall_stats);
 out:

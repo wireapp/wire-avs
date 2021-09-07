@@ -74,5 +74,8 @@ void wcall_i_set_media_laddr(struct wcall *wcall,const char *laddr);
 void wcall_i_set_clients_for_conv(struct wcall *wcall, const char *json);
 void wcall_i_destroy(struct calling_instance *inst);
 void wcall_i_set_mute(int muted);
+void wcall_i_request_video_streams(struct wcall *wcall,
+				   int mode,
+				   const char *json);
 void wcall_marshal_destroy(struct calling_instance *inst);
 

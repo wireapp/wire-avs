@@ -34,12 +34,13 @@ enum econn_msg {
 	ECONN_GROUP_SETUP = 0x08,
 
 	/* Conference call: */
-	ECONN_CONF_CONN  = 0x09,
-	ECONN_CONF_START = 0x0A,
-	ECONN_CONF_END   = 0x0B,
-	ECONN_CONF_PART  = 0x0C,
-	ECONN_CONF_KEY   = 0x0D,
-	ECONN_CONF_CHECK = 0x0E,
+	ECONN_CONF_CONN    = 0x09,
+	ECONN_CONF_START   = 0x0A,
+	ECONN_CONF_END     = 0x0B,
+	ECONN_CONF_PART    = 0x0C,
+	ECONN_CONF_KEY     = 0x0D,
+	ECONN_CONF_CHECK   = 0x0E,
+	ECONN_CONF_STREAMS = 0x0F,
 
 	ECONN_UPDATE = 0x10,
 	ECONN_REJECT = 0x11,
@@ -198,6 +199,11 @@ struct econn_message {
 		struct confkey {
 			struct list keyl; /* list of struct econn_key_info */
 		} confkey;
+
+		struct confstreams {
+			struct list streaml; /* list of struct econn_stream_info */
+			char *mode;
+		} confstreams;
 	} u;
 };
 
@@ -222,6 +228,14 @@ struct econn_key_info {
 	uint32_t dlen;
 	struct le le;
 };
+
+/* key data for CONF_STREAMS message */
+struct econn_stream_info {
+	char userid[ECONN_ID_LEN];
+	uint32_t quality;
+	struct le le;
+};
+
 /**
  * Indicates an incoming call on this ECONN.
  * Should only be called once per ECONN.
@@ -268,6 +282,10 @@ typedef void (econn_confpart_h)(struct econn *econn,
 				const struct econn_message *msg,
 				void *arg);
 
+typedef void (econn_confstreams_h)(struct econn *econn,
+				   const struct econn_message *msg,
+				   void *arg);
+
 typedef void (econn_ping_h)(struct econn *econn, bool response, void *arg);
 
 /**
@@ -312,6 +330,7 @@ int  econn_alloc(struct econn **econnp,
 		 econn_update_resp_h *update_resph,
 		 econn_alert_h *alerth,
 		 econn_confpart_h *confparth,
+		 econn_confstreams_h *confstreamsh,
 		 econn_ping_h *pingh,
 		 econn_close_h *closeh, void *arg);
 int  econn_start(struct econn *conn, const char *sdp,
@@ -398,6 +417,8 @@ struct econn_key_info *econn_key_info_alloc(size_t keysz);
 
 int econn_send_ping(struct econn *conn, bool response);
 
+struct econn_stream_info *econn_stream_info_alloc(const char *userid,
+						  uint32_t quality);
 struct vector {
 	uint8_t *bytes;
 	size_t len;

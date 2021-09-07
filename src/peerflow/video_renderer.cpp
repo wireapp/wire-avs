@@ -18,6 +18,9 @@
 
 #include "video_renderer.h"
 
+
+#define SWAP(a, b, t) {t = a; a = b; b = t;}
+
 namespace wire {
 
 VideoRendererSink::VideoRendererSink(struct peerflow *pf,
@@ -27,7 +30,8 @@ VideoRendererSink::VideoRendererSink(struct peerflow *pf,
 	last_width_(0),
 	last_height_(0),
 	fps_count_(0),
-	frame_count_(0)
+	frame_count_(0),
+	ssrc_(0)
 {
 	char uid_anon[ANON_ID_LEN];
 	char cid_anon[ANON_CLIENT_LEN];
@@ -60,6 +64,39 @@ void VideoRendererSink::OnFrame(const webrtc::VideoFrame& frame)
 	uint64_t now = tmr_jiffies();
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
+	webrtc::RtpPacketInfos pinfos = frame.packet_infos();
+
+	if (pinfos.size() > 0) {
+		uint32_t sid;
+		int err = 0;
+
+		sid = pinfos[0].csrcs().size() > 0 ? pinfos[0].csrcs()[0] : pinfos[0].ssrc();
+
+		if (sid != ssrc_) {
+			char *uid = NULL, *cid = NULL, *t;
+			
+			err = peerflow_get_userid_for_ssrc(pf_,
+							   sid,
+							   true,
+							   &uid,
+							   &cid,
+							   NULL);
+			if (!err) {
+				SWAP(uid, userid_remote_, t);
+				SWAP(cid, clientid_remote_, t);
+
+				info("VideoRenderSync::OnFrame: switch user: %s.%s res: %dx%d\n",
+					anon_id(userid_anon, userid_remote_),
+					anon_client(clientid_anon, clientid_remote_),
+					fw, fh);
+				fps_count_ = 0;
+				ts_fps_ = now;
+			}
+			ssrc_ = sid;
+			mem_deref(uid);
+			mem_deref(cid);
+		}
+	}
 
 	frame_count_++;
 	fps_count_++;
@@ -120,6 +157,7 @@ void VideoRendererSink::OnFrame(const webrtc::VideoFrame& frame)
 	avsframe.ys = i420->StrideY();
 	avsframe.us = i420->StrideU();
 	avsframe.vs = i420->StrideV();
+
 	iflow_render_frameh(&avsframe, userid_remote_, clientid_remote_);
 		
 }

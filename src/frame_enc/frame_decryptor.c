@@ -88,6 +88,9 @@ int frame_decryptor_set_uid(struct frame_decryptor *dec,
 	if (!dec || !userid_hash)
 		return EINVAL;
 
+	info("frame_dec(%p): set_uid: %s\n",
+	     dec,
+	     userid_hash);
 	dec->userid_hash = mem_deref(dec->userid_hash);
 
 	err = str_dup(&dec->userid_hash, userid_hash);
@@ -164,6 +167,8 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 		err = peerflow_get_userid_for_ssrc(dec->pf,
 						   csrc,
 						   dec->mtype == FRAME_MEDIA_VIDEO,
+						   NULL,
+						   NULL,
 						   &dec->userid_hash);
 		if (err) 
 			goto out;

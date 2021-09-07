@@ -24,8 +24,6 @@
 
 # Master version number
 #
-VER_MAJOR := 7
-VER_MINOR := 1
 
 ifeq ($(BUILD_NUMBER),)
 VER_PATCH := local
@@ -35,14 +33,15 @@ endif
 
 VER_BRANCH := $(shell git rev-parse --abbrev-ref HEAD || echo "")
 
-ifeq ($(VER_BRANCH),master)
+ifeq ($(word 1, $(subst -, , $(VER_BRANCH))), release)
+AVS_PROJECT := avs
+AVS_RELEASE := 1
+VER_MAJOR_MINOR := $(word 2, $(subst -, , $(VER_BRANCH)))
+AVS_VERSION := $(VER_MAJOR_MINOR).$(VER_PATCH)
+else
 AVS_PROJECT := avsmaster
 AVS_RELEASE := 0
 AVS_VERSION := 0.0.$(VER_PATCH)
-else
-AVS_PROJECT := avs
-AVS_RELEASE := 1
-AVS_VERSION := $(VER_MAJOR).$(VER_MINOR).$(VER_PATCH)
 endif
 
 MK_COMPONENTS := toolchain contrib avs tools test android iosx dist

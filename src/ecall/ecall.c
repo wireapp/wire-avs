@@ -537,6 +537,34 @@ int ecall_set_confpart_handler(struct ecall *ecall,
 }
 
 
+static void econn_confstreams_handler(struct econn *econn,
+				      const struct econn_message *msg,
+				      void *arg)
+{
+	struct ecall *ecall = arg;
+
+	assert(ECALL_MAGIC == ecall->magic);
+
+	if (ecall->confstreamsh) {
+		info("ecall(%p): confstreams: streams: %u\n",
+		     ecall, list_count(&msg->u.confstreams.streaml));
+		ecall->confstreamsh(ecall, msg, ecall->icall.arg);
+	}
+}
+
+
+int ecall_set_confstreams_handler(struct ecall *ecall,
+				  ecall_confstreams_h confstreamsh)
+{
+	if (!ecall) {
+		return EINVAL;
+	}
+
+	ecall->confstreamsh = confstreamsh;
+	return 0;
+}
+
+
 int ecall_set_propsync_handler(struct ecall *ecall,
 			       ecall_propsync_h propsynch)
 {
@@ -1027,6 +1055,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 			    _icall_dce_send,
 			    _icall_set_clients,
 			    _icall_update_mute_state,
+			    NULL, // _icall_request_video_streams
 			    _icall_debug,
 			    _icall_stats);
 
@@ -1859,7 +1888,7 @@ static void acbr_detect_handler(struct iflow *iflow,
 	remote_cbr = cr && (0 == strcmp(cr, "true"));
 
 	cbr_enabled = (enabled != 0) && (remote_cbr && local_cbr);
-	if (enabled != ecall->audio.cbr_state) {
+	if (cbr_enabled != ecall->audio.cbr_state) {
 		info("ecall(%p): acbrh(%p) enabled=%d "
 		     "lcbr=%s rcbr=%s cbr=%d\n",
 		     ecall, ecall->icall.acbr_changedh,
@@ -2041,6 +2070,7 @@ int ecall_create_econn(struct ecall *ecall)
 			  econn_update_resp_handler,
 			  econn_alert_handler,
 			  econn_confpart_handler,
+			  econn_confstreams_handler,
 			  econn_ping_handler,
 			  econn_close_handler,
 			  ecall);
@@ -2060,8 +2090,7 @@ int ecall_start(struct ecall *ecall, enum icall_call_type call_type,
 {
 	int err;
 
-	info("ecall(%p): start call_type=%d cbr=%d\n",
-	     ecall, call_type, audio_cbr);
+	info("ecall(%p): start\n", ecall);
 
 	if (!ecall)
 		return EINVAL;
@@ -2150,7 +2179,7 @@ int ecall_answer(struct ecall *ecall, enum icall_call_type call_type,
 #endif
 	
 
-	info("ecall(%p): answer on pending econn %p call_type=%d cbr=%d\n", ecall, ecall->econn, call_type, audio_cbr);
+	info("ecall(%p): answer on pending econn %p call_type=%d\n", ecall, ecall->econn, call_type);
 
 	if (!ecall->econn) {
 		warning("ecall: answer: econn does not exist!\n");

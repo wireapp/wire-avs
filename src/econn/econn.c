@@ -663,6 +663,19 @@ static void recv_confpart(struct econn *econn,
 }
 
 
+static void recv_confstreams(struct econn *econn,
+			     const char *userid_sender,
+			     const char *clientid_sender,
+			     const struct econn_message *msg)
+{
+	if (econn && econn->confstreamsh && msg) {
+		econn->confstreamsh(econn,
+				    msg,
+				    econn->arg);
+	}
+}
+
+
 static void recv_ping(struct econn *econn,
 		      const char *userid_sender,
 		      const char *clientid_sender,
@@ -726,6 +739,10 @@ void econn_recv_message(struct econn *conn,
 		recv_ping(conn, userid_sender, clientid_sender, msg);
 		break;
 
+	case ECONN_CONF_STREAMS:
+		recv_confstreams(conn, userid_sender, clientid_sender, msg);
+		break;
+
 	default:
 		warning("econn(%p): recv: message not supported (%s)\n",
 			conn, econn_msg_name(msg->msg_type));
@@ -751,6 +768,7 @@ int  econn_alloc(struct econn **connp,
 		 econn_update_resp_h *update_resph,
 		 econn_alert_h *alerth,
 		 econn_confpart_h *confparth,
+		 econn_confstreams_h *confstreamsh,
 		 econn_ping_h *pingh,
 		 econn_close_h *closeh,
 		 void *arg)
@@ -782,6 +800,7 @@ int  econn_alloc(struct econn **connp,
 	conn->update_resph = update_resph;
 	conn->alerth       = alerth;
 	conn->confparth    = confparth;
+	conn->confstreamsh = confstreamsh;
 	conn->pingh        = pingh;
 	conn->closeh       = closeh;
 	conn->arg          = arg;

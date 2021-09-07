@@ -51,6 +51,7 @@ enum mq_event {
 	WCALL_MEV_DCE_SEND,
 	WCALL_MEV_DESTROY,
 	WCALL_MEV_SET_MUTE,
+	WCALL_MEV_REQ_VSTREAMS,
 };
 
 
@@ -138,6 +139,11 @@ struct mq_data {
 		struct {
 			int muted;
 		} set_mute;
+
+		struct {
+			int mode;
+			char *json;
+		} req_vstreams;
 	} u;
 };
 
@@ -185,6 +191,10 @@ static void md_destructor(void *arg)
 
 	case WCALL_MEV_SET_CLIENTS:
 		mem_deref(md->u.set_clients.json);
+		break;
+
+	case WCALL_MEV_REQ_VSTREAMS:
+		mem_deref(md->u.req_vstreams.json);
 		break;
 
 	default:
@@ -323,6 +333,12 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 	case WCALL_MEV_SET_MUTE:
 		wcall_i_set_mute(md->u.set_mute.muted);
+		break;
+
+	case WCALL_MEV_REQ_VSTREAMS:
+		wcall_i_request_video_streams(md->wcall,
+					      md->u.req_vstreams.mode,
+					      md->u.req_vstreams.json);
 		break;
 
 	default:
@@ -990,6 +1006,64 @@ void wcall_set_mute(WUSER_HANDLE wuser, int muted)
 	if (err)
 		mem_deref(md);
 }
+
+
+AVS_EXPORT
+int wcall_request_video_streams(WUSER_HANDLE wuser,
+				const char *convid,
+				int mode,
+				const char *json)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	struct wcall *wcall;
+	int err = 0;
+
+	if (!convid) {
+		warning("wcall: request_video_streams: no convid set\n");
+		return EINVAL;
+	}
+	
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: request_video_streams: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return EINVAL;
+	}
+
+	if (!json) {
+		warning("wcall: request_video_streams: no json\n");
+		return EINVAL;
+	}
+
+	wcall = wcall_lookup(inst, convid);
+	if (!wcall) {
+		warning("wcall: request_video_streams: couldnt find conv\n");
+		return EPROTO;
+	}
+
+	md = md_new(inst, wcall, WCALL_MEV_REQ_VSTREAMS);
+	if (!md)
+		return ENOMEM;
+
+	err = str_dup(&md->u.req_vstreams.json, json);
+	if (err)
+		goto out;
+
+	md->u.req_vstreams.mode = mode;
+
+	err = md_enqueue(md);
+	if (err)
+		goto out;
+
+ out:
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
 
 void wcall_marshal_destroy(struct calling_instance *inst)
 {

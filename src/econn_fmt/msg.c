@@ -308,6 +308,107 @@ static int econn_keys_decode(struct list *keyl, struct json_object *jobj)
 	return 0;
 }
 
+static int econn_streams_encode(struct json_object *jobj,
+				const struct list *streaml)
+{
+	struct le *le;
+	struct json_object *jstreams;
+	int err = 0;
+
+	jstreams = jzon_alloc_array();
+	if (!jstreams)
+		return ENOMEM;
+	
+	LIST_FOREACH(streaml, le) {
+		struct econn_stream_info *stream = le->data;
+		struct json_object *jstream;
+
+		jstream = jzon_alloc_object();
+		if (!jstream) {
+			err = ENOMEM;
+			goto out;
+		}
+		jzon_add_str(jstream, "userid", "%s", stream->userid);
+		jzon_add_int(jstream, "quality", stream->quality);
+
+		json_object_array_add(jstreams, jstream);
+	}
+
+	json_object_object_add(jobj, "streams", jstreams);
+
+ out:
+	return err;
+}
+
+static void stream_destructor(void *arg)
+{
+	struct econn_stream_info *stream = arg;
+
+	list_unlink(&stream->le);
+}
+
+struct econn_stream_info *econn_stream_info_alloc(const char *userid,
+						  uint32_t quality)
+{
+	struct econn_stream_info *stream;
+
+	stream = mem_zalloc(sizeof(*stream), stream_destructor);
+	if (!stream) {
+		warning("econn: stream_decode_handler: could not alloc stream\n");
+		return NULL;
+	}
+
+	str_ncpy(stream->userid, userid, sizeof(stream->userid));
+
+	return stream;
+}
+
+static bool stream_decode_handler(const char *keystr,
+				  struct json_object *jobj,
+				  void *arg)
+{
+	struct econn_stream_info *stream;
+	struct list *streaml = arg;
+	const char *userid = NULL;
+	int32_t quality = 0;
+	int err;
+
+	err = jzon_int(&quality, jobj, "quality");
+	if (err)
+		goto out;
+
+	userid = jzon_str(jobj, "userid");
+	if (!userid)
+		goto out;
+
+	stream = econn_stream_info_alloc(userid, quality);
+	if (!stream) {
+		warning("econn: stream_decode_handler: could not alloc stream\n");
+		goto out;
+	}
+
+	list_append(streaml, &stream->le, stream);
+
+out:
+	return false;
+}
+
+static int econn_streams_decode(struct list *streaml, struct json_object *jobj)
+{
+	struct json_object *jstreams;
+	int err = 0;
+
+	err = jzon_array(&jstreams, jobj, "streams");
+	if (err) {
+		warning("econn: streams decode: no streams\n");
+		return err;
+	}
+
+	jzon_apply(jstreams, stream_decode_handler, streaml);
+
+	return 0;
+}
+
 int econn_message_encode(char **strp, const struct econn_message *msg)
 {
 	struct json_object *jobj = NULL;
@@ -475,6 +576,11 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 
 	case ECONN_CONF_KEY:
 		econn_keys_encode(jobj, &msg->u.confkey.keyl);
+		break;
+
+	case ECONN_CONF_STREAMS:
+		jzon_add_str(jobj, "mode", "%s", msg->u.confstreams.mode);
+		econn_streams_encode(jobj, &msg->u.confstreams.streaml);
 		break;
 
 	case ECONN_DEVPAIR_PUBLISH:
@@ -922,6 +1028,20 @@ int econn_message_decode(struct econn_message **msgp,
 		err = econn_keys_decode(&msg->u.confkey.keyl, jobj);
 		if (err)
 			return err;
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_STREAMS))) {
+		msg->msg_type = ECONN_CONF_STREAMS;
+		err = econn_streams_decode(&msg->u.confstreams.streaml, jobj);
+		if (err)
+			return err;
+
+		err = jzon_strdup(&msg->u.confstreams.mode,
+				  jobj, "mode");
+		if (err) {
+			warning("econn: conf_streams: "
+				"could not find mode in message\n");
+			goto out;
+		}
 	}
 	else if (0 == str_casecmp(type,
 				  econn_msg_name(ECONN_DEVPAIR_PUBLISH))) {

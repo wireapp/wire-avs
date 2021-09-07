@@ -48,6 +48,7 @@ const char *econn_msg_name(enum econn_msg msg)
 	case ECONN_CONF_PART:	        return "CONFPART";
 	case ECONN_CONF_KEY:	        return "CONFKEY";
 	case ECONN_CONF_CHECK:		return "CONFCHECK";
+	case ECONN_CONF_STREAMS:	return "CONFSTREAMS";
 	case ECONN_PING:		return "PING";
 	default:			return "???";
 	}
@@ -162,6 +163,7 @@ enum econn_transport econn_transp_resolve(enum econn_msg type)
 	case ECONN_CONF_END:		return ECONN_TRANSP_BACKEND;
 	case ECONN_CONF_PART:		return ECONN_TRANSP_DIRECT;
 	case ECONN_CONF_CHECK:		return ECONN_TRANSP_BACKEND;
+	case ECONN_CONF_STREAMS:	return ECONN_TRANSP_DIRECT;
 	case ECONN_PING:		return ECONN_TRANSP_DIRECT;
 
 	default:

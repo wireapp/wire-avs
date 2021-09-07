@@ -8,5 +8,6 @@ verifyd_CFLAGS := $(AVS_CFLAGS) $(AVS_CFLAGS)
 verifyd_LIBS := $(AVS_LIBS) $(MENG_LIBS)
 verifyd_DEPS := $(AVS_DEPS) $(MENG_DEPS)
 verifyd_LIB_FILES := $(AVS_STATIC) $(MENG_STATIC)
+verifyd_LIBS += -lpthread
 
 include mk/tool.mk
