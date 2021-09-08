@@ -19,7 +19,7 @@ scan:
 	@mkdir -p $(SCAN_DIR)
 	@$(MAKE) avs_clean
 	@$(MAKE) contrib
-	@$(SCAN_EXE) -o $(SCAN_DIR) make $(JOBS) avs
+	@$(SCAN_EXE) -o $(SCAN_DIR) --status-bugs make $(JOBS) avs
 
 
 .PHONY: scan_clean
