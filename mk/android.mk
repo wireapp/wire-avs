@@ -46,6 +46,8 @@ AND_OBJ_TARGET := $(BUILD_TARGET)/obj/jni
 AND_SHARED := $(BUILD_TARGET)/lib/libavs$(JNI_SUFFIX)
 AND_SHARED_STRIPPED := $(BUILD_TARGET)/lib/libavs.stripped$(JNI_SUFFIX)
 AND_JAR := $(BUILD_TARGET)/classes.jar
+AND_JAVADOC := dist/android/javadoc.jar
+AND_SOURCES := dist/android/sources.jar
 
 AND_CLSS := $(patsubst %.java,$(AND_CLS_TARGET)/%.class,$(AND_JAVA_SRCS))
 
@@ -116,6 +118,12 @@ $(AND_SHARED_STRIPPED): $(AND_SHARED)
 	@cp $< $@
 	# @$(STRIP) --strip-unneeded $@
 
+$(AND_JAVADOC): android_javadoc
+	jar -cvf dist/android/javadoc.jar -C dist/android/javadoc .
+
+$(AND_SOURCES):
+	jar -cvf dist/android/sources.jar -C android/java/ .
+
 #--- Phony Targets ---
 
 .PHONY: android android_jar android_shared android_clean
@@ -129,6 +137,15 @@ android_clean:
 	@rm -f $(AND_SHARED)
 	@rm -f $(AND_SHARED_STRIPPED)
 
+.PHONY: android_dist_javadoc
+android_dist_javadoc: dist/android/javadoc.jar
+
+.PHONY: android_javadoc
+android_javadoc:
+	$(JAVADOC) -Xdoclint:none -public -d dist/android/javadoc -sourcepath android/java/ com.waz.audioeffect com.waz.avs com.waz.call com.waz.log com.waz.media.manager
+
+.PHONY: android_dist_sources
+android_dist_sources: dist/android/sources.jar
 
 ..PHONY: android_emulator
 android_emulator:
