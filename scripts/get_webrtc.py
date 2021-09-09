@@ -10,14 +10,16 @@ github_base = 'https://api.github.com/repos'
 repo = 'wireapp/prebuilt-webrtc-binaries'
 dest_dir = 'contrib/webrtc'
 
+if len(sys.argv) != 2:
+	print('usage: {} <release>'.format(sys.argv[0]))
+	exit()
+
 release = sys.argv[1]
-token = os.environ.get('GITHUB_TOKEN')
 
 print('Repo: {}'.format(repo))
 print('Release: {}'.format(release))
-#print('Token: {}'.format(token))
 
-cmd = ['curl', '-X', 'GET', '-u', '{}:x-oauth-basic'.format(token), 
+cmd = ['curl', '-X', 'GET',
 	'{}/{}/releases'.format(github_base, repo)]
 releases = json.loads(subprocess.check_output(cmd))
 
@@ -42,6 +44,6 @@ if not found:
 print('Getting assets for {}'.format(release))
 for a in found['assets']:
 	print(a['name'])
-	cmd = ['curl', '-L', '-u', '{}:x-oauth-basic'.format(token), 
+	cmd = ['curl', '-L',
 		'-H', 'Accept: application/octet-stream', a['url'], '-o', '{}/{}'.format(dest_dir, a['name'])]
 	subprocess.check_output(cmd)
