@@ -88,44 +88,26 @@ system. Good luck!
 Build Instructions
 ------------------
 
-AVS will work with Google WebRTC which first needs to be pulled from Google and pre-compiled. To do that go to the webrtc directory and run:
-
-```bash
-./scripts/build.sh ./scripts/package.sh
-```
-
-This should be done on OSX for headers and iOS+OSX libs and on Linux for Linux+Android libs. The scripts pull from Googles repos, apply a [patch](https://github.com/wireapp/prebuilt-webrtc-binaries) for Android (in patches dir), build and package the libs into zips, which get copied to contrib/webrtc. Expected zips are:
-
-contrib/webrtc/webrtc_72.local_android.zip contrib/webrtc/webrtc_72.local_headers.zip contrib/webrtc/webrtc_72.local_ios.zip contrib/webrtc/webrtc_72.local_linux.zip contrib/webrtc/webrtc_72.local_osx.zip
-
-All zips are needed to build AVS, but can be empty files if not needed: e.g. you can run touch contrib/webrtc/webrtc_72.local_android.zip if you dont intend to build for Android.
-
+AVS uses pre-built Google WebRTC by default that are pulled from the [prebuilt webrtc repository](https://github.com/wireapp/prebuilt-webrtc-binaries) as a part of the make process. For information about building your own WebRTC see the "Using a Locally Built WebRTC" section below.
 
 AVS has more dependencies that need to be updated. The first time you need to fetch the submodules by doing:
 
-```
+```bash
 $ ./prepare.sh
 ```
 
-Next step is to build AVS itself. When building AVS with local webrtc, invoke make with:
+Next step is to build AVS itself. When building AVS with the prebuilt WebRTC, invoke make with:
 
-make WEBRTC_VER .local
+```bash
+make
+```
 
-For example:
+This will build a selection of tools or your host machine. You probably want ``zcall``, the AVS command line client. You can only build that by saying ``make zcall``. Similarly, you can build any other tool by giving its name to make.
 
-make WEBRTC_VER=72.local
-
-The deliverables are being built by saying make WEBRTC_VER <release>.local dist. You can limit this to only select target platforms through make WEBRTC_VER <release>.local dist_android, make WEBRTC_VER <release>.local dist_osx and make WEBRTC_VER <release>.local dist_ios. All of them take quite a while on a fresh checkout.
-
-If you simply say ``make``, a pre-compiled version of webrtc is included, and a selection of tools is being built for your
-host machine. You probably want ``zcall``, the AVS command line client.
-You can only build that by saying ``make zcall``. Similarly, you can
-build any other tool by giving its name to make.
-
-The deliverables are being built by saying ``make dist``. You can limit
-this to only select target platforms through ``make dist_android``,
-``make dist_osx`` and ``make dist_ios``. All of them take quite a while
-on a fresh checkout.
+The deliverables are being built with the command ``make dist``.
+You can limit this to only select target platforms through ``make dist_android``,
+``make dist_osx`` and ``make dist_ios``. All of them take quite a while on a
+fresh checkout.
 
 You'll find the deliverables in ``build/dist/{android,ios,osx}``.
 
@@ -137,26 +119,54 @@ depending on the OS. You can just leave the whole thing out and will
 receive reasonable defaults (ARMv7 or X86-64). Have a look at
 ``mk/target.mk`` for more on this.
 
-
 If you want to have a local version of a ``dist_*`` target that hasn't
 all the necessary architectures but builds quicker, you can pass
 ``DIST_ARCH=<your_arch>`` to make and will only built for that
 architecture:
 
 ```bash
-$ make dist_ios DIST_ARCH=armv7
+$ make dist_ios DIST_ARCH=arm64
 ```
 
-will build an iOS distribution that will only contain armv7 instead of
+will build an iOS distribution that will only contain arm64 instead of
 the usual five architectures.
 
+Using a Locally Built WebRTC
+----------------------------
 
+It is possible to use your own locally built WebRTC libraries instead, by following the instructions in the readme file of the [prebuilt webrtc repository](https://github.com/wireapp/prebuilt-webrtc-binaries).
+
+Once built and packaged you should have the following files:
+
+```
+contrib/webrtc/webrtc_<version>_android.zip
+contrib/webrtc/webrtc_<version>_headers.zip
+contrib/webrtc/webrtc_<version>_ios.zip
+contrib/webrtc/webrtc_<version>_linux.zip
+contrib/webrtc/webrtc_<version>_osx.zip
+```
+
+These files should be copied to the contrib/webrtc directory and the ``WEBRTC_VER`` variable set when making AVS, for example:
+
+```bash
+make WEBRTC_VER=20200603.local
+```
+
+You can also modify the version set in the ``mk/target.mk`` file, as follows:
+
+```
+ifeq ($(WEBRTC_VER),)
+WEBRTC_VER := 20200603.local
+endif
+```
+
+Running `make` should then unpack and use the locally built version of WebRTC.
 
 Using the Library
 -----------------
 
 During the build, a set of static libraries is being built. You can use
-this library in your own projects. 
+this library in your own projects.
 
 You'll find the APIs in ``include/*.h``. ``avs.h`` is your catchall
 include file. Always use that to protect yourself agains reorganizations.
@@ -167,7 +177,7 @@ then add all ``.a`` files in there as ``-l`` arguments.
 
 
 Using the Command Line Client (zcall)
------------------------------
+-------------------------------------
 
 Start the command line client provding the email address of an existing
 account using the ``-e`` option. You can switch to staging (aka dev) by
@@ -277,69 +287,6 @@ Some specifications implemented:
 * https://tools.ietf.org/html/draft-ietf-rtcweb-stun-consent-freshness-11
 * https://tools.ietf.org/html/rfc7845
 * https://tools.ietf.org/html/draft-ietf-rtcweb-data-channel-13
-
-
-Maintainer Instructions
------------------------
-
-### Making Releases
-
-When making a new release, follow these steps:
-
-* Update the ChangeLog.txt file. See the older entries on how that should
-  look.
-
-* Branch off the new release by creating a branch release-x.y where x.y
-  is the release number and push it to origin (no, you can't just copy
-  and paste the following snippet):
-
-```bash
-$ git checkout -b release-x.y
-$ git push --set-upstream origin release-x.y
-```
-
-* Go back to master and update `Makefile` to have the number of the _next_
-  relase in `VER_MAJOR` and `VER_MINOR`. Push your changes.
-
-```bash
-$ git checkout master
-$ vim Makefile
-$ git push
-```
-
-* Go to Jenkins at http://[IP]:8080/job/avs-release/configure
-  and change "Branches to build" to the name of your new release branch.
-  Save and "build now".
-
-* Once Jenkins is done, issue Pull Requests to zclient-android,
-  zclient-ios, and zclient-osx.
-
-
-### Updating Contrib Libraries from Upstream
-
-The build system uses `git ls-files` to determine the build dependencies
-for `contrib` libraries in a vaguely reliable way. It is therefore
-important that only files are checked in that are not being updated on
-every build. Else that contrib library is re-build on every `make`
-defeating the purpose.
-
-Unfortunately, some source packages contains such files (notably, OpenSSL
-is a big giant mess). When updating such a package, make sure to delete
-these files before your `git add`.
-
-The easiest way to achieve this is by adding your new files, run a
-`make contrib_all` (or `make contrib_your_library`) and, if building
-succeeded, find the offending files by running
-
-```bash
-$ ls -latr `git ls-files contrib/your-library`
-```
-
-This will print all files in order of last access with newest files last.
-Find those that have been modified during the last build and carefully
-remove them.
-
-Please also check `contrib/.gitignore` that it contains all these files.
 
 
 Reporting bugs
