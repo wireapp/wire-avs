@@ -90,9 +90,11 @@ Build Instructions
 
 AVS will work with Google WebRTC which first needs to be pulled from Google and pre-compiled. To do that go to the webrtc directory and run:
 
+```bash
 ./scripts/build.sh ./scripts/package.sh
+```
 
-This should be done on OSX for headers and iOS+OSX libs and on Linux for Linux+Android libs. The scripts pull from Googles repos, apply a patch for Android (in patches dir), build and package the libs into zips, which get copied to contrib/webrtc. Expected zips are:
+This should be done on OSX for headers and iOS+OSX libs and on Linux for Linux+Android libs. The scripts pull from Googles repos, apply a [patch](https://github.com/wireapp/prebuilt-webrtc-binaries) for Android (in patches dir), build and package the libs into zips, which get copied to contrib/webrtc. Expected zips are:
 
 contrib/webrtc/webrtc_72.local_android.zip contrib/webrtc/webrtc_72.local_headers.zip contrib/webrtc/webrtc_72.local_ios.zip contrib/webrtc/webrtc_72.local_linux.zip contrib/webrtc/webrtc_72.local_osx.zip
 
