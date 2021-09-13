@@ -479,12 +479,13 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 #endif
 
 		g_Fm = self;
-	}
 
 #if !(TARGET_IPHONE_SIMULATOR)
-	_capturer = [[AVSCapturer alloc] init];
+		_capturer = [[AVSCapturer alloc] init];
 #endif
 	
+	}
+
 	return self;
 }
 
@@ -685,7 +686,6 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 	if (err)
 		goto out;
 
-	i = 0;
 	le = partl.head;
 	while (le) {
 		struct conf_part *cp = le->data;
@@ -983,7 +983,7 @@ out:
 - (int)setAudioEffect:(AVSAudioEffectType) effect
 {
     int ret=0;
-    
+#if 0
     enum audio_effect effect_type = AUDIO_EFFECT_CHORUS_MIN;
     if (effect == AVSAudioEffectTypeChorusMin) {
         effect_type = AUDIO_EFFECT_CHORUS_MIN;
@@ -1044,7 +1044,7 @@ out:
     }
     
     //    FLOWMGR_MARSHAL_RET(fmw.tid, ret, flowmgr_set_audio_effect, self.flowManager, effect_type);
-    
+#endif
     return ret;
 }
 

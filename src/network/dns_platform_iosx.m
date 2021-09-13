@@ -69,8 +69,8 @@ void dns_platform_close(void)
 
 int dns_platform_lookup(struct dns_lookup_entry *lent, struct sa *srv)
 {
-	CFHostRef host;
-	CFStringRef cfurl;
+	CFHostRef host = NULL;
+	CFStringRef cfurl = NULL;
 	CFStreamError serr;
 	Boolean ok = false;
 
@@ -85,6 +85,8 @@ int dns_platform_lookup(struct dns_lookup_entry *lent, struct sa *srv)
 	ok = CFHostStartInfoResolution(host, kCFHostAddresses, &serr);
 
  out:
+	if (cfurl)
+		CFRelease(cfurl);
 	return lookup_done(srv, host, ok ? NULL : &serr, lent);
 }
 
