@@ -449,14 +449,6 @@ int32_t audio_io_ios::ResetAudioDeviceInternal()
         
         int res(0);
 
-        // Store the states we have before stopping to restart below
-#if 0
-        bool initPlay = is_playing_initialized_;
-        bool play = is_playing_.load();
-        bool initRec = is_recording_initialized_;
-        bool rec = is_recording_.load();
-#endif
-
         // Stop playout and recording
         res += StopPlayoutInternal();
         res += StopRecordingInternal();
@@ -465,12 +457,6 @@ int32_t audio_io_ios::ResetAudioDeviceInternal()
         init_play_or_record();
         
         // Restart
-#if 0	
-        if (initPlay) res += InitPlayout();
-        if (initRec)  res += InitRecording();
-        if (play)     res += StartPlayoutInternal();
-        if (rec)      res += StartRecordingInternal();
-#endif
         res += InitPlayout();
         res += InitRecording();
         res += StartPlayoutInternal();
