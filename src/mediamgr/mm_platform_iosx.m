@@ -117,8 +117,11 @@ static void set_active(bool active)
 
 - (instancetype) init
 {
-	_playingDict = [[NSMutableDictionary alloc] init];
-	_lock = [[NSLock alloc] init];
+	self = [super init];
+	if (self) {
+		_playingDict = [[NSMutableDictionary alloc] init];
+		_lock = [[NSLock alloc] init];
+	}
 
 	return self;
 }
@@ -261,7 +264,7 @@ static void set_active(bool active)
 
 - (void)restartAllPlaying
 {
-	NSMutableArray *playing = [NSMutableArray new];
+	NSMutableArray *playing = [[NSMutableArray new] autorelease];
 	[_lock lock];
 	for (NSString *key in _playingDict) {
 		id<AVSMedia> media = _playingDict[key];

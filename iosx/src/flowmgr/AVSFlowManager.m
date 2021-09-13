@@ -479,12 +479,13 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 #endif
 
 		g_Fm = self;
-	}
 
 #if !(TARGET_IPHONE_SIMULATOR)
-	_capturer = [[AVSCapturer alloc] init];
+		_capturer = [[AVSCapturer alloc] init];
 #endif
 	
+	}
+
 	return self;
 }
 
@@ -685,7 +686,6 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 	if (err)
 		goto out;
 
-	i = 0;
 	le = partl.head;
 	while (le) {
 		struct conf_part *cp = le->data;
@@ -982,70 +982,7 @@ out:
 
 - (int)setAudioEffect:(AVSAudioEffectType) effect
 {
-    int ret=0;
-    
-    enum audio_effect effect_type = AUDIO_EFFECT_CHORUS_MIN;
-    if (effect == AVSAudioEffectTypeChorusMin) {
-        effect_type = AUDIO_EFFECT_CHORUS_MIN;
-    } else if(effect == AVSAudioEffectTypeChorusMax){
-        effect_type = AUDIO_EFFECT_CHORUS_MAX;
-    }else if(effect == AVSAudioEffectTypeReverbMin){
-        effect_type = AUDIO_EFFECT_REVERB_MIN;
-    }else if(effect == AVSAudioEffectTypeReverbMed){
-        effect_type = AUDIO_EFFECT_REVERB_MID;
-    }else if(effect == AVSAudioEffectTypeReverbMax){
-        effect_type = AUDIO_EFFECT_REVERB_MAX;
-    }else if(effect == AVSAudioEffectTypePitchupMin){
-        effect_type = AUDIO_EFFECT_PITCH_UP_SHIFT_MIN;
-    }else if(effect == AVSAudioEffectTypePitchupMed){
-        effect_type = AUDIO_EFFECT_PITCH_UP_SHIFT_MED;
-    }else if(effect == AVSAudioEffectTypePitchupMax){
-        effect_type = AUDIO_EFFECT_PITCH_UP_SHIFT_MAX;
-    }else if(effect == AVSAudioEffectTypePitchupInsane){
-        effect_type = AUDIO_EFFECT_PITCH_UP_SHIFT_INSANE;
-    }else if(effect == AVSAudioEffectTypePitchdownMin){
-        effect_type = AUDIO_EFFECT_PITCH_DOWN_SHIFT_MIN;
-    }else if(effect == AVSAudioEffectTypePitchdownMed){
-        effect_type = AUDIO_EFFECT_PITCH_DOWN_SHIFT_MED;
-    }else if(effect == AVSAudioEffectTypePitchdownMax){
-        effect_type = AUDIO_EFFECT_PITCH_DOWN_SHIFT_MAX;
-    }else if(effect == AVSAudioEffectTypePitchdownInsane){
-        effect_type = AUDIO_EFFECT_PITCH_DOWN_SHIFT_INSANE;
-    }else if(effect == AVSAudioEffectTypePaceupMin){
-        effect_type = AUDIO_EFFECT_PACE_UP_SHIFT_MIN;
-    }else if(effect == AVSAudioEffectTypePaceupMed){
-        effect_type = AUDIO_EFFECT_PACE_UP_SHIFT_MED;
-    }else if(effect == AVSAudioEffectTypePaceupMax){
-        effect_type = AUDIO_EFFECT_PACE_UP_SHIFT_MAX;
-    }else if(effect == AVSAudioEffectTypePacedownMin){
-        effect_type = AUDIO_EFFECT_PACE_DOWN_SHIFT_MIN;
-    }else if(effect == AVSAudioEffectTypePacedownMed){
-        effect_type = AUDIO_EFFECT_PACE_DOWN_SHIFT_MED;
-    }else if(effect == AVSAudioEffectTypePacedownMax){
-        effect_type = AUDIO_EFFECT_PACE_DOWN_SHIFT_MAX;
-    }else if(effect == AVSAudioEffectTypeReverse){
-        effect_type = AUDIO_EFFECT_REVERSE;
-    }else if(effect == AVSAudioEffectTypeVocoderMed){
-        effect_type = AUDIO_EFFECT_VOCODER_MED;
-    }else if(effect == AVSAudioEffectTypeAutoTuneMin){
-        effect_type = AUDIO_EFFECT_AUTO_TUNE_MIN;
-    }else if(effect == AVSAudioEffectTypeAutoTuneMed){
-        effect_type = AUDIO_EFFECT_AUTO_TUNE_MED;
-    }else if(effect == AVSAudioEffectTypeAutoTuneMax){
-        effect_type = AUDIO_EFFECT_AUTO_TUNE_MAX;
-    }else if(effect == AVSAudioEffectTypePitchUpDownMin){
-        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MIN;
-    }else if(effect == AVSAudioEffectTypePitchUpDownMed){
-        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MED;
-    }else if(effect == AVSAudioEffectTypePitchUpDownMax){
-        effect_type = AUDIO_EFFECT_PITCH_UP_DOWN_MAX;
-    }else if(effect == AVSAudioEffectTypeNone){
-        effect_type = AUDIO_EFFECT_NONE;
-    }
-    
-    //    FLOWMGR_MARSHAL_RET(fmw.tid, ret, flowmgr_set_audio_effect, self.flowManager, effect_type);
-    
-    return ret;
+    return 0;
 }
 
 - (void) setPreviewShouldFill:(BOOL)fill
