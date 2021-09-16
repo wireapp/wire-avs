@@ -1040,6 +1040,9 @@ static void ecall_close_handler(struct icall *icall,
 	}
 
 	if (err == EAGAIN) {
+		ccall->reconnect_attempts = 0;
+		ccall->expected_ping = 0;
+
 		ccall_reconnect(ccall, msg_time);
 		return;
 	}
