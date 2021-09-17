@@ -19,7 +19,6 @@
 #include <re.h>
 #include <avs.h>
 
-#include "common_types.h"
 #include "api/video/video_frame.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
 #include "third_party/libyuv/include/libyuv.h"

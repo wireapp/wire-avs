@@ -1754,18 +1754,22 @@ static int create_pf(struct peerflow *pf)
 		
 		port_allocator->set_proxy("wire-call", pri);
 	}
-	
-	pf->peerConn = g_pf.pc_factory->CreatePeerConnection(
+
+	webrtc::PeerConnectionDependencies deps(pf->observer);
+
+	deps.allocator = std::move(port_allocator);
+	webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::PeerConnectionInterface>> pcorerr;
+	pcorerr = g_pf.pc_factory->CreatePeerConnectionOrError(
 					*pf->config,
-					std::move(port_allocator),
-					nullptr,
-					pf->observer);
-	info("pf(%p): created PC=%p\n", pf, pf->peerConn.get());
-	if (!pf->peerConn) {
+					std::move(deps));
+	if (!pcorerr.ok()) {
 		warning("peerflow(%p): failed to create PC\n", pf);
 		err = ENOENT;
 		goto out;
 	}
+
+	pf->peerConn = pcorerr.value();
+	info("pf(%p): created PC=%p\n", pf, pf->peerConn.get());
 
 	auopts.echo_cancellation = true;
 	auopts.auto_gain_control = true;
@@ -2174,13 +2178,17 @@ int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
 	     pf, signal_state_name(state));
 
 	if (offer) {
-		pf->dc.ch = pf->peerConn->CreateDataChannel("calling-3.0",
-							    nullptr);
-		if (!pf->dc.ch) {
+		webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::DataChannelInterface>> ch_or_err;
+		ch_or_err = pf->peerConn->CreateDataChannelOrError("calling-3.0",
+								   nullptr);
+		if (ch_or_err.ok()) {
+			pf->dc.ch = ch_or_err.value();
+			pf->dc.observer = new DataChanObserver(pf, pf->dc.ch);
+			pf->dc.ch->RegisterObserver(pf->dc.observer);
+		}
+		else {
 			warning("pf(%p): no data channel\n", pf);
 		}
-		pf->dc.observer = new DataChanObserver(pf, pf->dc.ch);
-		pf->dc.ch->RegisterObserver(pf->dc.observer);
 
 #if 0 /* Don't set audio parameters until they are supported by webrtc */
 		if (pc->group_mode != MEDIAFLOW_MODE_ONEONONE) {

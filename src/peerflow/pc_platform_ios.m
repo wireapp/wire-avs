@@ -1,5 +1,5 @@
 
-#import <sdk/objc/Framework/Headers/WebRTC/RTCAudioSessionConfiguration.h>
+#import <sdk/objc/components/audio/RTCAudioSessionConfiguration.h>
 
 #include <re.h>
 #include <avs.h>
