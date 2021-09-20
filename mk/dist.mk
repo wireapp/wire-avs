@@ -103,7 +103,10 @@ DIST_BUNDLE_LIB := \
 
 #--- Target Definitions
 
-DIST_AND_TARGETS := $(BUILD_DIST_AND)/avs.aar
+DIST_AND_TARGETS := \
+	$(BUILD_DIST_AND)/avs.aar \
+	$(BUILD_DIST_AND)/javadoc.jar \
+	$(BUILD_DIST_AND)/sources.jar
 
 DIST_IOS_TARGETS := \
 	$(BUILD_DIST_IOS)/$(BUILD_LIB_REL).framework.zip \
