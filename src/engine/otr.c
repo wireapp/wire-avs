@@ -23,6 +23,7 @@
 
 #define MAX_CLIENTS 8
 #define MAX_ID_LEN 64
+#define OTR_RETRIES 6
 
 struct context {
 	struct engine *engine;
@@ -264,8 +265,11 @@ static int send_otr_if_ready(struct context *ctx, bool ignore_missing)
 	struct ctx_user *cu;
 	size_t i;
 
-	//info("send_otr_if_ready w:%s mp:%u rt:%d\n", ctx->waiting_for_otr ? "true" : "false",
-	//	ctx->missing_prekeys, ctx->retries);
+#if 0
+	info("send_otr_if_ready w:%s mp:%u rt:%d\n",
+	     ctx->waiting_for_otr ? "true" : "false",
+	     ctx->missing_prekeys, ctx->retries);
+#endif
 
 	if (!ctx->waiting_for_otr && ctx->missing_prekeys == 0) {
 		if (--ctx->retries < 0) {
@@ -379,7 +383,7 @@ int engine_send_otr_message(struct engine *engine,
 	ctx->resph = resph;
 	ctx->arg = arg;
 	ctx->missing_prekeys = 0;
-	ctx->retries = 3;
+	ctx->retries = OTR_RETRIES;
 
 	if (targets && num_targets > 0) {
 		size_t tsz = num_targets * sizeof(struct otr_target);
