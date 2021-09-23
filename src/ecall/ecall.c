@@ -2084,6 +2084,24 @@ int ecall_create_econn(struct ecall *ecall)
 	return err;
 }
 
+static void update_mute_props(struct ecall *ecall)
+{
+	const char *muted_string;
+	bool muted;
+	int err = 0;
+
+	if (!ecall->props_local)
+		return;
+
+	muted = msystem_get_muted();
+
+	muted_string = muted ? "true" : "false";
+	err = econn_props_update(ecall->props_local, "muted", muted_string);
+	if (err) {
+		warning("ecall(%p): econn_props_update(muted)",
+			" failed (%m)\n", ecall, err);
+	}
+}
 
 int ecall_start(struct ecall *ecall, enum icall_call_type call_type,
 		bool audio_cbr)
@@ -2134,7 +2152,9 @@ int ecall_start(struct ecall *ecall, enum icall_call_type call_type,
 	}
 
 	IFLOW_CALL(ecall->flow, set_audio_cbr, audio_cbr);
-	
+
+	update_mute_props(ecall);
+
 	if (ecall->props_local &&
 	    (call_type == ICALL_CALL_TYPE_VIDEO
 	     && ecall->vstate == ICALL_VIDEO_STATE_STARTED)) {
@@ -2177,7 +2197,6 @@ int ecall_answer(struct ecall *ecall, enum icall_call_type call_type,
 #ifdef ECALL_CBR_ALWAYS_ON
 	audio_cbr = true;
 #endif
-	
 
 	info("ecall(%p): answer on pending econn %p call_type=%d\n", ecall, ecall->econn, call_type);
 
@@ -2215,6 +2234,7 @@ int ecall_answer(struct ecall *ecall, enum icall_call_type call_type,
 		}
 	}
 #endif
+	update_mute_props(ecall);
 
 	err = generate_or_gather_answer(ecall, ecall->econn);
 	if (err) {
