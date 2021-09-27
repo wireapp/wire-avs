@@ -116,19 +116,12 @@ int ecall_user_data_register_ft_handlers(struct ecall *ecall,
                 ecall_user_data_file_rcv_h *f_rcv_h,
                 ecall_user_data_file_snd_h *f_snd_h);
 
-typedef void (ecall_confpart_h)(struct ecall *ecall,
-				const struct econn_message *msg,
-				void *arg);
+typedef void (ecall_confmsg_h)(struct ecall *ecall,
+			       const struct econn_message *msg,
+			       void *arg);
 
-int ecall_set_confpart_handler(struct ecall *ecall,
-			       ecall_confpart_h confparth);
-
-typedef void (ecall_confstreams_h)(struct ecall *ecall,
-				   const struct econn_message *msg,
-				   void *arg);
-
-int ecall_set_confstreams_handler(struct ecall *ecall,
-				  ecall_confstreams_h confstreamsh);
+int ecall_set_confmsg_handler(struct ecall *ecall,
+			      ecall_confmsg_h confmsgh);
 
 int ecall_dce_send(struct ecall *ecall, struct mbuf *mb);
 

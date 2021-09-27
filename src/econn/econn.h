@@ -46,8 +46,7 @@ struct econn {
 	econn_update_req_h *update_reqh;
 	econn_update_resp_h *update_resph;
 	econn_alert_h *alerth;
-	econn_confpart_h *confparth;
-	econn_confstreams_h *confstreamsh;
+	econn_confmsg_h *confmsgh;
 	econn_ping_h *pingh;
 	econn_close_h *closeh;
 	void *arg;

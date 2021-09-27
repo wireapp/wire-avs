@@ -286,13 +286,9 @@ typedef void (econn_update_resp_h)(struct econn *econn, const char *sdp,
 typedef void (econn_alert_h)(struct econn *econn, uint32_t level,
 			     const char *descr, void *arg);
 
-typedef void (econn_confpart_h)(struct econn *econn,
-				const struct econn_message *msg,
-				void *arg);
-
-typedef void (econn_confstreams_h)(struct econn *econn,
-				   const struct econn_message *msg,
-				   void *arg);
+typedef void (econn_confmsg_h)(struct econn *econn,
+			       const struct econn_message *msg,
+			       void *arg);
 
 typedef void (econn_ping_h)(struct econn *econn, bool response, void *arg);
 
@@ -337,8 +333,7 @@ int  econn_alloc(struct econn **econnp,
 		 econn_update_req_h *update_reqh,
 		 econn_update_resp_h *update_resph,
 		 econn_alert_h *alerth,
-		 econn_confpart_h *confparth,
-		 econn_confstreams_h *confstreamsh,
+		 econn_confmsg_h *confmsgh,
 		 econn_ping_h *pingh,
 		 econn_close_h *closeh, void *arg);
 int  econn_start(struct econn *conn, const char *sdp,

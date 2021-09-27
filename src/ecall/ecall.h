@@ -198,8 +198,7 @@ struct ecall {
 	size_t turnc;
 	bool turn_added;
 
-	ecall_confpart_h *confparth;
-	ecall_confstreams_h *confstreamsh;
+	ecall_confmsg_h *confmsgh;
 
 	struct sa *media_laddr;
 	bool ifs_added;

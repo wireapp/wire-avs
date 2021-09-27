@@ -508,59 +508,45 @@ static void econn_alert_handler(struct econn *econn, uint32_t level,
 }
 
 
-static void econn_confpart_handler(struct econn *econn,
-				   const struct econn_message *msg,
-				   void *arg)
+static void econn_confmsg_handler(struct econn *econn,
+				  const struct econn_message *msg,
+				  void *arg)
 {
 	struct ecall *ecall = arg;
 
 	assert(ECALL_MAGIC == ecall->magic);
 
-	if (ecall->confparth) {
+	switch (msg->msg_type) {
+	case ECONN_CONF_PART:
 		info("ecall(%p): confpart: parts: %u should_start %s\n",
 		     ecall, list_count(&msg->u.confpart.partl),
 		     msg->u.confpart.should_start ? "YES" : "NO");
-		ecall->confparth(ecall, msg, ecall->icall.arg);
-	}
-}
+		break;
 
-
-int ecall_set_confpart_handler(struct ecall *ecall,
-			       ecall_confpart_h confparth)
-{
-	if (!ecall) {
-		return EINVAL;
-	}
-
-	ecall->confparth = confparth;
-	return 0;
-}
-
-
-static void econn_confstreams_handler(struct econn *econn,
-				      const struct econn_message *msg,
-				      void *arg)
-{
-	struct ecall *ecall = arg;
-
-	assert(ECALL_MAGIC == ecall->magic);
-
-	if (ecall->confstreamsh) {
+	case ECONN_CONF_STREAMS:
 		info("ecall(%p): confstreams: streams: %u\n",
 		     ecall, list_count(&msg->u.confstreams.streaml));
-		ecall->confstreamsh(ecall, msg, ecall->icall.arg);
+		break;
+
+	default:
+		info("ecall(%p): confmsg type: %s\n",
+		     ecall, econn_msg_name(msg->msg_type));
+		break;
+	}
+	if (ecall->confmsgh) {
+		ecall->confmsgh(ecall, msg, ecall->icall.arg);
 	}
 }
 
 
-int ecall_set_confstreams_handler(struct ecall *ecall,
-				  ecall_confstreams_h confstreamsh)
+int ecall_set_confmsg_handler(struct ecall *ecall,
+			      ecall_confmsg_h confmsgh)
 {
 	if (!ecall) {
 		return EINVAL;
 	}
 
-	ecall->confstreamsh = confstreamsh;
+	ecall->confmsgh = confmsgh;
 	return 0;
 }
 
@@ -2069,8 +2055,7 @@ int ecall_create_econn(struct ecall *ecall)
 			  econn_update_req_handler,
 			  econn_update_resp_handler,
 			  econn_alert_handler,
-			  econn_confpart_handler,
-			  econn_confstreams_handler,
+			  econn_confmsg_handler,
 			  econn_ping_handler,
 			  econn_close_handler,
 			  ecall);

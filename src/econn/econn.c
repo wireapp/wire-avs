@@ -642,36 +642,13 @@ static void recv_alert(struct econn *econn,
 }
 
 
-static void recv_confpart(struct econn *econn,
-			  const char *userid_sender,
-			  const char *clientid_sender,
-			  const struct econn_message *msg)
+static void recv_confmsg(struct econn *econn,
+			 const char *userid_sender,
+			 const char *clientid_sender,
+			 const struct econn_message *msg)
 {
-	char userid_anon[ANON_ID_LEN];
-	char clientid_anon[ANON_CLIENT_LEN];
-
-	if (econn->confparth) {
-		econn->confparth(econn, msg, econn->arg);
-	}
-	else {
-		warning("econn(%p): received CONFPART from %s.%s (%s)\n",
-			econn,
-			anon_id(userid_anon, userid_sender),
-			anon_client(clientid_anon, clientid_sender),
-			msg->u.alert.descr);
-	}
-}
-
-
-static void recv_confstreams(struct econn *econn,
-			     const char *userid_sender,
-			     const char *clientid_sender,
-			     const struct econn_message *msg)
-{
-	if (econn && econn->confstreamsh && msg) {
-		econn->confstreamsh(econn,
-				    msg,
-				    econn->arg);
+	if (econn->confmsgh) {
+		econn->confmsgh(econn, msg, econn->arg);
 	}
 }
 
@@ -729,18 +706,13 @@ void econn_recv_message(struct econn *conn,
 		break;
 
 	case ECONN_CONF_CONN:
-		break;
-
 	case ECONN_CONF_PART:
-		recv_confpart(conn, userid_sender, clientid_sender, msg);
+	case ECONN_CONF_STREAMS:
+		recv_confmsg(conn, userid_sender, clientid_sender, msg);
 		break;
 
 	case ECONN_PING:
 		recv_ping(conn, userid_sender, clientid_sender, msg);
-		break;
-
-	case ECONN_CONF_STREAMS:
-		recv_confstreams(conn, userid_sender, clientid_sender, msg);
 		break;
 
 	default:
@@ -767,8 +739,7 @@ int  econn_alloc(struct econn **connp,
 		 econn_update_req_h *update_reqh,
 		 econn_update_resp_h *update_resph,
 		 econn_alert_h *alerth,
-		 econn_confpart_h *confparth,
-		 econn_confstreams_h *confstreamsh,
+		 econn_confmsg_h *confmsgh,
 		 econn_ping_h *pingh,
 		 econn_close_h *closeh,
 		 void *arg)
@@ -799,8 +770,7 @@ int  econn_alloc(struct econn **connp,
 	conn->update_reqh  = update_reqh;
 	conn->update_resph = update_resph;
 	conn->alerth       = alerth;
-	conn->confparth    = confparth;
-	conn->confstreamsh = confstreamsh;
+	conn->confmsgh     = confmsgh;
 	conn->pingh        = pingh;
 	conn->closeh       = closeh;
 	conn->arg          = arg;

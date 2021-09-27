@@ -1704,6 +1704,21 @@ static void ecall_confpart_handler(struct ecall *ecall,
 	}
 }
 
+
+static void ecall_confmsg_handler(struct ecall *ecall,
+				  const struct econn_message *msg,
+				  void *arg)
+{
+	if (!ecall || !msg) {
+		return;
+	}
+
+	if (msg->msg_type == ECONN_CONF_PART) {
+		ecall_confpart_handler(ecall, msg, arg);
+	}
+}
+
+
 static int alloc_message(struct econn_message **msgp,
 			 struct ccall *ccall,
 			 enum econn_msg type,
@@ -2013,7 +2028,7 @@ static int create_ecall(struct ccall *ccall)
 			    ecall_aulevel_handler,
 			    ccall);
 
-	ecall_set_confpart_handler(ecall, ecall_confpart_handler);
+	ecall_set_confmsg_handler(ecall, ecall_confmsg_handler);
 	ecall_set_propsync_handler(ecall, ecall_propsync_handler);
 	ecall_set_ping_handler(ecall, ecall_ping_handler);
 	ecall_set_keystore(ecall, ccall->keystore);
