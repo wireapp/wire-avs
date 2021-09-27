@@ -561,6 +561,8 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 			      msg->u.confconn.selective_video);
 		jzon_add_int(jobj, "vstreams",
 			      msg->u.confconn.vstreams);
+		jzon_add_str(jobj, "sft_url",
+			     "%s", msg->u.confconn.sft_url);
 		break;
 
 	case ECONN_CONF_START:
@@ -935,7 +937,7 @@ int econn_message_decode(struct econn_message **msgp,
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_CONN))) {
 		struct json_object *jturns;
-		const char *tool_str = NULL;
+		const char *json_str = NULL;
 		int32_t status = 0, vstreams = 0;
 		bool selective_audio = false, selective_video = false;
 
@@ -956,16 +958,16 @@ int econn_message_decode(struct econn_message **msgp,
 		jzon_bool(&msg->u.confconn.update, jobj,
 			  "update");
 
-		tool_str = jzon_str(jobj, "tool");
-		if (tool_str) {
-			err = str_dup(&msg->u.confconn.tool, tool_str);
+		json_str = jzon_str(jobj, "tool");
+		if (json_str) {
+			err = str_dup(&msg->u.confconn.tool, json_str);
 			if (err)
 				goto out;
 		}
 
-		tool_str = jzon_str(jobj, "toolver");
-		if (tool_str) {
-			err = str_dup(&msg->u.confconn.toolver, tool_str);
+		json_str = jzon_str(jobj, "toolver");
+		if (json_str) {
+			err = str_dup(&msg->u.confconn.toolver, json_str);
 			if (err)
 				goto out;
 		}
@@ -1004,6 +1006,12 @@ int econn_message_decode(struct econn_message **msgp,
 			vstreams = 32;
 		msg->u.confconn.vstreams = vstreams;
 
+		json_str = jzon_str(jobj, "sft_url");
+		if (json_str) {
+			err = str_dup(&msg->u.confconn.sft_url, json_str);
+			if (err)
+				goto out;
+		}
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_END))) {
 		msg->msg_type = ECONN_CONF_END;

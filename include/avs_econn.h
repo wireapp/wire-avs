@@ -168,6 +168,7 @@ struct econn_message {
 			bool selective_audio;
 			bool selective_video;
 			uint32_t vstreams;
+			char *sft_url;
 		} confconn;
 
 		struct confstart {

@@ -102,6 +102,7 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.confconn.selective_audio = false;
 		msg->u.confconn.selective_video = false;
 		msg->u.confconn.vstreams = 0;
+		msg->u.confconn.sft_url = mem_deref(msg->u.confconn.sft_url);
 		break;
 
 	case ECONN_CONF_START:

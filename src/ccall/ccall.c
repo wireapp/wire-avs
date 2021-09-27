@@ -1905,6 +1905,10 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	size_t turnc;
 	int err = 0;
 
+	if (!ccall || !sft_url) {
+		return EINVAL;
+	}
+
 	info("ccall(%p): send_msg_sft url: %s type: %s resp: %s\n",
 	     ccall,
 	     sft_url,
@@ -1949,6 +1953,11 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	msg->u.confconn.selective_audio = true;
 	msg->u.confconn.selective_video = true;
 	msg->u.confconn.vstreams = CCALL_MAX_VSTREAMS;
+
+	err = str_dup(&msg->u.confconn.sft_url, sft_url);
+	if (err) {
+		goto out;
+	}
 
 	err = ccall_send_msg_sft(ccall, sft_url, msg);
 	if (err != 0) {
