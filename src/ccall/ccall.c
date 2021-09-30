@@ -125,6 +125,7 @@ static void destructor(void *arg)
 	tmr_cancel(&ccall->tmr_alone);
 
 	mem_deref(ccall->sft_url);
+	mem_deref(ccall->primary_sft_url);
 	mem_deref(ccall->convid_real);
 	mem_deref(ccall->convid_hash);
 	mem_deref(ccall->self);
@@ -1765,7 +1766,7 @@ static int alloc_message(struct econn_message **msgp,
 		}
 		memcpy(msg->u.confstart.secret, ccall->secret, ccall->secret_len);
 		msg->u.confstart.secretlen = ccall->secret_len;
-		err = str_dup(&msg->u.confstart.sft_url, ccall->sft_url);
+		err = str_dup(&msg->u.confstart.sft_url, ccall->primary_sft_url);
 		if (err) {
 			goto out;
 		}
@@ -1969,9 +1970,11 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	msg->u.confconn.selective_video = true;
 	msg->u.confconn.vstreams = CCALL_MAX_VSTREAMS;
 
-	err = str_dup(&msg->u.confconn.sft_url, sft_url);
-	if (err) {
-		goto out;
+	if (ccall->primary_sft_url) {
+		err = str_dup(&msg->u.confconn.sft_url, ccall->primary_sft_url);
+		if (err) {
+			goto out;
+		}
 	}
 
 	err = ccall_send_msg_sft(ccall, sft_url, msg);
@@ -2338,7 +2341,12 @@ int  ccall_answer(struct icall *icall,
 	case CCALL_STATE_INCOMING:
 		ccall->is_caller = false;
 		ccall->stop_ringing_reason = CCALL_STOP_RINGING_ANSWERED;
-		err = ccall_join(ccall, call_type, audio_cbr);
+		if (false) {
+			err = ccall_join(ccall, call_type, audio_cbr);
+		}
+		else {
+			err = ccall_req_cfg_join(ccall, call_type, audio_cbr);
+		}
 		break;
 
 	default:
@@ -2830,10 +2838,9 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 
 	if (ts_cmp > 0) {
 		ccall->sft_url = mem_deref(ccall->sft_url);
-		info("ccall(%p): handle_confstart setting sft url: %s\n",
+		info("ccall(%p): handle_confstart setting primary sft url: %s\n",
 		     ccall, msg_sft_url);
-		copy_sft(&ccall->sft_url, msg_sft_url);
-		ccall->sft_resolved = true;
+		copy_sft(&ccall->primary_sft_url, msg_sft_url);
 		ccall->sft_timestamp = msg_ts;
 		ccall->sft_seqno = msg_seqno;
 		info("ccall(%p) set_secret from confstart\n", ccall);
@@ -3123,16 +3130,29 @@ int  ccall_sft_msg_recv(struct icall* icall,
 
 			set_state(ccall, CCALL_STATE_SETUPRECV);
 
-			if (msg->u.setup.url && !ccall->sft_resolved) {
-				info("ccall(%p): sft_msg_recv setting sft url: %s\n",
-				     ccall,
-				     msg->u.setup.url);
-				ccall->sft_url = mem_deref(ccall->sft_url);
-				err = copy_sft(&ccall->sft_url, msg->u.setup.url);
-				if (err) {
-					goto out;
+			info("ccall(%p): sft_msg_recv url %s resolved %s\n",
+			     ccall,
+			     msg->u.setup.url,
+			     ccall->sft_url ? "YES" : "NO");
+			if (msg->u.setup.url) {
+				if (!ccall->sft_url) {
+					info("ccall(%p): sft_msg_recv setting sft url: %s\n",
+					     ccall,
+					     msg->u.setup.url);
+					err = copy_sft(&ccall->sft_url, msg->u.setup.url);
+					if (err) {
+						goto out;
+					}
 				}
-				ccall->sft_resolved = true;
+				if (!ccall->primary_sft_url) {
+					info("ccall(%p): sft_msg_recv setting primary sft url: %s\n",
+					     ccall,
+					     msg->u.setup.url);
+					err = copy_sft(&ccall->primary_sft_url, msg->u.setup.url);
+					if (err) {
+						goto out;
+					}
+				}
 			}
 		}
 		if (!ccall->ecall) {

@@ -84,6 +84,7 @@ struct ccall {
 	const struct ecall_conf *conf;
 	enum ccall_state state;
 
+	char *primary_sft_url;
 	char *sft_url;
 	bool sft_resolved;
 	struct list sftl;
