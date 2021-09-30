@@ -561,8 +561,10 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 			      msg->u.confconn.selective_video);
 		jzon_add_int(jobj, "vstreams",
 			      msg->u.confconn.vstreams);
-		jzon_add_str(jobj, "sft_url",
-			     "%s", msg->u.confconn.sft_url);
+		if (msg->u.confconn.sft_url) {
+			jzon_add_str(jobj, "sft_url",
+				     "%s", msg->u.confconn.sft_url);
+		}
 		break;
 
 	case ECONN_CONF_START:
