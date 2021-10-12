@@ -370,6 +370,12 @@ public class FlowManager
   }
   public native void setVideoSendStateNative(String convId, int state);
 
+  public void setUIRotation(int rotation) {
+     if (this.videoCapturer != null) {
+         this.videoCapturer.setUIRotation(rotation);
+     }
+  }
+
 
   private static String TAG = "FlowManager";
       
