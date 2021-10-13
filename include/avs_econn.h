@@ -132,6 +132,7 @@ struct econn_message {
 			char *sdp_msg;
 			struct econn_props *props;
 			char *url;
+			char *sft_tuple;
 		} setup;
 
 		struct propsync {
@@ -169,11 +170,13 @@ struct econn_message {
 			bool selective_video;
 			uint32_t vstreams;
 			char *sft_url;
+			char *sft_tuple;
 		} confconn;
 
 		struct confstart {
 			struct econn_props *props;
 			char *sft_url;
+			char *sft_tuple;
 			uint8_t *secret;
 			uint32_t secretlen;
 			uint64_t timestamp;
@@ -182,6 +185,7 @@ struct econn_message {
 
 		struct confcheck {
 			char *sft_url;
+			char *sft_tuple;
 			uint8_t *secret;
 			uint32_t secretlen;
 			uint64_t timestamp;

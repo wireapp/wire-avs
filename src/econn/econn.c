@@ -134,6 +134,8 @@ static int econn_send_setup(struct econn *conn, bool resp, const char *sdp,
 	if (has_msg) {
 		if (msg.u.setup.url)
 			mem_deref(msg.u.setup.url);
+		if (msg.u.setup.sft_tuple)
+			mem_deref(msg.u.setup.sft_tuple);
 	}
 	if (err) {
 		conn->setup_err = err;

@@ -68,6 +68,7 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.setup.sdp_msg = mem_deref(msg->u.setup.sdp_msg);
 		msg->u.setup.props = mem_deref(msg->u.setup.props);
 		msg->u.setup.url = mem_deref(msg->u.setup.url);
+		msg->u.setup.sft_tuple = mem_deref(msg->u.setup.sft_tuple);
 		break;
 
 	case ECONN_PROPSYNC:
@@ -103,16 +104,19 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.confconn.selective_video = false;
 		msg->u.confconn.vstreams = 0;
 		msg->u.confconn.sft_url = mem_deref(msg->u.confconn.sft_url);
+		msg->u.confconn.sft_tuple = mem_deref(msg->u.confconn.sft_tuple);
 		break;
 
 	case ECONN_CONF_START:
 		msg->u.confstart.props = mem_deref(msg->u.confstart.props);
 		msg->u.confstart.sft_url = mem_deref(msg->u.confstart.sft_url);
+		msg->u.confstart.sft_tuple = mem_deref(msg->u.confstart.sft_tuple);
 		msg->u.confstart.secret = mem_deref(msg->u.confstart.secret);
 		break;
 
 	case ECONN_CONF_CHECK:
 		msg->u.confcheck.sft_url = mem_deref(msg->u.confcheck.sft_url);
+		msg->u.confcheck.sft_tuple = mem_deref(msg->u.confcheck.sft_tuple);
 		msg->u.confcheck.secret = mem_deref(msg->u.confcheck.secret);
 		break;
 
