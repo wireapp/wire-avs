@@ -126,6 +126,7 @@ static void destructor(void *arg)
 
 	mem_deref(ccall->sft_url);
 	mem_deref(ccall->primary_sft_url);
+ 	mem_deref(ccall->sft_tuple);
 	mem_deref(ccall->convid_real);
 	mem_deref(ccall->convid_hash);
 	mem_deref(ccall->self);
@@ -1421,7 +1422,7 @@ static void ccall_keep_confpart_data(struct ccall *ccall,
 	int err = 0;
 
 	if (!ccall || !msg) {
-		warning("call(%p): confpart_data invalid params\n");
+		warning("ccall(%p): confpart_data invalid params\n", ccall);
 		return;
 	}
 
@@ -1770,6 +1771,12 @@ static int alloc_message(struct econn_message **msgp,
 		if (err) {
 			goto out;
 		}
+		if (ccall->sft_tuple) {
+			err = str_dup(&msg->u.confstart.sft_tuple, ccall->sft_tuple);
+			if (err) {
+				goto out;
+			}
+		}
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
 
 		/* Add videosend prop */
@@ -1796,6 +1803,12 @@ static int alloc_message(struct econn_message **msgp,
 		err = str_dup(&msg->u.confcheck.sft_url, ccall->sft_url);
 		if (err) {
 			goto out;
+		}
+		if (ccall->sft_tuple) {
+			err = str_dup(&msg->u.confcheck.sft_url, ccall->sft_tuple);
+			if (err) {
+				goto out;
+			}
 		}
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
 	}
@@ -1972,6 +1985,12 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 
 	if (ccall->primary_sft_url) {
 		err = str_dup(&msg->u.confconn.sft_url, ccall->primary_sft_url);
+		if (err) {
+			goto out;
+		}
+	}
+	if (ccall->sft_tuple) {
+		err = str_dup(&msg->u.confconn.sft_tuple, ccall->sft_tuple);
 		if (err) {
 			goto out;
 		}
@@ -2774,10 +2793,12 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 	uint64_t msg_ts;
 	uint32_t msg_seqno, msg_secretlen;
 	const char *msg_sft_url;
+	const char *msg_sft_tuple;
 	const uint8_t *msg_secret;
 	bool valid_call, should_ring;
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
+	int err = 0;
 
 	if (!ccall || !msg ||
 	    !userid_sender || !clientid_sender)
@@ -2787,6 +2808,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		msg_ts = msg->u.confstart.timestamp;
 		msg_seqno = msg->u.confstart.seqno;
 		msg_sft_url = msg->u.confstart.sft_url;
+		msg_sft_tuple = msg->u.confstart.sft_tuple;
 		msg_secret = msg->u.confstart.secret;
 		msg_secretlen = msg->u.confstart.secretlen;
 
@@ -2796,6 +2818,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		msg_ts = msg->u.confcheck.timestamp;
 		msg_seqno = msg->u.confcheck.seqno;
 		msg_sft_url = msg->u.confcheck.sft_url;
+		msg_sft_tuple = msg->u.confcheck.sft_tuple;
 		msg_secret = msg->u.confcheck.secret;
 		msg_secretlen = msg->u.confcheck.secretlen;
 
@@ -2837,10 +2860,17 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 	     ccall->self == ccall->keygenerator ? "YES" : "NO");
 
 	if (ts_cmp > 0) {
-		ccall->sft_url = mem_deref(ccall->sft_url);
+		ccall->primary_sft_url = mem_deref(ccall->primary_sft_url);
 		info("ccall(%p): handle_confstart setting primary sft url: %s\n",
 		     ccall, msg_sft_url);
 		copy_sft(&ccall->primary_sft_url, msg_sft_url);
+ 		ccall->sft_tuple = mem_deref(ccall->sft_tuple);
+ 		if (msg_sft_tuple) {
+ 			err = str_dup(&ccall->sft_tuple, msg_sft_tuple);
+ 			if (err) {
+				return err;
+ 			}
+ 		}
 		ccall->sft_timestamp = msg_ts;
 		ccall->sft_seqno = msg_seqno;
 		info("ccall(%p) set_secret from confstart\n", ccall);
@@ -2924,6 +2954,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			ccall_send_msg(ccall, ECONN_CONF_START,
 				       true, NULL, false);
 		}
+		break;
 
 	case CCALL_STATE_NONE:
 	case CCALL_STATE_TERMINATING:
@@ -3152,6 +3183,12 @@ int  ccall_sft_msg_recv(struct icall* icall,
 					if (err) {
 						goto out;
 					}
+					if (msg->u.setup.sft_tuple) {
+						err = str_dup(&ccall->sft_tuple, msg->u.setup.sft_tuple);
+						if (err) {
+							goto out;
+						}
+	 				}
 				}
 			}
 		}

@@ -86,6 +86,7 @@ struct ccall {
 
 	char *primary_sft_url;
 	char *sft_url;
+	char *sft_tuple;
 	bool sft_resolved;
 	struct list sftl;
 
