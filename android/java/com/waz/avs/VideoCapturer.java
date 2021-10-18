@@ -78,7 +78,7 @@ public class VideoCapturer implements PreviewCallback,
 	private float lastFtime;
 	private ReentrantLock lock = new ReentrantLock();
 	private boolean destroying = false;
-	private int ui_rotation = 0;
+	private int ui_rotation = Surface.ROTATION_0;
 	
 	public static VideoCapturerInfo[] getCapturers() {
 
@@ -479,7 +479,7 @@ public class VideoCapturer implements PreviewCallback,
 			Log.w(TAG, "startCamera: failed to initCamera");
 		}
 		else {
-			setUIRotation(Surface.ROTATION_0);
+			setUIRotationInt();
 
 			try {
 				if (!this.started) {
@@ -577,13 +577,8 @@ public class VideoCapturer implements PreviewCallback,
 
 	public void setUIRotation(int rotation) {
 		int degrees = 0;
-		int vrot = 0;
-		VideoPreview vp = (VideoPreview)this.previewView;	
 
 		switch (rotation) {
-		case Surface.ROTATION_0:
-			degrees = 0;
-			break;
 		case Surface.ROTATION_90:
 			degrees = 90;
 			break;
@@ -593,12 +588,24 @@ public class VideoCapturer implements PreviewCallback,
 		case Surface.ROTATION_270:
 			degrees = 270;
 			break;
+		case Surface.ROTATION_0:
+		default:
+			degrees = 0;
+			break;
 		}
 
 		this.ui_rotation = degrees;
+		Log.d(TAG, "setUIRotation: uirot: " + degrees);
+		setUIRotationInt();
+	}
+
+	private void setUIRotationInt() {
+		VideoPreview vp = (VideoPreview)this.previewView;	
+		int degrees = this.ui_rotation;
+		int vrot = 0;
 
 		if (cameraInfo == null) {
-			Log.d(TAG, "setUIRotation: " + vp + " camInfo: null");
+			Log.d(TAG, "setUIRotationInt: " + vp + " camInfo: null");
 		}
 		else {
 			if (cameraInfo.facing == CameraInfo.CAMERA_FACING_FRONT) {
@@ -608,19 +615,26 @@ public class VideoCapturer implements PreviewCallback,
 			else {  // back-facing
 				vrot = (cameraInfo.orientation - degrees + 360) % 360;
 			}
-			Log.d(TAG, "setUIRotation: " + vp + " camrot: " + cameraInfo.orientation +
-				   " rot:" + vrot + "facing: " + cameraInfo.facing);
+			Log.d(TAG, "setUIRotationInt: " + vp +
+				   " camrot: " + cameraInfo.orientation +
+				   " uirot: " + degrees +
+				   " rot: " + vrot + " facing: " + cameraInfo.facing);
 		}
 
-		try {
-			camera.setDisplayOrientation(vrot);
+		if (camera != null) {
+			try {
+				camera.setDisplayOrientation(vrot);
+			}
+			catch (RuntimeException e) {
+				Log.d(TAG, "setUIRotationInt: exception calling " +
+				      "setDisplayOrientation: " +
+				      e.getMessage());
+			}
 		}
-		catch (RuntimeException e){
-			Log.d(TAG, "setUIRotation: exception calling " +
-			      "setDisplayOrientation: " +
-			      e.getMessage());
+
+		if (vp != null) {
+			vp.setVideoOrientation(vrot);
 		}
-		vp.setVideoOrientation(vrot);
 	}
 
 	private static native void handleCameraFrame(int w, int h,
