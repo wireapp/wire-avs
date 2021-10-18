@@ -25,6 +25,7 @@ import android.view.View;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.Surface;
 import java.io.File;
 
 import com.waz.avs.AVSystem;
@@ -113,6 +114,7 @@ public class FlowManager
     
   private HashSet<FlowManagerListener> _listenerSet = null;
 
+  private int ui_rotation = Surface.ROTATION_0;
 
   private HashSet<FlowManagerListener> getListenerSet ( ) {
     if ( this._listenerSet == null ) {
@@ -371,6 +373,7 @@ public class FlowManager
   public native void setVideoSendStateNative(String convId, int state);
 
   public void setUIRotation(int rotation) {
+     this.ui_rotation = rotation;
      if (this.videoCapturer != null) {
          this.videoCapturer.setUIRotation(rotation);
      }
@@ -484,6 +487,8 @@ public class FlowManager
 		if (this.previewView != null)
 			this.videoCapturer.startCapture(this.previewView);
 		
+		this.videoCapturer.setUIRotation(this.ui_rotation);
+
 		Log.d(TAG, "createCapturer: created");
 	}
 
