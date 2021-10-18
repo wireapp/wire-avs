@@ -572,7 +572,7 @@ public class VideoCapturer implements PreviewCallback,
 		if (camera == null || cameraInfo == null)
 			return 0;
 
-		return (360 - (cameraInfo.orientation + ui_rotation)) % 360;
+		return (360 + ui_rotation - cameraInfo.orientation) % 360;
 	}
 
 	public void setUIRotation(int rotation) {

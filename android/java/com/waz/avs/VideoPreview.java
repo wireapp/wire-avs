@@ -87,6 +87,9 @@ public class VideoPreview extends TextureView
 		if (orientation % 180 != 0)
 			tAspRatio = 1.0f/aspectRatio;
 		
+		Log.d(TAG, "onLayout: " + vWidth + "x" + vHeight + " ori: " + orientation +
+		      " va: " + vAspRatio + " ta: " + tAspRatio);
+
 		float scaleX = Math.max(1.0f, tAspRatio / vAspRatio);
 		float scaleY = Math.max(1.0f, vAspRatio / tAspRatio);
 		float dx = - (scaleX * vWidth - vWidth) / 2.0f;
