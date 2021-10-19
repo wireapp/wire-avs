@@ -78,8 +78,6 @@ public class VideoPreview extends TextureView
 	protected void onLayout(boolean changed,
 				int l, int t, int r, int b) {
 
-		final float aspectRatio = 4.0f/3.0f;
-
 		super.onLayout(changed, l, t, r, b);
 		this.vWidth = (float)(r - l);
 		this.vHeight = (float)(b - t);
@@ -89,10 +87,12 @@ public class VideoPreview extends TextureView
 
 	private void updateTransform() {
 
-		Matrix m = new Matrix();
 		if (this.vHeight == 0.0f) {
 			return;
 		}
+
+		final float aspectRatio = 4.0f/3.0f;
+		Matrix m = new Matrix();
 		float vAspRatio = this.vWidth / this.vHeight;
 		float tAspRatio = aspectRatio;
 
