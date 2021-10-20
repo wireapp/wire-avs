@@ -557,7 +557,7 @@ public class VideoCapturer implements PreviewCallback,
 			return (360 + ui_rotation - cameraInfo.orientation) % 360;
 			
 		case CameraInfo.CAMERA_FACING_FRONT:
-			return (720 - ui_rotation - cameraInfo.orientation) % 360;
+			return (360 - ((ui_rotation + cameraInfo.orientation) % 360)) % 360;
 
 		default:
 			return 0;
