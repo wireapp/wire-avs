@@ -548,26 +548,6 @@ public class VideoCapturer implements PreviewCallback,
 		//	camera.addCallbackBuffer(frame);
 	}
 
-	public int getViewRotation() {
-		if (camera == null || cameraInfo == null)
-			return 0;
-
-		Log.d(TAG, "getViewRotation: camrot: " + cameraInfo.orientation +
-			" facing: " + cameraInfo.facing);
-
-		switch (cameraInfo.facing) {
-		case CameraInfo.CAMERA_FACING_BACK:
-			return cameraInfo.orientation;
-			
-		case CameraInfo.CAMERA_FACING_FRONT:
-			return (360 - cameraInfo.orientation) % 360;
-
-		default:
-			return 0;
-		}
-	}
-	
-
 	public int getRotation() {
 		if (camera == null || cameraInfo == null)
 			return 0;
@@ -577,7 +557,7 @@ public class VideoCapturer implements PreviewCallback,
 			return (360 + ui_rotation - cameraInfo.orientation) % 360;
 			
 		case CameraInfo.CAMERA_FACING_FRONT:
-			return (360 - (ui_rotation + cameraInfo.orientation)) % 360;
+			return (720 - ui_rotation - cameraInfo.orientation) % 360;
 
 		default:
 			return 0;
