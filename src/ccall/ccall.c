@@ -61,9 +61,6 @@ static int ccall_send_msg_sft(struct ccall *ccall,
 static int  ccall_send_conf_conn(struct ccall *ccall,
 				 const char *sft_url,
 				 bool update);
-static int  ccall_join(struct ccall *ccall,
-		       enum icall_call_type call_type,
-		       bool audio_cbr);
 static int ccall_send_keys(struct ccall *ccall,
 			   bool send_to_all);
 static int ccall_request_keys(struct ccall *ccall);
@@ -2198,31 +2195,6 @@ int  ccall_add_sft(struct icall *icall, const char *sft_url)
 	return 0;
 }
 
-static int  ccall_join(struct ccall *ccall,
-		       enum icall_call_type call_type,
-		       bool audio_cbr)
-{
-	int err = 0;
-
-	if (!ccall->sft_url) {
-		warning("ccall(%p): ccall_join no SFT URL set\n", ccall);
-		err = EINVAL;
-		goto out;
-	}
-
-	ccall->reconnect_attempts = 0;
-	ccall->expected_ping = 0;
-	set_state(ccall, CCALL_STATE_CONNSENT);
-	ccall->call_type = call_type;
-
-	ICALL_CALL_CB(ccall->icall, req_clientsh,
-		      &ccall->icall, ccall->icall.arg);
-
-	err = ccall_send_conf_conn(ccall, ccall->sft_url, false);
-out:
-	return err;
-}
-
 static void config_update_handler(struct call_config *cfg, void *arg)
 {
 	struct join_elem *je = arg;
@@ -2231,6 +2203,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	size_t urlc, sft;
 	char *url = NULL;
 	int err = 0;
+	int state = ccall->state;
 
 	urlv = config_get_sftservers(ccall->cfg, &urlc);
 
@@ -2262,6 +2235,33 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	ICALL_CALL_CB(ccall->icall, req_clientsh,
 		      &ccall->icall, ccall->icall.arg);
 
+	if (CCALL_STATE_INCOMING == state && ccall->primary_sft_url) {
+		for (sft = 0; sft < urlc; sft++) {
+			err = copy_sft(&url, urlv[sft].url);
+			if (err) {
+				continue;
+			}
+			if (strcmp(ccall->primary_sft_url, url) == 0) {
+				info("ccall(%p): cfg_update found sft %s in calls/conf\n",
+					ccall, url);
+				err = ccall_send_conf_conn(ccall, url, false);
+				if (err) {
+					warning("ccall(%p): cfg_update failed to send "
+						"confconn to sft %s err=%d\n",
+						ccall, url, err);
+				}
+				else {
+					url = mem_deref(url);
+					return;
+				}
+			}
+			url = mem_deref(url);
+		}
+	}
+
+	urlc = MIN(urlc, 3);
+	info("ccall(%p): cfg_update connecting to %u sfts from calls/conf",
+		ccall, urlc);
 	for (sft = 0; sft < urlc; sft++) {
 		/* If one SFT fails, keep trying the rest */
 		err = copy_sft(&url, urlv[sft].url);
@@ -2360,12 +2360,7 @@ int  ccall_answer(struct icall *icall,
 	case CCALL_STATE_INCOMING:
 		ccall->is_caller = false;
 		ccall->stop_ringing_reason = CCALL_STOP_RINGING_ANSWERED;
-		if (false) {
-			err = ccall_join(ccall, call_type, audio_cbr);
-		}
-		else {
-			err = ccall_req_cfg_join(ccall, call_type, audio_cbr);
-		}
+		err = ccall_req_cfg_join(ccall, call_type, audio_cbr);
 		break;
 
 	default:
