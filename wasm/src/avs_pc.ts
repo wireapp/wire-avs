@@ -1194,8 +1194,8 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
     pc_log(LOG_LEVEL_INFO, "dc-closed");
     ccallDcStateChangeHandler(pc, DC_STATE_CLOSED);
   };
-  dc.onerror = () => {
-    pc_log(LOG_LEVEL_INFO, "dc-error");
+  dc.onerror = event => {
+    pc_log(LOG_LEVEL_INFO, `dc-error: ${event.error}`);
     ccallDcStateChangeHandler(pc, DC_STATE_ERROR);
   };
   dc.onmessage = event => {
@@ -1346,7 +1346,7 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
           pc_log(LOG_LEVEL_INFO, `onTrack: calling ash(${pc.convid}, ${label}) with ${event.streams.length} streams`);
 	  audioStreamHandler(
 	      pc.convid,
-              label,
+              hnd.toString() + label,
 	      event.streams);
       }
       if (event.track.kind == "video" && videoStreamHandler) {
@@ -1387,7 +1387,7 @@ function pc_Close(hnd: number) {
         const label = track.label;
         if (audioStreamHandler && pc.rtc) {
           pc_log(LOG_LEVEL_INFO, `pc_Close: calling ash(${pc.convid}, ${label}) with 0 streams`);
-          audioStreamHandler(pc.convid, label, null);
+          audioStreamHandler(pc.convid, hnd.toString() + label, null);
         }
       }
     });
@@ -1832,7 +1832,7 @@ function pc_RemoveUserInfo(hnd: number, labelPtr: number) {
   if (pc.users.hasOwnProperty(label)) {
     if (audioStreamHandler) {
       pc_log(LOG_LEVEL_INFO, `pcRemoveUserInfo: calling ash(${pc.convid}, ${label}) with 0 streams`);
-      audioStreamHandler(pc.convid, label, null);
+      audioStreamHandler(pc.convid, hnd.toString() + label, null);
     }
     delete pc.users[label];
   }

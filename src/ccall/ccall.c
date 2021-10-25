@@ -1122,7 +1122,8 @@ static int ccall_send_msg_sft(struct ccall *ccall,
 		if (err)
 			goto out;
 
-		if (ECONN_SETUP == msg->msg_type &&
+		if ((ECONN_SETUP == msg->msg_type ||
+		    ECONN_UPDATE == msg->msg_type) &&
 		    CCALL_STATE_ACTIVE != ccall->state) {
 			set_state(ccall, CCALL_STATE_CONNECTING);
 		}
@@ -3110,6 +3111,17 @@ int  ccall_sft_msg_recv(struct icall* icall,
 				}
 				ccall->sft_resolved = true;
 			}
+		}
+		else if (ECONN_UPDATE == msg->msg_type) {
+			if (CCALL_STATE_CONNSENT != ccall->state) {
+				info("ccall(%p): sft_msg_recv ignoring "
+				     "UPDATE from sft %s in state %s\n",
+				     ccall,
+				     msg->u.setup.url ? msg->u.setup.url : "NULL",
+				     ccall_state_name(ccall->state));
+				return 0;
+			}
+			set_state(ccall, CCALL_STATE_SETUPRECV);
 		}
 		if (!ccall->ecall) {
 			create_ecall(ccall);
