@@ -1803,6 +1803,7 @@ static int alloc_message(struct econn_message **msgp,
 		}
 		if (ccall->sft_tuple) {
 			err = str_dup(&msg->u.confcheck.sft_url, ccall->sft_tuple);
+			err = str_dup(&msg->u.confcheck.sft_tuple, ccall->sft_tuple);
 			if (err) {
 				goto out;
 			}
