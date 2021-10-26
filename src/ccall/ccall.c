@@ -2195,6 +2195,42 @@ int  ccall_add_sft(struct icall *icall, const char *sft_url)
 	return 0;
 }
 
+static bool ccall_can_connect_primary_sft(struct ccall *ccall)
+{
+	struct zapi_ice_server *sftv;
+	size_t sft = 0, sftc = 0;
+	char *url = NULL;
+	bool found = false;
+	int err = 0;
+
+	if (!ccall->primary_sft_url) {
+		return false;
+	}
+	sftv = config_get_sftservers_all(ccall->cfg, &sftc);
+
+	info("ccall(%p): can_connect_primary %zu sfts in sft_servers_all\n",
+		ccall, sftc);
+	if (sftc == 0) {
+		/* If no sfts in config, assume legacy behaviour:
+		   we can connect to all SFTs */
+		return true;
+	}
+
+	for (sft = 0; sft < sftc && !found; sft++) {
+		err = copy_sft(&url, sftv[sft].url);
+		if (err) {
+			continue;
+		}
+		if (strcmp(ccall->primary_sft_url, url) == 0) {
+			info("ccall(%p): can_connect_primary found sft %s in calls/conf\n",
+				ccall, url);
+			found = true;
+		}
+		url = mem_deref(url);
+	}
+	return found;
+}
+
 static void config_update_handler(struct call_config *cfg, void *arg)
 {
 	struct join_elem *je = arg;
@@ -2236,26 +2272,19 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		      &ccall->icall, ccall->icall.arg);
 
 	if (CCALL_STATE_INCOMING == state && ccall->primary_sft_url) {
-		for (sft = 0; sft < urlc; sft++) {
-			err = copy_sft(&url, urlv[sft].url);
+		if (ccall_can_connect_primary_sft(ccall)) {
+			info("ccall(%p): cfg_update connecting to primary_sft %s\n",
+			     ccall,
+			     ccall->primary_sft_url);
+			err = ccall_send_conf_conn(ccall, ccall->primary_sft_url, false);
 			if (err) {
-				continue;
+				warning("ccall(%p): cfg_update failed to send "
+					"confconn to sft %s err=%d\n",
+					ccall, url, err);
 			}
-			if (strcmp(ccall->primary_sft_url, url) == 0) {
-				info("ccall(%p): cfg_update found sft %s in calls/conf\n",
-					ccall, url);
-				err = ccall_send_conf_conn(ccall, url, false);
-				if (err) {
-					warning("ccall(%p): cfg_update failed to send "
-						"confconn to sft %s err=%d\n",
-						ccall, url, err);
-				}
-				else {
-					url = mem_deref(url);
-					return;
-				}
+			else {
+				return;
 			}
-			url = mem_deref(url);
 		}
 	}
 

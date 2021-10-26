@@ -479,6 +479,19 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 		json_object_object_add(jsft, "urls", jurls);
 		json_object_array_add(jsfts, jsft);
 		json_object_object_add(jobj, "sft_servers", jsfts);
+
+		jsfts = json_object_new_array();
+		jurls = json_object_new_array();
+		jsft = jzon_alloc_object();
+		jurl = json_object_new_string(g_sft_url);
+		if (!jsfts || !jurls || !jsft || !jurl) {
+			err = ENOMEM;
+			goto out;
+		}
+		json_object_array_add(jurls, jurl);
+		json_object_object_add(jsft, "urls", jurls);
+		json_object_array_add(jsfts, jsft);
+		json_object_object_add(jobj, "sft_servers_all", jsfts);
 	}
 
 	if (!err && jobj) {
