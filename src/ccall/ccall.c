@@ -34,14 +34,6 @@
 
 #define CCALL_CBR_ALWAYS_ON 1
 
-struct join_elem {
-	struct ccall *ccall;
-	enum icall_call_type call_type;
-	bool audio_cbr;
-
-	struct config_update_elem upe;
-};
-
 static void ccall_connect_timeout(void *arg);
 static void ccall_stop_ringing_timeout(void *arg);
 static void ccall_ongoing_call_timeout(void *arg);
@@ -107,7 +99,9 @@ static void destructor(void *arg)
 {
 	struct ccall *ccall = arg;
 
-	config_unregister_all_updates(ccall->cfg, ccall);
+	if (ccall->je) {
+		ccall->je = mem_deref(ccall->je);
+	}
 
 	tmr_cancel(&ccall->tmr_connect);
 	tmr_cancel(&ccall->tmr_call);
@@ -2242,6 +2236,15 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	int err = 0;
 	int state = ccall->state;
 
+	if (!ccall) {
+		return;
+	}
+	if (je != ccall->je) {
+		/* This is a callback from a previous attempt, ignore it */
+		info("ccall(%p): cfg_update ignoring old update %p %p\n",
+		     ccall, je, ccall->je);
+		return;
+	}
 	urlv = config_get_sftservers(ccall->cfg, &urlc);
 
 	info("ccall(%p): cfg_update received %zu sfts state: %s\n",
@@ -2307,7 +2310,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		url = mem_deref(url);
 	}
  out:
-	mem_deref(je);
+	ccall->je = mem_deref(ccall->je);
 }
 
 static void je_destructor(void *arg)
@@ -2327,6 +2330,12 @@ static int  ccall_req_cfg_join(struct ccall *ccall,
 	je = mem_zalloc(sizeof(*je), je_destructor);
 	if (!je)
 		return ENOMEM;
+
+	if (ccall->je) {
+		ccall->je = mem_deref(ccall->je);
+	}
+
+	ccall->je = je;
 
 	je->ccall = ccall;
 	je->call_type = call_type;
