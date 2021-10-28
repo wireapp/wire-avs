@@ -1980,16 +1980,17 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	msg->u.confconn.selective_video = true;
 	msg->u.confconn.vstreams = CCALL_MAX_VSTREAMS;
 
-	if (ccall->primary_sft_url) {
+	if (ccall->primary_sft_url && 
+	    strcmp(ccall->primary_sft_url, sft_url) != 0) {
 		err = str_dup(&msg->u.confconn.sft_url, ccall->primary_sft_url);
 		if (err) {
 			goto out;
 		}
-	}
-	if (ccall->sft_tuple) {
-		err = str_dup(&msg->u.confconn.sft_tuple, ccall->sft_tuple);
-		if (err) {
-			goto out;
+		if (ccall->sft_tuple) {
+			err = str_dup(&msg->u.confconn.sft_tuple, ccall->sft_tuple);
+			if (err) {
+				goto out;
+			}
 		}
 	}
 
