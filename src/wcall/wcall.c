@@ -3117,6 +3117,8 @@ int  wcall_debug(struct re_printf *pf, WUSER_HANDLE wuser)
 	struct calling_instance *inst;
 	struct le *le;	
 	char convid_anon[ANON_ID_LEN];
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 	int err = 0;
 
 	inst = wuser2inst(wuser);
@@ -3127,7 +3129,11 @@ int  wcall_debug(struct re_printf *pf, WUSER_HANDLE wuser)
 		return 0;
 	}
 
-	err = re_hprintf(pf, "# calls=%d\n", list_count(&inst->wcalls));
+	err = re_hprintf(pf, "self: %s.%s\n",
+			 anon_id(userid_anon, inst->userid),
+			 anon_client(clientid_anon, inst->clientid));
+	err |= re_hprintf(pf, "# calls=%d\n", list_count(&inst->wcalls));
+
 	LIST_FOREACH(&inst->wcalls, le) {
 		struct wcall *wcall = le->data;
 

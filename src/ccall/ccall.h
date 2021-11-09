@@ -88,6 +88,7 @@ struct ccall {
 	struct userinfo *keygenerator; // points to self or a member of partl
 	struct list partl;
 	struct mbuf confpart_data;
+	struct list saved_partl;
 
 	const struct ecall_conf *conf;
 	enum ccall_state state;

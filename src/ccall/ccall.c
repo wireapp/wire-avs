@@ -129,6 +129,7 @@ static void destructor(void *arg)
 
 	list_flush(&ccall->sftl);
 	list_flush(&ccall->partl);
+	list_flush(&ccall->saved_partl);
 
 	mbuf_reset(&ccall->confpart_data);
 }
@@ -1139,7 +1140,7 @@ static int ecall_transp_send_handler(struct icall *icall,
 	return ccall_send_msg_sft(ccall, ccall->sft_url, msg);
 }
 
-static struct userinfo *find_userinfo_by_real(struct ccall *ccall,
+static struct userinfo *find_userinfo_by_real(const struct ccall *ccall,
 					      const char *userid_real,
 					      const char *clientid_real)
 {
@@ -1158,7 +1159,7 @@ static struct userinfo *find_userinfo_by_real(struct ccall *ccall,
 	return NULL;
 }
 
-static struct userinfo *find_userinfo_by_hash(struct ccall *ccall,
+static struct userinfo *find_userinfo_by_hash(const struct ccall *ccall,
 					      const char *userid_hash,
 					      const char *clientid_hash)
 {
@@ -1433,8 +1434,11 @@ static void ccall_keep_confpart_data(struct ccall *ccall,
 	if (err)
 		goto out;
 
+	list_flush(&ccall->saved_partl);
+
 	LIST_FOREACH(&msg->u.confpart.partl, le) {
 		struct econn_group_part *p = le->data;
+		struct econn_group_part *pcopy = NULL;
 
 		if (!p)
 			continue;
@@ -1450,6 +1454,16 @@ static void ccall_keep_confpart_data(struct ccall *ccall,
 				     htonl(p->ssrcv));
 		if (err)
 			goto out;
+
+		pcopy = econn_part_alloc(p->userid, p->clientid);
+		if (!pcopy) {
+			err = ENOMEM;
+			goto out;
+		}
+		pcopy->ssrca = p->ssrca;
+		pcopy->ssrcv = p->ssrcv;
+
+		list_append(&ccall->saved_partl, &pcopy->le, pcopy);
 	}
 
 	mbuf_set_pos(&ccall->confpart_data, 0);
@@ -3256,7 +3270,45 @@ int ccall_stats(struct re_printf *pf, const struct icall *icall)
 
 int  ccall_debug(struct re_printf *pf, const struct icall* icall)
 {
-	return 0;
+	const struct ccall *ccall = (const struct ccall*)icall;
+	char userid_anon[ANON_ID_LEN];
+	char userid_anon2[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	struct userinfo *u;
+	struct le *le;
+	int err = 0;
+
+	err = re_hprintf(pf, "\nCCALL SUMMARY %p:\n", ccall);
+	if (err)
+		goto out;
+
+	err = re_hprintf(pf, "confstate: %s:\n", ccall_state_name(ccall->state));
+	LIST_FOREACH(&ccall->saved_partl, le) {
+		const struct econn_group_part *p = le->data;
+
+		u = find_userinfo_by_hash(ccall, p->userid, p->clientid);
+		if (!u && strcaseeq(ccall->self->userid_hash, p->userid) &&
+		    strcaseeq(ccall->self->clientid_hash, p->clientid)) {
+			u = ccall->self;
+		}
+
+		if (u) {
+			err = re_hprintf(pf, "part h: %s u: %s.%s a: %u v: %u\n",
+				anon_id(userid_anon, p->userid),
+				anon_id(userid_anon2, u->userid_real),
+				anon_client(clientid_anon, u->clientid_real),
+				p->ssrca, p->ssrcv);
+		}
+		else {
+			err = re_hprintf(pf, "part h: %s u: unknown.unknown a: %u v: %u\n",
+				anon_id(userid_anon, p->userid),
+				p->ssrca, p->ssrcv);
+		}
+
+	}
+
+out:
+	return err;
 }
 
 static void ccall_connect_timeout(void *arg)
