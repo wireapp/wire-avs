@@ -33,6 +33,12 @@ int peerflow_get_userid_for_ssrc(struct peerflow* pf,
 				 char **userid_real,
 				 char **clientid_real,
 				 char **userid_hash);
+
+int peerflow_inc_frame_count(struct peerflow* pf,
+			     uint32_t csrc,
+			     bool video,
+			     uint32_t frames);
+
 #ifdef __cplusplus
 }
 #endif

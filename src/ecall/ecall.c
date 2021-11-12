@@ -2798,6 +2798,15 @@ int ecall_debug(struct re_printf *pf, const struct ecall *ecall)
 	return err;
 }
 
+int ecall_mfdebug(struct re_printf *pf, const struct ecall *ecall)
+{
+	if (ecall && ecall->flow) {
+		return ecall->flow->debug(pf, ecall->flow);
+	}
+
+	return 0;
+}
+
 int ecall_stats(struct re_printf *pf, const struct ecall *ecall)
 {
 	struct iflow_stats stats;

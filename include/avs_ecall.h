@@ -68,6 +68,8 @@ struct ecall *ecall_find_userclient(const struct list *ecalls,
 				    const char *clientid);
 int ecall_debug(struct re_printf *pf, const struct ecall *ecall);
 int ecall_stats(struct re_printf *pf, const struct ecall *ecall);
+int ecall_mfdebug(struct re_printf *pf, const struct ecall *ecall);
+
 //struct mediaflow *ecall_mediaflow(const struct ecall *ecall);
 struct econn *ecall_get_econn(const struct ecall *ecall);
 enum econn_state ecall_state(const struct ecall *ecall);

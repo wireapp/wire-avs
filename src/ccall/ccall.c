@@ -3305,8 +3305,13 @@ int  ccall_debug(struct re_printf *pf, const struct icall* icall)
 				p->ssrca, p->ssrcv);
 		}
 
+		if (err)
+			goto out;
 	}
 
+	if (ccall->ecall) {
+		err = re_hprintf(pf, "%H", ecall_mfdebug, ccall->ecall);
+	}
 out:
 	return err;
 }
