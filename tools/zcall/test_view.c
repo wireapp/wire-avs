@@ -28,13 +28,23 @@ extern char *zcall_vfile;
 
 int test_view_init(struct view** v);
 void test_view_capture_next_frame(void);
+WUSER_HANDLE calling3_get_wuser(void);
 
 static bool _capture_frame = false;
 static struct list _capturedl;
+static struct list _renderl;
+char _convid[ECONN_ID_LEN];
 
 struct capture_elem {
 	struct le le;
 	char *userid;
+};
+
+struct render_user {
+	struct le le;
+	char userid[ECONN_ID_LEN];
+	char clientid[ECONN_ID_LEN];
+	int state;
 };
 
 static void capture_destructor(void *arg)
@@ -53,6 +63,8 @@ static void test_runloop_stop(void)
 
 static void test_view_close(void)
 {
+	list_flush(&_capturedl);
+	list_flush(&_renderl);
 }
 
 static void test_view_show(void)
@@ -78,14 +90,72 @@ static void test_preview_stop(void)
 	test_capturer_stop();
 }
 
+static void test_request_streams(void)
+{
+	char *json_str = NULL;
+	struct json_object *jobj;
+	struct json_object *jcli;
+	struct json_object *jclients;
+	struct render_user *u;
+	struct le *le;
+
+	jobj = jzon_alloc_object();
+
+	jclients = json_object_new_array();
+
+	LIST_FOREACH(&_renderl, le) {
+		u = le->data;
+		if (u->state == WCALL_VIDEO_STATE_STARTED) {
+			jcli = jzon_alloc_object();
+			
+			jzon_add_str(jcli, "userid", "%s", u->userid);
+			jzon_add_str(jcli, "clientid", "%s", u->clientid);
+			json_object_array_add(jclients, jcli);
+		}
+	}
+
+	jzon_add_str(jobj, "convid", "%s", _convid);
+	json_object_object_add(jobj, "clients", jclients);
+
+	jzon_encode(&json_str, jobj);
+
+	if (json_str) {
+		WUSER_HANDLE wuser = calling3_get_wuser();
+		wcall_request_video_streams(wuser,
+					    _convid,
+					    0,
+					    json_str);
+	}
+	mem_deref(jobj);
+	mem_deref(json_str);
+}
+
 static void test_vidstate_changed(const char *convid,
 				  const char *userid,
 				  const char *clientid,
 				  int state)
 {
-	(void)userid;
-	(void)clientid;
-	(void)state;
+	struct le *le;
+
+	strncpy(_convid, convid, ECONN_ID_LEN);
+	LIST_FOREACH(&_renderl, le) {
+		struct render_user *u = le->data;
+
+		if (strcmp(userid, u->userid) == 0 &&
+		    strcmp(clientid, u->clientid) == 0) {
+			u->state = state;
+			test_request_streams();
+			return;
+		}
+	}
+
+	struct render_user *u = mem_zalloc(sizeof(struct render_user), NULL);
+	strncpy(u->userid, userid, ECONN_ID_LEN);
+	strncpy(u->clientid, clientid, ECONN_ID_LEN);
+	u->state = state;
+
+	list_append(&_renderl, &u->le, u);
+	test_request_streams();
 }
 
 static int test_render_frame(struct avs_vidframe * frame,
