@@ -2874,7 +2874,7 @@ int peerflow_debug(struct re_printf *pf, const struct iflow *flow)
 		struct conf_member *cm = (struct conf_member *)le->data;
 
 		if (cm->active) {
-			err = re_hprintf(pf, "conf_member u: %s.%s a: %u v: %u af: %u vf: %u\n",
+			err = re_hprintf(pf, "stream user: %s.%s ssrca: %u ssrcv: %u aframes: %u vframes: %u\n",
 				anon_id(userid_anon, cm->userid),
 				anon_client(clientid_anon, cm->clientid),
 				cm->ssrca, cm->ssrcv,

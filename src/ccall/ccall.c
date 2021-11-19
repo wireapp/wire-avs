@@ -3283,6 +3283,32 @@ int  ccall_debug(struct re_printf *pf, const struct icall* icall)
 		goto out;
 
 	err = re_hprintf(pf, "confstate: %s:\n", ccall_state_name(ccall->state));
+	if (err)
+		goto out;
+
+	err = re_hprintf(pf, "\n");
+	if (err)
+		goto out;
+
+	LIST_FOREACH(&ccall->partl, le) {
+		u = le->data;
+		err = re_hprintf(pf, "user hash: %s user: %s.%s incall: %s auth: %s ssrca: %u ssrcv: %u muted: %s vidstate: %s\n",
+			anon_id(userid_anon, u->userid_hash),
+			anon_id(userid_anon2, u->userid_real),
+			anon_client(clientid_anon, u->clientid_real),
+			u->incall_now ? "true" : "false",
+			u->se_approved ? "true" : "false",
+			u->ssrca, u->ssrcv,
+			u->muted ? "true" : "false",
+			icall_vstate_name(u->video_state));
+		if (err)
+			goto out;
+	}
+
+	err = re_hprintf(pf, "\n");
+	if (err)
+		goto out;
+
 	LIST_FOREACH(&ccall->saved_partl, le) {
 		const struct econn_group_part *p = le->data;
 
@@ -3293,14 +3319,14 @@ int  ccall_debug(struct re_printf *pf, const struct icall* icall)
 		}
 
 		if (u) {
-			err = re_hprintf(pf, "part h: %s u: %s.%s a: %u v: %u\n",
+			err = re_hprintf(pf, "part hash: %s user: %s.%s ssrca: %u ssrcv: %u\n",
 				anon_id(userid_anon, p->userid),
 				anon_id(userid_anon2, u->userid_real),
 				anon_client(clientid_anon, u->clientid_real),
 				p->ssrca, p->ssrcv);
 		}
 		else {
-			err = re_hprintf(pf, "part h: %s u: unknown.unknown a: %u v: %u\n",
+			err = re_hprintf(pf, "part hash: %s user: unknown.unknown ssrca: %u ssrcv: %u\n",
 				anon_id(userid_anon, p->userid),
 				p->ssrca, p->ssrcv);
 		}
