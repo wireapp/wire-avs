@@ -78,7 +78,7 @@ void ecall_media_stop(struct ecall *ecall);
 int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate);
 bool ecall_is_answered(const struct ecall *ecall);
 bool ecall_has_video(const struct ecall *ecall);
-int ecall_propsync_request(struct ecall *ecall);
+int ecall_sync_props(struct ecall *ecall, bool response);
 const char *ecall_props_get_local(struct ecall *ecall, const char *key);
 const char *ecall_props_get_remote(struct ecall *ecall, const char *key);
 void ecall_trace(struct ecall *ecall, const struct econn_message *msg,

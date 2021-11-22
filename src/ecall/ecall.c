@@ -2692,7 +2692,7 @@ void ecall_media_stop(struct ecall *ecall)
 }
 
 
-int ecall_propsync_request(struct ecall *ecall)
+int ecall_sync_props(struct ecall *ecall, bool response)
 {
 	int err;
 
@@ -2705,7 +2705,10 @@ int ecall_propsync_request(struct ecall *ecall)
 	if (ecall->devpair)
 		return 0;
 
-	err = econn_send_propsync(ecall->econn, false, ecall->props_local);
+	if (!econn_can_send_propsync(ecall->econn))
+		return 0;
+
+	err = econn_send_propsync(ecall->econn, response, ecall->props_local);
 	if (err) {
 		warning("ecall: request: econn_send_propsync failed (%m)\n",
 			err);

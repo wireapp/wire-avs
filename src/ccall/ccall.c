@@ -1703,6 +1703,13 @@ static void ecall_confpart_handler(struct ecall *ecall,
 				warning("ccall(%p): send_keys failed\n", ccall);
 			}
 		}
+
+		if (ccall->ecall) {
+			err = ecall_sync_props(ccall->ecall, true);
+			if (err) {
+				warning("ccall(%p): sync_props failed\n", ccall);
+			}
+		}
 	}
 
 	if (missing_parts) {
