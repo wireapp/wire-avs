@@ -1318,7 +1318,7 @@ int  ccall_request_video_streams(struct icall *icall,
 	err =  ecall_dce_send(ccall->ecall, &mb);
 	if (err) {
 		warning("ccall(%p): request_video_streams: ecall_dce_send"
-			" failed (%m)\n", err);
+			" failed (%m)\n", ccall, err);
 		goto out;
 	}
 
@@ -1350,9 +1350,9 @@ static  int ecall_propsync_handler(struct ecall *ecall,
 	vr = econn_props_get(msg->u.propsync.props, "videosend");
 	mt = econn_props_get(msg->u.propsync.props, "muted");
 	info("ccall(%p): ecall_propsync_handler ecall: %p"
-		" remote %s.%s video '%s' muted '%s'\n",
+		" remote %s.%s video '%s' muted '%s' %s\n",
 	     ccall, ecall, msg->src_userid, msg->src_clientid,
-	     vr ? vr : "", mt ? mt : "");
+	     vr ? vr : "", mt ? mt : "", msg->resp ? "resp" : "req");
 
 	user = find_userinfo_by_hash(ccall, msg->src_userid, msg->src_clientid);
 	if (!user) {
