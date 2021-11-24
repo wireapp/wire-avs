@@ -33,6 +33,7 @@ endif
 
 VER_BRANCH := $(shell git rev-parse --abbrev-ref HEAD || echo "")
 
+ifeq ($(AVS_VERSION),)
 ifeq ($(word 1, $(subst -, , $(VER_BRANCH))), release)
 AVS_PROJECT := avs
 AVS_RELEASE := 1
@@ -42,6 +43,15 @@ else
 AVS_PROJECT := avsmaster
 AVS_RELEASE := 0
 AVS_VERSION := 0.0.$(VER_PATCH)
+endif
+else
+ifeq ($(shell echo $(AVS_VERSION) | head -c 3),0.0)
+AVS_PROJECT := avsmaster
+AVS_RELEASE := 0
+else
+AVS_PROJECT := avs
+AVS_RELEASE := 1
+endif
 endif
 
 MK_COMPONENTS := toolchain contrib avs tools test android iosx dist scan
