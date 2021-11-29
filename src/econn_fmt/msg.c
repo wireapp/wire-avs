@@ -500,6 +500,11 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 			if (err)
 				goto out;
 		}
+		if (msg->u.setup.sft_tuple) {
+			err = jzon_add_str(jobj, "sft_tuple", "%s", msg->u.setup.sft_tuple);
+			if (err)
+				goto out;
+		}
 		break;
 
 	case ECONN_CANCEL:
@@ -561,10 +566,21 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 			      msg->u.confconn.selective_video);
 		jzon_add_int(jobj, "vstreams",
 			      msg->u.confconn.vstreams);
+		if (msg->u.confconn.sft_url) {
+			jzon_add_str(jobj, "sft_url",
+				     "%s", msg->u.confconn.sft_url);
+		}
+		if (msg->u.confconn.sft_tuple) {
+			jzon_add_str(jobj, "sft_tuple",
+				     "%s", msg->u.confconn.sft_tuple);
+		}
 		break;
 
 	case ECONN_CONF_START:
 		jzon_add_str(jobj, "sft_url", "%s", msg->u.confstart.sft_url);
+		if (msg->u.confstart.sft_tuple) {
+			jzon_add_str(jobj, "sft_tuple", "%s", msg->u.confstart.sft_tuple);
+		}
 		jzon_add_base64(jobj, "secret",
 				msg->u.confstart.secret, msg->u.confstart.secretlen);
 		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confstart.timestamp);
@@ -579,6 +595,9 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 
 	case ECONN_CONF_CHECK:
 		jzon_add_str(jobj, "sft_url", "%s", msg->u.confcheck.sft_url);
+		if (msg->u.confcheck.sft_tuple) {
+			jzon_add_str(jobj, "sft_tuple", "%s", msg->u.confcheck.sft_tuple);
+		}
 		jzon_add_base64(jobj, "secret",
 				msg->u.confcheck.secret, msg->u.confcheck.secretlen);
 		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confcheck.timestamp);
@@ -757,7 +776,7 @@ int econn_message_decode(struct econn_message **msgp,
 	}
 
 	if (0 == str_casecmp(type, econn_msg_name(ECONN_SETUP))) {
-		const char *url;
+		const char *url, *tuple;
 
 		msg->msg_type = ECONN_SETUP;
 
@@ -779,6 +798,10 @@ int econn_message_decode(struct econn_message **msgp,
 		url = jzon_str(jobj, "url");
 		if (url)
 			str_dup(&msg->u.setup.url, url);
+
+		tuple = jzon_str(jobj, "sft_tuple");
+		if (tuple)
+			str_dup(&msg->u.setup.sft_tuple, tuple);
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_GROUP_SETUP))) {
 
@@ -861,6 +884,7 @@ int econn_message_decode(struct econn_message **msgp,
 		const char *secret;
 		uint8_t *sdata;
 		size_t slen;
+		const char *tuple;
 
 		msg->msg_type = ECONN_CONF_START;
 
@@ -869,6 +893,10 @@ int econn_message_decode(struct econn_message **msgp,
 			warning("econn: decode CONFSTART: couldnt read SFT URL\n");
 			goto out;
 		}
+		tuple = jzon_str(jobj, "sft_tuple");
+		/* sft_tuple is optional for backwards compat */
+		if (tuple)
+			str_dup(&msg->u.confstart.sft_tuple, tuple);
 		pl_set_str(&pl, jzon_str(jobj, "timestamp"));
 		msg->u.confstart.timestamp = pl_u64(&pl);
 		pl_set_str(&pl, jzon_str(jobj, "seqno"));
@@ -909,6 +937,11 @@ int econn_message_decode(struct econn_message **msgp,
 			warning("econn: decode CONFCHECK: couldnt read SFT URL\n");
 			goto out;
 		}
+		err = jzon_strdup(&msg->u.confcheck.sft_tuple, jobj, "sft_tuple");
+		if (err) {
+			warning("econn: decode CONFCHECK: couldnt read SFT tuple\n");
+			goto out;
+		}
 		pl_set_str(&pl, jzon_str(jobj, "timestamp"));
 		msg->u.confcheck.timestamp = pl_u64(&pl);
 		pl_set_str(&pl, jzon_str(jobj, "seqno"));
@@ -935,7 +968,7 @@ int econn_message_decode(struct econn_message **msgp,
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_CONN))) {
 		struct json_object *jturns;
-		const char *tool_str = NULL;
+		const char *json_str = NULL;
 		int32_t status = 0, vstreams = 0;
 		bool selective_audio = false, selective_video = false;
 
@@ -956,16 +989,16 @@ int econn_message_decode(struct econn_message **msgp,
 		jzon_bool(&msg->u.confconn.update, jobj,
 			  "update");
 
-		tool_str = jzon_str(jobj, "tool");
-		if (tool_str) {
-			err = str_dup(&msg->u.confconn.tool, tool_str);
+		json_str = jzon_str(jobj, "tool");
+		if (json_str) {
+			err = str_dup(&msg->u.confconn.tool, json_str);
 			if (err)
 				goto out;
 		}
 
-		tool_str = jzon_str(jobj, "toolver");
-		if (tool_str) {
-			err = str_dup(&msg->u.confconn.toolver, tool_str);
+		json_str = jzon_str(jobj, "toolver");
+		if (json_str) {
+			err = str_dup(&msg->u.confconn.toolver, json_str);
 			if (err)
 				goto out;
 		}
@@ -1004,6 +1037,18 @@ int econn_message_decode(struct econn_message **msgp,
 			vstreams = 32;
 		msg->u.confconn.vstreams = vstreams;
 
+		json_str = jzon_str(jobj, "sft_url");
+		if (json_str) {
+			err = str_dup(&msg->u.confconn.sft_url, json_str);
+			if (err)
+				goto out;
+		}
+		json_str = jzon_str(jobj, "sft_tuple");
+		if (json_str) {
+			err = str_dup(&msg->u.confconn.sft_tuple, json_str);
+			if (err)
+				goto out;
+		}
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_END))) {
 		msg->msg_type = ECONN_CONF_END;

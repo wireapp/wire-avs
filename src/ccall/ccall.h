@@ -68,6 +68,14 @@ enum sreason {
 	CCALL_STOP_RINGING_REJECTED = 2
 };
 
+struct join_elem {
+	struct ccall *ccall;
+	enum icall_call_type call_type;
+	bool audio_cbr;
+
+	struct config_update_elem upe;
+};
+
 struct ccall {
 	struct icall icall;
 
@@ -80,11 +88,14 @@ struct ccall {
 	struct userinfo *keygenerator; // points to self or a member of partl
 	struct list partl;
 	struct mbuf confpart_data;
+	struct list saved_partl;
 
 	const struct ecall_conf *conf;
 	enum ccall_state state;
 
+	char *primary_sft_url;
 	char *sft_url;
+	char *sft_tuple;
 	bool sft_resolved;
 	struct list sftl;
 
@@ -124,6 +135,7 @@ struct ccall {
 	struct tmr tmr_keepalive;
 	struct tmr tmr_alone;
 
+	struct join_elem *je;
 	struct config *cfg;
 };
 

@@ -25,6 +25,8 @@ struct call_config {
 	size_t iceserverc;
 	struct zapi_ice_server *sftserverv;
 	size_t sftserverc;
+	struct zapi_ice_server *sftservers_allv;;
+	size_t sftservers_allc;
 	struct zapi_ice_server *sfticeserverv;
 	size_t sfticeserverc;
 };
@@ -61,6 +63,9 @@ struct zapi_ice_server *config_get_iceservers(struct config *cfg,
 
 struct zapi_ice_server *config_get_sftservers(struct config *cfg,
 					      size_t *count);
+
+struct zapi_ice_server *config_get_sftservers_all(struct config *cfg,
+						  size_t *count);
 
 struct zapi_ice_server *config_get_sfticeservers(struct config *cfg,
 						 size_t *count);

@@ -2773,6 +2773,45 @@ out:
 	return err;
 }
 
+int peerflow_inc_frame_count(struct peerflow* pf,
+			     uint32_t csrc,
+			     bool video,
+			     uint32_t frames)
+{
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	struct conf_member *cm;
+	int err = 0;
+
+	if (!pf)
+		return EINVAL;
+
+	lock_write_get(pf->cml.lock);
+	if (video)
+		cm = conf_member_find_by_ssrcv(&pf->cml.list, csrc);
+	else
+		cm = conf_member_find_by_ssrca(&pf->cml.list, csrc);
+
+	if (!cm) {
+		err = ENOENT;
+		goto out;
+	}
+
+	if (video)
+		cm->video_frames += frames;
+	else
+		cm->audio_frames += frames;
+
+	debug("FRAME: %s.%s a: %u v: %u\n",
+	      anon_id(userid_anon, cm->userid),
+	      anon_client(clientid_anon, cm->clientid),
+	      cm->audio_frames,
+	      cm->video_frames);
+out:
+	lock_rel(pf->cml.lock);
+	return err;
+}
+
 
 void peerflow_set_stats(struct peerflow* pf,
 			int audio_level,
@@ -2821,7 +2860,32 @@ int peerflow_get_stats(struct iflow *flow,
 
 int peerflow_debug(struct re_printf *pf, const struct iflow *flow)
 {
-	return 0;
+	struct peerflow *peerflow = (struct peerflow*)flow;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	struct le *le;
+	int err = 0;
+
+	err = re_hprintf(pf, "\nPEERFLOW SUMMARY %p:\n", peerflow);
+	if (err)
+		goto out;
+
+	LIST_FOREACH(&peerflow->cml.list, le) {
+		struct conf_member *cm = (struct conf_member *)le->data;
+
+		if (cm->active) {
+			err = re_hprintf(pf, "stream user: %s.%s ssrca: %u ssrcv: %u aframes: %u vframes: %u\n",
+				anon_id(userid_anon, cm->userid),
+				anon_client(clientid_anon, cm->clientid),
+				cm->ssrca, cm->ssrcv,
+				cm->audio_frames, cm->video_frames);
+			if (err)
+				goto out;
+		}
+	}
+
+out:
+	return err;
 }
 
 

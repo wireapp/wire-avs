@@ -68,6 +68,8 @@ struct ecall *ecall_find_userclient(const struct list *ecalls,
 				    const char *clientid);
 int ecall_debug(struct re_printf *pf, const struct ecall *ecall);
 int ecall_stats(struct re_printf *pf, const struct ecall *ecall);
+int ecall_mfdebug(struct re_printf *pf, const struct ecall *ecall);
+
 //struct mediaflow *ecall_mediaflow(const struct ecall *ecall);
 struct econn *ecall_get_econn(const struct ecall *ecall);
 enum econn_state ecall_state(const struct ecall *ecall);
@@ -76,7 +78,7 @@ void ecall_media_stop(struct ecall *ecall);
 int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate);
 bool ecall_is_answered(const struct ecall *ecall);
 bool ecall_has_video(const struct ecall *ecall);
-int ecall_propsync_request(struct ecall *ecall);
+int ecall_sync_props(struct ecall *ecall, bool response);
 const char *ecall_props_get_local(struct ecall *ecall, const char *key);
 const char *ecall_props_get_remote(struct ecall *ecall, const char *key);
 void ecall_trace(struct ecall *ecall, const struct econn_message *msg,
@@ -116,19 +118,12 @@ int ecall_user_data_register_ft_handlers(struct ecall *ecall,
                 ecall_user_data_file_rcv_h *f_rcv_h,
                 ecall_user_data_file_snd_h *f_snd_h);
 
-typedef void (ecall_confpart_h)(struct ecall *ecall,
-				const struct econn_message *msg,
-				void *arg);
+typedef void (ecall_confmsg_h)(struct ecall *ecall,
+			       const struct econn_message *msg,
+			       void *arg);
 
-int ecall_set_confpart_handler(struct ecall *ecall,
-			       ecall_confpart_h confparth);
-
-typedef void (ecall_confstreams_h)(struct ecall *ecall,
-				   const struct econn_message *msg,
-				   void *arg);
-
-int ecall_set_confstreams_handler(struct ecall *ecall,
-				  ecall_confstreams_h confstreamsh);
+int ecall_set_confmsg_handler(struct ecall *ecall,
+			      ecall_confmsg_h confmsgh);
 
 int ecall_dce_send(struct ecall *ecall, struct mbuf *mb);
 
