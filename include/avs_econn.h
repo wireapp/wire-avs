@@ -103,7 +103,7 @@ struct econn_props {
 	struct odict *dict;
 };
 
-#define ECONN_ID_LEN 64
+#define ECONN_ID_LEN 128
 /*
  * The message-type is the actually message type that is sent on the Wire.
  * It containes the type (SETUP or CANCEL) and message type specific
