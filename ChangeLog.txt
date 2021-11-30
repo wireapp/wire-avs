@@ -1,17 +1,31 @@
 ChangeLog for AVS -- latest on top!
 
 ==============================================================================
+AVS Release 8.0
+
+Date:       November 30, 2021
+GIT:        https://github.com/wireapp/wire-avs/tree/release-8.0
+Android:    Android NDK r14b
+iOS:        iOS SDK 12.2
+OSX:        MacOS SDK 10.14
+Linux:      Ubuntu x86_64 18.04 (LTS)
+
+Summary:    - Support for federated conference calls
+
+Hotfixes:
+
+==============================================================================
 AVS Release 7.2
 
 Date:	    May 10, 2021
-GIT:	    https://github.com/wearezeta/avs/tree/release-7.2
+GIT:	    https://github.com/wireapp/wire-avs/tree/release-7.2
 Android:    Android NDK r14b
 iOS:	    iOS SDK 12.2
 OSX:	    MacOS SDK 10.14
 Linux:	    Ubuntu x86_64 18.04 (LTS)
 
 Summary:        - Selective forwarding of video
-
+                - Android: Video rotation for landscape support
 Hotfixes:       
 
 ==============================================================================
