@@ -296,8 +296,8 @@ static int generate_or_gather_answer(struct ecall *ecall, struct econn *econn)
 	else {
 		if (ecall->sdp.async == ASYNC_NONE) {
 			ecall->sdp.async = ASYNC_ANSWER;
-			gather_all(ecall, false);
 			ecall->econn_pending = econn;
+			gather_all(ecall, false);
 		}
 	}
 
