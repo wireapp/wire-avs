@@ -229,6 +229,7 @@ struct econn_group_part {
 	enum group_part_muted_state  muted_state;
 	uint32_t ssrca;
 	uint32_t ssrcv;
+	uint64_t ts;
 
 	struct le le;
 };

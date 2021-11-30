@@ -78,6 +78,7 @@ static int econn_parts_encode(struct json_object *jobj,
 		jzon_add_str(jpart, "ssrc_audio", "%s", ssrc);
 		re_snprintf(ssrc, sizeof(ssrc), "%u", part->ssrcv);
 		jzon_add_str(jpart, "ssrc_video", "%s", ssrc);
+		jzon_add_int(jpart, "timestamp", (int32_t)part->ts);
 
 		switch(part->muted_state) {
 		case MUTED_STATE_UNMUTED:
@@ -134,6 +135,7 @@ static bool part_decode_handler(const char *key, struct json_object *jobj,
 	struct econn_group_part *part;
 	struct list *partl = arg;
 	const char *ssrc;
+	int32_t ts;
 	bool muted;
 	int err;
 
@@ -149,6 +151,11 @@ static bool part_decode_handler(const char *key, struct json_object *jobj,
 	if (err)
 		goto out;
 
+	/* Timestamp is optional */
+	err = jzon_int(&ts, jobj, "timestamp");
+	if (!err)
+		part->ts = (uint64_t)ts;
+	
 	err = jzon_bool(&muted, jobj, "muted");
 	if (err) {
 		err = 0;
