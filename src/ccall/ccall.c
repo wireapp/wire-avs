@@ -1762,7 +1762,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		      &ccall->icall, ccall->icall.arg);
 	}
 
-	if (ccall->keygenerator == ccall->self &&
+	if (ccall->keygenerator == ccall->self && !should_start &&
 	    ccall_sftlist_changed(&ccall->sftl, &msg->u.confpart.sftl)) {
 		econn_stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
 		ccall_send_check_timeout(ccall);
@@ -2365,26 +2365,10 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 
 	ICALL_CALL_CB(ccall->icall, req_clientsh,
 		      &ccall->icall, ccall->icall.arg);
-/*
-	if (CCALL_STATE_INCOMING == state && ccall->primary_sft_url) {
-		if (ccall_can_connect_primary_sft(ccall)) {
-			info("ccall(%p): cfg_update connecting to primary_sft %s\n",
-			     ccall,
-			     ccall->primary_sft_url);
-			err = ccall_send_conf_conn(ccall, ccall->primary_sft_url, false);
-			if (err) {
-				warning("ccall(%p): cfg_update failed to send "
-					"confconn to sft %s err=%d\n",
-					ccall, url, err);
-			}
-			else {
-				return;
-			}
-		}
-	}
-*/
+
+	/* Prefer connecting to an already active sft */
 	if (CCALL_STATE_INCOMING == state && list_count(&ccall->sftl) > 0) {
-		bool matched = false;
+		uint32_t connected = 0;
 
 		LIST_FOREACH(&ccall->sftl, le) {
 			struct econn_stringlist_info *nfo = le->data;
@@ -2404,13 +2388,16 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 					info("ccall(%p): cfg_update connecting to %s "
 						"from SFT list\n",
 						ccall, url);
-					matched = true;
+					connected++;
 				}
 			}
 			url = mem_deref(url);
+
+			if (connected >= 3)
+				break;
 		}
 
-		if (matched)
+		if (connected > 0)
 			return;
 	}
 
