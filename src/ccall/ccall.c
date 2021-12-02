@@ -1476,6 +1476,50 @@ out:
 }
 
 
+static bool ccall_sftlist_changed(const struct list *lista, const struct list *listb)
+{
+	char *urla = NULL , *urlb = NULL;
+	struct le *lea, *leb;
+	struct econn_stringlist_info *stra, *strb;
+	uint32_t c, p;
+	bool changed = false;
+	int err = 0;
+
+	if (list_count(lista) != list_count(listb))
+		return true;
+
+	c = list_count(lista);
+
+	lea = lista->head;
+	leb = listb->head;
+	for (p = 0; p < c; p++) {
+		stra = lea->data;
+		strb = leb->data;
+
+		err = copy_sft(&urla, stra->str);
+		if (err)
+			goto out;
+
+		err = copy_sft(&urlb, strb->str);
+		if (err)
+			goto out;
+
+		if (strcmp(urla, urlb) != 0) {
+			changed = true;
+			goto out;
+		}
+
+		urla = mem_deref(urla);
+		urlb = mem_deref(urlb);
+	}
+
+out:
+	urla = mem_deref(urla);
+	urlb = mem_deref(urlb);
+
+	return changed;
+}
+
 static void ecall_confpart_handler(struct ecall *ecall,
 				   const struct econn_message *msg,
 				   void *arg)
@@ -1717,6 +1761,15 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		ICALL_CALL_CB(ccall->icall, req_clientsh,
 		      &ccall->icall, ccall->icall.arg);
 	}
+
+	if (ccall->keygenerator == ccall->self &&
+	    ccall_sftlist_changed(&ccall->sftl, &msg->u.confpart.sftl)) {
+		econn_stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
+		ccall_send_check_timeout(ccall);
+	}
+	else {
+		econn_stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
+	}
 }
 
 
@@ -1792,6 +1845,13 @@ static int alloc_message(struct econn_message **msgp,
 		}
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
 
+		if (list_count(&ccall->sftl) > 0) {
+			econn_stringlist_clone(&ccall->sftl, &msg->u.confstart.sftl);
+		}
+		else {
+			econn_stringlist_append(&msg->u.confstart.sftl, ccall->primary_sft_url);
+		}
+
 		/* Add videosend prop */
 		err = econn_props_alloc(&msg->u.confstart.props, NULL);
 		if (err)
@@ -1823,6 +1883,13 @@ static int alloc_message(struct econn_message **msgp,
 				goto out;
 			}
 		}
+		if (list_count(&ccall->sftl) > 0) {
+			econn_stringlist_clone(&ccall->sftl, &msg->u.confcheck.sftl);
+		}
+		else {
+			econn_stringlist_append(&msg->u.confcheck.sftl, ccall->primary_sft_url);
+		}
+
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
 	}
 	else if (type == ECONN_CONF_KEY) {
@@ -2212,7 +2279,7 @@ int  ccall_add_sft(struct icall *icall, const char *sft_url)
 	return 0;
 }
 
-static bool ccall_can_connect_primary_sft(struct ccall *ccall)
+static bool ccall_can_connect_sft(struct ccall *ccall, const char *sft_url)
 {
 	struct zapi_ice_server *sftv;
 	size_t sft = 0, sftc = 0;
@@ -2220,12 +2287,13 @@ static bool ccall_can_connect_primary_sft(struct ccall *ccall)
 	bool found = false;
 	int err = 0;
 
-	if (!ccall->primary_sft_url) {
+	if (!ccall || !sft_url) {
 		return false;
 	}
+
 	sftv = config_get_sftservers_all(ccall->cfg, &sftc);
 
-	info("ccall(%p): can_connect_primary %zu sfts in sft_servers_all\n",
+	info("ccall(%p): can_connect %zu sfts in sft_servers_all\n",
 		ccall, sftc);
 	if (sftc == 0) {
 		/* If no sfts in config, assume legacy behaviour:
@@ -2238,7 +2306,7 @@ static bool ccall_can_connect_primary_sft(struct ccall *ccall)
 		if (err) {
 			continue;
 		}
-		if (strcmp(ccall->primary_sft_url, url) == 0) {
+		if (strcmp(sft_url, url) == 0) {
 			info("ccall(%p): can_connect_primary found sft %s in calls/conf\n",
 				ccall, url);
 			found = true;
@@ -2255,8 +2323,9 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	struct zapi_ice_server *urlv;
 	size_t urlc, sft;
 	char *url = NULL;
-	int err = 0;
 	int state = ccall->state;
+	struct le *le;
+	int err = 0;
 
 	if (!ccall) {
 		return;
@@ -2296,7 +2365,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 
 	ICALL_CALL_CB(ccall->icall, req_clientsh,
 		      &ccall->icall, ccall->icall.arg);
-
+/*
 	if (CCALL_STATE_INCOMING == state && ccall->primary_sft_url) {
 		if (ccall_can_connect_primary_sft(ccall)) {
 			info("ccall(%p): cfg_update connecting to primary_sft %s\n",
@@ -2313,10 +2382,40 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 			}
 		}
 	}
+*/
+	if (CCALL_STATE_INCOMING == state && list_count(&ccall->sftl) > 0) {
+		bool matched = false;
 
+		LIST_FOREACH(&ccall->sftl, le) {
+			struct econn_stringlist_info *nfo = le->data;
+
+			err = copy_sft(&url, nfo->str);
+			if (err)
+				continue;
+
+			if (ccall_can_connect_sft(ccall, url)) {
+				err = ccall_send_conf_conn(ccall, url, false);
+				if (err) {
+					warning("ccall(%p): cfg_update failed to send "
+						"confconn to sft %s err=%d\n",
+						ccall, url, err);
+				}
+				else {
+					info("ccall(%p): cfg_update connecting to %s "
+						"from SFT list\n",
+						ccall, url);
+					matched = true;
+				}
+			}
+			url = mem_deref(url);
+		}
+
+		if (matched)
+			return;
+	}
+
+	
 	urlc = MIN(urlc, 3);
-	info("ccall(%p): cfg_update connecting to %u sfts from calls/conf",
-		ccall, urlc);
 	for (sft = 0; sft < urlc; sft++) {
 		/* If one SFT fails, keep trying the rest */
 		err = copy_sft(&url, urlv[sft].url);
@@ -2328,6 +2427,11 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 			warning("ccall(%p): cfg_update failed to send "
 				"confconn to sft %s err=%d\n",
 				ccall, url, err);
+		}
+		else {
+			info("ccall(%p): cfg_update connecting to %s "
+				"from calls/config\n",
+				ccall, url);
 		}
 		url = mem_deref(url);
 	}
@@ -2854,6 +2958,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 	bool valid_call, should_ring;
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
+	struct list *sftl;
 	int err = 0;
 
 	if (!ccall || !msg ||
@@ -2867,6 +2972,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		msg_sft_tuple = msg->u.confstart.sft_tuple;
 		msg_secret = msg->u.confstart.secret;
 		msg_secretlen = msg->u.confstart.secretlen;
+		sftl = &msg->u.confstart.sftl;
 
 		valid_call = msg->age < CCALL_CONFSTART_TIMEOUT_S;
 	}
@@ -2877,6 +2983,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		msg_sft_tuple = msg->u.confcheck.sft_tuple;
 		msg_secret = msg->u.confcheck.secret;
 		msg_secretlen = msg->u.confcheck.secretlen;
+		sftl = &msg->u.confcheck.sftl;
 
 		valid_call = !econn_message_isrequest(msg) &&
 			(msg->age < CCALL_CONFSTART_TIMEOUT_S);
@@ -2961,6 +3068,8 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 					  CCALL_RINGER_TIMEOUT,
 					  ccall_stop_ringing_timeout, ccall);
 			}
+
+			econn_stringlist_clone(sftl, &ccall->sftl);
 		}
 		break;
 
@@ -2976,6 +3085,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		tmr_cancel(&ccall->tmr_ongoing);
 		tmr_start(&ccall->tmr_ongoing, CCALL_ONGOING_CALL_TIMEOUT,
 			  ccall_ongoing_call_timeout, ccall);
+		econn_stringlist_clone(sftl, &ccall->sftl);
 		break;
 
 	case CCALL_STATE_CONNSENT:
@@ -2988,8 +3098,9 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			ecall_end(ccall->ecall);
 			ccall->ecall = NULL;
 
-			set_state(ccall, CCALL_STATE_CONNSENT);
-			return ccall_send_conf_conn(ccall, ccall->sft_url, false);
+			set_state(ccall, CCALL_STATE_INCOMING);
+			econn_stringlist_clone(sftl, &ccall->sftl);
+			return ccall_req_cfg_join(ccall, ccall->call_type, true);
 		}
 		break;
 
@@ -3000,8 +3111,8 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			ecall_end(ccall->ecall);
 			ccall->ecall = NULL;
 
-			set_state(ccall, CCALL_STATE_CONNSENT);
-			return ccall_send_conf_conn(ccall, ccall->sft_url, false);
+			set_state(ccall, CCALL_STATE_INCOMING);
+			return ccall_req_cfg_join(ccall, ccall->call_type, true);
 		}
 		else if (ts_cmp < 0 && ccall->self == ccall->keygenerator) {
 			/* If local call is earlier. send new CONFSTART to

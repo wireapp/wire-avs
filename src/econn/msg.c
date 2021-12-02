@@ -112,17 +112,20 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.confstart.sft_url = mem_deref(msg->u.confstart.sft_url);
 		msg->u.confstart.sft_tuple = mem_deref(msg->u.confstart.sft_tuple);
 		msg->u.confstart.secret = mem_deref(msg->u.confstart.secret);
+		list_flush(&msg->u.confstart.sftl);
 		break;
 
 	case ECONN_CONF_CHECK:
 		msg->u.confcheck.sft_url = mem_deref(msg->u.confcheck.sft_url);
 		msg->u.confcheck.sft_tuple = mem_deref(msg->u.confcheck.sft_tuple);
 		msg->u.confcheck.secret = mem_deref(msg->u.confcheck.secret);
+		list_flush(&msg->u.confcheck.sftl);
 		break;
 
 	case ECONN_CONF_PART:
 		list_flush(&msg->u.confpart.partl);
 		msg->u.confpart.entropy = mem_deref(msg->u.confpart.entropy);
+		list_flush(&msg->u.confpart.sftl);
 		break;
 
 	case ECONN_CONF_STREAMS:
