@@ -1100,6 +1100,8 @@ int econn_message_decode(struct econn_message **msgp,
 
 		msg->u.confcheck.secret = sdata;
 		msg->u.confcheck.secretlen = slen;
+
+		econn_stringlist_decode(&msg->u.confcheck.sftl, jobj, "sfts");
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_CONN))) {
 		struct json_object *jturns;
@@ -1223,6 +1225,8 @@ int econn_message_decode(struct econn_message **msgp,
 
 		if (econn_parts_decode(&msg->u.confpart.partl, jobj))
 			warning("econn: decode: CONF_PART no parts\n");
+
+		econn_stringlist_decode(&msg->u.confpart.sftl, jobj, "sfts");
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_KEY))) {
 		msg->msg_type = ECONN_CONF_KEY;
