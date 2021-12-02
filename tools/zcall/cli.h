@@ -98,7 +98,7 @@ extern int g_trace;
 extern bool g_ice_privacy;
 extern bool g_use_kase;
 extern bool g_use_conference;
-extern char *g_sft_url;
+extern struct list g_sftl;
 #ifdef HAVE_CRYPTOBOX
 extern struct cryptobox *g_cryptobox;
 #endif

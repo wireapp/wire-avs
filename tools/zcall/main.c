@@ -68,7 +68,7 @@ bool g_ice_privacy = false;
 bool g_use_kase = true;
 bool g_use_conference = false;
 char *zcall_vfile = NULL;
-char *g_sft_url = NULL;
+struct list g_sftl = LIST_INIT;
 
 #ifdef HAVE_CRYPTOBOX
 struct cryptobox *g_cryptobox;
@@ -117,14 +117,14 @@ static void usage(void)
 	(void)re_fprintf(stderr, "\t-h             Show options\n");
 	(void)re_fprintf(stderr, "\t-G             Force group calls to use "
 			 "new conference protocol\n");
-	(void)re_fprintf(stderr, "\t-S <sft url>   Set SFT URL "
-			 "(in format http(s)://server:port)\n");
+	(void)re_fprintf(stderr, "\t-S <sft list>  Set SFT URL "
+			 "(in format http(s)://server:port, comma separated)\n");
 	(void)re_fprintf(stderr, "\n");
 	(void)re_fprintf(stderr, "Config/cache directory defaults to "
 				 DEFAULT_STORE_DIR
 				 "\n");
 	(void)re_fprintf(stderr, "URLs default to regular backend.\n");
-	(void)re_fprintf(stderr, "\t-W             Enable video for calls\n");
+	(void)re_fprintf(stderr, "\t-W             Enable video when auto-answering\n");
 	(void)re_fprintf(stderr, "\t-Z             Auto-answer incoming "
 			 "calls\n");
 }
@@ -379,6 +379,16 @@ static int create_store(struct store **stp, const char *store_dir,
 	return err;
 }
 
+static void parse_sfts(char *sftstr)
+{
+	char *tok;
+
+	while ((tok = strtok_r(sftstr, ",", &sftstr))) {
+		econn_stringlist_append(&g_sftl, tok);
+	}
+
+}
+
 int main(int argc, char *argv[])
 {
 	const char *email = NULL;
@@ -505,7 +515,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'S':
-			str_dup(&g_sft_url, optarg);
+			parse_sfts(optarg);
 			break;
 
 		case 't':
@@ -742,7 +752,7 @@ int main(int argc, char *argv[])
 	libre_close();
 
 	mem_deref(zcall_vfile);
-	mem_deref(g_sft_url);
+	list_flush(&g_sftl);
 	/* check for memory leaks */
 	mem_debug();
 	tmr_debug();
