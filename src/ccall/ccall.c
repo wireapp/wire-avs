@@ -1873,7 +1873,7 @@ static int alloc_message(struct econn_message **msgp,
 		}
 		memcpy(msg->u.confcheck.secret, ccall->secret, ccall->secret_len);
 		msg->u.confcheck.secretlen = ccall->secret_len;
-		err = str_dup(&msg->u.confcheck.sft_url, ccall->sft_url);
+		err = str_dup(&msg->u.confcheck.sft_url, ccall->primary_sft_url);
 		if (err) {
 			goto out;
 		}
