@@ -1081,8 +1081,15 @@ static int ccall_send_msg_sft(struct ccall *ccall,
 {
 	int err = 0;
 	char *url = NULL;
+	const char *fmt;
+	int len;
 
 	if (!sft_url) {
+		return EINVAL;
+	}
+
+	len = strlen(sft_url);
+	if (len < 1) {
 		return EINVAL;
 	}
 
@@ -1090,8 +1097,13 @@ static int ccall_send_msg_sft(struct ccall *ccall,
 	    ECONN_SETUP == msg->msg_type ||
 	    ECONN_UPDATE == msg->msg_type) {
 		// Send these messages to the SFT
-		int len;
-		const char *fmt = "%ssft/%s";
+
+		if (sft_url[len - 1] == '/') {
+			fmt = "%ssft/%s";
+		}
+		else {
+			fmt = "%s/sft/%s";
+		}
 
 		len = strlen(fmt) +
 		      strlen(sft_url) + 
@@ -1476,48 +1488,53 @@ out:
 }
 
 
+static bool sfts_equal(const char *sfta, const char *sftb)
+{
+	size_t lena, lenb;
+
+	if (!sfta || !sftb) {
+		return false;
+	}
+	lena = strlen(sfta);
+	if (lena > 0 && sfta[lena - 1] == '/') {
+		lena--;
+	}
+
+	lenb = strlen(sftb);
+	if (lenb > 0 && sftb[lenb - 1] == '/') {
+		lenb--;
+	}
+
+	if (lena != lenb) {
+		return false;
+	}
+
+	return (strncmp(sfta, sftb, lena) == 0);
+}
+
+
 static bool ccall_sftlist_changed(const struct list *lista, const struct list *listb)
 {
-	char *urla = NULL , *urlb = NULL;
 	struct le *lea, *leb;
 	struct stringlist_info *stra, *strb;
-	uint32_t c, p;
-	bool changed = false;
-	int err = 0;
 
 	if (list_count(lista) != list_count(listb))
 		return true;
 
-	c = list_count(lista);
-
 	lea = lista->head;
 	leb = listb->head;
-	for (p = 0; p < c; p++) {
+	while( lea && leb) {
 		stra = lea->data;
 		strb = leb->data;
-
-		err = copy_sft(&urla, stra->str);
-		if (err)
-			goto out;
-
-		err = copy_sft(&urlb, strb->str);
-		if (err)
-			goto out;
-
-		if (strcmp(urla, urlb) != 0) {
-			changed = true;
-			goto out;
+		if (!sfts_equal(stra->str, strb->str)) {
+			return true;
 		}
 
-		urla = mem_deref(urla);
-		urlb = mem_deref(urlb);
+		lea = lea->next;
+		leb = leb->next;
 	}
 
-out:
-	urla = mem_deref(urla);
-	urlb = mem_deref(urlb);
-
-	return changed;
+	return false;
 }
 
 static void ecall_confpart_handler(struct ecall *ecall,
@@ -2283,9 +2300,7 @@ static bool ccall_can_connect_sft(struct ccall *ccall, const char *sft_url)
 {
 	struct zapi_ice_server *sftv;
 	size_t sft = 0, sftc = 0;
-	char *url = NULL;
 	bool found = false;
-	int err = 0;
 
 	if (!ccall || !sft_url) {
 		return false;
@@ -2302,16 +2317,11 @@ static bool ccall_can_connect_sft(struct ccall *ccall, const char *sft_url)
 	}
 
 	for (sft = 0; sft < sftc && !found; sft++) {
-		err = copy_sft(&url, sftv[sft].url);
-		if (err) {
-			continue;
-		}
-		if (strcmp(sft_url, url) == 0) {
+		if (sfts_equal(sft_url, sftv[sft].url)) {
 			info("ccall(%p): can_connect_primary found sft %s in calls/conf\n",
-				ccall, url);
+				ccall, sft_url);
 			found = true;
 		}
-		url = mem_deref(url);
 	}
 	return found;
 }
@@ -2322,7 +2332,6 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	struct ccall *ccall = je->ccall;
 	struct zapi_ice_server *urlv;
 	size_t urlc, sft;
-	char *url = NULL;
 	int state = ccall->state;
 	struct le *le;
 	int err = 0;
@@ -2373,25 +2382,20 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		LIST_FOREACH(&ccall->sftl, le) {
 			struct stringlist_info *nfo = le->data;
 
-			err = copy_sft(&url, nfo->str);
-			if (err)
-				continue;
-
-			if (ccall_can_connect_sft(ccall, url)) {
-				err = ccall_send_conf_conn(ccall, url, false);
+			if (ccall_can_connect_sft(ccall, nfo->str)) {
+				err = ccall_send_conf_conn(ccall, nfo->str, false);
 				if (err) {
 					warning("ccall(%p): cfg_update failed to send "
 						"confconn to sft %s err=%d\n",
-						ccall, url, err);
+						ccall, nfo->str, err);
 				}
 				else {
 					info("ccall(%p): cfg_update connecting to %s "
 						"from SFT list\n",
-						ccall, url);
+						ccall, nfo->str);
 					connected++;
 				}
 			}
-			url = mem_deref(url);
 
 			if (connected >= 3)
 				break;
@@ -2405,22 +2409,17 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	urlc = MIN(urlc, 3);
 	for (sft = 0; sft < urlc; sft++) {
 		/* If one SFT fails, keep trying the rest */
-		err = copy_sft(&url, urlv[sft].url);
-		if (err) {
-			continue;
-		}
-		err = ccall_send_conf_conn(ccall, url, false);
+		err = ccall_send_conf_conn(ccall, urlv[sft].url, false);
 		if (err) {
 			warning("ccall(%p): cfg_update failed to send "
 				"confconn to sft %s err=%d\n",
-				ccall, url, err);
+				ccall, urlv[sft].url, err);
 		}
 		else {
 			info("ccall(%p): cfg_update connecting to %s "
 				"from calls/config\n",
-				ccall, url);
+				ccall, urlv[sft].url);
 		}
-		url = mem_deref(url);
 	}
  out:
 	ccall->je = mem_deref(ccall->je);
