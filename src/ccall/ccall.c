@@ -3399,9 +3399,21 @@ int  ccall_debug(struct re_printf *pf, const struct icall* icall)
 	if (err)
 		goto out;
 
-	err = re_hprintf(pf, "confstate: %s:\n", ccall_state_name(ccall->state));
+	err = re_hprintf(pf, "confstate: %s\n", ccall_state_name(ccall->state));
 	if (err)
 		goto out;
+
+	if (ccall->sft_url) {
+		err = re_hprintf(pf, "selected_sft: %s\n", ccall->sft_url);
+		if (err)
+			goto out;
+	}
+
+	if (ccall->primary_sft_url) {
+		err = re_hprintf(pf, "primary_sft: %s\n", ccall->primary_sft_url);
+		if (err)
+			goto out;
+	}
 
 	err = re_hprintf(pf, "\n");
 	if (err)
