@@ -1480,7 +1480,7 @@ static bool ccall_sftlist_changed(const struct list *lista, const struct list *l
 {
 	char *urla = NULL , *urlb = NULL;
 	struct le *lea, *leb;
-	struct econn_stringlist_info *stra, *strb;
+	struct stringlist_info *stra, *strb;
 	uint32_t c, p;
 	bool changed = false;
 	int err = 0;
@@ -1764,11 +1764,11 @@ static void ecall_confpart_handler(struct ecall *ecall,
 
 	if (ccall->keygenerator == ccall->self && !should_start &&
 	    ccall_sftlist_changed(&ccall->sftl, &msg->u.confpart.sftl)) {
-		econn_stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
+		stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
 		ccall_send_check_timeout(ccall);
 	}
 	else {
-		econn_stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
+		stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
 	}
 }
 
@@ -1846,10 +1846,10 @@ static int alloc_message(struct econn_message **msgp,
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
 
 		if (list_count(&ccall->sftl) > 0) {
-			econn_stringlist_clone(&ccall->sftl, &msg->u.confstart.sftl);
+			stringlist_clone(&ccall->sftl, &msg->u.confstart.sftl);
 		}
 		else {
-			econn_stringlist_append(&msg->u.confstart.sftl, ccall->primary_sft_url);
+			stringlist_append(&msg->u.confstart.sftl, ccall->primary_sft_url);
 		}
 
 		/* Add videosend prop */
@@ -1884,10 +1884,10 @@ static int alloc_message(struct econn_message **msgp,
 			}
 		}
 		if (list_count(&ccall->sftl) > 0) {
-			econn_stringlist_clone(&ccall->sftl, &msg->u.confcheck.sftl);
+			stringlist_clone(&ccall->sftl, &msg->u.confcheck.sftl);
 		}
 		else {
-			econn_stringlist_append(&msg->u.confcheck.sftl, ccall->primary_sft_url);
+			stringlist_append(&msg->u.confcheck.sftl, ccall->primary_sft_url);
 		}
 
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
@@ -2371,7 +2371,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		uint32_t connected = 0;
 
 		LIST_FOREACH(&ccall->sftl, le) {
-			struct econn_stringlist_info *nfo = le->data;
+			struct stringlist_info *nfo = le->data;
 
 			err = copy_sft(&url, nfo->str);
 			if (err)
@@ -3056,7 +3056,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 					  ccall_stop_ringing_timeout, ccall);
 			}
 
-			econn_stringlist_clone(sftl, &ccall->sftl);
+			stringlist_clone(sftl, &ccall->sftl);
 		}
 		break;
 
@@ -3072,7 +3072,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		tmr_cancel(&ccall->tmr_ongoing);
 		tmr_start(&ccall->tmr_ongoing, CCALL_ONGOING_CALL_TIMEOUT,
 			  ccall_ongoing_call_timeout, ccall);
-		econn_stringlist_clone(sftl, &ccall->sftl);
+		stringlist_clone(sftl, &ccall->sftl);
 		break;
 
 	case CCALL_STATE_CONNSENT:
@@ -3086,7 +3086,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			ccall->ecall = NULL;
 
 			set_state(ccall, CCALL_STATE_INCOMING);
-			econn_stringlist_clone(sftl, &ccall->sftl);
+			stringlist_clone(sftl, &ccall->sftl);
 			return ccall_req_cfg_join(ccall, ccall->call_type, true);
 		}
 		break;

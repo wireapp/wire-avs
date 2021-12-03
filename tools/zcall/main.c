@@ -384,7 +384,7 @@ static void parse_sfts(char *sftstr)
 	char *tok;
 
 	while ((tok = strtok_r(sftstr, ",", &sftstr))) {
-		econn_stringlist_append(&g_sftl, tok);
+		stringlist_append(&g_sftl, tok);
 	}
 
 }

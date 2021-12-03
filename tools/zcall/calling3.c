@@ -479,7 +479,7 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 		}
 
 		LIST_FOREACH(&g_sftl, le) {
-			struct econn_stringlist_info *info = le->data;
+			struct stringlist_info *nfo = le->data;
 
 			struct json_object *jurls;
 			struct json_object *jsft;
@@ -487,7 +487,7 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 			
 			jurls = json_object_new_array();
 			jsft = jzon_alloc_object();
-			jurl = json_object_new_string(info->str);
+			jurl = json_object_new_string(nfo->str);
 			if (!jurls || !jsft || !jurl) {
 				err = ENOMEM;
 				goto out;
@@ -498,7 +498,7 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 
 			jurls = json_object_new_array();
 			jsft = jzon_alloc_object();
-			jurl = json_object_new_string(info->str);
+			jurl = json_object_new_string(nfo->str);
 			if (!jurls || !jsft || !jurl) {
 				err = ENOMEM;
 				goto out;

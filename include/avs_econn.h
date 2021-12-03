@@ -437,12 +437,4 @@ struct vector {
 
 int vector_alloc(struct vector **vecp, const uint8_t *bytes, size_t len);
 
-struct econn_stringlist_info {
-	char *str;
-	struct le le;
-};
-
-int econn_stringlist_append(struct list *list, const char *str);
-int econn_stringlist_clone(const struct list *from, struct list *to);
-
 

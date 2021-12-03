@@ -33,5 +33,13 @@ struct str_wordexp {
 int  str_wordexp(struct str_wordexp *we, const char *str);
 void str_wordfree(struct str_wordexp *we);
 
+struct stringlist_info {
+	char *str;
+	struct le le;
+};
+
+int stringlist_append(struct list *list, const char *str);
+int stringlist_clone(const struct list *from, struct list *to);
+
 #endif //#ifndef AVS_STRING_H
 

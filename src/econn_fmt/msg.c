@@ -26,6 +26,7 @@
 #include "avs_icall.h"
 #include "avs_econn.h"
 #include "avs_econn_fmt.h"
+#include "avs_string.h"
 
 
 const char econn_proto_version[] = "3.0";
@@ -440,61 +441,6 @@ static int econn_streams_decode(struct list *streaml, struct json_object *jobj)
 	return 0;
 }
 
-static void stringlist_destructor(void *arg)
-{
-	struct econn_stringlist_info *info = arg;
-
-	list_unlink(&info->le);
-
-	mem_deref(info->str);
-}
-
-int econn_stringlist_append(struct list *list, const char *str)
-{
-	struct econn_stringlist_info *info = NULL;
-	int err = 0;
-
-	info = mem_zalloc(sizeof(*info), stringlist_destructor);
-	if (!info)
-		return ENOMEM;
-
-	err = str_dup(&info->str, str);
-	if (err)
-		goto out;
-
-	list_append(list, &info->le, info);
-out:
-	if (err)
-		mem_deref(info);
-
-	return err;
-}
-
-int econn_stringlist_clone(const struct list *from, struct list *to)
-{
-	struct le *le;
-	int err = 0;
-
-	if (!from || !to)
-		return EINVAL;
-
-	list_flush(to);
-
-	LIST_FOREACH(from, le) {
-		struct econn_stringlist_info *str = le->data;
-
-		err = econn_stringlist_append(to, str->str);
-		if (err)
-			goto out;
-	}
-
-out:
-	if (err)
-		list_flush(to);
-	return err;
-}
-
-
 static int econn_stringlist_encode(struct json_object *jobj,
 				   const struct list *strl,
 				   const char* name)
@@ -509,7 +455,7 @@ static int econn_stringlist_encode(struct json_object *jobj,
 			return ENOMEM;
 
 		LIST_FOREACH(strl, le) {
-			struct econn_stringlist_info *str = le->data;
+			struct stringlist_info *str = le->data;
 			struct json_object *jstr;
 
 			jstr = json_object_new_string(str->str);
@@ -536,7 +482,7 @@ static bool string_decode_handler(const char *keystr,
 
 	val = json_object_get_string(jobj);
 	if (val) {
-		err =  econn_stringlist_append(strl, val);
+		err =  stringlist_append(strl, val);
 		if (err) {
 			warning("econn: string_decode_handler: could not decode string\n");
 			goto out;
