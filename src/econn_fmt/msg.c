@@ -26,6 +26,7 @@
 #include "avs_icall.h"
 #include "avs_econn.h"
 #include "avs_econn_fmt.h"
+#include "avs_string.h"
 
 
 const char econn_proto_version[] = "3.0";
@@ -440,6 +441,74 @@ static int econn_streams_decode(struct list *streaml, struct json_object *jobj)
 	return 0;
 }
 
+static int econn_stringlist_encode(struct json_object *jobj,
+				   const struct list *strl,
+				   const char* name)
+{
+	struct le *le;
+	struct json_object *jarray;
+	int err = 0;
+
+	if (list_count(strl) > 0) {
+		jarray = jzon_alloc_array();
+		if (!jarray)
+			return ENOMEM;
+
+		LIST_FOREACH(strl, le) {
+			struct stringlist_info *str = le->data;
+			struct json_object *jstr;
+
+			jstr = json_object_new_string(str->str);
+			if (!jstr) {
+				err = ENOMEM;
+				goto out;
+			}
+			json_object_array_add(jarray, jstr);
+		}
+		json_object_object_add(jobj, name, jarray);
+	}
+
+ out:
+	return err;
+}
+
+static bool string_decode_handler(const char *keystr,
+				  struct json_object *jobj,
+				  void *arg)
+{
+	struct list *strl = arg;
+	const char *val = NULL;
+	int err = 0;
+
+	val = json_object_get_string(jobj);
+	if (val) {
+		err =  stringlist_append(strl, val);
+		if (err) {
+			warning("econn: string_decode_handler: could not decode string\n");
+			goto out;
+		}
+	}
+
+out:
+	return false;
+}
+
+static int econn_stringlist_decode(struct list *strl, struct json_object *jobj, const char *name)
+{
+	struct json_object *jarray;
+	int err = 0;
+
+	err = jzon_array(&jarray, jobj, name);
+	if (err) {
+		warning("econn: streams decode: no strings\n");
+		return err;
+	}
+
+	jzon_apply(jarray, string_decode_handler, strl);
+
+	return 0;
+}
+
 int econn_message_encode(char **strp, const struct econn_message *msg)
 {
 	struct json_object *jobj = NULL;
@@ -592,6 +661,7 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 				msg->u.confstart.secret, msg->u.confstart.secretlen);
 		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confstart.timestamp);
 		jzon_add_str(jobj, "seqno", "%u", msg->u.confstart.seqno);
+		econn_stringlist_encode(jobj, &msg->u.confstart.sftl, "sfts");
 		/* props is optional for CONFSTART */
 		if (msg->u.confstart.props) {
 			err = econn_props_encode(jobj, msg->u.confstart.props);
@@ -609,6 +679,7 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 				msg->u.confcheck.secret, msg->u.confcheck.secretlen);
 		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confcheck.timestamp);
 		jzon_add_str(jobj, "seqno", "%u", msg->u.confcheck.seqno);
+		econn_stringlist_encode(jobj, &msg->u.confcheck.sftl, "sfts");
 		break;
 
 	case ECONN_CONF_END:
@@ -622,6 +693,7 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		jzon_add_base64(jobj, "entropy",
 				msg->u.confpart.entropy, msg->u.confpart.entropylen);
 		econn_parts_encode(jobj, &msg->u.confpart.partl);
+		econn_stringlist_encode(jobj, &msg->u.confpart.sftl, "sfts");
 		break;
 
 	case ECONN_CONF_KEY:
@@ -927,6 +999,8 @@ int econn_message_decode(struct econn_message **msgp,
 
 		msg->u.confstart.secret = sdata;
 		msg->u.confstart.secretlen = slen;
+
+		econn_stringlist_decode(&msg->u.confstart.sftl, jobj, "sfts");
 		/* Props are optional, dont fail to decode message if they are missing */
 		if (econn_props_decode(&msg->u.confstart.props, jobj))
 			info("econn: decode CONFSTART: no props\n");
@@ -972,6 +1046,8 @@ int econn_message_decode(struct econn_message **msgp,
 
 		msg->u.confcheck.secret = sdata;
 		msg->u.confcheck.secretlen = slen;
+
+		econn_stringlist_decode(&msg->u.confcheck.sftl, jobj, "sfts");
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_CONN))) {
 		struct json_object *jturns;
@@ -1095,6 +1171,8 @@ int econn_message_decode(struct econn_message **msgp,
 
 		if (econn_parts_decode(&msg->u.confpart.partl, jobj))
 			warning("econn: decode: CONF_PART no parts\n");
+
+		econn_stringlist_decode(&msg->u.confpart.sftl, jobj, "sfts");
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_KEY))) {
 		msg->msg_type = ECONN_CONF_KEY;

@@ -181,6 +181,7 @@ struct econn_message {
 			uint32_t secretlen;
 			uint64_t timestamp;
 			uint32_t seqno;
+			struct list sftl; /* list of struct econn_stringlist_info */
 		} confstart;
 
 		struct confcheck {
@@ -190,6 +191,7 @@ struct econn_message {
 			uint32_t secretlen;
 			uint64_t timestamp;
 			uint32_t seqno;
+			struct list sftl; /* list of struct econn_stringlist_info */
 		} confcheck;
 
 		struct confpart {
@@ -199,6 +201,7 @@ struct econn_message {
 			struct list partl; /* list of struct econn_group_part */
 			uint8_t *entropy;
 			uint32_t entropylen;
+			struct list sftl; /* list of struct econn_stringlist_info */
 		} confpart;
 
 		struct confkey {
@@ -433,3 +436,5 @@ struct vector {
 };
 
 int vector_alloc(struct vector **vecp, const uint8_t *bytes, size_t len);
+
+
