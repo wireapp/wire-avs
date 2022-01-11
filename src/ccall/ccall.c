@@ -3127,6 +3127,8 @@ int  ccall_msg_recv(struct icall* icall,
 	struct ccall *ccall = (struct ccall*)icall;
 	char userid_anon[ANON_ID_LEN];
 	char userid_anon2[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	char clientid_anon2[ANON_CLIENT_LEN];
 	struct le *le;
 	int err = 0;
 
@@ -3172,25 +3174,29 @@ int  ccall_msg_recv(struct icall* icall,
 		if (msg->resp) {
 			if (!ccall->keygenerator) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY resp from "
-					"%s when keygenerator is NULL!\n",
-					ccall, anon_id(userid_anon, msg->src_userid));
+					"%s.%s when keygenerator is NULL!\n",
+					ccall, anon_id(userid_anon, userid_sender),
+					anon_client(clientid_anon, clientid_sender));
 				ccall->request_key = true;
 				return 0;
 			}
 
 			if (ccall->keygenerator == ccall->self) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY resp from "
-					"%s when keygenerator is me!\n",
-					ccall, anon_id(userid_anon, msg->src_userid));
+					"%s.%s when keygenerator is me!\n",
+					ccall, anon_id(userid_anon, userid_sender),
+					anon_client(clientid_anon, clientid_sender));
 				return 0;
 			}
 
 			if (!strcaseeq(userid_sender,   ccall->keygenerator->userid_real) ||
 			    !strcaseeq(clientid_sender, ccall->keygenerator->clientid_real)) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY resp from "
-					"%s when keygenerator is %s\n",
+					"%s.%s when keygenerator is %s.%s\n",
 					ccall, anon_id(userid_anon, userid_sender),
-					anon_id(userid_anon2, ccall->keygenerator->userid_real));
+					anon_client(clientid_anon, clientid_sender),
+					anon_id(userid_anon2, ccall->keygenerator->userid_real),
+					anon_client(clientid_anon2, ccall->keygenerator->clientid_real));
 				return 0;
 			}
 
@@ -3222,24 +3228,27 @@ int  ccall_msg_recv(struct icall* icall,
 
 			if (ccall->keygenerator != ccall->self) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY req from "
-					"%s when not the keygenerator!\n",
-					ccall, anon_id(userid_anon, msg->src_userid));
+					"%s.%s when not the keygenerator!\n",
+					ccall, anon_id(userid_anon, userid_sender),
+					anon_client(clientid_anon, clientid_sender));
 				return 0;
 			}
 
 			u = find_userinfo_by_real(ccall,
-						  msg->src_userid,
-						  msg->src_clientid);
+						  userid_sender,
+						  clientid_sender);
 			if (!u) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY req from "
-					"%s because their user not found!\n",
-					ccall, anon_id(userid_anon, msg->src_userid));
+					"%s.%s because their user not found!\n",
+					ccall, anon_id(userid_anon, userid_sender),
+					anon_client(clientid_anon, clientid_sender));
 				return 0;
 			}
 			if (!u->incall_now) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY req from "
-					"%s because they arent in call!\n",
-					ccall, anon_id(userid_anon, msg->src_userid));
+					"%s.%s because they arent in call!\n",
+					ccall, anon_id(userid_anon, userid_sender),
+					anon_client(clientid_anon, clientid_sender));
 				return 0;
 			}
 			u->needs_key = true;
