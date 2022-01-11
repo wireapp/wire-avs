@@ -2030,10 +2030,15 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	struct zapi_ice_server *turnv;
 	size_t turnc;
 	int err = 0;
+	char *sft_url_term = NULL;
 
 	if (!ccall || !sft_url) {
 		return EINVAL;
 	}
+
+	err = copy_sft(&sft_url_term, sft_url);
+	if (err)
+		return err;
 
 	info("ccall(%p): send_msg_sft url: %s type: %s resp: %s\n",
 	     ccall,
@@ -2081,12 +2086,16 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	msg->u.confconn.vstreams = CCALL_MAX_VSTREAMS;
 
 	if (ccall->primary_sft_url && 
-	    strcmp(ccall->primary_sft_url, sft_url) != 0) {
+	    strcmp(ccall->primary_sft_url, sft_url_term) != 0) {
+		info("ccall(%p): send_msg_sft setting primary_sft_url %s\n",
+		     ccall, ccall->primary_sft_url);
 		err = str_dup(&msg->u.confconn.sft_url, ccall->primary_sft_url);
 		if (err) {
 			goto out;
 		}
 		if (ccall->sft_tuple) {
+			info("ccall(%p): send_msg_sft setting sft_tuple %s\n",
+			     ccall, ccall->sft_tuple);
 			err = str_dup(&msg->u.confconn.sft_tuple, ccall->sft_tuple);
 			if (err) {
 				goto out;
@@ -2094,13 +2103,14 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 		}
 	}
 
-	err = ccall_send_msg_sft(ccall, sft_url, msg);
+	err = ccall_send_msg_sft(ccall, sft_url_term, msg);
 	if (err != 0) {
 		goto out;
 	}
 
 out:
 	mem_deref(msg);
+	mem_deref(sft_url_term);
 
 	return err;
 }
@@ -2318,7 +2328,7 @@ static bool ccall_can_connect_sft(struct ccall *ccall, const char *sft_url)
 
 	for (sft = 0; sft < sftc && !found; sft++) {
 		if (sfts_equal(sft_url, sftv[sft].url)) {
-			info("ccall(%p): can_connect_primary found sft %s in calls/conf\n",
+			info("ccall(%p): can_connect found sft %s in calls/conf\n",
 				ccall, sft_url);
 			found = true;
 		}
