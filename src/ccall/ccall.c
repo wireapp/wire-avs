@@ -1984,6 +1984,9 @@ static int  ccall_send_msg(struct ccall *ccall,
 			   bool transient)
 {
 	struct econn_message *msg = NULL;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+
 	int err = 0;
 
 	if (targets) {
@@ -1992,7 +1995,9 @@ static int  ccall_send_msg(struct ccall *ccall,
 	}
 	else {
 		info("ccall(%p): send_msg type: %s userid=%s clientid=%s\n",
-		     ccall, econn_msg_name(type), ccall->self->userid_real, ccall->self->clientid_real);
+		     ccall,
+		     anon_id(userid_anon, ccall->self->userid_real),
+		     anon_client(clientid_anon, ccall->self->clientid_real));
 	}
 
 	err = alloc_message(&msg, ccall, type, resp,
