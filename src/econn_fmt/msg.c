@@ -1010,6 +1010,7 @@ int econn_message_decode(struct econn_message **msgp,
 		const char *secret;
 		uint8_t *sdata;
 		size_t slen;
+		const char *tuple;
 
 		msg->msg_type = ECONN_CONF_CHECK;
 
@@ -1018,11 +1019,10 @@ int econn_message_decode(struct econn_message **msgp,
 			warning("econn: decode CONFCHECK: couldnt read SFT URL\n");
 			goto out;
 		}
-		err = jzon_strdup(&msg->u.confcheck.sft_tuple, jobj, "sft_tuple");
-		if (err) {
-			warning("econn: decode CONFCHECK: couldnt read SFT tuple\n");
-			goto out;
-		}
+		tuple = jzon_str(jobj, "sft_tuple");
+		/* sft_tuple is optional for backwards compat */
+		if (tuple)
+			str_dup(&msg->u.confstart.sft_tuple, tuple);
 		pl_set_str(&pl, jzon_str(jobj, "timestamp"));
 		msg->u.confcheck.timestamp = pl_u64(&pl);
 		pl_set_str(&pl, jzon_str(jobj, "seqno"));

@@ -2391,35 +2391,55 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		      &ccall->icall, ccall->icall.arg);
 
 	/* Prefer connecting to an already active sft */
-	if (CCALL_STATE_INCOMING == state && list_count(&ccall->sftl) > 0) {
-		uint32_t connected = 0;
+	if (CCALL_STATE_INCOMING == state) {
+		if (list_count(&ccall->sftl) > 0) {
+			uint32_t connected = 0;
 
-		LIST_FOREACH(&ccall->sftl, le) {
-			struct stringlist_info *nfo = le->data;
+			info("ccall(%p): cfg_update checking %u sfts from sft list\n",
+			     ccall, list_count(&ccall->sftl));
+			LIST_FOREACH(&ccall->sftl, le) {
+				struct stringlist_info *nfo = le->data;
 
-			if (ccall_can_connect_sft(ccall, nfo->str)) {
-				err = ccall_send_conf_conn(ccall, nfo->str, false);
-				if (err) {
-					warning("ccall(%p): cfg_update failed to send "
-						"confconn to sft %s err=%d\n",
-						ccall, nfo->str, err);
+				if (ccall_can_connect_sft(ccall, nfo->str)) {
+					err = ccall_send_conf_conn(ccall, nfo->str, false);
+					if (err) {
+						warning("ccall(%p): cfg_update failed to send "
+							"confconn to sft %s err=%d\n",
+							ccall, nfo->str, err);
+					}
+					else {
+						info("ccall(%p): cfg_update connecting to %s "
+							"from SFT list\n",
+							ccall, nfo->str);
+						connected++;
+					}
 				}
-				else {
-					info("ccall(%p): cfg_update connecting to %s "
-						"from SFT list\n",
-						ccall, nfo->str);
-					connected++;
-				}
+
+				if (connected >= 3)
+					break;
 			}
 
-			if (connected >= 3)
-				break;
+			if (connected > 0)
+				return;
 		}
-
-		if (connected > 0)
-			return;
+		else if (ccall->primary_sft_url) {
+			// legacy behaviour, connect to primary
+			if (ccall_can_connect_sft(ccall, ccall->primary_sft_url)) {
+				err = ccall_send_conf_conn(ccall, ccall->primary_sft_url, false);
+				if (err) {
+					warning("ccall(%p): cfg_update failed to send "
+						"confconn to primary sft %s err=%d\n",
+						ccall, ccall->primary_sft_url, err);
+				}
+				else {
+					info("ccall(%p): cfg_update connecting to primary sft "
+						" %s for legacy behaviour\n",
+						ccall, ccall->primary_sft_url);
+					return;
+				}
+			}
+		}
 	}
-
 	
 	urlc = MIN(urlc, 3);
 	for (sft = 0; sft < urlc; sft++) {
