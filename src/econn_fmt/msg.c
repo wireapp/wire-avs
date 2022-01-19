@@ -1022,7 +1022,7 @@ int econn_message_decode(struct econn_message **msgp,
 		tuple = jzon_str(jobj, "sft_tuple");
 		/* sft_tuple is optional for backwards compat */
 		if (tuple)
-			str_dup(&msg->u.confstart.sft_tuple, tuple);
+			str_dup(&msg->u.confcheck.sft_tuple, tuple);
 		pl_set_str(&pl, jzon_str(jobj, "timestamp"));
 		msg->u.confcheck.timestamp = pl_u64(&pl);
 		pl_set_str(&pl, jzon_str(jobj, "seqno"));

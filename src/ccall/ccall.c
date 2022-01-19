@@ -3380,6 +3380,7 @@ int  ccall_sft_msg_recv(struct icall* icall,
 					if (err) {
 						goto out;
 					}
+					ccall->sft_tuple = mem_deref(ccall->sft_tuple);
 					if (msg->u.setup.sft_tuple) {
 						err = str_dup(&ccall->sft_tuple, msg->u.setup.sft_tuple);
 						if (err) {
