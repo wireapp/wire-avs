@@ -1240,7 +1240,7 @@ static int send_confpart_response(struct ccall *ccall)
 	err = econn_message_encode(&str, msg);
 	if (err) {
 		warning("ccall(%p): send_confpart_resp: econn_message_encode"
-			" failed (%m)\n", err);
+			" failed (%m)\n", ccall, err);
 		goto out;
 	}
 
@@ -1256,7 +1256,7 @@ static int send_confpart_response(struct ccall *ccall)
 	err =  ecall_dce_send(ccall->ecall, &mb);
 	if (err) {
 		warning("ccall(%p): send_confpart_resp: ecall_dce_send"
-			" failed (%m)\n", err);
+			" failed (%m)\n", ccall, err);
 		goto out;
 	}
 
@@ -1315,7 +1315,7 @@ int  ccall_request_video_streams(struct icall *icall,
 	err = econn_message_encode(&str, msg);
 	if (err) {
 		warning("ccall(%p): request_video_streams: econn_message_encode"
-			" failed (%m)\n", err);
+			" failed (%m)\n", ccall, err);
 		goto out;
 	}
 
@@ -1996,6 +1996,7 @@ static int  ccall_send_msg(struct ccall *ccall,
 	else {
 		info("ccall(%p): send_msg type: %s userid=%s clientid=%s\n",
 		     ccall,
+		     econn_msg_name(type),
 		     anon_id(userid_anon, ccall->self->userid_real),
 		     anon_client(clientid_anon, ccall->self->clientid_real));
 	}

@@ -3762,7 +3762,8 @@ void wcall_i_request_video_streams(struct wcall *wcall,
 		goto out;
 
 	if (!jzon_is_array(jclients)) {
-		warning("wcall(%p): request_video_streams: json object is not an array\n");
+		warning("wcall(%p): request_video_streams: json object is not an array\n",
+			wcall);
 		goto out;
 	}
 
