@@ -413,6 +413,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 
 	switch(ccall->state) {
 	case CCALL_STATE_IDLE:
+		ccall->sft_url = mem_deref(ccall->sft_url);
 		ccall->keygenerator = NULL;
 		ccall->received_confpart = false;
 		keystore_reset(ccall->keystore);
@@ -425,6 +426,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		break;
 
 	case CCALL_STATE_INCOMING:
+		ccall->sft_url = mem_deref(ccall->sft_url);
 		ccall->keygenerator = NULL;
 		ccall->received_confpart = false;
 		keystore_reset_keys(ccall->keystore);
@@ -586,7 +588,9 @@ static void ccall_reconnect(struct ccall *ccall,
 
 	incall_clear(ccall, true);
 	set_state(ccall, CCALL_STATE_CONNSENT);
-	ccall_send_conf_conn(ccall, ccall->sft_url, true);
+	if (ccall->sft_url) {
+		ccall_send_conf_conn(ccall, ccall->sft_url, true);
+	}
 }
 
 static void ccall_decrypt_check_timeout(void *arg)
