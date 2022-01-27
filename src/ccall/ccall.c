@@ -2425,7 +2425,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 			}
 
 			if (connected > 0)
-				return;
+				goto out;
 		}
 		else if (ccall->primary_sft_url) {
 			// legacy behaviour, connect to primary
@@ -2440,7 +2440,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 					info("ccall(%p): cfg_update connecting to primary sft "
 						" %s for legacy behaviour\n",
 						ccall, ccall->primary_sft_url);
-					return;
+					goto out;
 				}
 			}
 		}
