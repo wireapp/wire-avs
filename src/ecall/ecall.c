@@ -2810,6 +2810,20 @@ int ecall_mfdebug(struct re_printf *pf, const struct ecall *ecall)
 	return 0;
 }
 
+	
+int ecall_stats_struct(const struct ecall *ecall,
+		       struct iflow_stats *stats)
+{
+
+	if (!ecall || !stats)
+		return EINVAL;
+
+	IFLOW_CALL(ecall->flow, get_stats,
+		stats);
+
+	return 0;
+}
+
 int ecall_stats(struct re_printf *pf, const struct ecall *ecall)
 {
 	struct iflow_stats stats;

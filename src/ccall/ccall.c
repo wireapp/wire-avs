@@ -3422,6 +3422,15 @@ out:
 	return err;
 }
 
+int  ccall_stats_struct(const struct ccall *ccall,
+		        struct iflow_stats *stats)
+{
+	if (!ccall || !ccall->ecall)
+		return EINVAL;
+
+	return ecall_stats_struct(ccall->ecall, stats);
+}
+
 int ccall_stats(struct re_printf *pf, const struct icall *icall)
 {
 	const struct ccall *ccall = (const struct ccall*)icall;
@@ -3596,5 +3605,12 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 	else
 		set_state(ccall, CCALL_STATE_IDLE);
 
+}
+
+struct keystore *ccall_get_keystore(struct ccall *ccall)
+{
+	if (!ccall)
+		return NULL;
+	return ccall->keystore;
 }
 
