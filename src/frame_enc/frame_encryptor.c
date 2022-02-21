@@ -25,7 +25,7 @@
 
 static const size_t BLOCK_SIZE = 32;
 static const size_t TAG_SIZE   = 16;
-static const size_t IV_SIZE    = 12;
+#define IV_SIZE  12
 
 struct frame_encryptor
 {
