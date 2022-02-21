@@ -799,8 +799,17 @@ const connectionsStore = (() => {
 })();
 
 function pc_log(level: number, msg: string, err = null) {
+
+    em_module.ccall(
+      "pc_log",
+      null,
+      ["number", "string"],
+      [level, msg]);
+
+    /* Log now goes through AVS for anonymization
     if (logFn)
 	logFn(level, msg, err);
+    */
 }
 
 function uinfo_from_ssrca(pc: PeerConnection, ssrc: string) : UserInfo | null

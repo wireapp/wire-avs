@@ -1374,6 +1374,15 @@ int jsflow_get_aulevel(struct iflow *iflow,
 	return err;
 }
 
+void pc_log(int level, const char *msg);
+
+EMSCRIPTEN_KEEPALIVE
+void pc_log(int level, const char *msg)
+{
+	loglv((enum log_level)level, msg);
+}
+
+
 void pc_local_sdp_handler(int self, int err,
 			  const char *creator, /* e.g. firefox, chrome... */
 			  const char *type, const char *sdp);
