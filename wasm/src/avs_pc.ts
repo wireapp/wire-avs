@@ -2289,7 +2289,7 @@ function pc_GetLocalStats(hnd: number) {
 	if (uinfo) {
 	  uinfo.audio_level = 0;
 	  if (typeof ssrc.audioLevel !== 'undefined')
-	    uinfo.audio_level = ((ssrc.audioLevel * 255.0) | 0);
+	    uinfo.audio_level = ((ssrc.audioLevel * 512.0) | 0);
 
 	  em_module.ccall(
 	    "pc_set_audio_level",
@@ -2304,7 +2304,7 @@ function pc_GetLocalStats(hnd: number) {
 	if (uinfo) {
 	  uinfo.audio_level = 0;
 	  if (typeof csrc.audioLevel !== 'undefined')
-	    uinfo.audio_level = ((csrc.audioLevel * 255.0) | 0);
+	    uinfo.audio_level = ((csrc.audioLevel * 512.0) | 0);
 
 	  em_module.ccall(
 	    "pc_set_audio_level",
@@ -2357,7 +2357,7 @@ function pc_GetLocalStats(hnd: number) {
 	    }
 	    else if (stat.type === 'media-source') {
 	    	 if (stat.kind === 'audio')
-	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 255.0) | 0) : 0;
+	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
 	    }
 	});
 	pc.stats.recv_apkts = max_apkts;
