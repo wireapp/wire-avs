@@ -460,6 +460,8 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		break;
 
 	case CCALL_STATE_ACTIVE:
+		ccall->expected_ping = 0;
+		ccall->last_ping = 0;
 		tmr_cancel(&ccall->tmr_connect);
 		tmr_start(&ccall->tmr_decrypt_check, CCALL_DECRYPT_CHECK_TIMEOUT,
 			  ccall_decrypt_check_timeout, ccall);
@@ -585,6 +587,7 @@ static void ccall_reconnect(struct ccall *ccall,
 	}
 	ccall->reconnect_attempts++;
 	ccall->expected_ping = 0;
+	ccall->last_ping = 0;
 
 	incall_clear(ccall, true);
 	set_state(ccall, CCALL_STATE_CONNSENT);
@@ -656,6 +659,7 @@ static int ecall_ping_handler(struct ecall *ecall,
 {
 	struct ccall *ccall = arg;
 
+	ccall->last_ping = tmr_jiffies();
 	ccall->expected_ping = 0;
 	ccall->reconnect_attempts = 0;
 
@@ -1040,6 +1044,7 @@ static void ecall_close_handler(struct icall *icall,
 	if (err == EAGAIN) {
 		ccall->reconnect_attempts = 0;
 		ccall->expected_ping = 0;
+		ccall->last_ping = 0;
 
 		ccall_reconnect(ccall, msg_time);
 		return;
@@ -1076,6 +1081,41 @@ static void ecall_close_handler(struct icall *icall,
 	}
 
 	ccall->error = 0;
+}
+
+
+static void ecall_quality_handler(struct icall *icall,
+				  const char *userid,
+				  const char *clientid,
+				  int rtt, int uploss, int downloss,
+				  void *arg)
+{
+	struct ccall *ccall = arg;
+	uint64_t tdiff;
+
+	if (!icall || !ccall)
+		return;
+
+	if (CCALL_STATE_ACTIVE != ccall->state)
+		return;
+
+	tdiff = tmr_jiffies() - ccall->last_ping;
+	if (ccall->last_ping > 0)
+		downloss = tdiff > 7000 ? 30 :
+			   tdiff > 4000 ? 10 : downloss;
+
+	info("ccall(%p): ecall_quality_handler rtt=%d up=%d dn=%d "
+	     "ping=%u pdiff=%llu\n",
+	     ccall, rtt, uploss, downloss, ccall->expected_ping, tdiff);
+	
+	ICALL_CALL_CB(ccall->icall, qualityh,
+		      &ccall->icall, 
+		      userid,
+		      clientid,
+		      rtt,
+		      uploss,
+		      downloss,
+		      ccall->icall.arg);
 }
 
 
@@ -2162,7 +2202,7 @@ static int create_ecall(struct ccall *ccall)
 			    NULL, // ecall_vstate_handler,
 			    NULL, // ecall_audiocbr_handler,
 			    NULL, // muted_changed_handler,
-			    NULL, // ecall_quality_handler,
+			    ecall_quality_handler,
 			    NULL, // ecall_req_clients_handler,
 			    NULL, // ecall_norelay_handler,
 			    ecall_aulevel_handler,
@@ -2172,6 +2212,7 @@ static int create_ecall(struct ccall *ccall)
 	ecall_set_propsync_handler(ecall, ecall_propsync_handler);
 	ecall_set_ping_handler(ecall, ecall_ping_handler);
 	ecall_set_keystore(ecall, ccall->keystore);
+	err = ecall_set_quality_interval(ecall, ccall->quality_interval);
 	err = ecall_set_real_clientid(ecall, ccall->self->clientid_real);
 	if (err)
 		goto out;
@@ -2721,6 +2762,16 @@ int  ccall_get_members(struct icall *icall, struct wcall_members **mmp)
 
 int  ccall_set_quality_interval(struct icall *icall, uint64_t interval)
 {
+	struct ccall *ccall = (struct ccall*)icall;
+
+	if (!ccall)
+		return EINVAL;
+
+	ccall->quality_interval = interval;
+
+	if (ccall->ecall)
+		ecall_set_quality_interval(ccall->ecall, interval);
+	
 	return 0;
 }
 

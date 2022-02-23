@@ -26,8 +26,8 @@
 #define CCALL_ROTATE_KEY_TIMEOUT       ( 30000)
 #define CCALL_ROTATE_KEY_FIRST_TIMEOUT (  5000)
 #define CCALL_DECRYPT_CHECK_TIMEOUT    (  5000)
-#define CCALL_KEEPALIVE_TIMEOUT        (  5000)
-#define CCALL_MAX_MISSING_PINGS        (     2)
+#define CCALL_KEEPALIVE_TIMEOUT        (  3000)
+#define CCALL_MAX_MISSING_PINGS        (     3)
 #define CCALL_NOONE_JOINED_TIMEOUT     (300000)
 #define CCALL_EVERYONE_LEFT_TIMEOUT    ( 30000)
 
@@ -120,6 +120,7 @@ struct ccall {
 	bool request_key;
 	uint32_t reconnect_attempts;
 	uint32_t expected_ping;
+	uint64_t last_ping;
 	int received_confpart;
 	int error;
 
@@ -137,5 +138,7 @@ struct ccall {
 
 	struct join_elem *je;
 	struct config *cfg;
+
+	uint64_t quality_interval;
 };
 
