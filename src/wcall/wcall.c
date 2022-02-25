@@ -2634,8 +2634,13 @@ void wcall_i_sft_resp(struct calling_instance *inst,
 	char clientid_anon[ANON_CLIENT_LEN];
 	struct le *le;
 
-	if (!ctx || !wcall) {
+	if (!ctx) {
 		warning("wcall(%p): sft_resp: ctx:%p not valid\n", wcall, ctx);
+		return;
+	}
+
+	if (!wcall || !wcall_valid(wcall)) {
+		warning("wcall(%p): sft_resp: wcall not valid\n", wcall);
 		return;
 	}
 
