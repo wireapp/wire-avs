@@ -945,8 +945,14 @@ static void ecall_media_estab_handler(struct icall *icall, const char *userid,
 
 	ICALL_CALL_CB(ccall->icall, media_estabh,
 		icall, userid, clientid, update, ccall->icall.arg);
-	set_state(ccall, CCALL_STATE_ACTIVE);
-	incall_clear(ccall, true);
+	if (CCALL_STATE_CONNSENT != ccall->state) {
+		set_state(ccall, CCALL_STATE_ACTIVE);
+		incall_clear(ccall, true);
+	}
+	else {
+		info("ccall(%p): refusing to go to CCALL_STATE_ACTIVE "
+		     "from CCALL_STATE_CONNSENT\n");
+	}
 }
 
 static void ecall_audio_estab_handler(struct icall *icall, const char *userid,
