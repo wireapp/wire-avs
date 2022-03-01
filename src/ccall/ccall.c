@@ -663,6 +663,9 @@ static int ecall_ping_handler(struct ecall *ecall,
 	ccall->expected_ping = 0;
 	ccall->reconnect_attempts = 0;
 
+	info("ccall(%p): ping arrived\n",
+	     ccall);
+
 	return 0;
 }
 
@@ -673,6 +676,9 @@ static void ccall_keepalive_timeout(void *arg)
 	if (!ccall)
 		return;
 
+	info("ccall(%p): keepalive: ping %u\n",
+	     ccall,
+	     ccall->expected_ping);
 	if (ccall->state != CCALL_STATE_ACTIVE) {
 		info("ccall(%p): keepalive_timeout in state %s, ignoring\n",
 		     ccall,
@@ -691,9 +697,10 @@ static void ccall_keepalive_timeout(void *arg)
 	if (ccall->expected_ping > CCALL_MAX_MISSING_PINGS) {
 		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN);
 	}
-
-	tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
-		  ccall_keepalive_timeout, ccall);
+	else {
+		tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
+			  ccall_keepalive_timeout, ccall);
+	}
 }
 
 static void ccall_alone_timeout(void *arg)
@@ -2219,6 +2226,9 @@ static int create_ecall(struct ccall *ccall)
 	ecall_set_ping_handler(ecall, ecall_ping_handler);
 	ecall_set_keystore(ecall, ccall->keystore);
 	err = ecall_set_quality_interval(ecall, ccall->quality_interval);
+	if (err)
+		goto out;
+
 	err = ecall_set_real_clientid(ecall, ccall->self->clientid_real);
 	if (err)
 		goto out;
