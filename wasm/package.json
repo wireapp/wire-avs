@@ -20,5 +20,5 @@
     "prepack": "tsc && cp src/*.{js,d.ts} dist/",
     "test": "karma start"
   },
-  "version": "AVS_VERSION"
+  "version": "0"
 }
