@@ -1220,7 +1220,7 @@ static void connection_timeout_handler(void *arg)
 		ecall, TIMEOUT_CONNECTION);
 
 	if (ecall->conv_type == ICALL_CONV_TYPE_GROUP) {
-		ecall_restart(ecall, ecall->call_type);
+		ecall_restart(ecall, ecall->call_type, true);
 	}
 	/* If we don't have a media_estabh the app will never get
 	 * notified about the closed call, so trigger a close for this
@@ -1318,7 +1318,7 @@ static void mf_restart_handler(struct iflow *iflow,
 	if (ECONN_DATACHAN_ESTABLISHED == econn_current_state(ecall->econn)) {
 		info("ecall(%p): mf_restart_handler: triggering restart due to network drop\n",
 			ecall);
-		ecall_restart(ecall, ecall->call_type);
+		ecall_restart(ecall, ecall->call_type, true);
 	}
 }
 
@@ -1349,7 +1349,7 @@ static void mf_close_handler(struct iflow *iflow, int err, void *arg)
 	enum econn_state state = econn_current_state(ecall->econn);
 	if (ECONN_ANSWERED == state && ETIMEDOUT == err &&
 		ecall->num_retries < ecall->max_retries) {
-		ecall_restart(ecall, ecall->call_type);
+		ecall_restart(ecall, ecall->call_type, true);
 	}
 	else if (ecall->econn) {
 		econn_set_error(ecall->econn, err);
@@ -1551,7 +1551,7 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 
 	if (ecall->delayed_restart) {
 		ecall->delayed_restart = false;
-		ecall_restart(ecall, ecall->call_type);
+		ecall_restart(ecall, ecall->call_type, false);
 		return;
 	}
 
@@ -1590,6 +1590,14 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		&ecall->icall, ecall->userid_peer, ecall->clientid_peer,
 		ecall->update, ecall->icall.arg);
 
+	ICALL_CALL_CB(ecall->icall, qualityh,
+		      &ecall->icall, 
+		      ecall->userid_peer,
+		      ecall->clientid_peer,
+		      0,
+		      0,
+		      0,
+		      ecall->icall.arg);
 	return;
 
  error:
@@ -2592,7 +2600,7 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 		switch (state) {
 		case ECONN_ANSWERED:
 		case ECONN_DATACHAN_ESTABLISHED:
-			ecall_restart(ecall, ICALL_CALL_TYPE_VIDEO);
+			ecall_restart(ecall, ICALL_CALL_TYPE_VIDEO, false);
 			goto out;
 			
 		default:
@@ -2953,7 +2961,9 @@ struct ecall *ecall_find_userclient(const struct list *ecalls,
 }
 
 
-int ecall_restart(struct ecall *ecall, enum icall_call_type call_type)
+int ecall_restart(struct ecall *ecall,
+		  enum icall_call_type call_type,
+		  bool notify)
 {
 	enum econn_state state;
 	int err = 0;
@@ -2978,7 +2988,7 @@ int ecall_restart(struct ecall *ecall, enum icall_call_type call_type)
 	if (ecall->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
 		ICALL_CALL_CB(ecall->icall, closeh,
 			      &ecall->icall,
-			      EAGAIN,
+			      notify ? ENOTCONN : EAGAIN,
 			      NULL,
 			      0,
 			      NULL,
@@ -3002,8 +3012,17 @@ int ecall_restart(struct ecall *ecall, enum icall_call_type call_type)
 		warning("ecall: re-start: alloc_flow failed: %m\n", err);
 		goto out;
 	}
-	//if (ecall->conf_part)
-	//	ecall->conf_part->data = ecall->flow;
+
+	if (notify) {
+		ICALL_CALL_CB(ecall->icall, qualityh,
+			      &ecall->icall, 
+			      ecall->userid_peer,
+			      ecall->clientid_peer,
+			      0,
+			      ICALL_RECONNECTING,
+			      ICALL_RECONNECTING,
+			      ecall->icall.arg);
+	}
 
 	IFLOW_CALL(ecall->flow, set_remote_userclientid,
 		econn_userid_remote(ecall->econn),
@@ -3065,8 +3084,12 @@ static void quality_handler(void *arg)
 
 	if (!ecall->icall.qualityh || !ecall->flow)
 		return;
+
+	if (ecall->update)
+		return;
 	err = IFLOW_CALLE(ecall->flow, get_stats,
 			  &stats);
+
 	if (!err) {
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall, 

@@ -1173,6 +1173,9 @@ static const char *quality2name(int quality)
 	case WCALL_QUALITY_POOR:
 		return "POOR";
 
+	case WCALL_QUALITY_RECONNECTING:
+		return "RECONNECTING";
+
 	default:
 		return "???";
 	}

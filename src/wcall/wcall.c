@@ -1502,7 +1502,10 @@ static void icall_quality_handler(struct icall *icall,
 	if (uploss == ICALL_NETWORK_PROBLEM
 	    && downloss == ICALL_NETWORK_PROBLEM)
 		quality = WCALL_QUALITY_NETWORK_PROBLEM;
-	if (rtt > 800 || uploss > 20 || downloss > 20)
+	else if (uploss == ICALL_RECONNECTING
+	    && downloss == ICALL_RECONNECTING)
+		quality = WCALL_QUALITY_RECONNECTING;
+	else if (rtt > 800 || uploss > 20 || downloss > 20)
 		quality = WCALL_QUALITY_POOR;
 	else if (rtt > 400 || uploss > 5 || downloss > 5)
 		quality = WCALL_QUALITY_MEDIUM;

@@ -99,6 +99,8 @@ typedef void (wcall_missed_h)(const char *convid, uint32_t msg_time,
 #define WCALL_QUALITY_MEDIUM          2
 #define WCALL_QUALITY_POOR            3
 #define WCALL_QUALITY_NETWORK_PROBLEM 4
+#define WCALL_QUALITY_RECONNECTING    5
+
 typedef void (wcall_network_quality_h)(const char *convid,
 				       const char *userid,
 				       const char *clientid,

@@ -86,7 +86,9 @@ const char *ecall_props_get_remote(struct ecall *ecall, const char *key);
 void ecall_trace(struct ecall *ecall, const struct econn_message *msg,
 		 bool tx, enum econn_transport tp,
 		 const char *fmt, ...);
-int  ecall_restart(struct ecall *ecall, enum icall_call_type call_type);
+int  ecall_restart(struct ecall *ecall,
+		   enum icall_call_type call_type,
+		   bool notify);
 
 struct conf_part *ecall_get_conf_part(struct ecall *ecall);
 void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp);

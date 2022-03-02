@@ -558,7 +558,8 @@ static void ccall_sync_vstate_timeout(void *arg)
 }
 
 static void ccall_reconnect(struct ccall *ccall,
-			    uint32_t msg_time)
+			    uint32_t msg_time,
+			    bool notify)
 {
 	bool decrypt_attempted = false;
 	bool decrypt_successful = false;
@@ -594,6 +595,17 @@ static void ccall_reconnect(struct ccall *ccall,
 	if (ccall->sft_url) {
 		ccall_send_conf_conn(ccall, ccall->sft_url, true);
 	}
+
+	if (notify) {
+		ICALL_CALL_CB(ccall->icall, qualityh,
+			      &ccall->icall, 
+			      "SFT",
+			      "SFT",
+			      0,
+			      ICALL_RECONNECTING,
+			      ICALL_RECONNECTING,
+			      ccall->icall.arg);
+	}
 }
 
 static void ccall_decrypt_check_timeout(void *arg)
@@ -617,7 +629,7 @@ static void ccall_decrypt_check_timeout(void *arg)
 		info("ccall(%p): decrypt_check_timeout no confpart received, "
 		     "reconnecting\n",
 		     ccall);
-		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN);
+		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN, true);
 		return;
 	}
 
@@ -695,7 +707,7 @@ static void ccall_keepalive_timeout(void *arg)
 	ecall_ping(ccall->ecall, false);
 	ccall->expected_ping++;
 	if (ccall->expected_ping > CCALL_MAX_MISSING_PINGS) {
-		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN);
+		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN, true);
 	}
 	else {
 		tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
@@ -1054,12 +1066,12 @@ static void ecall_close_handler(struct icall *icall,
 		}
 	}
 
-	if (err == EAGAIN) {
+	if (err == EAGAIN || err == ENOTCONN) {
 		ccall->reconnect_attempts = 0;
 		ccall->expected_ping = 0;
 		ccall->last_ping = 0;
 
-		ccall_reconnect(ccall, msg_time);
+		ccall_reconnect(ccall, msg_time, err == ENOTCONN);
 		return;
 	}
 
