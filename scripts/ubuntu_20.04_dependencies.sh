@@ -13,6 +13,7 @@ apt install -y \
     cargo \
     clang \
     clang-tools \
+    jq \
     libasound2-dev \
     libc++-dev \
     libc++abi-dev \

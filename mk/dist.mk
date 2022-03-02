@@ -426,11 +426,10 @@ $(DIST_WASM_JS_TARGET):
 $(DIST_WASM_PC_TARGET):
 	@mkdir -p $(BUILD_DIST_WASM)
 	@cp -r wasm/. $(BUILD_DIST_WASM)
-	@rm -f $(BUILD_DIST_WASM)/package.json
 
+.PHONY: $(DIST_WASM_PKG_TARGET)
 $(DIST_WASM_PKG_TARGET):
-	@cat $(BUILD_DIST_WASM)/package.json.template | \
-		awk '{ gsub("AVS_VERSION", "$(DIST_WASM_PKG_VERSION)", $$0); print; }' > $@
+	(rm -f $@ && jq '.version = "$(DIST_WASM_PKG_VERSION)"' > $@) < $@
 
 $(DIST_WASM_WC_TARGET):
 	@mkdir -p $(BUILD_DIST_WASM)

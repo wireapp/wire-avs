@@ -30,6 +30,7 @@ Follow the instructions there, then:
 $ brew install \
   autoconf \
   automake \
+  jq \
   libsodium \
   libtool \
   multirust \
