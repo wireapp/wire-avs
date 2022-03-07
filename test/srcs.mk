@@ -42,6 +42,7 @@ TEST_SRCS	+= test_nevent.cpp
 #TEST_SRCS	+= test_packetqueue.cpp
 #TEST_SRCS	+= test_resampler.cpp
 TEST_SRCS	+= test_rest.cpp
+TEST_SRCS	+= test_sdp.cpp
 #TEST_SRCS	+= test_srtp.cpp
 TEST_SRCS	+= test_string.cpp
 #TEST_SRCS	+= test_turn.cpp
