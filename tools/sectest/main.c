@@ -52,7 +52,7 @@ static void run_test(const char *name, testfunc *func)
 	}
 }
 
-
+// @SF.Calls @TSFI.RESTfulAPI @S5
 /*
    This test verifes that call and client IDs are unpredictable.
     * alice starts a call, extract the callid, end the call
@@ -130,6 +130,7 @@ static void timer_end_test(void *arg)
 	re_cancel();
 }
 
+// @SF.Calls @TSFI.RESTfulAPI @S5
 /*
    This test verifies that client IDs presented by the SFT are the
     anonymised ones.
@@ -191,6 +192,7 @@ out:
 	return passed && (err == 0);
 }
 
+// @SF.Calls @TSFI.RESTfulAPI @S5
 /*
   This test verifies that unauthorised clients don't get media packets
     * alice starts a call, extract the callid
@@ -250,6 +252,7 @@ out:
 	return passed && (err == 0);
 }
 
+// @SF.Calls @TSFI.RESTfulAPI @S5
 /*
   This test verifies that clients not in the call cannot set the media key
     * alice starts a call
