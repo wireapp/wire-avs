@@ -680,7 +680,6 @@ function callStreamHandler(pc: PeerConnection,
 }
 
 function createWorker() {
-  pc_log(LOG_LEVEL_INFO, "Creating AVS worker");
   const blob = new Blob([workerContent], { type: 'text/javascript' });
   const url = URL.createObjectURL(blob);
 
