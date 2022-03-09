@@ -2187,7 +2187,7 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
   em_module = module;
   logFn = logh;
     
-  pc_log(LOG_LEVEL_INFO, "pc_InitModule");
+  logFn(LOG_LEVEL_INFO, "pc_InitModule");
   const callbacks = [
     [pc_SetEnv, "vn"],
     [pc_New, "nns"],
