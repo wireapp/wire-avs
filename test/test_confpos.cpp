@@ -24,17 +24,16 @@
 TEST(confpos, basic)
 {
 	struct conf_part *a, *b;
-	struct mediaflow *mf=0;
 	uint32_t pos_a;
 	int err;
 
-	err = conf_part_add(&a, NULL, "a", mf);
+	err = conf_part_add(&a, NULL, "a");
 	ASSERT_EQ(0, err);
 
 	/* save the position hash */
 	pos_a = a->pos;
 
-	err = conf_part_add(&b, NULL, "b", mf);
+	err = conf_part_add(&b, NULL, "b");
 	ASSERT_EQ(0, err);
 
 	/* verify that A's position hash did not change */
@@ -81,16 +80,16 @@ TEST(confpos, sorted_participants)
 
 	/* add 4 participants with same userid */
 	err = conf_part_add(NULL, &partl,
-			    "60fcea5b-6b85-435f-bad4-b002e7df9792", NULL);
+			    "60fcea5b-6b85-435f-bad4-b002e7df9792");
 	ASSERT_EQ(0, err);
 	err = conf_part_add(NULL, &partl,
-			    "60fcea5b-6b85-435f-bad4-b002e7df9792", NULL);
+			    "60fcea5b-6b85-435f-bad4-b002e7df9792");
 	ASSERT_EQ(0, err);
 	err = conf_part_add(NULL, &partl,
-			    "60fcea5b-6b85-435f-bad4-b002e7df9792", NULL);
+			    "60fcea5b-6b85-435f-bad4-b002e7df9792");
 	ASSERT_EQ(0, err);
 	err = conf_part_add(NULL, &partl,
-			    "60fcea5b-6b85-435f-bad4-b002e7df9792", NULL);
+			    "60fcea5b-6b85-435f-bad4-b002e7df9792");
 	ASSERT_EQ(0, err);
 
 	ASSERT_EQ(4, list_count(&partl));
@@ -101,16 +100,16 @@ TEST(confpos, sorted_participants)
 	/* add 4 participants with different userid */
 
 	err = conf_part_add(NULL, &partl,
-			    "3e2e9ea3-ec0f-49a1-bc5a-cb829050dada", NULL);
+			    "3e2e9ea3-ec0f-49a1-bc5a-cb829050dada");
 	ASSERT_EQ(0, err);
 	err = conf_part_add(NULL, &partl,
-			    "eabf0c4f-d8c4-4508-90c2-06565de7d3d7", NULL);
+			    "eabf0c4f-d8c4-4508-90c2-06565de7d3d7");
 	ASSERT_EQ(0, err);
 	err = conf_part_add(NULL, &partl,
-			    "02f206d8-dfc5-492a-a743-3efdf5c5ea22", NULL);
+			    "02f206d8-dfc5-492a-a743-3efdf5c5ea22");
 	ASSERT_EQ(0, err);
 	err = conf_part_add(NULL, &partl,
-			    "3f9479a7-5b40-4e2a-aa79-a38abd412a96", NULL);
+			    "3f9479a7-5b40-4e2a-aa79-a38abd412a96");
 	ASSERT_EQ(0, err);
 
 	ASSERT_EQ(8, list_count(&partl));
