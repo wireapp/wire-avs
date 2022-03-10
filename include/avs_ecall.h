@@ -103,25 +103,6 @@ typedef void (ecall_user_data_rcv_h)(uint8_t *data, size_t len, void *arg);
 typedef void (ecall_user_data_file_rcv_h)(const char *location, void *arg);
 typedef void (ecall_user_data_file_snd_h)(const char *name, bool success, void *arg);
 
-int ecall_add_user_data(struct ecall *ecall,
-                ecall_user_data_ready_h *ready_h,
-                ecall_user_data_rcv_h *rcv_h,
-                void *arg);
-
-int ecall_user_data_send(struct ecall *ecall,
-                const void *data,
-                size_t len);
-
-int ecall_user_data_send_file(struct ecall *ecall,
-                const char *file,
-                const char *name,
-                int speed_kbps);
-
-int ecall_user_data_register_ft_handlers(struct ecall *ecall,
-                const char *rcv_path,
-                ecall_user_data_file_rcv_h *f_rcv_h,
-                ecall_user_data_file_snd_h *f_snd_h);
-
 typedef void (ecall_confmsg_h)(struct ecall *ecall,
 			       const struct econn_message *msg,
 			       void *arg);
