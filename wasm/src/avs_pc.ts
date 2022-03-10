@@ -680,7 +680,6 @@ function callStreamHandler(pc: PeerConnection,
 }
 
 function createWorker() {
-  pc_log(LOG_LEVEL_INFO, "Creating AVS worker");
   const blob = new Blob([workerContent], { type: 'text/javascript' });
   const url = URL.createObjectURL(blob);
 
@@ -2187,7 +2186,6 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
   em_module = module;
   logFn = logh;
     
-  pc_log(LOG_LEVEL_INFO, "pc_InitModule");
   const callbacks = [
     [pc_SetEnv, "vn"],
     [pc_New, "nns"],
