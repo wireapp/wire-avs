@@ -383,43 +383,6 @@ static void set_state(struct wcall *wcall, int st)
 }
 
 
-#if 0
-static void *cfg_wait_thread(void *arg)
-{
-	struct calling_instance *inst = arg;
-
-	(void)arg;
-
-	debug("wcall(%p): starting config wait\n", inst);	
-	while (inst->call_config == NULL && inst->thread_run) {
-		sys_msleep(500);
-	}
-	if (inst->call_config)
-		debug("wcall(%p): config ready!\n", inst);
-
-	inst->thread_run = false;
-
-	return NULL;
-}
-
-
-static int async_cfg_wait(struct calling_instance *inst)
-{
-	int err;
-
-	info("wcall: creating async config polling thread\n");
-	
-	inst->thread_run = true;
-	err = pthread_create(&inst->tid, NULL, cfg_wait_thread, inst);
-	if (err) {
-		inst->thread_run = false;
-		return err;
-	}
-
-	return err;
-}
-#endif
-
 struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid)
 {
 	struct wcall *wcall;
@@ -2402,17 +2365,15 @@ WUSER_HANDLE wcall_create_ex(const char *userid,
 		goto out;		
 	}
 
+	lock_write_get(calling.lock);
+	list_append(&calling.instances, &inst->le, inst);
+	lock_rel(calling.lock);
+	
 	err = config_start(inst->cfg);
 	if (err) {
 		warning("wcall: config_start failed (%m)\n", err);
 		goto out;
 	}
-
-	lock_write_get(calling.lock);
-	list_append(&calling.instances, &inst->le, inst);
-	lock_rel(calling.lock);
-	
-	//err = async_cfg_wait(inst);
 
 out:
 	if (err) {
