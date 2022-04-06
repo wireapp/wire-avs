@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
 
-set -e
-
-if [! "$EUID" -eq 0 ]
-  then echo "Please run as root"
-  exit 1
-fi
-
 # dependencies to build wire-avs
 # on ubuntu 18.04 and 20.04
 # for building webrtc see https://github.com/wireapp/prebuilt-webrtc-binaries
