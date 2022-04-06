@@ -243,7 +243,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 20200603.12
+WEBRTC_VER := 20220331.local
 endif
 
 JAVAC := javac
@@ -282,7 +282,7 @@ endif
 
 CXXFLAGS += \
          -fvisibility=hidden -fno-rtti -ffunction-sections -fdata-sections \
-	-Os -g -std=c++14
+	-Os -g -std=c++17
 
 ifeq ($(ENABLE_COVERAGE),1)
 CFLAGS += -fprofile-instr-generate -fcoverage-mapping

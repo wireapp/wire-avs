@@ -126,7 +126,8 @@ AVS_CPPFLAGS += \
 	-I$(BUILD_TARGET)/include/re \
 	-I$(BUILD_TARGET)/include/rew \
 	-Iinclude \
-	-Werror
+	-Werror \
+	-Wno-deprecated-declarations
 
 ifneq ($(HAVE_PROTOBUF),)
 AVS_CPPFLAGS += -DHAVE_PROTOBUF=1

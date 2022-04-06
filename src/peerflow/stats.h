@@ -28,7 +28,7 @@
 
 namespace wire {
 
-class CallStatsCallback : public rtc::RefCountedObject<webrtc::RTCStatsCollectorCallback>
+class CallStatsCallback : public webrtc::RTCStatsCollectorCallback
 {
 public:
 	CallStatsCallback(struct peerflow *pf) :
