@@ -25,9 +25,9 @@
 #define CCALL_ONGOING_CALL_TIMEOUT     ( 90000)
 #define CCALL_ROTATE_KEY_TIMEOUT       ( 30000)
 #define CCALL_ROTATE_KEY_FIRST_TIMEOUT (  5000)
-#define CCALL_DECRYPT_CHECK_TIMEOUT    (  5000)
+#define CCALL_DECRYPT_CHECK_TIMEOUT    ( 10000)
 #define CCALL_KEEPALIVE_TIMEOUT        (  5000)
-#define CCALL_MAX_MISSING_PINGS        (     2)
+#define CCALL_MAX_MISSING_PINGS        (     4)
 #define CCALL_NOONE_JOINED_TIMEOUT     (300000)
 #define CCALL_EVERYONE_LEFT_TIMEOUT    ( 30000)
 
@@ -68,6 +68,14 @@ enum sreason {
 	CCALL_STOP_RINGING_REJECTED = 2
 };
 
+struct join_elem {
+	struct ccall *ccall;
+	enum icall_call_type call_type;
+	bool audio_cbr;
+
+	struct config_update_elem upe;
+};
+
 struct ccall {
 	struct icall icall;
 
@@ -80,11 +88,14 @@ struct ccall {
 	struct userinfo *keygenerator; // points to self or a member of partl
 	struct list partl;
 	struct mbuf confpart_data;
+	struct list saved_partl;
 
 	const struct ecall_conf *conf;
 	enum ccall_state state;
 
+	char *primary_sft_url;
 	char *sft_url;
+	char *sft_tuple;
 	bool sft_resolved;
 	struct list sftl;
 
@@ -109,6 +120,7 @@ struct ccall {
 	bool request_key;
 	uint32_t reconnect_attempts;
 	uint32_t expected_ping;
+	uint64_t last_ping;
 	int received_confpart;
 	int error;
 
@@ -124,6 +136,9 @@ struct ccall {
 	struct tmr tmr_keepalive;
 	struct tmr tmr_alone;
 
+	struct join_elem *je;
 	struct config *cfg;
+
+	uint64_t quality_interval;
 };
 

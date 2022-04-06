@@ -16,30 +16,14 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef AVS_STRING_H
-#define AVS_STRING_H    1
+typedef int (http_response_h)(struct icall *icall,
+			      int err,
+			      struct econn_message *msg,
+			      void *arg);
 
-#include <string.h>
-
-#define streq(a, b) ((*(a) == *(b)) && (strcmp(a, b) == 0))
-#define strcaseeq(a, b) (str_casecmp(a, b) == 0)
-
-
-struct str_wordexp {
-	size_t wordc;
-	char **wordv;
-};
-
-int  str_wordexp(struct str_wordexp *we, const char *str);
-void str_wordfree(struct str_wordexp *we);
-
-struct stringlist_info {
-	char *str;
-	struct le le;
-};
-
-int stringlist_append(struct list *list, const char *str);
-int stringlist_clone(const struct list *from, struct list *to);
-
-#endif //#ifndef AVS_STRING_H
+int http_send_message(struct icall *icall,
+		      const char *url,
+		      struct econn_message *msg,
+		      http_response_h *responseh,
+		      void *arg);
 

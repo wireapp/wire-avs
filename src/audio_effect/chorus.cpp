@@ -98,8 +98,10 @@ static int16_t update_rand_chorus_elem(struct rand_chorus_elem *r_elem, int16_t 
 {
     r_elem->cnt++;
     if(r_elem->cnt > r_elem->period_smpls){
-        r_elem->d_next = r_elem->min_d + ((float)rand()/RAND_MAX)*(r_elem->max_d-r_elem->min_d);
-        r_elem->a_next = r_elem->min_a + ((float)rand()/RAND_MAX)*(r_elem->max_a-r_elem->min_a);
+        r_elem->d_next = r_elem->min_d + ((float)rand()/(float)RAND_MAX) *
+			(r_elem->max_d-r_elem->min_d);
+        r_elem->a_next = r_elem->min_a + ((float)rand()/(float)RAND_MAX) *
+			(r_elem->max_a-r_elem->min_a);
         r_elem->cnt = 0;
     }
     r_elem->d += (r_elem->d_next - r_elem->d) * r_elem->alpha;

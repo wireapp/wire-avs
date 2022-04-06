@@ -3,5 +3,6 @@
 #
 
 AVS_SRCS += \
-	string/wordexp.c
+	string/wordexp.c \
+	string/stringlist.c
 

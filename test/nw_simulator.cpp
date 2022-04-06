@@ -145,8 +145,8 @@ int NwSimulator::Add_Packet( /* returns -1 if Queue is full otherwise 0 */
   num_packets_++;
 	
   float ploss = xtra_loss_rate_ / 100.0f;
-  if( ( !xtra_prev_lost_  && ((float)rand()/RAND_MAX) < ploss / (1.0f - ploss) / avg_burst_length_ ) ||
-      (  xtra_prev_lost_  && ((float)rand()/RAND_MAX) < 1.0f - 1.0f / avg_burst_length_ ) ) {
+  if( ( !xtra_prev_lost_  && ((float)rand()/(float)RAND_MAX) < ploss / (1.0f - ploss) / avg_burst_length_ ) ||
+      (  xtra_prev_lost_  && ((float)rand()/(float)RAND_MAX) < 1.0f - 1.0f / avg_burst_length_ ) ) {
       xtra_prev_lost_ = true;
       lost_packets_++;
       return(0);

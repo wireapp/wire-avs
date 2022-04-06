@@ -1,0 +1,10 @@
+
+Changes introduced in AVS 8.1
+=============================
+
+There is a new quality value returned from the quality handler (netqh) in the quality param:
+
+#define WCALL_QUALITY_RECONNECTING    5
+
+This allows clients to present a reconnecting notfication when a client has lost connection and is attempting to reconnect. When the connection has reconnected the quality handler will be called again with WCALL_QUALITY_NORMAL. If reconnecting fails then the close handler (closeh) will be called with a reason and the reconnecting notification should be replaced with a call dropped notification.
+

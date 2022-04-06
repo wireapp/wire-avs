@@ -22,6 +22,9 @@
 
 #include "avs_peerflow.h"
 
+
+#define MAX_NET_ID 5
+
 enum {
       AUDIO_ONEONE_BANDWIDTH = 50,
       AUDIO_GROUP_BANDWIDTH = 32,
@@ -117,12 +120,27 @@ static bool has_payload(int pt, struct sdp_media *sdpm)
 	return fmt != NULL;
 }
 
-
+enum cand_state {
+	CAND_STATE_NORMAL = 0,
+	CAND_STATE_TYP    = 1,
+	CAND_STATE_NET    = 2
+};
 
 static bool media_rattr_handler(const char *name, const char *value, void *arg)
 {
 	struct conv_sdp *csdp = (struct conv_sdp *)arg;
 	struct sdp_media *sdpm = csdp->sdpm;
+	char *cval = NULL, *tok = NULL, *ctok = NULL;
+	enum cand_state state = CAND_STATE_NORMAL;
+	uint32_t idx = 0;
+	bool is_host = false;
+	bool is_ipv4 = false;
+	int32_t network_id = 0;
+	struct pl a, b, c, d;
+	int err = 0;
+
+	if (!name || ! value || !csdp)
+		return false;
 
 	if (streq(name, "extmap")) {
 		int xid;
@@ -132,7 +150,7 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 
 		if (strstr(rval, "generic-frame-descriptor")) {
 			if (csdp->conv_type != ICALL_CONV_TYPE_CONFERENCE)
-				return false;
+				goto out;
 		}
 		if (xid > 0)
 			sdp_safe_media_set_lattr(sdpm, false, name, value);
@@ -145,12 +163,60 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 		if (has_payload(pt, sdpm))
 			sdp_safe_media_set_lattr(sdpm, false, name, value);
 		else
-			return false;
+			goto out;
+	}
+	else if (streq(name, "candidate")) {
+
+		err = str_dup(&cval, value);
+		if (err)
+			goto out;
+
+		ctok = cval;
+		while ((tok = strtok_r(ctok, " ", &ctok))) {
+			switch (state) {
+			case CAND_STATE_NORMAL:
+				if (4 == idx && 0 == re_regex(tok, strlen(tok),
+				    "[0-9]+.[0-9]+.[0-9]+.[0-9]+",
+				    &a, &b, &c, &d)) {
+					is_ipv4 = true;
+				}
+				break;
+
+			case CAND_STATE_TYP:
+				if (0 == strcmp(tok, "host"))
+					is_host = true;
+				break;
+
+			case CAND_STATE_NET:
+				network_id = atoi(tok);
+				break;
+			}
+
+			if (0 == strcmp(tok, "typ"))
+				state = CAND_STATE_TYP;
+			else if (0 == strcmp(tok, "network-id"))
+				state = CAND_STATE_NET;
+			else
+				state = CAND_STATE_NORMAL;
+
+			idx++;
+		}
+
+		/* Only drop typ host, IPv4 with network-id > 5 */
+		if (is_host && is_ipv4 && network_id > MAX_NET_ID) {
+			info("sdp_dup: dropping candidate line %s\n", value);
+			goto out;
+		}
+		else {
+			sdp_safe_media_set_lattr(sdpm, false, name, value);
+		}
 	}
 	else {
 		sdp_safe_media_set_lattr(sdpm, false, name, value);
 	}
-			
+
+out:
+	mem_deref(cval);
 	return false;
 }
 

@@ -158,7 +158,7 @@ enum econn_transport econn_transp_resolve(enum econn_msg type)
 	case ECONN_DEVPAIR_PUBLISH:     return ECONN_TRANSP_BACKEND;
 	case ECONN_DEVPAIR_ACCEPT:      return ECONN_TRANSP_BACKEND;
 	case ECONN_ALERT:		return ECONN_TRANSP_BACKEND;
-	case ECONN_CONF_CONN:		return ECONN_TRANSP_BACKEND;
+	case ECONN_CONF_CONN:		return ECONN_TRANSP_DIRECT;
 	case ECONN_CONF_START:		return ECONN_TRANSP_BACKEND;
 	case ECONN_CONF_END:		return ECONN_TRANSP_BACKEND;
 	case ECONN_CONF_PART:		return ECONN_TRANSP_DIRECT;

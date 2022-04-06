@@ -20,7 +20,7 @@
 #include <sys/stat.h>
 #endif
 #include <sys/time.h>
-#include "webrtc/common_audio/resampler/include/push_resampler.h"
+#include "common_audio/resampler/include/push_resampler.h"
 
 #include "gtest/gtest.h"
 #include "complexity_check.h"

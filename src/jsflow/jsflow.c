@@ -35,7 +35,7 @@
 #define SDP_TYPE_ANSWER "answer"
 
 #define GATHER_TIMEOUT    10000
-#define DISCONNECT_TIMEOUT 2000
+#define DISCONNECT_TIMEOUT 3000
 #define TMR_STATS_INTERVAL  1000
 #define TMR_CBR_INTERVAL    2500
 
@@ -1373,6 +1373,15 @@ int jsflow_get_aulevel(struct iflow *iflow,
 
 	return err;
 }
+
+void pc_log(int level, const char *msg);
+
+EMSCRIPTEN_KEEPALIVE
+void pc_log(int level, const char *msg)
+{
+	loglv((enum log_level)level, msg);
+}
+
 
 void pc_local_sdp_handler(int self, int err,
 			  const char *creator, /* e.g. firefox, chrome... */

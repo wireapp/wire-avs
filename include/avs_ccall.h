@@ -86,7 +86,11 @@ int  ccall_sft_msg_recv(struct icall* icall,
 void ccall_set_clients(struct icall* icall, struct list *clientl);
 
 int  ccall_stats(struct re_printf *pf, const struct icall *icall);
+int  ccall_stats_struct(const struct ccall *ccall,
+		        struct iflow_stats *stats);
 
 int  ccall_debug(struct re_printf *pf, const struct icall* icall);
 
 const char *ccall_state_name(enum ccall_state state);
+
+struct keystore *ccall_get_keystore(struct ccall *ccall);

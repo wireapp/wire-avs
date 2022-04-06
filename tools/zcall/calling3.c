@@ -451,34 +451,65 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 	struct c3_req_ctx *c3ctx = arg;
 	char *json_str = NULL;
 	struct json_object *jobj = raw_jobj;
+	struct le *le;
 
 	if (err == ECONNABORTED)
 		goto error;
 
-	if (g_sft_url) {
+	if (list_count(&g_sftl) > 0) {
 		struct json_object *jices;
 		struct json_object *jsfts;
-		struct json_object *jurls;
-		struct json_object *jsft;
-		struct json_object *jurl;
+		struct json_object *jsfts_all;
 
 		jobj = json_object_new_object();
 		err = jzon_array(&jices, raw_jobj, "ice_servers");
 		if (!err)
 			json_object_object_add(jobj, "ice_servers", jices);
-		
+
 		jsfts = json_object_new_array();
-		jurls = json_object_new_array();
-		jsft = jzon_alloc_object();
-		jurl = json_object_new_string(g_sft_url);
-		if (!jsfts || !jurls || !jsft || !jurl) {
+		if (!jsfts) {
 			err = ENOMEM;
 			goto out;
 		}
-		json_object_array_add(jurls, jurl);
-		json_object_object_add(jsft, "urls", jurls);
-		json_object_array_add(jsfts, jsft);
+
+		jsfts_all = json_object_new_array();
+		if (!jsfts) {
+			err = ENOMEM;
+			goto out;
+		}
+
+		LIST_FOREACH(&g_sftl, le) {
+			struct stringlist_info *nfo = le->data;
+
+			struct json_object *jurls;
+			struct json_object *jsft;
+			struct json_object *jurl;
+			
+			jurls = json_object_new_array();
+			jsft = jzon_alloc_object();
+			jurl = json_object_new_string(nfo->str);
+			if (!jurls || !jsft || !jurl) {
+				err = ENOMEM;
+				goto out;
+			}
+			json_object_array_add(jurls, jurl);
+			json_object_object_add(jsft, "urls", jurls);
+			json_object_array_add(jsfts, jsft);
+
+			jurls = json_object_new_array();
+			jsft = jzon_alloc_object();
+			jurl = json_object_new_string(nfo->str);
+			if (!jurls || !jsft || !jurl) {
+				err = ENOMEM;
+				goto out;
+			}
+			json_object_array_add(jurls, jurl);
+			json_object_object_add(jsft, "urls", jurls);
+			json_object_array_add(jsfts_all, jsft);
+		}
+
 		json_object_object_add(jobj, "sft_servers", jsfts);
+		json_object_object_add(jobj, "sft_servers_all", jsfts_all);
 	}
 
 	if (!err && jobj) {
@@ -1141,6 +1172,9 @@ static const char *quality2name(int quality)
 
 	case WCALL_QUALITY_POOR:
 		return "POOR";
+
+	case WCALL_QUALITY_RECONNECTING:
+		return "RECONNECTING";
 
 	default:
 		return "???";

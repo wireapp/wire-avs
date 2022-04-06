@@ -78,6 +78,7 @@ struct icall_client {
  * to indicate network problem (i.e. no relay)
  */
 #define ICALL_NETWORK_PROBLEM 200
+#define ICALL_RECONNECTING    201
 
 struct icall_client *icall_client_alloc(const char *userid,
 					const char *clientid);

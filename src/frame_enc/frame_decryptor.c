@@ -25,7 +25,7 @@
 #include <assert.h>
 
 static const size_t TAG_SIZE   = 16;
-static const size_t IV_SIZE    = 12;
+#define IV_SIZE   12
 
 struct frame_decryptor
 {
@@ -38,6 +38,7 @@ struct frame_decryptor
 
 	char *userid_hash;
 	uint32_t csrc;
+	uint32_t frame_count;
 	bool frame_recv;
 	bool frame_dec;
 };
@@ -145,6 +146,7 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 	uint32_t fcsrc = 0;
 	size_t hsize = 0;
 	bool new_user = false;
+	uint32_t frm_res = (dec->mtype == FRAME_MEDIA_VIDEO) ? 15 : 50;
 	int err = 0;
 
 	if (!dec || !src || !dst) {
@@ -161,9 +163,17 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 
 	if (fcsrc)
 		csrc = fcsrc;
-	if (csrc != 0 && csrc != dec->csrc) {
+	if (csrc != 0 && csrc != dec->csrc && dec->pf) {
 		dec->userid_hash = mem_deref(dec->userid_hash);
 
+		if (dec->frame_count) {
+			err = peerflow_inc_frame_count(dec->pf,
+						       csrc,
+						       dec->mtype == FRAME_MEDIA_VIDEO,
+						       dec->frame_count);
+			if (err)
+				goto out;
+		}
 		err = peerflow_get_userid_for_ssrc(dec->pf,
 						   csrc,
 						   dec->mtype == FRAME_MEDIA_VIDEO,
@@ -176,6 +186,7 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 		new_user = true;
 		dec->csrc = csrc;
 		dec->frame_recv = true;
+		dec->frame_count = 0;
 	}
 	else if (!dec->frame_recv) {
 		new_user = true;
@@ -269,6 +280,16 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 
 	*dstsz = dec_len + blk_len;
 
+	dec->frame_count++;
+	if (dec->pf && dec->frame_count >= frm_res) {
+		err = peerflow_inc_frame_count(dec->pf,
+					       csrc,
+					       dec->mtype == FRAME_MEDIA_VIDEO,
+					       dec->frame_count);
+		dec->frame_count = 0;
+		if (err)
+			goto out;
+	}
 out:
 	sodium_memzero(key, E2EE_SESSIONKEY_SIZE);
 	if (err != 0 && dec->ctx) {

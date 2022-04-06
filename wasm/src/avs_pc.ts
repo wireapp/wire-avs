@@ -680,7 +680,6 @@ function callStreamHandler(pc: PeerConnection,
 }
 
 function createWorker() {
-  pc_log(LOG_LEVEL_INFO, "Creating AVS worker");
   const blob = new Blob([workerContent], { type: 'text/javascript' });
   const url = URL.createObjectURL(blob);
 
@@ -799,8 +798,17 @@ const connectionsStore = (() => {
 })();
 
 function pc_log(level: number, msg: string, err = null) {
+
+    em_module.ccall(
+      "pc_log",
+      null,
+      ["number", "string"],
+      [level, msg]);
+
+    /* Log now goes through AVS for anonymization
     if (logFn)
 	logFn(level, msg, err);
+    */
 }
 
 function uinfo_from_ssrca(pc: PeerConnection, ssrc: string) : UserInfo | null
@@ -1194,8 +1202,8 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
     pc_log(LOG_LEVEL_INFO, "dc-closed");
     ccallDcStateChangeHandler(pc, DC_STATE_CLOSED);
   };
-  dc.onerror = () => {
-    pc_log(LOG_LEVEL_INFO, "dc-error");
+  dc.onerror = event => {
+    pc_log(LOG_LEVEL_INFO, `dc-error: ${event.error}`);
     ccallDcStateChangeHandler(pc, DC_STATE_ERROR);
   };
   dc.onmessage = event => {
@@ -1346,7 +1354,7 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
           pc_log(LOG_LEVEL_INFO, `onTrack: calling ash(${pc.convid}, ${label}) with ${event.streams.length} streams`);
 	  audioStreamHandler(
 	      pc.convid,
-              label,
+              hnd.toString() + label,
 	      event.streams);
       }
       if (event.track.kind == "video" && videoStreamHandler) {
@@ -1387,7 +1395,7 @@ function pc_Close(hnd: number) {
         const label = track.label;
         if (audioStreamHandler && pc.rtc) {
           pc_log(LOG_LEVEL_INFO, `pc_Close: calling ash(${pc.convid}, ${label}) with 0 streams`);
-          audioStreamHandler(pc.convid, label, null);
+          audioStreamHandler(pc.convid, hnd.toString() + label, null);
         }
       }
     });
@@ -1832,7 +1840,7 @@ function pc_RemoveUserInfo(hnd: number, labelPtr: number) {
   if (pc.users.hasOwnProperty(label)) {
     if (audioStreamHandler) {
       pc_log(LOG_LEVEL_INFO, `pcRemoveUserInfo: calling ash(${pc.convid}, ${label}) with 0 streams`);
-      audioStreamHandler(pc.convid, label, null);
+      audioStreamHandler(pc.convid, hnd.toString() + label, null);
     }
     delete pc.users[label];
   }
@@ -2178,7 +2186,6 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
   em_module = module;
   logFn = logh;
     
-  pc_log(LOG_LEVEL_INFO, "pc_InitModule");
   const callbacks = [
     [pc_SetEnv, "vn"],
     [pc_New, "nns"],
@@ -2280,7 +2287,7 @@ function pc_GetLocalStats(hnd: number) {
 	if (uinfo) {
 	  uinfo.audio_level = 0;
 	  if (typeof ssrc.audioLevel !== 'undefined')
-	    uinfo.audio_level = ((ssrc.audioLevel * 255.0) | 0);
+	    uinfo.audio_level = ((ssrc.audioLevel * 512.0) | 0);
 
 	  em_module.ccall(
 	    "pc_set_audio_level",
@@ -2295,7 +2302,7 @@ function pc_GetLocalStats(hnd: number) {
 	if (uinfo) {
 	  uinfo.audio_level = 0;
 	  if (typeof csrc.audioLevel !== 'undefined')
-	    uinfo.audio_level = ((csrc.audioLevel * 255.0) | 0);
+	    uinfo.audio_level = ((csrc.audioLevel * 512.0) | 0);
 
 	  em_module.ccall(
 	    "pc_set_audio_level",
@@ -2348,7 +2355,7 @@ function pc_GetLocalStats(hnd: number) {
 	    }
 	    else if (stat.type === 'media-source') {
 	    	 if (stat.kind === 'audio')
-	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 255.0) | 0) : 0;
+	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
 	    }
 	});
 	pc.stats.recv_apkts = max_apkts;

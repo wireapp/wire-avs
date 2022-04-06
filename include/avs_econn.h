@@ -103,7 +103,7 @@ struct econn_props {
 	struct odict *dict;
 };
 
-#define ECONN_ID_LEN 64
+#define ECONN_ID_LEN 128
 /*
  * The message-type is the actually message type that is sent on the Wire.
  * It containes the type (SETUP or CANCEL) and message type specific
@@ -132,6 +132,7 @@ struct econn_message {
 			char *sdp_msg;
 			struct econn_props *props;
 			char *url;
+			char *sft_tuple;
 		} setup;
 
 		struct propsync {
@@ -168,23 +169,29 @@ struct econn_message {
 			bool selective_audio;
 			bool selective_video;
 			uint32_t vstreams;
+			char *sft_url;
+			char *sft_tuple;
 		} confconn;
 
 		struct confstart {
 			struct econn_props *props;
 			char *sft_url;
+			char *sft_tuple;
 			uint8_t *secret;
 			uint32_t secretlen;
 			uint64_t timestamp;
 			uint32_t seqno;
+			struct list sftl; /* list of struct econn_stringlist_info */
 		} confstart;
 
 		struct confcheck {
 			char *sft_url;
+			char *sft_tuple;
 			uint8_t *secret;
 			uint32_t secretlen;
 			uint64_t timestamp;
 			uint32_t seqno;
+			struct list sftl; /* list of struct econn_stringlist_info */
 		} confcheck;
 
 		struct confpart {
@@ -194,6 +201,7 @@ struct econn_message {
 			struct list partl; /* list of struct econn_group_part */
 			uint8_t *entropy;
 			uint32_t entropylen;
+			struct list sftl; /* list of struct econn_stringlist_info */
 		} confpart;
 
 		struct confkey {
@@ -224,6 +232,7 @@ struct econn_group_part {
 	enum group_part_muted_state  muted_state;
 	uint32_t ssrca;
 	uint32_t ssrcv;
+	uint64_t ts;
 
 	struct le le;
 };
@@ -285,13 +294,9 @@ typedef void (econn_update_resp_h)(struct econn *econn, const char *sdp,
 typedef void (econn_alert_h)(struct econn *econn, uint32_t level,
 			     const char *descr, void *arg);
 
-typedef void (econn_confpart_h)(struct econn *econn,
-				const struct econn_message *msg,
-				void *arg);
-
-typedef void (econn_confstreams_h)(struct econn *econn,
-				   const struct econn_message *msg,
-				   void *arg);
+typedef void (econn_confmsg_h)(struct econn *econn,
+			       const struct econn_message *msg,
+			       void *arg);
 
 typedef void (econn_ping_h)(struct econn *econn, bool response, void *arg);
 
@@ -336,8 +341,7 @@ int  econn_alloc(struct econn **econnp,
 		 econn_update_req_h *update_reqh,
 		 econn_update_resp_h *update_resph,
 		 econn_alert_h *alerth,
-		 econn_confpart_h *confparth,
-		 econn_confstreams_h *confstreamsh,
+		 econn_confmsg_h *confmsgh,
 		 econn_ping_h *pingh,
 		 econn_close_h *closeh, void *arg);
 int  econn_start(struct econn *conn, const char *sdp,
@@ -432,3 +436,5 @@ struct vector {
 };
 
 int vector_alloc(struct vector **vecp, const uint8_t *bytes, size_t len);
+
+

@@ -48,6 +48,8 @@ public class VideoPreview extends TextureView
 	private boolean shouldFill = true;
 	private int orientation = 90;
 	private static final String TAG = "VideoPreview";
+	private float vWidth = 1.0f;
+	private float vHeight = 1.0f;
 
 	public VideoPreview(Context ctx) {
 		super(ctx);
@@ -65,6 +67,8 @@ public class VideoPreview extends TextureView
 	public void setVideoOrientation(int ori) {
 		orientation = ori;
 		Log.d(TAG, "setVideoOrientation: ori: " + orientation);
+
+		updateTransform();
 	}
 
 
@@ -74,23 +78,35 @@ public class VideoPreview extends TextureView
 	protected void onLayout(boolean changed,
 				int l, int t, int r, int b) {
 
-		final float aspectRatio = 4.0f/3.0f;
-
 		super.onLayout(changed, l, t, r, b);
-	  
+		this.vWidth = (float)(r - l);
+		this.vHeight = (float)(b - t);
+
+		updateTransform();
+	}
+
+	private void updateTransform() {
+
+		if (this.vHeight == 0.0f) {
+			return;
+		}
+
+		final float aspectRatio = 4.0f/3.0f;
 		Matrix m = new Matrix();
-		float vWidth = (float)(r - l);
-		float vHeight = (float)(b - t);
-		float vAspRatio = vWidth / vHeight;
+		float vAspRatio = this.vWidth / this.vHeight;
 		float tAspRatio = aspectRatio;
 
 		if (orientation % 180 != 0)
 			tAspRatio = 1.0f/aspectRatio;
 		
+		Log.d(TAG, "updateTransform: " + this.vWidth + "x" + this.vHeight +
+		      " ori: " + orientation + " va: " + vAspRatio +
+		      " ta: " + tAspRatio);
+
 		float scaleX = Math.max(1.0f, tAspRatio / vAspRatio);
 		float scaleY = Math.max(1.0f, vAspRatio / tAspRatio);
-		float dx = - (scaleX * vWidth - vWidth) / 2.0f;
-		float dy = - (scaleY * vHeight - vHeight) / 2.0f;
+		float dx = - (scaleX * this.vWidth - this.vWidth) / 2.0f;
+		float dy = - (scaleY * this.vHeight - this.vHeight) / 2.0f;
 
 		m.postTranslate(dx, dy);
 		m.setScale(scaleX, scaleY);

@@ -198,8 +198,7 @@ struct ecall {
 	size_t turnc;
 	bool turn_added;
 
-	ecall_confpart_h *confparth;
-	ecall_confstreams_h *confstreamsh;
+	ecall_confmsg_h *confmsgh;
 
 	struct sa *media_laddr;
 	bool ifs_added;
@@ -217,7 +216,6 @@ bool ecall_stats_prepare(struct ecall *ecall, struct json_object *jobj,
 struct conf_part *ecall_get_conf_part(struct ecall *ecall);
 void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp);
 
-int ecall_add_user_data_channel(struct ecall *ecall, bool should_open);
 int ecall_create_econn(struct ecall *ecall);
 void ecall_close(struct ecall *ecall, int err, uint32_t msg_time);
 int ecall_set_media_laddr(struct ecall *ecall, struct sa *laddr);

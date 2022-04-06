@@ -48,7 +48,7 @@
 
 #define TIMEOUT_DC_CLOSE     10000
 #define TIMEOUT_MEDIA_START  10000
-#define TIMEOUT_CONNECTION    5000
+#define TIMEOUT_CONNECTION   10000
 #define TIMEOUT_AUDIO_LEVEL   3000
 
 //#define ECALL_CBR_ALWAYS_ON 1
@@ -296,8 +296,8 @@ static int generate_or_gather_answer(struct ecall *ecall, struct econn *econn)
 	else {
 		if (ecall->sdp.async == ASYNC_NONE) {
 			ecall->sdp.async = ASYNC_ANSWER;
-			gather_all(ecall, false);
 			ecall->econn_pending = econn;
+			gather_all(ecall, false);
 		}
 	}
 
@@ -508,59 +508,45 @@ static void econn_alert_handler(struct econn *econn, uint32_t level,
 }
 
 
-static void econn_confpart_handler(struct econn *econn,
-				   const struct econn_message *msg,
-				   void *arg)
+static void econn_confmsg_handler(struct econn *econn,
+				  const struct econn_message *msg,
+				  void *arg)
 {
 	struct ecall *ecall = arg;
 
 	assert(ECALL_MAGIC == ecall->magic);
 
-	if (ecall->confparth) {
+	switch (msg->msg_type) {
+	case ECONN_CONF_PART:
 		info("ecall(%p): confpart: parts: %u should_start %s\n",
 		     ecall, list_count(&msg->u.confpart.partl),
 		     msg->u.confpart.should_start ? "YES" : "NO");
-		ecall->confparth(ecall, msg, ecall->icall.arg);
-	}
-}
+		break;
 
-
-int ecall_set_confpart_handler(struct ecall *ecall,
-			       ecall_confpart_h confparth)
-{
-	if (!ecall) {
-		return EINVAL;
-	}
-
-	ecall->confparth = confparth;
-	return 0;
-}
-
-
-static void econn_confstreams_handler(struct econn *econn,
-				      const struct econn_message *msg,
-				      void *arg)
-{
-	struct ecall *ecall = arg;
-
-	assert(ECALL_MAGIC == ecall->magic);
-
-	if (ecall->confstreamsh) {
+	case ECONN_CONF_STREAMS:
 		info("ecall(%p): confstreams: streams: %u\n",
 		     ecall, list_count(&msg->u.confstreams.streaml));
-		ecall->confstreamsh(ecall, msg, ecall->icall.arg);
+		break;
+
+	default:
+		info("ecall(%p): confmsg type: %s\n",
+		     ecall, econn_msg_name(msg->msg_type));
+		break;
+	}
+	if (ecall->confmsgh) {
+		ecall->confmsgh(ecall, msg, ecall->icall.arg);
 	}
 }
 
 
-int ecall_set_confstreams_handler(struct ecall *ecall,
-				  ecall_confstreams_h confstreamsh)
+int ecall_set_confmsg_handler(struct ecall *ecall,
+			      ecall_confmsg_h confmsgh)
 {
 	if (!ecall) {
 		return EINVAL;
 	}
 
-	ecall->confstreamsh = confstreamsh;
+	ecall->confmsgh = confmsgh;
 	return 0;
 }
 
@@ -1234,7 +1220,7 @@ static void connection_timeout_handler(void *arg)
 		ecall, TIMEOUT_CONNECTION);
 
 	if (ecall->conv_type == ICALL_CONV_TYPE_GROUP) {
-		ecall_restart(ecall, ecall->call_type);
+		ecall_restart(ecall, ecall->call_type, true);
 	}
 	/* If we don't have a media_estabh the app will never get
 	 * notified about the closed call, so trigger a close for this
@@ -1332,7 +1318,7 @@ static void mf_restart_handler(struct iflow *iflow,
 	if (ECONN_DATACHAN_ESTABLISHED == econn_current_state(ecall->econn)) {
 		info("ecall(%p): mf_restart_handler: triggering restart due to network drop\n",
 			ecall);
-		ecall_restart(ecall, ecall->call_type);
+		ecall_restart(ecall, ecall->call_type, true);
 	}
 }
 
@@ -1363,7 +1349,7 @@ static void mf_close_handler(struct iflow *iflow, int err, void *arg)
 	enum econn_state state = econn_current_state(ecall->econn);
 	if (ECONN_ANSWERED == state && ETIMEDOUT == err &&
 		ecall->num_retries < ecall->max_retries) {
-		ecall_restart(ecall, ecall->call_type);
+		ecall_restart(ecall, ecall->call_type, true);
 	}
 	else if (ecall->econn) {
 		econn_set_error(ecall->econn, err);
@@ -1565,7 +1551,7 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 
 	if (ecall->delayed_restart) {
 		ecall->delayed_restart = false;
-		ecall_restart(ecall, ecall->call_type);
+		ecall_restart(ecall, ecall->call_type, false);
 		return;
 	}
 
@@ -1604,6 +1590,14 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		&ecall->icall, ecall->userid_peer, ecall->clientid_peer,
 		ecall->update, ecall->icall.arg);
 
+	ICALL_CALL_CB(ecall->icall, qualityh,
+		      &ecall->icall, 
+		      ecall->userid_peer,
+		      ecall->clientid_peer,
+		      0,
+		      0,
+		      0,
+		      ecall->icall.arg);
 	return;
 
  error:
@@ -2069,8 +2063,7 @@ int ecall_create_econn(struct ecall *ecall)
 			  econn_update_req_handler,
 			  econn_update_resp_handler,
 			  econn_alert_handler,
-			  econn_confpart_handler,
-			  econn_confstreams_handler,
+			  econn_confmsg_handler,
 			  econn_ping_handler,
 			  econn_close_handler,
 			  ecall);
@@ -2084,6 +2077,24 @@ int ecall_create_econn(struct ecall *ecall)
 	return err;
 }
 
+static void update_mute_props(struct ecall *ecall)
+{
+	const char *muted_string;
+	bool muted;
+	int err = 0;
+
+	if (!ecall->props_local)
+		return;
+
+	muted = msystem_get_muted();
+
+	muted_string = muted ? "true" : "false";
+	err = econn_props_update(ecall->props_local, "muted", muted_string);
+	if (err) {
+		warning("ecall(%p): econn_props_update(muted)",
+			" failed (%m)\n", ecall, err);
+	}
+}
 
 int ecall_start(struct ecall *ecall, enum icall_call_type call_type,
 		bool audio_cbr)
@@ -2134,7 +2145,9 @@ int ecall_start(struct ecall *ecall, enum icall_call_type call_type,
 	}
 
 	IFLOW_CALL(ecall->flow, set_audio_cbr, audio_cbr);
-	
+
+	update_mute_props(ecall);
+
 	if (ecall->props_local &&
 	    (call_type == ICALL_CALL_TYPE_VIDEO
 	     && ecall->vstate == ICALL_VIDEO_STATE_STARTED)) {
@@ -2177,7 +2190,6 @@ int ecall_answer(struct ecall *ecall, enum icall_call_type call_type,
 #ifdef ECALL_CBR_ALWAYS_ON
 	audio_cbr = true;
 #endif
-	
 
 	info("ecall(%p): answer on pending econn %p call_type=%d\n", ecall, ecall->econn, call_type);
 
@@ -2215,6 +2227,7 @@ int ecall_answer(struct ecall *ecall, enum icall_call_type call_type,
 		}
 	}
 #endif
+	update_mute_props(ecall);
 
 	err = generate_or_gather_answer(ecall, ecall->econn);
 	if (err) {
@@ -2587,7 +2600,7 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 		switch (state) {
 		case ECONN_ANSWERED:
 		case ECONN_DATACHAN_ESTABLISHED:
-			ecall_restart(ecall, ICALL_CALL_TYPE_VIDEO);
+			ecall_restart(ecall, ICALL_CALL_TYPE_VIDEO, false);
 			goto out;
 			
 		default:
@@ -2687,7 +2700,7 @@ void ecall_media_stop(struct ecall *ecall)
 }
 
 
-int ecall_propsync_request(struct ecall *ecall)
+int ecall_sync_props(struct ecall *ecall, bool response)
 {
 	int err;
 
@@ -2700,7 +2713,10 @@ int ecall_propsync_request(struct ecall *ecall)
 	if (ecall->devpair)
 		return 0;
 
-	err = econn_send_propsync(ecall->econn, false, ecall->props_local);
+	if (!econn_can_send_propsync(ecall->econn))
+		return 0;
+
+	err = econn_send_propsync(ecall->econn, response, ecall->props_local);
 	if (err) {
 		warning("ecall: request: econn_send_propsync failed (%m)\n",
 			err);
@@ -2791,6 +2807,29 @@ int ecall_debug(struct re_printf *pf, const struct ecall *ecall)
 	err |= ecall_show_trace(pf, ecall);
 
 	return err;
+}
+
+int ecall_mfdebug(struct re_printf *pf, const struct ecall *ecall)
+{
+	if (ecall && ecall->flow) {
+		return ecall->flow->debug(pf, ecall->flow);
+	}
+
+	return 0;
+}
+
+	
+int ecall_stats_struct(const struct ecall *ecall,
+		       struct iflow_stats *stats)
+{
+
+	if (!ecall || !stats)
+		return EINVAL;
+
+	IFLOW_CALL(ecall->flow, get_stats,
+		stats);
+
+	return 0;
 }
 
 int ecall_stats(struct re_printf *pf, const struct ecall *ecall)
@@ -2922,7 +2961,9 @@ struct ecall *ecall_find_userclient(const struct list *ecalls,
 }
 
 
-int ecall_restart(struct ecall *ecall, enum icall_call_type call_type)
+int ecall_restart(struct ecall *ecall,
+		  enum icall_call_type call_type,
+		  bool notify)
 {
 	enum econn_state state;
 	int err = 0;
@@ -2947,7 +2988,7 @@ int ecall_restart(struct ecall *ecall, enum icall_call_type call_type)
 	if (ecall->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
 		ICALL_CALL_CB(ecall->icall, closeh,
 			      &ecall->icall,
-			      EAGAIN,
+			      notify ? ENOTCONN : EAGAIN,
 			      NULL,
 			      0,
 			      NULL,
@@ -2971,8 +3012,17 @@ int ecall_restart(struct ecall *ecall, enum icall_call_type call_type)
 		warning("ecall: re-start: alloc_flow failed: %m\n", err);
 		goto out;
 	}
-	//if (ecall->conf_part)
-	//	ecall->conf_part->data = ecall->flow;
+
+	if (notify) {
+		ICALL_CALL_CB(ecall->icall, qualityh,
+			      &ecall->icall, 
+			      ecall->userid_peer,
+			      ecall->clientid_peer,
+			      0,
+			      ICALL_RECONNECTING,
+			      ICALL_RECONNECTING,
+			      ecall->icall.arg);
+	}
 
 	IFLOW_CALL(ecall->flow, set_remote_userclientid,
 		econn_userid_remote(ecall->econn),
@@ -3034,8 +3084,12 @@ static void quality_handler(void *arg)
 
 	if (!ecall->icall.qualityh || !ecall->flow)
 		return;
+
+	if (ecall->update)
+		return;
 	err = IFLOW_CALLE(ecall->flow, get_stats,
 			  &stats);
+
 	if (!err) {
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall, 

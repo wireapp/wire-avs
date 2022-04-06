@@ -15,44 +15,14 @@
 * You should have received a copy of the GNU General Public License
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
+
 #include <re.h>
 #include <avs.h>
-#include <gtest/gtest.h>
 
+int init_system(const char *sft);
+void run_main_loop(void);
 
-TEST(audummy, basic_init_close)
-{
-	struct list aucodecl = LIST_INIT;
-	int err;
+struct config *system_get_config(void);
 
-	log_set_min_level(LOG_LEVEL_WARN);
-	log_enable_stderr(true);
+const char *system_get_sft_url(void);
 
-	err = audummy_init(&aucodecl);
-	ASSERT_EQ(0, err);
-	
-	ASSERT_GT(list_count(&aucodecl), 0);
-
-	audummy_close();
-
-	ASSERT_EQ(0, list_count(&aucodecl));
-}
-
-
-TEST(audummy, extra_close)
-{
-	audummy_close();
-}
-
-
-TEST(audummy, close_twice)
-{
-	struct list aucodecl = LIST_INIT;
-	int err;
-
-	err = audummy_init(&aucodecl);
-	ASSERT_EQ(0, err);
-
-	audummy_close();
-	audummy_close();
-}

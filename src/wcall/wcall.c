@@ -383,43 +383,6 @@ static void set_state(struct wcall *wcall, int st)
 }
 
 
-#if 0
-static void *cfg_wait_thread(void *arg)
-{
-	struct calling_instance *inst = arg;
-
-	(void)arg;
-
-	debug("wcall(%p): starting config wait\n", inst);	
-	while (inst->call_config == NULL && inst->thread_run) {
-		sys_msleep(500);
-	}
-	if (inst->call_config)
-		debug("wcall(%p): config ready!\n", inst);
-
-	inst->thread_run = false;
-
-	return NULL;
-}
-
-
-static int async_cfg_wait(struct calling_instance *inst)
-{
-	int err;
-
-	info("wcall: creating async config polling thread\n");
-	
-	inst->thread_run = true;
-	err = pthread_create(&inst->tid, NULL, cfg_wait_thread, inst);
-	if (err) {
-		inst->thread_run = false;
-		return err;
-	}
-
-	return err;
-}
-#endif
-
 struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid)
 {
 	struct wcall *wcall;
@@ -1502,7 +1465,10 @@ static void icall_quality_handler(struct icall *icall,
 	if (uploss == ICALL_NETWORK_PROBLEM
 	    && downloss == ICALL_NETWORK_PROBLEM)
 		quality = WCALL_QUALITY_NETWORK_PROBLEM;
-	if (rtt > 800 || uploss > 20 || downloss > 20)
+	else if (uploss == ICALL_RECONNECTING
+	    && downloss == ICALL_RECONNECTING)
+		quality = WCALL_QUALITY_RECONNECTING;
+	else if (rtt > 800 || uploss > 20 || downloss > 20)
 		quality = WCALL_QUALITY_POOR;
 	else if (rtt > 400 || uploss > 5 || downloss > 5)
 		quality = WCALL_QUALITY_MEDIUM;
@@ -2399,17 +2365,15 @@ WUSER_HANDLE wcall_create_ex(const char *userid,
 		goto out;		
 	}
 
+	lock_write_get(calling.lock);
+	list_append(&calling.instances, &inst->le, inst);
+	lock_rel(calling.lock);
+	
 	err = config_start(inst->cfg);
 	if (err) {
 		warning("wcall: config_start failed (%m)\n", err);
 		goto out;
 	}
-
-	lock_write_get(calling.lock);
-	list_append(&calling.instances, &inst->le, inst);
-	lock_rel(calling.lock);
-	
-	//err = async_cfg_wait(inst);
 
 out:
 	if (err) {
@@ -2634,8 +2598,13 @@ void wcall_i_sft_resp(struct calling_instance *inst,
 	char clientid_anon[ANON_CLIENT_LEN];
 	struct le *le;
 
-	if (!ctx || !wcall) {
+	if (!ctx) {
 		warning("wcall(%p): sft_resp: ctx:%p not valid\n", wcall, ctx);
+		return;
+	}
+
+	if (!wcall || !wcall_valid(wcall)) {
+		warning("wcall(%p): sft_resp: wcall not valid\n", wcall);
 		return;
 	}
 
@@ -3117,6 +3086,8 @@ int  wcall_debug(struct re_printf *pf, WUSER_HANDLE wuser)
 	struct calling_instance *inst;
 	struct le *le;	
 	char convid_anon[ANON_ID_LEN];
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 	int err = 0;
 
 	inst = wuser2inst(wuser);
@@ -3127,7 +3098,11 @@ int  wcall_debug(struct re_printf *pf, WUSER_HANDLE wuser)
 		return 0;
 	}
 
-	err = re_hprintf(pf, "# calls=%d\n", list_count(&inst->wcalls));
+	err = re_hprintf(pf, "self: %s.%s\n",
+			 anon_id(userid_anon, inst->userid),
+			 anon_client(clientid_anon, inst->clientid));
+	err |= re_hprintf(pf, "# calls=%d\n", list_count(&inst->wcalls));
+
 	LIST_FOREACH(&inst->wcalls, le) {
 		struct wcall *wcall = le->data;
 
@@ -3756,7 +3731,8 @@ void wcall_i_request_video_streams(struct wcall *wcall,
 		goto out;
 
 	if (!jzon_is_array(jclients)) {
-		warning("wcall(%p): request_video_streams: json object is not an array\n");
+		warning("wcall(%p): request_video_streams: json object is not an array\n",
+			wcall);
 		goto out;
 	}
 

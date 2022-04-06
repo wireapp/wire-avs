@@ -15,23 +15,19 @@
 * You should have received a copy of the GNU General Public License
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
-#include <re.h>
-#include <avs.h>
-#include <gtest/gtest.h>
 
+struct ecall_wrapper {
+	struct icall *icall;
+	char *name;
+	char *url;
+	struct tmr call_timer;
+	struct list partl;
+	bool fake_auth;
+	struct iflow_stats stats;
+};
 
-TEST(vidcodec, good)
-{
-	struct list vidcodecl = LIST_INIT;
-	static struct vidcodec vc_good = {
-		.le = LE_INIT,
-		.pt = "100",
-		.name = "VP8",
-	};
+struct ecall_wrapper *init_ecall(const char *name, bool fake_auth);
 
-	vidcodec_register(&vidcodecl, &vc_good);
+void ecall_wrapper_join_call(struct ecall_wrapper *wrapper,
+			     const char *callid);
 
-	ASSERT_EQ(1, list_count(&vidcodecl));
-
-	vidcodec_unregister(&vc_good);
-}

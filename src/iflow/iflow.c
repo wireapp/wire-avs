@@ -90,7 +90,7 @@ void iflow_set_callbacks(struct iflow *iflow,
 			 void				*arg)
 {
 	if (!iflow) {
-		warning("iflow_set_functions called on NULL iflow\n");
+		warning("iflow_set_callbacks called on NULL iflow\n");
 		return;
 	}
 	iflow->estabh			= estabh;

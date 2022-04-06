@@ -247,6 +247,7 @@ WEBRTC_VER := 20220331.local
 endif
 
 JAVAC := javac
+JAVADOC := javadoc
 
 AFLAGS := cr
 

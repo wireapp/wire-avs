@@ -63,8 +63,9 @@ extern "C" {
 
 #include "peerflow.h"
 
-#define TMR_STATS_INTERVAL  1000
-#define TMR_CBR_INTERVAL    2500
+#define TMR_STATS_INTERVAL      1000
+#define TMR_CBR_INTERVAL        2500
+#define TMR_RESTART_INTERVAL    2000
 
 #define DOUBLE_ENCRYPTION 1
 
@@ -147,6 +148,7 @@ struct peerflow {
 	rtc::scoped_refptr<wire::CbrDetectorLocal> cbr_det_local;
 	rtc::scoped_refptr<wire::CbrDetectorRemote> cbr_det_remote;
 	struct tmr tmr_cbr;
+	struct tmr tmr_restart;
 
 	struct {
 		rtc::scoped_refptr<webrtc::AudioSourceInterface> source;
@@ -197,18 +199,20 @@ static void pf_norelay_handler(bool local, void *arg);
 
 
 enum {
-      MQ_PC_ALLOC   = 0x01,
-      MQ_PC_ESTAB   = 0x02,
-      MQ_PC_CLOSE   = 0x03,
-      MQ_PC_GATHER  = 0x04,
-      MQ_PC_RESTART = 0x05,
+      MQ_PC_ALLOC          = 0x01,
+      MQ_PC_ESTAB          = 0x02,
+      MQ_PC_CLOSE          = 0x03,
+      MQ_PC_GATHER         = 0x04,
+      MQ_PC_RESTART_NOW    = 0x05,
+      MQ_PC_RESTART_DELAY  = 0x06,
+      MQ_PC_RESTART_CANCEL = 0x07,
 
-      MQ_DC_ESTAB   = 0x10,
-      MQ_DC_OPEN    = 0x11,
-      MQ_DC_CLOSE   = 0x12,
-      MQ_DC_DATA    = 0x13,
+      MQ_DC_ESTAB          = 0x10,
+      MQ_DC_OPEN           = 0x11,
+      MQ_DC_CLOSE          = 0x12,
+      MQ_DC_DATA           = 0x13,
       
-      MQ_HTTP_SEND  = 0x20,
+      MQ_HTTP_SEND         = 0x20,
 
       MQ_INTERNAL_SET_MUTE = 0x30,
 };
@@ -442,6 +446,17 @@ static void set_all_mute(bool muted)
 	}
 }
 
+
+void timer_restart(void *arg)
+{
+	struct peerflow *pf = (struct peerflow*)arg;
+	info("pf(%p): calling restarth due to network drop\n", pf);
+
+	IFLOW_CALL_CB(pf->iflow, restarth,
+		false, pf->iflow.arg);
+}
+
+
 static void handle_mq(struct peerflow *pf, struct mq_data *md, int id)
 {
 	switch(id) {
@@ -462,9 +477,16 @@ static void handle_mq(struct peerflow *pf, struct mq_data *md, int id)
 			EINTR, pf->iflow.arg);
 		break;
 
-	case MQ_PC_RESTART:
-		IFLOW_CALL_CB(pf->iflow, restarth,
-			false, pf->iflow.arg);
+	case MQ_PC_RESTART_NOW:
+		tmr_start(&pf->tmr_restart, 1, timer_restart, pf);
+		break;
+
+	case MQ_PC_RESTART_DELAY:
+		tmr_start(&pf->tmr_restart, TMR_RESTART_INTERVAL, timer_restart, pf);
+		break;
+
+	case MQ_PC_RESTART_CANCEL:
+		tmr_cancel(&pf->tmr_restart);
 		break;
 
 	case MQ_DC_OPEN:
@@ -1001,6 +1023,21 @@ public:
 		info("pf(%p): renegotiation needed\n", pf_);
 	}
 
+
+	void SendMQMessage(int msgid) {
+		struct mq_data *md;
+		md = (struct mq_data *)mem_zalloc(sizeof(*md),
+						  md_destructor);
+		if (!md) {
+			warning("pf(%p): could not alloc md\n", pf_);
+			return;
+		}
+		md->pf = pf_;
+		md->id = msgid;
+
+		push_mq(md);
+	}
+
 	// Called any time the IceConnectionState changes.
 	//
 	// Note that our ICE states lag behind the standard slightly. The most
@@ -1017,24 +1054,22 @@ public:
 		
 		switch (state) {
 		case webrtc::PeerConnectionInterface::IceConnectionState::kIceConnectionDisconnected:
+			warning("pf(%p): ice connection: %s\n",
+			     pf_, ice_connection_state_name(state));
+
+			SendMQMessage(MQ_PC_RESTART_DELAY);
+			break;
+
 		case webrtc::PeerConnectionInterface::IceConnectionState::kIceConnectionFailed:
 			warning("pf(%p): ice connection: %s\n",
 			     pf_, ice_connection_state_name(state));
-			
-			md = (struct mq_data *)mem_zalloc(sizeof(*md),
-							  md_destructor);
-			if (!md) {
-				warning("pf(%p): could not alloc md\n", pf_);
-				return;
-			}
-			md->pf = pf_;
-			md->id = MQ_PC_RESTART;
 
-			push_mq(md);
-			//mqueue_push(g_pf.mq, md->id, md);
+			SendMQMessage(MQ_PC_RESTART_NOW);
 			break;
 
 		case webrtc::PeerConnectionInterface::IceConnectionState::kIceConnectionConnected:
+		case webrtc::PeerConnectionInterface::IceConnectionState::kIceConnectionClosed:
+			SendMQMessage(MQ_PC_RESTART_CANCEL);
 			break;
 			
 		default:
@@ -1822,6 +1857,7 @@ static void pf_destructor(void *arg)
 	pf->netStatsCb = NULL;
 
 	tmr_cancel(&pf->tmr_cbr);
+	tmr_cancel(&pf->tmr_restart);
 	pf->video.track = NULL;
 	pf->audio.track = NULL;
 	pf->audio.source = NULL;
@@ -2783,6 +2819,45 @@ out:
 	return err;
 }
 
+int peerflow_inc_frame_count(struct peerflow* pf,
+			     uint32_t csrc,
+			     bool video,
+			     uint32_t frames)
+{
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	struct conf_member *cm;
+	int err = 0;
+
+	if (!pf)
+		return EINVAL;
+
+	lock_write_get(pf->cml.lock);
+	if (video)
+		cm = conf_member_find_by_ssrcv(&pf->cml.list, csrc);
+	else
+		cm = conf_member_find_by_ssrca(&pf->cml.list, csrc);
+
+	if (!cm) {
+		err = ENOENT;
+		goto out;
+	}
+
+	if (video)
+		cm->video_frames += frames;
+	else
+		cm->audio_frames += frames;
+
+	debug("FRAME: %s.%s a: %u v: %u\n",
+	      anon_id(userid_anon, cm->userid),
+	      anon_client(clientid_anon, cm->clientid),
+	      cm->audio_frames,
+	      cm->video_frames);
+out:
+	lock_rel(pf->cml.lock);
+	return err;
+}
+
 
 void peerflow_set_stats(struct peerflow* pf,
 			int audio_level,
@@ -2831,7 +2906,32 @@ int peerflow_get_stats(struct iflow *flow,
 
 int peerflow_debug(struct re_printf *pf, const struct iflow *flow)
 {
-	return 0;
+	struct peerflow *peerflow = (struct peerflow*)flow;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	struct le *le;
+	int err = 0;
+
+	err = re_hprintf(pf, "\nPEERFLOW SUMMARY %p:\n", peerflow);
+	if (err)
+		goto out;
+
+	LIST_FOREACH(&peerflow->cml.list, le) {
+		struct conf_member *cm = (struct conf_member *)le->data;
+
+		if (cm->active) {
+			err = re_hprintf(pf, "stream user: %s.%s ssrca: %u ssrcv: %u aframes: %u vframes: %u\n",
+				anon_id(userid_anon, cm->userid),
+				anon_client(clientid_anon, cm->clientid),
+				cm->ssrca, cm->ssrcv,
+				cm->audio_frames, cm->video_frames);
+			if (err)
+				goto out;
+		}
+	}
+
+out:
+	return err;
 }
 
 

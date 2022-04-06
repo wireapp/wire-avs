@@ -19,7 +19,10 @@
 #include <re.h>
 #include "avs_log.h"
 #include <string.h>
+#include <assert.h>
 
+#define ANON_QID_LEN    9
+#define ANON_DOMAIN_LEN 4
 
 static struct {
 	struct list logl;
@@ -181,13 +184,29 @@ void error(const char *fmt, ...)
 
 const char *anon_id(char *outid, const char *inid)
 {
-	if (outid) {
-		memset(outid, 0, ANON_ID_LEN);
-		if (inid) {
-			str_ncpy(outid, inid, ANON_ID_LEN);
-		}
+	const char *domain = NULL;
+	size_t len;
+
+	if (!outid)
+		goto out;
+
+	memset(outid, 0, ANON_ID_LEN);
+	if (!inid)
+		goto out;
+
+	assert(ANON_QID_LEN + ANON_DOMAIN_LEN < ANON_ID_LEN);
+
+	domain = strchr(inid, '@');
+	if (domain) {
+		len = max(0, min(ANON_QID_LEN, domain - inid + 1));
+		str_ncpy(outid, inid, len);
+		strncat(outid, domain, ANON_DOMAIN_LEN);
+	}
+	else {
+		str_ncpy(outid, inid, ANON_QID_LEN);
 	}
 
+out:
 	return outid;
 }
 

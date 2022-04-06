@@ -239,7 +239,7 @@ void *fake_audiodevice::record_thread()
 				if (muted_)
 					tmp = 0;
 				else if (noise_) {
-					tmp = ((float)rand()/RAND_MAX) * 2.0f;
+					tmp = ((float)rand()/(float)RAND_MAX) * 2.0f;
 					tmp -= 1.0f;
 					tmp *= 16000.0f;
 				}

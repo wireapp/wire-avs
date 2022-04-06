@@ -34,14 +34,6 @@
 
 #define CCALL_CBR_ALWAYS_ON 1
 
-struct join_elem {
-	struct ccall *ccall;
-	enum icall_call_type call_type;
-	bool audio_cbr;
-
-	struct config_update_elem upe;
-};
-
 static void ccall_connect_timeout(void *arg);
 static void ccall_stop_ringing_timeout(void *arg);
 static void ccall_ongoing_call_timeout(void *arg);
@@ -61,9 +53,6 @@ static int ccall_send_msg_sft(struct ccall *ccall,
 static int  ccall_send_conf_conn(struct ccall *ccall,
 				 const char *sft_url,
 				 bool update);
-static int  ccall_join(struct ccall *ccall,
-		       enum icall_call_type call_type,
-		       bool audio_cbr);
 static int ccall_send_keys(struct ccall *ccall,
 			   bool send_to_all);
 static int ccall_request_keys(struct ccall *ccall);
@@ -110,7 +99,9 @@ static void destructor(void *arg)
 {
 	struct ccall *ccall = arg;
 
-	config_unregister_all_updates(ccall->cfg, ccall);
+	if (ccall->je) {
+		ccall->je = mem_deref(ccall->je);
+	}
 
 	tmr_cancel(&ccall->tmr_connect);
 	tmr_cancel(&ccall->tmr_call);
@@ -125,6 +116,8 @@ static void destructor(void *arg)
 	tmr_cancel(&ccall->tmr_alone);
 
 	mem_deref(ccall->sft_url);
+	mem_deref(ccall->primary_sft_url);
+ 	mem_deref(ccall->sft_tuple);
 	mem_deref(ccall->convid_real);
 	mem_deref(ccall->convid_hash);
 	mem_deref(ccall->self);
@@ -136,6 +129,7 @@ static void destructor(void *arg)
 
 	list_flush(&ccall->sftl);
 	list_flush(&ccall->partl);
+	list_flush(&ccall->saved_partl);
 
 	mbuf_reset(&ccall->confpart_data);
 }
@@ -419,6 +413,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 
 	switch(ccall->state) {
 	case CCALL_STATE_IDLE:
+		ccall->sft_url = mem_deref(ccall->sft_url);
 		ccall->keygenerator = NULL;
 		ccall->received_confpart = false;
 		keystore_reset(ccall->keystore);
@@ -431,6 +426,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		break;
 
 	case CCALL_STATE_INCOMING:
+		ccall->sft_url = mem_deref(ccall->sft_url);
 		ccall->keygenerator = NULL;
 		ccall->received_confpart = false;
 		keystore_reset_keys(ccall->keystore);
@@ -464,6 +460,8 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		break;
 
 	case CCALL_STATE_ACTIVE:
+		ccall->expected_ping = 0;
+		ccall->last_ping = 0;
 		tmr_cancel(&ccall->tmr_connect);
 		tmr_start(&ccall->tmr_decrypt_check, CCALL_DECRYPT_CHECK_TIMEOUT,
 			  ccall_decrypt_check_timeout, ccall);
@@ -560,7 +558,8 @@ static void ccall_sync_vstate_timeout(void *arg)
 }
 
 static void ccall_reconnect(struct ccall *ccall,
-			    uint32_t msg_time)
+			    uint32_t msg_time,
+			    bool notify)
 {
 	bool decrypt_attempted = false;
 	bool decrypt_successful = false;
@@ -589,10 +588,24 @@ static void ccall_reconnect(struct ccall *ccall,
 	}
 	ccall->reconnect_attempts++;
 	ccall->expected_ping = 0;
+	ccall->last_ping = 0;
 
 	incall_clear(ccall, true);
 	set_state(ccall, CCALL_STATE_CONNSENT);
-	ccall_send_conf_conn(ccall, ccall->sft_url, true);
+	if (ccall->sft_url) {
+		ccall_send_conf_conn(ccall, ccall->sft_url, true);
+	}
+
+	if (notify) {
+		ICALL_CALL_CB(ccall->icall, qualityh,
+			      &ccall->icall, 
+			      "SFT",
+			      "SFT",
+			      0,
+			      ICALL_RECONNECTING,
+			      ICALL_RECONNECTING,
+			      ccall->icall.arg);
+	}
 }
 
 static void ccall_decrypt_check_timeout(void *arg)
@@ -616,7 +629,7 @@ static void ccall_decrypt_check_timeout(void *arg)
 		info("ccall(%p): decrypt_check_timeout no confpart received, "
 		     "reconnecting\n",
 		     ccall);
-		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN);
+		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN, true);
 		return;
 	}
 
@@ -658,8 +671,12 @@ static int ecall_ping_handler(struct ecall *ecall,
 {
 	struct ccall *ccall = arg;
 
+	ccall->last_ping = tmr_jiffies();
 	ccall->expected_ping = 0;
 	ccall->reconnect_attempts = 0;
+
+	info("ccall(%p): ping arrived\n",
+	     ccall);
 
 	return 0;
 }
@@ -671,6 +688,9 @@ static void ccall_keepalive_timeout(void *arg)
 	if (!ccall)
 		return;
 
+	info("ccall(%p): keepalive: ping %u\n",
+	     ccall,
+	     ccall->expected_ping);
 	if (ccall->state != CCALL_STATE_ACTIVE) {
 		info("ccall(%p): keepalive_timeout in state %s, ignoring\n",
 		     ccall,
@@ -687,11 +707,12 @@ static void ccall_keepalive_timeout(void *arg)
 	ecall_ping(ccall->ecall, false);
 	ccall->expected_ping++;
 	if (ccall->expected_ping > CCALL_MAX_MISSING_PINGS) {
-		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN);
+		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN, true);
 	}
-
-	tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
-		  ccall_keepalive_timeout, ccall);
+	else {
+		tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
+			  ccall_keepalive_timeout, ccall);
+	}
 }
 
 static void ccall_alone_timeout(void *arg)
@@ -943,8 +964,14 @@ static void ecall_media_estab_handler(struct icall *icall, const char *userid,
 
 	ICALL_CALL_CB(ccall->icall, media_estabh,
 		icall, userid, clientid, update, ccall->icall.arg);
-	set_state(ccall, CCALL_STATE_ACTIVE);
-	incall_clear(ccall, true);
+	if (CCALL_STATE_CONNSENT != ccall->state) {
+		set_state(ccall, CCALL_STATE_ACTIVE);
+		incall_clear(ccall, true);
+	}
+	else {
+		info("ccall(%p): refusing to go to CCALL_STATE_ACTIVE "
+		     "from CCALL_STATE_CONNSENT\n");
+	}
 }
 
 static void ecall_audio_estab_handler(struct icall *icall, const char *userid,
@@ -1039,11 +1066,12 @@ static void ecall_close_handler(struct icall *icall,
 		}
 	}
 
-	if (err == EAGAIN) {
+	if (err == EAGAIN || err == ENOTCONN) {
 		ccall->reconnect_attempts = 0;
 		ccall->expected_ping = 0;
+		ccall->last_ping = 0;
 
-		ccall_reconnect(ccall, msg_time);
+		ccall_reconnect(ccall, msg_time, err == ENOTCONN);
 		return;
 	}
 
@@ -1081,14 +1109,56 @@ static void ecall_close_handler(struct icall *icall,
 }
 
 
+static void ecall_quality_handler(struct icall *icall,
+				  const char *userid,
+				  const char *clientid,
+				  int rtt, int uploss, int downloss,
+				  void *arg)
+{
+	struct ccall *ccall = arg;
+	uint64_t tdiff;
+
+	if (!icall || !ccall)
+		return;
+
+	if (CCALL_STATE_ACTIVE != ccall->state)
+		return;
+
+	tdiff = tmr_jiffies() - ccall->last_ping;
+	if (ccall->last_ping > 0)
+		downloss = tdiff > 7000 ? 30 :
+			   tdiff > 4000 ? 10 : downloss;
+
+	info("ccall(%p): ecall_quality_handler rtt=%d up=%d dn=%d "
+	     "ping=%u pdiff=%llu\n",
+	     ccall, rtt, uploss, downloss, ccall->expected_ping, tdiff);
+	
+	ICALL_CALL_CB(ccall->icall, qualityh,
+		      &ccall->icall, 
+		      userid,
+		      clientid,
+		      rtt,
+		      uploss,
+		      downloss,
+		      ccall->icall.arg);
+}
+
+
 static int ccall_send_msg_sft(struct ccall *ccall,
 			      const char *sft_url,
 			      struct econn_message *msg)
 {
 	int err = 0;
 	char *url = NULL;
+	const char *fmt;
+	int len;
 
 	if (!sft_url) {
+		return EINVAL;
+	}
+
+	len = strlen(sft_url);
+	if (len < 1) {
 		return EINVAL;
 	}
 
@@ -1096,8 +1166,13 @@ static int ccall_send_msg_sft(struct ccall *ccall,
 	    ECONN_SETUP == msg->msg_type ||
 	    ECONN_UPDATE == msg->msg_type) {
 		// Send these messages to the SFT
-		int len;
-		const char *fmt = "%ssft/%s";
+
+		if (sft_url[len - 1] == '/') {
+			fmt = "%ssft/%s";
+		}
+		else {
+			fmt = "%s/sft/%s";
+		}
 
 		len = strlen(fmt) +
 		      strlen(sft_url) + 
@@ -1122,7 +1197,8 @@ static int ccall_send_msg_sft(struct ccall *ccall,
 		if (err)
 			goto out;
 
-		if (ECONN_SETUP == msg->msg_type &&
+		if ((ECONN_SETUP == msg->msg_type ||
+		    ECONN_UPDATE == msg->msg_type) &&
 		    CCALL_STATE_ACTIVE != ccall->state) {
 			set_state(ccall, CCALL_STATE_CONNECTING);
 		}
@@ -1146,7 +1222,7 @@ static int ecall_transp_send_handler(struct icall *icall,
 	return ccall_send_msg_sft(ccall, ccall->sft_url, msg);
 }
 
-static struct userinfo *find_userinfo_by_real(struct ccall *ccall,
+static struct userinfo *find_userinfo_by_real(const struct ccall *ccall,
 					      const char *userid_real,
 					      const char *clientid_real)
 {
@@ -1165,7 +1241,7 @@ static struct userinfo *find_userinfo_by_real(struct ccall *ccall,
 	return NULL;
 }
 
-static struct userinfo *find_userinfo_by_hash(struct ccall *ccall,
+static struct userinfo *find_userinfo_by_hash(const struct ccall *ccall,
 					      const char *userid_hash,
 					      const char *clientid_hash)
 {
@@ -1233,7 +1309,7 @@ static int send_confpart_response(struct ccall *ccall)
 	err = econn_message_encode(&str, msg);
 	if (err) {
 		warning("ccall(%p): send_confpart_resp: econn_message_encode"
-			" failed (%m)\n", err);
+			" failed (%m)\n", ccall, err);
 		goto out;
 	}
 
@@ -1249,7 +1325,7 @@ static int send_confpart_response(struct ccall *ccall)
 	err =  ecall_dce_send(ccall->ecall, &mb);
 	if (err) {
 		warning("ccall(%p): send_confpart_resp: ecall_dce_send"
-			" failed (%m)\n", err);
+			" failed (%m)\n", ccall, err);
 		goto out;
 	}
 
@@ -1308,7 +1384,7 @@ int  ccall_request_video_streams(struct icall *icall,
 	err = econn_message_encode(&str, msg);
 	if (err) {
 		warning("ccall(%p): request_video_streams: econn_message_encode"
-			" failed (%m)\n", err);
+			" failed (%m)\n", ccall, err);
 		goto out;
 	}
 
@@ -1324,7 +1400,7 @@ int  ccall_request_video_streams(struct icall *icall,
 	err =  ecall_dce_send(ccall->ecall, &mb);
 	if (err) {
 		warning("ccall(%p): request_video_streams: ecall_dce_send"
-			" failed (%m)\n", err);
+			" failed (%m)\n", ccall, err);
 		goto out;
 	}
 
@@ -1356,9 +1432,9 @@ static  int ecall_propsync_handler(struct ecall *ecall,
 	vr = econn_props_get(msg->u.propsync.props, "videosend");
 	mt = econn_props_get(msg->u.propsync.props, "muted");
 	info("ccall(%p): ecall_propsync_handler ecall: %p"
-		" remote %s.%s video '%s' muted '%s'\n",
+		" remote %s.%s video '%s' muted '%s' %s\n",
 	     ccall, ecall, msg->src_userid, msg->src_clientid,
-	     vr ? vr : "", mt ? mt : "");
+	     vr ? vr : "", mt ? mt : "", msg->resp ? "resp" : "req");
 
 	user = find_userinfo_by_hash(ccall, msg->src_userid, msg->src_clientid);
 	if (!user) {
@@ -1420,7 +1496,7 @@ static void ccall_keep_confpart_data(struct ccall *ccall,
 	int err = 0;
 
 	if (!ccall || !msg) {
-		warning("call(%p): confpart_data invalid params\n");
+		warning("ccall(%p): confpart_data invalid params\n", ccall);
 		return;
 	}
 
@@ -1440,8 +1516,11 @@ static void ccall_keep_confpart_data(struct ccall *ccall,
 	if (err)
 		goto out;
 
+	list_flush(&ccall->saved_partl);
+
 	LIST_FOREACH(&msg->u.confpart.partl, le) {
 		struct econn_group_part *p = le->data;
+		struct econn_group_part *pcopy = NULL;
 
 		if (!p)
 			continue;
@@ -1457,6 +1536,16 @@ static void ccall_keep_confpart_data(struct ccall *ccall,
 				     htonl(p->ssrcv));
 		if (err)
 			goto out;
+
+		pcopy = econn_part_alloc(p->userid, p->clientid);
+		if (!pcopy) {
+			err = ENOMEM;
+			goto out;
+		}
+		pcopy->ssrca = p->ssrca;
+		pcopy->ssrcv = p->ssrcv;
+
+		list_append(&ccall->saved_partl, &pcopy->le, pcopy);
 	}
 
 	mbuf_set_pos(&ccall->confpart_data, 0);
@@ -1467,6 +1556,55 @@ out:
 	}
 }
 
+
+static bool sfts_equal(const char *sfta, const char *sftb)
+{
+	size_t lena, lenb;
+
+	if (!sfta || !sftb) {
+		return false;
+	}
+	lena = strlen(sfta);
+	if (lena > 0 && sfta[lena - 1] == '/') {
+		lena--;
+	}
+
+	lenb = strlen(sftb);
+	if (lenb > 0 && sftb[lenb - 1] == '/') {
+		lenb--;
+	}
+
+	if (lena != lenb) {
+		return false;
+	}
+
+	return (strncmp(sfta, sftb, lena) == 0);
+}
+
+
+static bool ccall_sftlist_changed(const struct list *lista, const struct list *listb)
+{
+	struct le *lea, *leb;
+	struct stringlist_info *stra, *strb;
+
+	if (list_count(lista) != list_count(listb))
+		return true;
+
+	lea = lista->head;
+	leb = listb->head;
+	while(lea && leb) {
+		stra = lea->data;
+		strb = leb->data;
+		if (!sfts_equal(stra->str, strb->str)) {
+			return true;
+		}
+
+		lea = lea->next;
+		leb = leb->next;
+	}
+
+	return false;
+}
 
 static void ecall_confpart_handler(struct ecall *ecall,
 				   const struct econn_message *msg,
@@ -1696,13 +1834,44 @@ static void ecall_confpart_handler(struct ecall *ecall,
 				warning("ccall(%p): send_keys failed\n", ccall);
 			}
 		}
+
+		if (ccall->ecall) {
+			err = ecall_sync_props(ccall->ecall, true);
+			if (err) {
+				warning("ccall(%p): sync_props failed\n", ccall);
+			}
+		}
 	}
 
 	if (missing_parts) {
 		ICALL_CALL_CB(ccall->icall, req_clientsh,
 		      &ccall->icall, ccall->icall.arg);
 	}
+
+	if (ccall->keygenerator == ccall->self && !should_start &&
+	    ccall_sftlist_changed(&ccall->sftl, &msg->u.confpart.sftl)) {
+		stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
+		ccall_send_check_timeout(ccall);
+	}
+	else {
+		stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
+	}
 }
+
+
+static void ecall_confmsg_handler(struct ecall *ecall,
+				  const struct econn_message *msg,
+				  void *arg)
+{
+	if (!ecall || !msg) {
+		return;
+	}
+
+	if (msg->msg_type == ECONN_CONF_PART) {
+		ecall_confpart_handler(ecall, msg, arg);
+	}
+}
+
 
 static int alloc_message(struct econn_message **msgp,
 			 struct ccall *ccall,
@@ -1750,11 +1919,24 @@ static int alloc_message(struct econn_message **msgp,
 		}
 		memcpy(msg->u.confstart.secret, ccall->secret, ccall->secret_len);
 		msg->u.confstart.secretlen = ccall->secret_len;
-		err = str_dup(&msg->u.confstart.sft_url, ccall->sft_url);
+		err = str_dup(&msg->u.confstart.sft_url, ccall->primary_sft_url);
 		if (err) {
 			goto out;
 		}
+		if (ccall->sft_tuple) {
+			err = str_dup(&msg->u.confstart.sft_tuple, ccall->sft_tuple);
+			if (err) {
+				goto out;
+			}
+		}
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
+
+		if (list_count(&ccall->sftl) > 0) {
+			stringlist_clone(&ccall->sftl, &msg->u.confstart.sftl);
+		}
+		else {
+			stringlist_append(&msg->u.confstart.sftl, ccall->primary_sft_url);
+		}
 
 		/* Add videosend prop */
 		err = econn_props_alloc(&msg->u.confstart.props, NULL);
@@ -1777,10 +1959,23 @@ static int alloc_message(struct econn_message **msgp,
 		}
 		memcpy(msg->u.confcheck.secret, ccall->secret, ccall->secret_len);
 		msg->u.confcheck.secretlen = ccall->secret_len;
-		err = str_dup(&msg->u.confcheck.sft_url, ccall->sft_url);
+		err = str_dup(&msg->u.confcheck.sft_url, ccall->primary_sft_url);
 		if (err) {
 			goto out;
 		}
+		if (ccall->sft_tuple) {
+			err = str_dup(&msg->u.confcheck.sft_tuple, ccall->sft_tuple);
+			if (err) {
+				goto out;
+			}
+		}
+		if (list_count(&ccall->sftl) > 0) {
+			stringlist_clone(&ccall->sftl, &msg->u.confcheck.sftl);
+		}
+		else {
+			stringlist_append(&msg->u.confcheck.sftl, ccall->primary_sft_url);
+		}
+
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
 	}
 	else if (type == ECONN_CONF_KEY) {
@@ -1858,6 +2053,9 @@ static int  ccall_send_msg(struct ccall *ccall,
 			   bool transient)
 {
 	struct econn_message *msg = NULL;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+
 	int err = 0;
 
 	if (targets) {
@@ -1866,7 +2064,10 @@ static int  ccall_send_msg(struct ccall *ccall,
 	}
 	else {
 		info("ccall(%p): send_msg type: %s userid=%s clientid=%s\n",
-		     ccall, econn_msg_name(type), ccall->self->userid_real, ccall->self->clientid_real);
+		     ccall,
+		     econn_msg_name(type),
+		     anon_id(userid_anon, ccall->self->userid_real),
+		     anon_client(clientid_anon, ccall->self->clientid_real));
 	}
 
 	err = alloc_message(&msg, ccall, type, resp,
@@ -1904,6 +2105,15 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	struct zapi_ice_server *turnv;
 	size_t turnc;
 	int err = 0;
+	char *sft_url_term = NULL;
+
+	if (!ccall || !sft_url) {
+		return EINVAL;
+	}
+
+	err = copy_sft(&sft_url_term, sft_url);
+	if (err)
+		return err;
 
 	info("ccall(%p): send_msg_sft url: %s type: %s resp: %s\n",
 	     ccall,
@@ -1950,13 +2160,32 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	msg->u.confconn.selective_video = true;
 	msg->u.confconn.vstreams = CCALL_MAX_VSTREAMS;
 
-	err = ccall_send_msg_sft(ccall, sft_url, msg);
+	if (ccall->primary_sft_url && 
+	    strcmp(ccall->primary_sft_url, sft_url_term) != 0) {
+		info("ccall(%p): send_msg_sft setting primary_sft_url %s\n",
+		     ccall, ccall->primary_sft_url);
+		err = str_dup(&msg->u.confconn.sft_url, ccall->primary_sft_url);
+		if (err) {
+			goto out;
+		}
+		if (ccall->sft_tuple) {
+			info("ccall(%p): send_msg_sft setting sft_tuple %s\n",
+			     ccall, ccall->sft_tuple);
+			err = str_dup(&msg->u.confconn.sft_tuple, ccall->sft_tuple);
+			if (err) {
+				goto out;
+			}
+		}
+	}
+
+	err = ccall_send_msg_sft(ccall, sft_url_term, msg);
 	if (err != 0) {
 		goto out;
 	}
 
 out:
 	mem_deref(msg);
+	mem_deref(sft_url_term);
 
 	return err;
 }
@@ -1998,16 +2227,20 @@ static int create_ecall(struct ccall *ccall)
 			    NULL, // ecall_vstate_handler,
 			    NULL, // ecall_audiocbr_handler,
 			    NULL, // muted_changed_handler,
-			    NULL, // ecall_quality_handler,
+			    ecall_quality_handler,
 			    NULL, // ecall_req_clients_handler,
 			    NULL, // ecall_norelay_handler,
 			    ecall_aulevel_handler,
 			    ccall);
 
-	ecall_set_confpart_handler(ecall, ecall_confpart_handler);
+	ecall_set_confmsg_handler(ecall, ecall_confmsg_handler);
 	ecall_set_propsync_handler(ecall, ecall_propsync_handler);
 	ecall_set_ping_handler(ecall, ecall_ping_handler);
 	ecall_set_keystore(ecall, ccall->keystore);
+	err = ecall_set_quality_interval(ecall, ccall->quality_interval);
+	if (err)
+		goto out;
+
 	err = ecall_set_real_clientid(ecall, ccall->self->clientid_real);
 	if (err)
 		goto out;
@@ -2152,29 +2385,34 @@ int  ccall_add_sft(struct icall *icall, const char *sft_url)
 	return 0;
 }
 
-static int  ccall_join(struct ccall *ccall,
-		       enum icall_call_type call_type,
-		       bool audio_cbr)
+static bool ccall_can_connect_sft(struct ccall *ccall, const char *sft_url)
 {
-	int err = 0;
+	struct zapi_ice_server *sftv;
+	size_t sft = 0, sftc = 0;
+	bool found = false;
 
-	if (!ccall->sft_url) {
-		warning("ccall(%p): ccall_join no SFT URL set\n", ccall);
-		err = EINVAL;
-		goto out;
+	if (!ccall || !sft_url) {
+		return false;
 	}
 
-	ccall->reconnect_attempts = 0;
-	ccall->expected_ping = 0;
-	set_state(ccall, CCALL_STATE_CONNSENT);
-	ccall->call_type = call_type;
+	sftv = config_get_sftservers_all(ccall->cfg, &sftc);
 
-	ICALL_CALL_CB(ccall->icall, req_clientsh,
-		      &ccall->icall, ccall->icall.arg);
+	info("ccall(%p): can_connect %zu sfts in sft_servers_all\n",
+		ccall, sftc);
+	if (sftc == 0) {
+		/* If no sfts in config, assume legacy behaviour:
+		   we can connect to all SFTs */
+		return true;
+	}
 
-	err = ccall_send_conf_conn(ccall, ccall->sft_url, false);
-out:
-	return err;
+	for (sft = 0; sft < sftc && !found; sft++) {
+		if (sfts_equal(sft_url, sftv[sft].url)) {
+			info("ccall(%p): can_connect found sft %s in calls/conf\n",
+				ccall, sft_url);
+			found = true;
+		}
+	}
+	return found;
 }
 
 static void config_update_handler(struct call_config *cfg, void *arg)
@@ -2183,9 +2421,19 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	struct ccall *ccall = je->ccall;
 	struct zapi_ice_server *urlv;
 	size_t urlc, sft;
-	char *url = NULL;
+	int state = ccall->state;
+	struct le *le;
 	int err = 0;
 
+	if (!ccall) {
+		return;
+	}
+	if (je != ccall->je) {
+		/* This is a callback from a previous attempt, ignore it */
+		info("ccall(%p): cfg_update ignoring old update %p %p\n",
+		     ccall, je, ccall->je);
+		return;
+	}
 	urlv = config_get_sftservers(ccall->cfg, &urlc);
 
 	info("ccall(%p): cfg_update received %zu sfts state: %s\n",
@@ -2216,22 +2464,74 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	ICALL_CALL_CB(ccall->icall, req_clientsh,
 		      &ccall->icall, ccall->icall.arg);
 
+	/* Prefer connecting to an already active sft */
+	if (CCALL_STATE_INCOMING == state) {
+		if (list_count(&ccall->sftl) > 0) {
+			uint32_t connected = 0;
+
+			info("ccall(%p): cfg_update checking %u sfts from sft list\n",
+			     ccall, list_count(&ccall->sftl));
+			LIST_FOREACH(&ccall->sftl, le) {
+				struct stringlist_info *nfo = le->data;
+
+				if (ccall_can_connect_sft(ccall, nfo->str)) {
+					err = ccall_send_conf_conn(ccall, nfo->str, false);
+					if (err) {
+						warning("ccall(%p): cfg_update failed to send "
+							"confconn to sft %s err=%d\n",
+							ccall, nfo->str, err);
+					}
+					else {
+						info("ccall(%p): cfg_update connecting to %s "
+							"from SFT list\n",
+							ccall, nfo->str);
+						connected++;
+					}
+				}
+
+				if (connected >= 3)
+					break;
+			}
+
+			if (connected > 0)
+				goto out;
+		}
+		else if (ccall->primary_sft_url) {
+			// legacy behaviour, connect to primary
+			if (ccall_can_connect_sft(ccall, ccall->primary_sft_url)) {
+				err = ccall_send_conf_conn(ccall, ccall->primary_sft_url, false);
+				if (err) {
+					warning("ccall(%p): cfg_update failed to send "
+						"confconn to primary sft %s err=%d\n",
+						ccall, ccall->primary_sft_url, err);
+				}
+				else {
+					info("ccall(%p): cfg_update connecting to primary sft "
+						" %s for legacy behaviour\n",
+						ccall, ccall->primary_sft_url);
+					goto out;
+				}
+			}
+		}
+	}
+	
+	urlc = MIN(urlc, 3);
 	for (sft = 0; sft < urlc; sft++) {
 		/* If one SFT fails, keep trying the rest */
-		err = copy_sft(&url, urlv[sft].url);
-		if (err) {
-			continue;
-		}
-		err = ccall_send_conf_conn(ccall, url, false);
+		err = ccall_send_conf_conn(ccall, urlv[sft].url, false);
 		if (err) {
 			warning("ccall(%p): cfg_update failed to send "
 				"confconn to sft %s err=%d\n",
-				ccall, url, err);
+				ccall, urlv[sft].url, err);
 		}
-		url = mem_deref(url);
+		else {
+			info("ccall(%p): cfg_update connecting to %s "
+				"from calls/config\n",
+				ccall, urlv[sft].url);
+		}
 	}
  out:
-	mem_deref(je);
+	ccall->je = mem_deref(ccall->je);
 }
 
 static void je_destructor(void *arg)
@@ -2251,6 +2551,12 @@ static int  ccall_req_cfg_join(struct ccall *ccall,
 	je = mem_zalloc(sizeof(*je), je_destructor);
 	if (!je)
 		return ENOMEM;
+
+	if (ccall->je) {
+		ccall->je = mem_deref(ccall->je);
+	}
+
+	ccall->je = je;
 
 	je->ccall = ccall;
 	je->call_type = call_type;
@@ -2314,7 +2620,7 @@ int  ccall_answer(struct icall *icall,
 	case CCALL_STATE_INCOMING:
 		ccall->is_caller = false;
 		ccall->stop_ringing_reason = CCALL_STOP_RINGING_ANSWERED;
-		err = ccall_join(ccall, call_type, audio_cbr);
+		err = ccall_req_cfg_join(ccall, call_type, audio_cbr);
 		break;
 
 	default:
@@ -2484,6 +2790,16 @@ int  ccall_get_members(struct icall *icall, struct wcall_members **mmp)
 
 int  ccall_set_quality_interval(struct icall *icall, uint64_t interval)
 {
+	struct ccall *ccall = (struct ccall*)icall;
+
+	if (!ccall)
+		return EINVAL;
+
+	ccall->quality_interval = interval;
+
+	if (ccall->ecall)
+		ecall_set_quality_interval(ccall->ecall, interval);
+	
 	return 0;
 }
 
@@ -2742,10 +3058,13 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 	uint64_t msg_ts;
 	uint32_t msg_seqno, msg_secretlen;
 	const char *msg_sft_url;
+	const char *msg_sft_tuple;
 	const uint8_t *msg_secret;
 	bool valid_call, should_ring;
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
+	struct list *sftl;
+	int err = 0;
 
 	if (!ccall || !msg ||
 	    !userid_sender || !clientid_sender)
@@ -2755,8 +3074,10 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		msg_ts = msg->u.confstart.timestamp;
 		msg_seqno = msg->u.confstart.seqno;
 		msg_sft_url = msg->u.confstart.sft_url;
+		msg_sft_tuple = msg->u.confstart.sft_tuple;
 		msg_secret = msg->u.confstart.secret;
 		msg_secretlen = msg->u.confstart.secretlen;
+		sftl = &msg->u.confstart.sftl;
 
 		valid_call = msg->age < CCALL_CONFSTART_TIMEOUT_S;
 	}
@@ -2764,8 +3085,10 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		msg_ts = msg->u.confcheck.timestamp;
 		msg_seqno = msg->u.confcheck.seqno;
 		msg_sft_url = msg->u.confcheck.sft_url;
+		msg_sft_tuple = msg->u.confcheck.sft_tuple;
 		msg_secret = msg->u.confcheck.secret;
 		msg_secretlen = msg->u.confcheck.secretlen;
+		sftl = &msg->u.confcheck.sftl;
 
 		valid_call = !econn_message_isrequest(msg) &&
 			(msg->age < CCALL_CONFSTART_TIMEOUT_S);
@@ -2805,11 +3128,17 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 	     ccall->self == ccall->keygenerator ? "YES" : "NO");
 
 	if (ts_cmp > 0) {
-		ccall->sft_url = mem_deref(ccall->sft_url);
-		info("ccall(%p): handle_confstart setting sft url: %s\n",
+		ccall->primary_sft_url = mem_deref(ccall->primary_sft_url);
+		info("ccall(%p): handle_confstart setting primary sft url: %s\n",
 		     ccall, msg_sft_url);
-		copy_sft(&ccall->sft_url, msg_sft_url);
-		ccall->sft_resolved = true;
+		copy_sft(&ccall->primary_sft_url, msg_sft_url);
+ 		ccall->sft_tuple = mem_deref(ccall->sft_tuple);
+ 		if (msg_sft_tuple) {
+ 			err = str_dup(&ccall->sft_tuple, msg_sft_tuple);
+ 			if (err) {
+				return err;
+ 			}
+ 		}
 		ccall->sft_timestamp = msg_ts;
 		ccall->sft_seqno = msg_seqno;
 		info("ccall(%p) set_secret from confstart\n", ccall);
@@ -2844,6 +3173,8 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 					  CCALL_RINGER_TIMEOUT,
 					  ccall_stop_ringing_timeout, ccall);
 			}
+
+			stringlist_clone(sftl, &ccall->sftl);
 		}
 		break;
 
@@ -2859,6 +3190,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		tmr_cancel(&ccall->tmr_ongoing);
 		tmr_start(&ccall->tmr_ongoing, CCALL_ONGOING_CALL_TIMEOUT,
 			  ccall_ongoing_call_timeout, ccall);
+		stringlist_clone(sftl, &ccall->sftl);
 		break;
 
 	case CCALL_STATE_CONNSENT:
@@ -2871,8 +3203,9 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			ecall_end(ccall->ecall);
 			ccall->ecall = NULL;
 
-			set_state(ccall, CCALL_STATE_CONNSENT);
-			return ccall_send_conf_conn(ccall, ccall->sft_url, false);
+			set_state(ccall, CCALL_STATE_INCOMING);
+			stringlist_clone(sftl, &ccall->sftl);
+			return ccall_req_cfg_join(ccall, ccall->call_type, true);
 		}
 		break;
 
@@ -2883,8 +3216,8 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			ecall_end(ccall->ecall);
 			ccall->ecall = NULL;
 
-			set_state(ccall, CCALL_STATE_CONNSENT);
-			return ccall_send_conf_conn(ccall, ccall->sft_url, false);
+			set_state(ccall, CCALL_STATE_INCOMING);
+			return ccall_req_cfg_join(ccall, ccall->call_type, true);
 		}
 		else if (ts_cmp < 0 && ccall->self == ccall->keygenerator) {
 			/* If local call is earlier. send new CONFSTART to
@@ -2893,6 +3226,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			ccall_send_msg(ccall, ECONN_CONF_START,
 				       true, NULL, false);
 		}
+		break;
 
 	case CCALL_STATE_NONE:
 	case CCALL_STATE_TERMINATING:
@@ -2912,6 +3246,8 @@ int  ccall_msg_recv(struct icall* icall,
 	struct ccall *ccall = (struct ccall*)icall;
 	char userid_anon[ANON_ID_LEN];
 	char userid_anon2[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	char clientid_anon2[ANON_CLIENT_LEN];
 	struct le *le;
 	int err = 0;
 
@@ -2957,25 +3293,29 @@ int  ccall_msg_recv(struct icall* icall,
 		if (msg->resp) {
 			if (!ccall->keygenerator) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY resp from "
-					"%s when keygenerator is NULL!\n",
-					ccall, anon_id(userid_anon, msg->src_userid));
+					"%s.%s when keygenerator is NULL!\n",
+					ccall, anon_id(userid_anon, userid_sender),
+					anon_client(clientid_anon, clientid_sender));
 				ccall->request_key = true;
 				return 0;
 			}
 
 			if (ccall->keygenerator == ccall->self) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY resp from "
-					"%s when keygenerator is me!\n",
-					ccall, anon_id(userid_anon, msg->src_userid));
+					"%s.%s when keygenerator is me!\n",
+					ccall, anon_id(userid_anon, userid_sender),
+					anon_client(clientid_anon, clientid_sender));
 				return 0;
 			}
 
 			if (!strcaseeq(userid_sender,   ccall->keygenerator->userid_real) ||
 			    !strcaseeq(clientid_sender, ccall->keygenerator->clientid_real)) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY resp from "
-					"%s when keygenerator is %s\n",
+					"%s.%s when keygenerator is %s.%s\n",
 					ccall, anon_id(userid_anon, userid_sender),
-					anon_id(userid_anon2, ccall->keygenerator->userid_real));
+					anon_client(clientid_anon, clientid_sender),
+					anon_id(userid_anon2, ccall->keygenerator->userid_real),
+					anon_client(clientid_anon2, ccall->keygenerator->clientid_real));
 				return 0;
 			}
 
@@ -3007,24 +3347,27 @@ int  ccall_msg_recv(struct icall* icall,
 
 			if (ccall->keygenerator != ccall->self) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY req from "
-					"%s when not the keygenerator!\n",
-					ccall, anon_id(userid_anon, msg->src_userid));
+					"%s.%s when not the keygenerator!\n",
+					ccall, anon_id(userid_anon, userid_sender),
+					anon_client(clientid_anon, clientid_sender));
 				return 0;
 			}
 
 			u = find_userinfo_by_real(ccall,
-						  msg->src_userid,
-						  msg->src_clientid);
+						  userid_sender,
+						  clientid_sender);
 			if (!u) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY req from "
-					"%s because their user not found!\n",
-					ccall, anon_id(userid_anon, msg->src_userid));
+					"%s.%s because their user not found!\n",
+					ccall, anon_id(userid_anon, userid_sender),
+					anon_client(clientid_anon, clientid_sender));
 				return 0;
 			}
 			if (!u->incall_now) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY req from "
-					"%s because they arent in call!\n",
-					ccall, anon_id(userid_anon, msg->src_userid));
+					"%s.%s because they arent in call!\n",
+					ccall, anon_id(userid_anon, userid_sender),
+					anon_client(clientid_anon, clientid_sender));
 				return 0;
 			}
 			u->needs_key = true;
@@ -3099,17 +3442,48 @@ int  ccall_sft_msg_recv(struct icall* icall,
 
 			set_state(ccall, CCALL_STATE_SETUPRECV);
 
-			if (msg->u.setup.url && !ccall->sft_resolved) {
-				info("ccall(%p): sft_msg_recv setting sft url: %s\n",
-				     ccall,
-				     msg->u.setup.url);
-				ccall->sft_url = mem_deref(ccall->sft_url);
-				err = copy_sft(&ccall->sft_url, msg->u.setup.url);
-				if (err) {
-					goto out;
+			info("ccall(%p): sft_msg_recv url %s resolved %s\n",
+			     ccall,
+			     msg->u.setup.url,
+			     ccall->sft_url ? "YES" : "NO");
+			if (msg->u.setup.url) {
+				if (!ccall->sft_url) {
+					info("ccall(%p): sft_msg_recv setting sft url: %s\n",
+					     ccall,
+					     msg->u.setup.url);
+					err = copy_sft(&ccall->sft_url, msg->u.setup.url);
+					if (err) {
+						goto out;
+					}
 				}
-				ccall->sft_resolved = true;
+				if (!ccall->primary_sft_url) {
+					info("ccall(%p): sft_msg_recv setting primary sft url: %s\n",
+					     ccall,
+					     msg->u.setup.url);
+					err = copy_sft(&ccall->primary_sft_url, msg->u.setup.url);
+					if (err) {
+						goto out;
+					}
+					ccall->sft_tuple = mem_deref(ccall->sft_tuple);
+					if (msg->u.setup.sft_tuple) {
+						err = str_dup(&ccall->sft_tuple, msg->u.setup.sft_tuple);
+						if (err) {
+							goto out;
+						}
+	 				}
+				}
 			}
+		}
+		else if (ECONN_UPDATE == msg->msg_type) {
+			if (CCALL_STATE_CONNSENT != ccall->state) {
+				info("ccall(%p): sft_msg_recv ignoring "
+				     "UPDATE from sft %s in state %s\n",
+				     ccall,
+				     msg->u.setup.url ? msg->u.setup.url : "NULL",
+				     ccall_state_name(ccall->state));
+				return 0;
+			}
+			set_state(ccall, CCALL_STATE_SETUPRECV);
 		}
 		if (!ccall->ecall) {
 			create_ecall(ccall);
@@ -3127,6 +3501,15 @@ out:
 	return err;
 }
 
+int  ccall_stats_struct(const struct ccall *ccall,
+		        struct iflow_stats *stats)
+{
+	if (!ccall || !ccall->ecall)
+		return EINVAL;
+
+	return ecall_stats_struct(ccall->ecall, stats);
+}
+
 int ccall_stats(struct re_printf *pf, const struct icall *icall)
 {
 	const struct ccall *ccall = (const struct ccall*)icall;
@@ -3141,7 +3524,88 @@ int ccall_stats(struct re_printf *pf, const struct icall *icall)
 
 int  ccall_debug(struct re_printf *pf, const struct icall* icall)
 {
-	return 0;
+	const struct ccall *ccall = (const struct ccall*)icall;
+	char userid_anon[ANON_ID_LEN];
+	char userid_anon2[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	struct userinfo *u;
+	struct le *le;
+	int err = 0;
+
+	err = re_hprintf(pf, "\nCCALL SUMMARY %p:\n", ccall);
+	if (err)
+		goto out;
+
+	err = re_hprintf(pf, "confstate: %s\n", ccall_state_name(ccall->state));
+	if (err)
+		goto out;
+
+	if (ccall->sft_url) {
+		err = re_hprintf(pf, "selected_sft: %s\n", ccall->sft_url);
+		if (err)
+			goto out;
+	}
+
+	if (ccall->primary_sft_url) {
+		err = re_hprintf(pf, "primary_sft: %s\n", ccall->primary_sft_url);
+		if (err)
+			goto out;
+	}
+
+	err = re_hprintf(pf, "\n");
+	if (err)
+		goto out;
+
+	LIST_FOREACH(&ccall->partl, le) {
+		u = le->data;
+		err = re_hprintf(pf, "user hash: %s user: %s.%s incall: %s auth: %s ssrca: %u ssrcv: %u muted: %s vidstate: %s\n",
+			anon_id(userid_anon, u->userid_hash),
+			anon_id(userid_anon2, u->userid_real),
+			anon_client(clientid_anon, u->clientid_real),
+			u->incall_now ? "true" : "false",
+			u->se_approved ? "true" : "false",
+			u->ssrca, u->ssrcv,
+			u->muted ? "true" : "false",
+			icall_vstate_name(u->video_state));
+		if (err)
+			goto out;
+	}
+
+	err = re_hprintf(pf, "\n");
+	if (err)
+		goto out;
+
+	LIST_FOREACH(&ccall->saved_partl, le) {
+		const struct econn_group_part *p = le->data;
+
+		u = find_userinfo_by_hash(ccall, p->userid, p->clientid);
+		if (!u && strcaseeq(ccall->self->userid_hash, p->userid) &&
+		    strcaseeq(ccall->self->clientid_hash, p->clientid)) {
+			u = ccall->self;
+		}
+
+		if (u) {
+			err = re_hprintf(pf, "part hash: %s user: %s.%s ssrca: %u ssrcv: %u\n",
+				anon_id(userid_anon, p->userid),
+				anon_id(userid_anon2, u->userid_real),
+				anon_client(clientid_anon, u->clientid_real),
+				p->ssrca, p->ssrcv);
+		}
+		else {
+			err = re_hprintf(pf, "part hash: %s user: unknown.unknown ssrca: %u ssrcv: %u\n",
+				anon_id(userid_anon, p->userid),
+				p->ssrca, p->ssrcv);
+		}
+
+		if (err)
+			goto out;
+	}
+
+	if (ccall->ecall) {
+		err = re_hprintf(pf, "%H", ecall_mfdebug, ccall->ecall);
+	}
+out:
+	return err;
 }
 
 static void ccall_connect_timeout(void *arg)
@@ -3220,5 +3684,12 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 	else
 		set_state(ccall, CCALL_STATE_IDLE);
 
+}
+
+struct keystore *ccall_get_keystore(struct ccall *ccall)
+{
+	if (!ccall)
+		return NULL;
+	return ccall->keystore;
 }
 

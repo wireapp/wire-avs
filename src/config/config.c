@@ -73,6 +73,7 @@ static void cfg_destructor(void *arg)
 	tmr_cancel(&cfg->tmr);
 	mem_deref(cfg->config.iceserverv);	
 	mem_deref(cfg->config.sftserverv);	
+	mem_deref(cfg->config.sftservers_allv);	
 }
 
 
@@ -189,6 +190,35 @@ int config_update(struct config *cfg, int err,
 		}
 	}
 
+	if (0 == jzon_array(&jsfts, jobj, "sft_servers_all")) {
+		size_t i;
+
+		cfg->config.sftservers_allv = mem_deref(cfg->config.sftservers_allv);
+		err = zapi_iceservers_decode(jsfts,
+					     &cfg->config.sftservers_allv,
+					     &cfg->config.sftservers_allc);
+		if (err) {
+			warning("config(%p): failed to decode sftservers_all(%m)\n",
+				cfg, err);
+			goto out;
+		}
+
+		info("config(%p): got sftservers_all: %zu\n",
+		     cfg, cfg->config.sftservers_allc);
+
+		for(i = 0; i < cfg->config.sftservers_allc; ++i) {
+			struct zapi_ice_server *sft = &cfg->config.sftservers_allv[i];
+
+			info("config(%p): sft_all(%d): %s\n", cfg, i, sft->url);
+		}
+
+		if (!cfg->config.sftservers_allc) {
+			warning("config: got no sftservers_all!\n");
+			err = ENOENT;
+			goto out;
+		}
+	}
+
 	if (0 == jzon_array(&jsfts, jobj, "sft_ice_servers")) {
 		size_t i;
 
@@ -278,6 +308,17 @@ struct zapi_ice_server *config_get_sftservers(struct config *cfg,
 	*count = cfg->config.sftserverc;
 
 	return cfg->config.sftserverv;
+}
+
+struct zapi_ice_server *config_get_sftservers_all(struct config *cfg,
+						  size_t *count)
+{
+	if (!cfg || cfg->config.sftservers_allc == 0)
+		return NULL;
+
+	*count = cfg->config.sftservers_allc;
+
+	return cfg->config.sftservers_allv;
 }
 
 struct zapi_ice_server *config_get_sfticeservers(struct config *cfg,

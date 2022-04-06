@@ -46,6 +46,10 @@ struct conf_member {
 
 	uint8_t audio_level;
 	uint8_t audio_level_smooth;
+
+	uint32_t audio_frames;
+	uint32_t video_frames;
+
 	uint64_t last_ts;
 };
 

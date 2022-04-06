@@ -25,7 +25,7 @@
 
 static const size_t BLOCK_SIZE = 32;
 static const size_t TAG_SIZE   = 16;
-static const size_t IV_SIZE    = 12;
+#define IV_SIZE  12
 
 struct frame_encryptor
 {
@@ -235,7 +235,7 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 
 	if (!EVP_EncryptUpdate(enc->ctx, NULL, &enc_len, dst, hlen)) {
 		warning("frame_enc(%p): encrypt: add header failed\n", enc);
-		err = EIO;
+		err = EBADF;
 		goto out;
 	}
 
@@ -243,7 +243,7 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 
 	if (!EVP_EncryptUpdate(enc->ctx, dst, &enc_len, src, srcsz)) {
 		warning("frame_enc(%p): encrypt: update failed\n", enc);
-		err = EIO;
+		err = EBADF;
 		goto out;
 	}
 
@@ -258,7 +258,7 @@ int frame_encryptor_encrypt(struct frame_encryptor *enc,
 
 	if (!EVP_CIPHER_CTX_ctrl(enc->ctx, EVP_CTRL_GCM_GET_TAG, TAG_SIZE, tag)) {
 		warning("frame_enc(%p): encrypt: set tag failed\n", enc);
-		err = EIO;
+		err = EBADF;
 		goto out;
 	}
 
