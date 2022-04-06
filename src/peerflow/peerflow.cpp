@@ -1111,7 +1111,7 @@ public:
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
 		{
 			rtc::scoped_refptr<wire::CallStatsCallback> cb =
-				new wire::CallStatsCallback(pf_);
+				rtc::make_ref_counted<wire::CallStatsCallback>(pf_);
                         pf_->peerConn->GetStats(cb);
 				
 			send_close(pf_, 0);
@@ -1287,8 +1287,9 @@ public:
 
 #if DOUBLE_ENCRYPTION
 			if (pf_->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
-				rtc::scoped_refptr<wire::FrameDecryptor> decryptor =
-					new wire::FrameDecryptor(FRAME_MEDIA_VIDEO, pf_);
+				rtc::scoped_refptr<wire::FrameDecryptor> decryptor(
+					rtc::make_ref_counted<wire::FrameDecryptor>(
+					FRAME_MEDIA_VIDEO, pf_));
 				err = decryptor->SetKeystore(pf_->keystore);
 				if (err) {
 					warning("pf(%p): failed to set keystore for "
@@ -1311,8 +1312,9 @@ public:
 		{
 #if DOUBLE_ENCRYPTION
 			if (pf_->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
-				rtc::scoped_refptr<wire::FrameDecryptor> decryptor =
-					new wire::FrameDecryptor(FRAME_MEDIA_AUDIO, pf_);
+				rtc::scoped_refptr<wire::FrameDecryptor> decryptor(
+					rtc::make_ref_counted<wire::FrameDecryptor>(
+					FRAME_MEDIA_AUDIO, pf_));
 				err = decryptor->SetKeystore(pf_->keystore);
 				if (err) {
 					warning("pf(%p): failed to set keystore for "

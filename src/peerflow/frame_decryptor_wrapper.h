@@ -28,7 +28,7 @@ struct peerflow;
 
 namespace wire {
 
-class FrameDecryptor : public rtc::RefCountedObject<webrtc::FrameDecryptorInterface>
+class FrameDecryptor : public webrtc::FrameDecryptorInterface
 {
 public:
 	FrameDecryptor(enum frame_media_type mtype,

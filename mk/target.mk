@@ -283,7 +283,7 @@ endif
 
 CXXFLAGS += \
          -fvisibility=hidden -fno-rtti -ffunction-sections -fdata-sections \
-	-Os -g -std=c++14
+	-Os -g -std=c++17
 
 ifeq ($(ENABLE_COVERAGE),1)
 CFLAGS += -fprofile-instr-generate -fcoverage-mapping
