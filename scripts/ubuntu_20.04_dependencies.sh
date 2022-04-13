@@ -26,8 +26,10 @@ apt install -y \
     libxdamage-dev \
     libxrender-dev \
     make \
+    openjdk-8-jdk-headless \
     pkgconf \
     protobuf-c-compiler \
+    python3 \
     python-is-python3 \
     rsync \
     yasm \
