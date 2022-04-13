@@ -15,19 +15,19 @@ fi
 PLATFORM=$(uname -s | awk '{ print tolower($1) }')
 MACHINE=$(uname -m)
 
-ANDROID_NDK_VER=android-ndk-r14b
-ANDROID_NDK_PLAT=$PLATFORM-$MACHINE
+TOOLS_VER=8092744_latest
+BUILDTOOLS_VER=32.0.0
+ANDROID_NDK_VER=21.0.6113669
+ANDROID_SDK_VER=android-21
 
-ANDROID_SDK_VER=android-sdk_r24.4.1
 if [ "$PLATFORM" == "darwin" ]; then
-	ANDROID_SDK_PLAT=macosx
+	ANDROID_SDK_PLAT=mac
 else
 	ANDROID_SDK_PLAT=$PLATFORM
 fi
 
-ANDROID_SDK_PKG=zip
-ANDROID_SDK_TARGET=android-sdk-$ANDROID_SDK_PLAT
-ANDROID_SDK_PKG_FILE=$ANDROID_SDK_VER-$ANDROID_SDK_PLAT.$ANDROID_SDK_PKG
+TOOLS_PATH=$AVS_DEVTOOLS_ROOT/cmdline-tools/latest
+TOOLS_ZIP=commandlinetools-$ANDROID_SDK_PLAT-$TOOLS_VER.zip
 
 if [ ! -e $AVS_DEVTOOLS_ROOT ]; then
 	mkdir -p $AVS_DEVTOOLS_ROOT
@@ -35,30 +35,23 @@ fi
 
 pushd $AVS_DEVTOOLS_ROOT > /dev/null
 
-if [ ! -e $ANDROID_NDK_VER ]; then
-	if [ ! -e $ANDROID_NDK_VER-$ANDROID_NDK_PLAT.zip ]; then
-		echo "Downloading NDK ($ANDROID_NDK_VER)"
-		curl http://dl.google.com/android/repository/$ANDROID_NDK_VER-$ANDROID_NDK_PLAT.zip > $ANDROID_NDK_VER-$ANDROID_NDK_PLAT.zip
+if [ ! -e $TOOLS_PATH ]; then
+	if [ ! -e $TOOLS_ZIP ]; then
+		echo "Downloading commandline tools"
+		URL=https://dl.google.com/android/repository/$TOOLS_ZIP
+		echo $URL
+		curl https://dl.google.com/android/repository/$TOOLS_ZIP > $TOOLS_ZIP
 	fi
-	echo "Unpacking NDK ($ANDROID_NDK_VER)"
-	unzip $ANDROID_NDK_VER-$ANDROID_NDK_PLAT.zip > /dev/null
+	echo "Unpacking commandline tools"
+	unzip $TOOLS_ZIP > /dev/null
+	mv cmdline-tools latest
+	mkdir cmdline-tools
+	mv latest cmdline-tools
+
 fi
 
-if [ ! -e $ANDROID_SDK_TARGET ]; then
-	if [ ! -e $ANDROID_SDK_PKG_FILE ]; then
-		echo "Downloading SDK ($ANDROID_SDK_VER) ($ANDROID_SDK_PKG_FILE)"
-		curl https://dl.google.com/android/$ANDROID_SDK_PKG_FILE > $ANDROID_SDK_PKG_FILE
-	fi
-	echo "Unpacking SDK ($ANDROID_SDK_VER)"
-	if [ "$ANDROID_SDK_PKG" == "zip" ]; then
-		unzip $ANDROID_SDK_PKG_FILE > /dev/null
-	elif [ "$ANDROID_SDK_PKG" == "tgz" ]; then
-		tar zxf $ANDROID_SDK_PKG_FILE
-	fi
-
-	cd $AVS_DEVTOOLS_ROOT/$ANDROID_SDK_TARGET
-	tools/android update sdk --no-ui
-fi
+export PATH=$PATH:$PWD/cmdline-tools/latest/bin
+yes | sdkmanager "build-tools;$BUILDTOOLS_VER" "ndk;$ANDROID_NDK_VER" "platforms;$ANDROID_SDK_VER"
 
 popd > /dev/null
 
@@ -66,8 +59,7 @@ echo "Setting environment variables"
 echo "NDK ($ANDROID_NDK_VER)"
 echo "SDK ($ANDROID_SDK_VER)"
 
-export ANDROID_HOME=$AVS_DEVTOOLS_ROOT/$ANDROID_SDK_TARGET
-export ANDROID_SDK_ROOT=$AVS_DEVTOOLS_ROOT/$ANDROID_SDK_TARGET
-export ANDROID_NDK_ROOT=$AVS_DEVTOOLS_ROOT/$ANDROID_NDK_VER
-export PATH=$PATH:$ANDROID_SDK_ROOT/platform-tools
+export ANDROID_HOME=$AVS_DEVTOOLS_ROOT
+export ANDROID_SDK_ROOT=$AVS_DEVTOOLS_ROOT
+export ANDROID_NDK_ROOT=$AVS_DEVTOOLS_ROOT/ndk/$ANDROID_NDK_VER
 
