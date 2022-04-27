@@ -4,8 +4,10 @@ import re
 import subprocess
 import sys
 
-addr2line = 'build/toolchains/android-armv7/bin/arm-linux-androideabi-addr2line'
-libavs = 'android/obj/local/armeabi-v7a/libavs.so'
+#addr2line = 'build/toolchains/android-armv7/bin/arm-linux-androideabi-addr2line'
+#libavs = 'android/obj/local/armeabi-v7a/libavs.so'
+addr2line = 'build/toolchains/android-arm64/bin/aarch64-linux-android-addr2line'
+libavs = 'build/dist/android/debug/arm64-v8a/libavs.so'
 
 if len(sys.argv) != 2:
 	print('usage: python {} <logcat file>'.format(sys.argv[0]))
