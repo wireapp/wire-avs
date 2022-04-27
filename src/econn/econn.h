@@ -34,10 +34,10 @@ struct econn {
 	char *userid_self;
 	char *clientid;
 
-	char sessid_local[64];
-	char sessid_remote[64];
-	char userid_remote[64];
-	char clientid_remote[32];
+	char sessid_local[ECONN_ID_LEN];
+	char sessid_remote[ECONN_ID_LEN];
+	char userid_remote[ECONN_ID_LEN];
+	char clientid_remote[ECONN_ID_LEN];
 	int setup_err;
 	int conflict;
 
