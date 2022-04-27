@@ -1934,7 +1934,6 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 		      bool audio_cbr)
 {
 	//struct sa laddr;
-	char tag[64] = "";
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
 	size_t i;
@@ -2002,11 +2001,6 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 		IFLOW_CALL(ecall->flow, set_keystore,
 			   ecall->keystore);
 	}
-	re_snprintf(tag, sizeof(tag), "%s.%s",
-		    ecall->userid_self, ecall->clientid_self);
-	//mediaflow_set_tag(ecall->flow, tag);
-
-	//mediaflow_set_rtpstate_handler(ecall->flow, rtp_start_handler);
 
 	if (msystem_get_privacy(ecall->msys)) {
 		info("ecall(%p): alloc_flow: enable mediaflow privacy\n",
@@ -2014,21 +2008,7 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 		IFLOW_CALL(ecall->flow, enable_privacy, true);
 	}
 
-	/* DataChannel is mandatory in Calling 3.0 */
-/*
-	err = mediaflow_add_data(ecall->flow);
-	if (err) {
-		warning("ecall(%p): mediaflow add data failed (%m)\n",
-			ecall, err);
-		goto out;
-	}
-
-	if (ecall->media_laddr) {
-		info("ecall(%p): overriding interface with: %j\n",
-		     ecall, ecall->media_laddr);
-		mediaflow_set_media_laddr(ecall->flow, ecall->media_laddr);
-	}
-*/	/* populate all network interfaces */
+	/* populate all network interfaces */
 	ecall->turn_added = true;
 	if (role == ASYNC_OFFER)
 		gather_all(ecall, true);
