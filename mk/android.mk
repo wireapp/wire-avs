@@ -84,9 +84,9 @@ $(AND_CLSS): $(AND_CLS_TARGET)/%.class: $(AND_CLASSPATH)/%.java
 	@echo "  JC   $(AVS_OS)-$(AVS_ARCH) $(AND_CLASSPATH)/$*.java"
 	@mkdir -p $(AND_CLS_TARGET)
 	@$(JAVAC) -Xlint:deprecation -d $(AND_CLS_TARGET) \
-		-bootclasspath $(AND_BOOTCLASSPATH) \
-		-classpath $(AND_CLASSPATH) \
+		-classpath $(AND_BOOTCLASSPATH):$(AND_CLASSPATH) \
 		$<
+
 
 $(AND_JAR): $(AND_CLSS)
 	@echo "  UNZ webrtc jars"
@@ -143,7 +143,9 @@ android_dist_javadoc: $(AND_JAVADOC)
 
 .PHONY: android_javadoc
 android_javadoc:
-	$(JAVADOC) -Xdoclint:none -public -d $(AND_JAVADOC_PATH) -sourcepath android/java/ com.waz.audioeffect com.waz.avs com.waz.call com.waz.log com.waz.media.manager
+	$(JAVADOC) -Xdoclint:none -public -d $(AND_JAVADOC_PATH) \
+		-classpath $(AND_BOOTCLASSPATH):$(AND_CLASSPATH) \
+		-sourcepath android/java/ com.waz.audioeffect com.waz.avs com.waz.call com.waz.log com.waz.media.manager
 
 .PHONY: android_dist_sources
 android_dist_sources: $(AND_SOURCES)
