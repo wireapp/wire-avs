@@ -81,8 +81,8 @@ public class AudioRouter {
     private BluetoothA2dp  bluetoothA2dp = null;
     private static BluetoothDevice bluetoothDevice = null;
 
-	private boolean btScoConnected = false;
-	//private int _BluetoothScoState = STATE_BLUETOOTH_SCO_INVALID;
+    private boolean btScoConnected = false;
+    //private int _BluetoothScoState = STATE_BLUETOOTH_SCO_INVALID;
 	
     // Stores the audio states for a wired headset
     private int _WiredHsState = STATE_WIRED_HS_UNPLUGGED;
@@ -128,77 +128,77 @@ public class AudioRouter {
     };
   }
 
-	private void btHeadsetService(BluetoothHeadset btHeadset) {
-		List<BluetoothDevice> devices;
+  private void btHeadsetService(BluetoothHeadset btHeadset) {
+	  List<BluetoothDevice> devices;
 
-		bluetoothHeadset = btHeadset;
+	  bluetoothHeadset = btHeadset;
 
-		devices = bluetoothHeadset.getConnectedDevices();
-		if (!devices.isEmpty())
-			bluetoothDevice = devices.get(0);
-		if (bluetoothDevice != null)
-			nativeBTDeviceConnected(true, _nativeMM);
+	  devices = bluetoothHeadset.getConnectedDevices();
+	  if (!devices.isEmpty())
+		  bluetoothDevice = devices.get(0);
+	  if (bluetoothDevice != null)
+		  nativeBTDeviceConnected(true, _nativeMM);
 		
-		Context context = this._context;
-		IntentFilter filter = new IntentFilter(android.bluetooth.BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED);
+	  Context context = this._context;
+	  IntentFilter filter = new IntentFilter(android.bluetooth.BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED);
         
-		/** Receiver which handles changes in BT headset availability. */
-		BroadcastReceiver btReceiver = new BroadcastReceiver() {
-			@Override
-			public void onReceive(Context context, Intent intent) {
-				int state = intent.getIntExtra(android.bluetooth.BluetoothHeadset.EXTRA_STATE,
-							       android.bluetooth.BluetoothHeadset.STATE_DISCONNECTED);
-				if (state == android.bluetooth.BluetoothHeadset.STATE_CONNECTED) {
-					bluetoothDevice = intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE);
-					Log.i(logTag, "bluetoothHeadset: connected: btdev=" + bluetoothDevice);
-					nativeBTDeviceConnected(true, _nativeMM);
-				}
-				else if (state == android.bluetooth.BluetoothHeadset.STATE_DISCONNECTED) {
-					Log.i(logTag, "bluetoothHeadset: disconnected");
-					bluetoothDevice = null;
-					int route = GetAudioRoute();
-					if (route == ROUTE_SPEAKER)
-						EnableSpeaker();
-					nativeBTDeviceConnected(false, _nativeMM);					
-				}
+	  /** Receiver which handles changes in BT headset availability. */
+	  BroadcastReceiver btReceiver = new BroadcastReceiver() {
+		@Override
+		public void onReceive(Context context, Intent intent) {
+			int state = intent.getIntExtra(android.bluetooth.BluetoothHeadset.EXTRA_STATE,
+						       android.bluetooth.BluetoothHeadset.STATE_DISCONNECTED);
+			if (state == android.bluetooth.BluetoothHeadset.STATE_CONNECTED) {
+				bluetoothDevice = intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE);
+				Log.i(logTag, "bluetoothHeadset: connected: btdev=" + bluetoothDevice);
+				nativeBTDeviceConnected(true, _nativeMM);
 			}
+			else if (state == android.bluetooth.BluetoothHeadset.STATE_DISCONNECTED) {
+				Log.i(logTag, "bluetoothHeadset: disconnected");
+				bluetoothDevice = null;
+				int route = GetAudioRoute();
+				if (route == ROUTE_SPEAKER)
+					EnableSpeaker();
+				nativeBTDeviceConnected(false, _nativeMM);					
+			}
+		}
+		  };
+	  
+	  context.registerReceiver(btReceiver, filter);
+  }
+
+  private void btA2dpService(BluetoothA2dp btA2dp) {
+	  List<BluetoothDevice> devices;
+		
+	  bluetoothA2dp = btA2dp;
+
+	  devices = bluetoothA2dp.getConnectedDevices();
+	  if (!devices.isEmpty())
+		  bluetoothDevice = devices.get(0);
+		
+	  Context context = this._context;
+	  IntentFilter filter = new IntentFilter(android.bluetooth.BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED);
+        
+	  /** Receiver which handles changes in BT a2dp availability. */
+	  BroadcastReceiver btReceiver = new BroadcastReceiver() {
+		@Override
+		public void onReceive(Context context, Intent intent) {
+			int state = intent.getIntExtra(android.bluetooth.BluetoothA2dp.EXTRA_STATE,
+						       android.bluetooth.BluetoothA2dp.STATE_DISCONNECTED);
+			if (state == android.bluetooth.BluetoothA2dp.STATE_CONNECTED) {
+				bluetoothDevice = intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE);
+				Log.i(logTag, "bluetoothA2dp: connected: btdev=" + bluetoothDevice);
+				nativeBTDeviceConnected(true, _nativeMM);
+			}
+			else if (state == android.bluetooth.BluetoothA2dp.STATE_DISCONNECTED) {
+				Log.i(logTag, "bluetootA2dp: disconnected");
+				bluetoothDevice = null;
+				nativeBTDeviceConnected(false, _nativeMM);
+			}
+		    }
 		};
 
-		context.registerReceiver(btReceiver, filter);
-	}
-
-	private void btA2dpService(BluetoothA2dp btA2dp) {
-		List<BluetoothDevice> devices;
-		
-		bluetoothA2dp = btA2dp;
-
-		devices = bluetoothA2dp.getConnectedDevices();
-		if (!devices.isEmpty())
-			bluetoothDevice = devices.get(0);
-		
-		Context context = this._context;
-		IntentFilter filter = new IntentFilter(android.bluetooth.BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED);
-        
-		/** Receiver which handles changes in BT a2dp availability. */
-		BroadcastReceiver btReceiver = new BroadcastReceiver() {
-			@Override
-			public void onReceive(Context context, Intent intent) {
-				int state = intent.getIntExtra(android.bluetooth.BluetoothA2dp.EXTRA_STATE,
-							       android.bluetooth.BluetoothA2dp.STATE_DISCONNECTED);
-				if (state == android.bluetooth.BluetoothA2dp.STATE_CONNECTED) {
-					bluetoothDevice = intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE);
-					Log.i(logTag, "bluetoothA2dp: connected: btdev=" + bluetoothDevice);
-					nativeBTDeviceConnected(true, _nativeMM);
-				}
-				else if (state == android.bluetooth.BluetoothA2dp.STATE_DISCONNECTED) {
-					Log.i(logTag, "bluetootA2dp: disconnected");
-					bluetoothDevice = null;
-					nativeBTDeviceConnected(false, _nativeMM);
-				}
-			}
-		};
-
-		context.registerReceiver(btReceiver, filter);
+	        context.registerReceiver(btReceiver, filter);
 	}
 
 	private void setupBluetooth() {

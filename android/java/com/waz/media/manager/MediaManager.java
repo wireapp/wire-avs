@@ -92,7 +92,9 @@ public class MediaManager implements OnAudioFocusChangeListener {
     public long mmPointer;
 	    
     private MediaManager ( final Context context) {
-        attach(context);
+
+	    Log.i("avs MediaManagwer", "MediaManager constructed");
+	attach(context);
       
         setIntensity ( IntensityLevel.FULL );
       

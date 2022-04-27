@@ -240,7 +240,7 @@ int mm_android_jni_init(JNIEnv *env, jobject jobj, jobject ctx)
         goto out;
     }
     
-    debug("jni attach env = %p \n", env);
+    info("jni attach env = %p \n", env);
     
     cls = (*env)->GetObjectClass(env, jobj);
     if (cls == NULL) {
@@ -381,7 +381,7 @@ void mm_android_jni_cleanup(JNIEnv *env, jobject jobj){
     java.initialized = false;
 }
 
-static void jni_create_router(struct mm *mm)
+static void jni_create_router(void)
 {
 	struct jni_env jni_env;
 	jobject jrouter;
@@ -401,9 +401,8 @@ static void jni_create_router(struct mm *mm)
 
 	jrouter = cbgp_jni_new(jni_env.env, java.arClass, java.arConstructor,
 			       "(Landroid/content/Context;)V",
-			       java.ctx, (jlong)mm);
+			       java.ctx, (jlong)java.mediamgr);
 	java.router = (*jni_env.env)->NewGlobalRef(jni_env.env, jrouter);
-	java.mediamgr = mm;
 
 	jni_detach(&jni_env);
 
@@ -414,6 +413,9 @@ static void jni_create_router(struct mm *mm)
 static void jni_free_router(struct mm *mm)
 {
     struct jni_env jni_env;
+
+    if (!java.router)
+	    return;
     
     if (jni_attach(&jni_env)) {
 	    error("mm_platform_android: jni_free_router: jni_attach failed\n");
@@ -430,8 +432,8 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 	info("mm_platform_android: init: mm=%p sounds=%p\n", mm, sounds);
 
 	tmr_init(&java.tmr_delay);
-	
-	jni_create_router(mm);
+
+	java.mediamgr = mm;
     
 	dict_flush(sounds);
 
@@ -571,9 +573,14 @@ static int mm_platform_enable_speaker_internal(bool notify)
     struct jni_env jni_env;
 
     info("mm_platform_android: enable_speaker()\n");
+
+    if (!java.router) {
+	    info("mm_platform_android: enable_speaker() no router\n");
+	    return -1;
+    }
     
     if(jni_attach(&jni_env)){
-        error("mm: %s jni_attach failed !! \n", __FUNCTION__);
+        error("mm: %s jni_attach failed\n", __FUNCTION__);
         return -1;
     }
     int ret = callIntMethodHelper(jni_env.env, java.router,
@@ -597,6 +604,11 @@ int mm_platform_enable_headset(void){
     debug("mm: mm_platform_enable_headset() \n");
     
     struct jni_env jni_env;
+
+    if (!java.router) {
+	    info("mm: mm_platform_enable_headset() no router\n");
+	    return -1;
+    }
     
     if(jni_attach(&jni_env)){
         error("mm: %s jni_attach failed !! \n", __FUNCTION__);
@@ -620,6 +632,12 @@ int mm_platform_enable_earpiece(void){
     enum mediamgr_auplay route;
     int ret;    
 
+
+    if (!java.router) {
+	    info("mm: mm_platform_enable_earpiece()\n");
+	    return -1;
+    }
+    
     old_route = mm_platform_get_route();
     if(jni_attach(&jni_env)){
         error("mm: %s jni_attach failed !! \n", __FUNCTION__);
@@ -645,6 +663,11 @@ int mm_platform_enable_earpiece(void){
 static void enable_bt_handler(void *arg)
 {
 	struct jni_env jni_env;
+
+	if (!java.router) {
+		info("mm_platform_android: enable_bt_handler: no router\n");
+		return;
+	}
 	
 	if(jni_attach(&jni_env)){
 		error("mm_platform_android: %s jni_attach failed\n",
@@ -732,13 +755,18 @@ static void enter_call(void)
 {
     struct jni_env jni_env;
     
-    debug("mm_platform_android: enter_call\n");
-    
+    info("mm_platform_android: enter_call\n");
+
+    if (!java.router) {
+	    jni_create_router();
+    }
+
     if(jni_attach(&jni_env)) {
 	    error("mm_platform_android: enter_call attach failed\n");
 	    return;
     }
-    (*jni_env.env)->CallVoidMethod(jni_env.env, java.router, java.arOnStartingCall);    
+    (*jni_env.env)->CallVoidMethod(jni_env.env, java.router, java.arOnStartingCall);
+
     callVoidMethodHelper(jni_env.env, java.mm, java.mmOnEnterCall);
     
     jni_detach(&jni_env);
@@ -774,7 +802,8 @@ void mm_platform_exit_call(void)
 		return;
 	}
 	callVoidMethodHelper(jni_env.env, java.mm, java.mmOnExitCall);
-	(*jni_env.env)->CallVoidMethod(jni_env.env, java.router, java.arOnStoppingCall);
+	if (java.router)
+		(*jni_env.env)->CallVoidMethod(jni_env.env, java.router, java.arOnStoppingCall);
     
 	jni_detach(&jni_env);
 
@@ -788,6 +817,9 @@ enum mediamgr_auplay mm_platform_get_route(void){
     debug("mm: mm_platform_get_route \n");
     
     struct jni_env jni_env;
+
+    if (!java.router)
+	    return MEDIAMGR_AUPLAY_UNKNOWN;
     
     if(jni_attach(&jni_env)){
         error("mm: %s jni_attach failed !! \n", __FUNCTION__);
