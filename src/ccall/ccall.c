@@ -1628,7 +1628,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 	const struct list *partlist = &msg->u.confpart.partl;
 
 	info("ccall(%p): ecall_confpart_handler ecall: %p "\
-	     "should_start %s partl: %u members ts: %lu sn: %u\n",
+	     "should_start %s partl: %u members ts: %llu sn: %u\n",
 	     ccall, ecall, should_start ? "YES" : "NO",
 	     list_count(partlist), timestamp, seqno);
 
@@ -3174,7 +3174,8 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 					  ccall_stop_ringing_timeout, ccall);
 			}
 
-			stringlist_clone(sftl, &ccall->sftl);
+			if (ts_cmp > 0)
+				stringlist_clone(sftl, &ccall->sftl);
 		}
 		break;
 
@@ -3190,7 +3191,9 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		tmr_cancel(&ccall->tmr_ongoing);
 		tmr_start(&ccall->tmr_ongoing, CCALL_ONGOING_CALL_TIMEOUT,
 			  ccall_ongoing_call_timeout, ccall);
-		stringlist_clone(sftl, &ccall->sftl);
+
+		if (ts_cmp > 0)
+			stringlist_clone(sftl, &ccall->sftl);
 		break;
 
 	case CCALL_STATE_CONNSENT:
