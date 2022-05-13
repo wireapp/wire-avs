@@ -3174,7 +3174,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 					  ccall_stop_ringing_timeout, ccall);
 			}
 
-			if (ts_cmp > 0)
+			if (ts_cmp >= 0)
 				stringlist_clone(sftl, &ccall->sftl);
 		}
 		break;
@@ -3192,7 +3192,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		tmr_start(&ccall->tmr_ongoing, CCALL_ONGOING_CALL_TIMEOUT,
 			  ccall_ongoing_call_timeout, ccall);
 
-		if (ts_cmp > 0)
+		if (ts_cmp >= 0)
 			stringlist_clone(sftl, &ccall->sftl);
 		break;
 
@@ -3220,6 +3220,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			ccall->ecall = NULL;
 
 			set_state(ccall, CCALL_STATE_INCOMING);
+			stringlist_clone(sftl, &ccall->sftl);
 			return ccall_req_cfg_join(ccall, ccall->call_type, true);
 		}
 		else if (ts_cmp < 0 && ccall->self == ccall->keygenerator) {
