@@ -286,7 +286,7 @@ function frameHeaderEncode(fid, kid, csrc)
 }
 
 function xor_iv(iv, fid, kid) {
-  var oiv = new Uint8Array(iv);
+  const oiv = new Uint8Array(iv);
 
   oiv[0] = oiv[0] ^ ((fid >> 24) & 0xFF);
   oiv[1] = oiv[1] ^ ((fid >> 16) & 0xFF);
@@ -422,6 +422,7 @@ function decryptFrame(coder, rtcFrame, controller) {
       return;
   }
 
+  let uinfo = null;
   if (isVideo) {
      uinfo = coder.video.users[csrc];
   }
@@ -480,7 +481,7 @@ function decryptFrame(coder, rtcFrame, controller) {
 	+ " fid=" + frameHdr.frameId);
   */
 
-  var kinfo = null;
+  let kinfo = null;
   for (i = 0; i < coder.keys.length; i++) {
     if (coder.keys[i].id == frameHdr.keyId) {
       kinfo = coder.keys[i];
@@ -493,6 +494,7 @@ function decryptFrame(coder, rtcFrame, controller) {
     return;
   }
 
+  let iv = null;
   if (isVideo) {
     iv = xor_iv(uinfo.ivv, frameHdr.frameId, frameHdr.keyId);
   }
@@ -625,7 +627,7 @@ onmessage = async (event) => {
          ["encrypt", "decrypt"]
        )
        .then(function(k){
-         var kinfo = null;
+         let kinfo = null;
          for (i = 0; i < coder.keys.length; i++) {
            if (coder.keys[i].id == index) {
              coder.keys[i].key = k;
