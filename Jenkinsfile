@@ -192,7 +192,7 @@ pipeline {
                             GITHUB_USER=${repoUser} \
                             GITHUB_TOKEN=${accessToken} \
                             python3 ./scripts/release-on-github.py \
-                                ${repoName} \
+                                wireapp/${repoName} \
                                 \$(mktemp -d) \
                                 ${version} \
                                 "${changelog}"

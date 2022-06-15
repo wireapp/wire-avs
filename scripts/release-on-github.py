@@ -23,10 +23,7 @@ token = os.environ.get('GITHUB_TOKEN')
 gh = github.Github(token)
 grepo = gh.get_user(user).get_repo(repository_name)
 
-create_github_release(grepo, version, message)
-
 releases = grepo.get_releases()
-
 release = None
 for r in releases:
     if r.tag_name == version:
