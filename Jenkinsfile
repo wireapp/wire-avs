@@ -19,19 +19,7 @@ pipeline {
     }
 
     stages {
-        stage( 'Prepare changelog' ) {
-            steps {
-                script {
-                    currentBuild.changeSets.each { set ->
-                        set.items.each { entry ->
-                            changelog += entry.msg + '\n'
-                        }
-                    }
-                }
-                echo(changelog)
-            }
-        }
-        stage( 'Prepare + Test + Build' ) {
+       stage( 'Prepare + Test + Build' ) {
             parallel {
                 stage('Linux') {
                     agent {
@@ -152,7 +140,19 @@ pipeline {
                 }
             }
         }
-    }
+        stage( 'Prepare changelog' ) {
+            steps {
+                script {
+                    currentBuild.changeSets.each { set ->
+                        set.items.each { entry ->
+                            changelog += entry.msg + '\n'
+                        }
+                    }
+                }
+                echo(changelog)
+            }
+        }
+     }
 
     post {
         always {
