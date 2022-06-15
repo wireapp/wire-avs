@@ -68,7 +68,7 @@ pipeline {
                         sh 'rm -rf ./build/artifacts'
                         sh 'mkdir -p ./build/artifacts'
                         sh 'cp ./build/dist/linux/avscore.tar.bz2 ./build/artifacts/avs.linux.' + version + '.tar.bz2'
-                        sh 'zip -9j ./build/artifacts/zcall_linux_${version}.zip ./zcall'
+                        sh 'zip -9j ./build/artifacts/zcall_linux_' + version + '.zip ./zcall'
                     }
                 }
                 stage('macOS') {
@@ -117,11 +117,14 @@ pipeline {
                         sh 'mkdir -p ./contrib/webrtc/72.5/lib/wasm-generic'
                         sh 'touch ./contrib/webrtc/72.5/lib/wasm-generic/libwebrtc.a'
 
-                        sh '. ./scripts/android_devenv.sh'
-                        sh '. ./scripts/wasm_devenv.sh'
-                        sh 'make dist_clean'
-                        sh 'make zcall AVS_VERSION=' + version
-                        sh 'make dist AVS_VERSION=' + version + ' BUILDVERSION=' + version
+                        env.version = version
+                        sh '''
+                        . ./scripts/android_devenv.sh
+                        . ./scripts/wasm_devenv.sh
+                        make dist_clean
+                        make zcall AVS_VERSION=${version}
+                        make dist AVS_VERSION=${version} BUILDVERSION=${version}
+                        '''
 
                         sh 'rm -rf ./build/artifacts'
                         sh 'mkdir -p ./build/artifacts'
