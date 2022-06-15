@@ -45,7 +45,6 @@ pipeline {
                             branchName = vcs.GIT_BRANCH.tokenize( '/' ).drop( 1 ).join( '/' )
                             commitId = "${vcs.GIT_COMMIT}"[0..6]
                             repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
-                            repoUser = vcs.GIT_URL.tokenize( '/' )[-2]
 
                             if (params.RELEASE_VERSION == null || params.RELEASE_VERSION == "") {
                                 version = "0.0.${buildNumber}"
@@ -98,7 +97,6 @@ pipeline {
                             branchName = vcs.GIT_BRANCH.tokenize( '/' ).drop( 1 ).join( '/' )
                             commitId = "${vcs.GIT_COMMIT}"[0..6]
                             repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
-                            repoUser = vcs.GIT_URL.tokenize( '/' )[-2]
 
                             if (params.RELEASE_VERSION == null || params.RELEASE_VERSION == "") {
                                 version = "0.0.${buildNumber}"
@@ -182,7 +180,8 @@ pipeline {
                     )
                 }
                 echo 'Creating release on Github'
-                withCredentials([ string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
+                withCredentials([ string( credentialsId: 'github-repo-user', variable: 'repoUser' ),
+                    string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
                     // NOTE: creating an empty stub directory just to create the release
                     sh(
                         script: """
