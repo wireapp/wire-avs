@@ -182,7 +182,7 @@ pipeline {
                     )
                 }
                 echo 'Creating release on Github'
-                withCredentials([ string( credentialsId: 'avs-github-ssh', variable: 'accessToken' ) ]) {
+                withCredentials([ string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
                     // NOTE: creating an empty stub directory just to create the release
                     sh(
                         script: """
