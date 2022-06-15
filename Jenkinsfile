@@ -71,7 +71,7 @@ pipeline {
                         sh 'cp ./build/dist/linux/avscore.tar.bz2 ./build/artifacts/avs.linux.' + version + '.tar.bz2'
                         sh 'zip -9j ./build/artifacts/zcall_linux_' + version + '.zip ./zcall'
 
-                        archiveArtifacts artifacts: '*.zip,*.bz2', followSymlinks: false
+                        archiveArtifacts artifacts: 'build/artifacts/*.zip,build/artifacts/*.bz2', followSymlinks: false
                     }
                 }
                 stage('macOS') {
@@ -135,7 +135,7 @@ pipeline {
                         sh 'mkdir -p ./osx'
                         sh 'cp ./build/dist/osx/avscore.tar.bz2 ./osx'
 
-                        archiveArtifacts artifacts: '*.zip,*.tgz', followSymlinks: false
+                        archiveArtifacts artifacts: 'build/artifacts/*.zip,build/artifacts/*.tgz', followSymlinks: false
                     }
                 }
             }
