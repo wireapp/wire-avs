@@ -3,6 +3,7 @@ version = null
 branchName = null
 commitId = null
 repoName = null
+changelog = ""
 
 pipeline {
     agent none
@@ -18,6 +19,18 @@ pipeline {
     }
 
     stages {
+        stage( 'Prepare changelog' ) {
+            steps {
+                script {
+                    currentBuild.changeSets.each { set ->
+                        set.items.each { entry ->
+                            changelog += entry.msg + '\n'
+                        }
+                    }
+                }
+                echo(changelog)
+            }
+        }
         stage( 'Prepare + Test + Build' ) {
             parallel {
                 stage('Linux') {
@@ -69,6 +82,8 @@ pipeline {
                         sh 'mkdir -p ./build/artifacts'
                         sh 'cp ./build/dist/linux/avscore.tar.bz2 ./build/artifacts/avs.linux.' + version + '.tar.bz2'
                         sh 'zip -9j ./build/artifacts/zcall_linux_' + version + '.zip ./zcall'
+
+                        archiveArtifacts artifacts: '*.zip,*.bz2', followSymlinks: false
                     }
                 }
                 stage('macOS') {
@@ -131,6 +146,8 @@ pipeline {
                         // TODO: Add debug artifact
                         sh 'mkdir -p ./osx'
                         sh 'cp ./build/dist/osx/avscore.tar.bz2 ./osx'
+
+                        archiveArtifacts artifacts: '*.zip,*.tgz', followSymlinks: false
                     }
                 }
             }
