@@ -19,7 +19,7 @@ pipeline {
     }
 
     stages {
-       stage( 'Prepare + Test + Build' ) {
+       stage('Test + Build') {
             parallel {
                 stage('Linux') {
                     agent {
@@ -140,16 +140,66 @@ pipeline {
                 }
             }
         }
-        stage( 'Prepare changelog' ) {
+        stage('Prepare changelog') {
             steps {
                 script {
                     currentBuild.changeSets.each { set ->
                         set.items.each { entry ->
-                            changelog += entry.msg + '\n'
+                            changelog += '- ' + entry.msg + '\n'
                         }
                     }
                 }
+                echo("Changelog:")
                 echo(changelog)
+            }
+        }
+        stage('Tag & create Github release') {
+            agent {
+                label "linuxbuild"
+            }
+            when {
+                anyOf {
+                    expression { return "${branchName}".startsWith('release') || "${version}".startsWith('0.0') }
+                }
+            }
+
+            steps {
+                echo "Tag as ${version}"
+                withCredentials([ sshUserPrivateKey( credentialsId: 'avs-github-ssh', keyFileVariable: 'sshPrivateKeyPath' ) ]) {
+                    sh(
+                        script: """
+                            #!/usr/bin/env bash
+
+                            cd "${env.WORKSPACE}"
+
+                            git tag ${version}
+
+                            git \
+                                -c core.sshCommand='ssh -i ${sshPrivateKeyPath}' \
+                                push \
+                                origin ${version}
+                        """
+                    )
+                }
+                echo 'Creating release on Github'
+                withCredentials([ string( credentialsId: 'avs-github-ssh', variable: 'accessToken' ) ]) {
+                    // NOTE: creating an empty stub directory just to create the release
+                    sh(
+                        script: """
+                            #!/usr/bin/env bash
+
+                            cd "${env.WORKSPACE}"
+
+                            GITHUB_USER=${repoUser} \
+                            GITHUB_TOKEN=${accessToken} \
+                            python3 ./scripts/release-on-github.py \
+                                ${repoName} \
+                                \$(mktemp -d) \
+                                ${version} \
+                                "${changelog}"
+                        """
+                    )
+                }
             }
         }
      }
@@ -167,7 +217,7 @@ pipeline {
             node( 'built-in' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
                     sh 'echo noop'
-                    //wireSend secret: "$jenkinsbot_secret", message: "✅ avs ${ params.RELEASE_VERSION != null ? params.RELEASE_VERSION : 'main' } (${BUILD_ID}) succeeded\n${BUILD_URL}console\nhttps://${REPO_BASE_PATH}/commit/${commitId}"
+                    //wireSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:** ${changelog}\n${BUILD_URL}console\nhttps://${REPO_BASE_PATH}/commit/${commitId}"
                 }
             }
         }
@@ -176,7 +226,7 @@ pipeline {
             node( 'built-in' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
                     sh 'echo noop'
-                    //wireSend secret: "$jenkinsbot_secret", message: "❌ avs ${ params.RELEASE_VERSION != null ? params.RELEASE_VERSION : 'main' } (${BUILD_ID}) failed\n${BUILD_URL}console\nhttps://${REPO_BASE_PATH}/commit/${commitId}"
+                    //wireSend secret: "$jenkinsbot_secret", message: "❌ ${JOB_NAME} #${BUILD_ID} failed\n${BUILD_URL}console\nhttps://${REPO_BASE_PATH}/commit/${commitId}"
                 }
             }
         }
