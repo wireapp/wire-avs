@@ -47,7 +47,7 @@ pipeline {
                             repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
                             repoUser = vcs.GIT_URL.tokenize( '/' )[-2]
 
-                            if ( params.RELEASE_VERSION == null ) {
+                            if (params.RELEASE_VERSION == null || params.RELEASE_VERSION == "") {
                                 version = "0.0.${buildNumber}"
                             } else {
                                 version = "${RELEASE_VERSION}.${buildNumber}"
@@ -100,7 +100,7 @@ pipeline {
                             repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
                             repoUser = vcs.GIT_URL.tokenize( '/' )[-2]
 
-                            if ( params.RELEASE_VERSION == null ) {
+                            if (params.RELEASE_VERSION == null || params.RELEASE_VERSION == "") {
                                 version = "0.0.${buildNumber}"
                             } else {
                                 version = "${RELEASE_VERSION}.${buildNumber}"
