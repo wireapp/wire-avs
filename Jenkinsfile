@@ -117,14 +117,9 @@ pipeline {
                         sh 'mkdir -p ./contrib/webrtc/72.5/lib/wasm-generic'
                         sh 'touch ./contrib/webrtc/72.5/lib/wasm-generic/libwebrtc.a'
 
-                        env.version = version
-                        sh '''
-                        . ./scripts/android_devenv.sh
-                        . ./scripts/wasm_devenv.sh
-                        make dist_clean
-                        make zcall AVS_VERSION=${version}
-                        make dist AVS_VERSION=${version} BUILDVERSION=${version}
-                        '''
+                        sh '. ./scripts/android_devenv.sh && . ./scripts/wasm_devenv.sh && make dist_clean'
+                        sh '. ./scripts/android_devenv.sh && . ./scripts/wasm_devenv.sh && make zcall AVS_VERSION=' + version
+                        sh '. ./scripts/android_devenv.sh && . ./scripts/wasm_devenv.sh && make dist AVS_VERSION=' + version + ' BUILDVERSION=' + version
 
                         sh 'rm -rf ./build/artifacts'
                         sh 'mkdir -p ./build/artifacts'
