@@ -309,7 +309,7 @@ int apply_effect_to_wav(const char* wavIn,
     
     webrtc::PushResampler<int16_t> input_resampler;
     webrtc::PushResampler<int16_t> output_resampler;
-    std::unique_ptr<webrtc::AudioProcessing> apm(webrtc::AudioProcessingBuilder().Create());
+    rtc::scoped_refptr<webrtc::AudioProcessing> apm(webrtc::AudioProcessingBuilder().Create());
     
     struct aueffect *aue;
     int ret = aueffect_alloc(&aue, effect_type, FS_PROC);
@@ -370,10 +370,10 @@ int apply_effect_to_wav(const char* wavIn,
     near_frame.sample_rate_hz_ = FS_PROC;
     
     // Setup APM
-    webrtc::AudioProcessing::ChannelLayout inLayout = webrtc::AudioProcessing::kMono;
-    webrtc::AudioProcessing::ChannelLayout outLayout = webrtc::AudioProcessing::kMono;;
-    webrtc::AudioProcessing::ChannelLayout reverseLayout = webrtc::AudioProcessing::kMono;;
-    apm->Initialize( FS_PROC, FS_PROC, FS_PROC, inLayout, outLayout, reverseLayout );
+    webrtc::ChannelLayout inLayout = webrtc::CHANNEL_LAYOUT_MONO;
+    webrtc::ChannelLayout outLayout = webrtc::CHANNEL_LAYOUT_MONO;
+    webrtc::ChannelLayout reverseLayout = webrtc::CHANNEL_LAYOUT_MONO;
+    //apm->Initialize( FS_PROC, FS_PROC, FS_PROC, inLayout, outLayout, reverseLayout );
 
     webrtc::AudioProcessing::Config apmConfig;
     // Enable High Pass Filter
