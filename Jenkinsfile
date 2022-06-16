@@ -130,14 +130,7 @@ pipeline {
                         sh 'zip -9j ./build/artifacts/avs.android.' + version + '.zip ./build/dist/android/avs.aar'
                         sh 'zip -9j ./build/artifacts/zcall_osx_' + version + '.zip ./zcall'
                         sh 'cp ./build/dist/wasm/wireapp-avs-' + version + '.tgz ./build/artifacts/'
-                        // Add debug artifact
-                        sh '''
-                            if [ -e ./build/dist/android/debug/ ]; then
-                                cd ./build/dist/android/debug
-                                zip -9r ./../../../artifacts/avs.android.${ version }.debug.zip *
-                                cd -
-                            fi
-                        '''
+                        sh 'if [ -e ./build/dist/android/debug/ ]; then cd ./build/dist/android/debug; zip -9r ./../../../artifacts/avs.android.' + version + '.debug.zip *; cd -; fi'
                         sh 'mkdir -p ./osx'
                         sh 'cp ./build/dist/osx/avscore.tar.bz2 ./osx'
 
