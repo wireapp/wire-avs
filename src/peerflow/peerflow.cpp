@@ -133,12 +133,12 @@ struct peerflow {
 	webrtc::PeerConnectionInterface:: RTCOfferAnswerOptions *answerOptions;
 
 	webrtc::PeerConnectionObserver *observer;
-	rtc::scoped_refptr<webrtc::CreateSessionDescriptionObserver> sdpObserver;
-	rtc::scoped_refptr<webrtc::CreateSessionDescriptionObserver> addDecoderSdpObserver;
+	webrtc::CreateSessionDescriptionObserver *sdpObserver;
+	webrtc::CreateSessionDescriptionObserver *addDecoderSdpObserver;
 	rtc::scoped_refptr<webrtc::SetRemoteDescriptionObserverInterface> sdpRemoteObserver;
 
-	rtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> offerObserver;
-	rtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> answerObserver;
+	webrtc::SetSessionDescriptionObserver *offerObserver;
+	webrtc::SetSessionDescriptionObserver *answerObserver;
 	webrtc::RtpReceiverObserverInterface *rtpObserver;
 	
 	rtc::scoped_refptr<webrtc::RtpSenderInterface> rtpSender;
@@ -185,7 +185,7 @@ struct peerflow {
 	struct le le;
 
 	struct tmr tmr_stats;
-	rtc::scoped_refptr<wire::NetStatsCallback> netStatsCb;
+	wire::NetStatsCallback *netStatsCb;
 	std::string remoteSdp;
 	bool selective_audio;
 	bool selective_video;
@@ -966,7 +966,7 @@ public:
 		case webrtc::PeerConnectionInterface::kHaveRemoteOffer:
 			if (!pf_->gathered) {
 				pf_->peerConn->CreateAnswer(pf_->sdpObserver,
-							*pf_->answerOptions);
+							   *pf_->answerOptions);
 			}
 			break;
 
@@ -1112,7 +1112,7 @@ public:
 		{
 			rtc::scoped_refptr<wire::CallStatsCallback> cb =
 				rtc::make_ref_counted<wire::CallStatsCallback>(pf_);
-                        pf_->peerConn->GetStats(cb);
+                        pf_->peerConn->GetStats(cb.get());
 				
 			send_close(pf_, 0);
 		}
@@ -1752,7 +1752,8 @@ static int create_pf(struct peerflow *pf)
 		pri.address = sa;
 
 		port_allocator = absl::make_unique<cricket::BasicPortAllocator>(
-			new rtc::BasicNetworkManager());
+					   new rtc::BasicNetworkManager(),
+					   nullptr);
 		
 		port_allocator->set_proxy("wire-call", pri);
 	}
@@ -1778,7 +1779,7 @@ static int create_pf(struct peerflow *pf)
 	auopts.noise_suppression = true;
 	
 	pf->audio.source = g_pf.pc_factory->CreateAudioSource(auopts);
-	pf->audio.track = g_pf.pc_factory->CreateAudioTrack("audio", pf->audio.source);
+	pf->audio.track = g_pf.pc_factory->CreateAudioTrack("audio", pf->audio.source.get());
 	if (g_pf.audio.muted)
 		pf->audio.track->set_enabled(false);
 
@@ -2346,7 +2347,6 @@ int peerflow_handle_offer(struct iflow *iflow,
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
 		webrtc::CreateSessionDescription(webrtc::SdpType::kOffer,
 						 sdp_str, &parse_err);
-
 	if (sdp == nullptr) {
 		warning("peerflow_handle_offer: failed to parse SDP: "
 			"line=%s reason=%s\n",
@@ -2362,6 +2362,8 @@ int peerflow_handle_offer(struct iflow *iflow,
 
 		pf->peerConn->SetRemoteDescription(std::move(sdp),
 						   pf->sdpRemoteObserver);
+						   
+						   
 		
 		const webrtc::SessionDescriptionInterface *rsdp = pf->peerConn->remote_description();
 		rsdp->ToString(&pf->remoteSdp);

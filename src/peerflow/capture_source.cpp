@@ -198,7 +198,7 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 	frmbuf->InitializeData();
 
 	if (_black_frames) {
-		webrtc::I420Buffer::SetBlack(frmbuf);
+		webrtc::I420Buffer::SetBlack(frmbuf.get());
 	}
 	else {
 		switch(frame->type) {
