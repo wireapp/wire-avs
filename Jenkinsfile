@@ -410,15 +410,13 @@ EOF
             }
             steps {
                 withCredentials([ string( credentialsId: 'ios-github', variable: 'accessToken' ) ]) {
-                    sh(
-                        script: """
-                            GITHUB_TOKEN=${ accessToken } \
-                            python3 ./scripts/upload-ios.py \
-                                ./build/artifacts/avs.xcframework.zip \
-                                ${version} \
-                                appstore
-                        """
-                    )
+                    sh """
+                        GITHUB_TOKEN=${ accessToken } \
+                        python3 ./scripts/upload-ios.py \
+                            ./build/artifacts/avs.xcframework.zip \
+                            ${version} \
+                            appstore
+                    """
                 }
             }
         }
@@ -435,16 +433,13 @@ EOF
                 // NOTE: the script upload-wasm.sh supports non-release branches, but in the past
                 //       it still was only invoked on release branches
                 // TODO: refactor and move script content into the 'sh' directive; ensure NPM as job dependency
-                final String formerlyCalledJobName = "avs-release-${RELEASE_VERSION}"
                 withCredentials([ string( credentialsId: 'npmtoken', variable: 'accessToken' ) ]) {
-                    sh(
-                        script: """
-                            # NOTE: upload-wasm.sh assumes a certain current working directory
-                            NPM_TOKEN=${accessToken} \
-                            ${env.WORKSPACE}/scripts/upload-wasm.sh ${formerlyCalledJobName}
-                        """
-                    )
-               }
+                    script: """
+                        # NOTE: upload-wasm.sh assumes a certain current working directory
+                        NPM_TOKEN=${accessToken} \
+                        ${env.WORKSPACE}/scripts/upload-wasm.sh avs-release-${RELEASE_VERSION}
+                    """
+                }
             }
         }
     }
