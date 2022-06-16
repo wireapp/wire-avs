@@ -159,7 +159,7 @@ pipeline {
                 echo(changelog)
             }
         }
-        stage('Tag & create Github release') {
+        stage('Tag + Create Github release') {
             agent {
                 label "linuxbuild"
             }
@@ -209,7 +209,7 @@ pipeline {
                 }
             }
         }
-        stage( 'Uploading' ) {
+        stage('Upload to Github') {
             when {
                 anyOf {
                     expression { return "${branchName}".startsWith('release') || "${version}".startsWith('0.0') }
@@ -247,7 +247,7 @@ pipeline {
                 }
             }
         }
-        stage( 'Publishing' ) {
+        stage('Publish to sonatype') {
             when {
                 anyOf {
                     expression { return "${branchName}".startsWith('release') }
@@ -295,9 +295,9 @@ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>${ ANDROID_GROUP }</groupId>
-    <artifactId>${ artifactName }</artifactId>
-    <version>${ version }</version>
+    <groupId>${ANDROID_GROUP}</groupId>
+    <artifactId>${artifactName}</artifactId>
+    <version>${version}</version>
     <packaging>aar</packaging>
 
     <name>wire-avs</name>
@@ -344,28 +344,28 @@ EOF
                                         mvn gpg:sign-and-deploy-file \
                                             -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ \
                                             -Dgpg.homedir=.gpghome \
-                                            -Dgpg.passphrase=${ PGP_PASSPHRASE } \
+                                            -Dgpg.passphrase=${PGP_PASSPHRASE} \
                                             -Dgpg.keyname=D599C1AA126762B1 \
                                             -DrepositoryId=ossrh \
                                             -Dpackaging=aar \
                                             -DpomFile=avs.pom \
-                                            -DgroupId=${ ANDROID_GROUP } \
-                                            -DartifactId=${ artifactName } \
-                                            -Dversion=${ version } \
+                                            -DgroupId=${ANDROID_GROUP} \
+                                            -DartifactId=${artifactName} \
+                                            -Dversion=${version} \
                                             -Dfile=./build/dist/android/avs.aar
 
                                         # upload javadoc
                                         mvn gpg:sign-and-deploy-file \
                                             -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ \
                                             -Dgpg.homedir=.gpghome \
-                                            -Dgpg.passphrase=${ PGP_PASSPHRASE } \
+                                            -Dgpg.passphrase=${PGP_PASSPHRASE} \
                                             -Dgpg.keyname=D599C1AA126762B1 \
                                             -DrepositoryId=ossrh \
                                             -Dpackaging=jar \
                                             -DpomFile=avs.pom \
-                                            -DgroupId=${ ANDROID_GROUP } \
-                                            -DartifactId=${ artifactName } \
-                                            -Dversion=${ version } \
+                                            -DgroupId=${ANDROID_GROUP} \
+                                            -DartifactId=${artifactName} \
+                                            -Dversion=${version} \
                                             -Dclassifier=javadoc \
                                             -Dfile=./build/dist/android/javadoc.jar
 
@@ -373,14 +373,14 @@ EOF
                                         mvn gpg:sign-and-deploy-file \
                                             -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ \
                                             -Dgpg.homedir=.gpghome \
-                                            -Dgpg.passphrase=${ PGP_PASSPHRASE } \
+                                            -Dgpg.passphrase=${PGP_PASSPHRASE} \
                                             -Dgpg.keyname=D599C1AA126762B1 \
                                             -DrepositoryId=ossrh \
                                             -Dpackaging=jar \
                                             -DpomFile=avs.pom \
-                                            -DgroupId=${ ANDROID_GROUP } \
-                                            -DartifactId=${ artifactName } \
-                                            -Dversion=${ version } \
+                                            -DgroupId=${ANDROID_GROUP} \
+                                            -DartifactId=${artifactName} \
+                                            -Dversion=${version} \
                                             -Dclassifier=sources \
                                             -Dfile=./build/dist/android/sources.jar
                                     """
@@ -396,37 +396,55 @@ EOF
                             )
                         }
                     }
-
-                    echo '### Uploading to iOS repository'
-
-                    withCredentials([ string( credentialsId: 'ios-github', variable: 'accessToken' ) ]) {
-                        sh(
-                            script: """
-                                GITHUB_TOKEN=${ accessToken } \
-                                python3 ./scripts/upload-ios.py \
-                                    ./build/artifacts/avs.xcframework.zip \
-                                    ${ version } \
-                                    appstore
-                            """
-                        )
-                    }
-
-                    echo '### Uploading to NPM'
-                    // NOTE: the script upload-wasm.sh supports non-release branches, but in the past
-                    //       it still was only invoked on release branches
-                    // TODO: refactor and move script content into the 'sh' directive; ensure NPM as job dependency
-                    //
-                    final String formerlyCalledJobName = "avs-release-${RELEASE_VERSION}"
-                    withCredentials([ string( credentialsId: 'npmtoken', variable: 'accessToken' ) ]) {
-                        sh(
-                            script: """
-                                # NOTE: upload-wasm.sh assumes a certain current working directory
-                                NPM_TOKEN=${ accessToken } \
-                                ${env.WORKSPACE}/scripts/upload-wasm.sh ${formerlyCalledJobName}
-                            """
-                        )
-                   }
                 }
+            }
+        }
+        stage('Publish to ios github repo') {
+            when {
+                anyOf {
+                    expression { return "${branchName}".startsWith('release') }
+                }
+            }
+            agent {
+                label 'built-in'
+            }
+            steps {
+                withCredentials([ string( credentialsId: 'ios-github', variable: 'accessToken' ) ]) {
+                    sh(
+                        script: """
+                            GITHUB_TOKEN=${ accessToken } \
+                            python3 ./scripts/upload-ios.py \
+                                ./build/artifacts/avs.xcframework.zip \
+                                ${version} \
+                                appstore
+                        """
+                    )
+                }
+            }
+        }
+        stage('Publish to npm') {
+            when {
+                anyOf {
+                    expression { return "${branchName}".startsWith('release') }
+                }
+            }
+            agent {
+                label 'built-in'
+            }
+            steps {
+                // NOTE: the script upload-wasm.sh supports non-release branches, but in the past
+                //       it still was only invoked on release branches
+                // TODO: refactor and move script content into the 'sh' directive; ensure NPM as job dependency
+                final String formerlyCalledJobName = "avs-release-${RELEASE_VERSION}"
+                withCredentials([ string( credentialsId: 'npmtoken', variable: 'accessToken' ) ]) {
+                    sh(
+                        script: """
+                            # NOTE: upload-wasm.sh assumes a certain current working directory
+                            NPM_TOKEN=${accessToken} \
+                            ${env.WORKSPACE}/scripts/upload-wasm.sh ${formerlyCalledJobName}
+                        """
+                    )
+               }
             }
         }
     }
