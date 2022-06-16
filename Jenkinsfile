@@ -434,7 +434,7 @@ EOF
                 //       it still was only invoked on release branches
                 // TODO: refactor and move script content into the 'sh' directive; ensure NPM as job dependency
                 withCredentials([ string( credentialsId: 'npmtoken', variable: 'accessToken' ) ]) {
-                    script: """
+                    sh """
                         # NOTE: upload-wasm.sh assumes a certain current working directory
                         NPM_TOKEN=${accessToken} \
                         ${env.WORKSPACE}/scripts/upload-wasm.sh avs-release-${RELEASE_VERSION}
