@@ -1,4 +1,4 @@
-# Global variable initialization
+// Global variable initialization
 buildNumber = currentBuild.id
 version = null
 branchName = null
