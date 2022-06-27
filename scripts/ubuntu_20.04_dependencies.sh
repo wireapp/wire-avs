@@ -40,6 +40,12 @@ apt install -y \
     libpulse-dev \
     valgrind
 
+# uninstall distribution version of cargo/rust
+apt purge -y cargo rustc
+
+# cleanup apt cache to reduce image size
+rm -rf /var/lib/apt/lists/
+
 # download the rust toolchain (to build the cryptobox-c dependency)
 curl https://sh.rustup.rs -sSf | sh -s -- -y
 
