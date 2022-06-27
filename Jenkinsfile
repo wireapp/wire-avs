@@ -44,7 +44,7 @@ pipeline {
                                     ]
                             ])
 
-                            branchName = vcs.GIT_BRANCH.tokenize( '/' ).drop( 1 ).join( '/' )
+                            branchName = vcs.GIT_BRANCH
                             commitId = "${vcs.GIT_COMMIT}"[0..6]
                             repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
 
@@ -97,7 +97,7 @@ pipeline {
                                     ]
                             ])
 
-                            branchName = vcs.GIT_BRANCH.tokenize( '/' ).drop( 1 ).join( '/' )
+                            branchName = vcs.GIT_BRANCH
                             commitId = "${vcs.GIT_COMMIT}"[0..6]
                             repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
 
@@ -161,7 +161,7 @@ pipeline {
             }
             when {
                 anyOf {
-                    expression { return "${branchName}".contains('release') || "${branchName}".endsWith('main') }
+                    expression { return "${branchName}".contains('release') || "${branchName}".equals('main') }
                 }
             }
 
@@ -206,7 +206,7 @@ pipeline {
         stage('Upload to Github') {
             when {
                 anyOf {
-                    expression { return "${branchName}".contains('release') || "${branchName}".endsWith('main') }
+                    expression { return "${branchName}".contains('release') || "${branchName}".equals('main') }
                 }
             }
             matrix {
@@ -451,7 +451,7 @@ EOF
         success {
             node( 'built-in' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
-                    wireSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:** ${changelog}\n${BUILD_URL}console\nhttps://${REPO_BASE_PATH}/commit/${commitId}"
+                    wireSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:** ${changelog}\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
             }
         }
@@ -459,7 +459,7 @@ EOF
         failure {
             node( 'built-in' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
-                    wireSend secret: "$jenkinsbot_secret", message: "❌ ${JOB_NAME} #${BUILD_ID} failed\n${BUILD_URL}console\nhttps://${REPO_BASE_PATH}/commit/${commitId}"
+                    wireSend secret: "$jenkinsbot_secret", message: "❌ ${JOB_NAME} #${BUILD_ID} failed\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
             }
         }
