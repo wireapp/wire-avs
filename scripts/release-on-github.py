@@ -37,7 +37,7 @@ description = message
 if release is None:
     release = grepo.create_git_release(tag, name, description)
 else:
-    print('[INFO] Release: {} already exists, aborting'.format(release_name))
+    print('[INFO] Release: {} already exists, aborting'.format(name))
 
 for folder_entry in os.listdir(assets_directory_path):
     print('Uploading {} as asset to release {}'.format(folder_entry, name))

@@ -161,7 +161,7 @@ pipeline {
             }
             when {
                 anyOf {
-                    expression { return "${branchName}".contains('release') || "${branchName}".equals('main') }
+                    expression { return "${branchName}".contains('release') || "${branchName}".contains('main') }
                 }
             }
 
@@ -206,7 +206,7 @@ pipeline {
         stage('Upload to Github') {
             when {
                 anyOf {
-                    expression { return "${branchName}".contains('release') || "${branchName}".equals('main') }
+                    expression { return "${branchName}".contains('release') || "${branchName}".contains('main') }
                 }
             }
             matrix {
@@ -451,7 +451,7 @@ EOF
         success {
             node( 'built-in' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
-                    wireSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:** ${changelog}\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
+                    wireSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:**\n${changelog}\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
             }
         }
