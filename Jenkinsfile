@@ -451,8 +451,7 @@ EOF
         success {
             node( 'built-in' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
-                    echo('noop')
-                    //wireSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:** ${changelog}\n${BUILD_URL}console\nhttps://${REPO_BASE_PATH}/commit/${commitId}"
+                    wireSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:** ${changelog}\n${BUILD_URL}console\nhttps://${REPO_BASE_PATH}/commit/${commitId}"
                 }
             }
         }
@@ -460,8 +459,7 @@ EOF
         failure {
             node( 'built-in' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
-                    echo('noop')
-                    //wireSend secret: "$jenkinsbot_secret", message: "❌ ${JOB_NAME} #${BUILD_ID} failed\n${BUILD_URL}console\nhttps://${REPO_BASE_PATH}/commit/${commitId}"
+                    wireSend secret: "$jenkinsbot_secret", message: "❌ ${JOB_NAME} #${BUILD_ID} failed\n${BUILD_URL}console\nhttps://${REPO_BASE_PATH}/commit/${commitId}"
                 }
             }
         }
