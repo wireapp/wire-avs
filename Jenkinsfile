@@ -2,7 +2,7 @@
 buildNumber = currentBuild.id
 version = null
 release_version = ""
-branchName = null
+branchName = ""
 commitId = null
 repoName = null
 changelog = ""
@@ -161,7 +161,7 @@ pipeline {
             }
             when {
                 anyOf {
-                    expression { return "${branchName}".startsWith('release') || "${branchName}".startsWith('main') }
+                    expression { return "${branchName}".contains('release') || "${branchName}".endsWith('main') }
                 }
             }
 
@@ -206,7 +206,7 @@ pipeline {
         stage('Upload to Github') {
             when {
                 anyOf {
-                    expression { return "${branchName}".startsWith('release') || "${branchName}".startsWith('main') }
+                    expression { return "${branchName}".contains('release') || "${branchName}".endsWith('main') }
                 }
             }
             matrix {
@@ -245,7 +245,7 @@ pipeline {
         stage('Publish to sonatype') {
             when {
                 anyOf {
-                    expression { return "${branchName}".startsWith('release') }
+                    expression { return "${branchName}".contains('release') }
                 }
             }
             agent {
@@ -397,7 +397,7 @@ EOF
         stage('Publish to ios github repo') {
             when {
                 anyOf {
-                    expression { return "${branchName}".startsWith('release') }
+                    expression { return "${branchName}".contains('release') }
                 }
             }
             agent {
@@ -418,7 +418,7 @@ EOF
         stage('Publish to npm') {
             when {
                 anyOf {
-                    expression { return "${branchName}".startsWith('release') }
+                    expression { return "${branchName}".contains('release') }
                 }
             }
             agent {
