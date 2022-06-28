@@ -259,7 +259,7 @@ pipeline {
                     final String ANDROID_GROUP = 'com.wire'
 
                     echo '### Sign with release key'
-                    withCredentials([ usernamePassword( credentialsId: CREDENTIALS_ID_ANDROID_PUBLIC_PACKAGE_REPO, usernameVariable: 'username', passwordVariable: 'password' ),
+                    withCredentials([ usernamePassword( credentialsId: 'android-sonatype-nexus', usernameVariable: 'username', passwordVariable: 'password' ),
                                         file(credentialsId: 'D599C1AA126762B1.asc', variable: 'PGP_PRIVATE_KEY_FILE'),
                                         string(credentialsId: 'PGP_PASSPHRASE', variable: 'PGP_PASSPHRASE') ]) {
                         try {
