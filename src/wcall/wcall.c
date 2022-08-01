@@ -2045,12 +2045,12 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		size_t now = tmr_jiffies();
 
 		info(APITAG "wcall(%p): calling readyh: %p\n",
-		     inst, inst->ready);
+		     inst, inst->readyh);
 
 		inst->readyh(ver, inst->arg);
 
 		info(APITAG "wcall(%p): calling readyh: %p took: %llums\n",
-		     inst, inst->ready, tmr_jiffies() - now);
+		     inst, inst->readyh, tmr_jiffies() - now);
 	}
 }
 
