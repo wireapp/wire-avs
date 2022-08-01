@@ -2037,13 +2037,20 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		first = true;
 	inst->call_config = cfg;
 
-	debug("wcall(%p): call_config: %d ice servers\n",
-	      inst, cfg->iceserverc);
+	debug("wcall(%p): call_config: %d ice servers first=%d readyh=%p\n",
+	      inst, cfg->iceserverc, first, inst->readyh);
 	
 	if (first && inst->readyh) {
 		int ver = WCALL_VERSION_3;
+		size_t now = tmr_jiffies();
+
+		info(APITAG "wcall(%p): calling readyh: %p\n",
+		     inst, inst->ready);
 
 		inst->readyh(ver, inst->arg);
+
+		info(APITAG "wcall(%p): calling readyh: %p took: %llums\n",
+		     inst, inst->ready, tmr_jiffies() - now);
 	}
 }
 
