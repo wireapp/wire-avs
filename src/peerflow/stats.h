@@ -46,11 +46,18 @@ public:
 		info("peerflow(%p): stats: %s\n", pf_, report->ToJson().c_str());
 	}
 
+	void AddRef() const {
+	}
+
+	virtual rtc::RefCountReleaseStatus Release() const {
+		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+	}
+
 private:
 	struct peerflow *pf_;
 };
 
-class NetStatsCallback : public rtc::RefCountedObject<webrtc::RTCStatsCollectorCallback>
+class NetStatsCallback : public webrtc::RTCStatsCollectorCallback
 {
 public:
 	NetStatsCallback(struct peerflow* pf) :
@@ -213,6 +220,12 @@ public:
 		return err;
 	}
 
+	void AddRef() const {
+	}
+
+	virtual rtc::RefCountReleaseStatus Release() const {
+		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+	}
 	
 
 private:

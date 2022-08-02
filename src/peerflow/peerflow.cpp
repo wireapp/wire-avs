@@ -1110,9 +1110,8 @@ public:
 			
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
 		{
-			rtc::scoped_refptr<wire::CallStatsCallback> cb =
-				rtc::make_ref_counted<wire::CallStatsCallback>(pf_);
-                        pf_->peerConn->GetStats(cb.get());
+			wire::CallStatsCallback *cb = new wire::CallStatsCallback(pf_);
+                        pf_->peerConn->GetStats(cb);
 				
 			send_close(pf_, 0);
 		}
