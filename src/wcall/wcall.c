@@ -2042,7 +2042,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	
 	if (first && inst->readyh) {
 		int ver = WCALL_VERSION_3;
-		size_t now = tmr_jiffies();
+		uint64_t now = tmr_jiffies();
 
 		info(APITAG "wcall(%p): calling readyh: %p\n",
 		     inst, inst->readyh);
