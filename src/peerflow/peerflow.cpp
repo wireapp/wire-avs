@@ -118,6 +118,7 @@ struct peerflow {
 	char *convid;
 	char *userid_self;
 	char *clientid_self;
+	struct conf_member *cm; /* member for 1/1 conv */
 
 	enum icall_call_type call_type;
 	enum icall_conv_type conv_type;
@@ -1887,6 +1888,7 @@ static void pf_destructor(void *arg)
 	mem_deref(pf->userid_remote);
 	mem_deref(pf->clientid_self);
 	mem_deref(pf->clientid_remote);
+	mem_deref(pf->cm);
 
 	list_flush(&pf->cml.list);
 	mem_deref(pf->cml.lock);
@@ -1932,6 +1934,49 @@ static void timer_stats(void *arg)
 	tmr_start(&pf->tmr_stats, TMR_STATS_INTERVAL, timer_stats, pf);
 }
 
+static int get_oneonone_aulevel(struct peerflow *pf,
+				struct list *levell)
+{
+	std::vector<rtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
+	int err = 0;
+
+	if (!pf || !pf->peerConn)
+		return ENOENT;
+
+	trxs = pf->peerConn->GetTransceivers();
+	for(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
+		rtc::scoped_refptr<webrtc::RtpReceiverInterface> rx = trx->receiver();
+		std::vector<webrtc::RtpSource> sources;
+
+		if (rx) {
+			sources = rx->GetSources();
+		}
+		if (sources.empty())
+			continue;
+		
+		webrtc::RtpSource src = sources[0]; 
+		uint8_t level = src.audio_level() ? *src.audio_level() : 127;
+		float flevel = powf(10.0f, -level / 30.0f) * 255.0f;
+
+		if (!pf->cm)
+			return ENOENT;
+
+		conf_member_set_audio_level(pf->cm, (uint8_t)flevel);
+		if (pf->cm->audio_level > AUDIO_LEVEL_FLOOR
+		     || pf->cm->audio_level_smooth > 0) {
+			struct audio_level *aulevel;
+
+			err = audio_level_alloc(&aulevel, levell, false,
+						pf->cm->userid,
+						pf->cm->clientid,
+						pf->cm->audio_level,
+						pf->cm->audio_level_smooth);
+		}
+	}
+	
+	return err;
+}
+
 static int peerflow_get_aulevel(struct iflow *iflow,
 				struct list *levell)
 {
@@ -1943,7 +1988,6 @@ static int peerflow_get_aulevel(struct iflow *iflow,
 	if (!levell)
 		return EINVAL;	
 
-
 	if (pf->stats.audio_level > AUDIO_LEVEL_FLOOR ||
 	    pf->stats.audio_level_smooth > 0) {
 		err = audio_level_alloc(&aulevel, levell, true,
@@ -1953,35 +1997,42 @@ static int peerflow_get_aulevel(struct iflow *iflow,
 	}
 	if (err)
 		goto out;
-	
-	lock_write_get(pf->cml.lock);
-	LIST_FOREACH(&pf->cml.list, le) {
-		struct conf_member *cm = (struct conf_member *)le->data;
 
-		if (!cm || !cm->active)
-			continue;
+	if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
+		err = get_oneonone_aulevel(pf, levell);
+	}
+	else {	
+		lock_write_get(pf->cml.lock);
+		LIST_FOREACH(&pf->cml.list, le) {
+			struct conf_member *cm = (struct conf_member *)le->data;
 
-		if (cm->userid && cm->clientid &&
-		    (cm->audio_level > AUDIO_LEVEL_FLOOR
-		     || cm->audio_level_smooth > 0)) {
-			err = audio_level_alloc(&aulevel, levell, false,
-						cm->userid, cm->clientid,
-						cm->audio_level,
-						cm->audio_level_smooth);
-			/* Make sure to count down the level if
-			 * the source is no longer in the list due to
-			 * selective audio.
-			 */
-			conf_member_set_audio_level(cm, 0);
+			if (!cm || !cm->active)
+				continue;
 
-			if (err)
-				goto out;
+			if (cm->userid && cm->clientid &&
+			    (cm->audio_level > AUDIO_LEVEL_FLOOR
+			     || cm->audio_level_smooth > 0)) {
+				err = audio_level_alloc(&aulevel, levell, false,
+							cm->userid,
+							cm->clientid,
+							cm->audio_level,
+							cm->audio_level_smooth);
+				/* Make sure to count down the level if
+				 * the source is no longer in the list due to
+				 * selective audio.
+				 */
+				conf_member_set_audio_level(cm, 0);
+				if (err) {
+					lock_write_rel(pf->cml.lock);
+					goto out;
+				}
+			}
 		}
+		lock_rel(pf->cml.lock);
 	}
 	list_sort(levell, audio_level_list_cmp, pf);
 
  out:
-	lock_rel(pf->cml.lock);
 	if (err)
 		list_flush(levell);
 
@@ -2468,6 +2519,18 @@ int peerflow_set_remote_userclientid(struct iflow *iflow,
 	pf->clientid_remote = (char *)mem_deref(pf->clientid_remote);
 	err = str_dup(&pf->userid_remote, userid);
 	err |= str_dup(&pf->clientid_remote, clientid);
+
+	if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
+		pf->cm = (struct conf_member *)mem_deref(pf->cm);
+		conf_member_alloc(&pf->cm, NULL,
+				  (struct iflow *)pf,
+				  pf->userid_remote,
+				  pf->clientid_remote,
+				  "_",
+				  0,
+				  0,
+				  "");
+	}
 
 	return err;
 }
