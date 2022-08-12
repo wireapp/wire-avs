@@ -2023,7 +2023,7 @@ static int peerflow_get_aulevel(struct iflow *iflow,
 				 */
 				conf_member_set_audio_level(cm, 0);
 				if (err) {
-					lock_write_rel(pf->cml.lock);
+					lock_rel(pf->cml.lock);
 					goto out;
 				}
 			}
