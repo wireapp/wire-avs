@@ -68,7 +68,8 @@ int conf_member_alloc(struct conf_member **cmp,
 	if (err)
 		goto out;
 
-	list_append(membl, &cm->le, cm);
+	if (membl)
+		list_append(membl, &cm->le, cm);
  out:
 	if (err)
 		mem_deref(cm);

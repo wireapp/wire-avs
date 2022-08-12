@@ -184,6 +184,8 @@ struct jsflow {
 	char *userid_self;
 	char *clientid_self;
 
+	struct conf_member *cm;
+
 	enum icall_call_type call_type;
 	enum icall_conv_type conv_type;
 	enum icall_vstate vstate;
@@ -424,6 +426,8 @@ static void destructor(void *arg)
 	mem_deref(flow->convid);
 	mem_deref(flow->userid_self);
 	mem_deref(flow->clientid_self);
+
+	mem_deref(flow->cm);
 
 	// Close?
 }
@@ -1185,6 +1189,19 @@ int jsflow_set_remote_userclientid(struct iflow *iflow,
 	jsflow->remote_clientid = (char *)mem_deref(jsflow->remote_clientid);
 	err = str_dup(&jsflow->remote_userid, userid);
 	err |= str_dup(&jsflow->remote_clientid, clientid);
+
+	if (jsflow->conv_type == ICALL_CONV_TYPE_ONEONONE) {
+		jsflow->cm = mem_deref(jsflow->cm);
+		conf_member_alloc(&jsflow->cm, NULL,
+				  (struct iflow *)jsflow,
+				  jsflow->remote_userid,
+				  jsflow->remote_clientid,
+				  "_",
+				  0,
+				  0,
+				  "");
+	}
+	
 	info("jsflow: set_remote_userclientid: handle=%d userid: %s clientid: %s\n",
 	     jsflow->handle,
 	     anon_id(userid_anon, jsflow->remote_userid),
@@ -1322,6 +1339,31 @@ int jsflow_get_stats(struct iflow *flow,
 	return 0;
 }
 
+static int set_aulevel(struct conf_member *cm, struct list *levell)
+{
+	struct audio_level *aulevel;
+	int err = 0;
+	
+	if (!cm || !cm->active)
+		return EINVAL;
+		
+	if (cm->audio_level_smooth > 0
+	    || cm->audio_level > AUDIO_LEVEL_FLOOR) {
+
+		err = audio_level_alloc(&aulevel, levell, false,
+					cm->userid, cm->clientid,
+					cm->audio_level,
+					cm->audio_level_smooth);
+		/* Make sure to count down the level if
+		 * the source is no longer in the list due to
+		 * selective audio.
+		 */
+		conf_member_set_audio_level(cm, 0);
+	}
+
+	return err;
+}
+
 int jsflow_get_aulevel(struct iflow *iflow,
 		       struct list *levell)
 {
@@ -1343,26 +1385,17 @@ int jsflow_get_aulevel(struct iflow *iflow,
 			goto out;
 	}
 
-	LIST_FOREACH(&jf->cml, le) {
-		struct conf_member *cm = le->data;
+	if (jf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
+		if (!jf->cm)
+			return ENOENT;
 
-		if (!cm || !cm->active)
-			continue;
-		
-		if (cm->audio_level_smooth > 0
-		    || cm->audio_level > AUDIO_LEVEL_FLOOR) {
+		set_aulevel(jf->cm, levell);
+	}
+	else {
+		LIST_FOREACH(&jf->cml, le) {
+			struct conf_member *cm = le->data;
 
-			err = audio_level_alloc(&aulevel, levell, false,
-						cm->userid, cm->clientid,
-						cm->audio_level,
-						cm->audio_level_smooth);
-			/* Make sure to count down the level if
-			 * the source is no longer in the list due to
-			 * selective audio.
-			 */
-			conf_member_set_audio_level(cm, 0);
-			if (err)
-				goto out;
+			set_aulevel(cm, levell);
 		}
 	}
 	list_sort(levell, audio_level_list_cmp, jf);
@@ -1639,7 +1672,10 @@ void pc_set_audio_level(int self,
 		return;
 	}
 
-	cm = conf_member_find_by_ssrca(&jf->cml, ssrc);
+	if (jf->conv_type == ICALL_CONV_TYPE_ONEONONE)
+		cm = jf->cm;
+	else
+		cm = conf_member_find_by_ssrca(&jf->cml, ssrc);
 	if (cm) {
 		conf_member_set_audio_level(cm, audio_level);
 	}

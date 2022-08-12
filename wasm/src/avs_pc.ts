@@ -2285,19 +2285,26 @@ function pc_GetLocalStats(hnd: number) {
     if (rx) {
       const ssrcs = rx.getSynchronizationSources();
       ssrcs.forEach(ssrc => {
-        const uinfo = uinfo_from_ssrca(pc, ssrc.source.toString());
-	if (uinfo) {
-	  uinfo.audio_level = 0;
+          let ssrca = "";
+	  let aulevel = 0;
+
 	  if (typeof ssrc.audioLevel !== 'undefined')
-	    uinfo.audio_level = ((ssrc.audioLevel * 512.0) | 0);
+	      aulevel = ((ssrc.audioLevel * 512.0) | 0);
+
+	  if (pc.conv_type != CONV_TYPE_ONEONONE) {
+              const uinfo = uinfo_from_ssrca(pc, ssrc.source.toString());
+	      if (uinfo) {
+	         uinfo.audio_level = aulevel;
+	         ssrca = uinfo.ssrca;
+	      }
+	  }
 
 	  em_module.ccall(
 	    "pc_set_audio_level",
 	    null,
 	    ["number", "number", "number"],
-	    [pc.self, uinfo.ssrca, uinfo.audio_level]);
-	  }
-	});
+	    [pc.self, ssrca, aulevel]);
+      });
       const csrcs = rx.getContributingSources();
       csrcs.forEach(csrc => {
         const uinfo = uinfo_from_ssrca(pc, csrc.source.toString());
