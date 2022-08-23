@@ -3815,7 +3815,8 @@ int wcall_set_proxy(const char *host, int port)
 	return msystem_set_proxy(host, port);
 }
 
-/*
+#ifndef __EMSCRIPTEN__
+
 static void *avs_thread(void *arg)
 {
 	wcall_thread_main(&calling.run_err, &calling.run_init);
@@ -3833,5 +3834,5 @@ int wcall_run(void)
 
 	return calling.run_err;
 }
-*/
 
+#endif
