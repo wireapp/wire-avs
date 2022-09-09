@@ -1855,6 +1855,8 @@ static void pf_destructor(void *arg)
 
 	pf->netStatsCb->setActive(false);
 	tmr_cancel(&pf->tmr_stats);
+
+	delete pf->netStatsCb;
 	pf->netStatsCb = NULL;
 
 	tmr_cancel(&pf->tmr_cbr);
