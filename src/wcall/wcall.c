@@ -1101,13 +1101,13 @@ out:
 }
 
 
-static void egcall_leave_handler(struct icall* icall, int reason, uint32_t msg_time, void *arg)
+static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_time, void *arg)
 {
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
 
 	if (!WCALL_VALID(wcall)) {
-		warning("wcall(%p): egcall_leave_handler: invalid wcall "
+		warning("wcall(%p): icall_leave_handler: invalid wcall "
 			"inst=%p\n", wcall, inst);
 		return;
 	}
@@ -1143,14 +1143,14 @@ static void egcall_leave_handler(struct icall* icall, int reason, uint32_t msg_t
 			break;
 		}
 		uint64_t now = tmr_jiffies();
-		info(APITAG "wcall(%p): egcall_leave_handler: closeh(%p) "
-		     "group=yes state=%s reason=%s\n",
+		info(APITAG "wcall(%p): icall_leave_handler: closeh(%p) "
+		     "state=%s reason=%s\n",
 		     wcall, inst->closeh, wcall_state_name(wcall->state),
 		     wcall_reason_name(reason));
 
 		inst->closeh(wreason, wcall->convid, msg_time,
 			     inst->userid, inst->clientid, inst->arg);
-		info(APITAG "wcall(%p): egcall_leave_handler: closeh took %llu ms\n",
+		info(APITAG "wcall(%p): icall_leave_handler: closeh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
 	}
 	wcall->disable_audio = true;
@@ -1638,7 +1638,7 @@ int wcall_add(struct calling_instance *inst,
 				    icall_datachan_estab_handler,
 				    icall_media_stopped_handler,
 				    NULL, // group_changed_handler
-				    NULL, // leave_handler
+				    icall_leave_handler,
 				    icall_close_handler,
 				    NULL, // metrics_handler
 				    icall_vstate_handler,
@@ -1677,7 +1677,7 @@ int wcall_add(struct calling_instance *inst,
 				    icall_datachan_estab_handler,
 				    icall_media_stopped_handler,
 				    egcall_group_changed_handler,
-				    egcall_leave_handler,
+				    icall_leave_handler,
 				    icall_close_handler,
 				    egcall_metrics_handler,
 				    icall_vstate_handler,
@@ -1716,7 +1716,7 @@ int wcall_add(struct calling_instance *inst,
 				    icall_datachan_estab_handler,
 				    icall_media_stopped_handler,
 				    egcall_group_changed_handler,
-				    egcall_leave_handler,
+				    icall_leave_handler,
 				    icall_close_handler,
 				    egcall_metrics_handler,
 				    icall_vstate_handler,

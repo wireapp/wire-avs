@@ -2278,30 +2278,36 @@ int ecall_msg_recv(struct ecall *ecall,
 	if (0 == str_casecmp(ecall->userid_self, userid_sender) &&
 		ecall->conv_type == ICALL_CONV_TYPE_ONEONONE) {
 
-		if (msg->msg_type == ECONN_REJECT || 
-			(msg->msg_type == ECONN_SETUP && msg->resp)) {
+		if (ecall->econn &&
+		    econn_current_state(ecall->econn) == ECONN_PENDING_INCOMING) {
+			if (msg->msg_type == ECONN_SETUP && msg->resp) {
+				/* Received SETUP(r) from other Client.
+				 * Stop the ringing and close the call.
+				 */
 
-			/* Received SETUP(r) or REJECT from other Client.
-			 * We must stop the ringing.
-			 */
-			info("ecall: other client %s"
-			     " -- stop ringtone\n", msg->msg_type == ECONN_REJECT ? 
-			     "rejected" : "answered");
-
-			if (ecall->econn &&
-				econn_current_state(ecall->econn) == ECONN_PENDING_INCOMING) {
-
-				int why = msg->msg_type == ECONN_REJECT ? EREMOTE : EALREADY;
-				econn_close(ecall->econn, why,
+				info("ecall: other client answered -- stop ringtone\n");
+				econn_close(ecall->econn, EALREADY,
 					msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN);
 			}
+			else if (msg->msg_type == ECONN_REJECT) {
+				/* Received REJECT from other Client.
+				 * Stop the ringing but keep the call.
+				 */
+
+				info("ecall: other client rejected -- stop ringtone\n");
+				ICALL_CALL_CB(ecall->icall, leaveh,
+					&ecall->icall, ICALL_REASON_REJECTED, 0,
+					ecall->icall.arg);
+			}
 			else {
-				info("no pending incoming econns\n");
+				info("ecall(%p): ignore message %s from"
+				     " same user (%s)\n", ecall,
+				     econn_msg_name(msg->msg_type), anon_id(userid_anon, userid_sender));
 			}
 		}
 		else {
 			info("ecall(%p): ignore message %s from"
-			     " same user (%s)\n", ecall,
+			     " same user (%s) with no pending incoming econns\n", ecall,
 			     econn_msg_name(msg->msg_type), anon_id(userid_anon, userid_sender));
 		}
 
@@ -2458,7 +2464,6 @@ void ecall_set_clients(struct ecall* ecall,
 		return;
 
 	if (ecall->should_reject) {
-		ecall_end(ecall);
 		err = icall_send_reject_msg(&ecall->icall,
 					    clientl,
 					    ecall->userid_self,
