@@ -469,7 +469,7 @@ static void icall_start_handler(struct icall *icall,
 	(void)clientid_sender;
 
 	if (!WCALL_VALID(wcall)) {
-		warning("wcall(%p): egcall_start_handler: invalid wcall "
+		warning("wcall(%p): icall_start_handler: invalid wcall "
 			"inst=%p\n", wcall, inst);
 		return;
 	}
@@ -1161,7 +1161,7 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 }
 
 
-static void egcall_group_changed_handler(struct icall *icall, void *arg)
+static void icall_group_changed_handler(struct icall *icall, void *arg)
 {
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
@@ -1169,7 +1169,7 @@ static void egcall_group_changed_handler(struct icall *icall, void *arg)
 	(void)icall;
 
 	if (!WCALL_VALID(wcall)) {
-		warning("wcall(%p): egcall_group_changed_handler: "
+		warning("wcall(%p): icall_group_changed_handler: "
 			"invalid wcall inst=%p\n", wcall, inst);
 		return;
 	}
@@ -1187,7 +1187,7 @@ static void egcall_group_changed_handler(struct icall *icall, void *arg)
 	}
 }
 
-static void egcall_metrics_handler(struct icall *icall,
+static void icall_metrics_handler(struct icall *icall,
 				   const char *metrics_json,
 				   void *arg)
 {
@@ -1197,7 +1197,7 @@ static void egcall_metrics_handler(struct icall *icall,
 	(void)icall;
 
 	if (!WCALL_VALID(wcall)) {
-		warning("wcall(%p): egcall_metrics_handler: invalid wcall "
+		warning("wcall(%p): icall_metrics_handler: invalid wcall "
 			"inst=%p\n", wcall, inst);
 		return;
 	}
@@ -1676,10 +1676,10 @@ int wcall_add(struct calling_instance *inst,
 				    icall_audio_estab_handler,
 				    icall_datachan_estab_handler,
 				    icall_media_stopped_handler,
-				    egcall_group_changed_handler,
+				    icall_group_changed_handler,
 				    icall_leave_handler,
 				    icall_close_handler,
-				    egcall_metrics_handler,
+				    icall_metrics_handler,
 				    icall_vstate_handler,
 				    icall_audiocbr_handler,
 				    icall_muted_changed_handler,
@@ -1715,10 +1715,10 @@ int wcall_add(struct calling_instance *inst,
 				    icall_audio_estab_handler,
 				    icall_datachan_estab_handler,
 				    icall_media_stopped_handler,
-				    egcall_group_changed_handler,
+				    icall_group_changed_handler,
 				    icall_leave_handler,
 				    icall_close_handler,
-				    egcall_metrics_handler,
+				    icall_metrics_handler,
 				    icall_vstate_handler,
 				    icall_audiocbr_handler,
 				    NULL, // muted_changed_handler,
@@ -3260,7 +3260,7 @@ void wcall_set_participant_changed_handler(WUSER_HANDLE wuser,
 	     chgh, inst);
 
 	if (!inst) {
-		warning("wcall_set_group_changed_handler: no instance\n");
+		warning("wcall_set_participant_changed_handler: no instance\n");
 		return;
 	}
 
