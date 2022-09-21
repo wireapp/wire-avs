@@ -22,7 +22,8 @@
 enum {
 	AVS_FLAG_EXPERIMENTAL   = 1<<0,
 	AVS_FLAG_AUDIO_TEST     = 1<<1,
-	AVS_FLAG_VIDEO_TEST     = 1<<2
+	AVS_FLAG_VIDEO_TEST     = 1<<2,
+	AVS_FLAG_NOISE_TEST     = 1<<3,
 };
 
 

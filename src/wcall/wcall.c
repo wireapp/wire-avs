@@ -25,6 +25,8 @@
 #include <avs_wcall.h>
 #include <avs_peerflow.h>
 #include <avs_audio_level.h>
+#include <avs_audio_io.h>
+
 
 #include "wcall.h"
 
@@ -45,6 +47,7 @@
 static struct {
 	bool initialized;
 	int env;
+	int flags;
 	struct list instances;
 	struct list logl;
 	struct lock *lock;	
@@ -63,6 +66,7 @@ static struct {
 	.lock = NULL,
 	.run_init = 0,
 	.run_err = 0,
+	.flags = 0,
 	.wuser_index = 0,
 };
 
@@ -1296,6 +1300,7 @@ static int icall_send_handler(struct icall *icall,
 	char clientid_anon[ANON_CLIENT_LEN];
 	struct le *le;
 	size_t ntargets = 0;
+	uint64_t now;
 
 	(void)icall;
 
@@ -1353,11 +1358,23 @@ static int icall_send_handler(struct icall *icall,
 			goto out;
 	}
 
+	now = tmr_jiffies();
 	err = inst->sendh(ctx, wcall->convid, userid, inst->clientid,
 			  tjson, NULL, (uint8_t *)str, strlen(str),
 			  msg->transient ? 1 : 0, inst->arg);
+	info("wcall(%p): calling sendh(%p) took: %llu ms\n", wcall, inst->sendh, tmr_jiffies() - now);
 
-out:
+	now = tmr_jiffies();
+
+	info(APITAG "wcall(%p): calling readyh: %p\n",
+	     inst, inst->readyh);
+
+	inst->readyh(6, inst->arg);
+
+	info(APITAG "wcall(%p): calling readyh: %p took: %llums\n",
+	     inst, inst->readyh, tmr_jiffies() - now);
+
+ out:
 	mem_deref(str);
 	mem_deref(tstr);
 	mem_deref(tjson);
@@ -1914,33 +1931,51 @@ void wcall_i_audio_route_changed(enum mediamgr_auplay new_route)
 }
 
 AVS_EXPORT
-int wcall_setup(void)
+int wcall_setup_ex(int flags)
 {
 	int err = 0;
-	info(APITAG "wcall_setup: starting...\n");
+
+	log_set_min_level(LOG_LEVEL_DEBUG);
+
+	info(APITAG "wcall_setup(%d): starting...\n", flags);
 
 	err = libre_init();
 	if (err) {
-		warning("wcall_main: libre_init failed (%m)\n", err);
+		warning("wcall_setup: libre_init failed (%m)\n", err);
+		return err;
+	}
+	calling.flags = flags;
+
+	if (calling.flags & AVS_FLAG_NOISE_TEST)
+		flags |= AVS_FLAG_AUDIO_TEST;
+
+	err = avs_init((uint64_t)flags);
+	if (err) {
+		warning("wcall_setup: avs_init failed (%m)\n", err);
 		return err;
 	}
 
-	err = avs_init(0);
-	if (err) {
-		warning("wcall_main: avs_init failed (%m)\n", err);
-		return err;
-	}
+	if (calling.flags & AVS_FLAG_NOISE_TEST)
+		audio_io_enable_noise();
+	else if (calling.flags & AVS_FLAG_AUDIO_TEST)
+		audio_io_enable_sine();
 
 	// TODO: remove flowmgr
 	err = flowmgr_init("voe");
 	if (err) {
-		error("wcall_main: failed to init flowmgr\n");
+		error("wcall_setup: failed to init flowmgr\n");
 		return err;
 	}
 
-	log_set_min_level(LOG_LEVEL_DEBUG);
 
 	return err;
+}
+
+
+AVS_EXPORT
+int wcall_setup(void)
+{
+	return wcall_setup_ex(0);
 }
 
 AVS_EXPORT
@@ -2726,8 +2761,8 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 					WCALL_CONV_TYPE_ONEONONE);
 
 			if (err) {
-				warning("wcall(%p): recv_msg: could not "
-					"add call: %m\n", wcall, err);
+				warning("wcall(%p): recv_msg: wcall_add "
+					"failed: %m\n", wcall, err);
 				goto out;
 			}
 		}

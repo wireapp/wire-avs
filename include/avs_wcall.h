@@ -532,6 +532,7 @@ void wcall_thread_main(int *error, int *initialized);
 int wcall_run(void);
 void wcall_poll(void);
 int wcall_setup(void);
+int wcall_setup_ex(int flags);
 
 #ifdef __cplusplus
 }
