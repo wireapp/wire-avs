@@ -209,6 +209,14 @@ JNIEXPORT jlong JNICALL Java_com_waz_avs_VideoRenderer_createNative
 
 /*
  * Class:     com_waz_avs_VideoRenderer
+ * Method:    renderFrame
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_renderFrame
+  (JNIEnv *, jobject, jlong);
+
+/*
+ * Class:     com_waz_avs_VideoRenderer
  * Method:    destroyNative
  * Signature: (J)V
  */

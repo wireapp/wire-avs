@@ -45,6 +45,8 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
+#include <android/log.h>
+
 
 
 // GL_TRIANGLES
@@ -125,8 +127,11 @@ struct {
 
 struct video_renderer {
 	bool inited;
+	bool attached;
 	bool rounded;
 	bool should_fill;
+	bool dirty;
+	bool dict;
 	float fill_ratio;
 	bool needs_recalc;
 	bool use_mask;
@@ -145,6 +150,8 @@ struct video_renderer {
 
 	char *userid;
 	char *clientid;
+
+	struct avs_vidframe frame;
 
 	void *arg;
 };
@@ -192,14 +199,23 @@ static void init_tex(int name, int id, int width, int height)
 		     GL_LUMINANCE, GL_UNSIGNED_BYTE, NULL);
 }
 
-
 void vr_destructor(void *arg)
 {
 	struct video_renderer *vr = (struct video_renderer *)arg;
 
+	char msg[256];
+	snprintf(msg, sizeof(msg), "vr(%p): dtor\n", vr);
+	__android_log_write(ANDROID_LOG_INFO, "AVS-VR", msg);
+
 	vr->arg = NULL;
+	vr->attached = false;
+
 	mem_deref(vr->userid);
 	mem_deref(vr->clientid);
+
+	mem_deref(vr->frame.y);
+	mem_deref(vr->frame.u);
+	mem_deref(vr->frame.v);
 }
 
 static GLuint load_shader(GLenum shader_type, const char* src)
@@ -461,7 +477,6 @@ int video_renderer_alloc(struct video_renderer **vrp,  int w, int h,
 			 void *arg)
 {
 	struct video_renderer *vr;
-	int err = 0;
 
 #if 0
 	debug("%s: width %d, height %d rounded %d",
@@ -475,11 +490,16 @@ int video_renderer_alloc(struct video_renderer **vrp,  int w, int h,
 	if (vr == NULL)
 		return ENOMEM;
 
+	char msg[256];
+	snprintf(msg, sizeof(msg), "vr(%p): userid=%s.%s r=%d\n", vr, userid, clientid, rounded);
+	__android_log_write(ANDROID_LOG_INFO, "AVS-VR", msg);
+
 	vr->tex.w = -1;
 	vr->tex.h = -1;
 
 	vr->rounded = rounded;
 	vr->should_fill = true;
+	vr->dirty = false;
 	vr->fill_ratio = 0.0f;
 	vr->needs_recalc = false;
 	vr->inited = false;
@@ -487,16 +507,26 @@ int video_renderer_alloc(struct video_renderer **vrp,  int w, int h,
 	vr->h = h;
 	str_dup(&vr->userid, userid);
 	str_dup(&vr->clientid, clientid);
+	vr->attached = true;
 	vr->arg = arg;
 
-	if (err)
-		mem_deref(vr);
-	else {
-		if (vrp)
-			*vrp = vr;
-	}
+	if (vrp)
+		*vrp = vr;
 
-	return err;
+	return 0;
+}
+
+
+void video_renderer_set_dict(struct video_renderer *vr,
+			     bool dict)
+{
+	if (vr)
+		vr->dict = dict;
+}
+
+bool video_renderer_get_dict(struct video_renderer *vr)
+{
+	return vr ? vr->dict : false;
 }
 
 void video_renderer_detach(struct video_renderer *vr)
@@ -504,9 +534,9 @@ void video_renderer_detach(struct video_renderer *vr)
 	if (!vr)
 		return;
 
+	vr->attached = false;
 	vr->arg = NULL;
 }
-
 
 static int renderer_init(struct video_renderer *vr)
 {
@@ -516,8 +546,6 @@ static int renderer_init(struct video_renderer *vr)
 	int i;
 	int err = 0;
   	
-	//lock_write_get(vir.lock);
-  
 	print_gl("Version", GL_VERSION);
 	print_gl("Vendor", GL_VENDOR);
 	print_gl("Renderer", GL_RENDERER);
@@ -543,7 +571,6 @@ static int renderer_init(struct video_renderer *vr)
 	}
   
 	if (!vr->program) {
-		//warning("%s: Could not create program", __FUNCTION__);
 		err = ENOSYS;
 		goto out;
 	}
@@ -577,12 +604,10 @@ static int renderer_init(struct video_renderer *vr)
 	check_gl("glViewport");
 
  out:
-	//lock_rel(vir.lock);
-
 	if (!err)
 		vr->inited = true;
   
-	return err;	
+	return err;
 }
 
 void *video_renderer_arg(struct video_renderer *vr)
@@ -657,6 +682,8 @@ static void setup_mask_tex(struct video_renderer *vr, int width, int height)
 	r2 = r2 * r2; 
  
 	buf = (uint8_t*)malloc(width * height);
+	if (!buf)
+		return;
 	p = buf;
  
 	for (int y = 0; y < height; y++) {
@@ -665,7 +692,7 @@ static void setup_mask_tex(struct video_renderer *vr, int width, int height)
 			int dx2 = (x - hw) * (x - hw);
 			/* TODO: anti-alias this */
 			*p++ = (dx2 + dy2 < r2) ? 255 : 0;
-		}   
+		}
 	}
 
 	/* generate  the mask texture */
@@ -712,11 +739,72 @@ static void setup_textures(struct video_renderer *vr, struct avs_vidframe *vf)
 int video_renderer_handle_frame(struct video_renderer *vr,
 				struct avs_vidframe *vf)
 {
+	size_t sz;
+	int h;
+
 	if (!vr || !vf)
 		return EINVAL;
 
+	// This is called around an android level lock
+
+	mem_deref(vr->frame.y);
+	mem_deref(vr->frame.u);
+	mem_deref(vr->frame.v);
+
+	vr->frame = *vf;
+
+	h = vf->h;
+	sz = vf->ys * h;
+	vr->frame.y = (uint8_t *)mem_alloc(sz, NULL);
+	if (vr->frame.y)
+		memcpy(vr->frame.y, vf->y, sz);
+
+	sz = vf->us * (h/2);
+	vr->frame.u = (uint8_t *)mem_alloc(sz, NULL);
+	if (vr->frame.u)
+		memcpy(vr->frame.u, vf->u, sz);
+
+	sz = vf->vs * (h/2);
+	vr->frame.v = (uint8_t *)mem_alloc(sz, NULL);
+	if (vr->frame.v)
+		memcpy(vr->frame.v, vf->v, sz);
+
+	vr->dirty = true;
+
+	return 0;
+}
+
+int video_renderer_render_frame(struct video_renderer *vr)
+{
+	struct avs_vidframe *vf;
+	int err = 0;
+
+	if (!vr)
+		return EINVAL;
+
+	/*
+	char msg[256];
+	snprintf(msg, sizeof(msg), "vr(%p): render attached=%d dirty=%d\n", vr, vr->attached, vr->dirty);
+	__android_log_write(ANDROID_LOG_INFO, "AVS-VR", msg);
+	*/
+
+	// This is called around the same android level
+	// lock that the handle_from is locked with
+
+	if (!vr->attached)
+		return ENOSYS;
+
+	if (!vr->dirty)
+		return 0;
+
 	if (!vr->inited)
 		renderer_init(vr);
+
+	vf = &vr->frame;
+	if (!vf->y || !vf->u || !vf->v) {
+		err = EAGAIN;
+		goto out;
+	}
 
 	glClearColor(0.0, 0.0, 0.0, 1.0);
 	glClear(GL_COLOR_BUFFER_BIT);
@@ -724,11 +812,11 @@ int video_renderer_handle_frame(struct video_renderer *vr,
 	if (vr->tex.w != vf->w
 	    || vr->tex.h != vf->h
 	    || vr->tex.rotation != vf->rotation
-	    || vr->needs_recalc){
+	    || vr->needs_recalc) {
 		vr->needs_recalc = false;
 		setup_textures(vr, vf);
 	}
-	
+
 	update_textures(vr, vf);
 
 	if (vr->use_mask) {
@@ -743,7 +831,19 @@ int video_renderer_handle_frame(struct video_renderer *vr,
 	if (vr->use_mask)
 		glDisable(GL_BLEND);
 
-	return 0;
+ out:
+	vf->y = (uint8_t *)mem_deref(vf->y);
+	vf->u = (uint8_t *)mem_deref(vf->u);
+	vf->v = (uint8_t *)mem_deref(vf->v);
+
+	vr->dirty = false;
+
+	/*
+	snprintf(msg, sizeof(msg), "vr(%p): render done\n", vr);
+	__android_log_write(ANDROID_LOG_INFO, "AVS-VR", msg);
+	*/
+
+	return err;
 }
 
 void video_renderer_set_should_fill(struct video_renderer *vr,
@@ -787,7 +887,7 @@ int video_renderer_alloc(struct video_renderer **vrp,  int w, int h,
 {
 	struct video_renderer *vr;
 
-	vr = (struct video_renderer *)mem_zalloc(sizeof(*vr), NULL);
+	vr = (struct video_renderer *)mem_zalloc(sizeof(*vr), vr_destructor);
 	if (!vr)
 		return ENOMEM;
 
@@ -804,6 +904,12 @@ int video_renderer_handle_frame(struct video_renderer *vr,
 {
 	return 0;
 }
+
+int video_renderer_render_frame(struct video_renderer *vr)
+{
+	return 0;
+}
+
 
 void *video_renderer_arg(struct video_renderer *vr)
 {
@@ -829,5 +935,17 @@ const char *video_renderer_clientid(struct video_renderer *vr)
 {
 	return NULL;
 }
+
+
+void video_renderer_set_dict(struct video_renderer *vr,
+			     bool dict)
+{
+}
+
+bool video_renderer_get_dict(struct video_renderer *vr)
+{
+	return false;
+}
+
 
 #endif

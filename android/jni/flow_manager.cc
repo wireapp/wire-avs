@@ -777,9 +777,10 @@ static int render_frame_handler(struct avs_vidframe *vf,
 	lock_rel(java.video.lock);
 	
 	entered = je.env->CallBooleanMethod(jself, java.video.mid.enter);
-	if (entered) {
-		err = video_renderer_handle_frame(vr, vf);
 
+	err = video_renderer_handle_frame(vr, vf);
+
+	if (entered) {
 		je.env->CallVoidMethod(jself, java.video.mid.exit);
 	}
 
@@ -1398,21 +1399,42 @@ JNIEXPORT jlong JNICALL Java_com_waz_avs_VideoRenderer_createNative
 #ifdef ANDROID
 	err = video_renderer_alloc(&vr, w, h, rounded, userid, clientid, (void *)self);
 	if (err)
-		return 0;
+		return err;
 #endif
 
 	lock_write_get(java.video.lock);
 	get_userclient(userclient, USERCLIENT_LEN, userid, clientid);
-	dict_add(java.video.renderers, userclient, vr);
-	/* renderer is now owned by dictionary */
+	struct video_renderer *vrin =
+		(struct video_renderer *)dict_lookup(java.video.renderers, userclient);
+	if (vrin) {
+		video_renderer_set_dict(vrin, false);
+		mem_ref((void *)vrin);
+		dict_remove(java.video.renderers, userclient);
+	}
 
+	err = dict_add(java.video.renderers, userclient, vr);
+	if (!err) {
+		/* renderer is now owned by dictionary */
+		video_renderer_set_dict(vr, true);
+		mem_deref(vr);
+	}
 out:
-	mem_deref(vr);
 	lock_rel(java.video.lock);
 
 	return (jlong)((void *)(vr));
 }
 
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_renderFrame
+(JNIEnv *env, jobject jself, jlong obj)
+{
+	struct video_renderer *vr = (struct video_renderer *)((void *)obj);
+	jobject self = (jobject)video_renderer_arg(vr);
+
+#ifdef ANDROID
+	if (self)
+		video_renderer_render_frame(vr);
+#endif
+}
 
 JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_destroyNative
 (JNIEnv *env, jobject jself, jlong obj)
@@ -1425,10 +1447,13 @@ JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_destroyNative
 	video_renderer_detach(vr);
 #endif
 	get_userclient(userclient, USERCLIENT_LEN,
-				 video_renderer_userid(vr),
-				 video_renderer_clientid(vr));
+		       video_renderer_userid(vr),
+		       video_renderer_clientid(vr));
 	lock_write_get(java.video.lock);
-	dict_remove(java.video.renderers, userclient);
+	if (video_renderer_get_dict(vr))
+		dict_remove(java.video.renderers, userclient);
+	else
+		mem_deref(vr);
 	env->DeleteGlobalRef(self);
 	lock_rel(java.video.lock);
 }
