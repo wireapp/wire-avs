@@ -1930,6 +1930,7 @@ void wcall_i_audio_route_changed(enum mediamgr_auplay new_route)
 	msystem_set_auplay(dev);
 }
 
+#ifndef __EMSCRIPTEN__
 AVS_EXPORT
 int wcall_setup_ex(int flags)
 {
@@ -1977,6 +1978,7 @@ int wcall_setup(void)
 {
 	return wcall_setup_ex(0);
 }
+#endif
 
 AVS_EXPORT
 int wcall_init(int env)
