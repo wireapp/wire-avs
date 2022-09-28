@@ -37,7 +37,7 @@ import android.opengl.GLUtils;
 import android.opengl.GLES20;
 import android.util.AttributeSet;
 import android.util.Log;
-import android.view.TextureView;
+import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.SurfaceHolder;
 
@@ -52,30 +52,22 @@ import javax.microedition.khronos.opengles.GL10;
 import javax.microedition.khronos.opengles.GL11;
 
 
-public class VideoRenderer extends TextureView implements TextureView.SurfaceTextureListener {
+public class VideoRenderer extends GLSurfaceView
+        implements GLSurfaceView.Renderer {
 
 	private static final String TAG = "VideoRenderer";
 	
 	private static final int TARGET_FRAME_RATE = 15;
 	private static final int EGL_OPENGL_ES2_BIT = 4;
 	private static final int EGL_CONTEXT_CLIENT_VERSION = 0x3098;
-	private SurfaceTexture mSurface;
-	private EGLDisplay mEglDisplay;
-	private EGLSurface mEglSurface;
-	private EGLContext mEglContext;
-	private EGL10 mEgl;
-	private EGLConfig eglConfig;
-	private GL10 mGl;
 
 	private int targetFrameDurationMillis;
-
-	private int surfaceHeight;
-	private int surfaceWidth;
 
 	public boolean isRunning = false;
 	
 	private boolean paused = false;
 	private boolean isRounded = false;
+	private boolean hasSurface = false;
 
 	private ReentrantLock nativeFunctionLock = new ReentrantLock();	
 	private boolean nativeCreated = false;
@@ -88,234 +80,193 @@ public class VideoRenderer extends TextureView implements TextureView.SurfaceTex
 	public VideoRenderer(Context context, String userId, String clientId, boolean rounded) {
 		super(context);
 
-		Log.d(TAG, "Creating new VideoRenderer");
+		Log.d(TAG, "Creating new VideoRenderer( " + this + "): " + userId + "." + clientId + "r=" + rounded);
 		
-		isRounded = rounded;
+		this.isRounded = rounded;
 		this.userId = userId;
 		this.clientId = clientId;
-		
+
 		init(context);
 	}
 
 	private void init(Context context) {
 		targetFps = TARGET_FRAME_RATE;
 
-		setSurfaceTextureListener(this);
-		setOpaque(false);
+		// Setup the context factory for 2.0 rendering.
+		// See ContextFactory class definition below
+		setEGLContextFactory(new ContextFactory());
+
+		// We need to choose an EGLConfig that matches the format of
+		// our surface exactly. This is going to be done in our
+		// custom config chooser. See ConfigChooser class definition
+		// below.
+		setEGLConfigChooser(new ConfigChooser());
+
+		// Set the renderer responsible for frame rendering
+		this.setRenderer(this);
+		this.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
 	}
 
-	public void onSurfaceTextureAvailable(SurfaceTexture surface,
-					      int width, int height) {
-		Log.d(TAG, "onSurfaceTextureAvailable: "
-		      + width + " x " + height);
 
+	@Override
+	public void onDrawFrame(GL10 gl) {
 		nativeFunctionLock.lock();
-		mSurface = surface;
 
-		if (nativeObject != 0)
-			destroyRenderer();
+		//Log.d(TAG, "onDrawFrame(" + this + ") native=" + nativeObject);
 
-		nativeObject = createNative(userId, clientId, width, height, isRounded);
+		if (nativeObject == 0 || !hasSurface) {
+			nativeFunctionLock.unlock();
+			return;
+		}
+
+		renderFrame(nativeObject);
 		
 		nativeFunctionLock.unlock();
 	}
 
 	@Override
-	public void onSurfaceTextureSizeChanged(SurfaceTexture surface,
-						int width, int height) {
-		Log.d(TAG, "onSurfaceTextureSizeChanged: wxh="
-		      + width + " x " + height);
+	public void onSurfaceCreated(GL10 gl, EGLConfig config) {
+		Log.d(TAG, "onSurfaceCreated(" + this + ")");
 
-		nativeFunctionLock.lock();
-		mSurface = surface;
-		setDimensions(width, height);
-		nativeFunctionLock.unlock();
+		hasSurface = true;
 	}
 
 	@Override
-	public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
-		Log.d(TAG, "onSurfaceTextureDestroyed: " + surfaceWidth + " x " + surfaceHeight);
-		nativeFunctionLock.lock();		
-		destroyRenderer();
+	public void onSurfaceChanged(GL10 gl, int width, int height) {
+		Log.d(TAG, "onSurfaceChanged(" + this + "): wxh="
+		      + width + "x" + height + " native=" + nativeObject);
 
-		mSurface = null;
+		nativeFunctionLock.lock();
+		if (nativeObject != 0)
+			destroyNative(nativeObject);
+		nativeObject = createNative(userId, clientId,
+					    width, height,
+					    isRounded);
+
 		nativeFunctionLock.unlock();
-
-		return false;
-	}
-
-	public void setDimensions(int width, int height){
-		surfaceWidth = width;
-		surfaceHeight = height;
-
-		destroyNative(nativeObject);
-		nativeObject = createNative(userId, clientId, width, height, isRounded);
-	}
-
-	private void makeCurrent() {
-		if (!mEglContext.equals(mEgl.eglGetCurrentContext())
-	    || !mEglSurface.equals(mEgl.eglGetCurrentSurface(EGL10.EGL_DRAW))) {
-			checkEglError();
-			if (!mEgl.eglMakeCurrent(mEglDisplay, mEglSurface,
-						 mEglSurface, mEglContext)) {
-				Log.e(TAG, "eglMakeCurrent failed");
-			}
-			checkEglError();
-		}
+		Log.d(TAG, "onSurfaceChanged(" + this + "): native=" + nativeObject);
 	}
 
 	private boolean enter() {
 		nativeFunctionLock.lock();
-		if (nativeObject == 0) {
-			nativeFunctionLock.unlock();
-			return false;
-		}
-
-		if (mGl == null && mSurface != null)
-			initGL();
-		
-		makeCurrent();
 		return true;
 	}
 	
 	private void exit() {
-		if (nativeObject != 0) {
-			if (!mEgl.eglSwapBuffers(mEglDisplay, mEglSurface)) {
-				Log.e(TAG, "cannot swap buffers!");
-			}
-		}
-
-		nativeFunctionLock.unlock();		
-	}
-
-	private void checkEglError() {
-		final int error = mEgl.eglGetError();
-		if (error != EGL10.EGL_SUCCESS) {
-			Log.e(TAG, "EGL error = 0x"
-			      + Integer.toHexString(error));
-		}
-	}
-
-	private void checkGlError() {
-		final int error = mGl.glGetError();
-		if (error != GL11.GL_NO_ERROR) {
-			Log.e(TAG, "GL error = 0x"
-			      + Integer.toHexString(error));
-		}
-	}
-
-	private void initGL() {
-		mEgl = (EGL10) EGLContext.getEGL();
-		mEglDisplay = mEgl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
-		if (mEglDisplay == EGL10.EGL_NO_DISPLAY) {
-			Log.e(TAG, "eglGetDisplay failed "
-			   + GLUtils.getEGLErrorString(mEgl.eglGetError()));
-			return;
-		}
-		int[] version = new int[2];
-		if (!mEgl.eglInitialize(mEglDisplay, version)) {
-			Log.e(TAG, "eglInitialize failed "
-			   + GLUtils.getEGLErrorString(mEgl.eglGetError()));
-			return;
-		}
-		int[] configsCount = new int[1];
-		EGLConfig[] configs = new EGLConfig[1];
-		int[] configSpec = {
-			EGL10.EGL_RENDERABLE_TYPE,
-			EGL_OPENGL_ES2_BIT,
-			EGL10.EGL_RED_SIZE, 8,
-			EGL10.EGL_GREEN_SIZE, 8,
-			EGL10.EGL_BLUE_SIZE, 8,
-			EGL10.EGL_ALPHA_SIZE, 8,
-			EGL10.EGL_DEPTH_SIZE, 0,
-			EGL10.EGL_STENCIL_SIZE, 0,
-			EGL10.EGL_NONE
-		};
-		eglConfig = null;
-		if (!mEgl.eglChooseConfig(mEglDisplay, configSpec, configs, 1,
-					  configsCount)) {
-			Log.e(TAG, "eglChooseConfig failed "
-			+ GLUtils.getEGLErrorString(mEgl.eglGetError()));
-			return;
-		}
-		else if (configsCount[0] > 0) {
-			eglConfig = configs[0];
-		}
-		if (eglConfig == null) {
-			Log.e(TAG, "eglConfig not initialized");
-			return;
-		}
-		int[] attrib_list = {
-			EGL_CONTEXT_CLIENT_VERSION, 2, EGL10.EGL_NONE
-		};
-		mEglContext = mEgl.eglCreateContext(mEglDisplay,
-						    eglConfig, EGL10.EGL_NO_CONTEXT, attrib_list);
-		checkEglError();
-		mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay, eglConfig, mSurface, null);
-		checkEglError();
-		if (mEglSurface == null || mEglSurface == EGL10.EGL_NO_SURFACE) {
-			int error = mEgl.eglGetError();
-			if (error == EGL10.EGL_BAD_NATIVE_WINDOW) {
-				Log.e(TAG,
-				      "eglCreateWindowSurface returned EGL10.EGL_BAD_NATIVE_WINDOW");
-			}
-			Log.e(TAG, "eglCreateWindowSurface failed "
-			      + GLUtils.getEGLErrorString(error));
-			return;
-		}
-		if (!mEgl.eglMakeCurrent(mEglDisplay, mEglSurface,
-					 mEglSurface, mEglContext)) {
-			Log.e(TAG, "eglMakeCurrent failed "
-			      + GLUtils.getEGLErrorString(mEgl.eglGetError()));
-			return;
-		}
-		checkEglError();
-		mGl = (GL10) mEglContext.getGL();
-		checkEglError();
-	}
-
-	private void destroyGL() {
-		if (mEgl != null) {
-			if (mEglSurface != null
-			    && mEglSurface != EGL10.EGL_NO_SURFACE) {
-				mEgl.eglDestroySurface(mEglDisplay, mEglSurface);
-			}
-			mEgl.eglDestroyContext(mEglDisplay, mEglContext);
-		}
-		mGl = null;
-	}
-
-
-	@Override
-	public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+		this.requestRender();
+		nativeFunctionLock.unlock();
 	}
 
 	public void destroyRenderer() {
-		destroyNative(nativeObject);
-		nativeObject = 0;
-		
-		destroyGL();
+		destroyNativeObject();
 	}
 
 	public void setShouldFill(boolean shouldFill) {
+		nativeFunctionLock.lock();
 		nativeSetShouldFill(nativeObject, shouldFill);
-	}
-	
-	public void setFillRatio(float ratio) {
-		nativeSetFillRatio(nativeObject, ratio);
+		nativeFunctionLock.unlock();
 	}
 
+	public void setFillRatio(float ratio) {
+		nativeFunctionLock.lock();
+		nativeSetFillRatio(nativeObject, ratio);
+		nativeFunctionLock.unlock();
+	}
+
+	private void createNativeObject(int width, int height) {
+		nativeFunctionLock.lock();
+		nativeObject = createNative(userId, clientId,
+					    width, height,
+					    isRounded);
+		nativeFunctionLock.unlock();
+	}
+
+	private void destroyNativeObject() {
+		nativeFunctionLock.lock();
+
+		if (nativeObject != 0)
+			destroyNative(nativeObject);
+		nativeObject = 0;
+
+		nativeFunctionLock.unlock();
+	}
+
+	public void surfaceDestroyed(SurfaceHolder holder) {
+		Log.d(TAG, "surfaceDestroyed(" + this + ")");
+
+		nativeFunctionLock.lock();
+		hasSurface = false;
+		nativeFunctionLock.unlock();
+
+		super.surfaceDestroyed(holder);
+		Log.d(TAG, "surfaceDestroyed(" + this + ") done");
+	}
 
 	private native long createNative(String userId,
 					 String clientId,
 					 int width, int height,
 					 boolean rounded);
+	private native void renderFrame(long obj);
 	private native void destroyNative(long obj);
 
 	private native void nativeSetShouldFill(long obj, boolean shouldFill);
 
 	private native void nativeSetFillRatio(long obj, float ratio);
+
+	private static class ContextFactory implements GLSurfaceView.EGLContextFactory {
+		private static int EGL_CONTEXT_CLIENT_VERSION = 0x3098;
+		public EGLContext createContext(EGL10 egl, EGLDisplay display, EGLConfig eglConfig) {
+			Log.d(TAG, "creating OpenGL ES 2.0 context");
+			int[] attrib_list = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL10.EGL_NONE };
+			EGLContext context = egl.eglCreateContext(display, eglConfig,
+								  EGL10.EGL_NO_CONTEXT, attrib_list);
+			Log.d(TAG, "After eglCreateContext");
+			return context;
+		}
+
+		public void destroyContext(EGL10 egl, EGLDisplay display, EGLContext context) {
+			egl.eglDestroyContext(display, context);
+		}
+	}
+
+	private static class ConfigChooser implements GLSurfaceView.EGLConfigChooser {
+		public ConfigChooser() {
+		}
+		public EGLConfig chooseConfig(EGL10 egl, EGLDisplay display) {
+			Log.d(TAG, "chooseConfig");
+
+			int[] configsCount = new int[1];
+			EGLConfig[] configs = new EGLConfig[1];
+			int[] configSpec = {
+				EGL10.EGL_RENDERABLE_TYPE,
+				EGL_OPENGL_ES2_BIT,
+				EGL10.EGL_RED_SIZE, 8,
+				EGL10.EGL_GREEN_SIZE, 8,
+				EGL10.EGL_BLUE_SIZE, 8,
+				EGL10.EGL_ALPHA_SIZE, 8,
+				EGL10.EGL_DEPTH_SIZE, 0,
+				EGL10.EGL_STENCIL_SIZE, 0,
+				EGL10.EGL_NONE
+			};
+			EGLConfig eglConfig = null;
+			if (!egl.eglChooseConfig(display, configSpec, configs, 1,
+						 configsCount)) {
+				Log.e(TAG, "eglChooseConfig failed "
+				      + GLUtils.getEGLErrorString(egl.eglGetError()));
+				return null;
+			}
+			else if (configsCount[0] > 0) {
+				Log.d(TAG, "eglChoose returned: " + configsCount[0] + " configs");
+				eglConfig = configs[0];
+			}
+			if (eglConfig == null) {
+				Log.e(TAG, "eglConfig not initialized");
+				return null;
+			}
+			return eglConfig;
+		}
+	}
 }
-        
+
 
 

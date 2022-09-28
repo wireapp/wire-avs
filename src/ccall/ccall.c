@@ -1053,16 +1053,18 @@ static void ecall_close_handler(struct icall *icall,
 
 	ccall->keygenerator = NULL;
 
-	LIST_FOREACH(&ccall->partl, le) {
-		struct userinfo *u = le->data;
+	if (err != EAGAIN) {
+		LIST_FOREACH(&ccall->partl, le) {
+			struct userinfo *u = le->data;
 
-		if (u && u->incall_now &&
-		    u->video_state != ICALL_VIDEO_STATE_STOPPED) {
-			ICALL_CALL_CB(ccall->icall, vstate_changedh,
-				      &ccall->icall, u->userid_real,
-				      u->clientid_real, ICALL_VIDEO_STATE_STOPPED,
-				      ccall->icall.arg);
-			u->video_state = ICALL_VIDEO_STATE_STOPPED;
+			if (u && u->incall_now &&
+			    u->video_state != ICALL_VIDEO_STATE_STOPPED) {
+				ICALL_CALL_CB(ccall->icall, vstate_changedh,
+					      &ccall->icall, u->userid_real,
+					      u->clientid_real, ICALL_VIDEO_STATE_STOPPED,
+					      ccall->icall.arg);
+				u->video_state = ICALL_VIDEO_STATE_STOPPED;
+			}
 		}
 	}
 
