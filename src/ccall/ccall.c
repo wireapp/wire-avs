@@ -1085,7 +1085,7 @@ static void ecall_close_handler(struct icall *icall,
 	case 0:
 	case ENOONEJOINED:
 	case EEVERYONELEFT:
-		if (should_end) {
+		if (should_end && ccall->received_confpart) {
 			ccall_send_msg(ccall, ECONN_CONF_END,
 				       false, NULL, false);
 		}
@@ -3278,6 +3278,10 @@ int  ccall_msg_recv(struct icall* icall,
 					      &ccall->icall, 0, NULL,
 					      ECONN_MESSAGE_TIME_UNKNOWN,
 					      NULL, NULL, ccall->icall.arg);
+			}
+			else {
+				info("ccall(%p): msg_recv ignoring CONFEND "
+				     "from wrong session\n", ccall);
 			}
 			break;
 
