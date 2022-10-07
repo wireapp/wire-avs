@@ -1,0 +1,55 @@
+
+*** This is an API proposal, these changes are not currently implemented ***
+
+Changes proposed for AVS 9.0
+============================
+
+The aim of AVS 9.0 is to provide support for conference calling using MLS instead of Proteus. In this mode AVS will use the MLS breakout conversations session key to generate the key used for media encryption.
+
+A new conversation type has been added for MLS conference calls:
+
+#define WCALL_CONV_TYPE_CONFERENCE_MLS  3
+
+This should be used in place of WCALL_CONV_TYPE_CONFERENCE for MLS conversations. For 1:1 conversations WCALL_CONV_TYPE_ONEONONE should still be used even if over MLS.
+
+
+wcall_recv_msg has a new parameter added: conv_type which should be set to the conv type of the conversations. This is mostly important for conference calls and should be WCALL_CONV_TYPE_CONFERENCE for Proteus conference calls and WCALL_CONV_TYPE_CONFERENCE_MLS for MLS conference calls:
+
+int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
+		    uint32_t curr_time, /* timestamp in seconds */
+		    uint32_t msg_time,  /* timestamp in seconds */
+		    const char *convid,
+		    const char *userid,
+		    const char *clientid,
+		    int conv_type);
+
+
+A new function has been added to set the key and participant list for an MLS epoch:
+
+int wcall_set_epoch_info(WUSER_HANDLE wuser,
+			 const char *convid,
+			 uint32_t epochid,
+			 const char *clients_json,
+			 uint8_t *key_data,
+			 uint32_t key_size);
+
+This is to be called instead of set_clients_for_conv for MLS conference calls. The epochid param must be a monotomically increasing integer and the synced for all clients. The clients_json param should contain the same information & format as is usually passed to set_clients_for_conv. All clients in the original conversation should be present, those also present in the breakout conversation should have the param in_breakout set to true as follows:
+
+{
+  "convid":"d5279750-879e-4ca2-b933-1332c9dca732",
+  "clients":[
+    {
+      "userid":"a8262f63-e18f-4d1a-a761-ae3559cbb24e",
+      "clientid":"b5955d661ec163a9"},
+      "in_breakout": true
+    },
+    {
+      "userid":"88df75cf-ca32-4301-a45b-e5c5d45398cb",
+      "clientid":"b31a63dfba800756"},
+      "in_breakout": false
+    }
+  ]
+}
+
+Clients should call wcall_set_epoch_info whenever there is an epoch change to supply AVS with the list of clients, their status in the breakout conv and the new media key for the epoch.
+
