@@ -1622,6 +1622,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 	struct userinfo *prev_keygenerator;
 	bool missing_parts = false;
 	uint32_t listpos = 0;
+	bool isfirst;
 	int err = 0;
 
 	uint64_t timestamp = msg->u.confpart.timestamp;
@@ -1638,9 +1639,22 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		return;
 	}
 
+	isfirst = !ccall->received_confpart;
 	ccall->received_confpart = true;
 	ccall_keep_confpart_data(ccall, msg);
 
+	/* Handle the corner case that we started a video call,
+	 * got a very quick data_chan_estab,
+	 * and missed the initial CONFPART due to UPDATE
+	 * This should fix SQCALL-587
+	 */
+	if (isfirst && ccall->is_caller) {
+		if (!should_start && list_count(partlist) == 1) {
+			info("ccall(%p): fixing should_start\n", ccall);
+
+			should_start = true;
+		}
+	}
 	if (should_start && ccall->is_caller) {
 		ccall->sft_timestamp = timestamp;
 		ccall->sft_seqno = seqno;
