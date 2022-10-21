@@ -1085,7 +1085,7 @@ static void ecall_close_handler(struct icall *icall,
 	case 0:
 	case ENOONEJOINED:
 	case EEVERYONELEFT:
-		if (should_end) {
+		if (should_end && ccall->received_confpart) {
 			ccall_send_msg(ccall, ECONN_CONF_END,
 				       false, NULL, false);
 		}
@@ -1638,6 +1638,20 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		return;
 	}
 
+	if (!should_start &&
+	    ccall->is_caller &&
+	    ccall->sft_timestamp == 0 &&
+	    ccall->sft_seqno == 0 &&
+	    list_count(partlist) == 1) {
+		/* Handle the corner case that we started a video call,
+		 * got a very quick data_chan_estab,
+		 * and missed the initial CONFPART due to UPDATE
+		 * This should fix SQCALL-587
+		 */
+		info("ccall(%p): forcing should_start true\n", ccall);
+		should_start = true;
+	}
+
 	ccall->received_confpart = true;
 	ccall_keep_confpart_data(ccall, msg);
 
@@ -1649,6 +1663,12 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		ccall_send_msg(ccall, ECONN_CONF_START,
 			       false, NULL, false);
 	}
+	else if (ccall->sft_timestamp == 0 && ccall->sft_seqno == 0) {
+		ccall->sft_timestamp = timestamp;
+		ccall->sft_seqno = seqno;
+		warning("ccall(%p): setting ts and seqno because they are currently unset\n", ccall);
+	}
+		
 
 	if (list_count(partlist) > 1) {
 		tmr_cancel(&ccall->tmr_alone);
@@ -1850,13 +1870,12 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		      &ccall->icall, ccall->icall.arg);
 	}
 
+	bool sft_changed = ccall_sftlist_changed(&ccall->sftl, &msg->u.confpart.sftl);
+	stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
+	
 	if (ccall->keygenerator == ccall->self && !should_start &&
-	    ccall_sftlist_changed(&ccall->sftl, &msg->u.confpart.sftl)) {
-		stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
+	    sft_changed) {
 		ccall_send_check_timeout(ccall);
-	}
-	else {
-		stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
 	}
 }
 
@@ -3278,6 +3297,10 @@ int  ccall_msg_recv(struct icall* icall,
 					      &ccall->icall, 0, NULL,
 					      ECONN_MESSAGE_TIME_UNKNOWN,
 					      NULL, NULL, ccall->icall.arg);
+			}
+			else {
+				info("ccall(%p): msg_recv ignoring CONFEND "
+				     "from wrong session\n", ccall);
 			}
 			break;
 
