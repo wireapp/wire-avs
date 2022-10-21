@@ -1638,7 +1638,8 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		return;
 	}
 
-	if (!should_start && ccall->is_caller &&
+	if (!should_start &&
+	    ccall->is_caller &&
 	    ccall->sft_timestamp == 0 &&
 	    ccall->sft_seqno == 0 &&
 	    list_count(partlist) == 1) {
@@ -1647,7 +1648,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		 * and missed the initial CONFPART due to UPDATE
 		 * This should fix SQCALL-587
 		 */
-		info("ccall(%p): setting should_start true\n", ccall);
+		info("ccall(%p): forcing should_start true\n", ccall);
 		should_start = true;
 	}
 
