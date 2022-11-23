@@ -4,7 +4,7 @@
 Changes proposed for AVS 9.0
 ============================
 
-The aim of AVS 9.0 is to provide support for conference calling using MLS instead of Proteus. In this mode AVS will use the MLS breakout conversations session key to generate the key used for media encryption.
+The aim of AVS 9.0 is to provide support for conference calling using MLS instead of Proteus. In this mode AVS will use the MLS sub-conversations session key to generate the key used for media encryption.
 
 A new conversation type has been added for MLS conference calls:
 
@@ -24,6 +24,18 @@ int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
 		    int conv_type);
 
 
+The send handler (wcall_send_h) has a new parameter added: my_clients_only, which will be true if the message is to be sent only to the clients of the current user. In Proteus implementations this can be ignored, as clients_json will also be filled. MLS isnt capable of targeted messages, so this parameter will indicate whether the message should be routed via the self conversation (my_clients_only=1) or via the real conversation (my_clients_only=0). It is used for sending REJECT messages (and in some cases CONFSTART(r)) to tell the other clients to stop ringing without informing the caller that the call had been rejected. The value can be set to 1 for REJECT messages on both conference and 1:1 calls.
+
+typedef int (wcall_send_h)(void *ctx, const char *convid,
+			   const char *userid_self, const char *clientid_self,
+			   const char *targets /*optional*/,
+			   const char *unused /*optional*/,
+			   const uint8_t *data, size_t len,
+			   int transient /*bool*/,
+			   int my_clients_only /*bool*/,
+			   void *arg);
+
+
 A new function has been added to set the key and participant list for an MLS epoch:
 
 int wcall_set_epoch_info(WUSER_HANDLE wuser,
@@ -33,7 +45,7 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 			 uint8_t *key_data,
 			 uint32_t key_size);
 
-This is to be called instead of set_clients_for_conv for MLS conference calls. The epochid param must be a monotomically increasing integer and the synced for all clients. The clients_json param should contain the same information & format as is usually passed to set_clients_for_conv. All clients in the original conversation should be present, those also present in the breakout conversation should have the param in_breakout set to true as follows:
+This is to be called instead of set_clients_for_conv for MLS conference calls. The epochid param must be a monotomically increasing integer and the synced for all clients. The clients_json param should contain the same information & format as is usually passed to set_clients_for_conv. All clients in the original conversation should be present, those also present in the sub-conversation should have the param in_subconv set to true as follows:
 
 {
   "convid":"d5279750-879e-4ca2-b933-1332c9dca732",
@@ -41,15 +53,15 @@ This is to be called instead of set_clients_for_conv for MLS conference calls. T
     {
       "userid":"a8262f63-e18f-4d1a-a761-ae3559cbb24e",
       "clientid":"b5955d661ec163a9"},
-      "in_breakout": true
+      "in_subconv": true
     },
     {
       "userid":"88df75cf-ca32-4301-a45b-e5c5d45398cb",
       "clientid":"b31a63dfba800756"},
-      "in_breakout": false
+      "in_subconv": false
     }
   ]
 }
 
-Clients should call wcall_set_epoch_info whenever there is an epoch change to supply AVS with the list of clients, their status in the breakout conv and the new media key for the epoch.
+Clients should call wcall_set_epoch_info whenever there is an epoch change to supply AVS with the list of clients, their status in the sub-conversation and the new media key for the epoch.
 
