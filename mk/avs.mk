@@ -127,6 +127,7 @@ AVS_CPPFLAGS += \
 	-I$(BUILD_TARGET)/include/rew \
 	-Iinclude \
 	-Werror \
+	-Wno-unknown-attributes \
 	-Wno-deprecated-declarations
 
 ifneq ($(HAVE_PROTOBUF),)
