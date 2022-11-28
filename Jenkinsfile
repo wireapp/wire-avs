@@ -80,6 +80,9 @@ pipeline {
                     agent {
                         label 'm1'
                     }
+                    environment {
+                        PATH = "/opt/homebrew/bin:/usr/local/bin:${ env.PATH }"
+                    }
                     steps {
                         script {
                             def vcs = checkout([
