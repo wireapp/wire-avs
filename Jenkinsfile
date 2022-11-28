@@ -81,7 +81,7 @@ pipeline {
                         label 'm1'
                     }
                     environment {
-                        PATH = "/opt/homebrew/bin:/Applications/Xcode.app/Contents/Developer/usr/bin:/usr/local/bin:${ env.PATH }"
+                        PATH = "/opt/homebrew/bin:/Applications/Xcode.app/Contents/Developer/usr/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${ env.PATH }"
                     }
                     steps {
                         script {
@@ -111,6 +111,8 @@ pipeline {
                                 version = "0.0.${buildNumber}"
                             }
                         }
+
+                        sh 'curl https://sh.rustup.rs -sSf | sh -s -- -y'
 
                         // clean
                         sh 'make distclean'
