@@ -78,7 +78,7 @@ pipeline {
                 }
                 stage('macOS') {
                     agent {
-                        label 'built-in'
+                        label 'm1'
                     }
                     steps {
                         script {
@@ -213,7 +213,7 @@ pipeline {
                 axes {
                     axis {
                         name 'AGENT'
-                        values 'built-in', 'linuxbuild'
+                        values 'm1', 'linuxbuild'
                     }
                 }
                 agent {
@@ -249,7 +249,7 @@ pipeline {
                 }
             }
             agent {
-                label 'built-in'
+                label 'm1'
             }
             steps {
                 script {
@@ -401,7 +401,7 @@ EOF
                 }
             }
             agent {
-                label 'built-in'
+                label 'm1'
             }
             steps {
                 withCredentials([ string( credentialsId: 'ios-github', variable: 'accessToken' ) ]) {
@@ -422,7 +422,7 @@ EOF
                 }
             }
             agent {
-                label 'built-in'
+                label 'm1'
             }
             steps {
                 // NOTE: the script upload-wasm.sh supports non-release branches, but in the past
@@ -449,7 +449,7 @@ EOF
         }
 
         success {
-            node( 'built-in' ) {
+            node( 'm1' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
                     wireSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:**\n${changelog}\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
@@ -457,7 +457,7 @@ EOF
         }
 
         failure {
-            node( 'built-in' ) {
+            node( 'm1' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
                     wireSend secret: "$jenkinsbot_secret", message: "❌ ${JOB_NAME} #${BUILD_ID} failed\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
