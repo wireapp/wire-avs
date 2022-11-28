@@ -81,7 +81,7 @@ pipeline {
                         label 'm1'
                     }
                     environment {
-                        PATH = "/opt/homebrew/bin:/opt/homebrew/opt/python@3.10/libexec/bin:/usr/local/bin:${ env.PATH }"
+                        PATH = "/opt/homebrew/bin:/Applications/Xcode.app/Contents/Developer/usr/bin:/usr/local/bin:${ env.PATH }"
                     }
                     steps {
                         script {
