@@ -129,7 +129,7 @@ pipeline {
 
                         sh 'make dist_clean'
                         sh 'make zcall AVS_VERSION=' + version
-                        sh 'make dist_osx dist_ios AVS_ARCH=arm64 AVS_VERSION=' + version + ' BUILDVERSION=' + version
+                        sh 'make dist_osx dist_ios AVS_VERSION=' + version + ' BUILDVERSION=' + version
 
                         sh 'rm -rf ./build/artifacts'
                         sh 'mkdir -p ./build/artifacts'
