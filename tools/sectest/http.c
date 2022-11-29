@@ -90,6 +90,8 @@ static int http_data_handler(const uint8_t *buf, size_t size,
 		}
 	}
 
+        (void)chunked;
+
 	/* append data to the body-buffer */
 	err = mbuf_write_mem(ctx->mb_body, buf, size);
 	if (err)
