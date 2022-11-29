@@ -236,15 +236,15 @@ ifneq ($(filter x86_64,$(DIST_ARCH)),)
 		$(BUILD_DIST_AND)/zip/libs/x86_64
 endif
 ifneq ($(filter osx,$(DIST_ARCH)),)
-	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) contrib AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=x86_64
+	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=arm64 && \
+	$(MAKE) contrib AVS_OS=osx AVS_ARCH=arm64 && \
+	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=arm64 && \
+	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=arm64
 	@mkdir -p $(BUILD_DIST_AND)/zip/libs/osx
-	@cp $(BUILD_BASE)/osx-x86_64/lib/libavs.jnilib \
+	@cp $(BUILD_BASE)/osx-arm64/lib/libavs.jnilib \
 		$(BUILD_DIST_AND)/zip/libs/osx
 	@mkdir -p $(BUILD_DIST_AND)/zip/libs/darwin
-	@cp $(BUILD_BASE)/osx-x86_64/lib/libavs.jnilib \
+	@cp $(BUILD_BASE)/osx-arm64/lib/libavs.jnilib \
 		$(BUILD_DIST_AND)/zip/libs/darwin/libavs.dylib
 
 endif
