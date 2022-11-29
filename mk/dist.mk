@@ -318,10 +318,10 @@ dist_test: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 
 .PHONY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
-	@$(MAKE) contrib AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) iosx AVS_OS=osx AVS_ARCH=x86_64
+	@$(MAKE) contrib AVS_OS=osx AVS_ARCH=arm64 && \
+	$(MAKE) iosx AVS_OS=osx AVS_ARCH=arm64
 	@mkdir -p $(dir $@)
-	@cp $(BUILD_BASE)/osx-x86_64/lib/avs.framework/avs $@
+	@cp $(BUILD_BASE)/osx-arm64/lib/avs.framework/avs $@
 
 
 # Package
