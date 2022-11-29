@@ -382,11 +382,11 @@ $(BUILD_DIST)/%/lib/libavsobjc.stripped.a: $(BUILD_DIST)/%/lib/libavsobjc.a
 #--- avscore Tarballs ---
 
 $(BUILD_DIST_BASE)/%/avscore.tar.bz2:
-	$(MAKE) tools contrib_librem AVS_OS=$* AVS_ARCH=x86_64 DIST=1
+	$(MAKE) tools contrib_librem AVS_OS=$* AVS_ARCH=arm64 DIST=1
 	@mkdir -p $(dir $@)/avscore
-	@cp -a $(BUILD_BASE)/$*-x86_64/lib \
-	       $(BUILD_BASE)/$*-x86_64/share \
-	       $(BUILD_BASE)/$*-x86_64/include \
+	@cp -a $(BUILD_BASE)/$*-arm64/lib \
+	       $(BUILD_BASE)/$*-arm64/share \
+	       $(BUILD_BASE)/$*-arm64/include \
 		$(dir $@)/avscore
 	@cp -a include $(dir $@)/avscore/include/avs
 	@cp -R src/protobuf/proto $(dir $@)/avscore/include
