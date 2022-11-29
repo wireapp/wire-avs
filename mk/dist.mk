@@ -178,11 +178,11 @@ endif
 
 ifneq ($(filter osx,$(DIST_ARCH)),)
 	@mkdir -p $(BUILD_DIST_AND)/aar/jni/darwin
-	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) contrib AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=x86_64
-	@cp $(BUILD_BASE)/osx-x86_64/lib/libavs.jnilib \
+	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=arm64 && \
+	$(MAKE) contrib AVS_OS=osx AVS_ARCH=arm64 && \
+	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=arm64 && \
+	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=arm64
+	@cp $(BUILD_BASE)/osx-arm64/lib/libavs.jnilib \
 		$(BUILD_DIST_AND)/aar/jni/darwin/libavs.dylib
 endif
 
