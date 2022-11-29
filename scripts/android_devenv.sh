@@ -20,7 +20,7 @@ BUILDTOOLS_VER=32.0.0
 ANDROID_NDK_VER=21.0.6113669
 ANDROID_SDK_VER=android-21
 
-if [ "$PLATFORM" == "darwin" ]; then
+if [[ "$PLATFORM" == "darwin" ]]; then
 	ANDROID_SDK_PLAT=mac
 else
 	ANDROID_SDK_PLAT=$PLATFORM
