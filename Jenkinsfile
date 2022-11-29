@@ -71,7 +71,10 @@ pipeline {
                         sh 'rm -rf ./build/artifacts'
                         sh 'mkdir -p ./build/artifacts'
                         sh 'cp ./build/dist/linux/avscore.tar.bz2 ./build/artifacts/avs.linux.' + version + '.tar.bz2'
+                        sh 'zip -9j ./build/artifacts/avs.android.' + version + '.zip ./build/dist/android/avs.aar'
                         sh 'zip -9j ./build/artifacts/zcall_linux_' + version + '.zip ./zcall'
+                        sh 'cp ./build/dist/wasm/wireapp-avs-' + version + '.tgz ./build/artifacts/'
+                        sh 'if [ -e ./build/dist/android/debug/ ]; then cd ./build/dist/android/debug; zip -9r ./../../../artifacts/avs.android.' + version + '.debug.zip *; cd -; fi'
 
                         archiveArtifacts artifacts: 'build/artifacts/*.zip,build/artifacts/*.bz2', followSymlinks: false
                     }
@@ -135,10 +138,7 @@ pipeline {
                         sh 'mkdir -p ./build/artifacts'
                         sh 'cp ./build/dist/osx/avs.framework.zip ./build/artifacts/avs.framework.osx.' + version + '.zip'
                         sh 'cp ./build/dist/ios/avs.xcframework.zip ./build/artifacts/avs.xcframework.zip'
-                        sh 'zip -9j ./build/artifacts/avs.android.' + version + '.zip ./build/dist/android/avs.aar'
                         sh 'zip -9j ./build/artifacts/zcall_osx_' + version + '.zip ./zcall'
-                        sh 'cp ./build/dist/wasm/wireapp-avs-' + version + '.tgz ./build/artifacts/'
-                        sh 'if [ -e ./build/dist/android/debug/ ]; then cd ./build/dist/android/debug; zip -9r ./../../../artifacts/avs.android.' + version + '.debug.zip *; cd -; fi'
                         sh 'mkdir -p ./osx'
                         sh 'cp ./build/dist/osx/avscore.tar.bz2 ./osx'
 
