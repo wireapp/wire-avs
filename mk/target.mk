@@ -344,13 +344,9 @@ CPPFLAGS += \
 endif
 ifeq ($(AVS_ARCH),i386)
 AVS_FAMILY := x86
-CPPFLAGS += \
-	-march=native
 endif
 ifeq ($(AVS_ARCH),x86_64)
 AVS_FAMILY := x86
-CPPFLAGS += \
-	-march=native
 endif
 
 
