@@ -195,7 +195,7 @@ ifeq ($(AVS_OS),ios)
 AVS_ARCH := arm64
 endif
 ifeq ($(AVS_OS),osx)
-AVS_ARCH := x86_64
+AVS_ARCH := $(HOST_ARCH)
 endif
 ifeq ($(AVS_OS),wasm)
 AVS_ARCH := generic
