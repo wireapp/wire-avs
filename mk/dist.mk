@@ -374,7 +374,7 @@ $(BUILD_DIST_IOS)/$(BUILD_BALL_REL)/lib/libavsobjc.a:
 
 $(BUILD_DIST_OSX)/$(BUILD_BALL_REL)/lib/libavsobjc.a:
 	@mkdir -p $(dir $@)
-	@cp $(BUILD_BASE)/osx-x86_64/lib/libavsobjc.a $@
+	@cp $(BUILD_BASE)/osx-arm64/lib/libavsobjc.a $@
 
 $(BUILD_DIST)/%/lib/libavsobjc.stripped.a: $(BUILD_DIST)/%/lib/libavsobjc.a
 	strip -S -o $@ $^
@@ -382,11 +382,11 @@ $(BUILD_DIST)/%/lib/libavsobjc.stripped.a: $(BUILD_DIST)/%/lib/libavsobjc.a
 #--- avscore Tarballs ---
 
 $(BUILD_DIST_BASE)/%/avscore.tar.bz2:
-	$(MAKE) tools contrib_librem AVS_OS=$* AVS_ARCH=$(DIST_ARCH) DIST=1
+	$(MAKE) tools contrib_librem AVS_OS=$* AVS_ARCH=$(HOST_ARCH) DIST=1
 	@mkdir -p $(dir $@)/avscore
-	@cp -a $(BUILD_BASE)/$*-$(DIST_ARCH)/lib \
-	       $(BUILD_BASE)/$*-$(DIST_ARCH)/share \
-	       $(BUILD_BASE)/$*-$(DIST_ARCH)/include \
+	@cp -a $(BUILD_BASE)/$*-$(HOST_ARCH)/lib \
+	       $(BUILD_BASE)/$*-$(HOST_ARCH)/share \
+	       $(BUILD_BASE)/$*-$(HOST_ARCH)/include \
 		$(dir $@)/avscore
 	@cp -a include $(dir $@)/avscore/include/avs
 	@cp -R src/protobuf/proto $(dir $@)/avscore/include
