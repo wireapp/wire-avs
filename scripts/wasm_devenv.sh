@@ -4,12 +4,12 @@
 #
 # source scripts/wasm_devenv.sh
 #
-# This will place the SDKs in ../devtools, set the AVS_DEVTOOLS_ROOT env variable
+# This will place the SDKs in $WORKSPACE/devtools, set the AVS_DEVTOOLS_ROOT env variable
 # to override
 #
 
 if [ -z "$AVS_DEVTOOLS_ROOT" ]; then
-	AVS_DEVTOOLS_ROOT=$(git rev-parse --show-toplevel)/../devtools
+	AVS_DEVTOOLS_ROOT=$(git rev-parse --show-toplevel)/devtools
 fi
 
 PLATFORM=$(uname -s | awk '{ print tolower($1) }')
