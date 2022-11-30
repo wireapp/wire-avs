@@ -53,7 +53,7 @@ def c2jstype(ty):
 	#elif ty[-1] == '*':
 	#	return 'number'
 
-        return ty
+	return ty
 
 def c2tstype(ty):
 	if ty == 'int' or ty == 'WUSER_HANDLE' or ty == 'size_t' or \
@@ -69,7 +69,7 @@ def c2tstype(ty):
 		return callbacks[ty]['tsname']
 	elif ty[-1] == '*':
 		return 'any'
-        return ty
+	return ty
 
 def convert_to_camel(fname, istype=False):
 	camel = ''
@@ -106,7 +106,7 @@ def parse_param(param):
 	tsType = c2tstype(ptype)
 	if len(parts) > 2 and parts[2] == '__optional':
 		tsType += ' | null'
-       	if len(parts) > 2 and parts[2] == '__any':
+	if len(parts) > 2 and parts[2] == '__any':
 		tsType = 'any'
 
 
@@ -160,7 +160,7 @@ def convert_fn(fn):
 
 		if fname == 'wcall_init':
 			fndef += 'avs_pc.init(this.em_module, logHandler);\n'
-          		fndef += 'this.em_module.ccall("wcall_setup", "number", [], []);\n\n'
+			fndef += 'this.em_module.ccall("wcall_setup", "number", [], []);\n\n'
 
 		for i in range(0, len(argtypes)):
 			if argtypes[i] in callbacks:
@@ -178,9 +178,9 @@ def convert_fn(fn):
 		else:
 			fndef += 'return '
 
-                if fname == 'wcall_set_log_handler':
-                        fndef += 'logFn = logh;'
-                        
+		if fname == 'wcall_set_log_handler':
+			fndef += 'logFn = logh;'
+
 		fndef += 'this.em_module.ccall(\n'
 		fndef += '\'{}\',\n'.format(fname)
 		fndef += '\'{}\',\n'.format(c2jstype(ret))
@@ -272,9 +272,9 @@ def wrap_function(fn, cb, ty):
 		fndef = '('
 	if len(args) > 0:
 		fndef += args[0]
-                
-        fndef += ': any'
-                
+
+	fndef += ': any'
+
 	for a in args[1:]:
 		fndef += ', ' + a + ': any'
 	fndef += ') => {\n'
@@ -337,14 +337,14 @@ def convert_constants(lines):
 			testp = parts[0]
 			common = True
 			for c in grp:
-			    if not c['name'].startswith(testp):
-				common = False
-				break
+				if not c['name'].startswith(testp):
+					common = False
+					break
 
 			if common:
-			    grpname += '_' + testp
-			    for c in grp:
-				c['name'] = c['name'][len(testp) + 1:]
+				grpname += '_' + testp
+				for c in grp:
+					c['name'] = c['name'][len(testp) + 1:]
 			else:
 				break
 			parts = grp[0]['name'].split('_')
@@ -459,7 +459,7 @@ if __name__ == '__main__':
 		if data[start:end+2] == '/*bool*/':
 			extra = ' __bool'
 
-       		if data[start:end+2] == '/*any*/':
+		if data[start:end+2] == '/*any*/':
 			extra = ' __any'
 
 		if start > 0:
