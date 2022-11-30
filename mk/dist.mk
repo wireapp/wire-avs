@@ -176,15 +176,15 @@ ifneq ($(filter x86_64,$(DIST_ARCH)),)
 	$(call build_arch,x86_64,x86_64)
 endif
 
-ifneq ($(filter osx,$(DIST_ARCH)),)
-	@mkdir -p $(BUILD_DIST_AND)/aar/jni/darwin
-	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=arm64 && \
-	$(MAKE) contrib AVS_OS=osx AVS_ARCH=arm64 && \
-	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=arm64 && \
-	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=arm64
-	@cp $(BUILD_BASE)/osx-arm64/lib/libavs.jnilib \
-		$(BUILD_DIST_AND)/aar/jni/darwin/libavs.dylib
-endif
+#ifneq ($(filter osx,$(DIST_ARCH)),)
+#	@mkdir -p $(BUILD_DIST_AND)/aar/jni/darwin
+#	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=arm64 && \
+#	$(MAKE) contrib AVS_OS=osx AVS_ARCH=arm64 && \
+#	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=arm64 && \
+#	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=arm64
+#	@cp $(BUILD_BASE)/osx-arm64/lib/libavs.jnilib \
+#		$(BUILD_DIST_AND)/aar/jni/darwin/libavs.dylib
+#endif
 
 	@mkdir -p $(BUILD_DIST_AND)/aar/res/values
 	@echo '$(DIST_AND_BUILDINFO)' \
