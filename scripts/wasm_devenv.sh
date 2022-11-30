@@ -16,7 +16,6 @@ PLATFORM=$(uname -s | awk '{ print tolower($1) }')
 MACHINE=$(uname -m)
 
 EMSDK_VER=1.38.48
-EMSDK_VER_FULL=sdk-$EMSDK_VER-64bit
 
 if [ ! -e $AVS_DEVTOOLS_ROOT ]; then
 	mkdir -p $AVS_DEVTOOLS_ROOT
@@ -32,17 +31,16 @@ cd emsdk
 
 if [ ! -e emscripten/$EMSDK_VER ]; then
 	echo "Cleaning and pulling"
-	git checkout $EMSDK_VER .
-	git pull
+	git checkout -- .
+        git pull
 
 	echo "Installing EMSDK $EMSDK_VER"
-	./emsdk install $EMSDK_VER_FULL > /dev/null
+	./emsdk install $EMSDK_VER
 fi
 
 echo "Setting EMSDK $EMSDK_VER"
-./emsdk activate $EMSDK_VER_FULL > /dev/null
-popd > /dev/null
-
+./emsdk activate $EMSDK_VER > /dev/null
 echo "Setting environment variables"
-export WASM_PATH=$AVS_DEVTOOLS_ROOT/emsdk/emscripten/$EMSDK_VER/
+. ./emsdk_env.sh
 
+popd > /dev/null
