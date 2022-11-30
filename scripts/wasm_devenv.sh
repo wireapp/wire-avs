@@ -15,7 +15,7 @@ fi
 PLATFORM=$(uname -s | awk '{ print tolower($1) }')
 MACHINE=$(uname -m)
 
-EMSDK_VER=1.38.29
+EMSDK_VER=1.38.48
 EMSDK_VER_FULL=sdk-$EMSDK_VER-64bit
 
 if [ ! -e $AVS_DEVTOOLS_ROOT ]; then
@@ -32,7 +32,7 @@ cd emsdk
 
 if [ ! -e emscripten/$EMSDK_VER ]; then
 	echo "Cleaning and pulling"
-	git checkout -- .
+	git checkout $EMSDK_VER .
 	git pull
 
 	echo "Installing EMSDK $EMSDK_VER"
