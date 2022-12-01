@@ -44,7 +44,7 @@ apt install -y \
 apt purge -y cargo rustc
 
 # cleanup apt cache to reduce image size
-rm -rf /var/lib/apt/lists/
+apt clean
 
 # download the rust toolchain (to build the cryptobox-c dependency)
 curl https://sh.rustup.rs -sSf | sh -s -- -y
