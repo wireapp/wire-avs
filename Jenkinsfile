@@ -68,7 +68,7 @@ pipeline {
                         sh 'make dist_clean'
                         sh 'make zcall AVS_VERSION=' + version
                         sh '''#!/bin/bash
-                            . ./scripts/android_devenv.sh && . ./scripts/wasm_devenv.sh && make dist_linux dist_android dist_wasm AVS_VERSION=$version BUILDVERSION=$version
+                            . ./scripts/android_devenv.sh && . ./scripts/wasm_devenv.sh && make dist_linux dist_android dist_wasm AVS_VERSION=${version} BUILDVERSION=${version}
                         '''
                         sh 'rm -rf ./build/artifacts'
                         sh 'mkdir -p ./build/artifacts'
