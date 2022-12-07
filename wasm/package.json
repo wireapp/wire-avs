@@ -8,6 +8,7 @@
     "karma-commonjs": "^1.0.0",
     "karma-jasmine": "^2.0.1",
     "karma-typescript-preprocessor": "^0.4.0",
+    "prettier": "^2.8.0",
     "typescript": "^3.4.5"
   },
   "files": [
@@ -17,8 +18,8 @@
   "main": "dist/avs_wcall.js",
   "name": "@wireapp/avs",
   "scripts": {
-    "prepack": "tsc && cp src/*.{js,d.ts} dist/",
+    "prepack": "prettier -w src/avs_wcall.ts && tsc && cp -t dist src/*.js src/*.d.ts",
     "test": "karma start"
   },
-  "version": "AVS_VERSION"
+  "version": "0"
 }

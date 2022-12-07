@@ -47,4 +47,5 @@ src/protobuf/proto/
 contrib/webrtc
 
 scan/
+devtools/
 

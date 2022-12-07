@@ -176,15 +176,15 @@ ifneq ($(filter x86_64,$(DIST_ARCH)),)
 	$(call build_arch,x86_64,x86_64)
 endif
 
-ifneq ($(filter osx,$(DIST_ARCH)),)
-	@mkdir -p $(BUILD_DIST_AND)/aar/jni/darwin
-	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) contrib AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=x86_64
-	@cp $(BUILD_BASE)/osx-x86_64/lib/libavs.jnilib \
-		$(BUILD_DIST_AND)/aar/jni/darwin/libavs.dylib
-endif
+#ifneq ($(filter osx,$(DIST_ARCH)),)
+#	@mkdir -p $(BUILD_DIST_AND)/aar/jni/darwin
+#	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=arm64 && \
+#	$(MAKE) contrib AVS_OS=osx AVS_ARCH=arm64 && \
+#	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=arm64 && \
+#	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=arm64
+#	@cp $(BUILD_BASE)/osx-arm64/lib/libavs.jnilib \
+#		$(BUILD_DIST_AND)/aar/jni/darwin/libavs.dylib
+#endif
 
 	@mkdir -p $(BUILD_DIST_AND)/aar/res/values
 	@echo '$(DIST_AND_BUILDINFO)' \
@@ -235,19 +235,19 @@ ifneq ($(filter x86_64,$(DIST_ARCH)),)
 	@cp $(BUILD_BASE)/android-x86_64/lib/libavs.so \
 		$(BUILD_DIST_AND)/zip/libs/x86_64
 endif
-ifneq ($(filter osx,$(DIST_ARCH)),)
-	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) contrib AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=x86_64
-	@mkdir -p $(BUILD_DIST_AND)/zip/libs/osx
-	@cp $(BUILD_BASE)/osx-x86_64/lib/libavs.jnilib \
-		$(BUILD_DIST_AND)/zip/libs/osx
-	@mkdir -p $(BUILD_DIST_AND)/zip/libs/darwin
-	@cp $(BUILD_BASE)/osx-x86_64/lib/libavs.jnilib \
-		$(BUILD_DIST_AND)/zip/libs/darwin/libavs.dylib
-
-endif
+#ifneq ($(filter osx,$(DIST_ARCH)),)
+#	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=arm64 && \
+#	$(MAKE) contrib AVS_OS=osx AVS_ARCH=arm64 && \
+#	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=arm64 && \
+#	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=arm64
+#	@mkdir -p $(BUILD_DIST_AND)/zip/libs/osx
+#	@cp $(BUILD_BASE)/osx-arm64/lib/libavs.jnilib \
+#		$(BUILD_DIST_AND)/zip/libs/osx
+#	@mkdir -p $(BUILD_DIST_AND)/zip/libs/darwin
+#	@cp $(BUILD_BASE)/osx-arm64/lib/libavs.jnilib \
+#		$(BUILD_DIST_AND)/zip/libs/darwin/libavs.dylib
+#
+#endif
 	@echo 'GEN BUILD INFO > $(BUILD_DIST_AND)/zip/version.buildinfo'
 	@echo `genbuildinfo -b BUILDCONTROL -c ../buildcomponents/android`
 #	@echo '$(DIST_AND_BUILDINFO)' \
@@ -318,10 +318,10 @@ dist_test: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 
 .PHONY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
-	@$(MAKE) contrib AVS_OS=osx AVS_ARCH=x86_64 && \
-	$(MAKE) iosx AVS_OS=osx AVS_ARCH=x86_64
+	@$(MAKE) contrib AVS_OS=osx AVS_ARCH=arm64 && \
+	$(MAKE) iosx AVS_OS=osx AVS_ARCH=arm64
 	@mkdir -p $(dir $@)
-	@cp $(BUILD_BASE)/osx-x86_64/lib/avs.framework/avs $@
+	@cp $(BUILD_BASE)/osx-arm64/lib/avs.framework/avs $@
 
 
 # Package
@@ -374,7 +374,7 @@ $(BUILD_DIST_IOS)/$(BUILD_BALL_REL)/lib/libavsobjc.a:
 
 $(BUILD_DIST_OSX)/$(BUILD_BALL_REL)/lib/libavsobjc.a:
 	@mkdir -p $(dir $@)
-	@cp $(BUILD_BASE)/osx-x86_64/lib/libavsobjc.a $@
+	@cp $(BUILD_BASE)/osx-arm64/lib/libavsobjc.a $@
 
 $(BUILD_DIST)/%/lib/libavsobjc.stripped.a: $(BUILD_DIST)/%/lib/libavsobjc.a
 	strip -S -o $@ $^
@@ -382,11 +382,11 @@ $(BUILD_DIST)/%/lib/libavsobjc.stripped.a: $(BUILD_DIST)/%/lib/libavsobjc.a
 #--- avscore Tarballs ---
 
 $(BUILD_DIST_BASE)/%/avscore.tar.bz2:
-	$(MAKE) tools contrib_librem AVS_OS=$* AVS_ARCH=x86_64 DIST=1
+	$(MAKE) tools contrib_librem AVS_OS=$* AVS_ARCH=$(HOST_ARCH) DIST=1
 	@mkdir -p $(dir $@)/avscore
-	@cp -a $(BUILD_BASE)/$*-x86_64/lib \
-	       $(BUILD_BASE)/$*-x86_64/share \
-	       $(BUILD_BASE)/$*-x86_64/include \
+	@cp -a $(BUILD_BASE)/$*-$(HOST_ARCH)/lib \
+	       $(BUILD_BASE)/$*-$(HOST_ARCH)/share \
+	       $(BUILD_BASE)/$*-$(HOST_ARCH)/include \
 		$(dir $@)/avscore
 	@cp -a include $(dir $@)/avscore/include/avs
 	@cp -R src/protobuf/proto $(dir $@)/avscore/include
@@ -426,20 +426,18 @@ $(DIST_WASM_JS_TARGET):
 $(DIST_WASM_PC_TARGET):
 	@mkdir -p $(BUILD_DIST_WASM)
 	@cp -r wasm/. $(BUILD_DIST_WASM)
-	@rm -f $(BUILD_DIST_WASM)/package.json
 
+.PHONY: $(DIST_WASM_PKG_TARGET)
 $(DIST_WASM_PKG_TARGET):
-	@cat $(BUILD_DIST_WASM)/package.json.template | \
-		awk '{ gsub("AVS_VERSION", "$(DIST_WASM_PKG_VERSION)", $$0); print; }' > $@
+	(rm -f $@ && jq '.version = "$(DIST_WASM_PKG_VERSION)"' > $@) < $@
 
 $(DIST_WASM_WC_TARGET):
 	@mkdir -p $(BUILD_DIST_WASM)
 	@python wasm/wcall2ts.py include/avs_wcall.h wasm/avs_wcall.template $@
-	@prettier --write $@
 
 $(DIST_WASM_TARGETS): $(DIST_WASM_JS_TARGET) $(DIST_WASM_PC_TARGET) $(DIST_WASM_WC_TARGET) \
 	$(DIST_WASM_PKG_TARGET)
-	@( cd $(dir $@) && npm install && npm pack)
+	@( cd $(dir $@) && npm ci && npm pack)
 
 
 #--- Phony Targets ---
