@@ -692,8 +692,6 @@ static int sft_data_handler(const uint8_t *buf, size_t size,
 		}
 	}
 
-	(void)chunked;
-
 	/* append data to the body-buffer */
 	err = mbuf_write_mem(c3ctx->mb_body, buf, size);
 	if (err)

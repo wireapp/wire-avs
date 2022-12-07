@@ -195,7 +195,7 @@ ifeq ($(AVS_OS),ios)
 AVS_ARCH := arm64
 endif
 ifeq ($(AVS_OS),osx)
-AVS_ARCH := $(HOST_ARCH)
+AVS_ARCH := x86_64
 endif
 ifeq ($(AVS_OS),wasm)
 AVS_ARCH := generic
@@ -243,7 +243,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 20220331.62
+WEBRTC_VER := 20220331.58
 endif
 
 JAVAC := javac

@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#! /usr/bin/env python
 
 import re
 import subprocess
@@ -10,7 +10,7 @@ addr2line = 'build/toolchains/android-arm64/bin/aarch64-linux-android-addr2line'
 libavs = 'build/dist/android/debug/arm64-v8a/libavs.so'
 
 if len(sys.argv) != 2:
-	print('usage: python3 {} <logcat file>'.format(sys.argv[0]))
+	print('usage: python {} <logcat file>'.format(sys.argv[0]))
 	exit()
 
 lines = open(sys.argv[1]).readlines()
