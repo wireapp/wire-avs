@@ -1471,6 +1471,8 @@ static void use_audio_effect_cmd_handler(int argc, char *argv[])
 
 #if USE_AVSLIB
     err = voe_set_audio_effect(effect);
+#else
+    (void)effect;
 #endif
     
     if (err)
