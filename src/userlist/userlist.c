@@ -18,6 +18,7 @@
 
 #include <re.h>
 #include <avs.h>
+#include <assert.h>
 #include "avs_wcall.h"
 
 
