@@ -1,6 +1,4 @@
 
-*** This is an API proposal, these changes are not currently implemented ***
-
 Changes proposed for AVS 9.0
 ============================
 
@@ -10,7 +8,7 @@ A new conversation type has been added for MLS conference calls:
 
 #define WCALL_CONV_TYPE_CONFERENCE_MLS  3
 
-This should be used in place of WCALL_CONV_TYPE_CONFERENCE for MLS conversations. For 1:1 conversations WCALL_CONV_TYPE_ONEONONE should still be used even if over MLS.
+This should be used in place of WCALL_CONV_TYPE_CONFERENCE for MLS conversations, in wcall_start for example. For 1:1 conversations WCALL_CONV_TYPE_ONEONONE should still be used even if over MLS.
 
 
 wcall_recv_msg has a new parameter added: conv_type which should be set to the conv type of the conversations. This is mostly important for conference calls and should be WCALL_CONV_TYPE_CONFERENCE for Proteus conference calls and WCALL_CONV_TYPE_CONFERENCE_MLS for MLS conference calls:
