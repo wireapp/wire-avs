@@ -67,6 +67,7 @@ int g_trace = 0;
 bool g_ice_privacy = false;
 bool g_use_kase = true;
 bool g_use_conference = false;
+bool g_use_mls = false;
 char *zcall_vfile = NULL;
 struct list g_sftl = LIST_INIT;
 
@@ -117,6 +118,8 @@ static void usage(void)
 	(void)re_fprintf(stderr, "\t-h             Show options\n");
 	(void)re_fprintf(stderr, "\t-G             Force group calls to use "
 			 "new conference protocol\n");
+	(void)re_fprintf(stderr, "\t-M             Simulate MLS convs for "
+			 "conference calls\n");
 	(void)re_fprintf(stderr, "\t-S <sft list>  Set SFT URL "
 			 "(in format http(s)://server:port, comma separated)\n");
 	(void)re_fprintf(stderr, "\n");
@@ -425,7 +428,7 @@ int main(int argc, char *argv[])
 
 	for (;;) {
 		const int c = getopt(argc, argv,
-				     "ABc:CdDe:fGhiIKl:m:n:Np:P:q:r:sS:tTV:WZ");
+				     "ABc:CdDe:fGhiIKl:m:Mn:Np:P:q:r:sS:tTV:WZ");
 		if (c < 0)
 			break;
 
@@ -487,6 +490,10 @@ int main(int argc, char *argv[])
 
 		case 'm':
 			str_ncpy(msys, optarg, sizeof(msys));
+			break;
+
+		case 'M':
+			g_use_mls = true;
 			break;
 
 		case 'n':

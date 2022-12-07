@@ -34,6 +34,7 @@
 #define CHECK_MEM_NOT_EQ(x,y,sz) if (memcmp(x,y,sz)==0){printf("ERR %s(0x%02x%02x...) == %s(0x%02x%02x...)\n", #x, x[0], x[1], #y, y[0], y[1]);passed=false;}else{printf("OK  %s(0x%02x%02x...) != %s(0x%02x%02x...)\n", #x, x[0], x[1], #y, y[0], y[1]);}
 #define CHECK_GTZ(x) if ((x) > 0){printf("OK  %s(%d) greater than 0\n", #x, x);}else{printf("ERR %s(%d) not greater than 0\n", #x, x);passed=false;}
 #define CHECK_EQZ(x) if ((x) == 0){printf("OK  %s(%d) equals 0\n", #x, x);}else{printf("ERR %s(%d)  does not equal 0\n", #x, x);passed=false;}
+#define CHECK_EQ(x, y) if ((x) == (y)){printf("OK  %s(%d) equals %s(%d)\n", #x, x, #y, y);}else{printf("ERR %s(%d)  does not equal %s(%d)\n", #x, x, #y, y);passed=false;}
 
 typedef bool (testfunc)(void);
 static int tests_failed = 0;
@@ -70,7 +71,7 @@ static bool test_anonymous_ids(void)
 
 	/* Create a ccall for the first call and start the call */
 	printf("    creating first call object and starting call\n");
-	alice = init_ccall("alice", CONV_ID, false);
+	alice = init_ccall("alice", CONV_ID, false, false);
 	if (!alice) {
 		err = ENOMEM;
 		goto out;
@@ -95,7 +96,7 @@ static bool test_anonymous_ids(void)
 
 	printf("    creating second call object and starting call\n");
 	/* Create a ccall for the second call and start the call */
-	alice = init_ccall("alice", CONV_ID, false);
+	alice = init_ccall("alice", CONV_ID, false, false);
 	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, false);
 	if (err)
 		goto out;
@@ -150,8 +151,8 @@ static bool test_anonymous_ids_sft(void)
 	int err = 0;
 
 	/* Create ccalls for alice and bob */
-	alice = init_ccall("alice", CONV_ID, true);
-	bob = init_ccall("bob", CONV_ID, true);
+	alice = init_ccall("alice", CONV_ID, true, false);
+	bob = init_ccall("bob", CONV_ID, true, false);
 	eve = init_ecall("eve", false);
 
 	/* Connect alice and bob for fake Proteus message passing */
@@ -214,8 +215,8 @@ static bool test_authorisation(void)
 	int err = 0;
 
 	/* Create ccalls for alice and bob */
-	alice = init_ccall("alice", CONV_ID, true);
-	bob = init_ccall("bob", CONV_ID, true);
+	alice = init_ccall("alice", CONV_ID, true, false);
+	bob = init_ccall("bob", CONV_ID, true, false);
 	eve = init_ecall("eve", true);
 
 	/* Connect alice and bob for fake Proteus message passing */
@@ -272,8 +273,8 @@ static bool test_force_key(void)
 	int err = 0;
 
 	/* Create ccalls for alice and bob */
-	alice = init_ccall("alice", CONV_ID, true);
-	bob = init_ccall("bob", CONV_ID, true);
+	alice = init_ccall("alice", CONV_ID, true, false);
+	bob = init_ccall("bob", CONV_ID, true, false);
 
 	/* Connect alice and bob for fake Proteus message passing */
 	alice->conv_member = bob;
@@ -304,6 +305,112 @@ out:
 	return passed && (err == 0);
 }
 
+// @SF.Calls @TSFI.RESTfulAPI @S5
+/*
+  This test verifies that clients sync keys as soon as possible, without needing to
+  wait until the timeout.
+    * alice starts a call
+    * bob joins the call legitimately
+    * alice moves to key 2
+    * bob moves to key 2
+    * wait 15 seconds
+    * assert that alice and bob are on key 2
+*/
+static bool test_mls_keysync(void)
+{
+	struct ccall_wrapper *alice = NULL;
+	struct ccall_wrapper *bob = NULL;
+	struct tmr tmr;
+	bool passed = true;
+	int err = 0;
+
+	/* Create ccalls for alice & bob */
+	alice = init_ccall("alice", CONV_ID, true, true);
+	bob = init_ccall("bob", CONV_ID, true, true);
+
+	/* Connect alice and bob for fake MLS message passing */
+	alice->conv_member = bob;
+	bob->conv_member = alice;
+
+	ccall_set_target_mls_key(alice, 2);
+	ccall_set_target_mls_key(bob, 2);
+	printf("    alice starting call\n");
+	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, true);
+	if (err)
+		goto out;
+
+	/* Set a timer to force end the test if something goes wrong */
+	tmr_init(&tmr);
+	tmr_start(&tmr, 20000, timer_end_test, NULL);
+
+	/* Start run loop, this will start the call from alice and trigger the
+	   events to get all clients in the call
+	*/
+	run_main_loop();
+
+	CHECK_EQ(alice->current_key_idx, 2);
+	CHECK_EQ(bob->current_key_idx, 2);
+out:
+	alice  = (struct ccall_wrapper*)mem_deref(alice);
+	bob  = (struct ccall_wrapper*)mem_deref(bob);
+
+	return passed && (err == 0);
+}
+
+// @SF.Calls @TSFI.RESTfulAPI @S5
+/*
+  This test verifies that clients maliciously trying to keep the MLS key used low are unable
+  to do so. After 60 seconds the other clients should move to the new key anyway.
+    * alice starts a call
+    * bob joins the call legitimately
+    * bob moves to key 2
+    * alice stays on key 1 (we simulate the behaviour by not giving alice key 2)
+    * wait 70 seconds
+    * assert that bob is on key 2
+*/
+static bool test_mls_keysync_timeout(void)
+{
+	struct ccall_wrapper *alice = NULL;
+	struct ccall_wrapper *bob = NULL;
+	struct tmr tmr;
+	bool passed = true;
+	int err = 0;
+
+	/* Create ccalls for alice & bob */
+	alice = init_ccall("alice", CONV_ID, true, true);
+	bob = init_ccall("bob", CONV_ID, true, true);
+	alice->test_timeout = 70000;
+	bob->test_timeout = 70000;
+
+	/* Connect alice and bob for fake MLS message passing */
+	alice->conv_member = bob;
+	bob->conv_member = alice;
+
+	ccall_set_target_mls_key(alice, 1);
+	ccall_set_target_mls_key(bob, 2);
+	printf("    alice starting call\n");
+	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, true);
+	if (err)
+		goto out;
+
+	/* Set a timer to force end the test if something goes wrong */
+	tmr_init(&tmr);
+	tmr_start(&tmr, 80000, timer_end_test, NULL);
+
+	/* Start run loop, this will start the call from alice and trigger the
+	   events to get all clients in the call
+	*/
+	run_main_loop();
+
+	CHECK_EQ(alice->current_key_idx, 1);
+	CHECK_EQ(bob->current_key_idx, 2);
+out:
+	alice  = (struct ccall_wrapper*)mem_deref(alice);
+	bob  = (struct ccall_wrapper*)mem_deref(bob);
+
+	return passed && (err == 0);
+}
+
 int main(int argc, char *argv[])
 {
 	if (argc != 2) {
@@ -316,6 +423,8 @@ int main(int argc, char *argv[])
 	TEST(test_anonymous_ids_sft);
 	TEST(test_authorisation);
 	TEST(test_force_key);
+	TEST(test_mls_keysync);
+	TEST(test_mls_keysync_timeout);
 
 	printf("%d tests passed, %d tests failed\n", tests_passed, tests_failed);
 	return tests_failed == 0 ? 0 : -1;

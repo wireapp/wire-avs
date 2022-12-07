@@ -31,7 +31,7 @@
 
 #include <sodium.h>
 
-#define NUM_KEYS 4
+#define NUM_KEYS 16
 
 const uint8_t SKEY_INFO[] = "session_key";
 const size_t  SKEY_INFO_LEN = 11;
@@ -49,21 +49,22 @@ struct listener
 
 struct keyinfo
 {
+	struct le le;
 	uint8_t skey[E2EE_SESSIONKEY_SIZE];
 	uint8_t mkey[E2EE_SESSIONKEY_SIZE];
 	uint32_t index;
-	bool isset;
+	uint64_t update_ts;
 };
 
 struct keystore
 {
-	struct keyinfo keys[NUM_KEYS];
-	size_t current;
-	size_t head;
+	struct list keyl;
+	struct keyinfo *current;
 	bool init;
 	uint8_t *salt;
 	size_t slen;
 
+	bool hash_forward;
 	bool has_keys;
 	bool decrypt_successful;
 	bool decrypt_attempted;
@@ -77,9 +78,21 @@ struct keystore
 
 static int keystore_hash_to_key(struct keystore *ks, uint32_t index);
 static int keystore_derive_session_key(struct keystore *ks,
-				       struct keyinfo* prev,
-				       struct keyinfo* next);
-static int keystore_derive_media_key(struct keystore *ks, uint32_t index);
+				       struct keyinfo *prev,
+				       struct keyinfo **pnext);
+static int keystore_derive_media_key(struct keystore *ks,
+				     struct keyinfo *kinfo);
+static int keystore_append_key(struct keystore *ks,
+			       struct keyinfo *kinfo);
+static int keystore_organise(struct keystore *ks);
+
+static void keyinfo_destructor(void *data)
+{
+	struct keyinfo *info = data;
+
+	list_unlink(&info->le);
+	sodium_memzero(info, sizeof(*info));
+}
 
 static void keystore_destructor(void *data)
 {
@@ -87,10 +100,22 @@ static void keystore_destructor(void *data)
 
 	ks->salt = mem_deref(ks->salt);
 	ks->lock = mem_deref(ks->lock);
+	list_flush(&ks->keyl);
 	sodium_memzero(ks, sizeof(*ks));
 }
 
-int keystore_alloc(struct keystore **pks)
+static struct keyinfo *keystore_get_latest(struct keystore *ks)
+{
+	struct le *le;
+
+	le = ks->keyl.head;
+	while (le && le->next)
+		le = le->next;
+
+	return le ? le->data : NULL;
+}
+
+int keystore_alloc(struct keystore **pks, bool hash_forward)
 {
 	struct keystore *ks = NULL;
 	int err;
@@ -108,6 +133,7 @@ int keystore_alloc(struct keystore **pks)
 
 	ks->update_ts = tmr_jiffies();
 	ks->hash_md = EVP_sha512();
+	ks->hash_forward = hash_forward;
 	*pks = ks;
 
 out:
@@ -124,10 +150,9 @@ int keystore_reset_keys(struct keystore *ks)
 
 	info("keystore(%p): reset_keys\n", ks);
 	lock_write_get(ks->lock);
-	sodium_memzero(ks->keys, sizeof(*ks->keys) * NUM_KEYS);
+	list_flush(&ks->keyl);
+	ks->current = NULL;
 
-	ks->current = 0;
-	ks->head = 0;
 	ks->init = false;
 	ks->has_keys = false;
 	ks->decrypt_attempted = false;
@@ -146,10 +171,8 @@ int keystore_reset(struct keystore *ks)
 	info("keystore(%p): reset\n", ks);
 	lock_write_get(ks->lock);
 
-	sodium_memzero(ks->keys, sizeof(*ks->keys) * NUM_KEYS);
-
-	ks->current = 0;
-	ks->head = 0;
+	list_flush(&ks->keyl);
+	ks->current = NULL;
 	ks->init = false;
 	ks->slen = 0;
 	ks->salt = mem_deref(ks->salt);
@@ -193,12 +216,12 @@ int keystore_set_salt(struct keystore *ks,
 
 int keystore_set_session_key(struct keystore *ks,
 			     uint32_t index,
-			     uint8_t *key,
+			     const uint8_t *key,
 			     size_t ksz)
 {
-	uint32_t sz;
-	size_t h, k;
-	struct le *le;
+	uint32_t sz = 0;
+	struct le *le = NULL;
+	struct keyinfo *kinfo = NULL;
 	int err = 0;
 
 	if (!ks) {
@@ -210,17 +233,18 @@ int keystore_set_session_key(struct keystore *ks,
 
 	lock_write_get(ks->lock);
 
-	if (ks->keys[ks->current].isset && 
-	    index < ks->keys[ks->current].index) {
+	if (ks->current && 
+	    index < ks->current->index) {
 		info("keystore(%p): set_session_key ignoring old key 0x%08x current %08x\n",
-		     ks, index, ks->keys[ks->current].index);
+		     ks, index, ks->current->index);
 		err = EALREADY;
 		goto out;
 	}
 
-	for (k = 0; k < NUM_KEYS; k++) {
-		if (ks->keys[k].isset && index == ks->keys[k].index) {
-			if (memcmp(ks->keys[k].skey, key, sz) == 0) {
+	LIST_FOREACH(&ks->keyl, le) {
+		kinfo = le->data;
+		if (index == kinfo->index) {
+			if (memcmp(kinfo->skey, key, sz) == 0) {
 				//info("keystore(%p): set_session_key key 0x%08x already set, "
 				//     "ignoring\n", ks, index);
 				err = EALREADY;
@@ -229,30 +253,42 @@ int keystore_set_session_key(struct keystore *ks,
 			else {
 				warning("keystore(%p): set_session_key key 0x%08x changed, "
 					"overwriting\n", ks, index);
-				memset(ks->keys[k].skey, 0, E2EE_SESSIONKEY_SIZE);
-				memcpy(ks->keys[k].skey, key, sz);
+				memset(kinfo->skey, 0, E2EE_SESSIONKEY_SIZE);
+				memcpy(kinfo->skey, key, sz);
 				ks->update_ts = tmr_jiffies();
-				err = keystore_derive_media_key(ks, k);
+				err = keystore_derive_media_key(ks, kinfo);
 				goto out;
 			}
 		}
 	}
 
-	if (ks->head != ks->current && ks->keys[ks->head].isset && 
-	    index < ks->keys[ks->head].index) {
-		warning("keystore(%p): set_session_key key 0x%08x is older than head 0x%08x, "
-			"overwriting\n", ks, index, ks->keys[ks->head].index);
-		h = (ks->current + 1) % NUM_KEYS;
-	}
-	else {
-		h = (ks->head + 1) % NUM_KEYS;
+	kinfo = mem_zalloc(sizeof(*kinfo), keyinfo_destructor);
+	if (!kinfo) {
+		err = ENOMEM;
+		goto out;
 	}
 
-	memset(ks->keys[h].skey, 0, E2EE_SESSIONKEY_SIZE);
-	memcpy(ks->keys[h].skey, key, sz);
-	ks->keys[h].index = index;
+	memset(kinfo->skey, 0, E2EE_SESSIONKEY_SIZE);
+	memcpy(kinfo->skey, key, sz);
+	kinfo->index = index;
+
+	kinfo->update_ts = tmr_jiffies();
+	ks->update_ts = kinfo->update_ts;
+	err = keystore_derive_media_key(ks, kinfo);
+	if (err)
+		goto out;
+
+	err = keystore_append_key(ks, kinfo);
+	if (err)
+		goto out;
+
+	ks->has_keys = true;
 	if (!ks->init) {
-		ks->current = h;
+		ks->current = kinfo;
+		err = keystore_organise(ks);
+		if (err)
+			goto out;
+
 		ks->init = true;
 
 		LIST_FOREACH(&ks->listeners, le) {
@@ -260,17 +296,9 @@ int keystore_set_session_key(struct keystore *ks,
 			l->changedh(ks, l->arg);
 		}
 	}
-	ks->head = h;
-	ks->update_ts = tmr_jiffies();
-	err = keystore_derive_media_key(ks, h);
-	if (err)
-		goto out;
 
-	ks->keys[h].isset = true;
-	ks->has_keys = true;
-
-	info("keystore(%p): set_session_key 0x%08x at index %zu\n",
-	     ks, ks->keys[h].index, h);
+	info("keystore(%p): set_session_key 0x%08x\n",
+	     ks, kinfo->index);
 out:
 	lock_rel(ks->lock);
 
@@ -279,7 +307,7 @@ out:
 
 int keystore_set_fresh_session_key(struct keystore *ks,
 				   uint32_t index,
-				   uint8_t *key,
+				   const uint8_t *key,
 				   size_t ksz,
 				   uint8_t *salt,
 				   size_t saltsz)
@@ -330,9 +358,9 @@ int keystore_get_current_session_key(struct keystore *ks,
 
 	lock_read_get(ks->lock);
 
-	if (ks->keys[ks->current].isset) {
-		memcpy(pkey, ks->keys[ks->current].skey, sz);
-		*pindex = ks->keys[ks->current].index;
+	if (ks->current) {
+		memcpy(pkey, ks->current->skey, sz);
+		*pindex = ks->current->index;
 	}
 	else {
 		err = ENOENT;
@@ -360,13 +388,13 @@ int keystore_get_next_session_key(struct keystore *ks,
 
 	lock_read_get(ks->lock);
 
-	if (ks->head != ks->current && 
-	    ks->keys[ks->head].isset) {
-		memcpy(pkey, ks->keys[ks->head].skey, sz);
-		*pindex = ks->keys[ks->head].index;
+	if (!ks->current || !ks->current->le.next) {
+		err = ENOENT;
 	}
 	else {
-		err = ENOENT;
+		struct keyinfo *next = ks->current->le.next->data;
+		memcpy(pkey, next->skey, sz);
+		*pindex = next->index;
 	}
 
 	lock_rel(ks->lock);
@@ -384,28 +412,45 @@ int keystore_rotate(struct keystore *ks)
 		return EINVAL;
 	}
 
-	info("keystore(%p): rotate h: %zu c: %zu "
-	       " i: 0x%08x\n", ks, ks->head, ks->current, ks->keys[ks->head].index);
+	info("keystore(%p): rotate keys: %u current: %u\n",
+	     ks, list_count(&ks->keyl),
+	     ks->current ? ks->current->index : 0);
+
 	lock_write_get(ks->lock);
-	if (ks->current == ks->head) {
-		err = keystore_hash_to_key(ks, ks->keys[ks->head].index + 1);
-		if (err) {
+
+	if (!ks->current) {
+		err = ENOENT;
+		goto out;
+	}
+
+	if (!ks->current->le.next) {
+		if (ks->hash_forward) {
+			err = keystore_hash_to_key(ks, ks->current->index + 1);
+			if (err) {
+				goto out;
+			}
+		}
+		else {
+			err = ENOENT;
 			goto out;
 		}
 	}
-	ks->current = ks->head;
+	ks->current = ks->current->le.next->data;
+	err = keystore_organise(ks);
+	if (err)
+		goto out;
 
 	LIST_FOREACH(&ks->listeners, le) {
 		struct listener *l = le->data;
 		l->changedh(ks, l->arg);
 	}
+	info("keystore(%p): rotate new key %08x\n",
+	     ks, ks->current->index);
 
-	lock_rel(ks->lock);
-
-	info("keystore(%p): rotate new key %08x at index %zu\n",
-	     ks, ks->keys[ks->current].index, ks->current);
 
 out:
+	lock_rel(ks->lock);
+
 	return err;
 }
 
@@ -417,13 +462,62 @@ int keystore_get_current(struct keystore *ks,
 		return EINVAL;
 	}
 
-	if (ks->keys[ks->current].isset) {
-		*pindex = ks->keys[ks->current].index;
+	if (ks->current) {
+		*pindex = ks->current->index;
 		*updated_ts = ks->update_ts;
 		return 0;
 	}
 
 	return ENOENT;
+}
+
+int keystore_set_current(struct keystore *ks,
+			 uint32_t index)
+{
+	struct le *le;
+	bool set = false;
+	int err = 0;
+
+	if (!ks) {
+		return EINVAL;
+	}
+
+	info("keystore(%p): set_current to: %zu c: %zu\n",
+	     ks, index, ks->current);
+
+	lock_write_get(ks->lock);
+
+	LIST_FOREACH(&ks->keyl, le) {
+		struct keyinfo *kinfo = le->data;
+
+		if (kinfo->index == index) {
+			ks->current = kinfo;
+			set = true;
+			break;
+		}
+	}
+
+	if (!set) {
+		err = ENOENT;
+		goto out;
+	}
+
+	err = keystore_organise(ks);
+	if (err)
+		goto out;
+
+	LIST_FOREACH(&ks->listeners, le) {
+		struct listener *l = le->data;
+		l->changedh(ks, l->arg);
+	}
+
+
+	info("keystore(%p): set_current key %08x\n",
+	     ks, ks->current->index);
+
+out:
+	lock_rel(ks->lock);
+	return err;
 }
 
 int keystore_get_media_key(struct keystore *ks,
@@ -432,9 +526,10 @@ int keystore_get_media_key(struct keystore *ks,
 			   size_t ksz)
 {
 	uint32_t sz;
-	size_t kid;
-	int err = 0;
 	bool found = false;
+	struct le *le = NULL;
+	struct keyinfo *kinfo = NULL;
+	int err = 0;
 
 	if (!ks) {
 		return EINVAL;
@@ -445,29 +540,48 @@ int keystore_get_media_key(struct keystore *ks,
 
 	lock_read_get(ks->lock);
 
-	for (kid = 0; kid < NUM_KEYS; kid++) {
-		if (ks->keys[kid].isset &&
-		    ks->keys[kid].index == index) {
-			memcpy(pkey, ks->keys[kid].mkey, sz);
+	LIST_FOREACH(&ks->keyl, le) {
+		kinfo = le->data;
+		if (kinfo->index == index) {
+			memcpy(pkey, kinfo->mkey, sz);
 			found = true;
-			if (index > ks->keys[ks->current].index) {
-				ks->current = kid;
+			if (!ks->current || index > ks->current->index) {
+				ks->current = kinfo;
+				err = keystore_organise(ks);
+				if (err)
+					goto out;
 			}
 			break;
 		}
 	}
 
-	if (!found && ks->keys[ks->head].isset &&
-	    index > ks->keys[ks->head].index &&
-	    index < ks->keys[ks->head].index + NUM_KEYS) {
-		err = keystore_hash_to_key(ks, index);
-		if (err) {
+	if (!found && ks->hash_forward) {
+		if (!kinfo) {
+			warning("keystore(%p): get_media_key nothing to hash forward from\n", ks);
+			err = ENOENT;
 			goto out;
 		}
-		memcpy(pkey, ks->keys[ks->head].mkey, sz);
-		found = true;
-		if (index > ks->keys[ks->current].index) {
-			ks->current = ks->head;
+
+		if (index > kinfo->index &&
+		    index < kinfo->index + NUM_KEYS) {
+			err = keystore_hash_to_key(ks, index);
+			if (err) {
+				goto out;
+			}
+
+			kinfo = keystore_get_latest(ks);
+			if (!kinfo) {
+				goto out;
+			}
+
+			memcpy(pkey, kinfo->mkey, sz);
+			found = true;
+			if (kinfo->index > ks->current->index) {
+				ks->current = kinfo;
+				err = keystore_organise(ks);
+				if (err)
+					goto out;
+			}
 		}
 	}
 
@@ -479,36 +593,47 @@ out:
 
 static int keystore_hash_to_key(struct keystore *ks, uint32_t index)
 {
-	uint32_t h, n;
+	struct keyinfo *kinfo = NULL;
+	struct keyinfo *knext = NULL;
 	int err = 0;
 
 	if (!ks) {
 		return EINVAL;
 	}
 
-	h = ks->head;
-
-	info("keystore(%p): hash_to_key 0x%08x from 0x%08x\n",
-	     ks, index, ks->keys[h].index);
-	while(ks->keys[h].index < index) {
-		n = (h + 1) % NUM_KEYS;
-		err = keystore_derive_session_key(ks, &ks->keys[h], &ks->keys[n]);
-		if (err) {
-			goto out;
-		}
-		err = keystore_derive_media_key(ks, n);
-		if (err) {
-			goto out;
-		}
-		ks->keys[n].index = ks->keys[h].index + 1;
-		ks->keys[n].isset = true;
-		h = n;
+	kinfo = keystore_get_latest(ks);
+	if (!kinfo) {
+		err = ENOENT;
+		goto out;
 	}
 
-	ks->head = h;
+	info("keystore(%p): hash_to_key 0x%08x from 0x%08x\n",
+	     ks, index, kinfo->index);
+	while(kinfo->index < index) {
 
-	info("keystore(%p): hash_to_key new key 0x%08x at index %zu\n",
-	     ks, ks->keys[h].index, h);
+		err = keystore_derive_session_key(ks,
+						  kinfo,
+						  &knext);
+		if (err) {
+			goto out;
+		}
+		if (!knext) {
+			err = ENOMEM;
+			goto out;
+		}
+		err = keystore_derive_media_key(ks, knext);
+		if (err) {
+			goto out;
+		}
+		err = keystore_append_key(ks, knext);
+		if (err)
+			goto out;
+
+		kinfo = knext;
+	}
+
+	info("keystore(%p): hash_to_key new key 0x%08x\n",
+	     ks, kinfo->index);
 
 out:
 	return err;
@@ -516,46 +641,114 @@ out:
 
 static int keystore_derive_session_key(struct keystore *ks,
 				       struct keyinfo* prev,
-				       struct keyinfo* next)
+				       struct keyinfo** pnext)
 
 {
+	struct keyinfo *kinfo = NULL;
 	int s;
 
 	if (!ks) {
 		return EINVAL;
 	}
 
-	s = HKDF(next->skey, sizeof(next->skey), ks->hash_md,
+	kinfo = mem_zalloc(sizeof(*kinfo), keyinfo_destructor);
+	if (!kinfo) {
+		return ENOMEM;
+	}
+
+	kinfo->index = prev->index + 1;
+	s = HKDF(kinfo->skey, sizeof(kinfo->skey), ks->hash_md,
 		 prev->skey, sizeof(prev->skey),
 		 ks->salt, ks->slen,
 		 SKEY_INFO, SKEY_INFO_LEN);
 
+	kinfo->update_ts = tmr_jiffies();
+	ks->update_ts = kinfo->update_ts;
+
+	*pnext = kinfo;
 	return s ? 0 : EINVAL;
 }
 
-static int keystore_derive_media_key(struct keystore *ks, uint32_t index)
+static int keystore_derive_media_key(struct keystore *ks,
+				     struct keyinfo* kinfo)
 {
-	struct keyinfo *info = &ks->keys[index];
-	int s;
+	int s = 0;
 
-	if (!ks) {
+	if (!ks || !kinfo) {
 		return EINVAL;
 	}
 
-	s = HKDF(info->mkey, sizeof(info->mkey), ks->hash_md,
-		 info->skey, sizeof(info->skey),
+	s = HKDF(kinfo->mkey, sizeof(kinfo->mkey), ks->hash_md,
+		 kinfo->skey, sizeof(kinfo->skey),
 		 ks->salt, ks->slen,
 		 MKEY_INFO, MKEY_INFO_LEN);
 
 	return s ? 0 : EINVAL;
 }
 
+static bool sort_handler(struct le *le1, struct le *le2, void *arg)
+{
+	struct keyinfo *ki1 = le1 ? le1->data : NULL;
+	struct keyinfo *ki2 = le2 ? le2->data : NULL;
+
+	(void)arg;
+
+	if (!ki1 || !ki2) {
+		return true;
+	}
+
+	return ki1->index <= ki2->index;
+}
+
+static int keystore_organise(struct keystore *ks)
+{
+	struct le *le = NULL;
+	if (!ks) {
+		return EINVAL;
+	}
+
+	list_sort(&ks->keyl, sort_handler, NULL);
+
+	if (!ks->current) {
+		return 0;
+	}
+
+	le = ks->keyl.head;
+	while (le && le->data != ks->current &&
+	       le->next && le->next->data != ks->current) {
+		mem_deref(le->data);
+		le = ks->keyl.head;
+	}
+
+	return 0;
+}
+
+static int keystore_append_key(struct keystore *ks,
+			       struct keyinfo *kinfo)
+{
+
+	if (!ks || !kinfo) {
+		return EINVAL;
+	}
+
+	list_append(&ks->keyl, &kinfo->le, kinfo);
+	return keystore_organise(ks);
+}
+
 uint32_t keystore_get_max_key(struct keystore *ks)
 {
+	struct keyinfo *kinfo = NULL;
+
 	if (!ks) {
 		return 0;
 	}
-	return ks->keys[ks->head].index;
+	
+	kinfo = keystore_get_latest(ks);
+	if (!kinfo) {
+		return 0;
+	}
+
+	return kinfo->index;
 }
 
 int keystore_generate_iv(struct keystore *ks,
@@ -674,5 +867,56 @@ int  keystore_remove_listener(struct keystore *ks,
 	lock_rel(ks->lock);
 
 	return 0;
+}
+
+bool keystore_rotate_by_time(struct keystore *ks,
+			     uint64_t min_ts)
+{
+	struct le *le = NULL;
+	struct keyinfo *latest = NULL;
+	int err = 0;
+
+	if (!ks)
+		return EINVAL;
+
+	lock_write_get(ks->lock);
+
+	if (ks->current) {
+		le = &ks->current->le;
+	}
+	else {
+		le = ks->keyl.head;
+	}
+
+	info("keystore(%p): rotate_by_time ts: %llu\n", ks, min_ts);
+	while (le) {
+		struct keyinfo *kinfo = le->data;
+		if (kinfo->update_ts <= min_ts) {
+			latest = kinfo;
+		}
+		le = le->next;
+	}
+
+	if (latest && latest != ks->current) {
+		ks->current = latest;
+		err = keystore_organise(ks);
+		if (err)
+			goto out;
+
+		LIST_FOREACH(&ks->listeners, le) {
+			struct listener *l = le->data;
+			l->changedh(ks, l->arg);
+		}
+		info("keystore(%p): rotate_by_time new key %08x ts: %llu min: %llu\n",
+		     ks,
+		     ks->current->index,
+		     ks->update_ts,
+		     min_ts);
+	}
+
+out:
+	lock_rel(ks->lock);
+
+	return (err || !latest || latest->le.next);
 }
 

@@ -56,10 +56,8 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 static int ccall_send_keys(struct ccall *ccall,
 			   bool send_to_all);
 static int ccall_request_keys(struct ccall *ccall);
+static int ccall_sync_media_keys(struct ccall *ccall);
 static void ccall_stop_others_ringing(struct ccall *ccall);
-
-static void ccall_track_keygenerator_change(struct ccall *ccall,
-					    struct userinfo *prev_keygenerator);
 
 static int alloc_message(struct econn_message **msgp,
 			 struct ccall *ccall,
@@ -70,9 +68,6 @@ static int alloc_message(struct econn_message **msgp,
 			 const char *dest_userid,
 			 const char *dest_clientid,
 			 bool transient);
-
-static void incall_clear(struct ccall *ccall,
-			 bool force_decoder);
 
 static int copy_sft(char **pdst, const char* src)
 {
@@ -108,6 +103,7 @@ static void destructor(void *arg)
 	tmr_cancel(&ccall->tmr_send_check);
 	tmr_cancel(&ccall->tmr_ongoing);
 	tmr_cancel(&ccall->tmr_rotate_key);
+	tmr_cancel(&ccall->tmr_rotate_mls);
 	tmr_cancel(&ccall->tmr_ring);
 	tmr_cancel(&ccall->tmr_blacklist);
 	tmr_cancel(&ccall->tmr_vstate);
@@ -120,197 +116,23 @@ static void destructor(void *arg)
  	mem_deref(ccall->sft_tuple);
 	mem_deref(ccall->convid_real);
 	mem_deref(ccall->convid_hash);
-	mem_deref(ccall->self);
 	mem_deref(ccall->turnv);
+	mem_deref(ccall->userl);
 
 	mem_deref(ccall->ecall);
 	mem_deref(ccall->secret);
 	mem_deref(ccall->keystore);
 
 	list_flush(&ccall->sftl);
-	list_flush(&ccall->partl);
 	list_flush(&ccall->saved_partl);
 
 	mbuf_reset(&ccall->confpart_data);
-}
-
-static void userinfo_destructor(void *arg)
-{
-	struct userinfo *ui = arg;
-
-	list_unlink(&ui->le);
-	ui->userid_real = mem_deref(ui->userid_real);
-	ui->userid_hash = mem_deref(ui->userid_hash);
-	ui->clientid_real = mem_deref(ui->clientid_real);
-	ui->clientid_hash = mem_deref(ui->clientid_hash);
-}
-
-static void members_destructor(void *arg)
-{
-	struct wcall_members *mm = arg;
-	size_t i;
-
-	for (i = 0; i < mm->membc; ++i) {
-		mem_deref(mm->membv[i].userid);
-		mem_deref(mm->membv[i].clientid);
-	}
-
-	mem_deref(mm->membv);
-}
-
-static int ccall_hash_conv(const uint8_t *secret,
-			   uint32_t secretlen,
-			   const char *convid, 
-			   char **destid_hash)
-{
-	crypto_hash_sha256_state ctx;
-	const char hexstr[] = "0123456789abcdef";
-	const size_t hlen = 16;
-	unsigned char hash[crypto_hash_sha256_BYTES];
-	const size_t blen = min(hlen, crypto_hash_sha256_BYTES);
-	char *dest = NULL;
-	size_t i;
-	int err = 0;
-
-	err = crypto_hash_sha256_init(&ctx);
-	if (err) {
-		warning("ccall_hash_id: hash init failed\n");
-		goto out;
-	}
-
-	err = crypto_hash_sha256_update(&ctx, secret, secretlen);
-	if (err) {
-		warning("ccall_hash_id: hash update failed\n");
-		goto out;
-	}
-
-	err = crypto_hash_sha256_update(&ctx, (const uint8_t*)convid, strlen(convid));
-	if (err) {
-		warning("ccall_hash_id: hash update failed\n");
-		goto out;
-	}
-
-	err = crypto_hash_sha256_final(&ctx, hash);
-	if (err) {
-		warning("ccall_hash_id: hash final failed\n");
-		goto out;
-	}
-
-	dest = mem_zalloc(blen * 2 + 1, NULL);
-	if (!dest) {
-		err = ENOMEM;
-		goto out;
-	}
-
-	for (i = 0; i < hlen; i++) {
-		dest[i * 2]     = hexstr[hash[i] >> 4];
-		dest[i * 2 + 1] = hexstr[hash[i] & 0xf];
-	}
-
-	*destid_hash = dest;
-
-out:
-	if (err) {
-		mem_deref(dest);
-	}
-	return err;
-}
-
-static int ccall_hash_user(const uint8_t *secret,
-			   uint32_t secretlen,
-			   const char *userid, 
-			   const char *clientid,
-			   char **destid_hash)
-{
-	crypto_hash_sha256_state ctx;
-	const char hexstr[] = "0123456789abcdef";
-	const size_t hlen = 16;
-	unsigned char hash[crypto_hash_sha256_BYTES];
-	const size_t blen = min(hlen, crypto_hash_sha256_BYTES);
-	char *dest = NULL;
-	char userid_anon[ANON_ID_LEN];
-	char clientid_anon[ANON_CLIENT_LEN];
-	size_t i;
-	int err = 0;
-
-	if (!userid || !clientid)
-		return EINVAL;
-
-	err = crypto_hash_sha256_init(&ctx);
-	if (err) {
-		warning("ccall_hash_id: hash init failed\n");
-		goto out;
-	}
-
-	err = crypto_hash_sha256_update(&ctx, secret, secretlen);
-	if (err) {
-		warning("ccall_hash_id: hash update failed\n");
-		goto out;
-	}
-
-	err = crypto_hash_sha256_update(&ctx, (const uint8_t*)userid, strlen(userid));
-	if (err) {
-		warning("ccall_hash_id: hash update failed\n");
-		goto out;
-	}
-
-	err = crypto_hash_sha256_update(&ctx, (const uint8_t*)clientid, strlen(clientid));
-	if (err) {
-		warning("ccall_hash_id: hash update failed\n");
-		goto out;
-	}
-
-	err = crypto_hash_sha256_final(&ctx, hash);
-	if (err) {
-		warning("ccall_hash_id: hash final failed\n");
-		goto out;
-	}
-
-	dest = mem_zalloc(blen * 2 + 1, NULL);
-	if (!dest) {
-		err = ENOMEM;
-		goto out;
-	}
-
-	for (i = 0; i < hlen; i++) {
-		dest[i * 2]     = hexstr[hash[i] >> 4];
-		dest[i * 2 + 1] = hexstr[hash[i] & 0xf];
-	}
-
-	info("ccall_hash_user %s.%s hash %s\n",
-		anon_id(userid_anon, userid),
-		anon_client(clientid_anon, clientid),
-		dest);
-	*destid_hash = dest;
-
-out:
-	if (err) {
-		mem_deref(dest);
-	}
-	return err;
-}
-
-static void ccall_hash_userinfo(struct ccall *ccall,
-				const char *convid_real, 
-				struct userinfo *info)
-{
-
-	info->userid_hash = mem_deref(info->userid_hash);
-	info->clientid_hash = mem_deref(info->clientid_hash);
-	ccall_hash_user(ccall->secret,
-			ccall->secret_len,
-			info->userid_real,
-			info->clientid_real,
-			&info->userid_hash);
-
-	str_dup(&info->clientid_hash, "_");
 }
 
 static int ccall_set_secret(struct ccall *ccall,
 			    const uint8_t *secret,
 			    size_t secretlen)
 {
-	struct le *le;
 	int err = 0;
 
 	info("ccall(%p): set_secret: %02x%02x%02x%02x len: %u\n",
@@ -328,17 +150,12 @@ static int ccall_set_secret(struct ccall *ccall,
 	ccall->secret_len = secretlen;
 
 	ccall->convid_hash = mem_deref(ccall->convid_hash);
-	ccall_hash_conv(ccall->secret,
-			secretlen,
-			ccall->convid_real,
-			&ccall->convid_hash);
+	hash_conv(ccall->secret,
+		  secretlen,
+		  ccall->convid_real,
+		  &ccall->convid_hash);
 
-	ccall_hash_userinfo(ccall, ccall->convid_real, ccall->self);
-
-	LIST_FOREACH(&ccall->partl, le) {
-		struct userinfo *u = le->data;
-		ccall_hash_userinfo(ccall, ccall->convid_real, u);
-	}
+	userlist_set_secret(ccall->userl, secret, secretlen);
 
 	err = keystore_set_salt(ccall->keystore,
 				(const uint8_t*)ccall->convid_hash,
@@ -414,10 +231,11 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 	switch(ccall->state) {
 	case CCALL_STATE_IDLE:
 		ccall->sft_url = mem_deref(ccall->sft_url);
-		ccall->keygenerator = NULL;
+		userlist_reset_keygenerator(ccall->userl);
 		ccall->received_confpart = false;
 		keystore_reset(ccall->keystore);
 		tmr_cancel(&ccall->tmr_rotate_key);
+		tmr_cancel(&ccall->tmr_rotate_mls);
 		tmr_cancel(&ccall->tmr_send_check);
 		tmr_cancel(&ccall->tmr_connect);
 		tmr_cancel(&ccall->tmr_decrypt_check);
@@ -427,10 +245,11 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 
 	case CCALL_STATE_INCOMING:
 		ccall->sft_url = mem_deref(ccall->sft_url);
-		ccall->keygenerator = NULL;
+		userlist_reset_keygenerator(ccall->userl);
 		ccall->received_confpart = false;
 		keystore_reset_keys(ccall->keystore);
 		tmr_cancel(&ccall->tmr_rotate_key);
+		tmr_cancel(&ccall->tmr_rotate_mls);
 		tmr_cancel(&ccall->tmr_send_check);
 		tmr_start(&ccall->tmr_ongoing, CCALL_ONGOING_CALL_TIMEOUT,
 			  ccall_ongoing_call_timeout, ccall);
@@ -493,7 +312,7 @@ static void ccall_send_check_timeout(void *arg)
 	int err = 0;
 
 	if (CCALL_STATE_ACTIVE == ccall->state &&
-	    ccall->keygenerator == ccall->self) {
+	    userlist_is_keygenerator_me(ccall->userl)) {
 		info("ccall(%p): send_check state=%s\n", ccall, ccall_state_name(ccall->state));
 
 		ccall_send_msg(ccall, ECONN_CONF_CHECK,
@@ -590,7 +409,7 @@ static void ccall_reconnect(struct ccall *ccall,
 	ccall->expected_ping = 0;
 	ccall->last_ping = 0;
 
-	incall_clear(ccall, true);
+	userlist_incall_clear(ccall->userl, true);
 	set_state(ccall, CCALL_STATE_CONNSENT);
 	if (ccall->sft_url) {
 		ccall_send_conf_conn(ccall, ccall->sft_url, true);
@@ -633,7 +452,7 @@ static void ccall_decrypt_check_timeout(void *arg)
 		return;
 	}
 
-	if (!ccall->keygenerator) {
+	if (!userlist_get_keygenerator(ccall->userl)) {
 		info("ccall(%p): decrypt_check_timeout no keygenerator, waiting\n",
 		     ccall);
 		
@@ -642,7 +461,7 @@ static void ccall_decrypt_check_timeout(void *arg)
 		return;
 	}
 
-	if (ccall->keygenerator == ccall->self) {
+	if (userlist_is_keygenerator_me(ccall->userl)) {
 		info("ccall(%p): decrypt_check_timeout keygenerator is me\n",
 		     ccall);
 		return;
@@ -789,29 +608,20 @@ static int ccall_send_keys(struct ccall *ccall,
 			   bool send_to_all)
 {
 	struct list targets = LIST_INIT;
-	struct le *le;
 	int err = 0;
 
-	if (ccall->keygenerator == ccall->self &&
-	    CCALL_STATE_ACTIVE == ccall->state) {
-		LIST_FOREACH(&ccall->partl, le) {
-			struct userinfo *u = le->data;
-			if (u && u->incall_now && u->se_approved &&
-			    (u->needs_key || send_to_all)) {
-				struct icall_client *c;
+	if (ccall->is_mls_call) {
+		info("ccall(%p): send_keys: ignore for mls call\n", ccall);
+		return 0;
+	}
 
-				c = icall_client_alloc(u->userid_real,
-						       u->clientid_real);
-				if (!c) {
-					warning("ccall(%p): send_keys "
-						"unable to alloc target\n", ccall);
-					err = ENOMEM;
-					goto out;
-				}
-				list_append(&targets, &c->le, c);
-				u->needs_key = false;
-			}
-		}
+	if (userlist_is_keygenerator_me(ccall->userl) &&
+	    CCALL_STATE_ACTIVE == ccall->state) {
+
+		err = userlist_get_key_targets(ccall->userl, &targets, send_to_all);
+		if (err)
+			goto out;
+
 	}
 
 	if (list_count(&targets) > 0) {
@@ -835,8 +645,13 @@ static void ccall_rotate_key_timeout(void *arg)
 	struct ccall *ccall = arg;
 	int err = 0;
 
+	if (!ccall) {
+		return;
+	}
+
 	if (CCALL_STATE_ACTIVE == ccall->state &&
-	    ccall->keygenerator == ccall->self) {
+	    (userlist_is_keygenerator_me(ccall->userl) &&
+	     !ccall->is_mls_call)) {
 		info("ccall(%p): rotate_key state=%s\n", ccall, ccall_state_name(ccall->state));
 
 		err = keystore_rotate(ccall->keystore);
@@ -844,7 +659,8 @@ static void ccall_rotate_key_timeout(void *arg)
 			warning("ccall(%p): rotate_key err=%m\n", ccall, err);
 		}
 
-		if (ccall->someone_left) {
+		if (ccall->someone_left &&
+		    !ccall->is_mls_call) {
 			ccall_generate_session_key(ccall, false);
 			ccall->someone_left = false;
 
@@ -855,24 +671,68 @@ static void ccall_rotate_key_timeout(void *arg)
 	}
 }
 
+static void ccall_rotate_mls_timeout(void *arg)
+{
+	struct ccall *ccall = arg;
+	uint64_t keytime = 0;
+	uint64_t now = 0;
+
+	if (!ccall) {
+		return;
+	}
+
+	if (CCALL_STATE_ACTIVE == ccall->state && ccall->is_mls_call) {
+		now = tmr_jiffies();
+		assert(now > CCALL_MLS_KEY_AGE);
+		keytime = now - CCALL_MLS_KEY_AGE;
+
+		info("ccall(%p): rotate_key_mls state=%s now=%llu keytime=%llu\n",
+		     ccall,
+		     ccall_state_name(ccall->state),
+		     now,
+		     keytime);
+
+		if (keystore_rotate_by_time(ccall->keystore, keytime)) {
+			tmr_start(&ccall->tmr_rotate_mls,
+				  CCALL_ROTATE_MLS_TIMEOUT,
+				  ccall_rotate_mls_timeout, ccall);
+		}
+	}
+}
+
 static int ccall_request_keys(struct ccall *ccall)
 {
 	struct list targets = LIST_INIT;
 	struct icall_client *c;
+	const struct userinfo *kg = NULL;
 	int err = 0;
 
-	if (!ccall->keygenerator) {
+	if (!ccall)
+		return EINVAL;
+
+	kg = userlist_get_keygenerator(ccall->userl);
+	if (!kg) {
 		warning("ccall(%p): request_keys keygenerator is NULL!\n", ccall);
 		return 0;
 	}
 
-	if (ccall->keygenerator == ccall->self) {
+	if (ccall->is_mls_call) {
+		warning("ccall(%p): request_keys ignore for mls calls!\n", ccall);
+		return 0;
+	}
+
+	if (userlist_is_keygenerator_me(ccall->userl)) {
 		warning("ccall(%p): request_keys keygenerator is self!\n", ccall);
 		return 0;
 	}
 
-	c = icall_client_alloc(ccall->keygenerator->userid_real,
-			       ccall->keygenerator->clientid_real);
+	if (!kg->userid_real || !kg->clientid_real) {
+		warning("ccall(%p): request_keys keygenerator is invalid!\n", ccall);
+		return 0;
+	}
+
+	c = icall_client_alloc(kg->userid_real,
+			       kg->clientid_real);
 	if (!c) {
 		warning("ccall(%p): ccall_request_keys "
 			"unable to alloc target\n", ccall);
@@ -966,7 +826,7 @@ static void ecall_media_estab_handler(struct icall *icall, const char *userid,
 		icall, userid, clientid, update, ccall->icall.arg);
 	if (CCALL_STATE_CONNSENT != ccall->state) {
 		set_state(ccall, CCALL_STATE_ACTIVE);
-		incall_clear(ccall, true);
+		userlist_incall_clear(ccall->userl, true);
 	}
 	else {
 		info("ccall(%p): refusing to go to CCALL_STATE_ACTIVE "
@@ -999,36 +859,6 @@ static void ecall_aulevel_handler(struct icall *icall, struct list *levell, void
 }
 
 
-static uint32_t incall_count(struct ccall *ccall)
-{
-	struct le *le;
-	uint32_t incall = 0;
-
-	LIST_FOREACH(&ccall->partl, le) {
-		struct userinfo *u = le->data;
-		if (u && u->incall_now) {
-			incall++;
-		}
-	}
-	return incall;
-}
-
-static void incall_clear(struct ccall *ccall,
-			 bool force_decoder)
-{
-	struct le *le;
-	LIST_FOREACH(&ccall->partl, le) {
-		struct userinfo *u = le->data;
-		if (!u)
-			continue;
-		u->incall_now = u->incall_now && force_decoder;
-		u->force_decoder = u->incall_now;
-		u->incall_prev = false;
-		u->ssrca = 0;
-		u->ssrcv = 0;
-	}
-}
-
 static void ecall_close_handler(struct icall *icall,
 				int err,
 				const char *metrics_json,
@@ -1040,20 +870,21 @@ static void ecall_close_handler(struct icall *icall,
 	struct ecall *ecall = (struct ecall*)icall;
 	struct ccall *ccall = arg;
 	bool should_end = false;
-	struct le *le;
 
-	should_end = incall_count(ccall) == 0;
+	should_end = userlist_incall_count(ccall->userl) == 0;
 	info("ccall(%p): ecall_close_handler err=%d ecall=%p should_end=%s parts=%u\n",
-	     ccall, err, ecall, should_end ? "YES" : "NO", list_count(&ccall->partl));
+	     ccall, err, ecall, should_end ? "YES" : "NO", userlist_get_count(ccall->userl));
 
 	if (ecall != ccall->ecall) {
 		mem_deref(ecall);
 		return;
 	}
 
-	ccall->keygenerator = NULL;
+	userlist_reset_keygenerator(ccall->userl);
 
 	if (err != EAGAIN) {
+// TODO: call vstateh
+#if 0
 		LIST_FOREACH(&ccall->partl, le) {
 			struct userinfo *u = le->data;
 
@@ -1066,6 +897,7 @@ static void ecall_close_handler(struct icall *icall,
 				u->video_state = ICALL_VIDEO_STATE_STOPPED;
 			}
 		}
+#endif
 	}
 
 	if (err == EAGAIN || err == ENOTCONN) {
@@ -1077,7 +909,7 @@ static void ecall_close_handler(struct icall *icall,
 		return;
 	}
 
-	incall_clear(ccall, false);
+	userlist_incall_clear(ccall->userl, false);
 	mem_deref(ecall);
 	ccall->ecall = NULL;
 
@@ -1215,6 +1047,7 @@ static int ecall_transp_send_handler(struct icall *icall,
 				     const char *userid,
 				     struct econn_message *msg,
 				     struct list *targets,
+				     bool my_clients_only,
 				     void *arg)
 {
 	struct ccall *ccall = arg;
@@ -1224,88 +1057,36 @@ static int ecall_transp_send_handler(struct icall *icall,
 	return ccall_send_msg_sft(ccall, ccall->sft_url, msg);
 }
 
-static struct userinfo *find_userinfo_by_real(const struct ccall *ccall,
-					      const char *userid_real,
-					      const char *clientid_real)
-{
-	struct le *le;
-
-	LIST_FOREACH(&ccall->partl, le) {
-		struct userinfo *u = le->data;
-
-		if (u && u->userid_real && u->clientid_real) {
-			if (strcaseeq(u->userid_real, userid_real) &&
-			    strcaseeq(u->clientid_real, clientid_real)) {
-				return u;
-			}
-		}
-	}
-	return NULL;
-}
-
-static struct userinfo *find_userinfo_by_hash(const struct ccall *ccall,
-					      const char *userid_hash,
-					      const char *clientid_hash)
-{
-	struct le *le;
-
-	LIST_FOREACH(&ccall->partl, le) {
-		struct userinfo *u = le->data;
-
-		if (u && u->userid_hash && u->clientid_hash) {
-			if (strcaseeq(u->userid_hash, userid_hash) &&
-			    strcaseeq(u->clientid_hash, clientid_hash)) {
-				return u;
-			}
-		}
-	}
-	return NULL;
-}
-
 static int send_confpart_response(struct ccall *ccall)
 {
-	struct econn_message *msg;
+	struct econn_message *msg = NULL;
 	char *str = NULL;
-	struct le *le = NULL;
+	const struct userinfo *self = NULL;
+	//struct le *le = NULL;
 	struct mbuf mb;
-	char userid_anon[ANON_ID_LEN];
-	char clientid_anon[ANON_CLIENT_LEN];
+	//char userid_anon[ANON_ID_LEN];
+	//char clientid_anon[ANON_CLIENT_LEN];
 	int err = 0;
 
 	if (!ccall)
 		return EINVAL;
 
+	self = userlist_get_self(ccall->userl);
+	if (!self)
+		return ENOENT;
+
 	err = alloc_message(&msg, ccall, ECONN_CONF_PART, true,
-		ccall->self->userid_hash, ccall->self->clientid_hash,
+		self->userid_hash, self->clientid_hash,
 		"SFT", "SFT", false);
 	if (err) {
 		goto out;
 	}
 
-	LIST_FOREACH(&ccall->partl, le) {
-		struct userinfo *u = le->data;
-		if (u && u->se_approved && u->incall_now) {
-			struct econn_group_part *part = econn_part_alloc(u->userid_hash,
-									 u->clientid_hash);
-			if (!part) {
-				err = ENOMEM;
-				goto out;
-			}
-			part->ssrca = u->ssrca;
-			part->ssrcv = u->ssrcv;
-			part->authorized = true;
-			list_append(&msg->u.confpart.partl, &part->le, part);
-
-			info("ccall(%p) send_confpart adding %s.%s hash %s.%s "
-			     " ssrca %u ssrcv %u\n",
-			     ccall,
-			     anon_id(userid_anon, u->userid_real),
-			     anon_client(clientid_anon, u->clientid_real),
-			     u->userid_hash,
-			     u->clientid_hash,
-			     u->ssrca,
-			     u->ssrcv);
-		}
+	err = userlist_get_partlist(ccall->userl,
+				    &msg->u.confpart.partl,
+				    ccall->is_mls_call);
+	if (err) {
+		goto out;
 	}
 
 	err = econn_message_encode(&str, msg);
@@ -1343,6 +1124,7 @@ int  ccall_request_video_streams(struct icall *icall,
 				 enum icall_stream_mode mode)
 {
 	struct ccall *ccall = (struct ccall*)icall;
+	const struct userinfo *self = NULL;
 	struct econn_stream_info *sinfo;
 	struct econn_message *msg;
 	char *str = NULL;
@@ -1353,8 +1135,12 @@ int  ccall_request_video_streams(struct icall *icall,
 	if (!ccall)
 		return EINVAL;
 
+	self = userlist_get_self(ccall->userl);
+	if (!self)
+		return ENOENT;
+
 	err = alloc_message(&msg, ccall, ECONN_CONF_STREAMS, false,
-		ccall->self->userid_hash, ccall->self->clientid_hash,
+		self->userid_hash, self->clientid_hash,
 		"SFT", "SFT", false);
 	if (err) {
 		goto out;
@@ -1365,7 +1151,7 @@ int  ccall_request_video_streams(struct icall *icall,
 		struct icall_client *cli = le->data;
 		struct userinfo *user;
 
-		user = find_userinfo_by_real(ccall, cli->userid, cli->clientid);
+		user = userlist_find_by_real(ccall->userl, cli->userid, cli->clientid);
 		if (user) {
 			sinfo = econn_stream_info_alloc(user->userid_hash, 0);
 			if (!sinfo) {
@@ -1413,19 +1199,121 @@ int  ccall_request_video_streams(struct icall *icall,
 	return err;
 }
 
+static int ccall_sync_props(struct ccall *ccall)
+{
+	char estr[32];
+	uint32_t epochid = 0;
+	int err = 0;
+
+	if (!ccall) {
+		return EINVAL;
+	}
+
+	if (!ccall->ecall) {
+		return 0;
+	}
+
+	err = userlist_get_latest_epoch(ccall->userl, &epochid);
+	if (err) {
+		epochid = 0;
+	}
+
+	memset(estr, 0, sizeof(estr));
+	snprintf(estr, sizeof(estr) - 1, "%u", epochid);
+
+	err = ecall_props_set_local(ccall->ecall, "keysync", estr);
+	if (err) {
+		warning("ccall(%p): set_media_key set_props failed\n", ccall);
+		goto out;
+	}
+	err = ecall_sync_props(ccall->ecall, true);
+	if (err) {
+		warning("ccall(%p): set_media_key sync_props failed\n", ccall);
+		goto out;
+	}
+
+out:
+	return err;
+}
+
+static int ccall_set_media_key(struct icall *icall,
+			       uint32_t epochid,
+			       const uint8_t *key_data,
+			       uint32_t key_size)
+{
+	struct ccall *ccall = (struct ccall*)icall;
+	int err = 0;
+	warning("ccall(%p): set_media_key with key %u bytes\n", ccall, key_size);
+
+	if (!ccall)
+		return EINVAL;
+
+	err = keystore_set_session_key(ccall->keystore,
+				       epochid,
+				       key_data,
+				       key_size);
+
+	if (err)
+		goto out;
+
+	userlist_set_latest_epoch(ccall->userl, epochid);
+	err = ccall_sync_props(ccall);
+	if (err) {
+		warning("ccall(%p): set_media_key sync_props failed\n", ccall);
+		err = 0;
+	}
+
+	ccall_sync_media_keys(ccall);
+	ccall_rotate_mls_timeout(ccall);
+
+out:
+	return err;
+}
+
+static int ccall_sync_media_keys(struct ccall *ccall)
+{
+	uint32_t min_key;
+	uint32_t curr;
+	uint64_t ts;
+	int err = 0;
+
+	if (!ccall || !ccall->userl)
+		return EINVAL;
+
+	min_key = userlist_get_key_index(ccall->userl);
+	if (min_key == 0)
+		return 0;
+
+	err = keystore_get_current(ccall->keystore, &curr, &ts);
+	if (err)
+		goto out;
+
+	info("ccall(%p): sync_media_keys min:%u curr:%u\n",
+	     ccall, min_key, curr);
+	if (min_key > curr)
+		keystore_set_current(ccall->keystore, min_key);
+
+	ccall_rotate_mls_timeout(ccall);
+out:
+	return err;
+}
+
 static  int ecall_propsync_handler(struct ecall *ecall,
 				   struct econn_message *msg,
 				   void *arg)
 {
 	struct ccall *ccall = arg;
 	struct userinfo *user;
-	int vstate = ICALL_VIDEO_STATE_STOPPED;
+	enum icall_vstate vstate = ICALL_VIDEO_STATE_STOPPED;
 	bool vstate_present = false;
 	bool muted = false;
 	bool muted_present = false;
 	bool group_changed = false;
 	const char *vr;
 	const char *mt;
+	const char *ks;
+	uint32_t latest_epoch = 0;
+	int err = 0;
 
 	if (!ccall || !msg) {
 		return EINVAL;
@@ -1433,12 +1321,16 @@ static  int ecall_propsync_handler(struct ecall *ecall,
 
 	vr = econn_props_get(msg->u.propsync.props, "videosend");
 	mt = econn_props_get(msg->u.propsync.props, "muted");
+	ks = econn_props_get(msg->u.propsync.props, "keysync");
+	if (ks) {
+		sscanf(ks, "%u", &latest_epoch);
+	}
 	info("ccall(%p): ecall_propsync_handler ecall: %p"
-		" remote %s.%s video '%s' muted '%s' %s\n",
+		" remote %s.%s video '%s' muted '%s' latest_epoch %d %s\n",
 	     ccall, ecall, msg->src_userid, msg->src_clientid,
-	     vr ? vr : "", mt ? mt : "", msg->resp ? "resp" : "req");
+	     vr ? vr : "", mt ? mt : "", latest_epoch, msg->resp ? "resp" : "req");
 
-	user = find_userinfo_by_hash(ccall, msg->src_userid, msg->src_clientid);
+	user = userlist_find_by_hash(ccall->userl, msg->src_userid, msg->src_clientid);
 	if (!user) {
 		return 0;
 	}
@@ -1478,17 +1370,19 @@ static  int ecall_propsync_handler(struct ecall *ecall,
 		ICALL_CALL_CB(ccall->icall, group_changedh,
 			&ccall->icall, ccall->icall.arg);	
 	}
-	return 0;
-}
 
-static bool partlist_sort_h(struct le *le1, struct le *le2, void *arg)
-{
-	struct userinfo *a, *b;
+	if (latest_epoch > 0 && latest_epoch != user->latest_epoch) {
+		user->latest_epoch = latest_epoch;
+		err = ccall_sync_media_keys(ccall);
+		if (err) {
+			warning("ccall(%p): propsync_handler: error "
+				"syncing media keys!\n", ccall);
+			goto out;
+		}
+	}
 
-	a = le1->data;
-	b = le2->data;
-
-	return a->listpos <= b->listpos;
+out:
+	return err;
 }
 
 static void ccall_keep_confpart_data(struct ccall *ccall,
@@ -1613,15 +1507,8 @@ static void ecall_confpart_handler(struct ecall *ecall,
 				   void *arg)
 {
 	struct ccall *ccall = arg;
-	struct le *le, *cle;
-	bool first = true;
 	bool list_changed = false;
-	bool sync_decoders = false;
-	char userid_anon[ANON_ID_LEN];
-	char clientid_anon[ANON_CLIENT_LEN];
-	struct userinfo *prev_keygenerator;
 	bool missing_parts = false;
-	uint32_t listpos = 0;
 	int err = 0;
 
 	uint64_t timestamp = msg->u.confpart.timestamp;
@@ -1680,177 +1567,24 @@ static void ecall_confpart_handler(struct ecall *ecall,
 						  CCALL_NOONE_JOINED_TIMEOUT,
 			  ccall_alone_timeout, ccall);
 	}
-		
-	LIST_FOREACH(&ccall->partl, cle) {
-		struct userinfo *u = cle->data;
-		if (!u)
-			continue;
-		u->incall_prev = u->incall_now;
-		u->incall_now = false;
-		u->listpos = 0xFFFFFFFF;
+
+	err = userlist_update_from_sftlist(ccall->userl,
+					   partlist,
+					   &list_changed,
+					   &missing_parts);
+	if (err) {
+		warning("ccall(%p): update_from_sftlist failed\n", ccall);
+		return;
 	}
 
-	ccall->self->listpos = 0xFFFFFFFF;
-	prev_keygenerator = ccall->keygenerator;
-	ccall->keygenerator = NULL;
-	LIST_FOREACH(partlist, le) {
-		struct econn_group_part *p = le->data;
-
-		first = le == partlist->head;
-
-		assert(p != NULL);
-
-		if (p && strcaseeq(ccall->self->userid_hash, p->userid) &&
-		    strcaseeq(ccall->self->clientid_hash, p->clientid)) {
-			if (first) {
-				info("ccall(%p): setting self as keygenerator\n", ccall);
-				ccall->keygenerator = ccall->self;
-			}
-			ccall->self->listpos = listpos;
-			listpos++;
-			continue;
-		}
-
-		struct userinfo *u = find_userinfo_by_hash(ccall, p->userid, p->clientid);
-		if (u) {
-			bool muted;
-
-			if (first && u->se_approved) {
-				info("ccall(%p): setting %s.%s as keygenerator\n",
-				     ccall,
-				     anon_id(userid_anon, u->userid_real),
-				     anon_client(clientid_anon, u->clientid_real));
-
-				ccall->keygenerator = u;
-			}
-			if (u->incall_prev && 
-			    (u->ssrca != p->ssrca ||
-			    u->ssrcv != p->ssrcv)) {
-				if (ccall->ecall) {
-					ecall_remove_decoders_for_user(ccall->ecall,
-								       u->userid_hash,
-								       u->clientid_hash,
-								       u->ssrca,
-								       u->ssrcv);
-				}
-				ccall->someone_left = true;
-				u->incall_prev = false;
-				sync_decoders = true;
-				list_changed = true;
-			}
-
-			u->incall_now = true;
-			u->ssrca = p->ssrca;
-			u->ssrcv = p->ssrcv;
-
-			switch (p->muted_state) {
-			case MUTED_STATE_UNKNOWN:
-				muted = u->muted;
-				break;
-			case MUTED_STATE_MUTED:
-				muted = true;
-				break;
-			case MUTED_STATE_UNMUTED:
-				muted = false;
-				break;
-			}
-
-			if (muted != u->muted) {
-				u->muted = muted;
-				list_changed = true;
-			}
-
-			u->listpos = listpos;
-			listpos++;
-		}
-		else {
-			warning("ccall(%p): ecall_confpart_handler didnt find part for %s\n",
-			     ccall, anon_id(userid_anon, p->userid));
-			u = mem_zalloc(sizeof(*u), userinfo_destructor);
-			if (!u) {
-				warning("ccall(%p): ecall_confpart_handler "
-					"couldnt alloc part of %s\n",
-				     ccall, anon_id(userid_anon, p->userid));
-				return;
-			}
-			str_dup(&u->userid_hash, p->userid);
-			str_dup(&u->clientid_hash, p->clientid);
-			u->ssrca = p->ssrca;
-			u->ssrcv = p->ssrcv;
-			u->incall_now = true;
-			list_append(&ccall->partl, &u->le, u);
-			missing_parts = true;
-			u->listpos = listpos;
-			listpos++;
-		}
-
-	}
-
-	LIST_FOREACH(&ccall->partl, cle) {
-		struct userinfo *u = cle->data;
-
-		if (u && u->se_approved) {
-			if (u->force_decoder ||
-			   (u->incall_now && !u->incall_prev)) {
-				if (ccall->ecall && (u->ssrca != 0 || u->ssrcv != 0)) {
-					info("ccall(%p): add_decoders_for_user: ecall: %p "
-					        "u: %s.%s a: %u v: %u\n",
-						ccall, ccall->ecall,
-						anon_id(userid_anon, u->userid_real),
-						anon_client(clientid_anon, u->clientid_real),
-						u->ssrca, u->ssrcv);
-					ecall_add_decoders_for_user(ccall->ecall,
-								    u->userid_real,
-								    u->clientid_real,
-								    u->userid_hash,
-								    u->ssrca,
-								    u->ssrcv);
-
-					sync_decoders = true;
-				}
-				u->force_decoder = false;
-				u->needs_key = true;
-				list_changed = true;
-			}
-			else if (!u->incall_now && u->incall_prev) {
-				if (ccall->ecall) {
-					ecall_remove_decoders_for_user(ccall->ecall,
-								       u->userid_real,
-								       u->clientid_real,
-								       u->ssrca,
-								       u->ssrcv);
-					ccall->someone_left = true;
-					sync_decoders = true;
-				}
-				if (u->video_state != ICALL_VIDEO_STATE_STOPPED) {
-					ICALL_CALL_CB(ccall->icall, vstate_changedh,
-						      &ccall->icall, u->userid_real,
-						      u->clientid_real,
-						      ICALL_VIDEO_STATE_STOPPED,
-						      ccall->icall.arg);
-				}
-				u->ssrca = u->ssrcv = 0;
-				u->video_state = ICALL_VIDEO_STATE_STOPPED;
-				list_changed = true;
-			}
-		}
-	}
-
-	if (sync_decoders) {
-		info("ccall(%p): sync_decoders\n", ccall);
-		ecall_sync_decoders(ccall->ecall);
-	}
-
-	list_sort(&ccall->partl, partlist_sort_h, NULL);
 	send_confpart_response(ccall);
-
-	ccall_track_keygenerator_change(ccall, prev_keygenerator);
 
 	if (list_changed) {
 		ICALL_CALL_CB(ccall->icall, group_changedh,
 			&ccall->icall, ccall->icall.arg);	
 
-		if (ccall->keygenerator == ccall->self) {
+		if (userlist_is_keygenerator_me(ccall->userl) &&
+		    !ccall->is_mls_call) {
 			err = ccall_send_keys(ccall, false);
 			if (err) {
 				warning("ccall(%p): send_keys failed\n", ccall);
@@ -1858,7 +1592,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		}
 
 		if (ccall->ecall) {
-			err = ecall_sync_props(ccall->ecall, true);
+			err = ccall_sync_props(ccall);
 			if (err) {
 				warning("ccall(%p): sync_props failed\n", ccall);
 			}
@@ -1873,7 +1607,8 @@ static void ecall_confpart_handler(struct ecall *ecall,
 	bool sft_changed = ccall_sftlist_changed(&ccall->sftl, &msg->u.confpart.sftl);
 	stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
 	
-	if (ccall->keygenerator == ccall->self && !should_start &&
+	if (userlist_is_keygenerator_me(ccall->userl) &&
+	    !should_start &&
 	    sft_changed) {
 		ccall_send_check_timeout(ccall);
 	}
@@ -2000,6 +1735,12 @@ static int alloc_message(struct econn_message **msgp,
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
 	}
 	else if (type == ECONN_CONF_KEY) {
+		if (ccall->is_mls_call) {
+			warning("ccall(%p): alloc_message: request to send CONFKEY for mls call\n", ccall);
+			err = EINVAL;
+			goto out;
+		}
+
 		if (resp) {
 			struct econn_key_info *key0 = NULL;
 			struct econn_key_info *key1 = NULL;
@@ -2018,7 +1759,7 @@ static int alloc_message(struct econn_message **msgp,
 					"(%m) is_keygenerator %s\n",
 					ccall,
 					err,
-					ccall->keygenerator == ccall->self ? "YES" : "NO");
+					userlist_is_keygenerator_me(ccall->userl) ? "YES" : "NO");
 				mem_deref(key0);
 				goto out;
 			}
@@ -2067,17 +1808,26 @@ skipprops:
 	return err;
 }
 
-static int  ccall_send_msg(struct ccall *ccall,
-			   enum econn_msg type,
-			   bool resp,
-			   struct list *targets,
-			   bool transient)
+static int  ccall_send_msg_i(struct ccall *ccall,
+			     enum econn_msg type,
+			     bool resp,
+			     struct list *targets,
+			     bool transient,
+			     bool my_clients_only)
 {
 	struct econn_message *msg = NULL;
+	const struct userinfo *self = NULL;
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
 
 	int err = 0;
+
+	if (!ccall)
+		return EINVAL;
+
+	self = userlist_get_self(ccall->userl);
+	if (!self)
+		return ENOENT;
 
 	if (targets) {
 		info("ccall(%p): send_msg type: %s targets: %zu\n",
@@ -2087,12 +1837,12 @@ static int  ccall_send_msg(struct ccall *ccall,
 		info("ccall(%p): send_msg type: %s userid=%s clientid=%s\n",
 		     ccall,
 		     econn_msg_name(type),
-		     anon_id(userid_anon, ccall->self->userid_real),
-		     anon_client(clientid_anon, ccall->self->clientid_real));
+		     anon_id(userid_anon, self->userid_real),
+		     anon_client(clientid_anon, self->clientid_real));
 	}
 
 	err = alloc_message(&msg, ccall, type, resp,
-			    ccall->self->userid_real, ccall->self->clientid_real,
+			    self->userid_real, self->clientid_real,
 			    NULL, NULL,
 			    transient);
 
@@ -2103,8 +1853,10 @@ static int  ccall_send_msg(struct ccall *ccall,
 
 	err = ICALL_CALL_CBE(ccall->icall, sendh,
 			     &ccall->icall,
-			     ccall->self->userid_real,
-			     msg, targets, ccall->icall.arg);
+			     self->userid_real,
+			     msg, targets,
+			     my_clients_only,
+			     ccall->icall.arg);
 
 	if (err != 0) {
 		goto out;
@@ -2116,6 +1868,15 @@ out:
 	return err;
 }
 
+static int  ccall_send_msg(struct ccall *ccall,
+			   enum econn_msg type,
+			   bool resp,
+			   struct list *targets,
+			   bool transient)
+{
+	return ccall_send_msg_i(ccall, type, resp, targets, transient, false);
+}
+
 static int  ccall_send_conf_conn(struct ccall *ccall,
 				 const char *sft_url,
 				 bool update)
@@ -2125,12 +1886,17 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	struct econn_message *msg = NULL;
 	struct zapi_ice_server *turnv;
 	size_t turnc;
-	int err = 0;
 	char *sft_url_term = NULL;
+	const struct userinfo *self = NULL;
+	int err = 0;
 
 	if (!ccall || !sft_url) {
 		return EINVAL;
 	}
+
+	self = userlist_get_self(ccall->userl);
+	if (!self)
+		return ENOENT;
 
 	err = copy_sft(&sft_url_term, sft_url);
 	if (err)
@@ -2143,7 +1909,7 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	     resp ? "YES" : "NO");
 
 	err = alloc_message(&msg, ccall, type, resp,
-			    ccall->self->userid_hash, ccall->self->clientid_hash,
+			    self->userid_hash, self->clientid_hash,
 			    "SFT", "_",
 			    false);
 	if (err) {
@@ -2215,18 +1981,26 @@ static int create_ecall(struct ccall *ccall)
 {
 	struct ecall *ecall = NULL;
 	struct msystem *msys = msystem_instance();
+	const struct userinfo *self = NULL;
 	size_t i;
 	int err = 0;
 
+	if (!ccall)
+		return EINVAL;
+
 	assert(ccall->ecall == NULL);
+
+	self = userlist_get_self(ccall->userl);
+	if (!self)
+		return ENOENT;
 
 	err = ecall_alloc(&ecall, NULL,
 			  ICALL_CONV_TYPE_CONFERENCE,
 			  ccall->conf,
 			  msys,
 			  ccall->convid_real,
-			  ccall->self->userid_hash,
-			  ccall->self->clientid_hash);
+			  self->userid_hash,
+			  self->clientid_hash);
 
 	if (err) {
 		goto out;
@@ -2262,7 +2036,7 @@ static int create_ecall(struct ccall *ccall)
 	if (err)
 		goto out;
 
-	err = ecall_set_real_clientid(ecall, ccall->self->clientid_real);
+	err = ecall_set_real_clientid(ecall, self->clientid_real);
 	if (err)
 		goto out;
 
@@ -2288,12 +2062,163 @@ out:
 	return err;
 }
 
+static void userlist_add_user_handler(const struct userinfo *user,
+				      void *arg)
+{
+	struct ccall *ccall = arg;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+
+	if (!ccall || !user)
+		return;
+
+	info("ccall(%p): add_decoders_for_user: ecall: %p "
+		"u: %s.%s a: %u v: %u\n",
+		ccall, ccall->ecall,
+		anon_id(userid_anon, user->userid_real),
+		anon_client(clientid_anon, user->clientid_real),
+		user->ssrca, user->ssrcv);
+
+	if (ccall->ecall)
+		ecall_add_decoders_for_user(ccall->ecall,
+					    user->userid_real,
+					    user->clientid_real,
+					    user->userid_hash,
+					    user->ssrca,
+					    user->ssrcv);
+}
+
+static void userlist_remove_user_handler(const struct userinfo *user,
+					 void *arg)
+{
+	struct ccall *ccall = arg;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+
+	if (!ccall || !user)
+		return;
+
+	info("ccall(%p): remove_decoders_for_user: ecall: %p "
+		"u: %s.%s\n",
+		ccall, ccall->ecall,
+		anon_id(userid_anon, user->userid_real),
+		anon_client(clientid_anon, user->clientid_real));
+	ccall->someone_left = true;
+	if (ccall->ecall) {
+		ecall_remove_decoders_for_user(ccall->ecall,
+					       user->userid_real,
+					       user->clientid_real,
+					       user->ssrca,
+					       user->ssrcv);
+	}
+
+	if (user->video_state != ICALL_VIDEO_STATE_STOPPED) {
+		ICALL_CALL_CB(ccall->icall, vstate_changedh,
+			      &ccall->icall, user->userid_real,
+			      user->clientid_real,
+			      ICALL_VIDEO_STATE_STOPPED,
+			      ccall->icall.arg);
+	}
+}
+
+static void userlist_sync_users_handler(void *arg)
+{
+	struct ccall *ccall = arg;
+
+	if (!ccall)
+		return;
+
+	if (ccall->ecall)
+		ecall_sync_decoders(ccall->ecall);
+}
+
+static void userlist_kg_change_handler(struct userinfo *keygenerator,
+				       bool is_me,
+				       bool is_first,
+				       void *arg)
+{
+	struct ccall *ccall = arg;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	uint32_t kid = 0;
+	uint64_t updated_ts = 0;
+	int err = 0;
+
+	if (!ccall || !ccall->keystore) {
+		return;
+	}
+
+	if (is_me) {
+		info("ccall(%p): track_keygenerator: new keygenerator is me\n",
+		      ccall);
+
+		if (!ccall->is_mls_call) {
+			err = keystore_get_current(ccall->keystore, &kid, &updated_ts);
+			if (err == ENOENT) {
+				/* no current key, generate and send */
+				info("ccall(%p): track_keygenerator: generate initial keys\n",
+				      ccall);
+				ccall_generate_session_key(ccall, true);
+			}
+			else {
+				ccall->became_kg = true;
+			}
+			tmr_start(&ccall->tmr_rotate_key,
+				  CCALL_ROTATE_KEY_FIRST_TIMEOUT,
+				  ccall_rotate_key_timeout, ccall);
+		}
+
+		tmr_start(&ccall->tmr_send_check,
+			  is_first ? CCALL_SEND_CHECK_TIMEOUT : 0,
+			  ccall_send_check_timeout, ccall);
+	}
+	else {
+		info("ccall(%p): track_keygenerator: new keygenerator is %s.%s\n",
+		      ccall,
+		      anon_id(userid_anon, keygenerator->userid_real),
+		      anon_client(clientid_anon, keygenerator->clientid_real));
+
+		if (ccall->request_key) {
+			info("ccall(%p): requesting key resend from %s.%s\n",
+			     ccall,
+			     anon_id(userid_anon, keygenerator->userid_real),
+			     anon_client(clientid_anon, keygenerator->clientid_real));
+			ccall_request_keys(ccall);
+			ccall->request_key = false;
+		}
+
+		tmr_cancel(&ccall->tmr_send_check);
+		tmr_cancel(&ccall->tmr_rotate_key);
+	}
+
+}
+
+static void userlist_vstate_handler(const struct userinfo *user,
+				    enum icall_vstate new_vstate,
+				    void *arg)
+{
+	struct ccall *ccall = arg;
+
+	if (!ccall || !user) {
+		return;
+	}
+
+	ICALL_CALL_CB(ccall->icall, vstate_changedh,
+		      &ccall->icall, user->userid_real,
+		      user->clientid_real, ICALL_VIDEO_STATE_STOPPED,
+		      ccall->icall.arg);
+}
+
 int ccall_alloc(struct ccall **ccallp,
 		const struct ecall_conf *conf,		 
 		const char *convid,
 		const char *userid_self,
-		const char *clientid)
+		const char *clientid,
+		bool is_mls_call)
 {
+	char convid_anon[ANON_ID_LEN];
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 	struct ccall *ccall = NULL;
 	uint8_t secret[CCALL_SECRET_LEN];
 
@@ -2303,19 +2228,33 @@ int ccall_alloc(struct ccall **ccallp,
 		return EINVAL;
 	}
 
+
 	ccall = mem_zalloc(sizeof(*ccall), destructor);
 	if (ccall == NULL) {
 		return ENOMEM;
 	}
 
-	ccall->self = mem_zalloc(sizeof(*ccall->self), userinfo_destructor);
-	if (!ccall->self) {
-		err = ENOMEM;
+	info("ccall(%p): alloc convid: %s userid: %s"
+	     " clientid: %s is_mls: %s\n",
+	     ccall,
+	     anon_id(convid_anon, convid),
+	     anon_id(userid_anon, userid_self),
+	     anon_client(clientid_anon, clientid),
+	     is_mls_call ? "true" : "false");
+
+	err = userlist_alloc(&ccall->userl,
+			     userid_self,
+			     clientid,
+			     userlist_add_user_handler,
+			     userlist_remove_user_handler,
+			     userlist_sync_users_handler,
+			     userlist_kg_change_handler,
+			     userlist_vstate_handler,
+			     ccall);
+	if (err)
 		goto out;
-	}
+
 	err = str_dup(&ccall->convid_real, convid);
-	err |= str_dup(&ccall->self->userid_real, userid_self);
-	err |= str_dup(&ccall->self->clientid_real, clientid);
 	if (err)
 		goto out;
 
@@ -2325,7 +2264,7 @@ int ccall_alloc(struct ccall **ccallp,
 		goto out;
 	}
 
-	err = keystore_alloc(&ccall->keystore);
+	err = keystore_alloc(&ccall->keystore, !is_mls_call);
 	if (err)
 		goto out;
 
@@ -2337,6 +2276,7 @@ int ccall_alloc(struct ccall **ccallp,
 	ccall->conf = conf;
 	ccall->state = CCALL_STATE_IDLE;
 	ccall->stop_ringing_reason = CCALL_STOP_RINGING_NONE;
+	ccall->is_mls_call = is_mls_call;
 
 	tmr_init(&ccall->tmr_connect);
 	tmr_init(&ccall->tmr_call);
@@ -2365,6 +2305,7 @@ int ccall_alloc(struct ccall **ccallp,
 			    ccall_set_clients,
 			    ccall_update_mute_state,
 			    ccall_request_video_streams,
+			    ccall_set_media_key,
 			    ccall_debug,
 			    ccall_stats);
 out:
@@ -2699,36 +2640,40 @@ void ccall_media_stop(struct icall *icall)
 int  ccall_set_vstate(struct icall *icall, enum icall_vstate state)
 {
 	struct ccall *ccall = (struct ccall*)icall;
+	const struct userinfo *self = NULL;
 	bool changed = false;
-	int istate = (int)state;
 	int err;
 
 	if (!ccall)
 		return EINVAL;
 
-	info("ccall(%p) set_vstate ecall: %p state: %d\n",
+	info("ccall(%p) set_vstate ecall: %p state: %u\n",
 	      ccall,
 	      ccall->ecall,
-	      istate);
-	ccall->vstate = state;
+	      state);
 
 	if (!ccall->ecall) {
 		return 0;
 	}
+
+	self = userlist_get_self(ccall->userl);
+	if (!self)
+		return ENOENT;
+
 	err = ecall_set_video_send_state(ccall->ecall, state);
 	if (err) {
 		return err;
 	}
 
-	if (ccall->self && istate != ccall->self->video_state) {
-		ccall->self->video_state = istate;
+	if (state != ccall->vstate) {
+		ccall->vstate = state;
 		changed = true;
 	}
 
 	if (changed) {
 		ICALL_CALL_CB(ccall->icall, vstate_changedh, &ccall->icall,
-			      ccall->self->userid_real,
-			      ccall->self->clientid_real,
+			      self->userid_real,
+			      self->clientid_real,
 			      state, ccall->icall.arg);
 
 		ICALL_CALL_CB(ccall->icall, group_changedh,
@@ -2740,73 +2685,17 @@ int  ccall_set_vstate(struct icall *icall, enum icall_vstate state)
 int  ccall_get_members(struct icall *icall, struct wcall_members **mmp)
 {
 	struct ccall *ccall = (struct ccall*)icall;
-	struct wcall_members *mm;
-	struct le *le;
-	size_t n = 0;
-	int err = 0;
+	enum icall_audio_state astate;
 
 	if (!ccall)
 		return EINVAL;
 
-	mm = mem_zalloc(sizeof(*mm), members_destructor);
-	if (!mm) {
-		err = ENOMEM;
-		goto out;
-	}
-
-	LIST_FOREACH(&ccall->partl, le) {
-		struct userinfo *u = le->data;
-		if (u && u->incall_now) {
-			n++;
-		}
-	}
-
-	n++;
-	mm->membv = mem_zalloc(sizeof(*(mm->membv)) * n, NULL);
-	if (!mm->membv) {
-		err = ENOMEM;
-		goto out;
-	}
-	{
-		struct userinfo *u = ccall->self;
-		struct wcall_member *memb = &(mm->membv[mm->membc]);
-
-		str_dup(&memb->userid, u->userid_real);
-		str_dup(&memb->clientid, u->clientid_real);
-		memb->audio_state = (CCALL_STATE_ACTIVE == ccall->state) ?
-				    ICALL_AUDIO_STATE_ESTABLISHED :
-				    ICALL_AUDIO_STATE_CONNECTING;
-		memb->video_recv = u->video_state;
-		memb->muted = msystem_get_muted() ? 1 : 0;
-
-		(mm->membc)++;
-	}
-	LIST_FOREACH(&ccall->partl, le) {
-		struct userinfo *u = le->data;
-		if (u && u->se_approved && u->incall_now) {
-			struct wcall_member *memb = &(mm->membv[mm->membc]);
-
-			str_dup(&memb->userid, u->userid_real);
-			str_dup(&memb->clientid, u->clientid_real);
-			memb->audio_state = u->ssrca > 0 ?
-					    ICALL_AUDIO_STATE_ESTABLISHED :
-					    ICALL_AUDIO_STATE_CONNECTING;
-			memb->video_recv = u->video_state;
-			memb->muted = u->muted ? 1 : 0;
-
-			(mm->membc)++;
-		}
-	}
-
- out:
-	if (err)
-		mem_deref(mm);
-	else {
-		if (mmp)
-			*mmp = mm;
-	}
-
-	return err;
+	astate = (CCALL_STATE_ACTIVE == ccall->state) ?
+		 ICALL_AUDIO_STATE_ESTABLISHED :
+		 ICALL_AUDIO_STATE_CONNECTING;
+	return userlist_get_members(ccall->userl, mmp,
+				    astate,
+				    ccall->vstate);
 }
 
 int  ccall_set_quality_interval(struct icall *icall, uint64_t interval)
@@ -2827,8 +2716,8 @@ int  ccall_set_quality_interval(struct icall *icall, uint64_t interval)
 static void ccall_stop_others_ringing(struct ccall *ccall)
 {
 	struct list targets = LIST_INIT;
-	struct le *le = NULL;
 	enum econn_msg msgtype;
+	int err = 0;
 
 	if (!ccall)
 		return;
@@ -2851,22 +2740,9 @@ static void ccall_stop_others_ringing(struct ccall *ccall)
 
 	ccall->stop_ringing_reason = CCALL_STOP_RINGING_NONE;
 
-	LIST_FOREACH(&ccall->partl, le) {
-		struct userinfo *u = le->data;
-		if (u && strcaseeq(u->userid_real, ccall->self->userid_real) &&
-		    !strcaseeq(u->clientid_real, ccall->self->clientid_real)) {
-			struct icall_client *c;
-
-			c = icall_client_alloc(u->userid_real,
-					       u->clientid_real);
-			if (!c) {
-				warning("ccall(%p): stop_others_ringing "
-					"unable to alloc target\n", ccall);
-				goto out;
-			}
-			list_append(&targets, &c->le, c);
-		}
-	}
+	err = userlist_get_my_clients(ccall->userl, &targets);
+	if (err)
+		goto out;
 
 	info("ccall(%p): stop_others_ringing state=%s targets=%u\n",
 	     ccall,
@@ -2874,160 +2750,35 @@ static void ccall_stop_others_ringing(struct ccall *ccall)
 	     list_count(&targets));
 
 	if (list_count(&targets) > 0) {
-		ccall_send_msg(ccall, msgtype,
-			       true, &targets,
-			       false);
+		ccall_send_msg_i(ccall, msgtype,
+				 true, &targets,
+				 false, true);
 	}
 
 out:
 	list_flush(&targets);
 }
 
-static void ccall_track_keygenerator_change(struct ccall *ccall,
-					    struct userinfo *prev_keygenerator)
+void ccall_set_clients(struct icall* icall,
+		       struct list *clientl,
+		       uint32_t epoch)
 {
-	char userid_anon[ANON_ID_LEN];
-	char clientid_anon[ANON_CLIENT_LEN];
-	uint32_t kid = 0;
-	uint64_t updated_ts = 0;
-	int err = 0;
-
-	if (!ccall ||
-	    ccall->keygenerator == NULL ||
-	    ccall->keygenerator == prev_keygenerator ||
-	    !ccall->keystore) {
-		return;
-	}
-
-	if (ccall->keygenerator == ccall->self) {
-		info("ccall(%p): track_keygenerator: new keygenerator is me\n",
-		      ccall);
-
-		err = keystore_get_current(ccall->keystore, &kid, &updated_ts);
-		if (err == ENOENT) {
-			/* no current key, generate and send */
-			info("ccall(%p): track_keygenerator: generate initial keys\n",
-			      ccall);
-			ccall_generate_session_key(ccall, true);
-		}
-		else {
-			ccall->became_kg = true;
-		}
-
-		tmr_start(&ccall->tmr_send_check,
-			  prev_keygenerator ? 0 : CCALL_SEND_CHECK_TIMEOUT,
-			  ccall_send_check_timeout, ccall);
-		tmr_start(&ccall->tmr_rotate_key,
-			  CCALL_ROTATE_KEY_FIRST_TIMEOUT,
-			  ccall_rotate_key_timeout, ccall);
-	}
-	else {
-		info("ccall(%p): track_keygenerator: new keygenerator is %s.%s\n",
-		      ccall,
-		      anon_id(userid_anon, ccall->keygenerator->userid_real),
-		      anon_client(clientid_anon, ccall->keygenerator->clientid_real));
-
-		if (ccall->request_key) {
-			info("ccall(%p): requesting key resend from %s.%s\n",
-			     ccall,
-			     anon_id(userid_anon, ccall->keygenerator->userid_real),
-			     anon_client(clientid_anon, ccall->keygenerator->clientid_real));
-			ccall_request_keys(ccall);
-			ccall->request_key = false;
-		}
-
-		tmr_cancel(&ccall->tmr_send_check);
-		tmr_cancel(&ccall->tmr_rotate_key);
-	}
-
-}
-
-void ccall_set_clients(struct icall* icall, struct list *clientl)
-{
-	struct le *le;
 	struct ccall *ccall = (struct ccall*)icall;
 	bool list_changed = false;
-	bool sync_decoders = false;
-	struct userinfo *user;
-	char userid_anon[ANON_ID_LEN];
-	char clientid_anon[ANON_CLIENT_LEN];
-	struct userinfo *prev_keygenerator;
+	int err = 0;
 
-	info("ccall(%p): set_clients %zu clients\n", ccall, list_count(clientl));
+	if (!ccall || !ccall->userl)
+		return;
 
-	prev_keygenerator = ccall->keygenerator;
-
-	LIST_FOREACH(clientl, le) {
-		struct icall_client *cli = le->data;
-
-		if (!cli)
-			continue;
-		user = find_userinfo_by_real(ccall, cli->userid, cli->clientid);
-		if (user) {
-			ccall_hash_userinfo(ccall, ccall->convid_real, user);
-			info("ccall(%p): set_clients approving found client\n", ccall);
-			user->se_approved = true;
-		}
-		else {
-			struct userinfo *u = mem_zalloc(sizeof(*u), userinfo_destructor);
-			if (!u) {
-				warning("ccall(%p): set_clients couldnt alloc user\n", ccall);
-				return;
-			}
-			str_dup(&u->userid_real, cli->userid);
-			str_dup(&u->clientid_real, cli->clientid);
-			ccall_hash_userinfo(ccall, ccall->convid_real, u);
-			user = find_userinfo_by_hash(ccall, u->userid_hash, u->clientid_hash);
-			if (user && !user->se_approved) {
-				info("ccall(%p): set_clients approving found client\n", ccall);
-				user->userid_real = mem_deref(user->userid_real);
-				user->clientid_real = mem_deref(user->clientid_real);
-				str_dup(&user->userid_real, cli->userid);
-				str_dup(&user->clientid_real, cli->clientid);
-				user->se_approved = true;
-				list_changed = true;
-
-				if ((user->ssrca != 0 || user->ssrcv != 0)) {
-					info("ccall(%p): add_decoders_for_user: ecall: %p "
-						"u: %s.%s a: %u v: %u\n",
-						ccall, ccall->ecall,
-						anon_id(userid_anon, u->userid_real),
-						anon_client(clientid_anon, u->clientid_real),
-						user->ssrca, user->ssrcv);
-					ecall_add_decoders_for_user(ccall->ecall,
-								    user->userid_real,
-								    user->clientid_real,
-								    user->userid_hash,
-								    user->ssrca,
-								    user->ssrcv);
-					sync_decoders = true;
-				}
-
-				if (user->listpos == 0) {
-					ccall->keygenerator = user;
-					info("ccall(%p): setting keygenerator from "
-					     "updated list\n",
-					     ccall);
-
-					ccall_track_keygenerator_change(ccall,
-									prev_keygenerator);
-				}
-
-				user->needs_key = true;
-				user->force_decoder = false;
-				mem_deref(u);
-			}
-			else {
-				info("ccall(%p): set_clients adding new client\n", ccall);
-				u->se_approved = true;
-				list_append(&ccall->partl, &u->le, u);
-			}
-		}
-	}
-
-	if (sync_decoders) {
-		info("ccall(%p): sync_decoders\n", ccall);
-		ecall_sync_decoders(ccall->ecall);
+	userlist_update_from_selist(ccall->userl,
+				    clientl,
+				    epoch,
+				    ccall->secret,
+				    ccall->secret_len,
+				    &list_changed);
+	if (err) {
+		warning("ccall(%p): set_clients err %M\n", ccall, err);
+		return;
 	}
 
 	if (list_changed) {
@@ -3085,11 +2836,16 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
 	struct list *sftl;
+	const struct userinfo *self = NULL;
 	int err = 0;
 
 	if (!ccall || !msg ||
 	    !userid_sender || !clientid_sender)
 		return EINVAL;
+
+	self = userlist_get_self(ccall->userl);
+	if (!self)
+		return ENOENT;
 
 	if (ECONN_CONF_START == msg->msg_type) {
 		msg_ts = msg->u.confstart.timestamp;
@@ -3146,7 +2902,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 	     ts_cmp,
 	     msg_ts, msg_seqno,
 	     ccall->sft_timestamp, ccall->sft_seqno,
-	     ccall->self == ccall->keygenerator ? "YES" : "NO");
+	     userlist_is_keygenerator_me(ccall->userl) ? "YES" : "NO");
 
 	if (ts_cmp > 0) {
 		ccall->primary_sft_url = mem_deref(ccall->primary_sft_url);
@@ -3166,7 +2922,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		keystore_reset(ccall->keystore);
 		ccall_set_secret(ccall, msg_secret, msg_secretlen);
 		ccall->is_caller = false;
-		ccall->keygenerator = NULL;
+		userlist_reset_keygenerator(ccall->userl);
 	}
 
 	switch (ccall->state) {
@@ -3175,8 +2931,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			should_ring = econn_message_isrequest(msg) &&
 				ECONN_CONF_START == msg->msg_type &&
 				((msg->age * 1000) < CCALL_SHOULD_RING_TIMEOUT);
-			if (ccall->self && strcaseeq(userid_sender,
-						     ccall->self->userid_real)) {
+			if (strcaseeq(userid_sender, self->userid_real)) {
 				should_ring = false;
 			}
 
@@ -3186,7 +2941,9 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			ICALL_CALL_CB(ccall->icall, starth,
 				      &ccall->icall, msg->time,
 				      userid_sender, clientid_sender,
-				      video, should_ring, ICALL_CONV_TYPE_CONFERENCE,
+				      video, should_ring,
+				      ccall->is_mls_call ? ICALL_CONV_TYPE_CONFERENCE_MLS :
+							   ICALL_CONV_TYPE_CONFERENCE,
 				      ccall->icall.arg);
 
 			if (should_ring) {
@@ -3201,7 +2958,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		break;
 
 	case CCALL_STATE_INCOMING:
-		if (strcaseeq(userid_sender, ccall->self->userid_real) &&
+		if (strcaseeq(userid_sender, self->userid_real) &&
 		    ccall->is_ringing) {
 			tmr_cancel(&ccall->tmr_ring);
 			ICALL_CALL_CB(ccall->icall, leaveh,
@@ -3244,7 +3001,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			stringlist_clone(sftl, &ccall->sftl);
 			return ccall_req_cfg_join(ccall, ccall->call_type, true);
 		}
-		else if (ts_cmp < 0 && ccall->self == ccall->keygenerator) {
+		else if (ts_cmp < 0 && userlist_is_keygenerator_me(ccall->userl)) {
 			/* If local call is earlier. send new CONFSTART to
 			   assert dominance */
 			info("ccall(%p): sending CONFSTART from incoming CONFSTART\n", ccall);
@@ -3306,7 +3063,7 @@ int  ccall_msg_recv(struct icall* icall,
 
 		case CCALL_STATE_ACTIVE:
 			/* Inform clients that the call is in fact still ongoing */
-			if (ccall->keygenerator == ccall->self) {
+			if (userlist_is_keygenerator_me(ccall->userl)) {
 				tmr_cancel(&ccall->tmr_send_check);
 				tmr_start(&ccall->tmr_send_check, 0,
 					  ccall_send_check_timeout, ccall);
@@ -3320,7 +3077,8 @@ int  ccall_msg_recv(struct icall* icall,
 
 	case ECONN_CONF_KEY:
 		if (msg->resp) {
-			if (!ccall->keygenerator) {
+			const struct userinfo *kg = userlist_get_keygenerator(ccall->userl);
+			if (!kg) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY resp from "
 					"%s.%s when keygenerator is NULL!\n",
 					ccall, anon_id(userid_anon, userid_sender),
@@ -3329,7 +3087,7 @@ int  ccall_msg_recv(struct icall* icall,
 				return 0;
 			}
 
-			if (ccall->keygenerator == ccall->self) {
+			if (userlist_is_keygenerator_me(ccall->userl)) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY resp from "
 					"%s.%s when keygenerator is me!\n",
 					ccall, anon_id(userid_anon, userid_sender),
@@ -3337,14 +3095,22 @@ int  ccall_msg_recv(struct icall* icall,
 				return 0;
 			}
 
-			if (!strcaseeq(userid_sender,   ccall->keygenerator->userid_real) ||
-			    !strcaseeq(clientid_sender, ccall->keygenerator->clientid_real)) {
+			if (!kg->userid_real || !kg->clientid_real) {
+				warning("ccall(%p): msg_recv ignoring CONFKEY resp from "
+					"%s.%s when keygenerator is invalid!\n",
+					ccall, anon_id(userid_anon, userid_sender),
+					anon_client(clientid_anon, clientid_sender));
+				return 0;
+			}
+
+			if (!strcaseeq(userid_sender,   kg->userid_real) ||
+			    !strcaseeq(clientid_sender, kg->clientid_real)) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY resp from "
 					"%s.%s when keygenerator is %s.%s\n",
 					ccall, anon_id(userid_anon, userid_sender),
 					anon_client(clientid_anon, clientid_sender),
-					anon_id(userid_anon2, ccall->keygenerator->userid_real),
-					anon_client(clientid_anon2, ccall->keygenerator->clientid_real));
+					anon_id(userid_anon2, kg->userid_real),
+					anon_client(clientid_anon2, kg->clientid_real));
 				return 0;
 			}
 
@@ -3374,7 +3140,7 @@ int  ccall_msg_recv(struct icall* icall,
 		else {
 			struct userinfo *u = NULL;
 
-			if (ccall->keygenerator != ccall->self) {
+	    		if (!userlist_is_keygenerator_me(ccall->userl)) {
 				warning("ccall(%p): msg_recv ignoring CONFKEY req from "
 					"%s.%s when not the keygenerator!\n",
 					ccall, anon_id(userid_anon, userid_sender),
@@ -3382,7 +3148,7 @@ int  ccall_msg_recv(struct icall* icall,
 				return 0;
 			}
 
-			u = find_userinfo_by_real(ccall,
+			u = userlist_find_by_real(ccall->userl,
 						  userid_sender,
 						  clientid_sender);
 			if (!u) {
@@ -3405,13 +3171,16 @@ int  ccall_msg_recv(struct icall* icall,
 		break;
 
 	case ECONN_REJECT:
-		if (ccall->state == CCALL_STATE_INCOMING &&
-		    strcaseeq(userid_sender, ccall->self->userid_real)) {
-			tmr_cancel(&ccall->tmr_ring);
-			ICALL_CALL_CB(ccall->icall, leaveh,
-				      &ccall->icall, ICALL_REASON_STILL_ONGOING,
-				      ECONN_MESSAGE_TIME_UNKNOWN, ccall->icall.arg);
-			ccall->is_ringing = false;
+		{
+			const struct userinfo *self = userlist_get_self(ccall->userl);
+			if (self && ccall->state == CCALL_STATE_INCOMING &&
+			    strcaseeq(userid_sender, self->userid_real)) {
+				tmr_cancel(&ccall->tmr_ring);
+				ICALL_CALL_CB(ccall->icall, leaveh,
+					      &ccall->icall, ICALL_REASON_STILL_ONGOING,
+					      ECONN_MESSAGE_TIME_UNKNOWN, ccall->icall.arg);
+				ccall->is_ringing = false;
+			}
 		}
 		break;
 
@@ -3557,7 +3326,8 @@ int  ccall_debug(struct re_printf *pf, const struct icall* icall)
 	char userid_anon[ANON_ID_LEN];
 	char userid_anon2[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
-	struct userinfo *u;
+	const struct userinfo *u;
+	const struct userinfo *self = NULL;
 	struct le *le;
 	int err = 0;
 
@@ -3585,32 +3355,27 @@ int  ccall_debug(struct re_printf *pf, const struct icall* icall)
 	if (err)
 		goto out;
 
-	LIST_FOREACH(&ccall->partl, le) {
-		u = le->data;
-		err = re_hprintf(pf, "user hash: %s user: %s.%s incall: %s auth: %s ssrca: %u ssrcv: %u muted: %s vidstate: %s\n",
-			anon_id(userid_anon, u->userid_hash),
-			anon_id(userid_anon2, u->userid_real),
-			anon_client(clientid_anon, u->clientid_real),
-			u->incall_now ? "true" : "false",
-			u->se_approved ? "true" : "false",
-			u->ssrca, u->ssrcv,
-			u->muted ? "true" : "false",
-			icall_vstate_name(u->video_state));
-		if (err)
-			goto out;
-	}
+	err = userlist_debug(pf, ccall->userl);
+	if (err)
+		goto out;
 
 	err = re_hprintf(pf, "\n");
 	if (err)
 		goto out;
 
+	self = userlist_get_self(ccall->userl);
+	if (!self) {
+		err = ENOENT;
+		goto out;
+	}
+
 	LIST_FOREACH(&ccall->saved_partl, le) {
 		const struct econn_group_part *p = le->data;
 
-		u = find_userinfo_by_hash(ccall, p->userid, p->clientid);
-		if (!u && strcaseeq(ccall->self->userid_hash, p->userid) &&
-		    strcaseeq(ccall->self->clientid_hash, p->clientid)) {
-			u = ccall->self;
+		u = userlist_find_by_hash(ccall->userl, p->userid, p->clientid);
+		if (!u && strcaseeq(self->userid_hash, p->userid) &&
+		    strcaseeq(self->clientid_hash, p->clientid)) {
+			u = self;
 		}
 
 		if (u) {
@@ -3707,7 +3472,7 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 		break;
 	}
 
-	incall_clear(ccall, false);
+	userlist_incall_clear(ccall->userl, false);
 	if (ccall->ecall)
 		ecall_end(ccall->ecall);
 	else

@@ -82,6 +82,7 @@ bool ecall_is_answered(const struct ecall *ecall);
 bool ecall_has_video(const struct ecall *ecall);
 int ecall_sync_props(struct ecall *ecall, bool response);
 const char *ecall_props_get_local(struct ecall *ecall, const char *key);
+int ecall_props_set_local(struct ecall *ecall, const char *key, const char *value);
 const char *ecall_props_get_remote(struct ecall *ecall, const char *key);
 void ecall_trace(struct ecall *ecall, const struct econn_message *msg,
 		 bool tx, enum econn_transport tp,
@@ -160,7 +161,7 @@ void ecall_activate(void);
 
 void propsync_get_states(struct econn_props *props,
 			 bool *vstate_present, 
-			 int  *vstate, 
+			 enum icall_vstate *vstate, 
 			 bool *muted_present,
 			 bool *muted);
 

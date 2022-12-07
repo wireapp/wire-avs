@@ -34,7 +34,8 @@ int ccall_alloc(struct ccall **ccallp,
 		const struct ecall_conf *conf,		 
 		const char *convid,
 		const char *userid_self,
-		const char *clientid);
+		const char *clientid,
+		bool is_mls_call);
 
 struct icall *ccall_get_icall(struct ccall* ccall);
 
@@ -83,7 +84,9 @@ int  ccall_sft_msg_recv(struct icall* icall,
 			int status,
 		        struct econn_message *msg);
 
-void ccall_set_clients(struct icall* icall, struct list *clientl);
+void ccall_set_clients(struct icall* icall,
+		       struct list *clientl,
+		       uint32_t epoch);
 
 int  ccall_stats(struct re_printf *pf, const struct icall *icall);
 int  ccall_stats_struct(const struct ccall *ccall,

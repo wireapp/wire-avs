@@ -978,6 +978,25 @@ struct key_stroke interrupt_stroke = {
 };
 
 
+/*** 'M' ... move to next media key
+ */
+
+static bool mkey_key_handler(int ch)
+{
+	(void) ch;
+
+	calling3_new_media_key(conv_data.curr);
+
+	return true;
+}
+
+struct key_stroke mkey_stroke = {
+	.ch = 'M',
+	.h = mkey_key_handler,
+	.help = "move to next media key"
+};
+
+
 /*** 'n' ... Next video page
  */
 
@@ -1918,6 +1937,7 @@ int conv_init(void)
 	register_key_stroke(&interrupt_stroke);
 	register_key_stroke(&propsync_stroke);
 	register_key_stroke(&vpage_stroke);
+	register_key_stroke(&mkey_stroke);
 
 	register_command(&switch_command);
 	register_command(&log_command);

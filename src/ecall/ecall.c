@@ -732,7 +732,8 @@ static int send_handler(struct econn *conn,
 		ecall_trace(ecall, msg, true, ECONN_TRANSP_BACKEND,
 			    "SE %H\n", econn_message_brief, msg);
 		err = ICALL_CALL_CBE(ecall->icall, sendh,
-			&ecall->icall, ecall->userid_self, msg, NULL, ecall->icall.arg);
+			&ecall->icall, ecall->userid_self, msg,
+			NULL, false, ecall->icall.arg);
 	}
 
 out:
@@ -798,8 +799,10 @@ static int _icall_set_video_send_state(struct icall *icall, enum icall_vstate vs
 
 
 static void _icall_set_clients(struct icall* icall,
-			       struct list *clientl)
+			       struct list *clientl,
+			       uint32_t epoch)
 {
+	(void) epoch;
 	ecall_set_clients((struct ecall*)icall, clientl);
 }
 
@@ -1042,6 +1045,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 			    _icall_set_clients,
 			    _icall_update_mute_state,
 			    NULL, // _icall_request_video_streams
+			    NULL, // _icall_set_media_key
 			    _icall_debug,
 			    _icall_stats);
 
@@ -1607,7 +1611,7 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 
 void propsync_get_states(struct econn_props *props,
 			 bool *vstate_present, 
-			 int  *vstate, 
+			 enum icall_vstate  *vstate, 
 			 bool *muted_present,
 			 bool *muted)
 {
@@ -1659,7 +1663,7 @@ void propsync_get_states(struct econn_props *props,
 
 static void propsync_handler(struct ecall *ecall)
 {
-	int vstate = ICALL_VIDEO_STATE_STOPPED;
+	enum icall_vstate vstate = ICALL_VIDEO_STATE_STOPPED;
 	bool vstate_present = false;
 	bool muted = false;
 	bool muted_present = false;
@@ -2445,7 +2449,10 @@ int icall_send_reject_msg(struct icall *icall,
 	err = ICALL_CALL_CBE((*icall), sendh,
 			     icall,
 			     userid_local,
-			     msg, &targets, icall->arg);
+			     msg,
+			     &targets,
+			     true,
+			     icall->arg);
 	}
 
 out:
@@ -2721,6 +2728,21 @@ const char *ecall_props_get_local(struct ecall *ecall, const char *key)
 		return NULL;
 
 	return econn_props_get(ecall->props_local, key);
+}
+
+
+int ecall_props_set_local(struct ecall *ecall, const char *key, const char *value)
+{
+	if (!ecall || !key || !value)
+		return EINVAL;
+
+	if (!ecall->econn)
+		return EINVAL;
+
+	if (econn_props_get(ecall->props_local, key))
+		return econn_props_update(ecall->props_local, key, value);
+	else
+		return econn_props_add(ecall->props_local, key, value);
 }
 
 

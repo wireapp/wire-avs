@@ -30,17 +30,25 @@ struct ccall_wrapper {
 	struct iflow_stats stats;
 	struct tmr key_timer;
 	bool attempt_force_key;
+	uint32_t target_mls_key;
+	uint32_t next_mls_key;
+	uint32_t current_key_idx;
 	uint8_t attempt_key[E2EE_SESSIONKEY_SIZE];
 	uint8_t read_key[E2EE_SESSIONKEY_SIZE];
+	uint64_t test_timeout;
 };
 
 struct ccall_wrapper *init_ccall(const char *name,
 			         const char *convid,
-				 bool contact_sft);
+				 bool contact_sft,
+				 bool mls_call);
 
 void ccall_wrapper_set_eavesdropper(struct ccall_wrapper *wrapper,
 				    struct ecall_wrapper *eavesdropper);
 
 void ccall_attempt_force_key(struct ccall_wrapper *wrapper, 
 			     uint8_t set_key[E2EE_SESSIONKEY_SIZE]);
+
+void ccall_set_target_mls_key(struct ccall_wrapper *wrapper, 
+			      uint32_t mls_key);
 

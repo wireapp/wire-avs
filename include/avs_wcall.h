@@ -73,6 +73,7 @@ typedef int (wcall_send_h)(void *ctx, const char *convid,
 			   const char *unused /*optional*/,
 			   const uint8_t *data, size_t len,
 			   int transient /*bool*/,
+			   int my_clients_only /*bool*/,
 			   void *arg);
 
 /* Send message to SFT */
@@ -324,6 +325,7 @@ void wcall_set_trace(WUSER_HANDLE wuser, int trace);
 #define WCALL_CONV_TYPE_ONEONONE        0
 #define WCALL_CONV_TYPE_GROUP           1
 #define WCALL_CONV_TYPE_CONFERENCE      2
+#define WCALL_CONV_TYPE_CONFERENCE_MLS  3
 
 /* Returns 0 if successfull
  * Set call_type and conv_type from defines above.
@@ -363,7 +365,8 @@ int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
 		    uint32_t msg_time,  /* timestamp in seconds */
 		    const char *convid,
 		    const char *userid,
-		    const char *clientid);
+		    const char *clientid,
+		    int conv_type);
 
 /* End the call in the conversation associated to
  * the conversation id in the convid parameter.
@@ -416,6 +419,13 @@ void wcall_set_log_handler(wcall_log_h *logh, void *arg);
 
 struct sa;
 void wcall_set_media_laddr(WUSER_HANDLE wuser, struct sa *laddr);
+
+int wcall_set_epoch_info(WUSER_HANDLE wuser,
+			 const char *convid,
+			 uint32_t epochid,
+			 const char *clients_json,
+			 uint8_t *key_data,
+			 uint32_t key_size);
 
 int wcall_get_mute(WUSER_HANDLE wuser);
 void wcall_set_mute(WUSER_HANDLE wuser, int muted);

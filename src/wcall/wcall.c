@@ -347,6 +347,9 @@ static const char *wcall_conv_type_name(int type)
 	case WCALL_CONV_TYPE_CONFERENCE:
 		return "conference";
 
+	case WCALL_CONV_TYPE_CONFERENCE_MLS:
+		return "mls-conference";
+
 	default:
 		return "?";
 	}
@@ -486,6 +489,9 @@ static void icall_start_handler(struct icall *icall,
 		break;
 	case ICALL_CONV_TYPE_CONFERENCE:
 		ct = WCALL_CONV_TYPE_CONFERENCE;
+		break;
+	case ICALL_CONV_TYPE_CONFERENCE_MLS:
+		ct = WCALL_CONV_TYPE_CONFERENCE_MLS;
 		break;
 	case ICALL_CONV_TYPE_ONEONONE:
 		ct = WCALL_CONV_TYPE_ONEONONE;
@@ -914,6 +920,7 @@ static void icall_vstate_handler(struct icall *icall, const char *userid,
 		     wcall, tmr_jiffies() - now);
 	}
 	if (wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE
+	    && wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE_MLS
 	    && inst->group.json.chgh) {
 		call_group_change_json(inst, wcall);
 	}
@@ -1285,6 +1292,7 @@ static int icall_send_handler(struct icall *icall,
 			      const char *userid,
 			      struct econn_message *msg,
 			      struct list *targets,
+			      bool my_clients_only,
 			      void *arg)
 {	
 	struct wcall *wcall = arg;
@@ -1361,7 +1369,9 @@ static int icall_send_handler(struct icall *icall,
 	now = tmr_jiffies();
 	err = inst->sendh(ctx, wcall->convid, userid, inst->clientid,
 			  tjson, NULL, (uint8_t *)str, strlen(str),
-			  msg->transient ? 1 : 0, inst->arg);
+			  msg->transient ? 1 : 0,
+			  my_clients_only ? 1 : 0,
+			  inst->arg);
 	info("wcall(%p): calling sendh(%p) took: %llu ms\n", wcall, inst->sendh, tmr_jiffies() - now);
 
 	now = tmr_jiffies();
@@ -1622,7 +1632,8 @@ int wcall_add(struct calling_instance *inst,
 	sftv = config_get_sftservers(inst->cfg, &sftc);
 	if (sftc == 0) {
 		info("wcall(%p): no sft servers\n", wcall);
-		if (WCALL_CONV_TYPE_CONFERENCE == conv_type) {
+		if (WCALL_CONV_TYPE_CONFERENCE == conv_type ||
+		    WCALL_CONV_TYPE_CONFERENCE_MLS == conv_type) {
 			info("wcall(%p): reverting conference to legacy "
 			     "group call due to no SFT servers\n", wcall);
 			conv_type = WCALL_CONV_TYPE_GROUP;
@@ -1708,13 +1719,15 @@ int wcall_add(struct calling_instance *inst,
 		}
 		break;
 
-	case WCALL_CONV_TYPE_CONFERENCE: {
+	case WCALL_CONV_TYPE_CONFERENCE:
+	case WCALL_CONV_TYPE_CONFERENCE_MLS: {
 		struct ccall* ccall;
 		err = ccall_alloc(&ccall,
 				   &inst->conf,
 				   convid,
 				   inst->userid,
-				   inst->clientid);
+				   inst->clientid,
+				   conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS);
 
 		if (err) {
 			warning("wcall(%p): add: could not alloc ccall: %m\n",
@@ -2684,7 +2697,8 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 		      uint32_t msg_time,
 		      const char *convid,
 		      const char *userid,
-		      const char *clientid)
+		      const char *clientid,
+		      int conv_type)
 {
 	struct wcall *wcall;
 	int err = 0;
@@ -2751,11 +2765,13 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 		else if (msg->msg_type == ECONN_CONF_START
 		    && econn_message_isrequest(msg)) {
 			err = wcall_add(inst, &wcall, convid,
+					conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
 					WCALL_CONV_TYPE_CONFERENCE);
 		}
 		else if (msg->msg_type == ECONN_CONF_CHECK
 		    && !econn_message_isrequest(msg)) {
 			err = wcall_add(inst, &wcall, convid,
+					conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
 					WCALL_CONV_TYPE_CONFERENCE);
 		}
 		else if (econn_is_creator(inst->userid, userid, msg)) {
@@ -2866,6 +2882,7 @@ int wcall_i_reject(struct wcall *wcall)
 	switch (wcall->conv_type) {
 	case WCALL_CONV_TYPE_GROUP:
 	case WCALL_CONV_TYPE_CONFERENCE:
+	case WCALL_CONV_TYPE_CONFERENCE_MLS:
 		reason = WCALL_REASON_STILL_ONGOING;
 		break;
 
@@ -3310,7 +3327,7 @@ AVS_EXPORT
 struct wcall_members *wcall_get_members(WUSER_HANDLE wuser, const char *convid)
 {
 	struct calling_instance *inst;
-	struct wcall_members *members;
+	struct wcall_members *members = NULL;
 	struct wcall *wcall;
 
 	inst = wuser2inst(wuser);
@@ -3669,26 +3686,26 @@ void wcall_set_active_speaker_handler(WUSER_HANDLE wuser,
 }
 
 
-void wcall_i_set_clients_for_conv(struct wcall *wcall, const char *json)
+static void wcall_set_clients_for_epoch(struct wcall *wcall,
+					const char *json,
+					uint32_t epoch)
 {
 	struct json_object *jobj, *jclients;
 	size_t nclients, i;
 	struct list clientl = LIST_INIT;
-	
+
 	size_t len;
 	int err = 0;
 
 	if (!wcall) {
-		warning("wcall: set_clients_for_conv: no wcall\n");
+		warning("wcall: set_clients_for_epoch: no wcall\n");
 		return;
 	}
 	
 	if (!wcall->icall) {
-		warning("wcall: set_clients_for_conv: no icall\n");
+		warning("wcall: set_clients_for_epoch: no icall\n");
 		return;
 	}
-
-	info(APITAG "wcall(%p): set_clients_for_conv\n", wcall);
 
 	len = strlen(json);
 	err = jzon_decode(&jobj, json, len);
@@ -3704,7 +3721,8 @@ void wcall_i_set_clients_for_conv(struct wcall *wcall, const char *json)
 		goto out;
 
 	if (!jzon_is_array(jclients)) {
-		warning("json object is not an array\n");
+		warning("wcall(%p): set_clients_for_epoch: "
+		        "json object is not an array\n", wcall);
 		goto out;
 	}
 
@@ -3712,6 +3730,7 @@ void wcall_i_set_clients_for_conv(struct wcall *wcall, const char *json)
 
 	for (i = 0; i < nclients; ++i) {
 		const char *uid, *cid;
+		bool sub = false;
 		struct json_object *jcli;
 		struct icall_client *cli;
 
@@ -3722,19 +3741,39 @@ void wcall_i_set_clients_for_conv(struct wcall *wcall, const char *json)
 
 		uid = jzon_str(jcli, "userid");
 		cid = jzon_str(jcli, "clientid");
+		jzon_bool(&sub, jcli, "in_subconv");
 		if (uid && cid) {
 			cli = icall_client_alloc(uid, cid);
+			cli->in_subconv = sub;
 			list_append(&clientl, &cli->le, cli);
 		}
 	}
 
 	ICALL_CALL(wcall->icall, set_clients,
-		&clientl);
+		&clientl, epoch);
 
 out:
 	mem_deref(jobj);
 	list_flush(&clientl);
 	return;
+}
+
+void wcall_i_set_clients_for_conv(struct wcall *wcall,
+				  const char *json)
+{
+	if (!wcall) {
+		warning("wcall: set_clients_for_conv: no wcall\n");
+		return;
+	}
+	
+	if (!wcall->icall) {
+		warning("wcall: set_clients_for_conv: no icall\n");
+		return;
+	}
+
+	info(APITAG "wcall(%p): set_clients_for_conv\n", wcall);
+
+	wcall_set_clients_for_epoch(wcall, json, 0);
 }
 
 void wcall_i_request_video_streams(struct wcall *wcall,
@@ -3807,6 +3846,33 @@ out:
 	mem_deref(jobj);
 	list_flush(&clientl);
 	return;
+}
+
+int wcall_i_set_epoch_info(struct wcall *wcall,
+			   uint32_t epochid,
+			   const char *clients_json,
+			   uint8_t *key_data,
+			   uint32_t key_size)
+{
+	if (!wcall) {
+		warning("wcall: set_epoch_info: no wcall\n");
+		return EINVAL;
+	}
+	
+	if (!wcall->icall) {
+		warning("wcall: set_epoch_info: no icall\n");
+		return EINVAL;
+	}
+
+	info(APITAG "wcall(%p): set_epoch_info: epoch=%u key_len=%u\n", wcall, epochid, key_size);
+
+	wcall_set_clients_for_epoch(wcall,
+				    clients_json,
+				    epochid);
+	
+	ICALL_CALL(wcall->icall, set_media_key,
+		epochid, key_data, key_size);
+	return 0;
 }
 
 AVS_EXPORT

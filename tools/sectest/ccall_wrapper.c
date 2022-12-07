@@ -41,13 +41,14 @@ static int ccall_send_handler(struct icall *icall,
 			      const char *userid,
 			      struct econn_message *msg,
 			      struct list *targets,
+			      bool my_clients_only,
 			      void *arg)
 {
 	struct ccall_wrapper *wrapper = (struct ccall_wrapper*)arg;
 	int err = 0;
 
-	//printf("XXXX %s: %s send %s message\n", __FUNCTION__, wrapper->name,
-	//       econn_msg_name(msg->msg_type));
+	//printf("%s: %s send %s(%s) message\n", __FUNCTION__, wrapper->name,
+	//       econn_msg_name(msg->msg_type), msg->resp ? "resp" : "req");
 
 	/* Send messages to the client in conv_member */
 	if (wrapper->conv_member) {
@@ -86,7 +87,7 @@ static int ccall_sft_handler(struct icall *icall,
 	const char *c = NULL;
 	int err = 0;
 
-	//printf("XXXX %s: %s url %s\n", __FUNCTION__, wrapper->name,
+	//printf("%s: %s url %s\n", __FUNCTION__, wrapper->name,
 	//       url);
 
 	for (c = url; *c != '\0'; c++) {
@@ -126,8 +127,6 @@ static void ccall_start_handler(struct icall *icall,
 	struct ccall_wrapper *wrapper = (struct ccall_wrapper*)arg;
 	int err = 0;
 
-	//printf("XXXX %s: %s\n", __FUNCTION__, wrapper->name);
-
 	printf("    %s answering call\n", wrapper->name);
 	err = ICALL_CALLE(icall, answer,
 			  ICALL_CALL_TYPE_NORMAL, false);
@@ -138,7 +137,6 @@ static void ccall_start_handler(struct icall *icall,
 static void ccall_answer_handler(struct icall *icall,
 				 void *arg)
 {
-	//printf("XXXX %s\n", __FUNCTION__);
 }
 
 static void ccall_req_clients_handler(struct icall *icall,
@@ -148,17 +146,16 @@ static void ccall_req_clients_handler(struct icall *icall,
 	struct list clientl = LIST_INIT;
 	struct icall_client *cli;
 
-	//printf("XXXX %s\n", __FUNCTION__);
-
 	if (wrapper->conv_member) {
 		cli = icall_client_alloc(wrapper->conv_member->name, wrapper->conv_member->name);
+		cli->in_subconv = true;
 		if (cli) {
-			//printf("XXXX adding client %s\n", wrapper->conv_member->name);
+			//printf("adding client %s\n", wrapper->conv_member->name);
 			list_append(&clientl, &cli->le, cli);
 		}
 	}
 	ICALL_CALL(icall, set_clients,
-		&clientl);
+		&clientl, 0);
 }
 
 static void ccall_datachan_estab_handler(struct icall *icall,
@@ -183,6 +180,7 @@ static void end_call_timeout(void *arg)
 	ccall_stats_struct((struct ccall*)wrapper->icall, &wrapper->stats);
 	printf("    %s leaving the call\n", wrapper->name);
 	ICALL_CALL(wrapper->icall, end);
+	tmr_cancel(&wrapper->key_timer);
 }
 
 /* Simulates a message from eve to try to set the key to a known value */
@@ -242,6 +240,49 @@ out:
 	mem_deref(msg);
 }
 
+/* Checks the current media key used */
+static void check_key(struct ccall_wrapper *wrapper)
+{
+	struct keystore *ks = NULL;
+	uint64_t updated_ts = 0;
+	uint32_t kid = 0;
+	int err = 0;
+
+	ks = ccall_get_keystore((struct ccall*)wrapper->icall);
+	if (ks) {
+		err = keystore_get_current(ks, &kid, &updated_ts);
+		if (err)
+			warning("keystore_get_current failed (%d)\n", err);
+
+		if (kid != wrapper->current_key_idx) {
+			printf("    %s moved to key %u\n", wrapper->name, kid);
+			wrapper->current_key_idx = kid;
+		}
+	}
+}
+
+/* Sets the MLS key to the next one. Called once per second to simulate clients getting
+   keys over time
+*/
+static void mls_key_timeout(void *arg)
+{
+	struct ccall_wrapper *wrapper = (struct ccall_wrapper*)arg;
+
+	if (wrapper->next_mls_key < wrapper->target_mls_key) {
+		uint8_t key[E2EE_SESSIONKEY_SIZE];
+
+		wrapper->next_mls_key++;
+		memset(key, 0, E2EE_SESSIONKEY_SIZE);
+		snprintf((char*)key, E2EE_SESSIONKEY_SIZE - 1, "session key %02u", wrapper->next_mls_key);
+		printf("    %s is setting key %u\n", wrapper->name, wrapper->next_mls_key);
+		ICALL_CALL(wrapper->icall, set_media_key,
+			wrapper->next_mls_key, key, E2EE_SESSIONKEY_SIZE);
+
+	}
+	check_key(wrapper);
+	tmr_start(&wrapper->key_timer, 1000, mls_key_timeout, wrapper);
+}
+
 static void ccall_audio_estab_handler(struct icall *icall, const char *userid,
 				      const char *clientid, bool update,
 				      void *arg)
@@ -259,8 +300,12 @@ static void ccall_audio_estab_handler(struct icall *icall, const char *userid,
 	if (wrapper->attempt_force_key) {
 		tmr_start(&wrapper->key_timer, 5000, force_key_timeout, wrapper);
 	}
-	
-	tmr_start(&wrapper->call_timer, 15000, end_call_timeout, wrapper);
+
+	if (wrapper->target_mls_key > 0) {
+		/* Set MLS keys & give longer timeout for MLS tests */
+		tmr_start(&wrapper->key_timer, 5000, mls_key_timeout, wrapper);
+	}
+	tmr_start(&wrapper->call_timer, wrapper->test_timeout, end_call_timeout, wrapper);
 }
 
 static void ccall_media_estab_handler(struct icall *icall,
@@ -279,7 +324,8 @@ static void ccall_media_estab_handler(struct icall *icall,
 
 struct ccall_wrapper *init_ccall(const char *name,
 			         const char *convid,
-				 bool contact_sft)
+				 bool contact_sft,
+				 bool mls_call)
 {
 	struct ccall_wrapper *wrapper = NULL;
 	struct ccall *ccall = NULL;
@@ -298,7 +344,8 @@ struct ccall_wrapper *init_ccall(const char *name,
 			  NULL,		 
 			  convid,
 			  name,
-			  name);
+			  name,
+			  mls_call);
 	if (err)
 		goto out;
 
@@ -336,6 +383,7 @@ struct ccall_wrapper *init_ccall(const char *name,
 	tmr_init(&wrapper->call_timer);
 	tmr_init(&wrapper->key_timer);
 	wrapper->contact_sft = contact_sft;
+	wrapper->test_timeout = 15000;
 out:
 	if (err)
 		wrapper = (struct ccall_wrapper*)mem_deref(wrapper);
@@ -354,6 +402,12 @@ void ccall_attempt_force_key(struct ccall_wrapper *wrapper,
 {
 	wrapper->attempt_force_key = true;
 	memcpy(wrapper->attempt_key, set_key, E2EE_SESSIONKEY_SIZE);
+}
+
+void ccall_set_target_mls_key(struct ccall_wrapper *wrapper, 
+			    uint32_t mls_key)
+{
+	wrapper->target_mls_key = mls_key;
 }
 
 

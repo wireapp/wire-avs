@@ -174,7 +174,7 @@ struct ecall {
 	bool group_mode;
 
 	struct {
-		int recv_state;
+		enum icall_vstate recv_state;
 	} video;
 
 	struct {

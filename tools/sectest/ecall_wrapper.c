@@ -72,6 +72,7 @@ static int ecall_send_handler(struct icall *icall,
 			      const char *userid,
 			      struct econn_message *msg,
 			      struct list *targets,
+			      bool my_clients_only,
 			      void *arg)
 {
 	struct ecall_wrapper *wrapper = (struct ecall_wrapper*)arg;

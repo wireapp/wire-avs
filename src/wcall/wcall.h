@@ -36,7 +36,8 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 		      uint32_t msg_time,
 		      const char *convid,
 		      const char *userid,
-		      const char *clientid);
+		      const char *clientid,
+		      int conv_type);
 void wcall_i_config_update(struct calling_instance *inst,
 			   int err, const char *json_str);
 void wcall_i_resp(struct calling_instance *inst,
@@ -77,5 +78,11 @@ void wcall_i_set_mute(int muted);
 void wcall_i_request_video_streams(struct wcall *wcall,
 				   int mode,
 				   const char *json);
+int wcall_i_set_epoch_info(struct wcall *wcall,
+			   uint32_t epochid,
+			   const char *clients_json,
+			   uint8_t *key_data,
+			   uint32_t key_size);
+
 void wcall_marshal_destroy(struct calling_instance *inst);
 

@@ -37,12 +37,14 @@ static struct {
 	struct list postponel;
 	WUSER_HANDLE wuser;
 	struct http_cli *http_cli;
+	uint32_t media_key_epoch;
 } calling3 = {
 	.initialized = false,
 	.ready = false,
 	.video_send_state = WCALL_VIDEO_STATE_STOPPED,
 	.wuser = WUSER_INVALID_HANDLE,
 	.http_cli = NULL,
+	.media_key_epoch = 0,
 };
 
 enum postpone_event {
@@ -102,6 +104,8 @@ static const char *conv_type_name(int conv_type)
 		return "group";
 	case WCALL_CONV_TYPE_CONFERENCE:
 		return "conference";
+	case WCALL_CONV_TYPE_CONFERENCE_MLS:
+		return "mls-conference";
 	default:
 		return "?";
 	}
@@ -555,6 +559,7 @@ static int wcall_send_handler(void *ctx, const char *convid,
 			      const char *unused,
 			      const uint8_t *data, size_t len,
 			      int transient,
+			      int my_clients_only /*bool*/,
 			      void *arg)
 {
 	struct engine_conv *conv;
@@ -805,6 +810,27 @@ static int postpone_event(enum postpone_event ev, void *arg)
 	return 0;
 }
 
+static int engine_conv2type(struct engine_conv *conv)
+{
+	int conv_type = WCALL_CONV_TYPE_ONEONONE;
+
+	if (conv && conv->type == ENGINE_CONV_REGULAR) {
+		/* According to new rules for "team" conversations:
+		 * If conv-type is REGULAR, and only 1 more participant, and
+		 * no user defined name, this should be treated as a 1/1 conv-type.
+		 */
+		if (list_count(&conv->memberl) == 1 && conv->name == NULL)
+			conv_type = WCALL_CONV_TYPE_ONEONONE;
+		else if (g_use_mls)
+			conv_type = WCALL_CONV_TYPE_CONFERENCE_MLS;
+		else if (g_use_conference)
+			conv_type = WCALL_CONV_TYPE_CONFERENCE;
+		else 
+			conv_type = WCALL_CONV_TYPE_GROUP;
+	}
+
+	return conv_type;
+}
 
 void calling3_recv_msg(const char *convid,
 		       const char *from_userid,
@@ -813,6 +839,7 @@ void calling3_recv_msg(const char *convid,
 		       const char *data)
 {
 	int err;
+	struct engine_conv *conv = NULL;
 	struct ztime now = {0, 0};
 	size_t len = 0;
 	
@@ -848,9 +875,17 @@ void calling3_recv_msg(const char *convid,
 		return;
 	}
 
+
+	err = engine_lookup_conv(&conv, zcall_engine, convid);
+	if (err) {
+		warning("calling3: recv_msg: couldnt find conv\n");
+		return;
+	}
+
+	int conv_type = engine_conv2type(conv);
 	err = wcall_recv_msg(calling3.wuser, (uint8_t *)data, len,
 		       now.sec, timestamp->sec,
-		       convid, from_userid, from_clientid);
+		       convid, from_userid, from_clientid, conv_type);
 
 	if (err == WCALL_ERROR_UNKNOWN_PROTOCOL) {
 		warning("calling3: recv_msg: unknown protocol, please update your client!\n");
@@ -863,6 +898,7 @@ void calling3_recv_msg(const char *convid,
 struct client_ctx {
 	struct json_object *jclients;
 	char *convid;
+	uint32_t epoch;
 };
 
 static void client_ctx_destructor(void *arg)
@@ -884,6 +920,7 @@ static void get_clients_missing_handler(const char *userid,
 	jcli = jzon_alloc_object();
 	jzon_add_str(jcli, "userid", "%s", userid);
 	jzon_add_str(jcli, "clientid", "%s", clientid);
+	jzon_add_bool(jcli, "in_subconv", true);
 
 	json_object_array_add(ctx->jclients, jcli);
 }
@@ -893,6 +930,7 @@ static void get_clients_response_handler(int err, void *arg)
 {
 	struct client_ctx *ctx = arg;
 	struct json_object *jobj;
+	uint8_t media_key[32];
 	char *json;
 
 	jobj = jzon_alloc_object();
@@ -903,9 +941,22 @@ static void get_clients_response_handler(int err, void *arg)
 	jzon_encode(&json, jobj);
 
 	if (json) {
-		wcall_set_clients_for_conv(calling3.wuser,
-					   ctx->convid,
-					   json);
+		if (ctx->epoch > 0) {
+			memset(media_key, 0x20, sizeof(media_key));
+			memcpy(media_key, &ctx->epoch, sizeof(uint32_t));
+
+			wcall_set_epoch_info(calling3.wuser,
+					     ctx->convid,
+					     ctx->epoch,
+					     json,
+					     media_key,
+					     sizeof(media_key));
+		}
+		else {
+			wcall_set_clients_for_conv(calling3.wuser,
+						   ctx->convid,
+						   json);
+		}
 	}
 
 	mem_deref(ctx);
@@ -913,7 +964,8 @@ static void get_clients_response_handler(int err, void *arg)
 	mem_deref(json);
 }
 
-static void set_clients_for_conv(struct engine_conv *conv)
+static void request_clients(struct engine_conv *conv,
+			    uint32_t epoch)
 {
 	struct client_ctx *ctx;
 
@@ -922,6 +974,7 @@ static void set_clients_for_conv(struct engine_conv *conv)
 		return;
 	}
 
+	ctx->epoch = epoch;
 	str_dup(&ctx->convid, conv->id);
 	ctx->jclients = json_object_new_array();
 	if (!ctx->jclients)
@@ -952,6 +1005,10 @@ out:
 }
 
 
+static void set_clients_for_conv(struct engine_conv *conv)
+{
+	request_clients(conv, 0);
+}
 static void wcall_req_clients_handler(WUSER_HANDLE wuser,
 				      const char *convid, void *arg)
 {
@@ -1008,21 +1065,9 @@ int calling3_start(struct engine_conv *conv)
 		WCALL_CALL_TYPE_NORMAL;
 
 	switch (conv->type) {
-	case ENGINE_CONV_REGULAR:
-		/* According to new rules for "team" conversations:
-		 * If conv-type is REGULAR, and only 1 more participant, and
-		 * no user defined name, this should be treated as a 1/1 conv-type.
-		 */
-		if (list_count(&conv->memberl) == 1 && conv->name == NULL) {
-			conv_type = WCALL_CONV_TYPE_ONEONONE;
-		}
-		else {
-			conv_type = g_use_conference ? WCALL_CONV_TYPE_CONFERENCE
-				                     : WCALL_CONV_TYPE_GROUP;
-		}
-		break;
 	case ENGINE_CONV_ONE:
-		conv_type = WCALL_CONV_TYPE_ONEONONE;
+	case ENGINE_CONV_REGULAR:
+		conv_type = engine_conv2type(conv);
 		break;
 	default:
 		output("only regular conversations supported.\n");
@@ -1322,6 +1367,14 @@ void calling3_set_video_send_state(struct engine_conv *conv, int state)
 	}
 }
 
+void calling3_new_media_key(struct engine_conv *conv)
+{
+	if (conv && conv->id) {
+		calling3.media_key_epoch++;
+		
+		request_clients(conv, calling3.media_key_epoch);
+	}
+}
 
 void calling3_propsync(struct engine_conv *conv)
 {

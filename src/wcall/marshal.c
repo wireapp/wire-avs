@@ -52,6 +52,7 @@ enum mq_event {
 	WCALL_MEV_DESTROY,
 	WCALL_MEV_SET_MUTE,
 	WCALL_MEV_REQ_VSTREAMS,
+	WCALL_MEV_SET_EPOCH_INFO,
 };
 
 
@@ -98,6 +99,7 @@ struct mq_data {
 			char *convid;
 			char *userid;
 			char *clientid;
+			int conv_type;
 		} recv_msg;
 
 
@@ -144,6 +146,13 @@ struct mq_data {
 			int mode;
 			char *json;
 		} req_vstreams;
+
+		struct {
+			uint32_t epochid;
+			char *clients_json;
+			uint32_t key_size;
+			uint8_t *key_data;
+		} set_epoch_info;
 	} u;
 };
 
@@ -197,6 +206,11 @@ static void md_destructor(void *arg)
 		mem_deref(md->u.req_vstreams.json);
 		break;
 
+	case WCALL_MEV_SET_EPOCH_INFO:
+		mem_deref(md->u.set_epoch_info.clients_json);
+		mem_deref(md->u.set_epoch_info.key_data);
+		break;
+
 	default:
 		break;
 	}
@@ -238,7 +252,8 @@ static void mqueue_handler(int id, void *data, void *arg)
 				 md->u.recv_msg.msg_time,
 				 md->u.recv_msg.convid,
 				 md->u.recv_msg.userid,
-				 md->u.recv_msg.clientid);
+				 md->u.recv_msg.clientid,
+				 md->u.recv_msg.conv_type);
 		break;
 
 	case WCALL_MEV_CONFIG_UPDATE:
@@ -341,6 +356,14 @@ static void mqueue_handler(int id, void *data, void *arg)
 					      md->u.req_vstreams.json);
 		break;
 
+	case WCALL_MEV_SET_EPOCH_INFO:
+		wcall_i_set_epoch_info(md->wcall,
+				       md->u.set_epoch_info.epochid,
+				       md->u.set_epoch_info.clients_json,
+				       md->u.set_epoch_info.key_data,
+				       md->u.set_epoch_info.key_size);
+		break;
+
 	default:
 		warning("wcall: marshal: unknown event: %d\n", id);
 		break;
@@ -418,7 +441,8 @@ int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
 		    uint32_t msg_time,
 		    const char *convid,
 		    const char *userid,
-		    const char *clientid)
+		    const char *clientid,
+		    int conv_type)
 {
 	struct calling_instance *inst;
 	struct econn_message *msg = NULL;
@@ -454,6 +478,7 @@ int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
 	md->u.recv_msg.msg = msg;
 	md->u.recv_msg.curr_time = curr_time;
 	md->u.recv_msg.msg_time = msg_time;
+	md->u.recv_msg.conv_type = conv_type;
 	err = str_dup(&md->u.recv_msg.convid, convid);
 	err |= str_dup(&md->u.recv_msg.userid, userid);
 	err |= str_dup(&md->u.recv_msg.clientid, clientid);
@@ -1052,6 +1077,77 @@ int wcall_request_video_streams(WUSER_HANDLE wuser,
 		goto out;
 
 	md->u.req_vstreams.mode = mode;
+
+	err = md_enqueue(md);
+	if (err)
+		goto out;
+
+ out:
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
+
+AVS_EXPORT
+int wcall_set_epoch_info(WUSER_HANDLE wuser,
+			 const char *convid,
+			 uint32_t epochid,
+			 const char *clients_json,
+			 uint8_t *key_data,
+			 uint32_t key_size)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	struct wcall *wcall;
+	int err = 0;
+
+	if (!convid) {
+		warning("wcall: set_epoch_info: no convid set\n");
+		return EINVAL;
+	}
+	
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: set_epoch_info: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return EINVAL;
+	}
+
+	if (!key_data || !key_size) {
+		warning("wcall: set_epoch_info: no key set\n");
+		return EINVAL;
+	}
+
+	wcall = wcall_lookup(inst, convid);
+	if (!wcall) {
+		warning("wcall: set_epoch_info: couldnt find conv\n");
+		return EPROTO;
+	}
+
+	if (key_size > 1024) {
+		warning("wcall: set_epoch_info: key too big\n");
+		return EINVAL;
+	}
+
+	md = md_new(inst, wcall, WCALL_MEV_SET_EPOCH_INFO);
+	if (!md)
+		return ENOMEM;
+
+	md->u.set_epoch_info.key_data = mem_zalloc(key_size, NULL);
+	if (!md->u.set_epoch_info.key_data) {
+		err = ENOMEM;
+		goto out;
+	}
+
+	err = str_dup(&md->u.set_epoch_info.clients_json, clients_json);
+	if (err) 
+		goto out;
+
+	md->u.set_epoch_info.epochid = epochid;
+	md->u.set_epoch_info.key_size = key_size;
 
 	err = md_enqueue(md);
 	if (err)

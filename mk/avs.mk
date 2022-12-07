@@ -83,6 +83,7 @@ AVS_MODULES += iflow
 AVS_MODULES += egcall
 AVS_MODULES += audio_level
 AVS_MODULES += ccall
+AVS_MODULES += userlist
 AVS_MODULES += zapi
 AVS_MODULES += ztime
 

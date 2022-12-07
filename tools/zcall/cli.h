@@ -98,6 +98,7 @@ extern int g_trace;
 extern bool g_ice_privacy;
 extern bool g_use_kase;
 extern bool g_use_conference;
+extern bool g_use_mls;
 extern struct list g_sftl;
 #ifdef HAVE_CRYPTOBOX
 extern struct cryptobox *g_cryptobox;
@@ -141,6 +142,7 @@ void calling3_reject(struct engine_conv *conv);
 void calling3_end(struct engine_conv *conv);
 void calling3_set_video_send_state(struct engine_conv *conv, int state);
 void calling3_propsync(struct engine_conv *conv);
+void calling3_new_media_key(struct engine_conv *conv);
 void calling3_close(void);
 void calling3_dump(void);
 void calling3_stats(void);

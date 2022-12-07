@@ -44,9 +44,10 @@ enum icall_call_type {
 };
 
 enum icall_conv_type {
-	ICALL_CONV_TYPE_ONEONONE   = 0,
-	ICALL_CONV_TYPE_GROUP      = 1,
-	ICALL_CONV_TYPE_CONFERENCE = 2
+	ICALL_CONV_TYPE_ONEONONE       = 0,
+	ICALL_CONV_TYPE_GROUP          = 1,
+	ICALL_CONV_TYPE_CONFERENCE     = 2,
+	ICALL_CONV_TYPE_CONFERENCE_MLS = 3
 };
 
 enum icall_vstate {
@@ -71,6 +72,7 @@ struct icall_client {
 	struct le le;
 	char *userid;
 	char *clientid;
+	bool in_subconv;
 	int quality;
 };
 
@@ -113,11 +115,16 @@ typedef int  (icall_sft_msg_recv)(struct icall* icall,
 typedef int  (icall_set_quality_interval)(struct icall *icall,
 					  uint64_t interval);
 typedef int  (icall_dce_send)(struct icall *icall, struct mbuf *mb);
-typedef void (icall_set_clients)(struct icall* icall, struct list *clientl);
+typedef void (icall_set_clients)(struct icall* icall, struct list *clientl, uint32_t epoch);
 typedef int  (icall_update_mute_state)(const struct icall* icall);
 typedef int  (icall_request_video_streams)(struct icall *icall,
 					   struct list *clientl,
 					   enum icall_stream_mode mode);
+
+typedef int  (icall_set_media_key)(struct icall *icall,
+				   uint32_t epochid,
+				   const uint8_t *key_data,
+				   uint32_t key_size);
 
 typedef int  (icall_debug)(struct re_printf *pf, const struct icall* icall);
 typedef int  (icall_stats)(struct re_printf *pf, const struct icall* icall);
@@ -131,6 +138,7 @@ typedef int  (icall_send_h)(struct icall *icall,
 			    const char *userid_sender,
 			    struct econn_message *msg,
 			    struct list *targets,
+			    bool my_clients_only,
 			    void *arg);
 typedef void (icall_start_h)(struct icall *icall,
 			     uint32_t msg_time,
@@ -216,6 +224,7 @@ struct icall {
 	icall_set_clients		*set_clients;
 	icall_update_mute_state		*update_mute_state;
 	icall_request_video_streams	*request_video_streams;
+	icall_set_media_key		*set_media_key;
 	icall_debug			*debug;
 	icall_stats			*stats;
 
@@ -267,6 +276,7 @@ void icall_set_functions(struct icall *icall,
 			 icall_set_clients		*set_clients,
 			 icall_update_mute_state	*update_ute_state,
 			 icall_request_video_streams	*request_video_streams,
+			 icall_set_media_key		*set_media_key,
 			 icall_debug			*debug,
 			 icall_stats			*stats);
 

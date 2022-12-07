@@ -19,7 +19,7 @@
 
 struct keystore;
 
-int keystore_alloc(struct keystore **pks);
+int keystore_alloc(struct keystore **pks, bool hash_forward);
 int keystore_reset(struct keystore *ks);
 int keystore_reset_keys(struct keystore *ks);
 
@@ -29,12 +29,12 @@ int keystore_set_salt(struct keystore *ks,
 
 int keystore_set_session_key(struct keystore *ks,
 			     uint32_t index,
-			     uint8_t *key,
+			     const uint8_t *key,
 			     size_t ksz);
 
 int keystore_set_fresh_session_key(struct keystore *ks,
 				   uint32_t index,
-				   uint8_t *key,
+				   const uint8_t *key,
 				   size_t ksz,
 				   uint8_t *salt,
 				   size_t saltsz);
@@ -55,6 +55,9 @@ int keystore_get_current(struct keystore *ks,
 			 uint32_t *pindex,
 			 uint64_t *updated_ts);
 
+int keystore_set_current(struct keystore *ks,
+			 uint32_t index);
+
 int keystore_get_current_media_key(struct keystore *ks,
 				   uint32_t *pindex,
 				   uint8_t *pkey,
@@ -66,6 +69,9 @@ int keystore_get_media_key(struct keystore *ks,
 			   size_t ksz);
 
 uint32_t keystore_get_max_key(struct keystore *ks);
+
+bool keystore_rotate_by_time(struct keystore *ks,
+			     uint64_t min_ts);
 
 int keystore_generate_iv(struct keystore *ks,
 			 const char *clientid,

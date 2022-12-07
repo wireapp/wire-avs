@@ -30,21 +30,25 @@ public:
 		const uint8_t callid[] = "CALL_ID";
 		const size_t clen = 7;
 
-		keystore_alloc(&ks);
+		keystore_alloc(&ks, true);
 		keystore_set_salt(ks, callid, clen);
-		keystore_alloc(&ks2);
+		keystore_alloc(&ks2, true);
 		keystore_set_salt(ks2, callid, clen);
+		keystore_alloc(&ks3, false);
+		keystore_set_salt(ks3, callid, clen);
 	}
 
 	virtual void TearDown() override
 	{
 		mem_deref(ks);
 		mem_deref(ks2);
+		mem_deref(ks3);
 	}
 
 protected:
 	struct keystore *ks;
 	struct keystore *ks2;
+	struct keystore *ks3;
 };
 
 TEST_F(KeystoreTest, set_single_key)
@@ -215,104 +219,6 @@ TEST_F(KeystoreTest, new_era)
 	ASSERT_EQ(idx1, 1000);
 }
 
-#if 0
-TEST_F(KeystoreTest, set_multiple_keys)
-{
-	uint8_t b1[KEYSZ];
-	uint8_t b2[KEYSZ];
-	uint8_t b3[KEYSZ];
-
-	memset(b1, 0xAA, KEYSZ);
-	memset(b2, 0xBB, KEYSZ);
-	memset(b3, 0x00, KEYSZ);
-
-	ASSERT_EQ(keystore_set_next_key(ks, 1, b1, KEYSZ), 0);
-	ASSERT_EQ(keystore_set_next_key(ks, 1000, b2, KEYSZ), 0);
-
-	ASSERT_EQ(keystore_get_key(ks, 1, b3, KEYSZ), 0);
-	ASSERT_TRUE(memcmp(b1, b3, KEYSZ) == 0);
-
-	ASSERT_EQ(keystore_get_key(ks, 1000, b3, KEYSZ), 0);
-	ASSERT_TRUE(memcmp(b2, b3, KEYSZ) == 0);
-}
-
-TEST_F(KeystoreTest, explicit_rotate)
-{
-	uint8_t b1[KEYSZ];
-	uint8_t b2[KEYSZ];
-	uint8_t b3[KEYSZ];
-	uint32_t idx;
-
-	memset(b1, 0xAA, KEYSZ);
-	memset(b2, 0xBB, KEYSZ);
-	memset(b3, 0x00, KEYSZ);
-
-	ASSERT_EQ(keystore_set_next_key(ks, 1, b1, KEYSZ), 0);
-
-	ASSERT_EQ(keystore_get_current(ks, &idx), 0);
-	ASSERT_EQ(idx, 1);
-	ASSERT_EQ(keystore_get_key(ks, idx, b2, KEYSZ), 0);
-	ASSERT_TRUE(memcmp(b1, b2, KEYSZ) == 0);
-
-	ASSERT_EQ(keystore_rotate(ks), 0);
-	ASSERT_EQ(keystore_get_current(ks, &idx), 0);
-	ASSERT_EQ(idx, 2);
-	ASSERT_EQ(keystore_get_key(ks, idx, b3, KEYSZ), 0);
-	ASSERT_TRUE(memcmp(b1, b3, KEYSZ) == 0);
-}
-
-TEST_F(KeystoreTest, implicit_rotate)
-{
-	uint8_t b1[KEYSZ];
-	uint8_t b2[KEYSZ];
-	uint8_t b3[KEYSZ];
-	uint32_t idx;
-
-	memset(b1, 0xAA, KEYSZ);
-	memset(b2, 0xBB, KEYSZ);
-	memset(b3, 0x00, KEYSZ);
-
-	ASSERT_EQ(keystore_set_next_key(ks, 1, b1, KEYSZ), 0);
-
-	ASSERT_EQ(keystore_get_current(ks, &idx), 0);
-	ASSERT_EQ(idx, 1);
-	ASSERT_EQ(keystore_get_key(ks, 1, b2, KEYSZ), 0);
-	ASSERT_TRUE(memcmp(b1, b2, KEYSZ) == 0);
-
-	ASSERT_EQ(keystore_get_key(ks, 3, b3, KEYSZ), 0);
-	ASSERT_TRUE(memcmp(b1, b3, KEYSZ) == 0);
-}
-
-TEST_F(KeystoreTest, sync_keys)
-{
-	uint8_t b1[KEYSZ];
-	uint8_t b2[KEYSZ];
-	uint8_t b3[KEYSZ];
-	uint32_t idx;
-
-	memset(b1, 0xAA, KEYSZ);
-	memset(b2, 0xBB, KEYSZ);
-	memset(b3, 0x00, KEYSZ);
-
-	ASSERT_EQ(keystore_set_next_key(ks, 1, b1, KEYSZ), 0);
-	ASSERT_EQ(keystore_rotate(ks), 0);
-	ASSERT_EQ(keystore_rotate(ks), 0);
-	ASSERT_EQ(keystore_rotate(ks), 0);
-	ASSERT_EQ(keystore_get_current_key(ks, &idx, b2, KEYSZ), 0);
-	ASSERT_EQ(idx, 4);
-
-	ASSERT_EQ(keystore_set_next_key(ks2, idx, b2, KEYSZ), 0);
-
-	while (idx < 8) {
-		ASSERT_EQ(keystore_rotate(ks), 0);
-		ASSERT_EQ(keystore_get_current_key(ks, &idx, b2, KEYSZ), 0);
-
-		ASSERT_EQ(keystore_get_key(ks, idx, b3, KEYSZ), 0);
-		ASSERT_TRUE(memcmp(b1, b3, KEYSZ) == 0);
-	}	
-}
-#endif
-
 TEST_F(KeystoreTest, overwrite_current_key)
 {
 	uint8_t b1[KEYSZ];
@@ -341,49 +247,6 @@ TEST_F(KeystoreTest, overwrite_current_key)
 
 	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b3, KEYSZ), 0);
 	ASSERT_TRUE(memcmp(b2, b3, KEYSZ) == 0);
-}
-
-TEST_F(KeystoreTest, overwrite_future_key)
-{
-	uint8_t b1[KEYSZ];
-	uint8_t b2[KEYSZ];
-	uint8_t b3[KEYSZ];
-	uint8_t b4[KEYSZ];
-	uint32_t idx;
-	uint64_t ts1, ts2;
-
-	memset(b1, 0xAA, KEYSZ);
-	memset(b2, 0xBB, KEYSZ);
-	memset(b3, 0xCC, KEYSZ);
-	memset(b4, 0x00, KEYSZ);
-
-	ASSERT_EQ(keystore_set_session_key(ks, 0, b1, KEYSZ), 0);
-	keystore_get_current(ks, &idx, &ts1);
-	ASSERT_EQ(idx, 0);
-
-	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b4, KEYSZ), 0);
-	ASSERT_TRUE(memcmp(b1, b4, KEYSZ) == 0);
-
-	ASSERT_EQ(keystore_set_session_key(ks, 100, b2, KEYSZ), 0);
-	keystore_get_current(ks, &idx, &ts1);
-	ASSERT_EQ(idx, 0);
-
-	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b4, KEYSZ), 0);
-	ASSERT_TRUE(memcmp(b1, b4, KEYSZ) == 0);
-
-	usleep(100000);
-
-	/* Overwrite key 100 with key 1 */
-	ASSERT_EQ(keystore_set_session_key(ks, 1, b3, KEYSZ), 0);
-	keystore_get_current(ks, &idx, &ts2);
-	ASSERT_EQ(idx, 0);
-	ASSERT_FALSE(ts1 == ts2);
-
-	/* Check we can rotate to key 1 */
-	ASSERT_EQ(keystore_rotate(ks), 0);
-	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b4, KEYSZ), 0);
-	ASSERT_EQ(idx, 1);
-	ASSERT_TRUE(memcmp(b3, b4, KEYSZ) == 0);
 }
 
 TEST_F(KeystoreTest, set_same_key)
@@ -448,5 +311,168 @@ TEST_F(KeystoreTest, ignore_old_key)
 	ASSERT_EQ(keystore_set_session_key(ks, 0, b3, KEYSZ), EALREADY);
 	keystore_get_current(ks, &idx, &ts2);
 	ASSERT_EQ(idx, 1);
+}
+
+TEST_F(KeystoreTest, delete_old_keys)
+{
+	uint8_t b1[KEYSZ];
+	uint8_t b2[KEYSZ];
+	uint8_t b3[KEYSZ];
+	uint8_t b4[KEYSZ];
+	uint32_t idx;
+	uint64_t ts1, ts2;
+
+	memset(b1, 0xAA, KEYSZ);
+	memset(b2, 0xBB, KEYSZ);
+	memset(b3, 0xCC, KEYSZ);
+	memset(b4, 0x00, KEYSZ);
+
+	ASSERT_EQ(keystore_set_session_key(ks, 0, b1, KEYSZ), 0);
+	ASSERT_EQ(keystore_set_session_key(ks, 1, b2, KEYSZ), 0);
+	ASSERT_EQ(keystore_set_session_key(ks, 2, b3, KEYSZ), 0);
+	ASSERT_EQ(keystore_get_max_key(ks), 2);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 0);
+	ASSERT_TRUE(memcmp(b1, b4, KEYSZ) == 0);
+	/* Check key 0 is still available */
+	ASSERT_EQ(keystore_get_media_key(ks, 0, b4, KEYSZ), 0);
+
+	ASSERT_EQ(keystore_rotate(ks), 0);
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 1);
+	ASSERT_TRUE(memcmp(b2, b4, KEYSZ) == 0);
+	/* Check key 0 is still available */
+	ASSERT_EQ(keystore_get_media_key(ks, 0, b4, KEYSZ), 0);
+
+	ASSERT_EQ(keystore_rotate(ks), 0);
+	ASSERT_EQ(keystore_get_current_session_key(ks, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 2);
+	ASSERT_TRUE(memcmp(b3, b4, KEYSZ) == 0);
+	/* Check key 0 is deleted */
+	ASSERT_EQ(keystore_get_media_key(ks, 0, b4, KEYSZ), ENOENT);
+	ASSERT_EQ(keystore_get_media_key(ks, 1, b4, KEYSZ), 0);
+	ASSERT_EQ(keystore_get_media_key(ks, 2, b4, KEYSZ), 0);
+}
+
+TEST_F(KeystoreTest, no_hash_mode)
+{
+	uint8_t b1[KEYSZ];
+	uint8_t b2[KEYSZ];
+	uint8_t b3[KEYSZ];
+	uint8_t b4[KEYSZ];
+	uint32_t idx;
+	uint64_t ts1, ts2;
+
+	memset(b1, 0xAA, KEYSZ);
+	memset(b2, 0xBB, KEYSZ);
+	memset(b2, 0xCC, KEYSZ);
+	memset(b4, 0x00, KEYSZ);
+
+	ASSERT_EQ(keystore_set_session_key(ks3, 0, b1, KEYSZ), 0);
+	ASSERT_EQ(keystore_set_session_key(ks3, 1, b2, KEYSZ), 0);
+	ASSERT_EQ(keystore_set_session_key(ks3, 2, b3, KEYSZ), 0);
+	ASSERT_EQ(keystore_get_max_key(ks3), 2);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks3, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 0);
+
+	ASSERT_EQ(keystore_rotate(ks3), 0);
+	ASSERT_EQ(keystore_get_current_session_key(ks3, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 1);
+
+	ASSERT_EQ(keystore_rotate(ks3), 0);
+	ASSERT_EQ(keystore_get_current_session_key(ks3, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 2);
+
+	/* Should not rotate beyond the latest */
+	ASSERT_EQ(keystore_rotate(ks3), ENOENT);
+	ASSERT_EQ(keystore_get_current_session_key(ks3, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 2);
+
+}
+
+TEST_F(KeystoreTest, out_of_order_add)
+{
+	uint8_t b1[KEYSZ];
+	uint8_t b2[KEYSZ];
+	uint8_t b3[KEYSZ];
+	uint8_t b4[KEYSZ];
+	uint32_t idx;
+	uint64_t ts1, ts2;
+
+	memset(b1, 0xAA, KEYSZ);
+	memset(b2, 0xBB, KEYSZ);
+	memset(b2, 0xCC, KEYSZ);
+	memset(b4, 0x00, KEYSZ);
+
+	ASSERT_EQ(keystore_set_session_key(ks3, 0, b1, KEYSZ), 0);
+	ASSERT_EQ(keystore_set_session_key(ks3, 2, b3, KEYSZ), 0);
+	ASSERT_EQ(keystore_set_session_key(ks3, 1, b2, KEYSZ), 0);
+	ASSERT_EQ(keystore_get_max_key(ks3), 2);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks3, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 0);
+	ASSERT_TRUE(memcmp(b1, b4, KEYSZ) == 0);
+
+	ASSERT_EQ(keystore_rotate(ks3), 0);
+	ASSERT_EQ(keystore_get_current_session_key(ks3, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 1);
+	ASSERT_TRUE(memcmp(b2, b4, KEYSZ) == 0);
+
+	ASSERT_EQ(keystore_rotate(ks3), 0);
+	ASSERT_EQ(keystore_get_current_session_key(ks3, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 2);
+	ASSERT_TRUE(memcmp(b3, b4, KEYSZ) == 0);
+}
+
+TEST_F(KeystoreTest, rotate_by_time)
+{
+	uint8_t b1[KEYSZ];
+	uint8_t b2[KEYSZ];
+	uint8_t b3[KEYSZ];
+	uint8_t b4[KEYSZ];
+	uint32_t idx;
+	uint64_t ts1, ts2;
+
+	memset(b1, 0xAA, KEYSZ);
+	memset(b2, 0xBB, KEYSZ);
+	memset(b2, 0xCC, KEYSZ);
+	memset(b4, 0x00, KEYSZ);
+
+	ts1 = tmr_jiffies();
+
+	/* No keys set, return true */
+	ASSERT_TRUE(keystore_rotate_by_time(ks3, ts1-1));
+	ASSERT_EQ(keystore_get_current_session_key(ks3, &idx, b4, KEYSZ), ENOENT);
+
+	ASSERT_EQ(keystore_set_session_key(ks3, 0, b1, KEYSZ), 0);
+	ASSERT_EQ(keystore_set_session_key(ks3, 1, b2, KEYSZ), 0);
+	usleep(10000);
+	ts2 = tmr_jiffies();
+	ASSERT_EQ(keystore_set_session_key(ks3, 2, b3, KEYSZ), 0);
+	ASSERT_EQ(keystore_get_max_key(ks3), 2);
+
+	ASSERT_EQ(keystore_get_current_session_key(ks3, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 0);
+	ASSERT_TRUE(memcmp(b1, b4, KEYSZ) == 0);
+
+	/* No rotation as time is less than t1 */
+	ASSERT_TRUE(keystore_rotate_by_time(ks3, ts1-1));
+	ASSERT_EQ(keystore_get_current_session_key(ks3, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 0);
+	ASSERT_TRUE(memcmp(b1, b4, KEYSZ) == 0);
+
+	/* Rotate to key 1 as time is more than t1  but less than t2*/
+	ASSERT_TRUE(keystore_rotate_by_time(ks3, ts2-1));
+	ASSERT_EQ(keystore_get_current_session_key(ks3, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 1);
+	ASSERT_TRUE(memcmp(b2, b4, KEYSZ) == 0);
+
+	/* Rotate to key 2 as time is more than t2, return false as 2 is latest */
+	ASSERT_TRUE(!keystore_rotate_by_time(ks3, ts2+10));
+	ASSERT_EQ(keystore_get_current_session_key(ks3, &idx, b4, KEYSZ), 0);
+	ASSERT_EQ(idx, 2);
+	ASSERT_TRUE(memcmp(b3, b4, KEYSZ) == 0);
 }
 

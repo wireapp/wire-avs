@@ -69,7 +69,8 @@ int egcall_answer(struct icall *icall,
 void egcall_end(struct icall *icall);
 
 void egcall_set_clients(struct icall* icall,
-			struct list *clientl);
+			struct list *clientl,
+			uint32_t epoch);
 
 void egcall_reject(struct icall *icall);
 

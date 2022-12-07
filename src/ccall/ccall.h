@@ -30,32 +30,13 @@
 #define CCALL_MAX_MISSING_PINGS        (     4)
 #define CCALL_NOONE_JOINED_TIMEOUT     (300000)
 #define CCALL_EVERYONE_LEFT_TIMEOUT    ( 30000)
+#define CCALL_ROTATE_MLS_TIMEOUT       (  5000)
+#define CCALL_MLS_KEY_AGE              ( 60000)
 
 #define CCALL_SECRET_LEN               (    16)
 #define CCALL_MAX_RECONNECT_ATTEMPTS   (     2)
 
 #define CCALL_MAX_VSTREAMS             (     9)
-
-struct userinfo {
-	struct le le;
-	char *userid_real;
-	char *userid_hash;
-	char *clientid_real;
-	char *clientid_hash;
-
-	uint32_t ssrca;
-	uint32_t ssrcv;
-	int video_state;
-	bool muted;
-
-	bool needs_key;
-
-	bool incall_now;
-	bool incall_prev;
-	bool se_approved;
-	bool force_decoder;
-	uint32_t listpos;
-};
 
 struct sftconfig {
 	struct le le;
@@ -84,14 +65,15 @@ struct ccall {
 
 	char *convid_real;
 	char *convid_hash;
-	struct userinfo *self;
-	struct userinfo *keygenerator; // points to self or a member of partl
-	struct list partl;
+
+	struct userlist *userl;
+
 	struct mbuf confpart_data;
 	struct list saved_partl;
 
 	const struct ecall_conf *conf;
 	enum ccall_state state;
+	bool is_mls_call;
 
 	char *primary_sft_url;
 	char *sft_url;
@@ -129,6 +111,7 @@ struct ccall {
 	struct tmr tmr_send_check;
 	struct tmr tmr_ongoing;
 	struct tmr tmr_rotate_key;
+	struct tmr tmr_rotate_mls;
 	struct tmr tmr_ring;
 	struct tmr tmr_blacklist;
 	struct tmr tmr_vstate;

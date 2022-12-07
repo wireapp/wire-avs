@@ -463,7 +463,7 @@ skipprops:
 		
 	err = ICALL_CALL_CBE(egcall->icall, sendh,
 		&egcall->icall, egcall->userid_self,
-		msg, &targets, egcall->icall.arg);
+		msg, &targets, false, egcall->icall.arg);
 	if (err != 0) {
 		goto out;
 	}
@@ -607,6 +607,7 @@ int egcall_alloc(struct egcall **egcallp,
 			    egcall_set_clients,
 			    egcall_update_mute_state,
 			    NULL, // egcall_request_video_streams
+			    NULL, // egcall_set_media_key
 			    egcall_debug,
 			    egcall_stats);
 out:
@@ -776,8 +777,10 @@ void egcall_end(struct icall *icall)
 
 
 void egcall_set_clients(struct icall* icall,
-			struct list *clientl)
+			struct list *clientl,
+			uint32_t epoch)
 {
+	(void) epoch;
 	int err = 0;
 	struct egcall *egcall = (struct egcall*)icall;
 
@@ -1107,6 +1110,7 @@ static int ecall_transp_send_handler(struct icall *icall,
 				     const char *userid,
 				     struct econn_message *msg,
 				     struct list *targets,
+				     bool my_clients_only,
 				     void *arg)
 {
 	struct egcall *egcall = arg;
@@ -1141,7 +1145,9 @@ static int ecall_transp_send_handler(struct icall *icall,
 		list_append(&tgts, &c->le, c);
 	}
 	err = ICALL_CALL_CBE(egcall->icall, sendh,
-	 	&egcall->icall, userid, msg, &tgts, egcall->icall.arg);
+	 	&egcall->icall, userid, msg, &tgts,
+		my_clients_only,
+		egcall->icall.arg);
 
 out:
 	mem_deref(str);
