@@ -256,7 +256,7 @@ pipeline {
                 }
             }
             agent {
-                label 'm1'
+                label 'linuxbuild'
             }
             environment {
                 PATH = "/opt/homebrew/bin:/Applications/Xcode.app/Contents/Developer/usr/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${ env.PATH }"
@@ -411,7 +411,7 @@ EOF
                 }
             }
             agent {
-                label 'linuxbuild'
+                label 'm1'
             }
             steps {
                 withCredentials([ string( credentialsId: 'ios-github', variable: 'accessToken' ) ]) {
