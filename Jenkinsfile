@@ -258,6 +258,9 @@ pipeline {
             agent {
                 label 'm1'
             }
+            environment {
+                PATH = "/opt/homebrew/bin:/Applications/Xcode.app/Contents/Developer/usr/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${ env.PATH }"
+            }
             steps {
                 script {
                     // consumed at https://github.com/wireapp/wire-android/blob/develop/scripts/avs.gradle
@@ -434,13 +437,14 @@ EOF
             steps {
                 // NOTE: the script upload-wasm.sh supports non-release branches, but in the past
                 //       it still was only invoked on release branches
-                // TODO: refactor and move script content into the 'sh' directive; ensure NPM as job dependency
-                withCredentials([ string( credentialsId: 'npmtoken', variable: 'accessToken' ) ]) {
-                    sh """
-                        # NOTE: upload-wasm.sh assumes a certain current working directory
-                        NPM_TOKEN=${accessToken} \
-                        ${env.WORKSPACE}/scripts/upload-wasm.sh avs-release-${release_version}
-                    """
+                nodejs("8.5.0") {
+                    withCredentials([ string( credentialsId: 'npmtoken', variable: 'accessToken' ) ]) {
+                        sh """
+                            # NOTE: upload-wasm.sh assumes a certain current working directory
+                            NPM_TOKEN=${accessToken} \
+                            ${env.WORKSPACE}/scripts/upload-wasm.sh avs-release-${release_version}
+                        """
+                    }
                 }
             }
         }
