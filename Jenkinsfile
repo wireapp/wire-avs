@@ -411,7 +411,7 @@ EOF
                 }
             }
             agent {
-                label 'm1'
+                label 'linuxbuild'
             }
             steps {
                 withCredentials([ string( credentialsId: 'ios-github', variable: 'accessToken' ) ]) {
@@ -432,7 +432,7 @@ EOF
                 }
             }
             agent {
-                label 'm1'
+                label 'linuxbuild'
             }
             steps {
                 // NOTE: the script upload-wasm.sh supports non-release branches, but in the past
