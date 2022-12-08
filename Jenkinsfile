@@ -437,7 +437,7 @@ EOF
             steps {
                 // NOTE: the script upload-wasm.sh supports non-release branches, but in the past
                 //       it still was only invoked on release branches
-                nodejs("8.5.0") {
+                nodejs("18.12.1") {
                     withCredentials([ string( credentialsId: 'npmtoken', variable: 'accessToken' ) ]) {
                         sh """
                             # NOTE: upload-wasm.sh assumes a certain current working directory
