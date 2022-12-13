@@ -28,7 +28,7 @@
 # Allowed pairs here are:
 #
 #     HOST_OS=linux		HOST_ARCH=x86_64|i386
-#     HOST_OS=osx		HOST_ARCH=x86_64
+#     HOST_OS=osx		HOST_ARCH=x86_64|arm64
 #
 # You don't need to define those, the system will auto-detect the host
 # itself.
@@ -344,13 +344,9 @@ CPPFLAGS += \
 endif
 ifeq ($(AVS_ARCH),i386)
 AVS_FAMILY := x86
-CPPFLAGS += \
-	-msse2
 endif
 ifeq ($(AVS_ARCH),x86_64)
 AVS_FAMILY := x86
-CPPFLAGS += \
-	-msse2
 endif
 
 

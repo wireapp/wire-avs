@@ -8,9 +8,9 @@ SCAN_DIR :=$(BUILD_BASE)/scan
 SCAN_EXE := $(shell which scan-build)
 
 ifeq ($(SCAN_EXE),)
-	LLVM_ROOT := /usr/local/Cellar/llvm
-	LLVM_VER := $(shell ls -1 $(LLVM_ROOT) | tail -1)
-	SCAN_EXE := $(LLVM_ROOT)/$(LLVM_VER)/bin/scan-build
+	# search for current installed version of llvm in homebrew based environments
+	PATH := $(HOMEBREW_PREFIX)/opt/llvm/bin:$(PATH)
+	SCAN_EXE := $(shell which scan-build)
 endif
 
 .PHONY: scan scan_ios scan_all

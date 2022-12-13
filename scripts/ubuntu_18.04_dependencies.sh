@@ -18,6 +18,7 @@ sudo apt install -y \
     autoconf \
     automake \
     clang \
+    jq \
     libasound2-dev \
     libc++-dev \
     libc++abi-dev \

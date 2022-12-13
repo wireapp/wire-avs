@@ -4,12 +4,12 @@
 #
 # source scripts/android_devenv.sh
 #
-# This will place the SDKs in ../android_dev, set the AVS_DEVTOOLS_ROOT env variable
+# This will place the SDKs in $WORKSPACE/devtools, set the AVS_DEVTOOLS_ROOT env variable
 # to override
 #
 
 if [ -z "$AVS_DEVTOOLS_ROOT" ]; then
-	AVS_DEVTOOLS_ROOT=$(git rev-parse --show-toplevel)/../devtools
+	AVS_DEVTOOLS_ROOT=$(git rev-parse --show-toplevel)/devtools
 fi
 
 PLATFORM=$(uname -s | awk '{ print tolower($1) }')
@@ -20,7 +20,7 @@ BUILDTOOLS_VER=32.0.0
 ANDROID_NDK_VER=21.0.6113669
 ANDROID_SDK_VER=android-21
 
-if [ "$PLATFORM" == "darwin" ]; then
+if [[ "$PLATFORM" == "darwin" ]]; then
 	ANDROID_SDK_PLAT=mac
 else
 	ANDROID_SDK_PLAT=$PLATFORM
