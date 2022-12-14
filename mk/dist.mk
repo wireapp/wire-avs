@@ -54,6 +54,7 @@ endif
 
 DIST_ARCH_android := $(filter armv7 arm64 i386 x86_64 osx,$(DIST_ARCH))
 DIST_ARCH_ios := $(filter arm64 x86_64,$(DIST_ARCH))
+DIST_ARCH_osx := $(filter arm64 x86_64,$(DIST_ARCH))
 
 DIST_FMWK_VERSION := A
 DIST_BUNDLE_LIB_NAME := AVS Library
@@ -318,10 +319,12 @@ dist_test: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 
 .PHONY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
-	@$(MAKE) contrib AVS_OS=osx AVS_ARCH=arm64 && \
-	$(MAKE) iosx AVS_OS=osx AVS_ARCH=arm64
-	@mkdir -p $(dir $@)
-	@cp $(BUILD_BASE)/osx-arm64/lib/avs.framework/avs $@
+	@for arch in $(DIST_ARCH_osx) ; do \
+		@$(MAKE) contrib AVS_OS=osx AVS_ARCH=$$arch && \
+		$(MAKE) iosx AVS_OS=osx AVS_ARCH=$$arch
+		@mkdir -p $(dir $@)
+		@cp $(BUILD_BASE)/osx-$$arch/lib/avs.framework/avs $@
+	done
 
 
 # Package
