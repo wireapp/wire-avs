@@ -309,6 +309,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 static void ccall_send_check_timeout(void *arg)
 {
 	struct ccall *ccall = arg;
+	uint64_t now = 0;
 	int err = 0;
 
 	if (CCALL_STATE_ACTIVE == ccall->state &&
@@ -321,7 +322,23 @@ static void ccall_send_check_timeout(void *arg)
 			warning("ccall(%p): send_check failed to send msg err=%d\n",
 				ccall, err);
 		}
+
+		if (ccall->is_mls_call) {
+			now = tmr_jiffies();
+			info("ccall(%p): checking epoch age "
+			     "tdiff: %llu timeout: %llu\n",
+			     ccall,
+			     now - ccall->epoch_start_ts,
+			     CCALL_REQ_NEW_EPOCH_TIMEOUT);
+		    	if (ccall->epoch_start_ts > 0 &&
+			    now - ccall->epoch_start_ts >= CCALL_REQ_NEW_EPOCH_TIMEOUT) {
+				info("ccall(%p): calling req_new_epochh\n", ccall);
+				ICALL_CALL_CB(ccall->icall, req_new_epochh,
+					&ccall->icall, ccall->icall.arg);
+			}
+		}
 	}
+
 	tmr_start(&ccall->tmr_send_check,
 		  CCALL_SEND_CHECK_TIMEOUT,
 		  ccall_send_check_timeout, ccall);
@@ -1256,6 +1273,7 @@ static int ccall_set_media_key(struct icall *icall,
 	if (err)
 		goto out;
 
+	ccall->epoch_start_ts = tmr_jiffies();
 	userlist_set_latest_epoch(ccall->userl, epochid);
 	err = ccall_sync_props(ccall);
 	if (err) {
@@ -2026,6 +2044,7 @@ static int create_ecall(struct ccall *ccall)
 			    NULL, // ecall_req_clients_handler,
 			    NULL, // ecall_norelay_handler,
 			    ecall_aulevel_handler,
+			    NULL, // ecall_req_new_epoch_handler,
 			    ccall);
 
 	ecall_set_confmsg_handler(ecall, ecall_confmsg_handler);

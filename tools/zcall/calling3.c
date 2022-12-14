@@ -1011,6 +1011,7 @@ static void set_clients_for_conv(struct engine_conv *conv)
 {
 	request_clients(conv, 0);
 }
+
 static void wcall_req_clients_handler(WUSER_HANDLE wuser,
 				      const char *convid, void *arg)
 {
@@ -1036,6 +1037,26 @@ static void wcall_active_speaker_handler(WUSER_HANDLE wuser,
 {
 	(void)arg;
 	info("Active speaker(s) changed on convid:%s -> %s\n", convid, json_levels);
+}
+
+static void wcall_req_new_epoch_handler(WUSER_HANDLE wuser,
+					const char *convid,
+					void *arg)
+{
+	struct engine_conv *conv = NULL;
+	int err = 0;
+
+	(void)wuser;
+	(void)arg;
+
+	info("XXXX Request for new epoch convid:%s\n", convid);
+	err = engine_lookup_conv(&conv, zcall_engine, convid);
+	if (err) {
+		warning("calling: cannot find conversation: %s: %m\n",
+			convid, err);
+	}
+
+	calling3_new_media_key(conv);
 }
 
 int calling3_start(struct engine_conv *conv)
@@ -1322,6 +1343,9 @@ int calling3_init(void)
 
 	wcall_set_active_speaker_handler(calling3.wuser,
 					 wcall_active_speaker_handler);
+
+	wcall_set_req_new_epoch_handler(calling3.wuser,
+					wcall_req_new_epoch_handler);
 
 	/* NOTE: must be done after wcall_create */
 	if (!g_use_kase)

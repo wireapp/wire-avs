@@ -281,6 +281,7 @@ struct ecall_wrapper *init_ecall(const char *name, bool fake_auth)
 			    NULL, // no_relay_handler,
 			    NULL, // req_clients_handler,
 			    NULL, // aulevel_handler,
+			    NULL, // req_new_epoch_handler,
 			    wrapper);
 	err = ICALL_CALLE(wrapper->icall, add_sft,
 		SFT_URL);

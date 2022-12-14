@@ -205,6 +205,8 @@ typedef void (icall_req_clients_h)(struct icall *icall, void *arg);
 
 typedef void (icall_audio_level_h)(struct icall *icall, struct list *levell, void *arg);
 
+typedef void (icall_req_new_epoch_h)(struct icall *icall, void *arg);
+
 struct icall {
 	icall_add_turnserver		*add_turnserver;
 	icall_add_sft			*add_sft;
@@ -247,6 +249,7 @@ struct icall {
 	icall_norelay_h			*norelayh;
 	icall_req_clients_h		*req_clientsh;
 	icall_audio_level_h             *audio_levelh;
+	icall_req_new_epoch_h		*req_new_epochh;
 
 	void				*arg;
 }__attribute__ ((aligned (8)));
@@ -300,6 +303,7 @@ void icall_set_callbacks(struct icall *icall,
 			 icall_norelay_h	*norelayh,
 			 icall_req_clients_h	*req_clientsh,
 			 icall_audio_level_h    *audio_levelh,
+			 icall_req_new_epoch_h  *req_new_epochh,
 			 void			*arg);
 
 const char *icall_vstate_name(enum icall_vstate state);

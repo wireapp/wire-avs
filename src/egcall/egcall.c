@@ -1228,6 +1228,7 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 			    ecall_norelay_handler,
 			    NULL,
 			    NULL,
+			    NULL,
 			    egcall);
 
 	if (err) {

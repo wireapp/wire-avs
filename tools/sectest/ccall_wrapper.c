@@ -370,6 +370,7 @@ struct ccall_wrapper *init_ccall(const char *name,
 			    NULL, // no_relay_handler,
 			    ccall_req_clients_handler,
 			    NULL, // aulevel_handler,
+			    NULL, // req_new_epoch_handler,
 			    wrapper);
 	err = ICALL_CALLE(wrapper->icall, add_sft,
 		SFT_URL);

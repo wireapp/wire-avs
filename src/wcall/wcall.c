@@ -119,6 +119,7 @@ struct calling_instance {
 	wcall_req_clients_h *clients_reqh;
 	wcall_active_speaker_h *active_speakerh;
 	wcall_shutdown_h *shuth;
+	wcall_req_new_epoch_h *req_new_epochh;;
 	void *shuth_arg;
 	struct {
 		wcall_group_changed_h *chgh;
@@ -1586,6 +1587,32 @@ static void icall_aulevel_handler(struct icall *icall, struct list *levell, void
 }
 
 
+static void icall_req_new_epoch_handler(struct icall *icall, void *arg)
+{
+	struct wcall *wcall = arg;
+	struct calling_instance *inst = wcall ? wcall->inst : NULL;
+	uint64_t now;
+
+	info("XXXX wcall: req_new_epochh\n");
+	if (!WCALL_VALID(wcall)) {
+		warning("wcall(%p): icall_req_new_epoch_handler wcall not valid\n",
+			wcall);
+		return;
+	}
+
+	if (!inst->req_new_epochh)
+		return;
+
+	info(APITAG "wcall(%p): calling req_new_epochh:%p \n",
+	     wcall, inst->req_new_epochh);
+	now = tmr_jiffies();
+	inst->req_new_epochh(inst2wuser(inst), wcall->convid, inst->arg);
+
+		info(APITAG "wcall(%p): req_new_epochh took %llu ms\n",
+	     wcall, tmr_jiffies() - now);
+}
+
+
 int wcall_add(struct calling_instance *inst,
 	      struct wcall **wcallp,
 	      const char *convid,
@@ -1676,6 +1703,7 @@ int wcall_add(struct calling_instance *inst,
 				    NULL, // no_relay_handler,
 				    icall_req_clients_handler,
 				    icall_aulevel_handler,
+				    NULL, // icall_req_new_epoch_handler,
 				    wcall);		
 		}
 		break;
@@ -1715,6 +1743,7 @@ int wcall_add(struct calling_instance *inst,
 				    NULL, // no_relay_handler,
 				    icall_req_clients_handler,
 				    icall_aulevel_handler,
+				    NULL, // icall_req_new_epoch_handler,
 				    wcall);
 		}
 		break;
@@ -1756,6 +1785,7 @@ int wcall_add(struct calling_instance *inst,
 				    NULL, // no_relay_handler,
 				    icall_req_clients_handler,
 				    icall_aulevel_handler,
+				    icall_req_new_epoch_handler,
 				    wcall);
 
 		ccall_set_config(ccall, inst->cfg);
@@ -2948,6 +2978,23 @@ void wcall_set_media_estab_handler(WUSER_HANDLE wuser,
 	}
 	
 	inst->mestabh = mestabh;
+}
+
+
+AVS_EXPORT
+void wcall_set_req_new_epoch_handler(WUSER_HANDLE wuser,
+				     wcall_req_new_epoch_h req_new_epochh)
+{
+	struct calling_instance *inst;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: set_req_new_epoch_h: invalid wuser=0x%08X\n",
+			wuser);
+		return;
+	}
+	
+	inst->req_new_epochh = req_new_epochh;
 }
 
 

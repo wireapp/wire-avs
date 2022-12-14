@@ -161,6 +161,12 @@ typedef void (wcall_data_chan_estab_h)(const char *convid,
 /* Mute handler */
 typedef void (wcall_mute_h)(int muted, void *arg);
 
+/* Request new epoch handler */
+typedef void (wcall_req_new_epoch_h)(WUSER_HANDLE wuser,
+				     const char *convid,
+				     void *arg);
+
+
 #define WCALL_REASON_NORMAL             0
 #define WCALL_REASON_ERROR              1
 #define WCALL_REASON_TIMEOUT            2
@@ -426,6 +432,9 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 			 const char *clients_json,
 			 uint8_t *key_data,
 			 uint32_t key_size);
+
+void wcall_set_req_new_epoch_handler(WUSER_HANDLE wuser,
+				     wcall_req_new_epoch_h req_new_epochh);
 
 int wcall_get_mute(WUSER_HANDLE wuser);
 void wcall_set_mute(WUSER_HANDLE wuser, int muted);

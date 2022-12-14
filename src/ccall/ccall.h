@@ -16,27 +16,28 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#define CCALL_CONNECT_TIMEOUT          ( 15000)
-#define CCALL_SHOULD_RING_TIMEOUT      ( 30000)
-#define CCALL_RINGER_TIMEOUT           ( 30000)
+#define CCALL_CONNECT_TIMEOUT          (   15000)
+#define CCALL_SHOULD_RING_TIMEOUT      (   30000)
+#define CCALL_RINGER_TIMEOUT           (   30000)
 
-#define CCALL_CONFSTART_TIMEOUT_S      (   120)
-#define CCALL_SEND_CHECK_TIMEOUT       ( 60000)
-#define CCALL_ONGOING_CALL_TIMEOUT     ( 90000)
-#define CCALL_ROTATE_KEY_TIMEOUT       ( 30000)
-#define CCALL_ROTATE_KEY_FIRST_TIMEOUT (  5000)
-#define CCALL_DECRYPT_CHECK_TIMEOUT    ( 10000)
-#define CCALL_KEEPALIVE_TIMEOUT        (  5000)
-#define CCALL_MAX_MISSING_PINGS        (     4)
-#define CCALL_NOONE_JOINED_TIMEOUT     (300000)
-#define CCALL_EVERYONE_LEFT_TIMEOUT    ( 30000)
-#define CCALL_ROTATE_MLS_TIMEOUT       (  5000)
-#define CCALL_MLS_KEY_AGE              ( 60000)
+#define CCALL_CONFSTART_TIMEOUT_S      (     120)
+#define CCALL_SEND_CHECK_TIMEOUT       (   60000)
+#define CCALL_ONGOING_CALL_TIMEOUT     (   90000)
+#define CCALL_ROTATE_KEY_TIMEOUT       (   30000)
+#define CCALL_ROTATE_KEY_FIRST_TIMEOUT (    5000)
+#define CCALL_DECRYPT_CHECK_TIMEOUT    (   10000)
+#define CCALL_KEEPALIVE_TIMEOUT        (    5000)
+#define CCALL_MAX_MISSING_PINGS        (       4)
+#define CCALL_NOONE_JOINED_TIMEOUT     (  300000)
+#define CCALL_EVERYONE_LEFT_TIMEOUT    (   30000)
+#define CCALL_ROTATE_MLS_TIMEOUT       (    5000)
+#define CCALL_MLS_KEY_AGE              (   60000)
+#define CCALL_REQ_NEW_EPOCH_TIMEOUT    (82800000)
 
-#define CCALL_SECRET_LEN               (    16)
-#define CCALL_MAX_RECONNECT_ATTEMPTS   (     2)
+#define CCALL_SECRET_LEN               (      16)
+#define CCALL_MAX_RECONNECT_ATTEMPTS   (       2)
 
-#define CCALL_MAX_VSTREAMS             (     9)
+#define CCALL_MAX_VSTREAMS             (       9)
 
 struct sftconfig {
 	struct le le;
@@ -106,6 +107,7 @@ struct ccall {
 	int received_confpart;
 	int error;
 
+	uint64_t epoch_start_ts;
 	struct tmr tmr_connect;
 	struct tmr tmr_call;
 	struct tmr tmr_send_check;
