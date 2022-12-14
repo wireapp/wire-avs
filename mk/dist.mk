@@ -320,10 +320,10 @@ dist_test: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 .PHONY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
 	@for arch in $(DIST_ARCH_osx) ; do \
-		@$(MAKE) contrib AVS_OS=osx AVS_ARCH=$$arch && \
-		$(MAKE) iosx AVS_OS=osx AVS_ARCH=$$arch
-		@mkdir -p $(dir $@)
-		@cp $(BUILD_BASE)/osx-$$arch/lib/avs.framework/avs $@
+		$(MAKE) contrib AVS_OS=osx AVS_ARCH=$$arch && \
+		$(MAKE) iosx AVS_OS=osx AVS_ARCH=$$arch && \
+		mkdir -p $(dir $@) && \
+		cp $(BUILD_BASE)/osx-$$arch/lib/avs.framework/avs $@ ; \
 	done
 
 
