@@ -434,7 +434,7 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 			 uint32_t key_size);
 
 void wcall_set_req_new_epoch_handler(WUSER_HANDLE wuser,
-				     wcall_req_new_epoch_h req_new_epochh);
+				     wcall_req_new_epoch_h *req_new_epochh);
 
 int wcall_get_mute(WUSER_HANDLE wuser);
 void wcall_set_mute(WUSER_HANDLE wuser, int muted);
