@@ -1973,7 +1973,6 @@ void wcall_i_audio_route_changed(enum mediamgr_auplay new_route)
 	msystem_set_auplay(dev);
 }
 
-#ifndef __EMSCRIPTEN__
 AVS_EXPORT
 int wcall_setup_ex(int flags)
 {
@@ -1999,10 +1998,12 @@ int wcall_setup_ex(int flags)
 		return err;
 	}
 
+#ifndef __EMSCRIPTEN__
 	if (calling.flags & AVS_FLAG_NOISE_TEST)
 		audio_io_enable_noise();
 	else if (calling.flags & AVS_FLAG_AUDIO_TEST)
 		audio_io_enable_sine();
+#endif
 
 	// TODO: remove flowmgr
 	err = flowmgr_init("voe");
@@ -2021,7 +2022,6 @@ int wcall_setup(void)
 {
 	return wcall_setup_ex(0);
 }
-#endif
 
 AVS_EXPORT
 int wcall_init(int env)
