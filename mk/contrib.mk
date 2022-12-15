@@ -258,7 +258,7 @@ CONTRIB_WEBRTC_ZIP_FILES := \
 
 $(CONTRIB_WEBRTC_ZIP_FILES):
 	@mkdir -p $(CONTRIB_WEBRTC_ROOT) && \
-	python scripts/get_webrtc.py $(WEBRTC_VER)
+	./scripts/get_webrtc.py $(WEBRTC_VER)
 
 CONTRIB_WEBRTC_TARGET := \
 	$(CONTRIB_WEBRTC_ROOT)/$(WEBRTC_VER)/lib/$(AVS_PAIR)/libwebrtc.a
