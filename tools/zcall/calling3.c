@@ -922,7 +922,7 @@ static void get_clients_missing_handler(const char *userid,
 	jcli = jzon_alloc_object();
 	jzon_add_str(jcli, "userid", "%s", userid);
 	jzon_add_str(jcli, "clientid", "%s", clientid);
-	jzon_add_bool(jcli, "in_subconv", true);
+	jzon_add_bool(jcli, "in_subconv", g_use_mls);
 
 	json_object_array_add(ctx->jclients, jcli);
 }

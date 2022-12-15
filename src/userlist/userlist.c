@@ -727,10 +727,10 @@ int userlist_get_members(struct userlist *list,
 	LIST_FOREACH(&list->users, le) {
 		struct userinfo *u = le->data;
 
-		assert(mm->membc < n);
 		if (u && u->se_approved && (u->incall_now || u->in_subconv)) {
 			struct wcall_member *memb = &(mm->membv[mm->membc]);
 
+			assert(mm->membc < n);
 			str_dup(&memb->userid, u->userid_real);
 			str_dup(&memb->clientid, u->clientid_real);
 			memb->audio_state = u->ssrca > 0 ?
