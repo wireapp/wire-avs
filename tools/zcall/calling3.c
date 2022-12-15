@@ -522,7 +522,7 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 			goto out;
 	}
  out:
-	printf("json_str=%s\n", json_str);
+	info("config_update json_str=%s\n", json_str);
 	wcall_config_update(c3ctx->wuser, err, json_str);
 
  error:
@@ -1049,7 +1049,7 @@ static void wcall_req_new_epoch_handler(WUSER_HANDLE wuser,
 	(void)wuser;
 	(void)arg;
 
-	info("XXXX Request for new epoch convid:%s\n", convid);
+	info("calling3: request for new epoch convid:%s\n", convid);
 	err = engine_lookup_conv(&conv, zcall_engine, convid);
 	if (err) {
 		warning("calling: cannot find conversation: %s: %m\n",
