@@ -64,7 +64,7 @@ This is to be called instead of set_clients_for_conv for MLS conference calls. T
 Clients should call wcall_set_epoch_info whenever there is an epoch change to supply AVS with the list of clients, their status in the sub-conversation and the new media key for the epoch.
 
 
-A new callback wcall_req_new_epoch_his provided to inform MLS when it is time for a new epoch to be generated. This is called only on the key generators client after a period (currently 23 hours) in the current epoch.
+A new callback wcall_req_new_epoch_h is provided to inform MLS when it is time for a new epoch to be generated. This is called only on the key generators client after a period (currently 23 hours) in the current epoch.
 
 typedef void (wcall_req_new_epoch_h)(WUSER_HANDLE wuser,
                                      const char *convid,
