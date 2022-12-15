@@ -21,5 +21,5 @@
     "prepack": "prettier -w src/avs_wcall.ts && tsc && cp src/*.js src/*.d.ts dist/",
     "test": "karma start"
   },
-  "version": "0"
+  "version": "0.0.0"
 }
