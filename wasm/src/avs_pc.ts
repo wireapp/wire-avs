@@ -1335,7 +1335,7 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
 	      for (const track of stream.getTracks()) {
 		  if (track) {
 		      label = track.label;
-		      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid} track=${track.id}/${track.label} kind=${track.kind} enabled=${track.enabled}/${track.muted}/${track.readonly}/${track.readyState} remote=${track.remote}`);
+		      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid} track=${track.id}/${track.label} kind=${track.kind} enabled=${track.enabled}/${track.muted}/undefined/${track.readyState} remote=undefined`);
 		      if (!track.enabled)
 		       	track.enabled = true;
 
