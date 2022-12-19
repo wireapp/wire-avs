@@ -1205,8 +1205,10 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
     ccallDcStateChangeHandler(pc, DC_STATE_CLOSED);
   };
   dc.onerror = event => {
-    pc_log(LOG_LEVEL_INFO, `dc-error: ${event.error}`);
-    ccallDcStateChangeHandler(pc, DC_STATE_ERROR);
+    if (event instanceof RTCErrorEvent) {
+      pc_log(LOG_LEVEL_INFO, `dc-error: ${event.error}`);
+      ccallDcStateChangeHandler(pc, DC_STATE_ERROR);
+    }
   };
   dc.onmessage = event => {
     pc_log(LOG_LEVEL_INFO, `dc-onmessage: data=${event.data.length}`);
