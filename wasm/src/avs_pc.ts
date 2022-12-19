@@ -799,7 +799,7 @@ const connectionsStore = (() => {
   };
 })();
 
-function pc_log(level: number, msg: string, err = null) {
+function pc_log(level: number, msg: string, err: any = null) {
 
     em_module.ccall(
       "pc_log",
