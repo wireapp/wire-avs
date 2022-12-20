@@ -15,7 +15,7 @@ fi
 PLATFORM=$(uname -s | awk '{ print tolower($1) }')
 MACHINE=$(uname -m)
 
-EMSDK_VER=1.38.48
+EMSDK_VER=3.1.21
 
 if [ ! -e $AVS_DEVTOOLS_ROOT ]; then
 	mkdir -p $AVS_DEVTOOLS_ROOT

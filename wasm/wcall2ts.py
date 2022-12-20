@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python3
 import re
 import sys
 
@@ -120,10 +120,10 @@ def convert_fn(fn):
 		   'wcall_free_members',
 		   'wcall_thread_main',
 		   'wcall_netprobe',
-                   'wcall_debug',
-                   'wcall_stats',
-                   'wcall_dce_send',
-                   'wcall_set_media_laddr',
+		   'wcall_debug',
+		   'wcall_stats',
+		   'wcall_dce_send',
+		   'wcall_set_media_laddr',
 		   'wcall_run']
 
 	m = re.search('(\w+)\s+(\w+)\((.*)\);', fn)
@@ -172,7 +172,7 @@ def convert_fn(fn):
 				fndef += '\'{}\');\n'.format(cb['proto'])
 				argnames[i] = 'fn_{}'.format(argnames[i])
 				argtypes[i] = 'number'
-                                
+
 		if ret == 'void':
 			fndef += ''
 		else:
@@ -231,7 +231,7 @@ def convert_cb(fn):
 		argnames = []
 
 		tsname = convert_to_camel(fname, True) + 'andler'
-		fndef =  'export type {} = (\n'.format(tsname)
+		fndef = 'export type {} = (\n'.format(tsname)
 
 		if ret == 'void':
 			fproto = 'v'

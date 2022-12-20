@@ -799,7 +799,7 @@ const connectionsStore = (() => {
   };
 })();
 
-function pc_log(level: number, msg: string, err = null) {
+function pc_log(level: number, msg: string, err: any = null) {
 
     em_module.ccall(
       "pc_log",
@@ -1205,8 +1205,10 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
     ccallDcStateChangeHandler(pc, DC_STATE_CLOSED);
   };
   dc.onerror = event => {
-    pc_log(LOG_LEVEL_INFO, `dc-error: ${event.error}`);
-    ccallDcStateChangeHandler(pc, DC_STATE_ERROR);
+    if (event instanceof RTCErrorEvent) {
+      pc_log(LOG_LEVEL_INFO, `dc-error: ${event.error}`);
+      ccallDcStateChangeHandler(pc, DC_STATE_ERROR);
+    }
   };
   dc.onmessage = event => {
     pc_log(LOG_LEVEL_INFO, `dc-onmessage: data=${event.data.length}`);
@@ -1335,7 +1337,7 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
 	      for (const track of stream.getTracks()) {
 		  if (track) {
 		      label = track.label;
-		      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid} track=${track.id}/${track.label} kind=${track.kind} enabled=${track.enabled}/${track.muted}/${track.readonly}/${track.readyState} remote=${track.remote}`);
+		      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid} track=${track.id}/${track.label} kind=${track.kind} enabled=${track.enabled}/${track.muted}/undefined/${track.readyState} remote=undefined`);
 		      if (!track.enabled)
 		       	track.enabled = true;
 
