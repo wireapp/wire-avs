@@ -68,14 +68,13 @@ pipeline {
                         sh 'make dist_clean'
                         sh 'make zcall AVS_VERSION=' + version
                         sh '''#!/bin/bash
-                            . ./scripts/android_devenv.sh && . ./scripts/wasm_devenv.sh && make dist_linux dist_android dist_wasm AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
+                            . ./scripts/android_devenv.sh && make dist_linux dist_android AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
                         '''
                         sh 'rm -rf ./build/artifacts'
                         sh 'mkdir -p ./build/artifacts'
                         sh 'cp ./build/dist/linux/avscore.tar.bz2 ./build/artifacts/avs.linux.' + version + '.tar.bz2'
                         sh 'zip -9j ./build/artifacts/avs.android.' + version + '.zip ./build/dist/android/avs.aar'
                         sh 'zip -9j ./build/artifacts/zcall_linux_' + version + '.zip ./zcall'
-                        sh 'cp ./build/dist/wasm/wireapp-avs-' + version + '.tgz ./build/artifacts/'
                         sh 'if [ -e ./build/dist/android/debug/ ]; then cd ./build/dist/android/debug; zip -9r ./../../../artifacts/avs.android.' + version + '.debug.zip *; cd -; fi'
 
                         archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
@@ -124,12 +123,11 @@ pipeline {
                         sh './ztest'
 
                         // build
-                        sh 'mkdir -p ./contrib/webrtc/72.5/lib/wasm-generic'
-                        sh 'touch ./contrib/webrtc/72.5/lib/wasm-generic/libwebrtc.a'
-
                         sh 'make dist_clean'
                         sh 'make zcall AVS_VERSION=' + version
-                        sh 'make dist_osx dist_ios AVS_VERSION=' + version + ' BUILDVERSION=' + version
+                        sh '''#!/bin/bash
+                            . ./scripts/wasm_devenv.sh && make dist_osx dist_ios dist_wasm AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
+                        '''
 
                         sh 'rm -rf ./build/artifacts'
                         sh 'mkdir -p ./build/artifacts'
@@ -138,6 +136,7 @@ pipeline {
                         sh 'zip -9j ./build/artifacts/zcall_osx_' + version + '.zip ./zcall'
                         sh 'mkdir -p ./osx'
                         sh 'cp ./build/dist/osx/avscore.tar.bz2 ./osx'
+                        sh 'cp ./build/dist/wasm/wireapp-avs-' + version + '.tgz ./build/artifacts/'
 
                         archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
                     }
