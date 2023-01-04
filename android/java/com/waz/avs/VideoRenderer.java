@@ -145,6 +145,8 @@ public class VideoRenderer extends GLSurfaceView
 
 		nativeFunctionLock.unlock();
 		Log.d(TAG, "onSurfaceChanged(" + this + "): native=" + nativeObject);
+		if (nativeObject != 0)
+			hasSurface = true;
 	}
 
 	private boolean enter() {

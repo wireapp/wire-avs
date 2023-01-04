@@ -2,7 +2,7 @@
 TOOLCHAIN_GCC_VERSION  := 4.9
 TOOLCHAIN_LLVM_VERSION := 3.4
 #TOOLCHAIN_PLATFORM     := android-16
-TOOLCHAIN_API          := 21
+TOOLCHAIN_API          := 25
 TOOLCHAIN_STL          := libc++
 
 TOOLCHAIN_ARCH_armv7   := arm
@@ -63,7 +63,6 @@ $(TOOLCHAIN_BASE_PATH)/android-%/stat: $(ANDROID_NDK_ROOT) $(TC_MKS)
 	@if [ x$$ANDROID_NDK_ROOT = x ] ; then \
 		echo ANDROID_NDK_ROOT not set ; \exit 1 ; \
 	fi
-	@rm -rf $(TOOLCHAIN_PATH)
 	$(ANDROID_NDK_ROOT)/build/tools/make_standalone_toolchain.py \
 		--stl=$(TOOLCHAIN_STL) \
 		--arch=$(TOOLCHAIN_ARCH) \
@@ -89,7 +88,6 @@ $(TOOLCHAIN_BASE_PATH)/%/stat:
 
 #--- Phony Targets ---
 
-TOOLCHAIN_MASTER := $(TOOLCHAIN_PATH)/stat
 
 ifeq ($(AVS_OS),android)
 TOOLCHAIN_MASTER += $(TC_STATIC)
@@ -97,9 +95,8 @@ endif
 
 .PHONY: toolchain toolchain_clean
 toolchain: $(TOOLCHAIN_MASTER)
+
 toolchain_clean:
-	@rm -rf $(TOOLCHAIN_PATH)
-	@rm -rf $(TC_STATIC)
 
 
 

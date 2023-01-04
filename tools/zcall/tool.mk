@@ -51,7 +51,9 @@ zcall_CPPFLAGS	+= -DHAVE_READLINE=1
 zcall_LIBS	+= -lreadline
 endif
 
+ifneq ($(AVS_OS),android)
 zcall_LIBS	+= -lpthread
+endif
 
 zcall_DEPS := $(AVS_DEPS) $(MENG_DEPS)
 zcall_LIB_FILES := $(AVS_STATIC) $(MENG_STATIC)
