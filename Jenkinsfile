@@ -192,7 +192,6 @@ pipeline {
                     sh(
                         script: """
                             cd "${env.WORKSPACE}"
-			    pip3 install six
                             GITHUB_USER=${repoUser} \
                             GITHUB_TOKEN=${accessToken} \
 			    python3 ./scripts/release-on-github.py \
