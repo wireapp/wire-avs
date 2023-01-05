@@ -195,7 +195,6 @@ pipeline {
 
                             GITHUB_USER=${repoUser} \
                             GITHUB_TOKEN=${accessToken} \
-                            pip install six \
 			    python3 ./scripts/release-on-github.py \
                                 ${repoName} \
                                 \$(mktemp -d) \
