@@ -204,7 +204,7 @@ $(AVS_C_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.c
 $(AVS_CC_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.cpp
 	@echo "  CXX  $(AVS_OS)-$(AVS_ARCH) src/$*.cpp"
 	@mkdir -p $(dir $@)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) \
+	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) \
 		$(AVS_CPPFLAGS_$(dir $*)) $(AVS_CXXFLAGS_$(dir $*)) \
 		-c $< -o $@ $(DFLAGS)
