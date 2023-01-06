@@ -119,7 +119,6 @@ DIST_OSX_TARGETS := \
 	$(BUILD_DIST_OSX)/avscore.tar.bz2
 
 DIST_LINUX_TARGETS := \
-	$(BUILD_DIST_LINUX)/lib$(BUILD_LIB_REL).so \
 	$(BUILD_DIST_LINUX)/avscore.tar.bz2
 
 DIST_WASM_PKG_VERSION := $(subst local,0,$(AVS_VERSION))
@@ -382,16 +381,6 @@ $(BUILD_DIST_OSX)/$(BUILD_BALL_REL)/lib/libavsobjc.a:
 
 $(BUILD_DIST)/%/lib/libavsobjc.stripped.a: $(BUILD_DIST)/%/lib/libavsobjc.a
 	strip -S -o $@ $^
-
-#--- Linux shared ---
-$(BUILD_DIST_LINUX)/lib$(BUILD_LIB_REL).so:
-	$(MAKE) toolchain AVS_OS=linux AVS_ARCH=x86_64 && \
-	$(MAKE) contrib AVS_OS=linux AVS_ARCH=x86_64 && \
-	$(MAKE) $(JOBS) avs AVS_OS=linux AVS_ARCH=x86_64 && \
-	$(MAKE) linux_shared AVS_DEPS=$(AVS_DEPS) AVS_OS=linux AVS_ARCH=x86_64
-	cp -a $(BUILD_BASE)/linux-$(HOST_ARCH)/lib/lib$(BUILD_LIB_REL).so \
-		$(dir $@)
-
 
 #--- avscore Tarballs ---
 
