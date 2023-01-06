@@ -608,8 +608,18 @@ JNI_SUFFIX := .so
 
 # Settings
 #
+CFLAGS += \
+	 -fPIC
+
 CPPFLAGS += \
-         -DWEBRTC_POSIX -DWEBRTC_LINUX -DHAVE_GAI_STRERROR=1
+         -DWEBRTC_POSIX -DWEBRTC_LINUX -DHAVE_GAI_STRERROR=1 \
+	 -fPIC
+
+CXXFLAGS += \
+	 -fPIC
+
+LFLAGS += \
+	 -fPIC
 
 SH_LFLAGS += -shared
 

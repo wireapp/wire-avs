@@ -54,7 +54,7 @@ AVS_RELEASE := 1
 endif
 endif
 
-MK_COMPONENTS := toolchain contrib avs tools test android iosx dist scan
+MK_COMPONENTS := toolchain contrib avs tools test android linux iosx dist scan
 
 
 #--- Configuration ---
