@@ -88,8 +88,9 @@ void user_close(void);
 
 
 /* Get your engine here.  */
-struct engine *zcall_engine;
-struct store *zcall_store;
+extern struct engine *zcall_engine;
+extern struct store *zcall_store;
+
 extern bool zcall_auto_answer;
 extern bool zcall_video;
 extern bool zcall_av_test;
