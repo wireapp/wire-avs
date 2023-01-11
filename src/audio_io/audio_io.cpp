@@ -76,6 +76,12 @@ void *audio_io_create_adm(void)
 #endif
 	}
 
+#ifdef __linux__
+	if (!g_aioc) {
+		g_aioc = new webrtc::fake_audiodevice(true);
+	}
+#endif
+
 	if (g_aioc && g_enable_sine)
 		g_aioc->EnableSine();
 	else if (g_aioc && g_enable_noise)

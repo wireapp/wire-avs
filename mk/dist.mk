@@ -389,7 +389,8 @@ $(BUILD_DIST_LINUX)/lib$(BUILD_LIB_REL).so:
 	$(MAKE) contrib AVS_OS=linux AVS_ARCH=x86_64 && \
 	$(MAKE) $(JOBS) avs AVS_OS=linux AVS_ARCH=x86_64 && \
 	$(MAKE) linux_shared AVS_DEPS=$(AVS_DEPS) AVS_OS=linux AVS_ARCH=x86_64
-	cp -a $(BUILD_BASE)/linux-$(HOST_ARCH)/lib/lib$(BUILD_LIB_REL).so \
+	@mkdir -p $(dir $@)
+	@cp -a $(BUILD_BASE)/linux-$(HOST_ARCH)/lib/lib$(BUILD_LIB_REL).so \
 		$(dir $@)
 
 

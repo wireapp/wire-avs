@@ -609,19 +609,24 @@ JNI_SUFFIX := .so
 # Settings
 #
 CFLAGS += \
-	 -fPIC
+         -fpic \
+         -ffunction-sections -funwind-tables \
+         -fno-short-enums \
+         -fomit-frame-pointer -fno-strict-aliasing \
+         -fPIC -fvisibility=default
 
 CPPFLAGS += \
          -DWEBRTC_POSIX -DWEBRTC_LINUX -DHAVE_GAI_STRERROR=1 \
-	 -fPIC
+	 -fPIC -fvisibility=default
 
 CXXFLAGS += \
-	 -fPIC
+	 -fPIC -fvisibility=default
 
-LFLAGS += \
-	 -fPIC
-
-SH_LFLAGS += -shared
+SH_LFLAGS += \
+        -ffunction-sections -funwind-tables \
+        -fno-short-enums \
+        -fomit-frame-pointer -fno-strict-aliasing \
+        -shared -fvisibility=default
 
 LIBS += -lX11 -lXcomposite -lXdamage -lXext -lXfixes -lXrender 
 

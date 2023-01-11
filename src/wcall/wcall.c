@@ -2157,9 +2157,13 @@ WUSER_HANDLE wcall_create(const char *userid,
 #ifdef __EMSCRIPTEN__
 	use_mediamgr = false;
 #else
+#ifdef __linux__
+	use_mediamgr = false;
+#else
 	use_mediamgr = true;
 #endif
-		
+#endif
+
 	return wcall_create_ex(userid,
 			       clientid,
 			       use_mediamgr,
@@ -3516,7 +3520,6 @@ static void wcall_log_handler(uint32_t level, const char *msg, void *arg)
 		break;
 	}
 	
-	
 	if (loge->logh)
 		loge->logh(wlvl, msg, loge->arg);
 }
@@ -3531,8 +3534,6 @@ void wcall_set_log_handler(wcall_log_h *logh, void *arg)
 	if (!loge)
 		return;
 
-	log_enable_stderr(false);
-	
 	loge->logh = logh;
 	loge->arg = arg;
 
@@ -3540,6 +3541,7 @@ void wcall_set_log_handler(wcall_log_h *logh, void *arg)
 	loge->logger.arg = loge;
 
 	log_register_handler(&loge->logger);
+	log_enable_stderr(false);
 
 	lock_write_get(calling.lock);
 	list_append(&calling.logl, &loge->le, loge);
@@ -3672,7 +3674,8 @@ void wcall_thread_main(int *err, int *initialized)
 
 	*err = 0;
 	*initialized = 0;
-    
+
+	wcall_setup();
 	e = wcall_init(WCALL_ENV_DEFAULT);
 	if (e) {
 		error("wcall_main: failed to init wcall\n");

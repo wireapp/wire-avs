@@ -723,8 +723,8 @@ int peerflow_init(void)
 	webrtc::field_trial::InitFieldTrialsFromString(trials_str);
 
 	adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
-
-	me_deps.adm = adm;
+	if (adm)
+		me_deps.adm = adm;
 	me_deps.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory().release();
 	me_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
 	me_deps.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
