@@ -44,23 +44,21 @@ JOBS	:= -j8
 # Select what we build based on the target platform
 #
 CONTRIB_PARTS_android := \
-	LIBRE LIBREW 
+	LIBRE LIBREW SODIUM
 CONTRIB_PARTS_ios := \
-	GTEST LIBRE LIBREW 
+	GTEST LIBRE LIBREW SODIUM
 CONTRIB_PARTS_linux := \
 	GTEST LIBRE LIBREM LIBREW \
 	CRYPTOBOX
 CONTRIB_PARTS_osx := \
-	GTEST LIBRE LIBREM LIBREW CRYPTOBOX
+	GTEST LIBRE LIBREM LIBREW CRYPTOBOX SODIUM
 CONTRIB_PARTS_wasm := \
-	LIBRE
+	LIBRE SODIUM
 
 CONTRIB_PARTS := $(CONTRIB_PARTS_$(AVS_OS))
 ifeq ($(CONTRIB_PARTS),)
 $(error contrib: Unknown target OS '$(AVS_OS)'.)
 endif
-
-CONTRIB_PARTS += SODIUM
 
 CONTRIB_BASE := $(shell pwd)/contrib
 
@@ -564,6 +562,7 @@ contrib_cryptobox_clean:
 
 #--- sodium ---
 
+ifneq ($(AVS_OS),linux)
 CONTRIB_SODIUM_PATH := $(CONTRIB_BASE)/sodium
 CONTRIB_SODIUM_BUILD_PATH := $(BUILD_TARGET)/sodium
 CONTRIB_SODIUM_CONFIG_TARGET := $(CONTRIB_SODIUM_PATH)/configure
@@ -643,6 +642,7 @@ contrib_sodium: $(CONTRIB_SODIUM_TARGET)
 contrib_sodium_clean:
 	$(MAKE) -C $(CONTRIB_SODIUM_BUILD_PATH) clean
 	@rm -f $(CONTRIB_SODIUM_CONFIG_TARGET)
+endif
 
 #--- Phony Targets ---
 
