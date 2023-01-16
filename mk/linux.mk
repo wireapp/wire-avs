@@ -23,5 +23,8 @@ $(LINUX_SHARED):  $(LINUX_OBJS) $(AVS_STATIC) $(MENG_STATIC)
 
 linux_shared: $(LINUX_SHARED)
 
+linux_clean:
+
+
 
 
