@@ -94,6 +94,11 @@ ifneq ($(AVS_OS),wasm)
 BUILD_NETWORK_MODULES := 1
 endif
 
+ifeq ($(AVS_OS),android)
+BUILD_OPTIONAL_MODULES := 1
+endif
+
+
 #--- All My Targets ---
 
 all: tools test
