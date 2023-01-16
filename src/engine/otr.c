@@ -196,7 +196,7 @@ static int encrypt_msg(struct list *msgl,
 		       struct context *ctx)
 {
 	struct recipient_msg *rmsg = NULL;
-	struct session *sess;
+	struct session *sess = NULL;
 	size_t i;
 	int err = 0;
 
@@ -247,6 +247,7 @@ static int encrypt_msg(struct list *msgl,
 		warning("otr: compiled without HAVE_CRYPTOBOX\n");
 		sess = NULL;
 		err = ENOSYS;
+		(void)sess;
 		goto out;
 #endif
 	}
