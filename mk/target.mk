@@ -427,7 +427,7 @@ SH_LFLAGS += \
 	-shared
 
 SH_LIBS += \
-	$(TOOLCHAIN_PATH)/libc++/libc++_static.a
+	-llog -lOpenSLES -lstdc++
 
 LIBS += \
 	-lcpufeatures -lc -lm -ldl -llog -lGLESv2 -latomic -lOpenSLES
