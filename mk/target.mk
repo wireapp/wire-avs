@@ -427,10 +427,10 @@ LFLAGS	+= \
 endif
 
 SH_LFLAGS += \
-	-shared -lstdc++
+	-shared 
 
 SH_LIBS += \
-
+	-llog -lOpenSLES -lstdc++
 
 LIBS += \
 	-lcpufeatures -lc -lm -ldl -llog -lGLESv2 -latomic -lOpenSLES -lc++
