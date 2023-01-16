@@ -90,6 +90,10 @@ HAVE_CRYPTOBOX	:= 1
 BUILD_OPTIONAL_MODULES := 1
 endif
 
+ifeq ($(AVS_OS),android)
+BUILD_OPTIONAL_MODULES := 1
+endif
+
 ifneq ($(AVS_OS),wasm)
 BUILD_NETWORK_MODULES := 1
 endif
