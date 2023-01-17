@@ -308,14 +308,18 @@ DFLAGS := -MMD
 LFLAGS += \
 	-L$(BUILD_TARGET)/lib
 
-# We have our own standalone tool chains for Android. They are being built
-# in toolchain.mk.
+# Standalone tool chains are not used any more for Android.
 #
 # To make things easier, we define the relevant variables for every OS and
 # ARCH.
 #
-TOOLCHAIN_BASE_PATH := $(BUILD_BASE)/toolchains
-TOOLCHAIN_PATH := $(TOOLCHAIN_BASE_PATH)/$(AVS_OS)-$(AVS_ARCH)
+TOOLCHAIN_BASE_PATH := $(PWD)/devtools/ndk/25.1.8937393
+ifeq ($(HOST_OS),osx)
+TOOLCHAIN_SUFFIX := darwin-$(HOST_ARCH)
+else
+TOOLCHAIN_SUFFIX := $(HOST_OS)-$(HOST_ARCH)
+endif
+TOOLCHAIN_PATH := $(TOOLCHAIN_BASE_PATH)/toolchains/llvm/prebuilt/$(TOOLCHAIN_SUFFIX)
 
 ifneq ($(NETEQ_LOGGING),)
 CPPFLAGS += -DNETEQ_LOGGING=1
@@ -359,10 +363,10 @@ AVS_OS_FAMILY := linux
 # Cross-compiling tools have a prefix that's differing per architecture.
 # We use this opportunity to check for a known $(AVS_ARCH).
 
-CROSS_PREFIX_armv7  := arm-linux-androideabi
-CROSS_PREFIX_arm64  := aarch64-linux-android
-CROSS_PREFIX_i386   := i686-linux-android
-CROSS_PREFIX_x86_64 := x86_64-linux-android
+CROSS_PREFIX_armv7  := armv7a-linux-androideabi24
+CROSS_PREFIX_arm64  := aarch64-linux-android24
+CROSS_PREFIX_i386   := i686-linux-android24
+CROSS_PREFIX_x86_64 := x86_64-linux-android24
 CROSS_PREFIX        := $(CROSS_PREFIX_$(AVS_ARCH))
 
 ifeq ($(CROSS_PREFIX),)
@@ -377,11 +381,11 @@ CXX          := $(BIN_PATH)-clang++
 GCC          := $(BIN_PATH)-gcc
 GCXX         := $(BIN_PATH)-g++
 LD           := $(CXX)
-AR           := $(BIN_PATH)-ar
-AS           := $(BIN_PATH)-as
-RANLIB       := $(BIN_PATH)-ranlib
-STRIP        := $(BIN_PATH)-strip
-SYSROOT      := $(TOOLCHAIN_PATH)/sysroot/usr
+AR           := $(TOOLCHAIN_PATH)/bin/llvm-ar
+AS           := $(TOOLCHAIN_PATH)/bin//llvm-as
+RANLIB       := $(TOOLCHAIN_PATH)/bin/llvm-ranlib
+STRIP        := $(TOOLCHAIN_PATH)/bin/llvm--strip
+SYSROOT      := $(TOOLCHAIN_PATH)/sysroot
 HOST_OPTIONS := --host=$(CROSS_PREFIX)
 LIB_SUFFIX   := .so
 JNI_SUFFIX   := .so
@@ -404,7 +408,7 @@ CFLAGS   += \
 	 -fomit-frame-pointer -fno-strict-aliasing \
 	 -fPIC
 
-CXXFLAGS += -nostdlib -fPIC
+CXXFLAGS += -fPIC
 
 ifneq ($(BLA),)
 LFLAGS   += \
@@ -413,7 +417,6 @@ LFLAGS   += \
 else
 LFLAGS	+= \
 	-fPIC \
-	-L$(SYSROOT)/lib \
 	-no-canonical-prefixes -Wl,--no-undefined \
 	-Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now -mthumb
 endif
@@ -424,23 +427,19 @@ LFLAGS	+= \
 endif
 
 SH_LFLAGS += \
-	-shared
+	-shared 
 
 SH_LIBS += \
 	-llog -lOpenSLES -lstdc++
 
 LIBS += \
-	-lcpufeatures -lc -lm -ldl -llog -lGLESv2 -latomic -lOpenSLES
+	-lcpufeatures -lc -lm -ldl -llog -lGLESv2 -latomic -lOpenSLES -lc++
 
 # this one was added to get ztest to link:
-LIBS += \
-	$(TOOLCHAIN_PATH)/libc++/libc++_static.a \
-	$(TOOLCHAIN_PATH)/libc++/libc++abi.a
+#LIBS += 
 
 ifeq ($(AVS_ARCH),armv7)
-LIBS +=	\
-	$(TOOLCHAIN_PATH)/libc++/libandroid_support.a \
-	$(TOOLCHAIN_PATH)/libc++/libunwind.a
+#LIBS +=	
 endif
 
 # Architecture Settings
@@ -448,8 +447,7 @@ endif
 ifeq ($(AVS_ARCH),armv7)
 CPPFLAGS += \
 	-march=armv7-a -mfpu=neon -mfloat-abi=softfp -mcpu=cortex-a8
-SH_LIBS += \
-	$(TOOLCHAIN_PATH)/libc++/libc++_static.a
+SH_LIBS += 
 
 else ifeq ($(AVS_ARCH),arm64)
 CPPFLAGS += \

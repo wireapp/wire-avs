@@ -11,11 +11,13 @@ PROJDIR		:= $(PWD)
 BUILDDEBUG	:= 1
 
 LOCAL_MODULE    := avs
-LOCAL_CFLAGS    := -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
+LOCAL_CFLAGS    := -DANDROID_PLATFORM=android-25 \
+		   -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
 		   -DWEBRTC_ANDROID -DWEBRTC_POSIX -DDEBUG=$(BUILDDEBUG) \
-		   -pthread
-LOCAL_CXXFLAGS  := -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
-		   -x c++ -std=c++14 -stdlib=libc++ \
+		   -pthread 
+LOCAL_CXXFLAGS  := -DANDROID_PLATFORM=android-25 \
+		   -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
+		   -x c++ -std=c++17 -stdlib=libc++ \
 		   -DWEBRTC_ANDROID -DDEBUG=$(BUILDDEBUG) \
 		   -pthread
 
@@ -34,7 +36,6 @@ LOCAL_SRC_FILES := \
 LOCAL_LDLIBS    := \
 		-L../build/android-$(AVS_ARCH_NAME)/lib \
 		-L../contrib/webrtc/$(WEBRTC_VER)/lib/android-$(AVS_ARCH_NAME) \
-		-L$(ANDROID_NDK_ROOT)/sources/cxx-stl/llvm-libc++/libs/$(TARGET_ARCH_ABI)
 
 LOCAL_LDLIBS    += \
 		-lavscore \
@@ -45,18 +46,14 @@ LOCAL_LDLIBS    += \
 		-latomic \
 		-lwebrtc
 
+
 ifeq ($(TARGET_ARCH_ABI),armeabi-v7a)
 LOCAL_LDLIBS	+= \
-	-landroid_support \
-	-lunwind 
+
 endif
 
 LOCAL_LDLIBS 	+= \
 		-lOpenSLES
-
-LOCAL_LDLIBS	+= \
-		-lc++_static \
-		-lc++abi \
 
 
 include $(BUILD_SHARED_LIBRARY)

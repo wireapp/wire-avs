@@ -134,12 +134,10 @@ DIST_AND_BUILDINFO := <?xml version="1.0" encoding="utf-8"?><resources><string n
 
 define build_arch
 	mkdir -p $(BUILD_DIST_AND)/aar/jni/$2
-	$(MAKE) toolchain AVS_OS=android AVS_ARCH=$1 && \
 	$(MAKE) contrib AVS_OS=android AVS_ARCH=$1 && \
 	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=$1 && \
 	$(MAKE) android_shared AVS_OS=android AVS_ARCH=$1
 
-	@echo TOOLCHAIN=$(TOOLCHAIN_PATH)
 	@echo BUILD_TARGET=$(BUILD_TARGET)
 	@rm -rf android/obj
 	@rm -rf android/libs
@@ -147,7 +145,7 @@ define build_arch
 APP_ABI=$2\n\
 AVS_ARCH_NAME := $1\n\
 " > build/android-$1/Arch.mk
-	$(TOOLCHAIN_BASE_PATH)/android-$1/ndk/ndk-build -C android -I ../build/android-$1
+	$(TOOLCHAIN_BASE_PATH)/ndk-build -C android -I ../build/android-$1
 	cp android/libs/$2/libavs.so \
 		$(BUILD_DIST_AND)/aar/jni/$2/libavs.so
 	mkdir -p $(BUILD_DIST_AND)/debug/$2/
@@ -180,7 +178,6 @@ endif
 
 #ifneq ($(filter osx,$(DIST_ARCH)),)
 #	@mkdir -p $(BUILD_DIST_AND)/aar/jni/darwin
-#	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=arm64 && \
 #	$(MAKE) contrib AVS_OS=osx AVS_ARCH=arm64 && \
 #	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=arm64 && \
 #	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=arm64
@@ -200,7 +197,6 @@ $(BUILD_DIST_AND)/avs.zip:
 	@$(MAKE) android_jar AVS_OS=android AVS_ARCH=armv7
 	@cp -a $(BUILD_BASE)/android-armv7/classes $(BUILD_DIST_AND)/zip
 ifneq ($(filter armv7,$(DIST_ARCH)),)
-	@$(MAKE) toolchain AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) contrib AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=armv7 && \
 	$(MAKE) android_shared AVS_OS=android AVS_ARCH=armv7 && \
@@ -210,7 +206,6 @@ ifneq ($(filter armv7,$(DIST_ARCH)),)
 		$(BUILD_DIST_AND)/zip/libs/armeabi-v7a
 endif
 ifneq ($(filter arm64,$(DIST_ARCH)),)
-	@$(MAKE) toolchain AVS_OS=android AVS_ARCH=arm64 && \
 	$(MAKE) contrib AVS_OS=android AVS_ARCH=arm64 && \
 	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=arm64 && \
 	$(MAKE) android_shared AVS_OS=android AVS_ARCH=arm64 && \
@@ -220,7 +215,6 @@ ifneq ($(filter arm64,$(DIST_ARCH)),)
 		$(BUILD_DIST_AND)/zip/libs/arm64-v8a
 endif
 ifneq ($(filter i386,$(DIST_ARCH)),)
-	@$(MAKE) toolchain AVS_OS=android AVS_ARCH=i386 && \
 	$(MAKE) contrib AVS_OS=android AVS_ARCH=i386 && \
 	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=i386 && \
 	$(MAKE) android_shared AVS_OS=android AVS_ARCH=i386
@@ -229,7 +223,6 @@ ifneq ($(filter i386,$(DIST_ARCH)),)
 		$(BUILD_DIST_AND)/zip/libs/x86
 endif
 ifneq ($(filter x86_64,$(DIST_ARCH)),)
-	@$(MAKE) toolchain AVS_OS=android AVS_ARCH=x86_64 && \
 	$(MAKE) contrib AVS_OS=android AVS_ARCH=x86_64 && \
 	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=x86_64 && \
 	$(MAKE) android_shared AVS_OS=android AVS_ARCH=x86_64
@@ -238,7 +231,6 @@ ifneq ($(filter x86_64,$(DIST_ARCH)),)
 		$(BUILD_DIST_AND)/zip/libs/x86_64
 endif
 #ifneq ($(filter osx,$(DIST_ARCH)),)
-#	@$(MAKE) toolchain AVS_OS=osx AVS_ARCH=arm64 && \
 #	$(MAKE) contrib AVS_OS=osx AVS_ARCH=arm64 && \
 #	$(MAKE) $(JOBS) avs AVS_OS=osx AVS_ARCH=arm64 && \
 #	$(MAKE) android_shared AVS_OS=osx AVS_ARCH=arm64

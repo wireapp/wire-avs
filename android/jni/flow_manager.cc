@@ -97,8 +97,8 @@ static struct {
 	uint64_t avs_flags;
 } java = {
 	.initialized = false,
-	.err = 0,
 	.jfm = NULL,
+	.err = 0,
 	.vm = NULL,
 	.fmfid = NULL,
 	.reqmid = NULL,
@@ -108,17 +108,17 @@ static struct {
 
 	/* video */
 	.csmid = NULL,
+	.acsmid = NULL,
 	.vszmid = NULL,
 
 	.video = {
-		.renderers = NULL,
 		.mid = {
 			.enter = NULL,
 			.exit = NULL,
 		},
+		.renderers = NULL,
 	},
 
-	.acsmid = NULL,
     
 	.log_level = LOG_LEVEL_INFO,
 
@@ -298,7 +298,7 @@ out:
 void *flowmgr_thread(void *arg)
 {
 	int err;
-    
+
 #ifdef ANDROID
 	pthread_setname_np(pthread_self(), THREAD_NAME);
 #else
@@ -321,6 +321,7 @@ void *flowmgr_thread(void *arg)
 		warning("flowmgr_thread: avs_init failed (%m)\n", err);
 		goto out;
 	}
+	
 
 #ifdef ANDROID
 	err = flowmgr_init("voe");
@@ -331,6 +332,7 @@ void *flowmgr_thread(void *arg)
 		warning("flowmgr_thread: flowmgr_init failed (%m)\n", err);
 		goto out;
 	}
+	
 	java.initialized = true;
 
 	re_main(NULL);

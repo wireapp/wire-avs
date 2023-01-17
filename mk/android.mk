@@ -37,7 +37,7 @@ AND_MKS := $(OUTER_MKS) mk/android.mk $(AND_JAVA_MK) $(AND_JAVA_MK)
 include $(AND_JAVA_MK)
 include $(AND_JNI_MK)
 
-AND_BOOTCLASSPATH := $(ANDROID_SDK_ROOT)/platforms/android-21/android.jar:$(ANDROID_SDK_ROOT)/tools/support/annotations.jar
+AND_BOOTCLASSPATH := $(ANDROID_SDK_ROOT)/platforms/android-25/android.jar:$(ANDROID_SDK_ROOT)/tools/support/annotations.jar
 AND_CLASSPATH := android/java
 
 AND_CLS_TARGET := $(BUILD_TARGET)/classes
@@ -108,7 +108,7 @@ $(AND_CC_OBJS): $(AND_OBJ_TARGET)/%.o: android/jni/%.cc
 $(AND_SHARED):  $(AND_OBJS) $(AVS_STATIC) $(MENG_STATIC)
 	@echo "  LD   $(AVS_OS)-$(AVS_ARCH) $@"
 	@mkdir -p $(dir $@)
-	@$(LD) $(SH_LFLAGS) $(LFLAGS) $(AND_LFLAGS) \
+	$(LD) $(SH_LFLAGS) $(LFLAGS) $(AND_LFLAGS) \
 		$(AND_OBJS) $(AVS_STATIC) $(MENG_STATIC) \
 		$(SH_LIBS) $(LIBS) $(AVS_LIBS) $(MENG_LIBS) $(AND_LIBS) -o $@
 	# @$(STRIP) --strip-unneeded $@

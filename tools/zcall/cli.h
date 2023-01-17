@@ -90,7 +90,6 @@ void user_close(void);
 /* Get your engine here.  */
 extern struct engine *zcall_engine;
 extern struct store *zcall_store;
-
 extern bool zcall_auto_answer;
 extern bool zcall_video;
 extern bool zcall_av_test;
