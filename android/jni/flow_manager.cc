@@ -321,7 +321,7 @@ void *flowmgr_thread(void *arg)
 		warning("flowmgr_thread: avs_init failed (%m)\n", err);
 		goto out;
 	}
-	
+
 
 #ifdef ANDROID
 	err = flowmgr_init("voe");
@@ -332,7 +332,7 @@ void *flowmgr_thread(void *arg)
 		warning("flowmgr_thread: flowmgr_init failed (%m)\n", err);
 		goto out;
 	}
-	
+
 	java.initialized = true;
 
 	re_main(NULL);

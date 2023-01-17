@@ -108,10 +108,10 @@ $(AND_CC_OBJS): $(AND_OBJ_TARGET)/%.o: android/jni/%.cc
 $(AND_SHARED):  $(AND_OBJS) $(AVS_STATIC) $(MENG_STATIC)
 	@echo "  LD   $(AVS_OS)-$(AVS_ARCH) $@"
 	@mkdir -p $(dir $@)
-	$(LD) $(SH_LFLAGS) $(LFLAGS) $(AND_LFLAGS) \
+	@$(LD) $(SH_LFLAGS) $(LFLAGS) $(AND_LFLAGS) \
 		$(AND_OBJS) $(AVS_STATIC) $(MENG_STATIC) \
 		$(SH_LIBS) $(LIBS) $(AVS_LIBS) $(MENG_LIBS) $(AND_LIBS) -o $@
-	# @$(STRIP) --strip-unneeded $@
+#       @$(STRIP) --strip-unneeded $@
 
 $(AND_SHARED_STRIPPED): $(AND_SHARED)
 	@echo "  STR  $(AVS_OS)-$(AVS_ARCH) $@"

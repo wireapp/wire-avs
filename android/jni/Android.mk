@@ -14,7 +14,8 @@ LOCAL_MODULE    := avs
 LOCAL_CFLAGS    := -DANDROID_PLATFORM=android-25 \
 		   -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
 		   -DWEBRTC_ANDROID -DWEBRTC_POSIX -DDEBUG=$(BUILDDEBUG) \
-		   -pthread 
+		   -pthread
+
 LOCAL_CXXFLAGS  := -DANDROID_PLATFORM=android-25 \
 		   -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
 		   -x c++ -std=c++17 -stdlib=libc++ \

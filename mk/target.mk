@@ -427,7 +427,7 @@ LFLAGS	+= \
 endif
 
 SH_LFLAGS += \
-	-shared 
+	-shared
 
 SH_LIBS += \
 	-llog -lOpenSLES -lstdc++
@@ -436,10 +436,10 @@ LIBS += \
 	-lcpufeatures -lc -lm -ldl -llog -lGLESv2 -latomic -lOpenSLES -lc++
 
 # this one was added to get ztest to link:
-#LIBS += 
+#LIBS +=
 
 ifeq ($(AVS_ARCH),armv7)
-#LIBS +=	
+#LIBS +=
 endif
 
 # Architecture Settings
@@ -447,15 +447,9 @@ endif
 ifeq ($(AVS_ARCH),armv7)
 CPPFLAGS += \
 	-march=armv7-a -mfpu=neon -mfloat-abi=softfp -mcpu=cortex-a8
-SH_LIBS += 
-
 else ifeq ($(AVS_ARCH),arm64)
-CPPFLAGS += \
-#	-mfpu=neon
 else ifeq ($(AVS_ARCH),i386)
-
 else ifeq ($(AVS_ARCH),x86_64)
-
 else
 $(error Unknown architecture $(AVS_ARCH) for Android.)
 endif
