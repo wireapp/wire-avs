@@ -7,7 +7,12 @@
 # This will place the SDKs in $WORKSPACE/devtools
 #
 
-AVS_DEVTOOLS_ROOT=$WORKSPACE/devtools
+if [ "$WORKSPACE" == "" ]; then
+	AVS_DEVTOOLS_ROOT=devtools
+else
+	AVS_DEVTOOLS_ROOT=$WORKSPACE/devtools
+fi
+
 PLATFORM=$(uname -s | awk '{ print tolower($1) }')
 MACHINE=$(uname -m)
 
