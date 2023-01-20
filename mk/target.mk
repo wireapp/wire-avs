@@ -488,12 +488,14 @@ JNI_SUFFIX   := .so
 
 # Settings
 #
-CPPFLAGS +=
+CPPFLAGS += \
+	-fno-stack-protector
 
-# XXX Review these ...
-CFLAGS   +=
+CFLAGS   += \
+	-fno-stack-protector
 
-CXXFLAGS += 
+CXXFLAGS += \
+	-fno-stack-protector
 
 endif
 
