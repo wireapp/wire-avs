@@ -15,7 +15,7 @@ fi
 PLATFORM=$(uname -s | awk '{ print tolower($1) }')
 MACHINE=$(uname -m)
 
-TOOLS_VER=8092744_latest
+TOOLS_VER=9123335_latest
 BUILDTOOLS_VER=32.0.0
 ANDROID_NDK_VER=25.1.8937393
 ANDROID_SDK_VER=android-25
