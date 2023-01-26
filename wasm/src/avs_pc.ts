@@ -1945,23 +1945,23 @@ function pc_LocalDescription(hnd: number, typePtr: number) {
 
   const pc = connectionsStore.getPeerConnection(hnd);
   if (pc == null) {
-     return;
+     return 0;
   }
 
   const rtc = pc.rtc;
   if (!rtc) {
-    return;
+    return 0;
   }
   const sdpDesc = rtc.localDescription;
   if (!sdpDesc) {
-    return;
+    return 0;
   }
 
   if (typePtr != null) {
     const type = em_module.UTF8ToString(typePtr);
     if (type != sdpDesc.type) {
       pc_log(LOG_LEVEL_WARN, "pc_LocalDescriptiont: wrong type");
-      return null;
+      return 0;
     }
   }
 
@@ -1990,17 +1990,18 @@ function pc_HeapFree(ptr: number) {
 function pc_IceGatheringState(hnd: number) {
   pc_log(LOG_LEVEL_INFO, `pc_IceGatheringState: hnd=${hnd}`);
 
+  let state = PC_GATHER_STATE_UNKNOWN;
   const pc = connectionsStore.getPeerConnection(hnd);
+
   if (!pc) {
-    return 0;
+    return state;
   }
 
   const rtc = pc.rtc;
   if (!rtc) {
-    return;
+    return state;
   }
   const stateStr = rtc.iceGatheringState;
-  let state = PC_GATHER_STATE_UNKNOWN;
 
   switch (stateStr) {
     case "new":
@@ -2022,17 +2023,18 @@ function pc_IceGatheringState(hnd: number) {
 function pc_SignalingState(hnd: number) {
   pc_log(LOG_LEVEL_INFO, `pc_SignalingState: hnd=${hnd}`);
 
+  let state = PC_SIG_STATE_UNKNOWN;
   const pc = connectionsStore.getPeerConnection(hnd);
   if (!pc) {
-    return 0;
+    return state;
   }
 
   const rtc = pc.rtc;
   if (!rtc) {
-    return;
+    return state;
   }
   const stateStr = rtc.signalingState;
-  const state = sigState(stateStr);
+  state = sigState(stateStr);
 
   pc_log(
     LOG_LEVEL_INFO,
@@ -2054,7 +2056,7 @@ function pc_ConnectionState(hnd: number) {
    */
   const rtc = pc.rtc;
   if (!rtc) {
-    return;
+    return 0;
   }
   const state = rtc.connectionState;
 
@@ -2074,7 +2076,7 @@ function pc_SetMute(hnd: number, muted: number) {
 function pc_GetMute(hnd: number) {
   const pc = connectionsStore.getPeerConnection(hnd);
   if (pc == null) {
-    return;
+    return 0;
   }
 
   return pc.muted;
@@ -2099,12 +2101,12 @@ function pc_CreateDataChannel(hnd: number, labelPtr: number) {
   pc_log(LOG_LEVEL_INFO, `pc_CreateDataChannel: hnd=${hnd}`);
   const pc = connectionsStore.getPeerConnection(hnd);
   if (pc == null) {
-    return;
+    return 0;
   }
 
   const rtc = pc.rtc;
   if (!rtc) {
-    return;
+    return 0;
   }
   const label = em_module.UTF8ToString(labelPtr);
   const dc = rtc.createDataChannel(label);
@@ -2130,13 +2132,14 @@ function pc_DataChannelId(hnd: number) {
 function pc_DataChannelState(hnd: number) {
   pc_log(LOG_LEVEL_INFO, `pc_DataChannelState: hnd=${hnd}`);
 
+  let state = DC_STATE_ERROR;
+
   const dc = connectionsStore.getDataChannel(hnd);
   if (dc == null) {
-    return;
+    return state;
   }
 
   const str = dc.readyState;
-  let state = DC_STATE_ERROR;
 
   if (str == "connecting") {
     state = DC_STATE_CONNECTING;
