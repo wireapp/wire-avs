@@ -4,18 +4,19 @@
 #
 # source scripts/wasm_devenv.sh
 #
-# This will place the SDKs in $WORKSPACE/devtools, set the AVS_DEVTOOLS_ROOT env variable
-# to override
+# This will place the SDKs in $WORKSPACE/devtools
 #
 
-if [ -z "$AVS_DEVTOOLS_ROOT" ]; then
-	AVS_DEVTOOLS_ROOT=$(git rev-parse --show-toplevel)/devtools
+if [ "$WORKSPACE" == "" ]; then
+	AVS_DEVTOOLS_ROOT=devtools
+else
+	AVS_DEVTOOLS_ROOT=$WORKSPACE/devtools
 fi
 
 PLATFORM=$(uname -s | awk '{ print tolower($1) }')
 MACHINE=$(uname -m)
 
-EMSDK_VER=1.38.48
+EMSDK_VER=3.1.21
 
 if [ ! -e $AVS_DEVTOOLS_ROOT ]; then
 	mkdir -p $AVS_DEVTOOLS_ROOT

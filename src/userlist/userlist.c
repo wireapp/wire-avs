@@ -272,6 +272,7 @@ int userlist_update_from_sftlist(struct userlist *list,
 	if (!list || !partlist || !changed)
 		return EINVAL;
 
+	info("userlist(%p): update_from_sftlist %u members\n", list, list_count(partlist));
 	list->self->listpos = 0xFFFFFFFF;
 	prev_keygenerator = list->keygenerator;
 	list->keygenerator = NULL;
@@ -307,6 +308,13 @@ int userlist_update_from_sftlist(struct userlist *list,
 		if (u) {
 			bool muted;
 
+			info("userlist(%p): update_from_sftlist found user %s.%s "
+			     "ssrca: %u ssrcv:%u incall_prev: %s\n",
+			     list, 
+			     anon_id(userid_anon, u->userid_real),
+			     anon_client(clientid_anon, u->clientid_real),
+			     p->ssrca, p->ssrcv,
+			     u->incall_prev ? "YES" : "NO");
 			if (first && u->se_approved) {
 				info("userlist(%p): setting %s.%s as keygenerator\n",
 				     list,
@@ -387,6 +395,10 @@ int userlist_update_from_sftlist(struct userlist *list,
 				u->force_decoder = false;
 				u->needs_key = true;
 				list_changed = true;
+				info("userlist(%p): update_from_sftlist %s.%s joined the call\n",
+				     list,
+				     anon_id(userid_anon, u->userid_real),
+				     anon_client(clientid_anon, u->clientid_real));
 			}
 			else if (!u->incall_now && u->incall_prev) {
 				if (list->removeh)
@@ -401,6 +413,11 @@ int userlist_update_from_sftlist(struct userlist *list,
 		}
 	}
 
+	info("userlist(%p): update_from_sftlist sync: %s changed: %s missing: %s\n",
+	     list,
+	     sync_decoders ? "YES" : "NO",
+	     list_changed ? "YES" : "NO",
+	     missing ? "YES" : "NO");
 	if (sync_decoders && list->synch) {
 		info("userlist(%p): sync_decoders\n", list);
 		list->synch(list->arg);
@@ -426,6 +443,8 @@ void userlist_update_from_selist(struct userlist* list,
 	bool sync_decoders = false;
 	struct userinfo *user;
 	struct userinfo *prev_keygenerator;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 
 	if (!list || !clientl)
 		return;
@@ -448,7 +467,10 @@ void userlist_update_from_selist(struct userlist* list,
 		user = userlist_find_by_real(list, cli->userid, cli->clientid);
 		if (user) {
 			hash_userinfo(user, secret, secret_len);
-			info("userlist(%p): update_from_selist approving found client\n", list);
+			info("userlist(%p): update_from_selist updating found client %s.%s\n",
+			     list,
+			     anon_id(userid_anon, cli->userid),
+			     anon_client(clientid_anon, cli->clientid));
 		}
 		else {
 			struct userinfo *u = mem_zalloc(sizeof(*u), userinfo_destructor);
@@ -461,7 +483,11 @@ void userlist_update_from_selist(struct userlist* list,
 			hash_userinfo(u, secret, secret_len);
 			user = userlist_find_by_hash(list, u->userid_hash, u->clientid_hash);
 			if (user && !user->se_approved) {
-				info("userlist(%p): set_clients approving found client\n", list);
+				info("userlist(%p): update_from_selist approving found "
+				     "client %s.%s\n",
+				     list,
+				     anon_id(userid_anon, cli->userid),
+				     anon_client(clientid_anon, cli->clientid));
 				user->userid_real = mem_deref(user->userid_real);
 				user->clientid_real = mem_deref(user->clientid_real);
 				str_dup(&user->userid_real, cli->userid);
@@ -489,7 +515,11 @@ void userlist_update_from_selist(struct userlist* list,
 				mem_deref(u);
 			}
 			else {
-				info("userlist(%p): set_clients adding new client\n", list);
+				info("userlist(%p): update_from_selist adding new "
+				     "client %s.%s\n",
+				     list,
+				     anon_id(userid_anon, cli->userid),
+				     anon_client(clientid_anon, cli->clientid));
 				user = u;
 				list_append(&list->users, &u->le, u);
 				list_changed = true;

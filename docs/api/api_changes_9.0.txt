@@ -61,6 +61,8 @@ This is to be called instead of set_clients_for_conv for MLS conference calls. T
   ]
 }
 
+Note that if the client is in a federated environment, the domain must be added to the ids in the same way as set_clients_for_conv.
+
 Clients should call wcall_set_epoch_info whenever there is an epoch change to supply AVS with the list of clients, their status in the sub-conversation and the new media key for the epoch.
 
 
