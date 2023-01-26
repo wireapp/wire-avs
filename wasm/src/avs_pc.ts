@@ -2099,12 +2099,12 @@ function pc_CreateDataChannel(hnd: number, labelPtr: number) {
   pc_log(LOG_LEVEL_INFO, `pc_CreateDataChannel: hnd=${hnd}`);
   const pc = connectionsStore.getPeerConnection(hnd);
   if (pc == null) {
-    return;
+    return 0;
   }
 
   const rtc = pc.rtc;
   if (!rtc) {
-    return;
+    return 0;
   }
   const label = em_module.UTF8ToString(labelPtr);
   const dc = rtc.createDataChannel(label);
@@ -2190,26 +2190,26 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     
   const callbacks = [
     [pc_SetEnv, "vi"],
-    [pc_New, "iii"],
+    [pc_New, "iiiiii"],
     [pc_Create, "viii"],
     [pc_Close, "vi"],
     [pc_HeapFree, "vi"],
     [pc_AddTurnServer, "viiii"],
     [pc_IceGatheringState, "ii"],
-    [pc_SignalingState, "i"],
-    [pc_ConnectionState, "i"],
-    [pc_CreateDataChannel, "ii"],
-    [pc_CreateOffer, "ii"],
-    [pc_CreateAnswer, "ii"],
+    [pc_SignalingState, "ii"],
+    [pc_ConnectionState, "ii"],
+    [pc_CreateDataChannel, "iii"],
+    [pc_CreateOffer, "viii"],
+    [pc_CreateAnswer, "viii"],
     [pc_AddDecoderAnswer, "vi"],
-    [pc_AddUserInfo, "viiiiii"],
+    [pc_AddUserInfo, "viiiiiiiii"],
     [pc_RemoveUserInfo, "vii"],
-    [pc_SetRemoteDescription, "iii"],
-    [pc_SetLocalDescription, "iii"],
+    [pc_SetRemoteDescription, "viii"],
+    [pc_SetLocalDescription, "viii"],
     [pc_LocalDescription, "iii"],
     [pc_SetMute, "vii"],
     [pc_GetMute, "ii"],
-    [pc_GetLocalStats, "i"],
+    [pc_GetLocalStats, "vi"],
     [pc_SetRemoteUserClientId, "viii"],
     [pc_HasVideo, "ii"],
     [pc_SetVideoState, "vii"],
@@ -2217,7 +2217,7 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_DataChannelState, "ii"],
     [pc_DataChannelSend, "viii"],
     [pc_DataChannelClose, "vi"],
-    [pc_SetMediaKey, "iiii"],
+    [pc_SetMediaKey, "viiiii"],
   ].map(([callback, signature]) => em_module.addFunction(callback, signature));
 
   em_module.ccall(
