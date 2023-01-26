@@ -18,7 +18,7 @@
   "main": "dist/avs_wcall.js",
   "name": "@wireapp/avs",
   "scripts": {
-    "prepack": "prettier -w src/avs_wcall.ts && tsc && cp -t dist src/*.js src/*.d.ts",
+    "prepack": "prettier -w src/avs_wcall.ts && tsc && cp src/*.js src/*.d.ts dist/",
     "test": "karma start"
   },
   "version": "0"
