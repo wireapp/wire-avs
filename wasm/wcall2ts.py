@@ -62,12 +62,15 @@ def c2jstype_cb(ty):
 	   ty == 'void*':
 		return 'i'
 	elif ty == 'size_t':
-		return 'j'
+		return 'i'
 	elif ty == 'char*' or ty == 'uint8_t*':
 		return 's'
 	elif ty == 'void':
 		return 'v'
 	return ty
+
+def convert_typestring(ty):
+	return ty.replace('s', 'i')
 
 def c2tstype(ty):
 	if ty == 'int' or ty == 'WUSER_HANDLE' or ty == 'size_t' or \
@@ -185,7 +188,7 @@ def convert_fn(fn):
 				fn = wrap_function(nm, cb, argtypes[i])
 				fndef += '\nconst fn_{} = this.em_module.addFunction('.format(nm)
 				fndef += '{}, '.format(fn)
-				fndef += '\'{}\');\n'.format(cb['proto'])
+				fndef += '\'{}\');\n'.format(convert_typestring(cb['proto']))
 				argnames[i] = 'fn_{}'.format(argnames[i])
 				argtypes[i] = 'number'
                                 
@@ -195,7 +198,7 @@ def convert_fn(fn):
 			fndef += 'return '
 
 		if fname == 'wcall_set_log_handler':
-			fndef += 'logFn = logh;'
+			fndef += 'logFn = logh;\n'
 
 		fndef += 'this.em_module.ccall(\n'
 		fndef += '\'{}\',\n'.format(fname)
