@@ -191,10 +191,9 @@ pipeline {
                     sh(
                         script: """
                             cd "${env.WORKSPACE}"
-
                             GITHUB_USER=${repoUser} \
                             GITHUB_TOKEN=${accessToken} \
-                            python3 ./scripts/release-on-github.py \
+			    python3 ./scripts/release-on-github.py \
                                 ${repoName} \
                                 \$(mktemp -d) \
                                 ${version} \

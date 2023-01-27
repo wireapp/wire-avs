@@ -2660,7 +2660,6 @@ int  ccall_set_vstate(struct icall *icall, enum icall_vstate state)
 {
 	struct ccall *ccall = (struct ccall*)icall;
 	const struct userinfo *self = NULL;
-	bool changed = false;
 	int err;
 
 	if (!ccall)
@@ -2671,33 +2670,26 @@ int  ccall_set_vstate(struct icall *icall, enum icall_vstate state)
 	      ccall->ecall,
 	      state);
 
-	if (!ccall->ecall) {
-		return 0;
-	}
+	ccall->vstate = state;
 
 	self = userlist_get_self(ccall->userl);
-	if (!self)
-		return ENOENT;
-
-	err = ecall_set_video_send_state(ccall->ecall, state);
-	if (err) {
-		return err;
-	}
-
-	if (state != ccall->vstate) {
-		ccall->vstate = state;
-		changed = true;
-	}
-
-	if (changed) {
+	if (self) {
 		ICALL_CALL_CB(ccall->icall, vstate_changedh, &ccall->icall,
 			      self->userid_real,
 			      self->clientid_real,
 			      state, ccall->icall.arg);
-
-		ICALL_CALL_CB(ccall->icall, group_changedh,
-			&ccall->icall, ccall->icall.arg);	
 	}
+
+	ICALL_CALL_CB(ccall->icall, group_changedh,
+		&ccall->icall, ccall->icall.arg);
+
+	if (ccall->ecall) {
+		err = ecall_set_video_send_state(ccall->ecall, state);
+		if (err) {
+			return err;
+		}
+	}
+
 	return 0;
 }
 

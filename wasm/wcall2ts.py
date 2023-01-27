@@ -55,6 +55,23 @@ def c2jstype(ty):
 
 	return ty
 
+def c2jstype_cb(ty):
+	if ty == 'int' or ty == 'WUSER_HANDLE' or \
+	   ty == 'int8_t' or ty == 'int16_t' or ty == 'int32_t' or \
+	   ty == 'uint8_t' or ty == 'uint16_t' or ty == 'uint32_t' or \
+	   ty == 'void*':
+		return 'i'
+	elif ty == 'size_t':
+		return 'i'
+	elif ty == 'char*' or ty == 'uint8_t*':
+		return 's'
+	elif ty == 'void':
+		return 'v'
+	return ty
+
+def convert_typestring(ty):
+	return ty.replace('s', 'i')
+
 def c2tstype(ty):
 	if ty == 'int' or ty == 'WUSER_HANDLE' or ty == 'size_t' or \
 	   ty == 'int8_t' or ty == 'int16_t' or ty == 'int32_t' or \
@@ -84,7 +101,7 @@ def convert_to_camel(fname, istype=False):
 			camel += c.lower()
 	return camel
 
-def parse_param(param):
+def parse_param(param, cb=False):
 	parts = param.split(' ')
 	if len(parts) < 2:
 		return None
@@ -109,8 +126,10 @@ def parse_param(param):
 	if len(parts) > 2 and parts[2] == '__any':
 		tsType = 'any'
 
-
-	return (pname, c2jstype(ptype), tsType)
+	if cb:
+		return (pname, c2jstype_cb(ptype), tsType)
+	else:
+		return (pname, c2jstype(ptype), tsType)
 
 def convert_fn(fn):
 
@@ -169,7 +188,7 @@ def convert_fn(fn):
 				fn = wrap_function(nm, cb, argtypes[i])
 				fndef += '\nconst fn_{} = this.em_module.addFunction('.format(nm)
 				fndef += '{}, '.format(fn)
-				fndef += '\'{}\');\n'.format(cb['proto'])
+				fndef += '\'{}\');\n'.format(convert_typestring(cb['proto']))
 				argnames[i] = 'fn_{}'.format(argnames[i])
 				argtypes[i] = 'number'
 
@@ -179,7 +198,7 @@ def convert_fn(fn):
 			fndef += 'return '
 
 		if fname == 'wcall_set_log_handler':
-			fndef += 'logFn = logh;'
+			fndef += 'logFn = logh;\n'
 
 		fndef += 'this.em_module.ccall(\n'
 		fndef += '\'{}\',\n'.format(fname)
@@ -233,16 +252,13 @@ def convert_cb(fn):
 		tsname = convert_to_camel(fname, True) + 'andler'
 		fndef = 'export type {} = (\n'.format(tsname)
 
-		if ret == 'void':
-			fproto = 'v'
-		else:
-			fproto = c2jstype(ret)[0]
+		fproto = c2jstype_cb(ret)
 		first = True
 		for a in args:
-			ainfo = parse_param(a)
+			ainfo = parse_param(a, cb=True)
 			if ainfo:
 				argnames.append(ainfo[0])
-				fproto += ainfo[1][0]
+				fproto += ainfo[1]
 				if first:
 					first = False
 				else:

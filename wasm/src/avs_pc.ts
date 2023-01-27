@@ -1947,23 +1947,23 @@ function pc_LocalDescription(hnd: number, typePtr: number) {
 
   const pc = connectionsStore.getPeerConnection(hnd);
   if (pc == null) {
-     return;
+     return 0;
   }
 
   const rtc = pc.rtc;
   if (!rtc) {
-    return;
+    return 0;
   }
   const sdpDesc = rtc.localDescription;
   if (!sdpDesc) {
-    return;
+    return 0;
   }
 
   if (typePtr != null) {
     const type = em_module.UTF8ToString(typePtr);
     if (type != sdpDesc.type) {
       pc_log(LOG_LEVEL_WARN, "pc_LocalDescriptiont: wrong type");
-      return null;
+      return 0;
     }
   }
 
@@ -1992,17 +1992,18 @@ function pc_HeapFree(ptr: number) {
 function pc_IceGatheringState(hnd: number) {
   pc_log(LOG_LEVEL_INFO, `pc_IceGatheringState: hnd=${hnd}`);
 
+  let state = PC_GATHER_STATE_UNKNOWN;
   const pc = connectionsStore.getPeerConnection(hnd);
+
   if (!pc) {
-    return 0;
+    return state;
   }
 
   const rtc = pc.rtc;
   if (!rtc) {
-    return;
+    return state;
   }
   const stateStr = rtc.iceGatheringState;
-  let state = PC_GATHER_STATE_UNKNOWN;
 
   switch (stateStr) {
     case "new":
@@ -2024,17 +2025,18 @@ function pc_IceGatheringState(hnd: number) {
 function pc_SignalingState(hnd: number) {
   pc_log(LOG_LEVEL_INFO, `pc_SignalingState: hnd=${hnd}`);
 
+  let state = PC_SIG_STATE_UNKNOWN;
   const pc = connectionsStore.getPeerConnection(hnd);
   if (!pc) {
-    return 0;
+    return state;
   }
 
   const rtc = pc.rtc;
   if (!rtc) {
-    return;
+    return state;
   }
   const stateStr = rtc.signalingState;
-  const state = sigState(stateStr);
+  state = sigState(stateStr);
 
   pc_log(
     LOG_LEVEL_INFO,
@@ -2056,7 +2058,7 @@ function pc_ConnectionState(hnd: number) {
    */
   const rtc = pc.rtc;
   if (!rtc) {
-    return;
+    return 0;
   }
   const state = rtc.connectionState;
 
@@ -2076,7 +2078,7 @@ function pc_SetMute(hnd: number, muted: number) {
 function pc_GetMute(hnd: number) {
   const pc = connectionsStore.getPeerConnection(hnd);
   if (pc == null) {
-    return;
+    return 0;
   }
 
   return pc.muted;
@@ -2101,12 +2103,12 @@ function pc_CreateDataChannel(hnd: number, labelPtr: number) {
   pc_log(LOG_LEVEL_INFO, `pc_CreateDataChannel: hnd=${hnd}`);
   const pc = connectionsStore.getPeerConnection(hnd);
   if (pc == null) {
-    return;
+    return 0;
   }
 
   const rtc = pc.rtc;
   if (!rtc) {
-    return;
+    return 0;
   }
   const label = em_module.UTF8ToString(labelPtr);
   const dc = rtc.createDataChannel(label);
@@ -2132,13 +2134,14 @@ function pc_DataChannelId(hnd: number) {
 function pc_DataChannelState(hnd: number) {
   pc_log(LOG_LEVEL_INFO, `pc_DataChannelState: hnd=${hnd}`);
 
+  let state = DC_STATE_ERROR;
+
   const dc = connectionsStore.getDataChannel(hnd);
   if (dc == null) {
-    return;
+    return state;
   }
 
   const str = dc.readyState;
-  let state = DC_STATE_ERROR;
 
   if (str == "connecting") {
     state = DC_STATE_CONNECTING;
@@ -2191,35 +2194,35 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
   logFn = logh;
     
   const callbacks = [
-    [pc_SetEnv, "vn"],
-    [pc_New, "nns"],
-    [pc_Create, "vnnn"],
-    [pc_Close, "vn"],
-    [pc_HeapFree, "vn"],
-    [pc_AddTurnServer, "vnsss"],
-    [pc_IceGatheringState, "nn"],
-    [pc_SignalingState, "n"],
-    [pc_ConnectionState, "n"],
-    [pc_CreateDataChannel, "ns"],
-    [pc_CreateOffer, "nn"],
-    [pc_CreateAnswer, "nn"],
-    [pc_AddDecoderAnswer, "vn"],
-    [pc_AddUserInfo, "vnsssss"],
-    [pc_RemoveUserInfo, "vns"],
-    [pc_SetRemoteDescription, "nss"],
-    [pc_SetLocalDescription, "nss"],
-    [pc_LocalDescription, "sns"],
-    [pc_SetMute, "vnn"],
-    [pc_GetMute, "nn"],
-    [pc_GetLocalStats, "n"],
-    [pc_SetRemoteUserClientId, "vnss"],
-    [pc_HasVideo, "nn"],
-    [pc_SetVideoState, "vnn"],  
-    [pc_DataChannelId, "nn"],
-    [pc_DataChannelState, "nn"],
-    [pc_DataChannelSend, "vnsn"],
-    [pc_DataChannelClose, "vn"],
-    [pc_SetMediaKey, "nnnn"],
+    [pc_SetEnv, "vi"],
+    [pc_New, "iiiiii"],
+    [pc_Create, "viii"],
+    [pc_Close, "vi"],
+    [pc_HeapFree, "vi"],
+    [pc_AddTurnServer, "viiii"],
+    [pc_IceGatheringState, "ii"],
+    [pc_SignalingState, "ii"],
+    [pc_ConnectionState, "ii"],
+    [pc_CreateDataChannel, "iii"],
+    [pc_CreateOffer, "viii"],
+    [pc_CreateAnswer, "viii"],
+    [pc_AddDecoderAnswer, "vi"],
+    [pc_AddUserInfo, "viiiiiiiii"],
+    [pc_RemoveUserInfo, "vii"],
+    [pc_SetRemoteDescription, "viii"],
+    [pc_SetLocalDescription, "viii"],
+    [pc_LocalDescription, "iii"],
+    [pc_SetMute, "vii"],
+    [pc_GetMute, "ii"],
+    [pc_GetLocalStats, "vi"],
+    [pc_SetRemoteUserClientId, "viii"],
+    [pc_HasVideo, "ii"],
+    [pc_SetVideoState, "vii"],
+    [pc_DataChannelId, "ii"],
+    [pc_DataChannelState, "ii"],
+    [pc_DataChannelSend, "viii"],
+    [pc_DataChannelClose, "vi"],
+    [pc_SetMediaKey, "viiiii"],
   ].map(([callback, signature]) => em_module.addFunction(callback, signature));
 
   em_module.ccall(

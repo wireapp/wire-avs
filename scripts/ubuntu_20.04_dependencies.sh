@@ -32,6 +32,8 @@ apt install -y \
     protobuf-c-compiler \
     python3 \
     python-is-python3 \
+    python3-pip \
+    python3-six \
     rsync \
     yasm \
     zlib1g-dev \
@@ -46,6 +48,7 @@ apt purge -y cargo rustc
 
 # cleanup apt cache to reduce image size
 apt clean
+
 
 # download the rust toolchain (to build the cryptobox-c dependency)
 curl https://sh.rustup.rs -sSf | sh -s -- -y
