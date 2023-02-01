@@ -2105,6 +2105,15 @@ static void userlist_add_user_handler(const struct userinfo *user,
 					    user->userid_hash,
 					    user->ssrca,
 					    user->ssrcv);
+
+	if (user->video_state == ICALL_VIDEO_STATE_STARTED &&
+	    user->ssrcv > 0) {
+		ICALL_CALL_CB(ccall->icall, vstate_changedh,
+			      &ccall->icall, user->userid_real,
+			      user->clientid_real,
+			      ICALL_VIDEO_STATE_STARTED,
+			      ccall->icall.arg);
+	}
 }
 
 static void userlist_remove_user_handler(const struct userinfo *user,
