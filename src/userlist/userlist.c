@@ -766,7 +766,9 @@ int userlist_get_members(struct userlist *list,
 			memb->audio_state = u->ssrca > 0 ?
 					    ICALL_AUDIO_STATE_ESTABLISHED :
 					    ICALL_AUDIO_STATE_CONNECTING;
-			memb->video_recv = u->video_state;
+			memb->video_recv = u->ssrcv > 0 ?
+					   u->video_state :
+					   ICALL_VIDEO_STATE_STOPPED;
 			memb->muted = u->muted ? 1 : 0;
 
 			(mm->membc)++;
