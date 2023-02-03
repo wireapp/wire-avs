@@ -44,6 +44,7 @@ extern "C" {
 #include "modules/audio_processing/include/audio_processing.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/physical_socket_server.h"
 #include "media/engine/webrtc_media_engine.h"
 #include "system_wrappers/include/field_trial.h"
 
@@ -714,7 +715,14 @@ int peerflow_init(void)
 
 	g_pf.thread = rtc::Thread::Create();
 	g_pf.thread->Start();
+#if 0
 	g_pf.thread->Invoke<void>(RTC_FROM_HERE, [] {
+		info("pf: starting runnable\n");
+		pc_platform_init();
+		info("pf: platform initialized\n");
+	});
+#endif
+	g_pf.thread->BlockingCall([] {
 		info("pf: starting runnable\n");
 		pc_platform_init();
 		info("pf: platform initialized\n");		
@@ -1747,12 +1755,14 @@ static int create_pf(struct peerflow *pf)
 	if (proxy) {
 		rtc::ProxyInfo pri;
 		rtc::SocketAddress sa(proxy->host, proxy->port);
+		rtc::PhysicalSocketServer socket_server;
+
 
 		pri.type = rtc::PROXY_HTTPS;
 		pri.address = sa;
 
 		port_allocator = absl::make_unique<cricket::BasicPortAllocator>(
-					   new rtc::BasicNetworkManager(),
+					   new rtc::BasicNetworkManager(&socket_server),
 					   nullptr);
 		
 		port_allocator->set_proxy("wire-call", pri);
