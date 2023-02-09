@@ -1353,12 +1353,12 @@ static int icall_send_handler(struct icall *icall,
 
 		mem_deref(tmb);
 	}
-	
+
 	info("wcall(%p): c3_message_send: convid=%s from=%s.%s to=%s "
 	     "msg=%H ctx=%p\n",
 	     wcall, anon_id(convid_anon, wcall->convid),
 	     anon_id(userid_anon, userid), anon_client(clientid_anon, inst->clientid),
-	     ntargets == 0 ? "ALL" : tstr,
+	     ntargets == 0 ? (my_clients_only ? "MINE" : "ALL") : tstr,
 	     econn_message_brief, msg, ctx);
 
 	if (ntargets > 0) {
