@@ -1847,9 +1847,12 @@ static int  ccall_send_msg_i(struct ccall *ccall,
 	if (!self)
 		return ENOENT;
 
-	if (targets) {
-		info("ccall(%p): send_msg type: %s targets: %zu\n",
-			ccall, econn_msg_name(type), list_count(targets));
+	if (targets || my_clients_only) {
+		info("ccall(%p): send_msg type: %s targets: %zu my_clients_only: %s\n",
+		     ccall,
+		     econn_msg_name(type),
+		     list_count(targets),
+		     my_clients_only ? "YES" : "NO");
 	}
 	else {
 		info("ccall(%p): send_msg type: %s userid=%s clientid=%s\n",
@@ -2451,8 +2454,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	set_state(ccall, CCALL_STATE_CONNSENT);
 	ccall->call_type = je->call_type;
 
-	ICALL_CALL_CB(ccall->icall, req_clientsh,
-		      &ccall->icall, ccall->icall.arg);
+	ccall_stop_others_ringing(ccall);
 
 	/* Prefer connecting to an already active sft */
 	if (CCALL_STATE_INCOMING == state) {
@@ -2598,7 +2600,7 @@ int  ccall_answer(struct icall *icall,
 		  bool audio_cbr)
 {
 	struct ccall *ccall = (struct ccall*)icall;
-	int err;
+	int err = 0;
 
 	ccall->error = 0;
 	switch (ccall->state) {
@@ -2643,9 +2645,7 @@ void ccall_reject(struct icall *icall)
 
 	if (ccall->state == CCALL_STATE_INCOMING) {
 		ccall->stop_ringing_reason = CCALL_STOP_RINGING_REJECTED;
-		ICALL_CALL_CB(ccall->icall, req_clientsh,
-			      &ccall->icall, ccall->icall.arg);
-
+		ccall_stop_others_ringing(ccall);
 	}
 }
 
@@ -2733,7 +2733,7 @@ int  ccall_set_quality_interval(struct icall *icall, uint64_t interval)
 	return 0;
 }
 
-static void ccall_stop_others_ringing(struct ccall *ccall)
+static void ccall_stop_others_ringing_i(struct ccall *ccall)
 {
 	struct list targets = LIST_INIT;
 	enum econn_msg msgtype;
@@ -2761,15 +2761,17 @@ static void ccall_stop_others_ringing(struct ccall *ccall)
 	ccall->stop_ringing_reason = CCALL_STOP_RINGING_NONE;
 
 	err = userlist_get_my_clients(ccall->userl, &targets);
-	if (err)
+	if (err) {
+		warning("ccall(%p): stop_others_ringing get_my_clients failed (%m)\n",
+			ccall, err);
 		goto out;
-
+	}
 	info("ccall(%p): stop_others_ringing state=%s targets=%u\n",
 	     ccall,
 	     ccall_state_name(ccall->state),
 	     list_count(&targets));
 
-	if (list_count(&targets) > 0) {
+	if (ccall->is_mls_call || list_count(&targets) > 0) {
 		ccall_send_msg_i(ccall, msgtype,
 				 true, &targets,
 				 false, true);
@@ -2777,6 +2779,17 @@ static void ccall_stop_others_ringing(struct ccall *ccall)
 
 out:
 	list_flush(&targets);
+}
+
+static void ccall_stop_others_ringing(struct ccall *ccall)
+{
+	if (ccall->is_mls_call) {
+		ccall_stop_others_ringing_i(ccall);
+	}
+	else {
+		ICALL_CALL_CB(ccall->icall, req_clientsh,
+			      &ccall->icall, ccall->icall.arg);
+	}
 }
 
 void ccall_set_clients(struct icall* icall,
@@ -2817,7 +2830,7 @@ void ccall_set_clients(struct icall* icall,
 	}
 
 	if (ccall->stop_ringing_reason != CCALL_STOP_RINGING_NONE) {
-		ccall_stop_others_ringing(ccall);
+		ccall_stop_others_ringing_i(ccall);
 	}
 }
 
