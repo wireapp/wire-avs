@@ -243,7 +243,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 20220331.62
+WEBRTC_VER := 20230202.65
 endif
 
 JAVAC := javac
@@ -263,6 +263,7 @@ CPPFLAGS += \
 	 -DWEBRTC_CODEC_OPUS \
 	 -DWEBRTC_NS_FIXED \
 	 -DWEBRTC_APM_DEBUG_DUMP=0 \
+	 -DNDEBUG \
 	 -DSSL_USE_OPENSSL -DFEATURE_ENABLE_SSL -D__STDC_FORMAT_MACROS=1 \
 	 -DAVS_VERSION='"$(AVS_VERSION)"' -DAVS_PROJECT='"$(AVS_PROJECT)"' \
 	 -DAVS_OS='"$(AVS_OS)"' -DAVS_ARCH='"$(AVS_ARCH)"' \
