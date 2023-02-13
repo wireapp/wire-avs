@@ -271,7 +271,7 @@ pipeline {
                                             --quiet \
                                             --import "${PGP_PRIVATE_KEY_FILE}"
 
-                                        version=$version ./gradlew publishToSonatype \
+                                        version=$version ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository \
                                             -Psigning.keyId=126762B1 \
                                             -Psigning.password=$PGP_PASSPHRASE \
                                             -Psigning.secretKeyRingFile=.gpphome/seckeyring.gpg
