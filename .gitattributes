@@ -1,15 +1,9 @@
 #
-# .gitattributes
+# https://help.github.com/articles/dealing-with-line-endings/
 #
-# used to remove files from deployment using `git archive`
-#
+# Linux start script should use lf
+/gradlew        text eol=lf
 
-.gitattributes  export-ignore
-.gitignore      export-ignore
+# These are Windows script files and should use crlf
+*.bat           text eol=crlf
 
-BUILDCONTROL    export-ignore
-
-contrib         export-ignore
-docs            export-ignore
-mediaengine     export-ignore
-tools           export-ignore

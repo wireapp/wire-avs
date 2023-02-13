@@ -1,0 +1,60 @@
+plugins {
+    id "java-library"
+    id "maven-publish"
+    id "signing"
+    id("io.github.gradle-nexus.publish-plugin") version "1.1.0"
+}
+
+group = "com.wire"
+version = System.getenv("version")
+
+def Properties properties = new Properties()
+properties.load(project.rootProject.file("local.properties").newDataInputStream())
+
+nexusPublishing {
+    repositories {
+        sonatype {
+            username = properties.getProperty("sonatype.username") ?: System.getenv("SONATYPE_USERNAME")
+            password = properties.getProperty("sonatype.password") ?: System.getenv("SONATYPE_PASSWORD")
+        }
+    }
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            artifact "build/dist/android/avs.aar"
+            artifact source: "build/dist/android/javadoc.jar", classifier: 'javadoc'
+            artifact source: "build/dist/android/sources.jar", classifier: 'sources'
+
+            pom {
+                name.set("wire-avs")
+                description.set("Wire - Audio, Video, and Signaling (AVS)")
+                url.set("https://github.com/wireapp/wire-avs")
+                licenses {
+                    license {
+                        name.set("GPL-3.0")
+                        url.set("https://opensource.org/licenses/GPL-3.0")
+                    }
+                }
+                developers {
+                    developer {
+                        id.set("svenwire")
+                        name.set("Sven Jost")
+                        email.set("sven@wire.com")
+                        organization.set("Wire Swiss GmbH")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:git://github.com/wireapp/wire-avs")
+                    developerConnection.set("scm:git:git://github.com/wireapp/wire-avs")
+                    url.set("https://github.com/wireapp/wire-avs")
+                }
+            }
+        }
+    }
+}
+
+signing {
+    sign publishing.publications.mavenJava
+}
