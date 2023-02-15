@@ -37,7 +37,7 @@ AND_MKS := $(OUTER_MKS) mk/android.mk $(AND_JAVA_MK) $(AND_JAVA_MK)
 include $(AND_JAVA_MK)
 include $(AND_JNI_MK)
 
-AND_BOOTCLASSPATH := $(ANDROID_SDK_ROOT)/platforms/android-25/android.jar:$(ANDROID_SDK_ROOT)/tools/support/annotations.jar
+AND_BOOTCLASSPATH := $(ANDROID_SDK_ROOT)/platforms/$(ANDROID_SDK_VER)/android.jar:$(ANDROID_SDK_ROOT)/tools/support/annotations.jar
 AND_CLASSPATH := android/java
 
 AND_CLS_TARGET := $(BUILD_TARGET)/classes

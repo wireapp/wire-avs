@@ -715,18 +715,19 @@ int peerflow_init(void)
 
 	g_pf.thread = rtc::Thread::Create();
 	g_pf.thread->Start();
-#if 0
+#if 1
 	g_pf.thread->Invoke<void>(RTC_FROM_HERE, [] {
 		info("pf: starting runnable\n");
 		pc_platform_init();
 		info("pf: platform initialized\n");
 	});
-#endif
+#else
 	g_pf.thread->BlockingCall([] {
 		info("pf: starting runnable\n");
 		pc_platform_init();
 		info("pf: platform initialized\n");		
 	});
+#endif
 
 	webrtc::field_trial::InitFieldTrialsFromString(trials_str);
 

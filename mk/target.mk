@@ -243,7 +243,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 20230202.65
+WEBRTC_VER := 20230214.66
 endif
 
 JAVAC := javac
@@ -314,7 +314,7 @@ LFLAGS += \
 # To make things easier, we define the relevant variables for every OS and
 # ARCH.
 #
-TOOLCHAIN_BASE_PATH := $(PWD)/devtools/ndk/25.1.8937393
+TOOLCHAIN_BASE_PATH := $(PWD)/devtools/ndk/$(ANDROID_NDK_VER)
 ifeq ($(HOST_OS),osx)
 TOOLCHAIN_SUFFIX := darwin-$(HOST_ARCH)
 else
@@ -364,10 +364,10 @@ AVS_OS_FAMILY := linux
 # Cross-compiling tools have a prefix that's differing per architecture.
 # We use this opportunity to check for a known $(AVS_ARCH).
 
-CROSS_PREFIX_armv7  := armv7a-linux-androideabi24
-CROSS_PREFIX_arm64  := aarch64-linux-android24
-CROSS_PREFIX_i386   := i686-linux-android24
-CROSS_PREFIX_x86_64 := x86_64-linux-android24
+CROSS_PREFIX_armv7  := armv7a-linux-androideabi21
+CROSS_PREFIX_arm64  := aarch64-linux-android21
+CROSS_PREFIX_i386   := i686-linux-android21
+CROSS_PREFIX_x86_64 := x86_64-linux-android21
 CROSS_PREFIX        := $(CROSS_PREFIX_$(AVS_ARCH))
 
 ifeq ($(CROSS_PREFIX),)

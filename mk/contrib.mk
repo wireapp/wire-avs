@@ -575,7 +575,8 @@ CONTRIB_SODIUM_LIB_FILES := $(CONTRIB_SODIUM_TARGET)
 CONTRIB_SODIUM_CFLAGS := -I$(CONTRIB_SODIUM_PATH)
 
 ifeq ($(AVS_OS),android)
-CONTRIB_SODIUM_CFLAGS += -nostdlib -mrdrnd
+CONTRIB_SODIUM_CFLAGS += -fPIC
+CONTRIB_SODIUM_LDFLAGS += -mrdrnd
 endif
 
 
@@ -590,7 +591,7 @@ $(CONTRIB_SODIUM_CONFIG_TARGET):	$(CONTRIB_SODIUM_PATH)/autogen.sh
 #
 CONTRIB_SODIUM_OS_OPTIONS_android := \
 	--enable-static \
-	--disable-shared \
+	--enable-shared \
 	--host=arm-none-eabi
 
 CONTRIB_SODIUM_OS_OPTIONS_ios := \
