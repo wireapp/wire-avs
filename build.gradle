@@ -56,5 +56,9 @@ publishing {
 }
 
 signing {
+    def signingKeyFile = properties.getProperty("signingKeyFile") ?: System.getenv("PGP_PRIVATE_KEY_FILE")
+    def signingKey = new File(signingKeyFile).text
+    def signingPassword = properties.getProperty("signingPassword") ?: System.getenv("PGP_PASSPHRASE")
+    useInMemoryPgpKeys(signingKey, signingPassword)
     sign publishing.publications.mavenJava
 }

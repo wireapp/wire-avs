@@ -317,3 +317,16 @@ RUN apt-get install -qqy --no-install-recommends \
         libxrender-dev \
         libc++-dev \
         libc++abi-dev
+
+
+Upload to sonatype
+------------------
+
+To manually upload to sonatype create a local.properties with the following values:
+
+```
+sonatype.username=
+sonatype.password=
+signingKeyFile=<path to asc file>
+signingPassword=<gpg key passphrase>
+```
