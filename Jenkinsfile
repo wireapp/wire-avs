@@ -261,7 +261,7 @@ pipeline {
                                         file(credentialsId: 'D599C1AA126762B1.asc', variable: 'PGP_PRIVATE_KEY_FILE'),
                                         string(credentialsId: 'PGP_PASSPHRASE', variable: 'PGP_PASSPHRASE') ]) {
                         try {
-                            withMaven(maven: 'M3', mavenSettingsFilePath: 'settings.xml') {
+                            withMaven(maven: 'M3') {
                                 sh(
                                     script: """
                                         mkdir -p .gpghome
