@@ -310,7 +310,7 @@ pipeline {
                 }
             }
             agent {
-                label 'linuxbuild'
+                label 'built-in'
             }
             steps {
                 // NOTE: the script upload-wasm.sh supports non-release branches, but in the past
