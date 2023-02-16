@@ -264,19 +264,9 @@ pipeline {
                             withMaven(maven: 'M3') {
                                 sh(
                                     script: """
-                                        mkdir -p .gpghome
-                                        chmod 700 .gpghome
-                                        gpg --batch \
-                                            --homedir .gpghome \
-                                            --quiet \
-                                            --import "${PGP_PRIVATE_KEY_FILE}"
-
                                         touch local.properties
 
-                                        version=$version ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository \
-                                            -Psigning.keyId=126762B1 \
-                                            -Psigning.password=$PGP_PASSPHRASE \
-                                            -Psigning.secretKeyRingFile=.gpphome/seckeyring.gpg
+                                        version=$version ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
                                     """
                                 )
                             }
