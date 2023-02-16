@@ -1,4 +1,18 @@
 ChangeLog for AVS -- latest on top!
+==============================================================================
+AVS Release 9.1
+
+Date:       February 16, 2022
+GIT:        https://github.com/wireapp/wire-avs/tree/release-9.1
+Android:    Android NDK r22b
+iOS:        iOS SDK 12.2
+OSX:        MacOS SDK 10.14
+Linux:      Ubuntu x86_64 18.04 (LTS)
+
+Summary:    - Bump webrtc version to M102
+	    - webrtc M102 requires Android NDK r22b
+
+==============================================================================
 
 ==============================================================================
 AVS Release 8.1
