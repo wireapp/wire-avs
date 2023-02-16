@@ -256,26 +256,11 @@ pipeline {
             }
             steps {
                 script {
-                    // consumed at https://github.com/wireapp/wire-android/blob/develop/scripts/avs.gradle
-
-                    final String artifactName = 'avs'
-                    final String ANDROID_GROUP = 'com.wire'
-
-                    echo '### Sign with release key'
-                    withCredentials([ usernamePassword( credentialsId: 'android-sonatype-nexus', usernameVariable: 'username', passwordVariable: 'password' ),
+                    echo '### Sign and upload to sonatype'
+                    withCredentials([ usernamePassword( credentialsId: 'android-sonatype-nexus', usernameVariable: 'SONATYPE_USERNAME', passwordVariable: 'SONATYPE_PASSWORD' ),
                                         file(credentialsId: 'D599C1AA126762B1.asc', variable: 'PGP_PRIVATE_KEY_FILE'),
                                         string(credentialsId: 'PGP_PASSPHRASE', variable: 'PGP_PASSPHRASE') ]) {
                         try {
-                            sh(
-                                script: """
-                                    echo "<settings><servers><server>" > settings.xml
-                                    echo "<id>ossrh</id>" >> settings.xml
-                                    echo "<username>${username}</username>" >> settings.xml
-                                    echo "<password>${password}</password>" >> settings.xml
-                                    echo "</server></servers></settings>" >> settings.xml
-                                """
-                            )
-
                             withMaven(maven: 'M3', mavenSettingsFilePath: 'settings.xml') {
                                 sh(
                                     script: """
@@ -286,109 +271,17 @@ pipeline {
                                             --quiet \
                                             --import "${PGP_PRIVATE_KEY_FILE}"
 
-                                        cat <<EOF > avs.pom
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-
-    <groupId>${ANDROID_GROUP}</groupId>
-    <artifactId>${artifactName}</artifactId>
-    <version>${version}</version>
-    <packaging>aar</packaging>
-
-    <name>wire-avs</name>
-    <description>Wire - Audio, Video, and Signaling (AVS)</description>
-    <organization>
-        <name>com.wire</name>
-    </organization>
-
-    <url>https://github.com/wireapp/wire-avs</url>
-
-    <scm>
-        <connection>scm:git:git://github.com/wireapp/wire-avs</connection>
-        <developerConnection>scm:git:git://github.com/wireapp/wire-avs</developerConnection>
-        <tag>HEAD</tag>
-        <url>https://github.com/wireapp/wire-avs</url>
-    </scm>
-
-    <licenses>
-        <license>
-            <name>GPL-3.0</name>
-            <url>https://opensource.org/licenses/GPL-3.0</url>
-            <distribution>repo</distribution>
-        </license>
-    </licenses>
-
-    <developers>
-        <developer>
-            <id>svenwire</id>
-            <name>Sven Jost</name>
-            <email>sven@wire.com</email>
-            <organization>Wire Swiss GmbH</organization>
-            <organizationUrl>https://wire.com</organizationUrl>
-            <roles>
-                <role>developer</role>
-            </roles>
-        </developer>
-    </developers>
-
-</project>
-
-EOF
-
-
-                                        mvn gpg:sign-and-deploy-file \
-                                            -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ \
-                                            -Dgpg.homedir=.gpghome \
-                                            -Dgpg.passphrase=${PGP_PASSPHRASE} \
-                                            -Dgpg.keyname=D599C1AA126762B1 \
-                                            -DrepositoryId=ossrh \
-                                            -Dpackaging=aar \
-                                            -DpomFile=avs.pom \
-                                            -DgroupId=${ANDROID_GROUP} \
-                                            -DartifactId=${artifactName} \
-                                            -Dversion=${version} \
-                                            -Dfile=./build/dist/android/avs.aar
-
-                                        # upload javadoc
-                                        mvn gpg:sign-and-deploy-file \
-                                            -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ \
-                                            -Dgpg.homedir=.gpghome \
-                                            -Dgpg.passphrase=${PGP_PASSPHRASE} \
-                                            -Dgpg.keyname=D599C1AA126762B1 \
-                                            -DrepositoryId=ossrh \
-                                            -Dpackaging=jar \
-                                            -DpomFile=avs.pom \
-                                            -DgroupId=${ANDROID_GROUP} \
-                                            -DartifactId=${artifactName} \
-                                            -Dversion=${version} \
-                                            -Dclassifier=javadoc \
-                                            -Dfile=./build/dist/android/javadoc.jar
-
-                                        # upload sources
-                                        mvn gpg:sign-and-deploy-file \
-                                            -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ \
-                                            -Dgpg.homedir=.gpghome \
-                                            -Dgpg.passphrase=${PGP_PASSPHRASE} \
-                                            -Dgpg.keyname=D599C1AA126762B1 \
-                                            -DrepositoryId=ossrh \
-                                            -Dpackaging=jar \
-                                            -DpomFile=avs.pom \
-                                            -DgroupId=${ANDROID_GROUP} \
-                                            -DartifactId=${artifactName} \
-                                            -Dversion=${version} \
-                                            -Dclassifier=sources \
-                                            -Dfile=./build/dist/android/sources.jar
+                                        version=$version ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository \
+                                            -Psigning.keyId=126762B1 \
+                                            -Psigning.password=$PGP_PASSPHRASE \
+                                            -Psigning.secretKeyRingFile=.gpphome/seckeyring.gpg
                                     """
                                 )
                             }
                         } finally {
-                            // Cleanup settings with credentials in any case
+                            // Cleanup gpg dot files in any case
                             sh(
                                 script: """
-                                    rm -rf settings.xml
                                     rm -rf .gpghome
                                 """
                             )

@@ -49,3 +49,7 @@ contrib/webrtc
 scan/
 devtools/
 
+
+# Ignore Gradle project-specific cache directory
+.gradle
+
