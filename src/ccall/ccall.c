@@ -3232,6 +3232,17 @@ int  ccall_sft_msg_recv(struct icall* icall,
 	const char *clientid_peer = "SFT";
 	int err = 0;
 
+	info("ccall(%p): sft_msg_recv status=%d\n", ccall, status);
+	
+	if (status != 0 && (status < 200 || status > 299)) {
+		warning("ccall(%p): sft failed responded with failure: %d\n",
+			ccall, status);
+
+		ccall_end_with_err(ccall, EPROTO);
+		
+		return 0;
+	}
+		
 	if (!msg) {
 		warning("ccall(%p): sft_msg_recv err=%d(%m)\n", ccall, status, status);
 		return 0;
