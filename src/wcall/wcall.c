@@ -2157,10 +2157,14 @@ WUSER_HANDLE wcall_create(const char *userid,
 #ifdef __EMSCRIPTEN__
 	use_mediamgr = false;
 #else
+#ifdef ANDROID
+	use_mediamgr = true;
+#else
 #ifdef __linux__
 	use_mediamgr = false;
 #else
 	use_mediamgr = true;
+#endif
 #endif
 #endif
 
