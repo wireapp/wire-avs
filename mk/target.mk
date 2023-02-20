@@ -150,7 +150,7 @@
 
 # Here's all the AVS_OS and AVS_ARCH values we support
 #
-ALL_AVS_OS := android ios linux osx wasm
+ALL_AVS_OS := android ios iossim linux osx wasm
 ALL_AVS_ARCH := armv7 arm64 i386 x86_64 generic
 
 
@@ -180,7 +180,7 @@ ifeq ($(AVS_OS),)
 AVS_OS := $(HOST_OS)
 AVS_ARCH := $(HOST_ARCH)
 endif
-ifeq ($(AVS_ARCH),arm64s)
+ifeq ($(AVS_OS),iossim)
 AVS_ARCH := arm64
 AVS_SIM := yes
 endif
@@ -294,6 +294,9 @@ endif
 
 ifeq ($(AVS_RELEASE),1)
  ifeq ($(AVS_OS),ios)
+  CXXFLAGS += -DNDEBUG
+ endif
+ ifeq ($(AVS_OS),iossim)
   CXXFLAGS += -DNDEBUG
  endif
  ifeq ($(AVS_OS),android)
@@ -503,7 +506,15 @@ endif
 
 #--- iOS Target -------------------------------------------------------------
 #
+
+ifeq ($(AVS_OS),iossim)
+IS_IOS := true
+endif
 ifeq ($(AVS_OS),ios)
+IS_IOS := true
+endif
+
+ifneq ($(IS_IOS),)
 
 AVS_OS_FAMILY := darwin
 
@@ -514,12 +525,13 @@ AVS_SIM = yes
 endif
 
 
-ifdef AVS_SIM
+ifeq ($(AVS_SIM),yes)
 SDK := iphonesimulator
 HOST_OPTIONS := --host=arm-apple-darwin 
 else
 SDK := iphoneos
 endif
+
 SDK_PATH := $(shell $(XCRUN) --show-sdk-path --sdk $(SDK))
 
 # Tools
