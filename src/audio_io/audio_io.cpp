@@ -76,10 +76,14 @@ void *audio_io_create_adm(void)
 #endif
 	}
 
+#ifndef __ANDROID__
 #ifdef __linux__
 	if (!g_aioc) {
+		info("audio_io: create_adm: creating fake audio device "
+		     "for Linux\n");
 		g_aioc = new webrtc::fake_audiodevice(true);
 	}
+#endif
 #endif
 
 	if (g_aioc && g_enable_sine)
