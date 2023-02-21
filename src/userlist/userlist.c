@@ -21,6 +21,7 @@
 #include <assert.h>
 #include "avs_wcall.h"
 
+#define LIST_POS_NONE 0xFFFFFFFF
 
 static void userinfo_destructor(void *arg)
 {
@@ -273,7 +274,7 @@ int userlist_update_from_sftlist(struct userlist *list,
 		return EINVAL;
 
 	info("userlist(%p): update_from_sftlist %u members\n", list, list_count(partlist));
-	list->self->listpos = 0xFFFFFFFF;
+	list->self->listpos = LIST_POS_NONE;
 	prev_keygenerator = list->keygenerator;
 	list->keygenerator = NULL;
 
@@ -283,7 +284,7 @@ int userlist_update_from_sftlist(struct userlist *list,
 			continue;
 		u->incall_prev = u->incall_now;
 		u->incall_now = false;
-		u->listpos = 0xFFFFFFFF;
+		u->listpos = LIST_POS_NONE;
 	}
 
 	LIST_FOREACH(partlist, le) {
@@ -456,6 +457,7 @@ void userlist_update_from_selist(struct userlist* list,
 		if (!u)
 			continue;
 		u->se_approved = false;
+		u->was_in_subconv = u->in_subconv;
 		u->in_subconv = false;
 	}
 
@@ -464,6 +466,13 @@ void userlist_update_from_selist(struct userlist* list,
 
 		if (!cli)
 			continue;
+
+		/* Skip self if we happen to get self in the SE list */
+		if (strcaseeq(list->self->userid_real, cli->userid) &&
+		    strcaseeq(list->self->clientid_real, cli->clientid)) {
+			continue;
+		}
+
 		user = userlist_find_by_real(list, cli->userid, cli->clientid);
 		if (user) {
 			hash_userinfo(user, secret, secret_len);
@@ -538,8 +547,12 @@ void userlist_update_from_selist(struct userlist* list,
 		struct userinfo *u = le->data;
 		if (!u)
 			continue;
-		 if (!u->in_subconv)
+
+		if (!u->in_subconv) {
 			u->first_epoch = 0;
+			if (u->was_in_subconv)
+				list_changed = true;
+		}
 	}
 
 	if (sync_decoders && list->synch) {
