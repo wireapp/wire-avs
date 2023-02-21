@@ -28,6 +28,7 @@ struct userinfo {
 	enum icall_vstate video_state;
 	bool muted;
 	bool in_subconv;
+	bool was_in_subconv;
 	uint32_t first_epoch;
 	uint32_t latest_epoch;
 

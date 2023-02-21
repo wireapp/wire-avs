@@ -1742,8 +1742,14 @@ void dc_state_handler(int self, int state)
 
 	case DC_STATE_ERROR:
 	case DC_STATE_CLOSED:
-		IFLOW_CALL_CB(flow->iflow, dce_closeh,
-			flow->iflow.arg);
+		if (flow->closed) {
+			IFLOW_CALL_CB(flow->iflow, dce_closeh,
+				      flow->iflow.arg);
+		}
+		else {
+			IFLOW_CALL_CB(flow->iflow, restarth,
+				      false, flow->iflow.arg);
+		}
 		break;
 
 	default:

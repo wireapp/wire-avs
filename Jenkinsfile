@@ -260,21 +260,11 @@ pipeline {
                     withCredentials([ usernamePassword( credentialsId: 'android-sonatype-nexus', usernameVariable: 'SONATYPE_USERNAME', passwordVariable: 'SONATYPE_PASSWORD' ),
                                         file(credentialsId: 'D599C1AA126762B1.asc', variable: 'PGP_PRIVATE_KEY_FILE'),
                                         string(credentialsId: 'PGP_PASSPHRASE', variable: 'PGP_PASSPHRASE') ]) {
-                        try {
-                            withMaven(maven: 'M3') {
-                                sh(
-                                    script: """
-                                        touch local.properties
-
-                                        version=$version ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
-                                    """
-                                )
-                            }
-                        } finally {
-                            // Cleanup gpg dot files in any case
+                        withMaven(maven: 'M3') {
                             sh(
                                 script: """
-                                    rm -rf .gpghome
+                                    touch local.properties
+                                    version=$version ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
                                 """
                             )
                         }
