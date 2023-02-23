@@ -53,7 +53,8 @@ ifeq ($(DIST_ARCH),)
 endif
 
 DIST_ARCH_android := $(filter armv7 arm64 i386 x86_64 osx,$(DIST_ARCH))
-DIST_ARCH_ios := $(filter arm64 x86_64,$(DIST_ARCH))
+DIST_ARCH_ios := $(filter arm64,$(DIST_ARCH))
+DIST_ARCH_iossim := $(filter arm64 x86_64,$(DIST_ARCH))
 DIST_ARCH_osx := $(filter arm64 x86_64,$(DIST_ARCH))
 
 DIST_FMWK_VERSION := A
@@ -67,6 +68,7 @@ DIST_BUNDLE_COPYRIGHT := © 2014 Wire Swiss GmbH
 
 BUILD_DIST_AND := $(BUILD_DIST_BASE)/android
 BUILD_DIST_IOS := $(BUILD_DIST_BASE)/ios
+BUILD_DIST_IOSSIM := $(BUILD_DIST_BASE)/iossim
 BUILD_DIST_OSX := $(BUILD_DIST_BASE)/osx
 BUILD_DIST_LINUX := $(BUILD_DIST_BASE)/linux
 BUILD_DIST_WASM := $(BUILD_DIST_BASE)/wasm
@@ -111,8 +113,9 @@ DIST_AND_TARGETS := \
 
 DIST_IOS_TARGETS := \
 	$(BUILD_DIST_IOS)/$(BUILD_LIB_REL).framework.zip \
-	$(BUILD_DIST_IOS)/$(BUILD_LIB_REL).xcframework.zip
 
+DIST_IOSSIM_TARGETS := \
+	$(BUILD_DIST_IOSSIM)/$(BUILD_LIB_REL).framework.zip \
 
 DIST_OSX_TARGETS := \
 	$(BUILD_DIST_OSX)/$(BUILD_LIB_REL).framework.zip \
@@ -256,6 +259,7 @@ endif
 # Resources/Info.plist
 #
 .SECONDARY: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/Info.plist
+.SECONDARY: $(BUILD_DIST_IOSSIM)/$(BUILD_LIB_REL)/Info.plist
 .SECONDARY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/Info.plist
 $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Info.plist:
 	@mkdir -p $(dir $@)
@@ -265,6 +269,7 @@ $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Info.plist:
 # Headers
 #
 .SECONDARY: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/Headers
+.SECONDARY: $(BUILD_DIST_IOSSIM)/$(BUILD_LIB_REL)/Headers
 .SECONDARY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/Headers
 $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Headers:
 	@mkdir $@
@@ -273,6 +278,7 @@ $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Headers:
 	@cp -a include/avs_wcall.h $@
 
 .SECONDARY: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/Modules
+.SECONDARY: $(BUILD_DIST_IOSSIM)/$(BUILD_LIB_REL)/Modules
 .SECONDARY: $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/Modules
 $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL)/Modules:
 	@mkdir $@
@@ -306,6 +312,30 @@ $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
 		$(foreach arch,$(DIST_ARCH_ios),\
 		-arch $(arch) $(BUILD_BASE)/ios-$(arch)/lib/avs.framework/avs)
 
+.PHONY: $(BUILD_DIST_IOSSIM)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
+$(BUILD_DIST_IOSSIM)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
+	@for arch in $(DIST_ARCH_iossim) ; do \
+		$(MAKE) contrib AVS_OS=iossim AVS_ARCH=$$arch && \
+		$(MAKE) $(JOBS) avs AVS_OS=iossim AVS_ARCH=$$arch && \
+		$(MAKE) iosx AVS_OS=iossim AVS_ARCH=$$arch && \
+		echo "creating dSYM for iossim-$$arch" && \
+		dsymutil $(BUILD_BASE)/iossim-$$arch/lib/avs.framework/avs \
+			2>/dev/null && \
+		mkdir -p $(BUILD_BASE)/iossim-$$arch/lib/avs.framework/Headers && \
+		touch $(BUILD_BASE)/iossim-$$arch/lib/avs.framework/Headers && \
+		cp -a iosx/include/* \
+			$(BUILD_BASE)/iossim-$$arch/lib/avs.framework/Headers && \
+		cp -a include/avs_wcall.h \
+			$(BUILD_BASE)/iossim-$$arch/lib/avs.framework/Headers && \
+		mkdir -p $(BUILD_BASE)/iossim-$$arch/lib/avs.framework/Modules && \
+		touch $(BUILD_BASE)/iossim-$$arch/lib/avs.framework/Modules && \
+		cp -a iosx/module.modulemap $(BUILD_BASE)/iossim-$$arch/lib/avs.framework/Modules ; \
+	done
+	@mkdir -p $(dir $@)
+
+	lipo -create -output $@ \
+		$(foreach arch,$(DIST_ARCH_iossim),\
+		-arch $(arch) $(BUILD_BASE)/iossim-$(arch)/lib/avs.framework/avs)
 
 
 dist_test: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
@@ -339,22 +369,12 @@ $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL).framework.zip: \
 
 
 $(BUILD_DIST_IOS)/$(BUILD_LIB_REL).xcframework.zip:
-	@for arch in $(DIST_ARCH_ios) ; do \
-	     cp -a $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/Info.plist \
-			$(BUILD_BASE)/ios-$$arch/lib/avs.framework/ ; \
-	done
 	/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -create-xcframework \
-	     $(foreach arch,$(DIST_ARCH_ios),\
-                -framework $(BUILD_BASE)/ios-$(arch)/lib/avs.framework/) \
-		-output $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/avs.xcframework
-	@for arch in arm64 x86_64-simulator ; do \
-             mkdir -p $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/avs.xcframework/ios-$$arch/dSYMs && \
-	     mv $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/avs.xcframework/ios-$$arch/avs.framework/avs.dSYM \
-		$(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/avs.xcframework/ios-$$arch/dSYMs ; \
-	done
-	cp -R $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/avs.xcframework \
-		$(BUILD_DIST_BASE)/ios/avs.xcframework
-	@( cd $(BUILD_DIST_BASE)/ios && \
+	$(foreach os,ios iossim,\
+                -framework $(BUILD_DIST_BASE)/$(os)/Carthage/Build/iOS/avs.framework \
+		-debug-symbols $(BUILD_DIST_BASE)/$(os)/Carthage/Build/iOS/avs.framework.dSYM) \
+		-output $(BUILD_DIST_IOS)/avs.xcframework
+	@( cd $(BUILD_DIST_IOS) && \
 		zip --symlinks -r avs.xcframework.zip avs.xcframework )
 
 #--- iOSX Tarballs ---
@@ -452,7 +472,7 @@ $(DIST_WASM_TARGETS): $(DIST_WASM_JS_TARGET) $(DIST_WASM_PC_TARGET) $(DIST_WASM_
 
 .PHONY: dist_android dist_ios dist_osx dist_linux dist_wasm dist dist_host dist_clean
 dist_android: $(DIST_AND_TARGETS)
-dist_ios: $(DIST_IOS_TARGETS)
+dist_ios: $(DIST_IOS_TARGETS) $(DIST_IOSSIM_TARGETS) $(BUILD_DIST_IOS)/$(BUILD_LIB_REL).xcframework.zip
 dist_osx: $(DIST_OSX_TARGETS)
 dist_linux: $(DIST_LINUX_TARGETS)
 dist_wasm: $(DIST_WASM_TARGETS)

@@ -22,6 +22,8 @@
 #     				AVS_ARCH=armv7s
 #     				AVS_ARCH=arm64
 #     				AVS_ARCH=x86_64	(simulator)
+#     AVS_OS=iossim		AVS_ARCH=x86_64
+#				AVS_ARCH=arm64
 #     AVS_OS=osx		AVS_ARCH=x86_64
 #
 # The system we are building on is defined through HOST_OS and HOST_ARCH.
@@ -150,7 +152,7 @@
 
 # Here's all the AVS_OS and AVS_ARCH values we support
 #
-ALL_AVS_OS := android ios iossim linux osx wasm
+ALL_AVS_OS := android ios iossim osx linux wasm
 ALL_AVS_ARCH := armv7 arm64 i386 x86_64 generic
 
 
@@ -181,8 +183,10 @@ AVS_OS := $(HOST_OS)
 AVS_ARCH := $(HOST_ARCH)
 endif
 ifeq ($(AVS_OS),iossim)
-AVS_ARCH := arm64
 AVS_SIM := yes
+ifeq ($(AVS_ARCH),)
+AVS_ARCH := x86_64
+endif
 endif
 ifeq ($(AVS_ARCH),)
 ifeq ($(AVS_OS),android)
@@ -243,7 +247,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 20230214.66
+WEBRTC_VER := 20230222.69
 endif
 
 JAVAC := javac
@@ -520,10 +524,6 @@ AVS_OS_FAMILY := darwin
 
 # SDK
 #
-ifeq ($(AVS_ARCH),x86_64)
-AVS_SIM = yes
-endif
-
 
 ifeq ($(AVS_SIM),yes)
 SDK := iphonesimulator
@@ -533,6 +533,7 @@ SDK := iphoneos
 endif
 
 SDK_PATH := $(shell $(XCRUN) --show-sdk-path --sdk $(SDK))
+
 
 # Tools
 #
@@ -570,14 +571,14 @@ LIBS	 += \
 
 ifeq ($(SDK),iphoneos)
 CPPFLAGS += \
-         -miphoneos-version-min=9.0
+         -miphoneos-version-min=12.0
 LFLAGS	 += \
-         -miphoneos-version-min=9.0
+         -miphoneos-version-min=12.0
 else
 CPPFLAGS += \
-         -mios-simulator-version-min=9.0
+         -mios-simulator-version-min=12.0
 LFLAGS	 += \
-         -mios-simulator-version-min=9.0
+         -mios-simulator-version-min=12.0
 endif
 
 # video
