@@ -34,6 +34,8 @@
 
 #define CCALL_CBR_ALWAYS_ON 1
 
+#define SFT_STATUS_NETWORK_ERROR 1000
+
 static void ccall_connect_timeout(void *arg);
 static void ccall_stop_ringing_timeout(void *arg);
 static void ccall_ongoing_call_timeout(void *arg);
@@ -3238,13 +3240,12 @@ int  ccall_sft_msg_recv(struct icall* icall,
 	int err = 0;
 
 	info("ccall(%p): sft_msg_recv status=%d\n", ccall, status);
-
-	if (status != 0 && (status < 200 || status > 299)) {
+	if (status != 0 && status == SFT_STATUS_NETWORK_ERROR) {
 		warning("ccall(%p): sft failed responded with failure: %d\n",
 			ccall, status);
 
-		ccall_end_with_err(ccall, EPROTO);
-
+		ccall_end_with_err(ccall, ENOSYS);
+		
 		return 0;
 	}
 
