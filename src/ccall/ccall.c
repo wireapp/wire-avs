@@ -1260,10 +1260,15 @@ static int ccall_set_media_key(struct icall *icall,
 {
 	struct ccall *ccall = (struct ccall*)icall;
 	int err = 0;
-	warning("ccall(%p): set_media_key with key %u bytes\n", ccall, key_size);
+	info("ccall(%p): set_media_key with key %u bytes\n", ccall, key_size);
 
 	if (!ccall)
 		return EINVAL;
+
+	if (!ccall->is_mls_call) {
+		warning("ccall(%p): set_media_key called for Proteus call\n", ccall);
+		return EINVAL;
+	}
 
 	err = keystore_set_session_key(ccall->keystore,
 				       epochid,
