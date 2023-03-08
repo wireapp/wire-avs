@@ -768,8 +768,10 @@ void wcall_end(WUSER_HANDLE wuser, const char *convid)
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	if (!convid)
-		return EINVAL;
+	if (!convid) {
+		err = EINVAL;
+		goto out;
+	}
 	
 	inst = wuser2inst(wuser);
 	if (!inst) {
