@@ -1142,6 +1142,8 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 		goto out;
 	}
 
+	memcpy(md->u.set_epoch_info.key_data, key_data, key_size);
+
 	err = str_dup(&md->u.set_epoch_info.clients_json, clients_json);
 	if (err) 
 		goto out;
