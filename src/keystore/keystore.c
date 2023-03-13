@@ -86,6 +86,12 @@ static int keystore_append_key(struct keystore *ks,
 			       struct keyinfo *kinfo);
 static int keystore_organise(struct keystore *ks);
 
+
+static bool is_empty(const uint8_t *buf, size_t sz)
+{
+    return (buf[0] == 0) && (memcmp(buf, buf + 1, sz - 1) == 0);
+}
+
 static void keyinfo_destructor(void *data)
 {
 	struct keyinfo *info = data;
@@ -224,12 +230,16 @@ int keystore_set_session_key(struct keystore *ks,
 	struct keyinfo *kinfo = NULL;
 	int err = 0;
 
-	if (!ks) {
+	if (!ks || ksz == 0) {
 		return EINVAL;
 	}
 
-	info("keystore(%p): set_session_key 0x%08x\n", ks, index);
+	info("keystore(%p): set_session_key 0x%08x %zu bytes\n", ks, index, ksz);
 	sz = MIN(ksz, E2EE_SESSIONKEY_SIZE);
+
+	if (is_empty(key, ksz)) {
+		warning("keystore(%p): set_session_key key 0x%08x is all zeros\n", ks, index);
+	}
 
 	lock_write_get(ks->lock);
 
@@ -297,7 +307,7 @@ int keystore_set_session_key(struct keystore *ks,
 		}
 	}
 
-	info("keystore(%p): set_session_key 0x%08x\n",
+	info("keystore(%p): set_session_key 0x%08x set\n",
 	     ks, kinfo->index);
 out:
 	lock_rel(ks->lock);

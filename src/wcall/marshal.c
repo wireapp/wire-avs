@@ -29,6 +29,7 @@
 struct wcall_marshal {
 	struct mqueue *mq;
 	struct list mdl;
+	struct lock *lock;
 };
 
 
@@ -59,7 +60,7 @@ enum mq_event {
 struct mq_data {
 	enum mq_event event;
 	struct calling_instance *inst;
-	struct wcall *wcall;
+	char *convid;
 	struct le le; /* member of marshaling list */
 	
 	union {
@@ -96,7 +97,6 @@ struct mq_data {
 			struct econn_message *msg;
 			uint32_t curr_time; /* timestamp in seconds */
 			uint32_t msg_time;  /* timestamp in seconds */
-			char *convid;
 			char *userid;
 			char *clientid;
 			int conv_type;
@@ -121,7 +121,6 @@ struct mq_data {
 		} sft_resp;
 
 		struct {
-			char *convid;
 			uint32_t msg_time;
 			char *userid;
 			char *clientid;
@@ -158,9 +157,16 @@ struct mq_data {
 
 static void md_destructor(void *arg)
 {
+	struct wcall_marshal *wm = NULL;
 	struct mq_data *md = arg;
 
+	wm = wcall_get_marshal(md->inst);
+	if (!wm)
+		return;
+
+	lock_write_get(wm->lock);
 	list_unlink(&md->le);
+	lock_rel(wm->lock);
 	
 	switch (md->event) {
 	case WCALL_MEV_ANSWER:
@@ -171,7 +177,6 @@ static void md_destructor(void *arg)
 
 	case WCALL_MEV_RECV_MSG:
 		mem_deref(md->u.recv_msg.msg);
-		mem_deref(md->u.recv_msg.convid);
 		mem_deref(md->u.recv_msg.userid);
 		mem_deref(md->u.recv_msg.clientid);
 		break;
@@ -189,7 +194,6 @@ static void md_destructor(void *arg)
 		break;
 
 	case WCALL_MEV_INCOMING:
-		mem_deref(md->u.incoming.convid);
 		mem_deref(md->u.incoming.userid);
 		mem_deref(md->u.incoming.clientid);
 		break;
@@ -215,23 +219,35 @@ static void md_destructor(void *arg)
 		break;
 	}
 
-	md->wcall = mem_deref(md->wcall);	
+	md->convid = mem_deref(md->convid);
 }
 
 
 static struct mq_data *md_new(struct calling_instance *inst,
-			      struct wcall *wcall,
+			      const char *convid,
 			      enum mq_event event)
 {
-	struct mq_data *md;
+	struct mq_data *md = NULL;
+	int err = 0;
 
 	md = mem_zalloc(sizeof(*md), md_destructor);
 	if (!md)
 		return NULL;
 
+	if (convid) {
+		err = str_dup(&md->convid, convid);
+		if (err) {
+			warning("marshall: unable to copy convid\n");
+			goto out;
+		}
+	}
+
 	md->inst = inst;
-	md->wcall = mem_ref(wcall);
 	md->event = event;
+
+out:
+	if (err)
+		md = mem_deref(md);
 
 	return md;
 }
@@ -239,9 +255,13 @@ static struct mq_data *md_new(struct calling_instance *inst,
 static void mqueue_handler(int id, void *data, void *arg)
 {
 	struct mq_data *md = data;
-	int err;
+	struct wcall *wcall = NULL;
+	int err = 0;
 
 	(void)arg;
+
+	if (md->convid)
+		wcall = wcall_lookup(md->inst, md->convid);
 
 	switch (id) {
 
@@ -250,7 +270,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 				 md->u.recv_msg.msg,
 				 md->u.recv_msg.curr_time,
 				 md->u.recv_msg.msg_time,
-				 md->u.recv_msg.convid,
+				 md->convid,
 				 md->u.recv_msg.userid,
 				 md->u.recv_msg.clientid,
 				 md->u.recv_msg.conv_type);
@@ -277,37 +297,66 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case WCALL_MEV_START:
-		 err = wcall_i_start(md->wcall,
-				     md->u.start.call_type,
-				     md->u.start.conv_type,
-				     md->u.start.audio_cbr);
+		if (!wcall) {
+			if (!md->convid) {
+				err = ENOENT;
+				goto out;
+			}
+
+			err = wcall_add(md->inst,
+					&wcall,
+					md->convid,
+					md->u.start.conv_type);
+			if (err || !wcall)
+				goto out;
+		}
+		err = wcall_i_start(wcall,
+				    md->u.start.call_type,
+				    md->u.start.conv_type,
+				    md->u.start.audio_cbr);
 		if (err) {
 			warning("wcall: wcall_start failed (%m)\n", err);
-			wcall_i_end(md->wcall);
+			wcall_i_end(wcall);
 		}
 		break;
 
 	case WCALL_MEV_ANSWER:
-		err = wcall_i_answer(md->wcall,
+		if (!wcall) {
+			err = ENOENT;
+			goto out;
+		}
+		err = wcall_i_answer(wcall,
 				     md->u.answer.call_type,
 				     md->u.answer.audio_cbr);
 		if (err) {
 			warning("wcall: wcall_answer failed (%m)\n", err);
-			wcall_i_end(md->wcall);
+			wcall_i_end(wcall);
 		}
 		break;
 
 	case WCALL_MEV_REJECT:
-		wcall_i_reject(md->wcall);
+		if (!wcall) {
+			err = ENOENT;
+			goto out;
+		}
+		wcall_i_reject(wcall);
 		break;
 
 	case WCALL_MEV_END:
-		wcall_i_end(md->wcall);
+		if (!wcall) {
+			err = ENOENT;
+			goto out;
+		}
+		wcall_i_end(wcall);
 		break;
 
 	case WCALL_MEV_VIDEO_SET_STATE:
-		wcall_i_set_video_send_state(md->wcall,
-					      md->u.video_set_state.state);
+		if (!wcall) {
+			err = ENOENT;
+			goto out;
+		}
+		wcall_i_set_video_send_state(wcall,
+					     md->u.video_set_state.state);
 		break;
 
 	case WCALL_MEV_MCAT_CHANGED:
@@ -323,23 +372,31 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case WCALL_MEV_INCOMING:
-		wcall_i_invoke_incoming_handler(md->u.incoming.convid,
-				    md->u.incoming.msg_time,
-				    md->u.incoming.userid,
-				    md->u.incoming.clientid,
-				    md->u.incoming.video_call,
-				    md->u.incoming.should_ring,
-				    md->u.incoming.conv_type,
-				    md->inst);
+		wcall_i_invoke_incoming_handler(md->convid,
+						md->u.incoming.msg_time,
+						md->u.incoming.userid,
+						md->u.incoming.clientid,
+						md->u.incoming.video_call,
+						md->u.incoming.should_ring,
+						md->u.incoming.conv_type,
+						md->inst);
 		break;
 
 	case WCALL_MEV_DCE_SEND:
-		wcall_i_dce_send(md->wcall, md->u.dce_send.mb);		
+		if (!wcall) {
+			err = ENOENT;
+			goto out;
+		}
+		wcall_i_dce_send(wcall, md->u.dce_send.mb);
 		break;
 
 	case WCALL_MEV_SET_CLIENTS:
-		wcall_i_set_clients_for_conv(md->wcall,
-				 md->u.set_clients.json);
+		if (!wcall) {
+			err = ENOENT;
+			goto out;
+		}
+		wcall_i_set_clients_for_conv(wcall,
+					     md->u.set_clients.json);
 		break;
 
 	case WCALL_MEV_DESTROY:
@@ -351,13 +408,21 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case WCALL_MEV_REQ_VSTREAMS:
-		wcall_i_request_video_streams(md->wcall,
+		if (!wcall) {
+			err = ENOENT;
+			goto out;
+		}
+		wcall_i_request_video_streams(wcall,
 					      md->u.req_vstreams.mode,
 					      md->u.req_vstreams.json);
 		break;
 
 	case WCALL_MEV_SET_EPOCH_INFO:
-		wcall_i_set_epoch_info(md->wcall,
+		if (!wcall) {
+			err = ENOENT;
+			goto out;
+		}
+		wcall_i_set_epoch_info(wcall,
 				       md->u.set_epoch_info.epochid,
 				       md->u.set_epoch_info.clients_json,
 				       md->u.set_epoch_info.key_data,
@@ -369,6 +434,10 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 	}
 
+out:
+	if (err)
+		warning("wcall: mqueue_handler error (%m)\n", err);
+
 	mem_deref(md);
 }
 
@@ -376,14 +445,19 @@ static void mqueue_handler(int id, void *data, void *arg)
 static void wm_destructor(void *arg)
 {
 	struct wcall_marshal *wmarsh = arg;
+	uint32_t count = 0;
 
 	wmarsh->mq = mem_deref(wmarsh->mq);
 
-	if (!list_isempty(&wmarsh->mdl)) {
-		debug("wcall: marshal(%p): flush pending events: %u\n",
-		      wmarsh, list_count(&wmarsh->mdl));
-		list_flush(&wmarsh->mdl);
-	}
+	lock_write_get(wmarsh->lock);
+	count = list_count(&wmarsh->mdl);
+	lock_rel(wmarsh->lock);
+
+	info("wcall: marshal(%p): flush pending events: %u\n",
+	      wmarsh, count);
+	list_flush(&wmarsh->mdl);
+
+	wmarsh->lock = mem_deref(wmarsh->lock);
 }
 
 
@@ -402,6 +476,10 @@ int wcall_marshal_alloc(struct wcall_marshal **wmp)
 
 	list_init(&wmarsh->mdl);
 
+	err = lock_alloc(&wmarsh->lock);
+	if (err)
+		goto out;
+
  out:
 	if (err)
 		mem_deref(wmarsh);
@@ -414,7 +492,7 @@ int wcall_marshal_alloc(struct wcall_marshal **wmp)
 
 static int md_enqueue(struct mq_data *md)
 {
-	struct wcall_marshal *wm;
+	struct wcall_marshal *wm = NULL;
 	int err;
 
 	wm = wcall_get_marshal(md->inst);
@@ -423,7 +501,9 @@ static int md_enqueue(struct mq_data *md)
 		goto out;
 	}
 
+	lock_write_get(wm->lock);
 	list_append(&wm->mdl, &md->le, md);
+	lock_rel(wm->lock);
 	err = mqueue_push(wm->mq, md->event, md);
 	if (err)
 		goto out;
@@ -469,7 +549,7 @@ int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
 		return EINVAL;
 	}		
 
-	md = md_new(inst, NULL, WCALL_MEV_RECV_MSG);
+	md = md_new(inst, convid, WCALL_MEV_RECV_MSG);
 	if (!md) {
 		mem_deref(msg);
 		return ENOMEM;
@@ -479,8 +559,7 @@ int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
 	md->u.recv_msg.curr_time = curr_time;
 	md->u.recv_msg.msg_time = msg_time;
 	md->u.recv_msg.conv_type = conv_type;
-	err = str_dup(&md->u.recv_msg.convid, convid);
-	err |= str_dup(&md->u.recv_msg.userid, userid);
+	err = str_dup(&md->u.recv_msg.userid, userid);
 	err |= str_dup(&md->u.recv_msg.clientid, clientid);
 
 	if (err)
@@ -612,9 +691,7 @@ int wcall_start(WUSER_HANDLE wuser,
 		int audio_cbr /*bool */)
 {
 	struct calling_instance *inst;
-	struct wcall *wcall;
 	struct mq_data *md = NULL;
-	bool added = false;
 	int err = 0;
 
 	if (!convid)
@@ -626,15 +703,8 @@ int wcall_start(WUSER_HANDLE wuser,
 			wuser);
 		return EINVAL;
 	}
-		
-	wcall = wcall_lookup(inst, convid);
-	if (!wcall) {
-		err = wcall_add(inst, &wcall, convid, conv_type);
-		if (err)
-			goto out;
-		added = true;
-	}
-	md = md_new(inst, wcall, WCALL_MEV_START);
+
+	md = md_new(inst, convid, WCALL_MEV_START);
 	if (!md) {
 		err = ENOMEM;
 		goto out;
@@ -649,11 +719,6 @@ int wcall_start(WUSER_HANDLE wuser,
 		mem_deref(md);
 
  out:
-	if (err) {
-		if (added)
-			mem_deref(wcall);
-	}
-	
 	return err;
 }
 
@@ -665,7 +730,6 @@ int wcall_answer(WUSER_HANDLE wuser,
 		 int audio_cbr/* bool */)
 {
 	struct calling_instance *inst;
-	struct wcall *wcall;
 	struct mq_data *md = NULL;
 	int err = 0;
 
@@ -678,12 +742,8 @@ int wcall_answer(WUSER_HANDLE wuser,
 			wuser);
 		return EINVAL;
 	}
-	
-	wcall = wcall_lookup(inst, convid);
-	if (!wcall)
-		return EPROTO;
 
-	md = md_new(inst, wcall, WCALL_MEV_ANSWER);
+	md = md_new(inst, convid, WCALL_MEV_ANSWER);
 	md->u.answer.call_type = call_type;
 	md->u.answer.audio_cbr = audio_cbr;
 
@@ -705,22 +765,22 @@ AVS_EXPORT
 void wcall_end(WUSER_HANDLE wuser, const char *convid)
 {
 	struct calling_instance *inst;
-	struct wcall *wcall;
 	struct mq_data *md = NULL;
 	int err = 0;
 
+	if (!convid) {
+		err = EINVAL;
+		goto out;
+	}
+	
 	inst = wuser2inst(wuser);
 	if (!inst) {
 		warning("wcall: end: invalid handle: 0x%08X\n",
 			wuser);
 		return;
 	}
-	
-	wcall = wcall_lookup(inst, convid);	
-	if (!wcall)
-		return;
 
-	md = md_new(inst, wcall, WCALL_MEV_END);
+	md = md_new(inst, convid, WCALL_MEV_END);
 	if (!md) {
 		err = ENOMEM;
 		goto out;
@@ -740,10 +800,12 @@ AVS_EXPORT
 int wcall_reject(WUSER_HANDLE wuser, const char *convid)
 {
 	struct calling_instance *inst;
-	struct wcall *wcall;
 	struct mq_data *md = NULL;
 	int err = 0;
 
+	if (!convid)
+		return EINVAL;
+	
 	inst = wuser2inst(wuser);
 	if (!inst) {
 		warning("wcall: reject: invalid handle: 0x%08X\n",
@@ -751,11 +813,7 @@ int wcall_reject(WUSER_HANDLE wuser, const char *convid)
 		return EINVAL;
 	}
 
-	wcall = wcall_lookup(inst, convid);	
-	if (!wcall)
-		return EPROTO;
-
-	md = md_new(inst, wcall, WCALL_MEV_REJECT);
+	md = md_new(inst, convid, WCALL_MEV_REJECT);
 	if (!md) {
 		err = ENOMEM;
 		goto out;
@@ -778,7 +836,6 @@ void wcall_set_video_send_state(WUSER_HANDLE wuser,
 				const char *convid, int state)
 {
 	struct calling_instance *inst;
-	struct wcall *wcall;
 	struct mq_data *md = NULL;
 	int err = 0;
 	
@@ -793,11 +850,7 @@ void wcall_set_video_send_state(WUSER_HANDLE wuser,
 		return;
 	}
 
-	wcall = wcall_lookup(inst, convid);
-	if (!wcall)
-		return;
-
-	md = md_new(inst, wcall, WCALL_MEV_VIDEO_SET_STATE);
+	md = md_new(inst, convid, WCALL_MEV_VIDEO_SET_STATE);
 	if (!md)
 		return;
 
@@ -813,7 +866,6 @@ AVS_EXPORT
 void wcall_dce_send(WUSER_HANDLE wuser, const char *convid, struct mbuf *mb)
 {
 	struct calling_instance *inst;
-	struct wcall *wcall;
 	struct mq_data *md = NULL;
 	int err = 0;
 
@@ -827,11 +879,7 @@ void wcall_dce_send(WUSER_HANDLE wuser, const char *convid, struct mbuf *mb)
 		return;
 	}
 
-	wcall = wcall_lookup(inst, convid);
-	if (!wcall)
-		return;
-
-	md = md_new(inst, wcall, WCALL_MEV_DCE_SEND);
+	md = md_new(inst, convid, WCALL_MEV_DCE_SEND);
 	if (!md)
 		return;
 
@@ -932,8 +980,7 @@ void wcall_invoke_incoming_handler(const char *convid,
 	md->u.incoming.video_call = video_call;
 	md->u.incoming.should_ring = should_ring;
 	md->u.incoming.conv_type = conv_type;
-	err = str_dup(&md->u.incoming.convid, convid);
-	err |= str_dup(&md->u.incoming.userid, userid);
+	err = str_dup(&md->u.incoming.userid, userid);
 	err |= str_dup(&md->u.incoming.clientid, clientid);
 
 	if (err)
@@ -956,7 +1003,6 @@ int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
 {
 	struct calling_instance *inst;
 	struct mq_data *md = NULL;
-	struct wcall *wcall;
 	int err = 0;
 
 	if (!convid) {
@@ -978,13 +1024,7 @@ int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 
-	wcall = wcall_lookup(inst, convid);
-	if (!wcall) {
-		warning("wcall_set_clients_for_conv: couldnt find conv\n");
-		return EPROTO;
-	}
-
-	md = md_new(inst, wcall, WCALL_MEV_SET_CLIENTS);
+	md = md_new(inst, convid, WCALL_MEV_SET_CLIENTS);
 	if (!md)
 		return ENOMEM;
 
@@ -1041,7 +1081,6 @@ int wcall_request_video_streams(WUSER_HANDLE wuser,
 {
 	struct calling_instance *inst;
 	struct mq_data *md = NULL;
-	struct wcall *wcall;
 	int err = 0;
 
 	if (!convid) {
@@ -1062,13 +1101,7 @@ int wcall_request_video_streams(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 
-	wcall = wcall_lookup(inst, convid);
-	if (!wcall) {
-		warning("wcall: request_video_streams: couldnt find conv\n");
-		return EPROTO;
-	}
-
-	md = md_new(inst, wcall, WCALL_MEV_REQ_VSTREAMS);
+	md = md_new(inst, convid, WCALL_MEV_REQ_VSTREAMS);
 	if (!md)
 		return ENOMEM;
 
@@ -1100,7 +1133,6 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 {
 	struct calling_instance *inst;
 	struct mq_data *md = NULL;
-	struct wcall *wcall;
 	int err = 0;
 
 	if (!convid) {
@@ -1121,18 +1153,12 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 
-	wcall = wcall_lookup(inst, convid);
-	if (!wcall) {
-		warning("wcall: set_epoch_info: couldnt find conv\n");
-		return EPROTO;
-	}
-
 	if (key_size > 1024) {
 		warning("wcall: set_epoch_info: key too big\n");
 		return EINVAL;
 	}
 
-	md = md_new(inst, wcall, WCALL_MEV_SET_EPOCH_INFO);
+	md = md_new(inst, convid, WCALL_MEV_SET_EPOCH_INFO);
 	if (!md)
 		return ENOMEM;
 
@@ -1141,6 +1167,8 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 		err = ENOMEM;
 		goto out;
 	}
+
+	memcpy(md->u.set_epoch_info.key_data, key_data, key_size);
 
 	err = str_dup(&md->u.set_epoch_info.clients_json, clients_json);
 	if (err) 
