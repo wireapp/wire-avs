@@ -924,7 +924,7 @@ void wcall_invoke_incoming_handler(const char *convid,
 	if (!inst || !convid || !userid)
 		return;
 
-	md = md_new(inst, NULL, WCALL_MEV_INCOMING);
+	md = md_new(inst, convid, WCALL_MEV_INCOMING);
 	if (!md)
 		return;
 
