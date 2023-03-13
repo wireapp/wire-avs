@@ -3245,7 +3245,7 @@ int  ccall_sft_msg_recv(struct icall* icall,
 			ccall, status);
 
 		ccall_end_with_err(ccall, ENOSYS);
-		
+
 		return 0;
 	}
 
