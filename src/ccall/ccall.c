@@ -2114,17 +2114,18 @@ static void userlist_add_user_handler(const struct userinfo *user,
 					    user->ssrca,
 					    user->ssrcv);
 
-	if (user->video_state == ICALL_VIDEO_STATE_STARTED &&
+	if (user->video_state != ICALL_VIDEO_STATE_STOPPED &&
 	    user->ssrcv > 0) {
 		ICALL_CALL_CB(ccall->icall, vstate_changedh,
 			      &ccall->icall, user->userid_real,
 			      user->clientid_real,
-			      ICALL_VIDEO_STATE_STARTED,
+			      user->video_state,
 			      ccall->icall.arg);
 	}
 }
 
 static void userlist_remove_user_handler(const struct userinfo *user,
+					 bool call_vstateh,
 					 void *arg)
 {
 	struct ccall *ccall = arg;
@@ -2148,7 +2149,7 @@ static void userlist_remove_user_handler(const struct userinfo *user,
 					       user->ssrcv);
 	}
 
-	if (user->video_state != ICALL_VIDEO_STATE_STOPPED) {
+	if (call_vstateh && user->video_state != ICALL_VIDEO_STATE_STOPPED) {
 		ICALL_CALL_CB(ccall->icall, vstate_changedh,
 			      &ccall->icall, user->userid_real,
 			      user->clientid_real,
