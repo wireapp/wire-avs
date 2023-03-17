@@ -24,7 +24,7 @@
 #define MAX_USERS (8)
 
 static void userlist_add_user_handler(const struct userinfo *user, void *arg);
-static void userlist_remove_user_handler(const struct userinfo *user, void *arg);
+static void userlist_remove_user_handler(const struct userinfo *user, bool call_vstateh, void *arg);
 static void userlist_sync_users_handler(void *arg);
 static void userlist_kg_change_handler(struct userinfo *keygenerator,
 				       bool is_me,
@@ -206,7 +206,7 @@ static void userlist_add_user_handler(const struct userinfo *user, void *arg)
 	test->add_user_handler(user);
 }
 
-static void userlist_remove_user_handler(const struct userinfo *user, void *arg)
+static void userlist_remove_user_handler(const struct userinfo *user, bool call_vstateh, void *arg)
 {
 	UserlistTest *test = (UserlistTest*)arg;
 	test->remove_user_handler(user);
