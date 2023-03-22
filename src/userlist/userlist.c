@@ -328,7 +328,7 @@ int userlist_update_from_sftlist(struct userlist *list,
 			    (u->ssrca != p->ssrca ||
 			    u->ssrcv != p->ssrcv)) {
 				if (list->removeh)
-					list->removeh(u, list->arg);
+					list->removeh(u, p->ssrcv == 0, list->arg);
 				//ccall->someone_left = true;
 				u->incall_prev = false;
 				sync_decoders = true;
@@ -403,7 +403,7 @@ int userlist_update_from_sftlist(struct userlist *list,
 			}
 			else if (!u->incall_now && u->incall_prev) {
 				if (list->removeh)
-					list->removeh(u, list->arg);
+					list->removeh(u, true, list->arg);
 				//ccall->someone_left = true;
 				sync_decoders = true;
 

@@ -89,7 +89,10 @@ static int keystore_organise(struct keystore *ks);
 
 static bool is_empty(const uint8_t *buf, size_t sz)
 {
-    return (buf[0] == 0) && (memcmp(buf, buf + 1, sz - 1) == 0);
+	if (sz < 1)
+		return true;
+
+	return (buf[0] == 0) && (memcmp(buf, buf + 1, sz - 1) == 0);
 }
 
 static void keyinfo_destructor(void *data)

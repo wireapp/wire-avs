@@ -44,6 +44,7 @@ struct userinfo {
 typedef void (userlist_add_user_h)(const struct userinfo *user,
 				   void *arg);
 typedef void (userlist_remove_user_h)(const struct userinfo *user,
+				      bool call_vstateh,
 				      void *arg);
 typedef void (userlist_sync_users_h)(void *arg);
 
