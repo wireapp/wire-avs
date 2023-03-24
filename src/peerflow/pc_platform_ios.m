@@ -9,11 +9,15 @@
 int pc_platform_init(void)
 {
 	NSLog(@"pc_ios_init");
+
+	[RTCAudioSessionConfiguration webRTCConfiguration];
 	
+#if 0	
 	RTCAudioSessionConfiguration *configuration =
-		[[[RTCAudioSessionConfiguration alloc] init] autorelease];
-
+		RTCAudioSessionConfiguration setWebRTCConfiguration:configuration];
+		
 	[RTCAudioSessionConfiguration setWebRTCConfiguration:configuration];
+#endif
 
-	return 0;
+	return 0
 }
