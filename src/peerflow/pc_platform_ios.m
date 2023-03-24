@@ -19,5 +19,5 @@ int pc_platform_init(void)
 	[RTCAudioSessionConfiguration setWebRTCConfiguration:configuration];
 #endif
 
-	return 0
+        return 0;
 }
