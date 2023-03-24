@@ -12,9 +12,9 @@ int pc_platform_init(void)
 
 	info("pc_platform_ios: init using AVS: %s\n", avs_version_str());
 
+#if 0	
 	[RTCAudioSessionConfiguration webRTCConfiguration];
 	
-#if 0	
 	RTCAudioSessionConfiguration *configuration =
 		RTCAudioSessionConfiguration setWebRTCConfiguration:configuration];
 		
