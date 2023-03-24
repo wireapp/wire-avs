@@ -10,6 +10,8 @@ int pc_platform_init(void)
 {
 	NSLog(@"pc_ios_init");
 
+	info("pc_platform_ios: init using AVS: %s\n", avs_version_str());
+
 	[RTCAudioSessionConfiguration webRTCConfiguration];
 	
 #if 0	
