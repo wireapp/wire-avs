@@ -66,6 +66,8 @@ public class VideoRenderer extends GLSurfaceView
 	public boolean isRunning = false;
 	
 	private boolean paused = false;
+	private boolean shouldFill = true;
+	private float fillRatio = 0.0f;
 	private boolean isRounded = false;
 	private boolean hasSurface = false;
 
@@ -142,6 +144,10 @@ public class VideoRenderer extends GLSurfaceView
 		nativeObject = createNative(userId, clientId,
 					    width, height,
 					    isRounded);
+		if (nativeObject != 0) {
+			nativeSetShouldFill(nativeObject, this.shouldFill);
+			nativeSetFillRatio(nativeObject, this.fillRatio);
+		}
 
 		nativeFunctionLock.unlock();
 		Log.d(TAG, "onSurfaceChanged(" + this + "): native=" + nativeObject);
@@ -165,12 +171,14 @@ public class VideoRenderer extends GLSurfaceView
 	}
 
 	public void setShouldFill(boolean shouldFill) {
+		this.shouldFill = shouldFill;
 		nativeFunctionLock.lock();
 		nativeSetShouldFill(nativeObject, shouldFill);
 		nativeFunctionLock.unlock();
 	}
 
 	public void setFillRatio(float ratio) {
+		this.fillRatio = ratio;
 		nativeFunctionLock.lock();
 		nativeSetFillRatio(nativeObject, ratio);
 		nativeFunctionLock.unlock();
