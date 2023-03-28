@@ -17,6 +17,13 @@ AVS_CPPFLAGS_src/peerflow := \
 	-Imediaengine/abseil-cpp
 
 ifeq ($(AVS_OS),ios)
+IS_IOS := true
+endif
+ifeq ($(AVS_OS),iossim)
+IS_IOS := true
+endif
+
+ifneq ($(IS_IOS),)
 
 AVS_SRCS += \
 	peerflow/pc_platform_ios.m
