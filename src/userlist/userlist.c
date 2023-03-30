@@ -301,9 +301,10 @@ int userlist_update_from_sftlist(struct userlist *list,
 
 		first = le == partlist->head;
 
-		assert(p != NULL);
+		if (!p)
+			continue;
 
-		if (p && strcaseeq(list->self->userid_hash, p->userid) &&
+		if (strcaseeq(list->self->userid_hash, p->userid) &&
 		    strcaseeq(list->self->clientid_hash, p->clientid)) {
 			if (first) {
 				info("userlist(%p): setting self as keygenerator\n", list);
