@@ -20,6 +20,7 @@
 #include <avs.h>
 #include <assert.h>
 #include "avs_wcall.h"
+#include "avs_audio_level.h"
 
 #define LIST_POS_NONE 0xFFFFFFFF
 
@@ -140,6 +141,10 @@ struct userinfo *userlist_find_by_real(const struct userlist *list,
 {
 	struct le *le;
 
+	if (!list || !userid_real || !clientid_real) {
+		return NULL;
+	}
+
 	LIST_FOREACH(&list->users, le) {
 		struct userinfo *u = le->data;
 
@@ -158,6 +163,10 @@ struct userinfo *userlist_find_by_hash(const struct userlist *list,
 				       const char *clientid_hash)
 {
 	struct le *le;
+
+	if (!list || !userid_hash || !clientid_hash) {
+		return NULL;
+	}
 
 	LIST_FOREACH(&list->users, le) {
 		struct userinfo *u = le->data;
@@ -782,7 +791,7 @@ int userlist_get_members(struct userlist *list,
 			memb->video_recv = u->ssrcv > 0 ?
 					   u->video_state :
 					   ICALL_VIDEO_STATE_STOPPED;
-			memb->muted = u->muted ? 1 : 0;
+			memb->muted = (u->muted && !u->active_audio) ? 1 : 0;
 
 			(mm->membc)++;
 		}
@@ -874,6 +883,63 @@ out:
 	return err;
 }
 
+void userlist_update_audio_level(struct userlist *list,
+				 const struct list *levell,
+				 bool *list_changed)
+{
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	struct userinfo *u = NULL;
+	struct le *le = NULL;
+
+	*list_changed = false;
+
+	if (!list || !levell)
+		return;
+
+	info("userlist(%p): update_audio_level\n", list);
+	LIST_FOREACH(&list->users, le) {
+		u = le->data;
+		if (!u)
+			continue;
+		u->active_prev = u->active_audio;
+		u->active_audio = false;
+	}
+
+	LIST_FOREACH(levell, le) {
+		const char *uid = NULL;
+		const char *cid = NULL;
+		struct audio_level *a = le->data;
+
+		if (!a)
+			continue;
+
+		uid = audio_level_userid(a);
+		cid = audio_level_clientid(a);
+
+		if (!uid || !cid)
+			continue;
+
+		info("userlist(%p): update_audio_level user %s.%s level %d\n",
+		     list,
+		     anon_id(userid_anon, uid),
+		     anon_client(clientid_anon, cid),
+		     audio_level(a));
+
+		u = userlist_find_by_real(list, uid, cid);
+		if (u) {
+			u->active_audio = audio_level(a) > 0;
+			if (u->muted && (u->active_audio != u->active_prev)) {
+				*list_changed = true;
+			}
+		}
+	}
+
+	info("userlist(%p): update_audio_level list changed: %s\n",
+	     list,
+	     *list_changed ? "YES" : "NO");
+}
+
 int userlist_debug(struct re_printf *pf,
 		   const struct userlist* list)
 {
@@ -890,7 +956,7 @@ int userlist_debug(struct re_printf *pf,
 				 "user hash: %s user: %s.%s "
 				 "incall: %s auth: %s subc: %s "
 				 "ssrca: %u ssrcv: %u "
-				 "muted: %s vidstate: %s\n",
+				 "muted: %s auactive: %s vidstate: %s\n",
 				 anon_id(userid_anon, u->userid_hash),
 				 anon_id(userid_anon2, u->userid_real),
 				 anon_client(clientid_anon, u->clientid_real),
@@ -899,6 +965,7 @@ int userlist_debug(struct re_printf *pf,
 				 u->in_subconv ? "true" : "false",
 				 u->ssrca, u->ssrcv,
 				 u->muted ? "true" : "false",
+				 u->active_audio ? "true" : "false",
 				 icall_vstate_name(u->video_state));
 		if (err)
 			goto out;

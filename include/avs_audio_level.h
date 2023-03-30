@@ -30,6 +30,8 @@ int audio_level_alloc(struct audio_level **levelp,
 		      const char *userid, const char *clientid,
 		      uint8_t level, uint8_t level_smooth);
 
+const char *audio_level_userid(const struct audio_level *a);
+const char *audio_level_clientid(const struct audio_level *a);
 int audio_level(struct audio_level *a);
 
 bool audio_level_eq(struct audio_level *a, struct audio_level *b);

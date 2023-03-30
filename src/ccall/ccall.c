@@ -24,6 +24,7 @@
 #include <avs.h>
 #include "ccall.h"
 #include "avs_wcall.h"
+#include "avs_audio_level.h"
 
 #if (defined ANDROID || defined __EMSCRIPTEN__ || defined LINUX)
 
@@ -869,9 +870,18 @@ static void ecall_audio_estab_handler(struct icall *icall, const char *userid,
 static void ecall_aulevel_handler(struct icall *icall, struct list *levell, void *arg)
 {
 	struct ccall *ccall = arg;
+	bool changed = false;
 
 	if (!ccall)
 		return;
+
+	userlist_update_audio_level(ccall->userl,
+				    levell,
+				    &changed);
+	if (changed) {
+		ICALL_CALL_CB(ccall->icall, group_changedh,
+			&ccall->icall, ccall->icall.arg);
+	}
 
 	ICALL_CALL_CB(ccall->icall, audio_levelh,
 		      icall, levell, ccall->icall.arg);

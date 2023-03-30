@@ -90,6 +90,22 @@ int audio_level(struct audio_level *a)
 	return a->aulevel;
 }
 
+const char *audio_level_userid(const struct audio_level *a)
+{
+	if (!a)
+		return NULL;
+	
+	return a->userid;
+}
+
+const char *audio_level_clientid(const struct audio_level *a)
+{
+	if (!a)
+		return NULL;
+	
+	return a->clientid;
+}
+
 bool audio_level_eq(struct audio_level *a, struct audio_level *b)
 {
 	return streq(a->userid, b->userid)

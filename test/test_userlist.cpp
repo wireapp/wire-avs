@@ -18,6 +18,9 @@
 #include <re.h>
 #include <avs.h>
 #include "avs_wcall.h"
+extern "C" {
+#include "avs_audio_level.h"
+};
 #include <gtest/gtest.h>
 
 #define KEYSZ (32)
@@ -131,6 +134,42 @@ public:
 		}
 	}
 
+
+	void SetMuted(struct list *list, size_t sz)
+	{
+		struct le *le = NULL;
+		size_t i = 0;
+
+		LIST_FOREACH(list, le) {
+			struct econn_group_part *cli = (struct econn_group_part*)le->data;
+			cli->muted_state = (i < sz) ? MUTED_STATE_MUTED : MUTED_STATE_UNMUTED;
+			i++;
+		}
+	}
+
+	void InitAudioLevelList(struct list *list,
+				size_t start,
+				size_t sz,
+				size_t active)
+	{
+		size_t i;
+
+		sz = sz < 1000 ? sz : 1000;
+		for (i = 0; i < sz; i++) {
+			char userid[ECONN_ID_LEN];
+			char clientid[ECONN_ID_LEN];
+
+			size_t id = start + i;
+
+			snprintf(userid, ECONN_ID_LEN-1, "user_%05zu", id);
+			snprintf(clientid, ECONN_ID_LEN-1, "client_%05zu", id);
+			struct audio_level *cli;
+
+			uint8_t level = i < active ? 40 : 0;
+			audio_level_alloc(&cli, list, false, userid, clientid, level, level);
+		}
+	}
+				
 	int UserIndex(const struct userinfo *user)
 	{
 		if (!user || strncmp(user->userid_real, "user_", 5) != 0)
@@ -763,6 +802,60 @@ TEST_F(UserlistTest, get_members)
 	ASSERT_EQ(strcmp(members->membv[2].clientid, "client_00000"), 0);
 	ASSERT_EQ(members->membv[2].audio_state, ICALL_AUDIO_STATE_CONNECTING);
 
+	mem_deref(members);
+}
+
+/* selist:    [user_00000, user_00001, user_00002]
+   sftlist:   [muted,      muted,      unmuted]
+   audiolist: [active,     inactive,   inactive]
+   expected:  [unmuted,    muted,      unmuted]
+*/
+TEST_F(UserlistTest, get_members_mute_state)
+{
+	uint8_t secret1[32] = "secret1                        ";
+	const struct userinfo *u;
+	struct list levell = LIST_INIT;
+	struct wcall_members *members = NULL;
+	bool changed = false;
+	bool missing = false;
+
+	InitSftList(&sftlist3, 0, 3, secret1, sizeof(secret1));
+
+	userlist_set_secret(list, secret1, sizeof(secret1));
+	ASSERT_EQ(userlist_get_count(list), 0);
+
+	SetInSubconv(&selist2, 3);
+	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed);
+	ASSERT_EQ(userlist_get_count(list), 3);
+
+	SetMuted(&sftlist3, 2);
+	userlist_update_from_sftlist(list, &sftlist3, &changed, &missing);
+
+	InitAudioLevelList(&levell, 0, 3, 1);
+	userlist_update_audio_level(list, &levell, &changed);
+
+	//re_printf("%H\n", userlist_debug, list);
+	ASSERT_EQ(userlist_get_count(list), 3);
+
+	ASSERT_EQ(0, userlist_get_members(list,
+					  &members,
+					  ICALL_AUDIO_STATE_ESTABLISHED,
+					  ICALL_VIDEO_STATE_STARTED));
+
+	ASSERT_EQ(members->membc, 4);
+	ASSERT_EQ(strcmp(members->membv[1].userid, "user_00000"), 0);
+	ASSERT_EQ(strcmp(members->membv[1].clientid, "client_00000"), 0);
+	ASSERT_EQ(members->membv[1].muted, 0);
+
+	ASSERT_EQ(strcmp(members->membv[2].userid, "user_00001"), 0);
+	ASSERT_EQ(strcmp(members->membv[2].clientid, "client_00001"), 0);
+	ASSERT_EQ(members->membv[2].muted, 1);
+
+	ASSERT_EQ(strcmp(members->membv[3].userid, "user_00002"), 0);
+	ASSERT_EQ(strcmp(members->membv[3].clientid, "client_00002"), 0);
+	ASSERT_EQ(members->membv[3].muted, 0);
+
+	list_flush(&levell);
 	mem_deref(members);
 }
 

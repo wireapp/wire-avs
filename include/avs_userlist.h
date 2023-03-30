@@ -26,7 +26,6 @@ struct userinfo {
 	uint32_t ssrca;
 	uint32_t ssrcv;
 	enum icall_vstate video_state;
-	bool muted;
 	bool in_subconv;
 	bool was_in_subconv;
 	uint32_t first_epoch;
@@ -39,6 +38,10 @@ struct userinfo {
 	bool se_approved;
 	bool force_decoder;
 	uint32_t listpos;
+
+	bool muted;
+	int active_audio;
+	int active_prev;
 };
 
 typedef void (userlist_add_user_h)(const struct userinfo *user,
@@ -90,6 +93,10 @@ void userlist_update_from_selist(struct userlist* list,
 				 uint8_t *secret,
 				 size_t secret_len,
 				 bool *changed);
+
+void userlist_update_audio_level(struct userlist *list,
+				 const struct list *levell,
+				 bool *list_changed);
 
 const struct userinfo *userlist_get_self(const struct userlist *list);
 
