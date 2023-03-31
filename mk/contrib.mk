@@ -311,6 +311,14 @@ CONTRIB_LIBRE_OS_OPTIONS_ios := \
 	USE_OPENSSL_HMAC= \
 	USE_APPLE_COMMONCRYPTO=1
 
+CONTRIB_LIBRE_OS_OPTIONS_iossim := \
+	USE_OPENSSL=1 \
+	USE_OPENSSL_DTLS= \
+	USE_OPENSSL_SRTP= \
+	USE_OPENSSL_AES= \
+	USE_OPENSSL_HMAC= \
+	USE_APPLE_COMMONCRYPTO=1
+
 CONTRIB_LIBRE_OS_OPTIONS_osx := \
 	USE_OPENSSL=1 \
 	USE_OPENSSL_DTLS=1 \
@@ -597,6 +605,11 @@ CONTRIB_SODIUM_OS_OPTIONS_android := \
 	--host=arm-none-eabi
 
 CONTRIB_SODIUM_OS_OPTIONS_ios := \
+	--enable-static \
+	--disable-shared \
+	--host=arm-none-eabi
+
+CONTRIB_SODIUM_OS_OPTIONS_iossim := \
 	--enable-static \
 	--disable-shared \
 	--host=arm-none-eabi

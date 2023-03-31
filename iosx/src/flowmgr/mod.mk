@@ -10,6 +10,10 @@ ifeq ($(AVS_OS),ios)
 IOSX_LIB_SRCS += \
 	flowmgr/AVSVideoView.m
 endif
+ifeq ($(AVS_OS),iossim)
+IOSX_LIB_SRCS += \
+	flowmgr/AVSVideoView.m
+endif
 ifeq ($(AVS_OS),osx)
 IOSX_LIB_SRCS += \
 	flowmgr/AVSVideoViewOSX.m

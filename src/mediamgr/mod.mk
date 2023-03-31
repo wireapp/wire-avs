@@ -6,8 +6,14 @@ AVS_SRCS += \
 	mediamgr/mediamgr.c \
 	mediamgr/sound.c
 
-
 ifeq ($(AVS_OS),ios)
+IS_IOS := true
+endif
+ifeq ($(AVS_OS),iossim)
+IS_IOS := true
+endif
+
+ifneq ($(IS_IOS),)
 
 AVS_SRCS += \
 	mediamgr/mm_platform_iosx.m
