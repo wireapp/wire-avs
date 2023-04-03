@@ -58,6 +58,9 @@ IOSX_MKS    := $(OUTER_MKS) mk/iosx.mk $(IOSX_MODMKS)
 ifeq ($(AVS_OS),ios)
 IOSX_WEBRTCMKS  := mk/ios_webrtc.mk
 endif
+ifeq ($(AVS_OS),iossim)
+IOSX_WEBRTCMKS  := mk/ios_webrtc.mk
+endif
 
 
 IOSX_LIB_NAME := avsiosx
@@ -111,6 +114,9 @@ IOSX_OCPPFLAGS += \
 IOSX_LIBS += -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework VideoToolbox
 
 ifeq ($(AVS_OS),ios)
+IOSX_LIBS += -framework MobileCoreServices
+endif
+ifeq ($(AVS_OS),iossim)
 IOSX_LIBS += -framework MobileCoreServices
 endif
 
