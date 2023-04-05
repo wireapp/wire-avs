@@ -638,7 +638,8 @@ SH_LFLAGS += \
 
 LIBS += -lX11 -lXcomposite -lXdamage -lXext -lXfixes -lXrender 
 
-LIBS += -ldl -lrt -lm -lc++ -lc++abi -lpthread -lglib-2.0 -latomic
+LIBS += -ldl -lrt -lcrypto -lssl -lm -lc++ -lc++abi -lpthread \
+	-lglib-2.0 -latomic
 
 ifeq ($(AVS_ARCH),armv6)
 LIBS += -lunwind

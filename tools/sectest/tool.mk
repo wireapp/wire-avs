@@ -31,7 +31,7 @@ sectest_CFLAGS := $(AVS_CFLAGS) $(MENG_CFLAGS)
 #sectest_LIBS	:= $(AVS_LIBS) $(MENG_LIBS)
 sectest_LIBS	:= $(AVS_LIBS)
 
-sectest_LIBS	+= -lpthread
+sectest_LIBS	+= -lpthread -lsodium
 
 sectest_DEPS := $(AVS_DEPS) $(MENG_DEPS)
 sectest_LIB_FILES := $(AVS_STATIC) $(MENG_STATIC)

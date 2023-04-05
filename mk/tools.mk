@@ -2,8 +2,10 @@
 # tools.mk
 #
 
-TOOLS_ALL += verifyd sectest
-#TOOLS_ALL += netprobe
+
+ifeq ($(HAVE_WEBRTC),1)
+TOOLS_ALL += sectest
+endif
 
 TOOLS_MKS := $(patsubst %,tools/%/tool.mk,$(TOOLS_ALL))
 TOOLS_OBJ_PATH := $(BUILD_OBJ)/tools
