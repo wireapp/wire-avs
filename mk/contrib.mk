@@ -167,42 +167,6 @@ contrib_openssl_clean:
 
 endif
 
-#--- breakpad ---
-
-CONTRIB_BREAKPAD_PATH   := $(CONTRIB_BASE)/breakpad
-CONTRIB_BREAKPAD_BUILD_PATH := $(BUILD_TARGET)/breakpad
-CONTRIB_BREAKPAD_TARGET := $(BUILD_TARGET)/lib/libbreakpad.a
-CONTRIB_BREAKPAD_FILES  := $(shell git ls-files $(CONTRIB_BREAKPAD_PATH) | sed -e 's/ /\\ /g')
-
-CONTRIB_BREAKPAD_LIBS := -lbreakpad
-CONTRIB_BREAKPAD_LIB_FILES := $(CONTRIB_BREAKPAD_TARGET)
-
-
-$(CONTRIB_BREAKPAD_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_BREAKPAD_FILES)
-	@rm -rf $(CONTRIB_BREAKPAD_BUILD_PATH)
-	@mkdir -p $(CONTRIB_BREAKPAD_BUILD_PATH)
-	cd $(CONTRIB_BREAKPAD_BUILD_PATH) && \
-		PATH=$(TOOLCHAIN_PATH)/bin:$(PATH) \
-		CC="$(CC)" \
-		CXX="$(CXX)" \
-		AR="$(AR)" \
-		RANLIB="$(RANLIB)" \
-		CFLAGS="$(CPPFLAGS) $(CFLAGS)" \
-		CXXFLAGS="$(CPPFLAGS) $(CXXFLAGS)" \
-		LDFLAGS="$(LFLAGS) $(LIBS)" \
-		$(CONTRIB_BREAKPAD_PATH)/configure --prefix="$(BUILD_TARGET)" \
-			$(HOST_OPTIONS) \
-			--disable-processor \
-			--disable-tools && \
-		PATH=$(TOOLCHAIN_PATH)/bin:$(PATH) $(MAKE) -j4
-	mkdir -p $(BUILD_TARGET)/include/breakpad
-	cp $(CONTRIB_BREAKPAD_PATH)/src/hockey/dumpcall.h \
-		$(BUILD_TARGET)/include/breakpad
-	mkdir -p $(BUILD_TARGET)/lib
-	cp $(CONTRIB_BREAKPAD_BUILD_PATH)/src/client/linux/libbreakpad_client.a \
-		$(BUILD_TARGET)/lib/libbreakpad.a
-
-
 #--- gtest ---
 
 CONTRIB_GTEST_PATH := $(CONTRIB_BASE)/googletest/googletest/
@@ -485,81 +449,6 @@ $(CONTRIB_LIBREW_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 		$(CONTRIB_LIBREW_OS_OPTIONS_$(AVS_OS))
 
 contrib_librew: $(CONTRIB_LIBREW_TARGET)
-
-
-#--- Protobuf ---
-
-HOST_PROTOC	:= protoc-c
-
-CONTRIB_PROTOBUF_PATH := contrib/generic-message-proto
-
-CONTRIB_PROTOBUF_TARGET_PATH := \
-	src/protobuf
-CONTRIB_PROTOBUF_TARGET := \
-	src/protobuf/proto/messages.pb-c.c
-
-CONTRIB_PROTOBUF_FILES := $(shell git ls-files $(CONTRIB_PROTOBUF_PATH))
-
-# NOTE: we depend on a system install protoc-c for now
-CONTRIB_PROTOBUF_LIBS := $(shell pkg-config --libs 'libprotobuf-c >= 1.0.0')
-
-PROTO_INPUT	:= $(CONTRIB_PROTOBUF_PATH)/proto/messages.proto
-
-
-$(CONTRIB_PROTOBUF_TARGET): $(PROTO_INPUT)
-	$(HOST_PROTOC) \
-		-I$(CONTRIB_PROTOBUF_PATH) \
-		--c_out=$(CONTRIB_PROTOBUF_TARGET_PATH) \
-		$(PROTO_INPUT)
-
-
-$(BUILD_TARGET)/include/proto/messages.pb-c.h: \
-	$(CONTRIB_PROTOBUF_TARGET_PATH)/proto/messages.pb-c.c
-	mkdir -p $(BUILD_TARGET)/include/proto
-	cp $(CONTRIB_PROTOBUF_TARGET_PATH)/proto/messages.pb-c.h \
-		$(BUILD_TARGET)/include/proto/.
-
-
-.PHONY: contrib_protobuf
-contrib_protobuf: $(CONTRIB_PROTOBUF_TARGET)
-
-contrib_protobuf_clean:
-	rm -f $(BUILD_TARGET)/include/proto/messages.pb-c.h
-	rm -f $(CONTRIB_PROTOBUF_TARGET_PATH)/proto/messages.pb-c.[hc]
-
-
-#--- Cryptobox ---
-
-CONTRIB_CRYPTOBOX_PATH := contrib/cryptobox-c
-CONTRIB_CRYPTOBOX_TARGET := $(BUILD_TARGET)/lib/libcryptobox.a
-CONTRIB_CRYPTOBOX_DEPS := $(CONTRIB_CRYPTOBOX_TARGET)
-CONTRIB_CRYPTOBOX_FILES := $(shell git ls-files $(CONTRIB_CRYPTOBOX_PATH))
-
-CONTRIB_CRYPTOBOX_LIBS := -lcryptobox
-#CONTRIB_CRYPTOBOX_LIBS += $(shell pkg-config --libs libsodium)
-
-CONTRIB_CRYPTOBOX_LIB_FILES := $(CONTRIB_CRYPTOBOX_TARGET)
-
-$(CONTRIB_CRYPTOBOX_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_CRYPTOBOX_FILES)
-	sed -i.bak s/cdylib/staticlib/g $(CONTRIB_CRYPTOBOX_PATH)/Cargo.toml
-	$(MAKE) -C $(CONTRIB_CRYPTOBOX_PATH) clean
-	$(MAKE) -C $(CONTRIB_CRYPTOBOX_PATH) compile
-	mkdir -p $(BUILD_TARGET)/include $(BUILD_TARGET)/lib
-	cp $(CONTRIB_CRYPTOBOX_PATH)/src/cbox.h \
-		$(BUILD_TARGET)/include/.
-	cp $(CONTRIB_CRYPTOBOX_PATH)/target/debug/libcryptobox.a \
-		$(BUILD_TARGET)/lib/.
-#	sed -i.bak s/staticlib/cdylib/g $(CONTRIB_CRYPTOBOX_PATH)/Cargo.toml
-#	rm -f $(CONTRIB_CRYPTOBOX_PATH)/*.bak
-
-
-.PHONY: contrib_cryptobox
-contrib_cryptobox: $(CONTRIB_CRYPTOBOX_TARGET)
-
-
-contrib_cryptobox_clean:
-	rm -f $(CONTRIB_CRYPTOBOX_TARGET)
-	$(MAKE) -C $(CONTRIB_CRYPTOBOX_PATH) clean
 
 
 #--- sodium ---

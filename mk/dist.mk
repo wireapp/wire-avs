@@ -416,7 +416,6 @@ $(BUILD_DIST_BASE)/%/avscore.tar.bz2:
 	       $(BUILD_BASE)/$*-$(HOST_ARCH)/include \
 		$(dir $@)/avscore
 	@cp -a include $(dir $@)/avscore/include/avs
-	@cp -R src/protobuf/proto $(dir $@)/avscore/include
 	@( cd $(dir $@) && tar cfj $@ avscore)
 
 

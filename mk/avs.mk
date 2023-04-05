@@ -37,9 +37,6 @@ AVS_MODULES += cert
 AVS_MODULES += conf_pos
 AVS_MODULES += conf_member
 AVS_MODULES += config
-ifneq ($(HAVE_CRYPTOBOX),)
-AVS_MODULES += cryptobox
-endif
 AVS_MODULES += dce
 AVS_MODULES += dict
 AVS_MODULES += ecall
@@ -50,14 +47,10 @@ AVS_MODULES += flowmgr
 AVS_MODULES += frame_hdr
 AVS_MODULES += frame_enc
 AVS_MODULES += jzon
-ifneq ($(HAVE_CRYPTOBOX),)
-AVS_MODULES += kase
-endif
 AVS_MODULES += keystore
 AVS_MODULES += log
 AVS_MODULES += mediamgr
 AVS_MODULES += msystem
-AVS_MODULES += nevent
 ifeq ($(AVS_OS),wasm)
 AVS_MODULES += jsflow
 else
@@ -65,11 +58,7 @@ ifeq ($(HAVE_WEBRTC),1)
 AVS_MODULES += peerflow
 endif
 endif
-ifneq ($(HAVE_PROTOBUF),)
-AVS_MODULES += protobuf
-endif
 AVS_MODULES += queue
-AVS_MODULES += rest
 AVS_MODULES += sdp
 AVS_MODULES += sem
 AVS_MODULES += serial
@@ -95,15 +84,6 @@ endif
 ifeq ($(BUILD_NETWORK_MODULES),1)
 AVS_MODULES += network
 endif
-
-ifeq ($(BUILD_OPTIONAL_MODULES),1)
-AVS_MODULES += engine
-AVS_MODULES += rtpdump
-AVS_MODULES += store
-endif
-
-AVS_MODULES += $(EXTRA_MODULES)
-
 
 #--- Variable Definitions ---
 
@@ -131,13 +111,6 @@ AVS_CPPFLAGS += \
 	-Wno-unknown-attributes \
 	-Wno-deprecated-declarations
 
-ifneq ($(HAVE_PROTOBUF),)
-AVS_CPPFLAGS += -DHAVE_PROTOBUF=1
-endif
-ifneq ($(HAVE_CRYPTOBOX),)
-AVS_CPPFLAGS += -DHAVE_CRYPTOBOX=1
-endif
-
 ifeq ($(HAVE_WEBRTC),1)
 AVS_CPPFLAGS += -DHAVE_WEBRTC=1 -DENABLE_AUDIO_IO=1 -DENABLE_PEERFLOW=1
 endif
@@ -152,16 +125,6 @@ ifeq ($(HAVE_WEBRTC),1)
 AVS_LIBS += $(CONTRIB_WEBRTC_LIBS)
 else
 ABS_LIBS += $(CONTRIB_OPENSSL_LIBS)
-endif
-
-ifneq ($(HAVE_CRYPTOBOX),)
-AVS_DEPS += $(CONTRIB_CRYPTOBOX_TARGET)
-AVS_LIBS += $(CONTRIB_CRYPTOBOX_LIBS)
-endif
-
-ifneq ($(HAVE_PROTOBUF),)
-AVS_DEPS += $(CONTRIB_PROTOBUF_TARGET)
-AVS_LIBS += $(CONTRIB_PROTOBUF_LIBS)
 endif
 
 AVS_LIBS += \
@@ -241,9 +204,6 @@ endif
 avs_headers:
 	@mkdir -p $(BUILD_TARGET)/include/avs
 	@cp -a include/* $(BUILD_TARGET)/include/avs
-ifneq ($(HAVE_PROTOBUF),)
-	@cp -R src/protobuf/proto $(BUILD_TARGET)/include/
-endif
 
 #--- Phony Targets ---
 

@@ -87,15 +87,6 @@ extern "C" {
     
 #include "avs_audio_effect.h"
     
-#ifdef HAVE_CRYPTOBOX
-#include "avs_cryptobox.h"
-#endif
-
-#ifdef HAVE_PROTOBUF
-#include "avs_protobuf.h"
-#endif
-
-    
 #ifdef __cplusplus
 }
 #endif
