@@ -46,9 +46,11 @@ import android.os.SystemClock;
 import android.util.Log;
 
 import android.view.Gravity;
-import android.view.TextureView;
 import android.view.Surface;
-
+import android.view.SurfaceView;
+import android.view.SurfaceHolder;
+import android.view.SurfaceHolder.Callback;
+	
 import com.waz.call.FlowManager;
 
 import java.io.IOException;
@@ -58,8 +60,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.List;
 
 
-public class VideoCapturer implements PreviewCallback,
-				      TextureView.SurfaceTextureListener {
+public class VideoCapturer implements PreviewCallback, SurfaceHolder.Callback {
 	
 	private static final String TAG = "VideoCapturer";
 	
@@ -69,7 +70,8 @@ public class VideoCapturer implements PreviewCallback,
 	private Camera.Size size;
 	private VideoCapturerCallback capturerCallback = null;
 	private boolean started = false;
-	private TextureView previewView = null;
+	private SurfaceView previewView = null;
+	private SurfaceHolder surface = null;
 	private int facing;
 	private int w;
 	private int h;
@@ -234,17 +236,17 @@ public class VideoCapturer implements PreviewCallback,
 	}
 
 	
-	public int startCapture(final TextureView view) {
+	public int startCapture(final SurfaceView view) {
 		Log.d(TAG, "startCapture on: " + view);
 
 		this.previewView = view;
-
+		
 		Runnable r = new Runnable() {
 			@Override
 			public void run() {
-				view.setSurfaceTextureListener(VideoCapturer.this);
-				if (view.isAvailable()) {
-					startCamera(view.getSurfaceTexture());
+				SurfaceHolder surface = view.getHolder();
+				if (surface != null) {
+					startCamera(surface);
 				}
 
 				synchronized(this) {
@@ -451,23 +453,20 @@ public class VideoCapturer implements PreviewCallback,
 		return csz;
 	}
 
-	@Override
-	public void onSurfaceTextureAvailable(SurfaceTexture surface,
-					      int width, int height) {
-		Log.d(TAG, "onSurfaceTextureAvailable: "
-		      + width + "x" + height + " camera=" + camera);
+
+	public void surfaceCreated(SurfaceHolder surface) {
+		Log.d(TAG, "surfaceCreated:" + " camera=" + camera);
 
 		if (!destroying && previewView != null)
 			startCamera(surface);
 	}
-
-
-	private void startCamera(SurfaceTexture surface) {
+	
+	private void startCamera(SurfaceHolder surface) {
 
 		if (destroying)
 			return;
 		
-		lock.lock();
+		lock.lock();		
 
 		Log.d(TAG, "startCamera: cam=" + this.camera
 		      + " surface=" + surface);
@@ -482,12 +481,13 @@ public class VideoCapturer implements PreviewCallback,
 			setUIRotationInt();
 
 			try {
-				if (!this.started) {
-					//this.camera.reconnect();
-					this.camera.setPreviewTexture(surface);
+				if (this.surface != surface || !this.started) {
+					surface.addCallback(this);		
+					this.camera.setPreviewDisplay(surface);
 					this.camera.setPreviewCallback(this);
 					this.camera.startPreview();
 					this.started = true;
+					this.surface = surface;
 					Log.d(TAG, "startCamera: started");
 				}
 			}
@@ -505,30 +505,24 @@ public class VideoCapturer implements PreviewCallback,
 	private void cameraFailed() {
 		FlowManager.cameraFailed();
 	}
-	
-	@Override
-	public void onSurfaceTextureSizeChanged(SurfaceTexture surface,
-						int width, int height) {
-		// Ignored, Camera does all the work for us
 
-		Log.d(TAG, "onSurfaceTextureSizeChanged: " + width + "x" + height);
+	public void surfaceChanged(SurfaceHolder holder,
+				  int format, int width, int height) {
+		
+		// Ignored, Camera does all the work for us
+		Log.d(TAG, "surfaceChanged: " + width + "x" + height);
 	}
 
-	@Override
-	public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
-		Log.d(TAG, "onSurfaceTextureDestroyed: " + surface);
+
+	public void surfaceDestroyed(SurfaceHolder surface) {
+		Log.d(TAG, "surfaceDestroyed: " + surface);
 
 		stopCamera();
 		if (capturerCallback != null) {
 			capturerCallback.onSurfaceDestroyed(this);
 		}
-		return true;
 	}
-
-	@Override
-	public void onSurfaceTextureUpdated(SurfaceTexture surface) {
-		// Invoked every time there's a new Camera preview frame
-	}
+	
 
 	@Override
 	public void onPreviewFrame(byte[] frame, Camera cam) {

@@ -36,13 +36,13 @@ import android.content.Context;
 
 import android.graphics.Matrix;
 import android.util.Log;
-import android.view.TextureView;
+import android.view.SurfaceView;
 
 import java.lang.Math;
 
 
 
-public class VideoPreview extends TextureView
+public class VideoPreview extends SurfaceView
 {
 	private float aspectRatio = 4.0f/3.0f;
 	private boolean shouldFill = true;
@@ -70,9 +70,6 @@ public class VideoPreview extends TextureView
 
 		updateTransform();
 	}
-
-
-
 
 	@Override
 	protected void onLayout(boolean changed,
@@ -110,7 +107,9 @@ public class VideoPreview extends TextureView
 
 		m.postTranslate(dx, dy);
 		m.setScale(scaleX, scaleY);
-		setTransform(m);
+		//setTransform(m);
+		this.setScaleX(scaleX);
+		this.setScaleY(scaleY);
 	}
 
 	@Override
