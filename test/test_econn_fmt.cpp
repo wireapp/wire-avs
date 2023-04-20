@@ -273,14 +273,11 @@ static void encode_decode(struct econn_message *smsg,
 			  struct econn_message **pdmsg)
 {
 	char *mstr = NULL;
-	int err = 0;
 
-	err = econn_message_encode(&mstr, smsg);
-	ASSERT_EQ(err, 0);
+	ASSERT_EQ(econn_message_encode(&mstr, smsg), 0);
 	ASSERT_TRUE(mstr != NULL);
 
-	err = econn_message_decode(pdmsg, TIME_NOW, TIME_MSG, mstr, strlen(mstr));
-	ASSERT_EQ(err, 0);
+	ASSERT_EQ(econn_message_decode(pdmsg, TIME_NOW, TIME_MSG, mstr, strlen(mstr)), 0);
 	ASSERT_TRUE(*pdmsg != NULL);
 
 	check_message(smsg, *pdmsg);
@@ -292,19 +289,14 @@ TEST(econn_fmt, econn_setup)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_SETUP);
 	ASSERT_TRUE(smsg != NULL);
 
-	err = str_dup(&smsg->u.setup.sdp_msg, "sdp contents");
-	ASSERT_EQ(err, 0);
-	err = str_dup(&smsg->u.setup.url, "url");
-	ASSERT_EQ(err, 0);
-	err = str_dup(&smsg->u.setup.sft_tuple, "sft tuple");
-	ASSERT_EQ(err, 0);
-	err = init_props(&smsg->u.setup.props);
-	ASSERT_EQ(err, 0);
+	ASSERT_EQ(str_dup(&smsg->u.setup.sdp_msg, "sdp contents"), 0);
+	ASSERT_EQ(str_dup(&smsg->u.setup.url, "url"), 0);
+	ASSERT_EQ(str_dup(&smsg->u.setup.sft_tuple, "sft tuple"), 0);
+	ASSERT_EQ(init_props(&smsg->u.setup.props), 0);
 
 	encode_decode(smsg, &dmsg);
 
@@ -321,16 +313,12 @@ TEST(econn_fmt, econn_update)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_UPDATE);
 	ASSERT_TRUE(smsg != NULL);
 
-	err = str_dup(&smsg->u.setup.sdp_msg, "sdp contents");
-	ASSERT_EQ(err, 0);
-
-	err = init_props(&smsg->u.setup.props);
-	ASSERT_EQ(err, 0);
+	ASSERT_EQ(str_dup(&smsg->u.setup.sdp_msg, "sdp contents"), 0);
+	ASSERT_EQ(init_props(&smsg->u.setup.props), 0);
 
 	encode_decode(smsg, &dmsg);
 
@@ -347,7 +335,6 @@ TEST(econn_fmt, econn_cancel)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_CANCEL);
 	ASSERT_TRUE(smsg != NULL);
@@ -362,7 +349,6 @@ TEST(econn_fmt, econn_hangup)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_CANCEL);
 	ASSERT_TRUE(smsg != NULL);
@@ -377,7 +363,6 @@ TEST(econn_fmt, econn_reject)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_REJECT);
 	ASSERT_TRUE(smsg != NULL);
@@ -392,7 +377,6 @@ TEST(econn_fmt, econn_ping)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_PING);
 	ASSERT_TRUE(smsg != NULL);
@@ -407,13 +391,11 @@ TEST(econn_fmt, econn_propsync)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_PROPSYNC);
 	ASSERT_TRUE(smsg != NULL);
 
-	err = init_props(&smsg->u.propsync.props);
-	ASSERT_EQ(err, 0);
+	ASSERT_EQ(init_props(&smsg->u.propsync.props), 0);
 
 	encode_decode(smsg, &dmsg);
 
@@ -427,13 +409,11 @@ TEST(econn_fmt, econn_groupstart)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_GROUP_START);
 	ASSERT_TRUE(smsg != NULL);
 
-	err = init_props(&smsg->u.groupstart.props);
-	ASSERT_EQ(err, 0);
+	ASSERT_EQ(init_props(&smsg->u.groupstart.props), 0);
 
 	encode_decode(smsg, &dmsg);
 
@@ -447,7 +427,6 @@ TEST(econn_fmt, econn_groupleave)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_GROUP_LEAVE);
 	ASSERT_TRUE(smsg != NULL);
@@ -462,7 +441,6 @@ TEST(econn_fmt, econn_groupcheck)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_GROUP_CHECK);
 	ASSERT_TRUE(smsg != NULL);
@@ -477,16 +455,12 @@ TEST(econn_fmt, econn_groupsetup)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_GROUP_SETUP);
 	ASSERT_TRUE(smsg != NULL);
 
-	err = str_dup(&smsg->u.setup.sdp_msg, "sdp contents");
-	ASSERT_EQ(err, 0);
-
-	err = init_props(&smsg->u.setup.props);
-	ASSERT_EQ(err, 0);
+	ASSERT_EQ(str_dup(&smsg->u.setup.sdp_msg, "sdp contents"), 0);
+	ASSERT_EQ(init_props(&smsg->u.setup.props), 0);
 
 	encode_decode(smsg, &dmsg);
 
@@ -501,25 +475,22 @@ TEST(econn_fmt, econn_confconn)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_CONF_CONN);
 	ASSERT_TRUE(smsg != NULL);
 
 	init_ice_serverlist(&smsg->u.confconn.turnv, &smsg->u.confconn.turnc);
 	smsg->u.confconn.update = true;
-	err = str_dup(&smsg->u.confconn.tool, "tool_str");
-	ASSERT_EQ(err, 0);
-	err = str_dup(&smsg->u.confconn.toolver, "tool_ver");
-	ASSERT_EQ(err, 0);
+	ASSERT_EQ(str_dup(&smsg->u.confconn.tool, "tool_str"), 0);
+	ASSERT_EQ(str_dup(&smsg->u.confconn.toolver, "tool_ver"), 0);
 	smsg->u.confconn.status = ECONN_CONFCONN_REJECTED_BLACKLIST;;
 	smsg->u.confconn.selective_audio = true;
 	smsg->u.confconn.selective_video = true;
 	smsg->u.confconn.vstreams = 12;
-	err = str_dup(&smsg->u.confconn.sft_url, "sft_url");
-	ASSERT_EQ(err, 0);
-	err = str_dup(&smsg->u.confconn.sft_tuple, "sft_tuple");
-	ASSERT_EQ(err, 0);
+	ASSERT_EQ(str_dup(&smsg->u.confconn.sft_url, "sft_url"), 0);
+	ASSERT_EQ(str_dup(&smsg->u.confconn.sft_tuple, "sft_tuple"), 0);
+	ASSERT_EQ(str_dup(&smsg->u.confconn.sft_username, "sft_username"), 0);
+	ASSERT_EQ(str_dup(&smsg->u.confconn.sft_credential, "sft_credential"), 0);
 
 	encode_decode(smsg, &dmsg);
 
@@ -536,6 +507,8 @@ TEST(econn_fmt, econn_confconn)
 	ASSERT_EQ(smsg->u.confconn.vstreams, dmsg->u.confconn.vstreams);
 	ASSERT_STREQ(smsg->u.confconn.sft_url, dmsg->u.confconn.sft_url);
 	ASSERT_STREQ(smsg->u.confconn.sft_tuple, dmsg->u.confconn.sft_tuple);
+	ASSERT_STREQ(smsg->u.confconn.sft_username, dmsg->u.confconn.sft_username);
+	ASSERT_STREQ(smsg->u.confconn.sft_credential, dmsg->u.confconn.sft_credential);
 
 	mem_deref(smsg);
 	mem_deref(dmsg);
@@ -545,20 +518,14 @@ TEST(econn_fmt, econn_confstart)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_CONF_START);
 	ASSERT_TRUE(smsg != NULL);
 
-	err = init_props(&smsg->u.confstart.props);
-	ASSERT_EQ(err, 0);
-
-	err = str_dup(&smsg->u.confstart.sft_url, "sft_url");
-	ASSERT_EQ(err, 0);
-	err = str_dup(&smsg->u.confstart.sft_tuple, "sft_tuple");
-	ASSERT_EQ(err, 0);
-	err = str_dup((char**)(&smsg->u.confstart.secret), "secret");
-	ASSERT_EQ(err, 0);
+	ASSERT_EQ(init_props(&smsg->u.confstart.props), 0);
+	ASSERT_EQ(str_dup(&smsg->u.confstart.sft_url, "sft_url"), 0);
+	ASSERT_EQ(str_dup(&smsg->u.confstart.sft_tuple, "sft_tuple"), 0);
+	ASSERT_EQ(str_dup((char**)(&smsg->u.confstart.secret), "secret"), 0);
 	smsg->u.confstart.secretlen = 7;
 	smsg->u.confstart.timestamp = 12345;
 	smsg->u.confstart.seqno = 24680;
@@ -585,18 +552,14 @@ TEST(econn_fmt, econn_confcheck)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 	const char *secret = "SECRETsecret";
 
 	smsg = init_message(ECONN_CONF_CHECK);
 	ASSERT_TRUE(smsg != NULL);
 
-	err = str_dup(&smsg->u.confcheck.sft_url, "sft_url");
-	ASSERT_EQ(err, 0);
-	err = str_dup(&smsg->u.confcheck.sft_tuple, "sft_tuple");
-	ASSERT_EQ(err, 0);
-	err = str_dup((char**)(&smsg->u.confcheck.secret), secret);
-	ASSERT_EQ(err, 0);
+	ASSERT_EQ(str_dup(&smsg->u.confcheck.sft_url, "sft_url"), 0);
+	ASSERT_EQ(str_dup(&smsg->u.confcheck.sft_tuple, "sft_tuple"), 0);
+	ASSERT_EQ(str_dup((char**)(&smsg->u.confcheck.secret), secret), 0);
 	smsg->u.confcheck.secretlen = strlen(secret)+1;
 	smsg->u.confcheck.timestamp = 12345;
 	smsg->u.confcheck.seqno = 24680;
@@ -622,7 +585,6 @@ TEST(econn_fmt, econn_confend)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_CONF_END);
 	ASSERT_TRUE(smsg != NULL);
@@ -637,7 +599,6 @@ TEST(econn_fmt, econn_confpart)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 	const char *entropy = "ENTROPY";
 
 	smsg = init_message(ECONN_CONF_PART);
@@ -646,8 +607,7 @@ TEST(econn_fmt, econn_confpart)
 	smsg->u.confpart.timestamp = 12345;
 	smsg->u.confpart.seqno = 24680;
 	smsg->u.confpart.should_start = true;
-	err = str_dup((char**)(&smsg->u.confpart.entropy), entropy);
-	ASSERT_EQ(err, 0);
+	ASSERT_EQ(str_dup((char**)(&smsg->u.confpart.entropy), entropy), 0);
 	smsg->u.confpart.entropylen = strlen(entropy)+1;
 	init_stringlist(&smsg->u.confpart.sftl);
 	init_partlist(&smsg->u.confpart.partl);
@@ -671,7 +631,6 @@ TEST(econn_fmt, econn_confkey)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 	const char *keydata = "KEYDATA_KEYDATA_KEYDATA_KEYDATA";
 
 	smsg = init_message(ECONN_CONF_KEY);
@@ -691,12 +650,11 @@ TEST(econn_fmt, econn_confstreams)
 {
 	struct econn_message *smsg = NULL;
 	struct econn_message *dmsg = NULL;
-	int err = 0;
 
 	smsg = init_message(ECONN_CONF_STREAMS);
 	ASSERT_TRUE(smsg != NULL);
 
-	str_dup(&smsg->u.confstreams.mode, "list");
+	ASSERT_EQ(str_dup(&smsg->u.confstreams.mode, "list"), 0);
 	init_streamlist(&smsg->u.confstreams.streaml);
 
 	encode_decode(smsg, &dmsg);
