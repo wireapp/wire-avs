@@ -25,6 +25,7 @@
 # Master version number
 #
 
+
 ifeq ($(BUILD_NUMBER),)
 VER_PATCH := local
 else
