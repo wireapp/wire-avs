@@ -70,7 +70,7 @@ public class VideoCapturer implements PreviewCallback, SurfaceHolder.Callback {
 	private Camera.Size size;
 	private VideoCapturerCallback capturerCallback = null;
 	private boolean started = false;
-	private SurfaceView previewView = null;
+	private VideoPreview previewView = null;
 	private SurfaceHolder surface = null;
 	private int facing;
 	private int w;
@@ -236,15 +236,17 @@ public class VideoCapturer implements PreviewCallback, SurfaceHolder.Callback {
 	}
 
 	
-	public int startCapture(final SurfaceView view) {
-		Log.d(TAG, "startCapture on: " + view);
+	public int startCapture(final VideoPreview vp) {
+		Log.d(TAG, "startCapture on: " + vp);
 
-		this.previewView = view;
+		this.previewView = vp;
+		this.previewView.setPreviewSize(this.size.width,
+						this.size.height);
 		
 		Runnable r = new Runnable() {
 			@Override
 			public void run() {
-				SurfaceHolder surface = view.getHolder();
+				SurfaceHolder surface = vp.getHolder();
 				if (surface != null) {
 					startCamera(surface);
 				}
@@ -583,12 +585,11 @@ public class VideoCapturer implements PreviewCallback, SurfaceHolder.Callback {
 	}
 
 	private void setUIRotationInt() {
-		VideoPreview vp = (VideoPreview)this.previewView;	
 		int degrees = this.ui_rotation;
 		int vrot = 0;
 
 		if (cameraInfo == null) {
-			Log.d(TAG, "setUIRotationInt: " + vp + " camInfo: null");
+			Log.d(TAG, "setUIRotationInt: " + this.previewView + " camInfo: null");
 		}
 		else {
 			if (cameraInfo.facing == CameraInfo.CAMERA_FACING_FRONT) {
@@ -598,7 +599,7 @@ public class VideoCapturer implements PreviewCallback, SurfaceHolder.Callback {
 			else {  // back-facing
 				vrot = (cameraInfo.orientation - degrees + 360) % 360;
 			}
-			Log.d(TAG, "setUIRotationInt: " + vp +
+			Log.d(TAG, "setUIRotationInt: " + this.previewView +
 				   " camrot: " + cameraInfo.orientation +
 				   " uirot: " + degrees +
 				   " rot: " + vrot + " facing: " + cameraInfo.facing);
@@ -615,8 +616,8 @@ public class VideoCapturer implements PreviewCallback, SurfaceHolder.Callback {
 			}
 		}
 
-		if (vp != null) {
-			vp.setVideoOrientation(vrot);
+		if (this.previewView != null) {
+			this.previewView.setVideoOrientation(vrot);
 		}
 	}
 

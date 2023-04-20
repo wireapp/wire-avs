@@ -45,11 +45,13 @@ import java.lang.Math;
 public class VideoPreview extends SurfaceView
 {
 	private float aspectRatio = 4.0f/3.0f;
-	private boolean shouldFill = true;
+	private boolean shouldFill = false;
 	private int orientation = 90;
 	private static final String TAG = "VideoPreview";
 	private float vWidth = 1.0f;
 	private float vHeight = 1.0f;
+	private int tWidth = 0;
+	private int tHeight = 0;
 
 	public VideoPreview(Context ctx) {
 		super(ctx);
@@ -71,6 +73,13 @@ public class VideoPreview extends SurfaceView
 		updateTransform();
 	}
 
+	public void setPreviewSize(int w, int h) {
+		this.tWidth = w;
+		this.tHeight = h;
+
+		updateTransform();
+	}
+
 	@Override
 	protected void onLayout(boolean changed,
 				int l, int t, int r, int b) {
@@ -79,6 +88,7 @@ public class VideoPreview extends SurfaceView
 		this.vWidth = (float)(r - l);
 		this.vHeight = (float)(b - t);
 
+		Log.d(TAG, "onLayout: " + this.vWidth + "x" + this.tHeight);
 		updateTransform();
 	}
 
@@ -87,27 +97,32 @@ public class VideoPreview extends SurfaceView
 		if (this.vHeight == 0.0f) {
 			return;
 		}
+		if (this.tHeight == 0.0f) {
+			return;
+		}
 
-		final float aspectRatio = 4.0f/3.0f;
-		Matrix m = new Matrix();
+		final float ar = (float)this.tWidth / (float)this.tHeight;
+		//Matrix m = new Matrix();
 		float vAspRatio = this.vWidth / this.vHeight;
-		float tAspRatio = aspectRatio;
+		float tAspRatio = ar;
 
 		if (orientation % 180 != 0)
-			tAspRatio = 1.0f/aspectRatio;
+			tAspRatio = 1.0f/ar;
 		
 		Log.d(TAG, "updateTransform: " + this.vWidth + "x" + this.vHeight +
 		      " ori: " + orientation + " va: " + vAspRatio +
 		      " ta: " + tAspRatio);
 
-		float scaleX = Math.max(1.0f, tAspRatio / vAspRatio);
-		float scaleY = Math.max(1.0f, vAspRatio / tAspRatio);
-		float dx = - (scaleX * this.vWidth - this.vWidth) / 2.0f;
-		float dy = - (scaleY * this.vHeight - this.vHeight) / 2.0f;
-
-		m.postTranslate(dx, dy);
-		m.setScale(scaleX, scaleY);
-		//setTransform(m);
+		float scaleX = 1.0f;
+		float scaleY = 1.0f;
+		if (this.shouldFill) {
+			scaleX = Math.max(1.0f, tAspRatio / vAspRatio);
+			scaleY = Math.max(1.0f, vAspRatio / tAspRatio);
+		}
+		else {
+			scaleX = Math.min(1.0f, tAspRatio / vAspRatio);
+			scaleY = Math.min(1.0f, vAspRatio / tAspRatio);
+		}
 		this.setScaleX(scaleX);
 		this.setScaleY(scaleY);
 	}
