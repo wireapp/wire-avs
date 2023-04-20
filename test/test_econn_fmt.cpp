@@ -489,8 +489,6 @@ TEST(econn_fmt, econn_confconn)
 	smsg->u.confconn.vstreams = 12;
 	ASSERT_EQ(str_dup(&smsg->u.confconn.sft_url, "sft_url"), 0);
 	ASSERT_EQ(str_dup(&smsg->u.confconn.sft_tuple, "sft_tuple"), 0);
-	ASSERT_EQ(str_dup(&smsg->u.confconn.sft_username, "sft_username"), 0);
-	ASSERT_EQ(str_dup(&smsg->u.confconn.sft_credential, "sft_credential"), 0);
 
 	encode_decode(smsg, &dmsg);
 
@@ -507,8 +505,6 @@ TEST(econn_fmt, econn_confconn)
 	ASSERT_EQ(smsg->u.confconn.vstreams, dmsg->u.confconn.vstreams);
 	ASSERT_STREQ(smsg->u.confconn.sft_url, dmsg->u.confconn.sft_url);
 	ASSERT_STREQ(smsg->u.confconn.sft_tuple, dmsg->u.confconn.sft_tuple);
-	ASSERT_STREQ(smsg->u.confconn.sft_username, dmsg->u.confconn.sft_username);
-	ASSERT_STREQ(smsg->u.confconn.sft_credential, dmsg->u.confconn.sft_credential);
 
 	mem_deref(smsg);
 	mem_deref(dmsg);
