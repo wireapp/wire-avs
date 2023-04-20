@@ -17,6 +17,7 @@ TEST_SRCS	+= test_cookie.cpp
 TEST_SRCS	+= test_dict.cpp
 #TEST_SRCS	+= test_ecall.cpp
 TEST_SRCS	+= test_econn.cpp
+TEST_SRCS	+= test_econn_fmt.cpp
 TEST_SRCS	+= test_engine.cpp
 TEST_SRCS	+= test_frame_hdr.cpp
 TEST_SRCS	+= test_http.cpp
