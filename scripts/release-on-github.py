@@ -35,7 +35,10 @@ name = version
 description = message
 
 if release is None:
-    release = grepo.create_git_release(tag, name, description)
+    try:
+        release = grepo.create_git_release(tag, name, description)
+    except github.GithubException.GithubException:
+        release = grepo.update_release(name, description)
 else:
     print('[INFO] Release: {} already exists, aborting'.format(name))
 
