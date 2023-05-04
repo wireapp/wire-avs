@@ -129,6 +129,11 @@ struct video_renderer {
 	bool inited;
 	bool attached;
 	bool rounded;
+	struct {
+		GLfloat r;
+		GLfloat g;
+		GLfloat b;
+	} fill_color;
 	bool should_fill;
 	bool dirty;
 	bool dict;
@@ -806,7 +811,10 @@ int video_renderer_render_frame(struct video_renderer *vr)
 		goto out;
 	}
 
-	glClearColor(0.0, 0.0, 0.0, 1.0);
+	glClearColor(vr->fill_color.r,
+		     vr->fill_color.g,
+		     vr->fill_color.b,
+		     1.0); /* alpha */
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	if (vr->tex.w != vf->w
@@ -844,6 +852,16 @@ int video_renderer_render_frame(struct video_renderer *vr)
 	*/
 
 	return err;
+}
+
+void video_renderer_set_fill_color(struct video_renderer *vr,
+				   uint32_t rgb)
+{
+	if (vr) {
+		vr->fill_color.r = (GLfloat)((rgb & 0xFF0000) >> 16)/255.0;
+		vr->fill_color.g = (GLfloat)((rgb & 0x00FF00) >> 8)/255.0;
+		vr->fill_color.b = (GLfloat) (rgb & 0x0000FF) / 255.0;
+	}
 }
 
 void video_renderer_set_should_fill(struct video_renderer *vr,
@@ -914,6 +932,12 @@ int video_renderer_render_frame(struct video_renderer *vr)
 void *video_renderer_arg(struct video_renderer *vr)
 {
 	return vr ? vr->arg : NULL;
+}
+
+
+void video_renderer_set_fill_color(struct video_renderer *vr,
+				   uint32_t rgb)
+{
 }
 
 void video_renderer_set_should_fill(struct video_renderer *vr,

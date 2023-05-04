@@ -18,6 +18,9 @@ int video_renderer_handle_frame(struct video_renderer *vr,
 
 int video_renderer_render_frame(struct video_renderer *vr);
 
+void video_renderer_set_fill_color(struct video_renderer *vr,
+				   uint32_t rgb);
+	
 void video_renderer_set_should_fill(struct video_renderer *vr,
 				    bool should_fill);
 

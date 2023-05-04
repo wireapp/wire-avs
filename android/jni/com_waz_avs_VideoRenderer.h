@@ -223,6 +223,15 @@ JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_renderFrame
 JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_destroyNative
   (JNIEnv *, jobject, jlong);
 
+
+/*
+ * Class:     com_waz_avs_VideoRenderer
+ * Method:    nativeSetFillColor
+ * Signature: (JJ)V
+ */
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_nativeSetFillColor
+  (JNIEnv *, jobject, jlong, jlong);
+	
 /*
  * Class:     com_waz_avs_VideoRenderer
  * Method:    nativeSetShouldFill

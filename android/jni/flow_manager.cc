@@ -1460,6 +1460,15 @@ JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_destroyNative
 	lock_rel(java.video.lock);
 }
 
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_nativeSetFillColor
+  (JNIEnv *env, jobject jself, jlong obj, jlong rgb)
+{
+	struct video_renderer *vr = (struct video_renderer *)((void *)obj);
+	jobject self = (jobject)video_renderer_arg(vr);
+
+	video_renderer_set_fill_color(vr, (uint32_t)rgb);
+}
+
 JNIEXPORT void JNICALL Java_com_waz_avs_VideoRenderer_nativeSetShouldFill
   (JNIEnv *env, jobject jself, jlong obj, jboolean should_fill)
 {
