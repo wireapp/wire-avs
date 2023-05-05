@@ -66,6 +66,7 @@ public class VideoRenderer extends GLSurfaceView
 	public boolean isRunning = false;
 	
 	private boolean paused = false;
+	private long fillColor = 0;
 	private boolean shouldFill = true;
 	private float fillRatio = 0.0f;
 	private boolean isRounded = false;
@@ -145,6 +146,8 @@ public class VideoRenderer extends GLSurfaceView
 					    width, height,
 					    isRounded);
 		if (nativeObject != 0) {
+			if (this.fillColor != 0)
+				nativeSetFillColor(nativeObject, this.fillColor);
 			nativeSetShouldFill(nativeObject, this.shouldFill);
 			nativeSetFillRatio(nativeObject, this.fillRatio);
 		}
@@ -170,11 +173,22 @@ public class VideoRenderer extends GLSurfaceView
 		destroyNativeObject();
 	}
 
+	public void setFillColor(long fillColor) {
+		this.fillColor = fillColor;
+		if (nativeObject != 0) {
+			nativeFunctionLock.lock();
+			nativeSetFillColor(nativeObject, fillColor);
+			nativeFunctionLock.unlock();
+		}
+	}
+	
 	public void setShouldFill(boolean shouldFill) {
 		this.shouldFill = shouldFill;
-		nativeFunctionLock.lock();
-		nativeSetShouldFill(nativeObject, shouldFill);
-		nativeFunctionLock.unlock();
+		if (nativeObject != 0) {
+			nativeFunctionLock.lock();
+			nativeSetShouldFill(nativeObject, shouldFill);
+			nativeFunctionLock.unlock();
+		}
 	}
 
 	public void setFillRatio(float ratio) {
@@ -220,6 +234,8 @@ public class VideoRenderer extends GLSurfaceView
 	private native void renderFrame(long obj);
 	private native void destroyNative(long obj);
 
+
+	private native void nativeSetFillColor(long obj, long rgb);
 	private native void nativeSetShouldFill(long obj, boolean shouldFill);
 
 	private native void nativeSetFillRatio(long obj, float ratio);

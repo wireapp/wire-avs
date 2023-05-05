@@ -32,6 +32,7 @@ import com.waz.avs.AVSystem;
 import com.waz.avs.VideoCapturer;
 import com.waz.avs.VideoCapturerCallback;
 import com.waz.avs.VideoCapturerInfo;
+import com.waz.avs.VideoPreview;
 import com.waz.call.FlowSource;
 import com.waz.call.RequestHandler;
 
@@ -57,7 +58,7 @@ import org.json.JSONObject;
 import org.json.JSONException;
 
 
-import android.view.TextureView;
+import android.view.SurfaceView;
 
 public class FlowManager
 	implements VideoCapturerCallback {
@@ -347,7 +348,7 @@ public class FlowManager
   public native boolean canSendVideo(String convId);
 
   private VideoCapturer videoCapturer = null;
-  private TextureView previewView = null;
+  private VideoPreview previewView = null;
   private int defaultFacing = VideoCapturerInfo.FACING_FRONT;
 	
   public void setVideoSendState(String convId, int state) {
@@ -383,11 +384,12 @@ public class FlowManager
   private static String TAG = "FlowManager";
       
   public void setVideoPreview(String convId, View view) {
-	  final TextureView tv = (TextureView)view;
+	  //final TextureView tv = (TextureView)view;
+	  final VideoPreview pv = (VideoPreview)view;
 	  
 	  Log.d(TAG, "setVideoPreview: " + view + " vcap=" + videoCapturer); 
 
-	  this.previewView = tv;
+	  this.previewView = pv;
 	  if (view == null) {
 		  if (videoCapturer != null) {
 			  releaseCapturer();
@@ -398,7 +400,7 @@ public class FlowManager
 		  createCapturer();
 	  }
 	  else {
-		  videoCapturer.startCapture(tv);
+		  videoCapturer.startCapture(pv);
 	  }
   }
 
