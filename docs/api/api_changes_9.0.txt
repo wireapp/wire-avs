@@ -1,6 +1,6 @@
 
-Changes proposed for AVS 9.0
-============================
+Changes introduced in AVS 9.0
+=============================
 
 The aim of AVS 9.0 is to provide support for conference calling using MLS instead of Proteus. In this mode AVS will use the MLS sub-conversations session key to generate the key used for media encryption.
 

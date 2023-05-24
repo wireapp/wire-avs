@@ -1,0 +1,12 @@
+
+Changes introduced in AVS 9.2
+=============================
+
+The key parameters in wcall_set_epoch_info (key_data and key_size) have been replaced with a single string parameter (key_base64). This parameter should contain a base64 encoded string of the key data instead of binary key data and size. This simplifies client code in web but is changed for all platforms.
+
+int wcall_set_epoch_info(WUSER_HANDLE wuser,
+			 const char *convid,
+			 uint32_t epochid,
+			 const char *clients_json,
+			 const char *key_base64);
+
