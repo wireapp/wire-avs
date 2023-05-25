@@ -933,6 +933,8 @@ static void get_clients_response_handler(int err, void *arg)
 	struct client_ctx *ctx = arg;
 	struct json_object *jobj;
 	uint8_t media_key[32];
+	char b64_key[64];
+	size_t b64_len = sizeof(b64_key);
 	char *json;
 
 	jobj = jzon_alloc_object();
@@ -944,15 +946,20 @@ static void get_clients_response_handler(int err, void *arg)
 
 	if (json) {
 		if (ctx->epoch > 0) {
-			memset(media_key, 0x20, sizeof(media_key));
-			memcpy(media_key, &ctx->epoch, sizeof(uint32_t));
+			memset(media_key, 0x0, sizeof(media_key));
+			snprintf((char*)media_key,
+				 sizeof(media_key),
+				 "%08x_media_key",
+				 ctx->epoch);
+
+			memset(b64_key, 0, b64_len);
+			base64_encode(media_key, sizeof(media_key), b64_key, &b64_len);
 
 			wcall_set_epoch_info(calling3.wuser,
 					     ctx->convid,
 					     ctx->epoch,
 					     json,
-					     media_key,
-					     sizeof(media_key));
+					     b64_key);
 		}
 		else {
 			wcall_set_clients_for_conv(calling3.wuser,

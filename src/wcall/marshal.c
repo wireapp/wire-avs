@@ -1128,11 +1128,12 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 			 const char *convid,
 			 uint32_t epochid,
 			 const char *clients_json,
-			 uint8_t *key_data,
-			 uint32_t key_size)
+			 const char *key_base64)
 {
 	struct calling_instance *inst;
 	struct mq_data *md = NULL;
+	size_t key_size = 0;
+	size_t b64_size = 0;
 	int err = 0;
 
 	if (!convid) {
@@ -1148,13 +1149,14 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 
-	if (!key_data || !key_size) {
+	if (!key_base64) {
 		warning("wcall: set_epoch_info: no key set\n");
 		return EINVAL;
 	}
 
-	if (key_size > 1024) {
-		warning("wcall: set_epoch_info: key too big\n");
+	b64_size = str_len(key_base64);
+	if (b64_size < 1 || b64_size > 1368) {
+		warning("wcall: set_epoch_info: encoded key size invalid\n");
 		return EINVAL;
 	}
 
@@ -1162,13 +1164,29 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 	if (!md)
 		return ENOMEM;
 
+	key_size = b64_size;
 	md->u.set_epoch_info.key_data = mem_zalloc(key_size, NULL);
 	if (!md->u.set_epoch_info.key_data) {
 		err = ENOMEM;
 		goto out;
 	}
 
-	memcpy(md->u.set_epoch_info.key_data, key_data, key_size);
+	err = base64_decode(key_base64,
+			    b64_size,
+			    md->u.set_epoch_info.key_data,
+			    &key_size);
+	
+	if (err) {
+		warning("wcall: set_epoch_info: error b64 decoding key (%m)\n", err);
+		err = EINVAL;
+		goto out;
+	}
+
+	if (key_size < 1 || key_size > 1024) {
+		warning("wcall: set_epoch_info: decoded key size %zu invalid\n", key_size);
+		err = EINVAL;
+		goto out;
+	}
 
 	err = str_dup(&md->u.set_epoch_info.clients_json, clients_json);
 	if (err) 

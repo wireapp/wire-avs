@@ -430,8 +430,7 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 			 const char *convid,
 			 uint32_t epochid,
 			 const char *clients_json,
-			 uint8_t *key_data,
-			 uint32_t key_size);
+			 const char *key_base64);
 
 void wcall_set_req_new_epoch_handler(WUSER_HANDLE wuser,
 				     wcall_req_new_epoch_h *req_new_epochh);

@@ -1375,8 +1375,9 @@ static int icall_send_handler(struct icall *icall,
 			  inst->arg);
 	info("wcall(%p): calling sendh(%p) took: %llu ms\n", wcall, inst->sendh, tmr_jiffies() - now);
 
-	now = tmr_jiffies();
 
+#ifdef WCALL_TEST
+	now = tmr_jiffies();
 	info(APITAG "wcall(%p): calling readyh: %p\n",
 	     inst, inst->readyh);
 
@@ -1384,6 +1385,7 @@ static int icall_send_handler(struct icall *icall,
 
 	info(APITAG "wcall(%p): calling readyh: %p took: %llums\n",
 	     inst, inst->readyh, tmr_jiffies() - now);
+#endif
 
  out:
 	mem_deref(str);
