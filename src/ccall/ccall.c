@@ -2464,14 +2464,13 @@ static struct zapi_ice_server* ccall_get_sft_info(struct ccall *ccall,
 
 static bool ccall_can_connect_sft(struct ccall *ccall, const char *sft_url)
 {
-	struct zapi_ice_server *sftv;
 	size_t sftc = 0;
 
 	if (!ccall || !sft_url) {
 		return false;
 	}
 
-	sftv = config_get_sftservers_all(ccall->cfg, &sftc);
+	config_get_sftservers_all(ccall->cfg, &sftc);
 
 	info("ccall(%p): can_connect %zu sfts in sft_servers_all\n",
 		ccall, sftc);
