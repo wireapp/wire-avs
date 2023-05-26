@@ -54,6 +54,7 @@ struct join_elem {
 	struct ccall *ccall;
 	enum icall_call_type call_type;
 	bool audio_cbr;
+	bool retry_attempt;
 
 	struct config_update_elem upe;
 };
@@ -115,7 +116,7 @@ struct ccall {
 	struct tmr tmr_rotate_key;
 	struct tmr tmr_rotate_mls;
 	struct tmr tmr_ring;
-	struct tmr tmr_blacklist;
+	struct tmr tmr_sft_reject;
 	struct tmr tmr_vstate;
 	struct tmr tmr_decrypt_check;
 	struct tmr tmr_keepalive;
@@ -125,5 +126,6 @@ struct ccall {
 	struct config *cfg;
 
 	uint64_t quality_interval;
+	enum econn_confconn_status confconn_status;
 };
 

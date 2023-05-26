@@ -180,7 +180,12 @@ int config_update(struct config *cfg, int err,
 		for(i = 0; i < cfg->config.sftserverc; ++i) {
 			struct zapi_ice_server *sft = &cfg->config.sftserverv[i];
 
-			info("config(%p): sft(%d): %s\n", cfg, i, sft->url);
+			info("config(%p): sft(%d): %s user %s cred %s\n",
+			     cfg,
+			     i,
+			     sft->url,
+			     sft->username,
+			     sft->credential);
 		}
 
 		if (!cfg->config.sftserverc) {
@@ -209,7 +214,12 @@ int config_update(struct config *cfg, int err,
 		for(i = 0; i < cfg->config.sftservers_allc; ++i) {
 			struct zapi_ice_server *sft = &cfg->config.sftservers_allv[i];
 
-			info("config(%p): sft_all(%d): %s\n", cfg, i, sft->url);
+			info("config(%p): sft_all(%d): %s user %s cred %s\n",
+			     cfg,
+			     i,
+			     sft->url,
+			     sft->username,
+			     sft->credential);
 		}
 
 		if (!cfg->config.sftservers_allc) {
@@ -218,6 +228,18 @@ int config_update(struct config *cfg, int err,
 			goto out;
 		}
 	}
+
+	if (0 != jzon_bool(&cfg->config.is_federating, jobj, "is_federating")) {
+		cfg->config.is_federating = cfg->config.sftservers_allc > 0;
+		info("config(%p): setting federating: %s from sftservers_all: %zu\n",
+		     cfg,
+		     cfg->config.is_federating ? "YES" : "NO",
+		     cfg->config.sftservers_allc);
+	}
+	else
+		info("config(%p): setting federating: %s from json\n",
+		     cfg,
+		     cfg->config.is_federating ? "YES" : "NO");
 
 	if (0 == jzon_array(&jsfts, jobj, "sft_ice_servers")) {
 		size_t i;
@@ -330,6 +352,14 @@ struct zapi_ice_server *config_get_sfticeservers(struct config *cfg,
 	*count = cfg->config.sfticeserverc;
 
 	return cfg->config.sfticeserverv;
+}
+
+bool config_is_federating(struct config *cfg)
+{
+	if (!cfg)
+		return false;
+
+	return cfg->config.is_federating;
 }
 
 int config_request(struct config *cfg)

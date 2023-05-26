@@ -105,6 +105,8 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.confconn.vstreams = 0;
 		msg->u.confconn.sft_url = mem_deref(msg->u.confconn.sft_url);
 		msg->u.confconn.sft_tuple = mem_deref(msg->u.confconn.sft_tuple);
+		msg->u.confconn.sft_username = mem_deref(msg->u.confconn.sft_username);
+		msg->u.confconn.sft_credential = mem_deref(msg->u.confconn.sft_credential);
 		break;
 
 	case ECONN_CONF_START:

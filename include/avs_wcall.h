@@ -181,6 +181,8 @@ typedef void (wcall_req_new_epoch_h)(WUSER_HANDLE wuser,
 #define WCALL_REASON_OUTDATED_CLIENT   11
 #define WCALL_REASON_NOONE_JOINED      12
 #define WCALL_REASON_EVERYONE_LEFT     13
+#define WCALL_REASON_AUTH_FAILED       14
+#define WCALL_REASON_AUTH_FAILED_START 15
 
 const char *wcall_reason_name(int reason);
 

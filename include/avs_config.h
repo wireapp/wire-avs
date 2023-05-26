@@ -29,6 +29,7 @@ struct call_config {
 	size_t sftservers_allc;
 	struct zapi_ice_server *sfticeserverv;
 	size_t sfticeserverc;
+	bool is_federating;
 };
 
 
@@ -69,4 +70,6 @@ struct zapi_ice_server *config_get_sftservers_all(struct config *cfg,
 
 struct zapi_ice_server *config_get_sfticeservers(struct config *cfg,
 						 size_t *count);
+
+bool config_is_federating(struct config *cfg);
 

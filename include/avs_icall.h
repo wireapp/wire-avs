@@ -30,6 +30,8 @@
 #define ICALL_REASON_OUTDATED_CLIENT   11
 #define ICALL_REASON_NOONE_JOINED      12
 #define ICALL_REASON_EVERYONE_LEFT     13
+#define ICALL_REASON_AUTH_FAILED       14
+#define ICALL_REASON_AUTH_FAILED_START 15
 
 struct icall;
 struct econn_message;

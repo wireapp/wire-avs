@@ -84,8 +84,12 @@ enum econn_alert_level {
 };
 
 enum econn_confconn_status {
-	ECONN_CONFCONN_OK                  = 0,
-	ECONN_CONFCONN_REJECTED_BLACKLIST  = 1,
+	ECONN_CONFCONN_OK                      = 0,
+	ECONN_CONFCONN_REJECTED_BLACKLIST      = 1,
+	ECONN_CONFCONN_REJECTED_AUTH_INVALID   = 2,
+	ECONN_CONFCONN_REJECTED_AUTH_EXPIRED   = 3,
+	ECONN_CONFCONN_REJECTED_AUTH_LIMIT     = 4,
+	ECONN_CONFCONN_REJECTED_AUTH_CANTSTART = 5,
 };
 
 #define ECONN_MESSAGE_TIME_UNKNOWN (0)
@@ -171,6 +175,8 @@ struct econn_message {
 			uint32_t vstreams;
 			char *sft_url;
 			char *sft_tuple;
+			char *sft_username;
+			char *sft_credential;
 		} confconn;
 
 		struct confstart {

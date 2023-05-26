@@ -488,32 +488,68 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 			struct json_object *jurls;
 			struct json_object *jsft;
 			struct json_object *jurl;
-			
+			struct json_object *juser;
+			struct json_object *jcred;
+
+			char *url;
+			char *user = NULL, *cred = NULL;
+
+			str_dup(&url, nfo->str);
 			jurls = json_object_new_array();
 			jsft = jzon_alloc_object();
-			jurl = json_object_new_string(nfo->str);
+			user = strchr(url, '|');
+			if (user) {
+				*user = 0;
+				user++;
+				cred = strchr(user, '|');
+				if (cred) {
+					*cred = 0;
+					cred++;
+				}
+			}
+				
+			jurl = json_object_new_string(url);
 			if (!jurls || !jsft || !jurl) {
 				err = ENOMEM;
 				goto out;
 			}
 			json_object_array_add(jurls, jurl);
 			json_object_object_add(jsft, "urls", jurls);
+			if (user) {
+				juser = json_object_new_string(user);
+				json_object_object_add(jsft, "username", juser);
+			}
+			if (cred) {
+				jcred = json_object_new_string(cred);
+				json_object_object_add(jsft, "credential", jcred);
+			}
 			json_object_array_add(jsfts, jsft);
 
 			jurls = json_object_new_array();
 			jsft = jzon_alloc_object();
-			jurl = json_object_new_string(nfo->str);
+			jurl = json_object_new_string(url);
 			if (!jurls || !jsft || !jurl) {
 				err = ENOMEM;
 				goto out;
 			}
 			json_object_array_add(jurls, jurl);
 			json_object_object_add(jsft, "urls", jurls);
+			if (user) {
+				juser = json_object_new_string(user);
+				json_object_object_add(jsft, "username", juser);
+			}
+			if (cred) {
+				jcred = json_object_new_string(cred);
+				json_object_object_add(jsft, "credential", jcred);
+			}
 			json_object_array_add(jsfts_all, jsft);
+
+			mem_deref(url);
 		}
 
 		json_object_object_add(jobj, "sft_servers", jsfts);
 		json_object_object_add(jobj, "sft_servers_all", jsfts_all);
+		json_object_object_add(jobj, "is_federating", json_object_new_boolean(false));
 	}
 
 	if (!err && jobj) {

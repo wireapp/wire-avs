@@ -650,6 +650,14 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 			jzon_add_str(jobj, "sft_tuple",
 				     "%s", msg->u.confconn.sft_tuple);
 		}
+		if (msg->u.confconn.sft_username) {
+			jzon_add_str(jobj, "username",
+				     "%s", msg->u.confconn.sft_username);
+		}
+		if (msg->u.confconn.sft_credential) {
+			jzon_add_str(jobj, "credential",
+				     "%s", msg->u.confconn.sft_credential);
+		}
 		break;
 
 	case ECONN_CONF_START:
@@ -1129,6 +1137,19 @@ int econn_message_decode(struct econn_message **msgp,
 		json_str = jzon_str(jobj, "sft_tuple");
 		if (json_str) {
 			err = str_dup(&msg->u.confconn.sft_tuple, json_str);
+			if (err)
+				goto out;
+		}
+
+		json_str = jzon_str(jobj, "username");
+		if (json_str) {
+			err = str_dup(&msg->u.confconn.sft_username, json_str);
+			if (err)
+				goto out;
+		}
+		json_str = jzon_str(jobj, "credential");
+		if (json_str) {
+			err = str_dup(&msg->u.confconn.sft_credential, json_str);
 			if (err)
 				goto out;
 		}

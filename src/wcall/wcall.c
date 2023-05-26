@@ -1150,6 +1150,12 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 		case ICALL_REASON_EVERYONE_LEFT:
 			wreason = WCALL_REASON_EVERYONE_LEFT;
 			break;
+		case ICALL_REASON_AUTH_FAILED:
+			wreason = WCALL_REASON_AUTH_FAILED;
+			break;
+		case ICALL_REASON_AUTH_FAILED_START:
+			wreason = WCALL_REASON_AUTH_FAILED_START;
+			break;
 		default:
 			wreason = WCALL_REASON_NORMAL;
 			break;
@@ -3456,6 +3462,8 @@ const char *wcall_reason_name(int reason)
 	case WCALL_REASON_OUTDATED_CLIENT:    return "OutdatedClient";
 	case WCALL_REASON_NOONE_JOINED:       return "NooneJoined";
 	case WCALL_REASON_EVERYONE_LEFT:      return "EveryoneLeft";
+	case WCALL_REASON_AUTH_FAILED:        return "AuthFailed";
+	case WCALL_REASON_AUTH_FAILED_START:  return "AuthFailedStart";
 
 	default: return "???";
 	}

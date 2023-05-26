@@ -55,12 +55,16 @@ static int ccall_send_msg_sft(struct ccall *ccall,
 			      struct econn_message *msg);
 static int  ccall_send_conf_conn(struct ccall *ccall,
 				 const char *sft_url,
+				 const char *sft_username,
+				 const char *sft_credential,
 				 bool update);
 static int ccall_send_keys(struct ccall *ccall,
 			   bool send_to_all);
 static int ccall_request_keys(struct ccall *ccall);
 static int ccall_sync_media_keys(struct ccall *ccall);
 static void ccall_stop_others_ringing(struct ccall *ccall);
+static struct zapi_ice_server* ccall_get_sft_info(struct ccall *ccall,
+						  const char *sft_url);
 
 static int alloc_message(struct econn_message **msgp,
 			 struct ccall *ccall,
@@ -71,6 +75,10 @@ static int alloc_message(struct econn_message **msgp,
 			 const char *dest_userid,
 			 const char *dest_clientid,
 			 bool transient);
+static int  ccall_req_cfg_join(struct ccall *ccall,
+			       enum icall_call_type call_type,
+			       bool audio_cbr,
+			       bool retry_attempt);
 
 static int copy_sft(char **pdst, const char* src)
 {
@@ -108,7 +116,7 @@ static void destructor(void *arg)
 	tmr_cancel(&ccall->tmr_rotate_key);
 	tmr_cancel(&ccall->tmr_rotate_mls);
 	tmr_cancel(&ccall->tmr_ring);
-	tmr_cancel(&ccall->tmr_blacklist);
+	tmr_cancel(&ccall->tmr_sft_reject);
 	tmr_cancel(&ccall->tmr_vstate);
 	tmr_cancel(&ccall->tmr_decrypt_check);
 	tmr_cancel(&ccall->tmr_keepalive);
@@ -374,16 +382,33 @@ static void ccall_stop_ringing_timeout(void *arg)
 	}
 }
 
-static void ccall_blacklisted_timeout(void *arg)
+static void ccall_sft_reject_timeout(void *arg)
 {
 	struct ccall *ccall = arg;
+	int reason = 0;
 
 	if (CCALL_STATE_CONNSENT == ccall->state) {
-		info("ccall(%p): blacklisted_timeout\n", ccall);
-
+		info("ccall(%p): sft_reject_timeout status %u\n",
+		     ccall,
+		     ccall->confconn_status);
 		set_state(ccall, CCALL_STATE_IDLE);
+		switch (ccall->confconn_status) {
+		case ECONN_CONFCONN_OK:
+			return;
+		case ECONN_CONFCONN_REJECTED_BLACKLIST:
+			reason = ICALL_REASON_OUTDATED_CLIENT;
+			break;
+		case ECONN_CONFCONN_REJECTED_AUTH_INVALID:
+		case ECONN_CONFCONN_REJECTED_AUTH_LIMIT:
+		case ECONN_CONFCONN_REJECTED_AUTH_EXPIRED:
+			reason = ICALL_REASON_AUTH_FAILED;
+			break;
+		case ECONN_CONFCONN_REJECTED_AUTH_CANTSTART:
+			reason = ICALL_REASON_AUTH_FAILED_START;
+			break;
+		}
 		ICALL_CALL_CB(ccall->icall, leaveh,
-			      &ccall->icall, ICALL_REASON_OUTDATED_CLIENT,
+			      &ccall->icall, reason,
 			      ECONN_MESSAGE_TIME_UNKNOWN, ccall->icall.arg);
 		ecall_end(ccall->ecall);
 	}
@@ -402,6 +427,7 @@ static void ccall_reconnect(struct ccall *ccall,
 {
 	bool decrypt_attempted = false;
 	bool decrypt_successful = false;
+	const struct zapi_ice_server *sfti = NULL;
 
 	if (!ccall || !ccall->keystore) {
 		return;
@@ -432,7 +458,12 @@ static void ccall_reconnect(struct ccall *ccall,
 	userlist_incall_clear(ccall->userl, true);
 	set_state(ccall, CCALL_STATE_CONNSENT);
 	if (ccall->sft_url) {
-		ccall_send_conf_conn(ccall, ccall->sft_url, true);
+		sfti = ccall_get_sft_info(ccall, ccall->sft_url);
+		ccall_send_conf_conn(ccall,
+				     ccall->sft_url,
+				     sfti ? sfti->username : NULL,
+				     sfti ? sfti->credential : NULL,
+				     true);
 	}
 
 	if (notify) {
@@ -1917,6 +1948,8 @@ static int  ccall_send_msg(struct ccall *ccall,
 
 static int  ccall_send_conf_conn(struct ccall *ccall,
 				 const char *sft_url,
+				 const char *sft_username,
+				 const char *sft_credential,
 				 bool update)
 {
 	enum econn_msg type = ECONN_CONF_CONN;
@@ -2000,6 +2033,18 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 			if (err) {
 				goto out;
 			}
+		}
+	}
+
+	if (sft_username && strlen(sft_username) > 0 &&
+	    sft_credential && strlen(sft_credential) > 0) {
+		err = str_dup(&msg->u.confconn.sft_username, sft_username);
+		if (err) {
+			goto out;
+		}
+		err = str_dup(&msg->u.confconn.sft_credential, sft_credential);
+		if (err) {
+			goto out;
 		}
 	}
 
@@ -2332,7 +2377,7 @@ int ccall_alloc(struct ccall **ccallp,
 	tmr_init(&ccall->tmr_send_check);
 	tmr_init(&ccall->tmr_ongoing);
 	tmr_init(&ccall->tmr_ring);
-	tmr_init(&ccall->tmr_blacklist);
+	tmr_init(&ccall->tmr_sft_reject);
 	tmr_init(&ccall->tmr_vstate);
 
 	icall_set_functions(&ccall->icall,
@@ -2396,11 +2441,31 @@ int  ccall_add_sft(struct icall *icall, const char *sft_url)
 	return 0;
 }
 
+static struct zapi_ice_server* ccall_get_sft_info(struct ccall *ccall,
+						  const char *sft_url)
+{
+	struct zapi_ice_server *sftv = NULL;
+	size_t sft = 0, sftc = 0;
+
+	if (!ccall || !sft_url) {
+		return NULL;
+	}
+
+	sftv = config_get_sftservers_all(ccall->cfg, &sftc);
+	if (sftv) {
+		for (sft = 0; sft < sftc; sft++) {
+			if (sfts_equal(sft_url, sftv[sft].url)) {
+				return &sftv[sft];
+			}
+		}
+	}
+	return NULL;
+}
+
 static bool ccall_can_connect_sft(struct ccall *ccall, const char *sft_url)
 {
 	struct zapi_ice_server *sftv;
-	size_t sft = 0, sftc = 0;
-	bool found = false;
+	size_t sftc = 0;
 
 	if (!ccall || !sft_url) {
 		return false;
@@ -2416,14 +2481,7 @@ static bool ccall_can_connect_sft(struct ccall *ccall, const char *sft_url)
 		return true;
 	}
 
-	for (sft = 0; sft < sftc && !found; sft++) {
-		if (sfts_equal(sft_url, sftv[sft].url)) {
-			info("ccall(%p): can_connect found sft %s in calls/conf\n",
-				ccall, sft_url);
-			found = true;
-		}
-	}
-	return found;
+	return ccall_get_sft_info(ccall, sft_url) != NULL;
 }
 
 static void config_update_handler(struct call_config *cfg, void *arg)
@@ -2434,6 +2492,8 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	size_t urlc, sft;
 	int state = ccall->state;
 	struct le *le;
+	const struct zapi_ice_server *sfti = NULL;
+	bool deref_je = true;
 	int err = 0;
 
 	if (!ccall) {
@@ -2447,10 +2507,11 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	}
 	urlv = config_get_sftservers(ccall->cfg, &urlc);
 
-	info("ccall(%p): cfg_update received %zu sfts state: %s\n",
+	info("ccall(%p): cfg_update received %zu sfts state: %s federating: %s\n",
 	     ccall,
 	     urlc,
-	     ccall_state_name(ccall->state));
+	     ccall_state_name(ccall->state),
+	     config_is_federating(ccall->cfg) ? "YES" : "NO");
 	
 	if (!urlv || !urlc) {
 		warning("ccall(%p): no SFT server configured\n", ccall);
@@ -2469,11 +2530,6 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		goto out;
 	}
 
-	set_state(ccall, CCALL_STATE_CONNSENT);
-	ccall->call_type = je->call_type;
-
-	ccall_stop_others_ringing(ccall);
-
 	/* Prefer connecting to an already active sft */
 	if (CCALL_STATE_INCOMING == state) {
 		if (list_count(&ccall->sftl) > 0) {
@@ -2485,7 +2541,12 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 				struct stringlist_info *nfo = le->data;
 
 				if (ccall_can_connect_sft(ccall, nfo->str)) {
-					err = ccall_send_conf_conn(ccall, nfo->str, false);
+					sfti = ccall_get_sft_info(ccall, nfo->str);
+					err = ccall_send_conf_conn(ccall,
+								   nfo->str,
+								   sfti ? sfti->username : NULL,
+								   sfti ? sfti->credential : NULL,
+								   false);
 					if (err) {
 						warning("ccall(%p): cfg_update failed to send "
 							"confconn to sft %s err=%d\n",
@@ -2509,7 +2570,12 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		else if (ccall->primary_sft_url) {
 			// legacy behaviour, connect to primary
 			if (ccall_can_connect_sft(ccall, ccall->primary_sft_url)) {
-				err = ccall_send_conf_conn(ccall, ccall->primary_sft_url, false);
+				sfti = ccall_get_sft_info(ccall, ccall->primary_sft_url);
+				err = ccall_send_conf_conn(ccall,
+							   ccall->primary_sft_url,
+							   sfti ? sfti->username : NULL,
+							   sfti ? sfti->credential : NULL,
+							   false);
 				if (err) {
 					warning("ccall(%p): cfg_update failed to send "
 						"confconn to primary sft %s err=%d\n",
@@ -2517,18 +2583,60 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 				}
 				else {
 					info("ccall(%p): cfg_update connecting to primary sft "
-						" %s for legacy behaviour\n",
+						"%s for legacy behaviour\n",
 						ccall, ccall->primary_sft_url);
-					goto out;
 				}
+				goto out;
 			}
 		}
+
+		if (!config_is_federating(ccall->cfg)) {
+			warning("ccall(%p): cfg_update not federating and no "
+				"allowed SFTs to join (primary %s) is retry %s\n",
+				ccall,
+				ccall->primary_sft_url ? ccall->primary_sft_url : "none",
+				je->retry_attempt ? "YES" : "NO");
+			if (je->retry_attempt) {
+				ccall_end_with_err(ccall, EACCES);
+				err = EACCES;
+			}
+			else {
+				err = ccall_req_cfg_join(ccall,
+							 je->call_type,
+							 je->audio_cbr,
+							 true);
+				if (err) {
+					warning("ccall(%p): cfg_update error retrying "
+						"config err=%d\n",
+						ccall, err);
+					goto out;
+				}
+
+				info("ccall(%p): cfg_update regetting config",
+				     ccall);
+				// Dont mem_deref je as it has been reassigned
+				deref_je = false;
+				err = EAGAIN;
+			}
+			goto out;
+		}
 	}
-	
+
 	urlc = MIN(urlc, 3);
 	for (sft = 0; sft < urlc; sft++) {
 		/* If one SFT fails, keep trying the rest */
-		err = ccall_send_conf_conn(ccall, urlv[sft].url, false);
+		info("ccall(%p): cfg_update connecting to sft "
+			"%s user %s cred %s \n",
+			ccall, 
+			urlv[sft].url,
+			urlv[sft].username,
+			urlv[sft].credential);
+
+		err = ccall_send_conf_conn(ccall,
+					   urlv[sft].url,
+					   urlv[sft].username,
+					   urlv[sft].credential,
+					   false);
 		if (err) {
 			warning("ccall(%p): cfg_update failed to send "
 				"confconn to sft %s err=%d\n",
@@ -2541,7 +2649,15 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		}
 	}
  out:
-	ccall->je = mem_deref(ccall->je);
+	if (!err) {
+		set_state(ccall, CCALL_STATE_CONNSENT);
+		ccall->call_type = je->call_type;
+
+		ccall_stop_others_ringing(ccall);
+	}
+
+	if (deref_je)
+		ccall->je = mem_deref(ccall->je);
 }
 
 static void je_destructor(void *arg)
@@ -2553,7 +2669,8 @@ static void je_destructor(void *arg)
 
 static int  ccall_req_cfg_join(struct ccall *ccall,
 			       enum icall_call_type call_type,
-			       bool audio_cbr)
+			       bool audio_cbr,
+			       bool retry_attempt)
 {
 	struct join_elem *je;
 	int err;
@@ -2571,6 +2688,7 @@ static int  ccall_req_cfg_join(struct ccall *ccall,
 	je->ccall = ccall;
 	je->call_type = call_type;
 	je->audio_cbr = audio_cbr;
+	je->retry_attempt = retry_attempt;
 	je->upe.updh = config_update_handler;
 	je->upe.arg = je;
 
@@ -2601,7 +2719,7 @@ int  ccall_start(struct icall *icall,
 
 	case CCALL_STATE_IDLE:
 		ccall->is_caller = true;
-		err = ccall_req_cfg_join(ccall, call_type, audio_cbr);
+		err = ccall_req_cfg_join(ccall, call_type, audio_cbr, false);
 		break;
 
 	default:
@@ -2630,7 +2748,7 @@ int  ccall_answer(struct icall *icall,
 	case CCALL_STATE_INCOMING:
 		ccall->is_caller = false;
 		ccall->stop_ringing_reason = CCALL_STOP_RINGING_ANSWERED;
-		err = ccall_req_cfg_join(ccall, call_type, audio_cbr);
+		err = ccall_req_cfg_join(ccall, call_type, audio_cbr, false);
 		break;
 
 	default:
@@ -3037,7 +3155,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 
 			set_state(ccall, CCALL_STATE_INCOMING);
 			stringlist_clone(sftl, &ccall->sftl);
-			return ccall_req_cfg_join(ccall, ccall->call_type, true);
+			return ccall_req_cfg_join(ccall, ccall->call_type, true, false);
 		}
 		break;
 
@@ -3050,7 +3168,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 
 			set_state(ccall, CCALL_STATE_INCOMING);
 			stringlist_clone(sftl, &ccall->sftl);
-			return ccall_req_cfg_join(ccall, ccall->call_type, true);
+			return ccall_req_cfg_join(ccall, ccall->call_type, true, false);
 		}
 		else if (ts_cmp < 0 && userlist_is_keygenerator_me(ccall->userl)) {
 			/* If local call is earlier. send new CONFSTART to
@@ -3281,10 +3399,15 @@ int  ccall_sft_msg_recv(struct icall* icall,
 			break;
 
 		case ECONN_CONFCONN_REJECTED_BLACKLIST:
+		case ECONN_CONFCONN_REJECTED_AUTH_INVALID:
+		case ECONN_CONFCONN_REJECTED_AUTH_LIMIT:
+		case ECONN_CONFCONN_REJECTED_AUTH_EXPIRED:
+		case ECONN_CONFCONN_REJECTED_AUTH_CANTSTART:
 			info("ccall(%p): sft_msg_recv call rejected "
-				"due to blacklist\n", ccall);
-			tmr_start(&ccall->tmr_blacklist, 1,
-				ccall_blacklisted_timeout, ccall);
+				"by SFT reason: %d\n", ccall, msg->u.confconn.status);
+			ccall->confconn_status = msg->u.confconn.status;
+			tmr_start(&ccall->tmr_sft_reject, 1,
+				ccall_sft_reject_timeout, ccall);
 			break;
 		}
 	}
@@ -3501,6 +3624,10 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 
 	case EEVERYONELEFT:
 		reason = ICALL_REASON_EVERYONE_LEFT;
+		break;
+
+	case EACCES:
+		reason = ICALL_REASON_AUTH_FAILED;
 		break;
 
 	default:
