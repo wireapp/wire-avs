@@ -2007,10 +2007,12 @@ int wcall_setup_ex(int flags)
 	}
 
 #ifndef __EMSCRIPTEN__
+#if HAVE_WEBRTC
 	if (calling.flags & AVS_FLAG_NOISE_TEST)
 		audio_io_enable_noise();
 	else if (calling.flags & AVS_FLAG_AUDIO_TEST)
 		audio_io_enable_sine();
+#endif
 #endif
 
 	// TODO: remove flowmgr
