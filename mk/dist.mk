@@ -409,7 +409,7 @@ $(BUILD_DIST_LINUX)/lib$(BUILD_LIB_REL).so:
 #--- avscore Tarballs ---
 
 $(BUILD_DIST_BASE)/%/avscore.tar.bz2:
-	$(MAKE) tools contrib_librem AVS_OS=$* AVS_ARCH=$(HOST_ARCH) DIST=1
+	$(MAKE) contrib_librem AVS_OS=$* AVS_ARCH=$(HOST_ARCH) DIST=1
 	@mkdir -p $(dir $@)/avscore
 	@cp -a $(BUILD_BASE)/$*-$(HOST_ARCH)/lib \
 	       $(BUILD_BASE)/$*-$(HOST_ARCH)/share \

@@ -51,7 +51,7 @@ CONTRIB_PARTS_iossim := \
 	GTEST LIBRE LIBREW SODIUM
 CONTRIB_PARTS_linux := \
 	GTEST LIBRE LIBREM LIBREW \
-	CRYPTOBOX
+	CRYPTOBOX SODIUM
 CONTRIB_PARTS_osx := \
 	GTEST LIBRE LIBREM LIBREW CRYPTOBOX SODIUM
 CONTRIB_PARTS_wasm := \
@@ -572,7 +572,7 @@ contrib_cryptobox_clean:
 
 #--- sodium ---
 
-ifneq ($(AVS_OS),linux)
+#ifneq ($(AVS_OS),linux)
 CONTRIB_SODIUM_PATH := $(CONTRIB_BASE)/sodium
 CONTRIB_SODIUM_BUILD_PATH := $(BUILD_TARGET)/sodium
 CONTRIB_SODIUM_CONFIG_TARGET := $(CONTRIB_SODIUM_PATH)/configure
@@ -658,7 +658,7 @@ contrib_sodium: $(CONTRIB_SODIUM_TARGET)
 contrib_sodium_clean:
 	$(MAKE) -C $(CONTRIB_SODIUM_BUILD_PATH) clean
 	@rm -f $(CONTRIB_SODIUM_CONFIG_TARGET)
-endif
+#endif
 
 #--- Phony Targets ---
 
