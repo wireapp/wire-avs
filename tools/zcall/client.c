@@ -293,7 +293,7 @@ static struct command delete_client_command = {
 };
 
 
-int client_init()
+int client_init(void)
 {
 	register_command(&get_clients_command);
 	register_command(&delete_client_command);
@@ -306,6 +306,6 @@ int client_init()
 }
 
 
-void client_close()
+void client_close(void)
 {
 }
