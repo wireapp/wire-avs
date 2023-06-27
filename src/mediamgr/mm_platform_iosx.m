@@ -703,7 +703,7 @@ static void default_category(bool sync)
 	}
 }
 
-static void incoming_category()
+static void incoming_category(void)
 {
 	info("mm_platform_ios: incoming_category\n");
 	AVAudioSession *sess = [AVAudioSession sharedInstance];

@@ -26,7 +26,7 @@
 
 namespace wire {
 
-CbrDetectorRemote::CbrDetectorRemote()
+CbrDetectorRemote::CbrDetectorRemote(void)
 {
 }
 
@@ -80,7 +80,7 @@ size_t CbrDetectorRemote::GetMaxPlaintextByteSize(cricket::MediaType media_type,
 	return encrypted_frame_size;
 }
 
-bool CbrDetectorRemote::Detected()
+bool CbrDetectorRemote::Detected(void)
 {
 	return detected;
 }
