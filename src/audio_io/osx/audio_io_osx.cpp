@@ -47,7 +47,7 @@ namespace webrtc {
 		return static_cast<audio_io_osx*>(arg)->record_thread();
 	}
     
-	audio_io_osx::audio_io_osx()
+	audio_io_osx::audio_io_osx(void)
 	:
 	mixer_manager_(),
 	input_device_id_(kAudioObjectUnknown),
@@ -113,7 +113,7 @@ namespace webrtc {
 		return 0;
 	}
 
-    int32_t audio_io_osx::Init() {
+    int32_t audio_io_osx::Init(void) {
         int32_t ret = 0;
         
         pthread_mutex_lock(&mutex_);
@@ -203,7 +203,7 @@ namespace webrtc {
         return 0;
     }
     
-    int32_t audio_io_osx::Terminate() {
+    int32_t audio_io_osx::Terminate(void) {
         if (!initialized_) {
             return 0;
         }
@@ -261,7 +261,7 @@ namespace webrtc {
         return 0;
     }
     
-	int32_t audio_io_osx::InitPlayout() {
+	int32_t audio_io_osx::InitPlayout(void) {
         int32_t ret = 0;
         
         pthread_mutex_lock(&mutex_);
@@ -311,11 +311,11 @@ namespace webrtc {
         return 0;
 	}
     
-	bool audio_io_osx::PlayoutIsInitialized() const {
+	bool audio_io_osx::PlayoutIsInitialized(void) const {
 		return play_is_initialized_;
 	}
     
-	int32_t audio_io_osx::InitRecording() {
+	int32_t audio_io_osx::InitRecording(void) {
         pthread_mutex_lock(&mutex_);
         
         if (!initialized_) {
@@ -363,11 +363,11 @@ namespace webrtc {
         return 0;
 	}
     
-	bool audio_io_osx::RecordingIsInitialized() const {
+	bool audio_io_osx::RecordingIsInitialized(void) const {
 		return true;
 	}
     
-	int32_t audio_io_osx::StartPlayout() {
+	int32_t audio_io_osx::StartPlayout(void) {
         pthread_mutex_lock(&mutex_);
         
         if (!play_is_initialized_) {
@@ -412,11 +412,11 @@ namespace webrtc {
 		return 0;
     }
     
-	bool audio_io_osx::Playing() const {
+	bool audio_io_osx::Playing(void) const {
 		return is_playing_;
 	}
     
-	int32_t audio_io_osx::StartRecording() {
+	int32_t audio_io_osx::StartRecording(void) {
         int32_t ret = 0;
         
         pthread_mutex_unlock(&mutex_);
@@ -468,11 +468,11 @@ namespace webrtc {
 		return 0;
     }
     
-	bool audio_io_osx::Recording() const {
+	bool audio_io_osx::Recording(void) const {
 		return is_recording_;
 	}
     
-	int32_t audio_io_osx::StopRecording() {
+	int32_t audio_io_osx::StopRecording(void) {
         pthread_mutex_lock(&mutex_);
         
         if (!rec_is_initialized_) {
@@ -494,7 +494,7 @@ namespace webrtc {
 		return 0;
 	}
     
-	int32_t audio_io_osx::StopPlayout() {
+	int32_t audio_io_osx::StopPlayout(void) {
         pthread_mutex_lock(&mutex_);
         
         if (!play_is_initialized_) {
@@ -516,7 +516,7 @@ namespace webrtc {
         return 0;
 	}
     
-	void* audio_io_osx::record_thread(){
+	void* audio_io_osx::record_thread(void){
 		int16_t audio_buf[FRAME_LEN] = {0};
 		uint32_t currentMicLevel = 10;
 		uint32_t newMicLevel = 0;
@@ -602,7 +602,7 @@ namespace webrtc {
 		return NULL;
 	}
     
-    int32_t audio_io_osx::init_audio_unit() {
+    int32_t audio_io_osx::init_audio_unit(void) {
         
         init_rec_audio_unit();
         
@@ -631,7 +631,7 @@ namespace webrtc {
         return 0;
     }
     
-    int32_t audio_io_osx::shutdown_audio_unit() {
+    int32_t audio_io_osx::shutdown_audio_unit(void) {
         // Close and delete AU
         OSStatus result = -1;
         if (NULL != au_rec_) {
@@ -663,7 +663,7 @@ namespace webrtc {
         return 0;
     }
     
-    int32_t audio_io_osx::init_rec_audio_unit() {
+    int32_t audio_io_osx::init_rec_audio_unit(void) {
         OSStatus result = -1;
         
         // Check if already initialized
@@ -822,7 +822,7 @@ namespace webrtc {
         return 0;
     }
     
-    int32_t audio_io_osx::init_play_audio_unit() {
+    int32_t audio_io_osx::init_play_audio_unit(void) {
         OSStatus result = -1;
         
         AudioUnit auTmp = au_rec_;
@@ -1001,7 +1001,7 @@ namespace webrtc {
         return 0;
     }
     
-    bool audio_io_osx::AGC() const {
+    bool audio_io_osx::AGC(void) const {
         return agc_;
     }
     
@@ -1327,7 +1327,7 @@ namespace webrtc {
         return 0;
     }
     
-    void audio_io_osx::update_play_delay() {
+    void audio_io_osx::update_play_delay(void) {
         ++play_delay_measurement_counter_;
         
         if (play_delay_measurement_counter_ >= 100) {
@@ -1392,7 +1392,7 @@ namespace webrtc {
         play_delay_ = play_delay_HWandOS_ + tmp_play_latency_ms;
     }
     
-    void audio_io_osx::update_rec_delay() {
+    void audio_io_osx::update_rec_delay(void) {
         ++rec_delay_measurement_counter_;
         
         if (rec_delay_measurement_counter_ >= 100) {
