@@ -89,7 +89,8 @@ void userlist_update_from_selist(struct userlist* list,
 				 uint32_t epoch,
 				 uint8_t *secret,
 				 size_t secret_len,
-				 bool *changed);
+				 bool *changed,
+				 bool *removed);
 
 const struct userinfo *userlist_get_self(const struct userlist *list);
 

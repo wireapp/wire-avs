@@ -255,13 +255,34 @@ static void track_keygenerator_change(struct userlist *list,
 				list->arg);
 }
 
+static struct le *find_first_approved(struct userlist *list, const struct list *partlist)
+{
+	struct le *le;
+
+	LIST_FOREACH(partlist, le) {	
+		struct econn_group_part *p = le->data;
+		struct userinfo *u;
+
+		if (p && strcaseeq(list->self->userid_hash, p->userid) &&
+		    strcaseeq(list->self->clientid_hash, p->clientid)) {
+			return le;
+		}
+
+		u = userlist_find_by_hash(list, p->userid, p->clientid);
+		if (u && u->se_approved)
+			return le;
+	}
+
+	return NULL;
+}
+
 int userlist_update_from_sftlist(struct userlist *list,
 				 const struct list *partlist,
 				 bool *changed,
 				 bool *missing_parts)
 {
 	struct le *le, *cle;
-	bool first = true;
+	struct le *first_approved = NULL;
 	bool list_changed = false;
 	bool sync_decoders = false;
 	char userid_anon[ANON_ID_LEN];
@@ -287,16 +308,15 @@ int userlist_update_from_sftlist(struct userlist *list,
 		u->listpos = LIST_POS_NONE;
 	}
 
+	first_approved = find_first_approved(list, partlist);	
 	LIST_FOREACH(partlist, le) {
 		struct econn_group_part *p = le->data;
-
-		first = le == partlist->head;
 
 		assert(p != NULL);
 
 		if (p && strcaseeq(list->self->userid_hash, p->userid) &&
 		    strcaseeq(list->self->clientid_hash, p->clientid)) {
-			if (first) {
+			if (le == first_approved) {
 				info("userlist(%p): setting self as keygenerator\n", list);
 				list->keygenerator = list->self;
 			}
@@ -316,7 +336,7 @@ int userlist_update_from_sftlist(struct userlist *list,
 			     anon_client(clientid_anon, u->clientid_real),
 			     p->ssrca, p->ssrcv,
 			     u->incall_prev ? "YES" : "NO");
-			if (first && u->se_approved) {
+			if (le == first_approved) {
 				info("userlist(%p): setting %s.%s as keygenerator\n",
 				     list,
 				     anon_id(userid_anon, u->userid_real),
@@ -437,10 +457,12 @@ void userlist_update_from_selist(struct userlist* list,
 				 uint32_t epoch,
 				 uint8_t *secret,
 				 size_t secret_len,
-				 bool *changed)
+				 bool *changed,
+				 bool *removed)
 {
 	struct le *le;
 	bool list_changed = false;
+	bool list_removed = false;
 	bool sync_decoders = false;
 	struct userinfo *user;
 	struct userinfo *prev_keygenerator;
@@ -550,8 +572,10 @@ void userlist_update_from_selist(struct userlist* list,
 
 		if (!u->in_subconv) {
 			u->first_epoch = 0;
-			if (u->was_in_subconv)
+			if (u->was_in_subconv) {
+				list_removed = true;
 				list_changed = true;
+			}
 		}
 	}
 
@@ -561,6 +585,7 @@ void userlist_update_from_selist(struct userlist* list,
 	}
 
 	*changed = list_changed;
+	*removed = list_removed;
 }
 
 int userlist_set_latest_epoch(struct userlist *list,

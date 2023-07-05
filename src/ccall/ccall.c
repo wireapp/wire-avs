@@ -2806,6 +2806,7 @@ void ccall_set_clients(struct icall* icall,
 {
 	struct ccall *ccall = (struct ccall*)icall;
 	bool list_changed = false;
+	bool list_removed = false;
 	int err = 0;
 
 	if (!ccall || !ccall->userl)
@@ -2816,7 +2817,8 @@ void ccall_set_clients(struct icall* icall,
 				    epoch,
 				    ccall->secret,
 				    ccall->secret_len,
-				    &list_changed);
+				    &list_changed,
+				    &list_removed);
 	if (err) {
 		warning("ccall(%p): set_clients err %M\n", ccall, err);
 		return;
@@ -2827,6 +2829,12 @@ void ccall_set_clients(struct icall* icall,
 			      &ccall->icall, ccall->icall.arg);	
 	}
 
+	if (list_removed) {
+		tmr_start(&ccall->tmr_rotate_key,
+			  CCALL_ROTATE_KEY_FAST_TIMEOUT,
+			  ccall_rotate_key_timeout, ccall);
+	}
+	
 	if (CCALL_STATE_ACTIVE == ccall->state) {
 		if (list_changed) {
 			info("ccall(%p): set_clients sending confpart "
