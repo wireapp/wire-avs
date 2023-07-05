@@ -584,8 +584,11 @@ void userlist_update_from_selist(struct userlist* list,
 		list->synch(list->arg);
 	}
 
-	*changed = list_changed;
-	*removed = list_removed;
+	if (NULL != changed)
+		*changed = list_changed;
+
+	if (NULL != removed)
+		*removed = list_removed;
 }
 
 int userlist_set_latest_epoch(struct userlist *list,
