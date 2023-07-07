@@ -2830,6 +2830,7 @@ void ccall_set_clients(struct icall* icall,
 	}
 
 	if (list_removed) {
+		ccall->someone_left = true;
 		tmr_start(&ccall->tmr_rotate_key,
 			  CCALL_ROTATE_KEY_FAST_TIMEOUT,
 			  ccall_rotate_key_timeout, ccall);
