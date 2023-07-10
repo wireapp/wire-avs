@@ -577,6 +577,10 @@ void userlist_update_from_selist(struct userlist* list,
 				list_changed = true;
 			}
 		}
+		if (u->incall_now && !u->se_approved) {
+				list_removed = true;
+				list_changed = true;
+		}
 	}
 
 	if (sync_decoders && list->synch) {
