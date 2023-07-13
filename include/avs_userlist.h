@@ -36,6 +36,7 @@ struct userinfo {
 
 	bool incall_now;
 	bool incall_prev;
+	bool was_se_approved;
 	bool se_approved;
 	bool force_decoder;
 	uint32_t listpos;

@@ -478,6 +478,7 @@ void userlist_update_from_selist(struct userlist* list,
 		struct userinfo *u = le->data;
 		if (!u)
 			continue;
+		u->was_se_approved = u->se_approved;
 		u->se_approved = false;
 		u->was_in_subconv = u->in_subconv;
 		u->in_subconv = false;
@@ -577,9 +578,9 @@ void userlist_update_from_selist(struct userlist* list,
 				list_changed = true;
 			}
 		}
-		if (u->incall_now && !u->se_approved) {
-				list_removed = true;
-				list_changed = true;
+		if (u->se_approved != u->was_se_approved) {
+			list_removed = true;
+			list_changed = true;
 		}
 	}
 
