@@ -202,7 +202,7 @@ int bundle_update(struct iflow *flow,
 	
 	bundle.mid = 0;
 	bundle.mb = mbuf_alloc(128);
-	mbuf_printf(bundle.mb, sdp_session_rattr(sess, "group"));
+	mbuf_printf(bundle.mb, "%s", sdp_session_rattr(sess, "group"));
 
 	list_flush((struct list *)sdp_session_medial(sess, true));
 	
