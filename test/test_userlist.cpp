@@ -829,6 +829,7 @@ TEST_F(UserlistTest, get_members_mute_state)
 	struct wcall_members *members = NULL;
 	bool changed = false;
 	bool missing = false;
+	bool removed = false;
 
 	InitSftList(&sftlist3, 0, 3, secret1, sizeof(secret1));
 
@@ -836,7 +837,7 @@ TEST_F(UserlistTest, get_members_mute_state)
 	ASSERT_EQ(userlist_get_count(list), 0);
 
 	SetInSubconv(&selist2, 3);
-	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	SetMuted(&sftlist3, 2);
