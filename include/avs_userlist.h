@@ -35,6 +35,7 @@ struct userinfo {
 
 	bool incall_now;
 	bool incall_prev;
+	bool was_se_approved;
 	bool se_approved;
 	bool force_decoder;
 	uint32_t listpos;
@@ -92,7 +93,8 @@ void userlist_update_from_selist(struct userlist* list,
 				 uint32_t epoch,
 				 uint8_t *secret,
 				 size_t secret_len,
-				 bool *changed);
+				 bool *changed,
+				 bool *removed);
 
 void userlist_update_audio_level(struct userlist *list,
 				 const struct list *levell,

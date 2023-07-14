@@ -278,10 +278,11 @@ TEST_F(UserlistTest, add_from_selist)
 {
 	uint8_t secret1[32] = "secret1                        ";
 	bool changed = false;
+	bool removed = false;
 
 	ASSERT_EQ(userlist_get_count(list), 0);
 
-	userlist_update_from_selist(list, &selist1, 0, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist1, 0, secret1, sizeof(secret1), &changed, &removed);
 
 	ASSERT_TRUE(changed);
 	ASSERT_EQ(userlist_get_count(list), 1);
@@ -292,7 +293,7 @@ TEST_F(UserlistTest, add_from_selist)
 	ASSERT_TRUE(u->userid_hash != NULL);
 	ASSERT_TRUE(u->clientid_hash != NULL);
 
-	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed, &removed);
 
 	ASSERT_TRUE(changed);
 	ASSERT_EQ(userlist_get_count(list), 3);
@@ -300,7 +301,7 @@ TEST_F(UserlistTest, add_from_selist)
 	ASSERT_TRUE(userlist_find_by_real(list, "user_00001", "client_00001") != NULL);
 	ASSERT_TRUE(userlist_find_by_real(list, "user_00002", "client_00002") != NULL);
 
-	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_TRUE(!changed);
 }
 
@@ -312,9 +313,10 @@ TEST_F(UserlistTest, update_secret)
 	char *other_userid_hash = NULL;
 	const struct userinfo *u;
 	bool changed = false;
+	bool removed = false;
 
 	userlist_set_secret(list, secret1, sizeof(secret1));
-	userlist_update_from_selist(list, &selist1, 0, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist1, 0, secret1, sizeof(secret1), &changed, &removed);
 
 	ASSERT_EQ(userlist_get_count(list), 1);
 
@@ -378,6 +380,7 @@ TEST_F(UserlistTest, merge_sftlist_into_selist)
 	const struct userinfo *u;
 	bool changed = false;
 	bool missing = false;
+	bool removed = false;
 
 	hash_user(secret1, sizeof(secret1), "user_00000", "client_00000", &userid_hash);
 	InitSftList(&sftlist1, 0, 1, secret1, sizeof(secret1));
@@ -387,7 +390,7 @@ TEST_F(UserlistTest, merge_sftlist_into_selist)
 	ASSERT_EQ(userlist_get_count(list), 0);
 
 	/* selist: [user_00000,user_00001,user_00002] */
-	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	/* sftlist: [user_00000] */
@@ -448,6 +451,7 @@ TEST_F(UserlistTest, merge_selist_into_sftlist)
 	const struct userinfo *u;
 	bool changed = false;
 	bool missing = false;
+	bool removed = false;
 
 	hash_user(secret1, sizeof(secret1), "user_00000", "client_00000", &userid_hash);
 	InitSftList(&sftlist1, 0, 1, secret1, sizeof(secret1));
@@ -474,7 +478,7 @@ TEST_F(UserlistTest, merge_selist_into_sftlist)
 	ASSERT_EQ(u->ssrcv, 2000);
 
 	/* selist: [user_00000,user_00001,user_00002] */
-	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	u = userlist_find_by_real(list, "user_00000", "client_00000");
@@ -511,6 +515,7 @@ TEST_F(UserlistTest, kg_change)
 	const struct userinfo *u;
 	bool changed = false;
 	bool missing = false;
+	bool removed = false;
 
 	InitSftList(&sftlist1, 0, 1, secret1, sizeof(secret1));
 	InitSftList(&sftlist2, 1, 2, secret1, sizeof(secret1));
@@ -520,7 +525,7 @@ TEST_F(UserlistTest, kg_change)
 	ASSERT_EQ(userlist_get_count(list), 0);
 
 	/* selist: [user_00000,user_00001,user_00002] */
-	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 0, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	/* sftlist: [user_00000] */
@@ -569,23 +574,24 @@ TEST_F(UserlistTest, epoch_breakout)
 	uint8_t secret1[32] = "secret1                        ";
 	const struct userinfo *u;
 	bool changed = false;
+	bool removed = false;
 
 	userlist_set_secret(list, secret1, sizeof(secret1));
 	ASSERT_EQ(userlist_get_count(list), 0);
 
 	/* epoch1 breakout: [user_00000] */
 	SetInSubconv(&selist3, 1);
-	userlist_update_from_selist(list, &selist3, 1, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 1, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	/* epoch2 breakout: [user_00000,user_00001,user_00002] */
 	SetInSubconv(&selist3, 3);
-	userlist_update_from_selist(list, &selist3, 2, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 2, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	/* epoch3 breakout: [user_00000,user_00001] */
 	SetInSubconv(&selist3, 2);
-	userlist_update_from_selist(list, &selist3, 3, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 3, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	u = userlist_find_by_real(list, "user_00000", "client_00000");
@@ -609,23 +615,24 @@ TEST_F(UserlistTest, epoch_addremove)
 	uint8_t secret1[32] = "secret1                        ";
 	const struct userinfo *u;
 	bool changed = false;
+	bool removed = false;
 
 	userlist_set_secret(list, secret1, sizeof(secret1));
 	ASSERT_EQ(userlist_get_count(list), 0);
 
 	/* epoch1: [user_00000] */
 	SetInSubconv(&selist1, 1);
-	userlist_update_from_selist(list, &selist1, 1, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist1, 1, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 1);
 
 	/* epoch2: [user_00000,user_00001,user_00002] */
 	SetInSubconv(&selist3, 3);
-	userlist_update_from_selist(list, &selist3, 2, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 2, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	/* epoch3: [user_00000,user_00001] */
 	SetInSubconv(&selist2, 2);
-	userlist_update_from_selist(list, &selist2, 3, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist2, 3, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	u = userlist_find_by_real(list, "user_00000", "client_00000");
@@ -651,6 +658,7 @@ TEST_F(UserlistTest, keysync_breakout)
 	const struct userinfo *u;
 	bool changed = false;
 	bool missing = false;
+	bool removed = false;
 
 	InitSftList(&sftlist3, 0, 3, secret1, sizeof(secret1));
 
@@ -658,7 +666,7 @@ TEST_F(UserlistTest, keysync_breakout)
 	ASSERT_EQ(userlist_get_count(list), 0);
 
 	SetInSubconv(&selist3, 1);
-	userlist_update_from_selist(list, &selist3, 1, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 1, secret1, sizeof(secret1), &changed, &removed);
 	userlist_update_from_sftlist(list, &sftlist3, &changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
@@ -675,12 +683,12 @@ TEST_F(UserlistTest, keysync_breakout)
 	ASSERT_EQ(4, userlist_get_key_index(list));
 
 	SetInSubconv(&selist3, 3);
-	userlist_update_from_selist(list, &selist3, 1, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 1, secret1, sizeof(secret1), &changed, &removed);
 	/* key = 2 (user_00002) */
 	ASSERT_EQ(2, userlist_get_key_index(list));
 
 	SetInSubconv(&selist3, 2);
-	userlist_update_from_selist(list, &selist3, 1, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 1, secret1, sizeof(secret1), &changed, &removed);
 	/* key = 3 (user_00001) */
 	ASSERT_EQ(3, userlist_get_key_index(list));
 
@@ -692,6 +700,7 @@ TEST_F(UserlistTest, keysync_newclient)
 	const struct userinfo *u;
 	bool changed = false;
 	bool missing = false;
+	bool removed = false;
 
 	InitSftList(&sftlist3, 0, 3, secret1, sizeof(secret1));
 
@@ -699,7 +708,7 @@ TEST_F(UserlistTest, keysync_newclient)
 	ASSERT_EQ(userlist_get_count(list), 0);
 
 	SetInSubconv(&selist1, 1);
-	userlist_update_from_selist(list, &selist1, 1, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist1, 1, secret1, sizeof(secret1), &changed, &removed);
 	userlist_update_from_sftlist(list, &sftlist3, &changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
@@ -707,7 +716,7 @@ TEST_F(UserlistTest, keysync_newclient)
 	userlist_set_latest_epoch_for_client(list, "user_00000", "client_00000", 4);
 
 	SetInSubconv(&selist2, 2);
-	userlist_update_from_selist(list, &selist2, 2, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist2, 2, secret1, sizeof(secret1), &changed, &removed);
 
 	/* key = 4 (user_00000) */
 	ASSERT_EQ(4, userlist_get_key_index(list));
@@ -723,6 +732,7 @@ TEST_F(UserlistTest, keysync_sftlist)
 	const struct userinfo *u;
 	bool changed = false;
 	bool missing = false;
+	bool removed = false;
 
 	InitSftList(&sftlist1, 0, 1, secret1, sizeof(secret1));
 	InitSftList(&sftlist2, 0, 2, secret1, sizeof(secret1));
@@ -732,7 +742,7 @@ TEST_F(UserlistTest, keysync_sftlist)
 	ASSERT_EQ(userlist_get_count(list), 0);
 
 	SetInSubconv(&selist3, 3);
-	userlist_update_from_selist(list, &selist3, 1, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist3, 1, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	userlist_set_latest_epoch(list, 1);
@@ -770,6 +780,7 @@ TEST_F(UserlistTest, get_members)
 	struct wcall_members *members = NULL;
 	bool changed = false;
 	bool missing = false;
+	bool removed = false;
 
 	InitSftList(&sftlist2, 1, 2, secret1, sizeof(secret1));
 
@@ -777,7 +788,7 @@ TEST_F(UserlistTest, get_members)
 	ASSERT_EQ(userlist_get_count(list), 0);
 
 	SetInSubconv(&selist2, 2);
-	userlist_update_from_selist(list, &selist2, 1, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist2, 1, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 2);
 
 	userlist_update_from_sftlist(list, &sftlist2, &changed, &missing);
@@ -871,6 +882,7 @@ TEST_F(UserlistTest, get_partlist)
 	char *userid_hash = NULL;
 	bool changed = false;
 	bool missing = false;
+	bool removed = false;
 
 	hash_user(secret1, sizeof(secret1), "user_00001", "client_00001", &userid_hash);
 	InitSftList(&sftlist2, 1, 2, secret1, sizeof(secret1));
@@ -879,7 +891,7 @@ TEST_F(UserlistTest, get_partlist)
 	ASSERT_EQ(userlist_get_count(list), 0);
 
 	SetInSubconv(&selist2, 0);
-	userlist_update_from_selist(list, &selist2, 1, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist2, 1, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 2);
 
 	userlist_update_from_sftlist(list, &sftlist2, &changed, &missing);
@@ -896,7 +908,7 @@ TEST_F(UserlistTest, get_partlist)
 	ASSERT_EQ(list_count(&partlist), 0);
 
 	SetInSubconv(&selist2, 2);
-	userlist_update_from_selist(list, &selist2, 1, secret1, sizeof(secret1), &changed);
+	userlist_update_from_selist(list, &selist2, 1, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	ASSERT_EQ(0, userlist_get_partlist(list, &partlist, true));
