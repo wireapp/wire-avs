@@ -66,15 +66,13 @@ pipeline {
 		sh 'make dist_clean'
 		sh 'make zcall AVS_VERSION=' + version
 		sh '''#!/bin/bash
-		    . ./scripts/android_devenv.sh && . ./scripts/wasm_devenv.sh && make dist_linux dist_android dist_wasm AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
+		    . ./scripts/wasm_devenv.sh && make dist_linux dist_wasm AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
 		'''
 		sh 'rm -rf ./build/artifacts'
 		sh 'mkdir -p ./build/artifacts'
 		sh 'cp ./build/dist/linux/avscore.tar.bz2 ./build/artifacts/avs.linux.' + version + '.tar.bz2'
-		sh 'zip -9j ./build/artifacts/avs.android.' + version + '.zip ./build/dist/android/avs.aar'
 		sh 'zip -9j ./build/artifacts/zcall_linux_' + version + '.zip ./zcall'
 		sh 'cp ./build/dist/wasm/wireapp-avs-' + version + '.tgz ./build/artifacts/'
-		sh 'if [ -e ./build/dist/android/debug/ ]; then cd ./build/dist/android/debug; zip -9r ./../../../artifacts/avs.android.' + version + '.debug.zip *; cd -; fi'
 
 		archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
 	    }
