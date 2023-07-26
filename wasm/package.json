@@ -1,0 +1,25 @@
+{
+  "description": "AVS API for the web",
+  "devDependencies": {
+    "@types/jasmine": "^3.3.16",
+    "jasmine": "^3.4.0",
+    "karma": "^4.2.0",
+    "karma-chrome-launcher": "^3.0.0",
+    "karma-commonjs": "^1.0.0",
+    "karma-jasmine": "^2.0.1",
+    "karma-typescript-preprocessor": "^0.4.0",
+    "prettier": "^2.8.0",
+    "typescript": "^3.4.5"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "GPL-3.0",
+  "main": "dist/avs_wcall.js",
+  "name": "@wireapp/avs",
+  "scripts": {
+    "prepack": "prettier -w src/avs_wcall.ts && tsc && cp src/*.js src/*.d.ts dist/",
+    "test": "karma start"
+  },
+  "version": "0"
+}
