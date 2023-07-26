@@ -438,7 +438,7 @@ $(DIST_WASM_WC_TARGET):
 
 $(DIST_WASM_TARGETS): $(DIST_WASM_JS_TARGET) $(DIST_WASM_PC_TARGET) $(DIST_WASM_WC_TARGET) \
 	$(DIST_WASM_PKG_TARGET)
-	@( cd $(dir $@) && npm install && npm pack)
+	@( cd $(dir $@) && npm ci && npm pack)
 
 
 #--- Phony Targets ---

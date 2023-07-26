@@ -17,7 +17,7 @@
   "main": "dist/avs_wcall.js",
   "name": "@wireapp/avs",
   "scripts": {
-    "prepack": "tsc && cp src/*.{js,d.ts} dist/",
+    "prepack": "tsc && cp src/*.js src/*.d.ts dist/",
     "test": "karma start"
   },
   "version": "AVS_VERSION"
