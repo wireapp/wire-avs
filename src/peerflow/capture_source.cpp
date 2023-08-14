@@ -27,10 +27,14 @@
 
 #include "capture_source.h"
 
-#define STATS_DELAY 10000
+#define STATS_DELAY 1000
 #define MAX_PIXEL_W 1280
 #define MAX_PIXEL_H  720
 #define MIN_PIXEL_H 120
+
+#define MAX_FPS 15
+#define MIN_FPS 15
+
 
 struct enc_stream {
 	struct le le;
@@ -57,8 +61,16 @@ CaptureSource::CaptureSource()
 
 	_ts_fps = tmr_jiffies();
 	_fps_count = 0;
+	_skip_count = 0;
+	_skipped = 1;
 	_max_pixel_count = MAX_PIXEL_W * MAX_PIXEL_H;
 	list_init(&_streaml);
+
+	webrtc::VideoTrackSourceConstraints constraints = {
+		.min_fps = MIN_FPS,
+		.max_fps = MAX_FPS
+	};
+	this->ProcessConstraints(constraints);
 }
 
 CaptureSource::~CaptureSource()
@@ -188,6 +200,16 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 
 	uint32_t dw, dh, yoff, uvoff;
 
+	_fps_count++;
+	if (_skip_count) {
+		if (_skipped < _skip_count) {
+			++_skipped;
+			return;
+		}
+		else
+			_skipped = 1;
+	}
+
 	dh = frame->h;
 	dw = frame->w;
 #if 0
@@ -297,16 +319,23 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 
 	uint64_t now = tmr_jiffies();
 
-	_fps_count++;
+	_fps_send++;
 	uint64_t msec = now - _ts_fps;
 	if (msec > STATS_DELAY) {
+		float fps = (float)_fps_count * 1000.0f / msec;
+		float fps_send = (float)_fps_send * 1000.0f / msec;
 		if (msec < STATS_DELAY + 1000) {
-			info("CaptureSource::HandleFrame: res: %dx%d fps: %0.2f str: %u\n",
-				frame->w, frame->h,
-				(float)_fps_count * 1000.0f / msec,
-				list_count(&_streaml));
+			info("CaptureSource::HandleFrame: res: %dx%d fps: %0.2f/%02f str: %u\n",
+			     frame->w, frame->h,
+			     fps, fps_send,
+			     list_count(&_streaml));
+		}
+		if (fps > (float)MAX_FPS) {
+			_skip_count = (fps + 0.5) / (float)MAX_FPS;
+			info("CaptureSource::HandleFrame: skip: %u\n", _skip_count);
 		}
 		_fps_count = 0;
+		_fps_send = 0;
 		_ts_fps = now;
 	}
 
