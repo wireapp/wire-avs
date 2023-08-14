@@ -483,7 +483,7 @@ public class FlowManager
 		      + this.previewView);
 		
 		this.videoCapturer = new VideoCapturer(defaultFacing,
-						       640, 480, 15);
+						       1280, 720, 15);
 		this.videoCapturer.setCallback(this);
 
 		if (this.previewView != null)

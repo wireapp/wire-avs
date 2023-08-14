@@ -28,8 +28,8 @@
 #include "capture_source.h"
 
 #define STATS_DELAY 10000
-#define MAX_PIXEL_W 640
-#define MAX_PIXEL_H 480
+#define MAX_PIXEL_W 1280
+#define MAX_PIXEL_H  720
 #define MIN_PIXEL_H 120
 
 struct enc_stream {
@@ -141,9 +141,11 @@ void CaptureSource::AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>*
 	LIST_FOREACH(&_streaml, le) {
 		stream = (struct enc_stream *)le->data;
 
+#if 0
 		if (stream->wants.max_pixel_count < _max_pixel_count) {
 			_max_pixel_count = stream->wants.max_pixel_count;
 		}
+#endif
 	}
 
 	lock_rel(_lock);
@@ -187,10 +189,13 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 	uint32_t dw, dh, yoff, uvoff;
 
 	dh = frame->h;
+	dw = frame->w;
+#if 0
 	dw = (frame->h * 4 / 3) & ~15;
 	if (dw > frame->w) {
 		dw = frame->w;
 	}
+#endif
 
 	yoff = ((frame->w - dw) / 2) & ~1;
 
