@@ -886,7 +886,7 @@ out:
 
 - (void)startVideoCapture
 {
-	[_capturer startWithWidth: 640 Height: 480 MaxFps: 15];
+	[_capturer startWithWidth: 1280 Height: 720 MaxFps: 15];
 }
 
 - (void)stopVideoCapture
