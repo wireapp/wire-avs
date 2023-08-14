@@ -393,7 +393,7 @@ static void osx_preview_start(void)
 	info("osx_preview_start\n");
 
 	[vidloop.capturer attachPreview:vidloop.preview];
-	[vidloop.capturer startWithWidth: 640 Height: 480 MaxFps: 15];
+	[vidloop.capturer startWithWidth: 1280 Height: 720 MaxFps: 15];
 
 	vidloop.preview_visible = true;
 	view_show();
