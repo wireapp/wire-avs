@@ -1218,7 +1218,7 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 
 
 AVS_EXPORT
-int wcall_process_notifications(WUSER_HANDLE wuser, bool processing)
+int wcall_process_notifications(WUSER_HANDLE wuser, int processing)
 {
 	struct calling_instance *inst;
 	struct mq_data *md = NULL;
@@ -1234,7 +1234,7 @@ int wcall_process_notifications(WUSER_HANDLE wuser, bool processing)
 	if (!md)
 		return ENOMEM;
 
-	md->u.process_notifications.processing = processing;
+	md->u.process_notifications.processing = (bool)processing;
 
 	err = md_enqueue(md);
 	if (err)

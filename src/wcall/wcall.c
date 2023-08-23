@@ -1953,7 +1953,7 @@ static void handle_pending_events(struct list *eventl)
 }
 
 void wcall_i_process_notifications(struct calling_instance *inst,
-				   int processing)
+				   bool processing)
 {
 	bool was_processing = false;
 
@@ -1964,7 +1964,7 @@ void wcall_i_process_notifications(struct calling_instance *inst,
 	     inst, processing);
 
 	was_processing = inst->processing_notifications;
-	inst->processing_notifications = (bool)processing;
+	inst->processing_notifications = processing;
 
 	if (was_processing && !processing) {
 		handle_pending_events(&inst->pending_eventl);
