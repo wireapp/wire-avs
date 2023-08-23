@@ -46,7 +46,7 @@ public class VideoPreview extends SurfaceView
 {
 	private float aspectRatio = 4.0f/3.0f;
 	private boolean shouldFill = false;
-	private int orientation = 90;
+	private int orientation = 0;
 	private static final String TAG = "VideoPreview";
 	private float vWidth = 1.0f;
 	private float vHeight = 1.0f;
@@ -93,6 +93,10 @@ public class VideoPreview extends SurfaceView
 	}
 
 	private void updateTransform() {
+
+		Log.d(TAG, "updateTransform: " + this.tWidth + "x" + this.tHeight + " -> "
+		      + this.vWidth + "x" + this.vHeight
+		      + " ori:" + this.irientation);
 
 		if (this.vHeight == 0.0f) {
 			return;

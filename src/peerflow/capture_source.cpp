@@ -210,8 +210,11 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 			_skipped = 1;
 	}
 
-	dh = frame->h;
 	dw = frame->w;
+	dh = frame->h;
+
+	info("HandleFrame: %dx%d rot=%d\n", dw, dh, frame->rotation);
+	
 #if 0
 	dw = (frame->h * 4 / 3) & ~15;
 	if (dw > frame->w) {
@@ -260,28 +263,6 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 		}
 	}
 
-	uint32_t sw, sh;
-
-	sw = MAX_PIXEL_W;
-	sh = MAX_PIXEL_H;
-
-	while((sw > dw || sh > dh || (sw * sh) > _max_pixel_count) &&
-		sh > MIN_PIXEL_H) {
-		sw /= 2;
-		sh /= 2;
-	}
-
-	if (dw != sw || dh != sh) {
-		rtc::scoped_refptr<webrtc::I420Buffer> sbuf;
-
-		sbuf = webrtc::I420Buffer::Create(sw, sh);
-		sbuf->InitializeData();
-
-		sbuf->ScaleFrom(*frmbuf);
-
-		frmbuf = sbuf;
-	}
-
 	switch (frame->rotation) {
 	case 90:
 		rtc_rotation = webrtc::kVideoRotation_90;
@@ -312,11 +293,33 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 	}
 	lock_rel(_lock);
 
-	if (buffer_rotate) {
+	if (buffer_rotate && rtc_rotation != webrtc::kVideoRotation_0) {
 		frmbuf = webrtc::I420Buffer::Rotate(*frmbuf, rtc_rotation);
 		rtc_rotation = webrtc::kVideoRotation_0;
 	}
 
+	uint32_t sw, sh;
+
+	sw = MAX_PIXEL_W;
+	sh = MAX_PIXEL_H;
+
+	while((sw > dw || sh > dh || (sw * sh) > _max_pixel_count) &&
+		sh > MIN_PIXEL_H) {
+		sw /= 2;
+		sh /= 2;
+	}
+
+	if (dw != sw || dh != sh) {
+		rtc::scoped_refptr<webrtc::I420Buffer> sbuf;
+
+		sbuf = webrtc::I420Buffer::Create(sw, sh);
+		sbuf->InitializeData();
+
+		sbuf->CropAndScaleFrom(*frmbuf);
+
+		frmbuf = sbuf;
+	}
+	
 	uint64_t now = tmr_jiffies();
 
 	_fps_send++;
@@ -331,7 +334,7 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 			     list_count(&_streaml));
 		}
 		if (fps > (float)MAX_FPS) {
-			_skip_count = (fps + 0.5) / (float)MAX_FPS;
+			_skip_count = ((float)fps + 0.5f) / (float)MAX_FPS;
 			info("CaptureSource::HandleFrame: skip: %u\n", _skip_count);
 		}
 		_fps_count = 0;

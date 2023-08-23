@@ -1374,6 +1374,34 @@ JNIEXPORT void JNICALL Java_com_waz_avs_VideoCapturer_handleCameraFrame
 		env->ReleaseByteArrayElements(jframe, (jbyte*)y, JNI_ABORT);
 }
 
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoCapturer_handleCameraFrame2
+  (JNIEnv *env, jclass cls, jint w, jint h,
+   jobject ybuf, jint ystride,
+   jobject ubuf, jint ustride,
+   jobject vbuf, jint pstride,
+   jint degrees, jlong jts)
+{
+	struct avs_vidframe vf;
+	uint8_t *y = (uint8_t *)env->GetDirectBufferAddress(ybuf);
+	uint8_t *u = (uint8_t *)env->GetDirectBufferAddress(ubuf);
+	uint8_t *v = (uint8_t *)env->GetDirectBufferAddress(vbuf);
+	
+	/* CameraX is providing frames in I420 */
+	vf.type = AVS_VIDFRAME_NV12;
+	vf.y = y;
+	vf.u = u;
+	vf.v = v;
+	vf.ys = ystride;
+	vf.us = ustride;
+	vf.vs = ustride;
+	vf.w = w;
+	vf.h = h;
+	vf.rotation = degrees;
+	vf.ts = (uint32_t)jts;
+	
+	wcall_handle_frame(&vf);
+}
+
 
 /* Video renderer */
 JNIEXPORT jlong JNICALL Java_com_waz_avs_VideoRenderer_createNative

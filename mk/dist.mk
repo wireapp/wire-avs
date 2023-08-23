@@ -108,7 +108,6 @@ DIST_BUNDLE_LIB := \
 
 DIST_AND_TARGETS := \
 	$(BUILD_DIST_AND)/avs.aar \
-	$(BUILD_DIST_AND)/javadoc.jar \
 	$(BUILD_DIST_AND)/sources.jar
 
 DIST_IOS_TARGETS := \

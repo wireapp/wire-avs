@@ -15,6 +15,13 @@ extern "C" {
 JNIEXPORT void JNICALL Java_com_waz_avs_VideoCapturer_handleCameraFrame
   (JNIEnv *, jclass, jint, jint, jbyteArray, jint, jlong);
 
+JNIEXPORT void JNICALL Java_com_waz_avs_VideoCapturer_handleCameraFrame2
+  (JNIEnv *, jclass, jint, jint,
+   jobject, jint,
+   jobject, jint,
+   jobject, jint,
+   jint, jlong);
+	
 #ifdef __cplusplus
 }
 #endif
