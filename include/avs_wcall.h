@@ -532,7 +532,7 @@ int wcall_request_video_streams(WUSER_HANDLE wuser,
 				int mode,
 				const char *json);
 
-int wcall_process_notifications(WUSER_HANDLE wuser, bool processing);
+int wcall_process_notifications(WUSER_HANDLE wuser, int processing);
 
 /*
  * Netprobe
