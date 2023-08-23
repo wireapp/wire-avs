@@ -84,5 +84,8 @@ int wcall_i_set_epoch_info(struct wcall *wcall,
 			   uint8_t *key_data,
 			   uint32_t key_size);
 
+void wcall_i_process_notifications(struct calling_instance *inst,
+				   bool processing);
+
 void wcall_marshal_destroy(struct calling_instance *inst);
 

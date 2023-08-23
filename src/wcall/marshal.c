@@ -54,6 +54,7 @@ enum mq_event {
 	WCALL_MEV_SET_MUTE,
 	WCALL_MEV_REQ_VSTREAMS,
 	WCALL_MEV_SET_EPOCH_INFO,
+	WCALL_MEV_PROCESS_NOTIFICATIONS,
 };
 
 
@@ -152,6 +153,10 @@ struct mq_data {
 			uint32_t key_size;
 			uint8_t *key_data;
 		} set_epoch_info;
+
+		struct {
+			bool processing;
+		} process_notifications;
 	} u;
 };
 
@@ -427,6 +432,11 @@ static void mqueue_handler(int id, void *data, void *arg)
 				       md->u.set_epoch_info.clients_json,
 				       md->u.set_epoch_info.key_data,
 				       md->u.set_epoch_info.key_size);
+		break;
+
+	case WCALL_MEV_PROCESS_NOTIFICATIONS:
+		wcall_i_process_notifications(md->inst,
+					      md->u.process_notifications.processing);
 		break;
 
 	default:
@@ -1200,6 +1210,33 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 		goto out;
 
  out:
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
+
+AVS_EXPORT
+int wcall_process_notifications(WUSER_HANDLE wuser, bool processing)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: process_notifications: invalid wuser: 0x%08X\n", wuser);
+		return EINVAL;
+	}
+
+	md = md_new(inst, NULL, WCALL_MEV_PROCESS_NOTIFICATIONS);
+	if (!md)
+		return ENOMEM;
+
+	md->u.process_notifications.processing = processing;
+
+	err = md_enqueue(md);
 	if (err)
 		mem_deref(md);
 

@@ -154,6 +154,9 @@ struct calling_instance {
 	struct sa *media_laddr;
 
 	uint32_t wuser;
+
+	bool processing_notifications;
+	struct list pending_eventl;
 };
 
 struct wcall {
@@ -186,6 +189,19 @@ struct wcall_ctx {
 	void *context;
 
 	struct le le; /* member of ctxl */
+};
+
+struct incoming_event {
+	char *convid;
+	uint32_t msg_time;
+	char *userid;
+	char *clientid;
+	int video_call;
+	int should_ring;
+	int conv_type;
+	void *arg;
+
+	struct le le;
 };
 
 static void wcall_end_internal(struct wcall *wcall);
@@ -415,6 +431,16 @@ struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid)
 	return found ? wcall : NULL;
 }
 
+static void ie_destructor(void *arg)
+{
+	struct incoming_event *ie = arg;
+
+	mem_deref(ie->convid);
+	mem_deref(ie->userid);
+	mem_deref(ie->clientid);
+
+	list_unlink(&ie->le);
+}
 
 void wcall_i_invoke_incoming_handler(const char *convid,
 				     uint32_t msg_time,
@@ -430,8 +456,28 @@ void wcall_i_invoke_incoming_handler(const char *convid,
 
 	struct wcall *wcall = wcall_lookup(inst, convid);
 
-	info(APITAG "wcall(%p): wcall=%p calling incomingh: %p\n",
-	     inst, wcall, inst->incomingh);
+	info(APITAG "wcall(%p): wcall=%p calling incomingh: %p processing_notifications: %d\n",
+	     inst, wcall, inst->incomingh, inst->processing_notifications);
+
+	if (inst->processing_notifications) {
+		struct incoming_event *ie;
+
+		ie = mem_zalloc(sizeof(*ie), ie_destructor);
+		if (ie) {
+			str_dup(&ie->convid, convid);
+			ie->msg_time = msg_time;
+			str_dup(&ie->userid, userid);
+			str_dup(&ie->clientid, clientid);
+			ie->video_call = video_call;
+			ie->should_ring = should_ring;
+			ie->conv_type = conv_type;
+			ie->arg = arg;
+
+			list_append(&inst->pending_eventl, &ie->le, ie);
+		}
+
+		return;
+	}
 
 	if (!wcall) {
 		warning("wcall(%p): invoke_incoming_handler: wcall=NULL, ignoring\n", inst);
@@ -448,10 +494,9 @@ void wcall_i_invoke_incoming_handler(const char *convid,
 	if (inst->incomingh) {
 		inst->incomingh(convid, msg_time, userid, clientid,
 				video_call, should_ring, conv_type, inst->arg);
+		info(APITAG "wcall(%p): inst->incomingh took %llu ms \n",
+		     inst, tmr_jiffies() - now);
 	}
-
-	info(APITAG "wcall(%p): inst->incomingh took %llu ms \n",
-	     inst, tmr_jiffies() - now);
 }
 
 
@@ -1092,7 +1137,7 @@ static void icall_close_handler(struct icall *icall, int err,
 		userid = inst->userid;
 	}
 	set_state(wcall, WCALL_STATE_NONE);
-	if (inst->closeh) {
+	if (!inst->processing_notifications && inst->closeh) {
 		uint64_t now = tmr_jiffies();
 		inst->closeh(reason, wcall->convid,
 			     msg_time, userid, clientid, inst->arg);
@@ -1102,7 +1147,7 @@ static void icall_close_handler(struct icall *icall, int err,
 
 	info(APITAG "wcall(%p): metricsh(%p) json=%p\n", wcall, inst->metricsh, metrics_json);
 
-	if (inst->metricsh && metrics_json) {
+	if (!inst->processing_notifications && inst->metricsh && metrics_json) {
 		uint64_t now = tmr_jiffies();
 		inst->metricsh(wcall->convid, metrics_json, inst->arg);
 		info(APITAG "wcall(%p): metricsh took %llu ms\n",
@@ -1885,6 +1930,46 @@ void wcall_set_media_laddr(WUSER_HANDLE wuser, struct sa *laddr)
 	inst->media_laddr = maddr;
 }
 
+static void handle_pending_events(struct list *eventl)
+{
+	struct le *le = eventl->head;
+
+	while(le) {
+		struct incoming_event *ie = le->data;
+
+		le = le->next;
+
+		wcall_i_invoke_incoming_handler(ie->convid,
+						ie->msg_time,
+						ie->userid,
+						ie->clientid,
+						ie->video_call,
+						ie->should_ring,
+						ie->conv_type,
+						ie->arg);
+
+		mem_deref(ie);
+	}
+}
+
+void wcall_i_process_notifications(struct calling_instance *inst,
+				   bool processing)
+{
+	bool was_processing = false;
+
+	if (!inst)
+		return;
+
+	info(APITAG "wcall(%p): processing_notifications: processing=%d\n",
+	     inst, processing);
+
+	was_processing = inst->processing_notifications;
+	inst->processing_notifications = processing;
+
+	if (was_processing && !processing) {
+		handle_pending_events(&inst->pending_eventl);
+	}
+}
 
 void wcall_i_mcat_changed(struct calling_instance *inst,
 			  enum mediamgr_state state)

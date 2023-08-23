@@ -1,0 +1,10 @@
+Changes introduced in AVS 9.4
+=============================
+
+Added new API call:
+int wcall_process_notifications(WUSER_HANDLE wuser, bool processing);
+
+This API call allows clients to notify AVS about the fact that they are
+processing a notification stream, meaning AVS will aggregate events
+during the duration of the stream processing, thus eliminating glitches
+in incoming calls that arrive when a device is off-line.
