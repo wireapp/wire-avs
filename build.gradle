@@ -24,8 +24,6 @@ publishing {
     publications {
         mavenJava(MavenPublication) {
             artifact "build/dist/android/avs.aar"
-            artifact source: "build/dist/android/javadoc.jar", classifier: 'javadoc'
-            artifact source: "build/dist/android/sources.jar", classifier: 'sources'
 
             pom {
                 name.set("wire-avs")
