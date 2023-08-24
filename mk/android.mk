@@ -30,11 +30,9 @@
 
 #--- Variable Definitions ---
 
-#AND_JAVA_MK := android/java/srcs.mk
 AND_JNI_MK := android/jni/srcs.mk
 AND_MKS := $(OUTER_MKS) mk/android.mk
 
-#include $(AND_JAVA_MK)
 include $(AND_JNI_MK)
 
 AND_BOOTCLASSPATH := $(ANDROID_SDK_ROOT)/platforms/$(ANDROID_SDK_VER)/android.jar:$(ANDROID_SDK_ROOT)/tools/support/annotations.jar
@@ -47,14 +45,7 @@ AND_SHARED := $(BUILD_TARGET)/lib/libavs$(JNI_SUFFIX)
 AND_SHARED_STRIPPED := $(BUILD_TARGET)/lib/libavs.stripped$(JNI_SUFFIX)
 AND_JAR := $(BUILD_TARGET)/classes.jar
 AND_JAVADOC := $(BUILD_DIST_BASE)/android/javadoc.jar
-AND_SOURCES := $(BUILD_DIST_BASE)/android/sources.jar
 AND_JAVADOC_PATH := $(BUILD_DIST_BASE)/android/javadoc
-
-#AND_CLSS := $(patsubst %.java,$(AND_CLS_TARGET)/%.class,$(AND_JAVA_SRCS))
-
-#AND_CC_OBJS := \
-#	$(patsubst %.cc,$(AND_OBJ_TARGET)/%.o,$(filter %.cc,$(AND_JNI_SRCS)))
-#AND_OBJS := $(AND_CC_OBJS)
 
 ifeq ($(AVS_OS),android)
 ifneq ($(AVS_PROJECT),avsopen)
@@ -87,11 +78,15 @@ endif
 #		-classpath $(AND_BOOTCLASSPATH):$(AND_CLASSPATH) \
 #		$<
 
-$(AND_CLSS):
-	@echo " GRADLEW"
+.PHONY: android_classes
+android_classes:
+	@echo "  GRADLEW"
+	@cd android/ && \
+	rm -rf lib/build && \
+	./gradlew compileDebugJavaWithJavac
 
 
-$(AND_JAR): $(AND_CLSS)
+$(AND_JAR): android_classes
 	@mkdir -p $(AND_CLS_TARGET)
 	@echo "  UNZ webrtc jars"
 	@unzip -o contrib/webrtc/$(WEBRTC_VER)/java/base.jar -d $(AND_CLS_TARGET)
@@ -124,11 +119,6 @@ $(AND_SHARED_STRIPPED): $(AND_SHARED)
 	@cp $< $@
 	# @$(STRIP) --strip-unneeded $@
 
-$(AND_JAVADOC): android_javadoc
-	jar -cvf $(AND_JAVADOC) -C $(AND_JAVADOC_PATH) .
-
-$(AND_SOURCES):
-	jar -cvf $(AND_SOURCES) -C android/java/ .
 
 #--- Phony Targets ---
 
@@ -153,7 +143,7 @@ android_javadoc:
 		-sourcepath android/java/ com.waz.audioeffect com.waz.avs com.waz.call com.waz.log com.waz.media.manager
 
 .PHONY: android_dist_sources
-android_dist_sources: $(AND_SOURCES)
+android_dist_sources:
 
 ..PHONY: android_emulator
 android_emulator:
