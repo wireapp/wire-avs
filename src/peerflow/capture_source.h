@@ -67,6 +67,9 @@ private:
 	bool         _buffer_rotate;
 	uint64_t     _ts_fps;
 	uint32_t     _fps_count;
+	uint32_t     _fps_send;
+	uint32_t     _skip_count;
+	uint32_t     _skipped;
 	uint32_t     _max_pixel_count;
 	bool         _black_frames;
 };

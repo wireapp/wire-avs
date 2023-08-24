@@ -63,7 +63,7 @@ public class VideoPreview extends SurfaceView
 
 
 	public void setShouldFill(boolean fill) {
-		shouldFill = fill;
+		//shouldFill = fill;
 	}
 	
 	public void setVideoOrientation(int ori) {
@@ -74,6 +74,7 @@ public class VideoPreview extends SurfaceView
 	}
 
 	public void setPreviewSize(int w, int h) {
+		Log.d(TAG, "setPreviewSize: " + w + " x " + h);
 		this.tWidth = w;
 		this.tHeight = h;
 
@@ -88,7 +89,7 @@ public class VideoPreview extends SurfaceView
 		this.vWidth = (float)(r - l);
 		this.vHeight = (float)(b - t);
 
-		Log.d(TAG, "onLayout: " + this.vWidth + "x" + this.tHeight);
+		Log.d(TAG, "onLayout: " + this.vWidth + "x" + this.vHeight);
 		updateTransform();
 	}
 
@@ -115,6 +116,7 @@ public class VideoPreview extends SurfaceView
 
 		float scaleX = 1.0f;
 		float scaleY = 1.0f;
+
 		if (this.shouldFill) {
 			scaleX = Math.max(1.0f, tAspRatio / vAspRatio);
 			scaleY = Math.max(1.0f, vAspRatio / tAspRatio);
@@ -123,6 +125,24 @@ public class VideoPreview extends SurfaceView
 			scaleX = Math.min(1.0f, tAspRatio / vAspRatio);
 			scaleY = Math.min(1.0f, vAspRatio / tAspRatio);
 		}
+
+		float width = orientation % 180 == 0 ? this.tWidth : this.tHeight;
+		float height = orientation % 180 == 0 ? this.tHeight : this.tWidth;
+
+		/*
+		if (scaleX == 1.0f) {
+			scaleY = scaleY * (vHeight/height);
+		}
+		if (scaleY == 1.0f) {
+			scaleX = 1.0f; //(vHeight * tAspRation) / vWidth;
+		}
+		*/
+
+		Log.i(TAG, "updateTransform:" +
+		      " view: " + this.vWidth + "x" + this.vHeight +
+		      " preview: " + width + "x" + height +
+		      " scale: " + scaleX + "x" + scaleY);
+	
 		this.setScaleX(scaleX);
 		this.setScaleY(scaleY);
 	}

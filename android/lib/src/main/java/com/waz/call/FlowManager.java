@@ -403,7 +403,6 @@ public class FlowManager
 		  videoCapturer.startCapture(pv);
 	  }
   }
-
 	
   public native void setVideoPreviewNative(String convId, View view);
   public native void setVideoView(String convId, String partId, View view);
@@ -424,35 +423,6 @@ public class FlowManager
 	  createCapturer();
   }
 	
-  public CaptureDevice[] getVideoCaptureDevices() {
-	  VideoCapturerInfo[] cs = VideoCapturer.getCapturers();
-	  
-	  int n = cs.length;
-
-	  Log.d(TAG, "getVideoCaptureDevices: " + n);
-	  CaptureDevice[] devs = new CaptureDevice[cs.length];
-
-	  int i = 0;
-	  for (VideoCapturerInfo c: cs) {
-		  switch (c.facing) {			  
-		  case VideoCapturerInfo.FACING_FRONT:
-			  devs[i] = new CaptureDevice("front", "front");
-			  break;
-
-		  case VideoCapturerInfo.FACING_BACK:
-			  devs[i] = new CaptureDevice("back", "back");
-			  break;
-
-		  default:
-			  devs[i] = new CaptureDevice("unknown", "unknown");
-			  break;
-		  }
-		  ++i;
-	  }
-
-	  return devs;
-  }
-
   private native void setFilePath(String path);
     
   public native int setAudioEffect(int effect_type);
@@ -482,8 +452,9 @@ public class FlowManager
 		Log.d(TAG, "createCapturer: creating preview="
 		      + this.previewView);
 		
-		this.videoCapturer = new VideoCapturer(defaultFacing,
-						       640, 480, 15);
+		this.videoCapturer = new VideoCapturer(this.context,
+						       defaultFacing,
+						       1280, 720, 15);
 		this.videoCapturer.setCallback(this);
 
 		if (this.previewView != null)

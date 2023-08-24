@@ -1834,6 +1834,18 @@ static int create_pf(struct peerflow *pf)
 		rtc::scoped_refptr<webrtc::RtpSenderInterface> video_track =
 			pf->peerConn->AddTrack(pf->video.track,
 					       {rtc::CreateRandomUuid()}).value();
+		webrtc::RtpParameters params = video_track->GetParameters();
+		if (params.encodings.size() > 0) {
+			params.encodings[0].max_framerate = 15;
+		}
+		else {
+			webrtc::RtpEncodingParameters enc;
+			enc.max_framerate = 15;
+			params.encodings.push_back(enc);
+		}
+		params.degradation_preference = webrtc::DegradationPreference::MAINTAIN_RESOLUTION;
+
+		video_track->SetParameters(params);
 
 
 #if DOUBLE_ENCRYPTION
