@@ -83,7 +83,7 @@ android_classes:
 	@echo "  GRADLEW"
 	@cd android/ && \
 	rm -rf lib/build && \
-	./gradlew compileDebugJavaWithJavac
+	ANDROID_HOME=$(ANDROID_SDK_ROOT) ./gradlew compileDebugJavaWithJavac
 
 
 $(AND_JAR): android_classes

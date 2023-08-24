@@ -27,7 +27,8 @@ apt install -y \
     libxdamage-dev \
     libxrender-dev \
     make \
-    openjdk-8-jdk-headless \
+    openjdk-17-jdk-headless \
+    openjdk-17-jre-headless \
     pkgconf \
     protobuf-c-compiler \
     python3 \
