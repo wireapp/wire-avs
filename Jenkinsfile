@@ -264,7 +264,7 @@ pipeline {
                             sh(
                                 script: """
                                     touch local.properties
-                                    version=$version ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
+				    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 version=$version ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
                                 """
                             )
                         }
