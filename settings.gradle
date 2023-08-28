@@ -10,3 +10,4 @@
 rootProject.name = 'avs'
 
 include ':android:lib'
+
