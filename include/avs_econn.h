@@ -51,6 +51,9 @@ enum econn_msg {
 	ECONN_DEVPAIR_PUBLISH = 0x21,
 	ECONN_DEVPAIR_ACCEPT  = 0x22,
 
+	/* Remote mute */
+	ECONN_REMOTE_MUTE = 0x30,
+
 };
 
 enum econn_state {

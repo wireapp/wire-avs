@@ -816,6 +816,23 @@ int econn_message_decode(struct econn_message **msgp,
 		goto out;
 	}
 
+	type = jzon_str(jobj, "type");
+	if (!type) {
+		warning("econn: missing 'type' field\n");
+		err = EBADMSG;
+		goto out;
+	}
+	/* The REMOTEMUTE message is not a real calling message,
+	 * bypass all other handling
+	 */
+	if (0 == str_casecmp(type, econn_msg_name(ECONN_REMOTE_MUTE))) {
+
+		msg->msg_type = ECONN_REMOTE_MUTE;
+		err = 0;
+
+		goto out;
+	}
+
 	ver = jzon_str(jobj, "version");
 	if (!ver) {
 		warning("econn: missing 'version' field\n");
@@ -827,13 +844,6 @@ int econn_message_decode(struct econn_message **msgp,
 		warning("econn: version mismatch (us=%s, msg=%s)\n",
 			econn_proto_version, ver);
 		err = EPROTO;
-		goto out;
-	}
-
-	type = jzon_str(jobj, "type");
-	if (!type) {
-		warning("econn: missing 'type' field\n");
-		err = EBADMSG;
 		goto out;
 	}
 
