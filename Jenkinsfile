@@ -260,7 +260,7 @@ pipeline {
                     withCredentials([ usernamePassword( credentialsId: 'android-sonatype-nexus', usernameVariable: 'SONATYPE_USERNAME', passwordVariable: 'SONATYPE_PASSWORD' ),
                                         file(credentialsId: 'D599C1AA126762B1.asc', variable: 'PGP_PRIVATE_KEY_FILE'),
                                         string(credentialsId: 'PGP_PASSPHRASE', variable: 'PGP_PASSPHRASE') ]) {
-                        withMaven(maven: 'M3') {
+                        withMaven(maven: 'M3', jdk: 'JDK17') {
                             sh(
                                 script: """
                                     touch local.properties
