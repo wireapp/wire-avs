@@ -213,7 +213,7 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 	dw = frame->w;
 	dh = frame->h;
 
-	info("HandleFrame: %dx%d rot=%d\n", dw, dh, frame->rotation);
+	//info("HandleFrame: %dx%d rot=%d\n", dw, dh, frame->rotation);
 	
 #if 0
 	dw = (frame->h * 4 / 3) & ~15;
