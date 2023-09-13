@@ -70,6 +70,7 @@ bool g_use_conference = false;
 bool g_use_mls = false;
 char *zcall_vfile = NULL;
 struct list g_sftl = LIST_INIT;
+bool g_fed = false;
 
 #ifdef HAVE_CRYPTOBOX
 struct cryptobox *g_cryptobox;
@@ -122,6 +123,7 @@ static void usage(void)
 			 "conference calls\n");
 	(void)re_fprintf(stderr, "\t-S <sft list>  Set SFT URL "
 			 "(in format http(s)://server:port, comma separated)\n");
+	(void)re_fprintf(stderr, "\t-F             Enable federation (needs -S)\n");
 	(void)re_fprintf(stderr, "\n");
 	(void)re_fprintf(stderr, "Config/cache directory defaults to "
 				 DEFAULT_STORE_DIR
@@ -428,7 +430,7 @@ int main(int argc, char *argv[])
 
 	for (;;) {
 		const int c = getopt(argc, argv,
-				     "ABc:CdDe:fGhiIKl:m:Mn:Np:P:q:r:sS:tTV:WZ");
+				     "ABc:CdDe:fFGhiIKl:m:Mn:Np:P:q:r:sS:tTV:WZ");
 		if (c < 0)
 			break;
 
@@ -469,6 +471,10 @@ int main(int argc, char *argv[])
 
 		case 'f':
 			flush = true;
+			break;
+
+		case 'F':
+			g_fed = true;
 			break;
 
 		case 'G':

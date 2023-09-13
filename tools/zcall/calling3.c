@@ -549,7 +549,8 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 
 		json_object_object_add(jobj, "sft_servers", jsfts);
 		json_object_object_add(jobj, "sft_servers_all", jsfts_all);
-		json_object_object_add(jobj, "is_federating", json_object_new_boolean(false));
+		json_object_object_add(jobj, "is_federating", json_object_new_boolean(g_fed));
+		info("is_federating %s", g_fed ? "YES" : "NO");
 	}
 
 	if (!err && jobj) {
