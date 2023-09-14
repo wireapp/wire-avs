@@ -24,8 +24,6 @@ publishing {
     publications {
         mavenJava(MavenPublication) {
             artifact "build/dist/android/avs.aar"
-            artifact source: "build/dist/android/javadoc.jar", classifier: 'javadoc'
-            artifact source: "build/dist/android/sources.jar", classifier: 'sources'
 
             pom {
                 name.set("wire-avs")
@@ -49,6 +47,15 @@ publishing {
                     connection.set("scm:git:git://github.com/wireapp/wire-avs")
                     developerConnection.set("scm:git:git://github.com/wireapp/wire-avs")
                     url.set("https://github.com/wireapp/wire-avs")
+                }
+                withXml {
+                    def dependenciesNode = asNode().appendNode('dependencies')
+                    findProject(':android:lib').configurations.implementation.allDependencies.each {
+                        def dependencyNode = dependenciesNode.appendNode('dependency')
+                        dependencyNode.appendNode('groupId', it.group)
+                        dependencyNode.appendNode('artifactId', it.name)
+                        dependencyNode.appendNode('version', it.version)
+                    }
                 }
             }
         }

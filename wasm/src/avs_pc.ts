@@ -335,13 +335,13 @@ function encryptFrame(coder, rtcFrame, controller) {
 
   if (isVideo && !coder.video.first_recv) {
     doLog("frame_enc: encrypt: first frame received type: video uid: " +
-          userid + " fid: " + coder.frameId + " ssrc: " + ssrc);
+          userid.substring(0,8) + " fid: " + coder.frameId + " ssrc: " + ssrc);
     coder.video.first_recv = true;
     coder.video.first_succ = false;
   }
   if (!isVideo && !coder.audio.first_recv) {
     doLog("frame_enc: encrypt: first frame received type: audio uid: " +
-          userid + " fid: " + coder.frameId + " ssrc: " + ssrc);
+          userid.substring(0,8) + " fid: " + coder.frameId + " ssrc: " + ssrc);
     coder.audio.first_recv = true;
     coder.audio.first_succ = false;
   }
@@ -377,12 +377,12 @@ function encryptFrame(coder, rtcFrame, controller) {
 
     if (isVideo && !coder.video.first_succ) {
       doLog("frame_enc: encrypt: first frame encrypted type: video uid: " +
-            userid + " fid: " + coder.frameId + " csrc: " + ssrc);
+            userid.substring(0,8) + " fid: " + coder.frameId + " csrc: " + ssrc);
       coder.video.first_succ = true;
     }
     if (!isVideo && !coder.audio.first_succ) {
       doLog("frame_enc: encrypt: first frame encrypted type: audio uid: " +
-            userid + " fid: " + coder.frameId + " csrc: " + ssrc);
+            userid.substring(0,8) + " fid: " + coder.frameId + " csrc: " + ssrc);
       coder.audio.first_succ = true;
     }
 
@@ -435,11 +435,11 @@ function decryptFrame(coder, rtcFrame, controller) {
       return;
   }
  
-  //console.log('frame_dec: video ' + isVideo + ' ssrc ' + ssrc + ' csrc ' + csrc + ' user ' + uinfo.userid);
+  //console.log('frame_dec: video ' + isVideo + ' ssrc ' + ssrc + ' csrc ' + csrc + ' user ' + uinfo.userid.substring(0,8));
 
   if (isVideo && uinfo.transp_ssrcv != ssrc) {
       doLog("frame_dec: decrypt: first frame received type: video uid: " +
-            uinfo.userid + " fid: " + frameHdr.frameId + " csrc: " + csrc);
+            uinfo.userid.substring(0,8) + " fid: " + frameHdr.frameId + " csrc: " + csrc);
       uinfo.first_succ_video = false;
 
       /* Only call videoStreamHandler for selective video */
@@ -470,7 +470,7 @@ function decryptFrame(coder, rtcFrame, controller) {
 
   if (!isVideo && !uinfo.first_recv_audio) {
     doLog("frame_dec: decrypt: first frame received type: audio uid: " +
-          uinfo.userid + " fid: " + frameHdr.frameId + " csrc: " + csrc);
+          uinfo.userid.substring(0,8) + " fid: " + frameHdr.frameId + " csrc: " + csrc);
     uinfo.first_recv_audio = true;
     uinfo.first_succ_audio = false;
   }
@@ -519,12 +519,12 @@ function decryptFrame(coder, rtcFrame, controller) {
     controller.enqueue(rtcFrame);
     if (isVideo && !uinfo.first_succ_video) {
       doLog("frame_dec: decrypt: first frame decrypted type: video uid: " +
-            uinfo.userid + " fid: " + frameHdr.frameId + " csrc: " + csrc);
+            uinfo.userid.substring(0,8) + " fid: " + frameHdr.frameId + " csrc: " + csrc);
       uinfo.first_succ_video = true;
     }
     if (!isVideo && !uinfo.first_succ_audio) {
       doLog("frame_dec: decrypt: first frame decrypted type: audio uid: " +
-            uinfo.userid + " fid: " + frameHdr.frameId + " csrc: " + csrc);
+            uinfo.userid.substring(0,8) + " fid: " + frameHdr.frameId + " csrc: " + csrc);
       uinfo.first_succ_audio = true;
     }
   })
@@ -657,7 +657,7 @@ function callStreamHandler(pc: PeerConnection,
 
   if (ssrc == "0") {
     if (videoStreamHandler) {
-      pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid}, ${userid}, ${clientid}) to remove renderer`);
+      pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) to remove renderer`);
       videoStreamHandler(pc.convid,
                          userid,
                          clientid,
@@ -670,7 +670,7 @@ function callStreamHandler(pc: PeerConnection,
       if (trans.receiver.track.label === label) {
         let stream = new MediaStream([trans.receiver.track]);
         if (videoStreamHandler) {
-          pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid}, ${userid}, ${clientid}) with 1 stream`);
+          pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) with 1 stream`);
           videoStreamHandler(pc.convid,
                       userid,
                       clientid,
@@ -1329,15 +1329,15 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
 
   let label: string = '';
   rtc.ontrack = event => {
-      pc_log(LOG_LEVEL_INFO, `onTrack: self=${pc.self} convid=${pc.convid} userid=${pc.remote_userid}/${pc.remote_clientid} streams=${event.streams.length}`);
+      pc_log(LOG_LEVEL_INFO, `onTrack: self=${pc.self} convid=${pc.convid.substring(0,8)} userid=${pc.remote_userid.substring(0,8)}/${pc.remote_clientid.substring(0,4)} streams=${event.streams.length}`);
 
       if (event.streams && event.streams.length > 0) {
 	  for (const stream of event.streams) {
-	      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid} stream=${stream}`);
+	      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid.substring(0,8)} stream=${stream}`);
 	      for (const track of stream.getTracks()) {
 		  if (track) {
 		      label = track.label;
-		      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid} track=${track.id}/${track.label} kind=${track.kind} enabled=${track.enabled}/${track.muted}/undefined/${track.readyState} remote=undefined`);
+		      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid.substring(0,8)} track=${track.id}/${track.label} kind=${track.kind} enabled=${track.enabled}/${track.muted}/undefined/${track.readyState} remote=undefined`);
 		      if (!track.enabled)
 		       	track.enabled = true;
 
@@ -1355,7 +1355,7 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
       }
 
       if (event.track.kind == "audio" && audioStreamHandler) {
-          pc_log(LOG_LEVEL_INFO, `onTrack: calling ash(${pc.convid}, ${label}) with ${event.streams.length} streams`);
+          pc_log(LOG_LEVEL_INFO, `onTrack: calling ash(${pc.convid.substring(0,8)}, ${label}) with ${event.streams.length} streams`);
 	  audioStreamHandler(
 	      pc.convid,
               hnd.toString() + label,
@@ -1373,7 +1373,7 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
 	  }
 
           if (userid != "sft" && userid != "") {
-              pc_log(LOG_LEVEL_INFO, `onTrack: calling vsh(${pc.convid}, ${userid}, ${clientid}) with ${event.streams.length} streams`);
+              pc_log(LOG_LEVEL_INFO, `onTrack: calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) with ${event.streams.length} streams`);
 	      videoStreamHandler(
 	          pc.convid,
 	          userid,
@@ -1398,7 +1398,7 @@ function pc_Close(hnd: number) {
       if (track && track.kind === "audio") {
         const label = track.label;
         if (audioStreamHandler && pc.rtc) {
-          pc_log(LOG_LEVEL_INFO, `pc_Close: calling ash(${pc.convid}, ${label}) with 0 streams`);
+          pc_log(LOG_LEVEL_INFO, `pc_Close: calling ash(${pc.convid.substring(0,8)}, ${label}) with 0 streams`);
           audioStreamHandler(pc.convid, hnd.toString() + label, null);
         }
       }
@@ -1783,7 +1783,7 @@ function pc_AddUserInfo(hnd: number, labelPtr: number,
 	                useridPtr: number, clientidPtr: number,
 			ssrcaPtr: number, ssrcvPtr: number,
 	                audioIvPtr: number, videoIvPtr: number, ivlen: number) {
-  pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: hnd=${hnd}`);
+  pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo2: hnd=${hnd}`);
 
   const pc = connectionsStore.getPeerConnection(hnd);
   if (pc == null) {
@@ -1821,7 +1821,7 @@ function pc_AddUserInfo(hnd: number, labelPtr: number,
 	transp_ssrcv: null,
   };
 
-  pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: label=${label} ${userId}/${clientId} ssrc:${ssrca}/${ssrcv}`);
+  pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: label=${label} ${userId.substring(0,8)}/${clientId.substring(0,4)} ssrc:${ssrca}/${ssrcv}`);
 
   pc.users[label] = uinfo;
 
@@ -1843,7 +1843,7 @@ function pc_RemoveUserInfo(hnd: number, labelPtr: number) {
   }
   if (pc.users.hasOwnProperty(label)) {
     if (audioStreamHandler) {
-      pc_log(LOG_LEVEL_INFO, `pcRemoveUserInfo: calling ash(${pc.convid}, ${label}) with 0 streams`);
+      pc_log(LOG_LEVEL_INFO, `pcRemoveUserInfo: calling ash(${pc.convid.substring(0,8)}, ${label}) with 0 streams`);
       audioStreamHandler(pc.convid, hnd.toString() + label, null);
     }
     delete pc.users[label];
