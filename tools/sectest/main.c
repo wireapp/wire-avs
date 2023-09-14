@@ -45,11 +45,11 @@ static void run_test(const char *name, testfunc *func)
 	printf("STARTING TEST %s\n", name);
 	if (func()) {
 		tests_passed++;
-		printf("TEST PASSED\n\n");
+		printf("TEST %s PASSED\n\n", name);
 	}
 	else {
 		tests_failed++;
-		printf("TEST FAILED\n\n");
+		printf("TEST %s FAILED\n\n", name);
 	}
 }
 
