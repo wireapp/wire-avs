@@ -20,10 +20,11 @@
 #include <re.h>
 #include <avs.h>
 #include <avs_wcall.h>
+#include <avs_kcall.h>
 #include <avs_msystem.h>
 #include <avs_audio_io.h>
+#include <avs_view.h>
 #include "cli.h"
-#include "view.h"
 #include "options.h"
 
 #define HANGUP_TIMEOUT 300000
@@ -238,7 +239,7 @@ static void wcall_metrics_handler(const char *convid,
 
 static void wcall_mute_handler(int muted, void *arg)
 {
-	view_show_mute(muted);
+	kcall_show_mute(muted);
 }
 
 static const char *audio_state_name(int astate)
@@ -357,6 +358,20 @@ static void wcall_audio_cbr_change_handler(const char *userid,
 		       "\n", cbr_banner);
 	}
 }
+
+static void wcall_vidstate_handler(const char *convid,
+				   const char *userid,
+				   const char *clientid,
+				   int state,
+				   void *arg)
+{
+	kcall_set_user_vidstate(convid,
+				userid,
+				clientid,
+				state,
+				arg);
+}
+
 
 static void run_postponed(void)
 {
@@ -1365,6 +1380,8 @@ int calling3_init(void)
 		goto out;
 	}
 
+	kcall_set_wuser(calling3.wuser);
+
 	wcall_set_shutdown_handler(calling3.wuser,
 				   wcall_shutdown_handler,
 				   NULL);
@@ -1400,7 +1417,7 @@ int calling3_init(void)
 					  5,
 					  NULL);
 
-	view_set_local_user(self->id, clientid);
+	kcall_set_local_user(self->id, clientid);
 	register_dummy_sounds();
 
 	calling3.initialized = true;

@@ -20,24 +20,19 @@ zcall_SRCS	+= \
 		main.c \
 		options.c \
 		restsrv.c \
-		user.c \
-		view.c \
-		test_view.c \
-		test_capturer.c \
-		octotunnel.c \
-		pgm.c
+		user.c
 
 
-VIEW_FILE = 
 PLATFORM_FILES =
 
 ifeq ($(AVS_OS),osx)
-VIEW_FILE = osx_view.m
 PLATFORM_FILES = ../../iosx/src/flowmgr/AVSCapturer.mm \
-	../../iosx/src/flowmgr/AVSVideoViewOSX.m
+	../../iosx/src/flowmgr/AVSVideoViewOSX.m \
+	../../iosx/src/flowmgr/OSXView.m
+
 endif
 
-zcall_SRCS	+= $(VIEW_FILE) $(PLATFORM_FILES)
+zcall_SRCS	+= $(PLATFORM_FILES)
 
 
 zcall_CPPFLAGS := $(AVS_CPPFLAGS) $(MENG_CPPFLAGS)

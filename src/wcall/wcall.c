@@ -3758,6 +3758,8 @@ void wcall_set_video_handlers(wcall_render_frame_h *render_frame_h,
 			      wcall_video_size_h *size_h,
 			      void *arg)
 {
+	info(APITAG "wcall: set_video_handlers r=%p s=%p\n",
+	     render_frame_h, size_h);
 	iflow_set_video_handlers(render_frame_h, size_h, arg);
 }
 

@@ -97,6 +97,7 @@ AVS_MODULES += network
 endif
 
 ifeq ($(BUILD_OPTIONAL_MODULES),1)
+AVS_MODULES += kalium
 AVS_MODULES += engine
 AVS_MODULES += rtpdump
 AVS_MODULES += store
