@@ -130,37 +130,57 @@ static void tmr_handler(void *arg)
 
 static void osx_view_close(void)
 {
-	tmr_cancel(&vidloop.tmr);
-	[vidloop.win close];
+	info("osx_view_close\n");
 
-	vidloop.preview = nil;
-	vidloop.win = nil;
+	dispatch_async(
+		dispatch_get_main_queue(), 
+		^(void) { 
+			tmr_cancel(&vidloop.tmr);
+			[vidloop.win close];
+
+			vidloop.preview = nil;
+			vidloop.win = nil;
+	}); 
 }
 
 static void osx_view_show(void)
 {
-	NSApplication *app = [NSApplication sharedApplication];
-	[vidloop.win makeKeyAndOrderFront:app];
-	[NSApp activateIgnoringOtherApps:YES];
-	[vidloop.preview display];
-	[vidloop.muteView display];
-	osx_arrange_views();
-
+	info("osx_view_show\n");
+	dispatch_async(
+		dispatch_get_main_queue(), 
+		^(void) { 
+			NSApplication *app = [NSApplication sharedApplication];
+			[vidloop.win makeKeyAndOrderFront:app];
+			[NSApp activateIgnoringOtherApps:YES];
+			[vidloop.preview display];
+			[vidloop.muteView display];
+			osx_arrange_views();
+	});
 }
 
 
 static void osx_view_hide(void)
 {
-	[vidloop.win orderOut:nil];
-	osx_arrange_views();
+	info("osx_view_hide\n");
+	dispatch_async(
+		dispatch_get_main_queue(), 
+		^(void) { 
+			[vidloop.win orderOut:nil];
+			osx_arrange_views();
+	});
 }
 
 
 static void osx_view_show_mute(bool muted)
 {
-	vidloop.muted = muted;
-	[vidloop.muteView setHidden:muted ? NO : YES];
-	[vidloop.preview setNeedsDisplay: YES];
+	info("osx_view_show_mute %s\n", muted ? "MUTED" : "UNMUTED");
+	dispatch_async(
+		dispatch_get_main_queue(), 
+		^(void) { 
+			vidloop.muted = muted;
+			[vidloop.muteView setHidden:muted ? NO : YES];
+			[vidloop.preview setNeedsDisplay: YES];
+	});
 }
 
 static void osx_arrange_views(void)
@@ -345,10 +365,10 @@ static void osx_vidstate_changed(const char *convid,
 
 		osx_arrange_views();
 		if (vidloop.view_visible || vidloop.preview_visible) {
-			kcall_view_show();
+			osx_view_show();
 		}
 		else {
-			kcall_view_hide();
+			osx_view_hide();
 		}
 	}); 
 }
@@ -377,26 +397,36 @@ static void osx_preview_start(void)
 {
 	info("osx_preview_start\n");
 
-	[vidloop.capturer attachPreview:vidloop.preview];
-	[vidloop.capturer startWithWidth: 1280 Height: 720 MaxFps: 15];
+	dispatch_async(
+		dispatch_get_main_queue(), 
+		^(void) { 
+			[vidloop.capturer attachPreview:vidloop.preview];
+			[vidloop.capturer startWithWidth: 1280 Height: 720 MaxFps: 15];
 
-	vidloop.preview_visible = true;
-	osx_view_show();
-	osx_arrange_views();
+			vidloop.preview_visible = true;
+			osx_view_show();
+			osx_arrange_views();
+	});
 }
 
 static void osx_preview_stop(void)
 {
-	[vidloop.capturer detachPreview:vidloop.preview];
-	[vidloop.capturer stop];
+	info("osx_preview_stop\n");
 
-	vidloop.preview_visible = false;
-	if (!vidloop.view_visible) {
-		kcall_view_hide();
-	}
-	else {
-		osx_arrange_views();
-	}
+	dispatch_async(
+		dispatch_get_main_queue(), 
+		^(void) { 
+			[vidloop.capturer detachPreview:vidloop.preview];
+			[vidloop.capturer stop];
+
+			vidloop.preview_visible = false;
+			if (!vidloop.view_visible) {
+				osx_view_hide();
+			}
+			else {
+				osx_arrange_views();
+			}
+	});
 }
 
 static void osx_view_set_local_user(const char *userid, const char *clientid)
@@ -419,9 +449,8 @@ static struct avs_view _view = {
 };
 
 
-int osx_view_init(struct avs_view** v)
+static int osx_view_init_int(void)
 {
-	info("osx_view: init\n");
 	NSApplication *app = [NSApplication sharedApplication];
 
 	vidloop.win = [[NSWindow alloc]
@@ -465,21 +494,40 @@ int osx_view_init(struct avs_view** v)
 		[[vidloop.win contentView] addSubview:cv];
 		[cv display];
 	}
-	*v = &_view;
-
 	tmr_start(&vidloop.tmr, 10, tmr_handler, 0);
 
 	return 0;
 }
 
+int osx_view_init(struct avs_view** v)
+{
+	info("osx_view_init\n");
+	*v = &_view;
+
+	if ([NSThread isMainThread]) {
+		return osx_view_init_int();
+	}
+	else {
+		dispatch_async(
+			dispatch_get_main_queue(), 
+			^(void) { 
+			osx_view_init_int();
+		});
+	}
+	return 0;
+}
 static void osx_view_next_page(void)
 {
-	vidloop.page += VIDEO_PAGE_SIZE;
-	if (vidloop.page >= vidloop.clients.count)
-		vidloop.page = 0;
+	dispatch_async(
+		dispatch_get_main_queue(), 
+		^(void) { 
+			vidloop.page += VIDEO_PAGE_SIZE;
+			if (vidloop.page >= vidloop.clients.count)
+				vidloop.page = 0;
 
-	osx_request_streams();
-	osx_arrange_views();
+			osx_request_streams();
+			osx_arrange_views();
+	});
 }
 
 @implementation VideoDelegate

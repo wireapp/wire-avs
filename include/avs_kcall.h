@@ -19,7 +19,7 @@
 #ifndef AVS_KCALL_H
 #define AVS_KCALL_H
 
-void kcall_init(bool test_view);
+void kcall_init(int test_view);
 void kcall_close(void);
 
 void kcall_set_wuser(WUSER_HANDLE wuser);

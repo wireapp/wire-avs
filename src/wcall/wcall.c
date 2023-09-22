@@ -953,12 +953,12 @@ static void icall_vstate_handler(struct icall *icall, const char *userid,
 		wstate = WCALL_VIDEO_STATE_STOPPED;
 		break;
 	}
-	info(APITAG "wcall(%p): vstateh(%p) icall=%p conv=%s "
-	     "user=%s state=%d\n",
-	     wcall, inst->vstateh, icall, anon_id(convid_anon, wcall->convid),
-	     anon_id(userid_anon, userid), wstate);
 
 	if (inst->vstateh) {
+		info(APITAG "wcall(%p): vstateh(%p) icall=%p conv=%s "
+		     "user=%s state=%d\n",
+		     wcall, inst->vstateh, icall, anon_id(convid_anon, wcall->convid),
+		     anon_id(userid_anon, userid), wstate);
 		uint64_t now = tmr_jiffies();
 		inst->vstateh(wcall->convid, userid, clientid,
 			      wstate, inst->arg);
