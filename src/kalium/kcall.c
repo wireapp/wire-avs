@@ -56,7 +56,8 @@ static void size_handler(int w,
 	     w, h);
 }
 
-void kcall_init(bool test_view)
+AVS_EXPORT
+void kcall_init(int test_view)
 {
 	info("kcall: init test=%s\n", test_view ? "YES" : "NO");
 
@@ -74,17 +75,20 @@ void kcall_init(bool test_view)
 	test_view_init(&_view);
 }
 
+AVS_EXPORT
 void kcall_set_wuser(WUSER_HANDLE wuser)
 {
 	info("kcall: set wuser %08x\n", wuser);
 	_wuser = wuser;
 }
 
+AVS_EXPORT
 WUSER_HANDLE kcall_get_wuser(void)
 {
 	return _wuser;
 }
 
+AVS_EXPORT
 void kcall_close(void)
 {
 	if (_view) {
@@ -92,7 +96,7 @@ void kcall_close(void)
 	}
 }
 
-
+AVS_EXPORT
 void kcall_view_show(void)
 {
 	if (_view) {
@@ -100,6 +104,7 @@ void kcall_view_show(void)
 	}
 }
 
+AVS_EXPORT
 void kcall_view_hide(void)
 {
 	if (_view) {
@@ -107,7 +112,7 @@ void kcall_view_hide(void)
 	}
 }
 
-
+AVS_EXPORT
 void kcall_preview_start(void)
 {
 	if (_view) {
@@ -115,6 +120,7 @@ void kcall_preview_start(void)
 	}
 }
 
+AVS_EXPORT
 void kcall_preview_stop(void)
 {
 	if (_view) {
@@ -122,6 +128,7 @@ void kcall_preview_stop(void)
 	}
 }
 
+AVS_EXPORT
 void kcall_set_local_user(const char *userid, const char *clientid)
 {
 	if (_view) {
@@ -129,6 +136,7 @@ void kcall_set_local_user(const char *userid, const char *clientid)
 	}
 }
 
+AVS_EXPORT
 void kcall_next_page(void)
 {
 	if (_view) {
@@ -136,6 +144,7 @@ void kcall_next_page(void)
 	}
 }
 
+AVS_EXPORT
 void kcall_set_user_vidstate(const char *convid,
 			     const char *userid,
 			     const char *clientid,
@@ -148,7 +157,7 @@ void kcall_set_user_vidstate(const char *convid,
 	}
 }
 
-
+AVS_EXPORT
 void kcall_show_mute(bool muted)
 {
 	if (_view) {
