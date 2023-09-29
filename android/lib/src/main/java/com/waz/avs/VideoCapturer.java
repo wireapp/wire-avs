@@ -35,6 +35,7 @@ package com.waz.avs;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.graphics.ImageFormat;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 
 import androidx.annotation.NonNull;
@@ -46,13 +47,15 @@ import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.core.ImageInfo;
 import androidx.camera.core.Preview;
+import androidx.camera.view.PreviewView;
 import androidx.camera.core.ResolutionInfo;
 import androidx.camera.core.SurfaceRequest;
 import androidx.camera.core.UseCase;
 import androidx.camera.core.UseCaseGroup;
 import androidx.camera.core.ViewPort;
+import androidx.camera.core.ViewPort.Builder;
 import androidx.camera.lifecycle.ProcessCameraProvider;
-import androidx.camera.view.PreviewView;
+import androidx.camera.camera2.interop.Camera2Interop;
 import androidx.core.util.Consumer;
 //import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -62,8 +65,11 @@ import androidx.lifecycle.ViewTreeLifecycleOwner;
 import android.media.Image;
 
 import android.util.Log;
+import android.util.Range;
 import android.util.Rational;
 import android.util.Size;
+
+import android.hardware.camera2.CaptureRequest;
 
 import android.view.Gravity;
 import android.view.Surface;
@@ -84,63 +90,15 @@ import java.util.concurrent.Executor;
 import java.util.List;
 
 
-public class VideoCapturer implements ImageAnalysis.Analyzer, SurfaceHolder.Callback {
+public class VideoCapturer implements ImageAnalysis.Analyzer {
 	
 	private static final String TAG = "VideoCapturer";
-
-	private class PreviewSurfaceProvider implements Preview.SurfaceProvider {
-		private VideoCapturer capturer = null;
-		private SurfaceHolder holder = null;
-		private Executor executor = null;
-		private SurfaceRequest request = null;
-		
-		public PreviewSurfaceProvider(VideoCapturer capturer, SurfaceHolder holder, Executor executor) {
-			this.capturer = capturer;
-			this.holder = holder;
-			this.executor = executor;
-		}
-
-		@Override
-		public void onSurfaceRequested(@NonNull SurfaceRequest request) {
-			Log.i(TAG, "onSurfaceRequested: req=" + request);
-			// If our GL thread/context is shutting down. Signal we will not fulfill
-			// the request.
-			if (capturer.destroying) {
-				request.willNotProvideSurface();
-				return;
-			}
-
-			// Create the surface and attempt to provide it to the camera.
-			Surface surface = null;
-
-			if (this.holder != null) {
-				surface = this.holder.getSurface();
-			}
-
-			// Provide the surface and wait for the result to clean up the surface.
-			Log.i(TAG, "onSurfaceRequested: providing surface: " + surface);
-			if (surface == null)
-				request.willNotProvideSurface();
-			else {
-				request.provideSurface(surface, this.executor, (result) -> {});
-				this.request = request;
-			}
-		}
-
-		public void invalidate() {
-			/*
-			if (request != null)
-				request.invalidate();
-			*/
-		}
-		
-	}
-
+	
 	private Context context;
 	private Executor executor;
+	private PreviewView previewView;
 	private VideoCapturerCallback capturerCallback = null;
 	private boolean started = false;
-	private PreviewSurfaceProvider previewProvider = null;
 	private SurfaceHolder surface = null;
 	private int facing;
 	private int w;
@@ -148,7 +106,6 @@ public class VideoCapturer implements ImageAnalysis.Analyzer, SurfaceHolder.Call
 	private int fps;
 	private boolean destroying = false;
 	private int ui_rotation = 0;
-	private VideoPreview previewView;
 	private Camera camera;
 	private CameraSelector cameraSelector = null;
 	ProcessCameraProvider cameraProvider = null;
@@ -180,16 +137,12 @@ public class VideoCapturer implements ImageAnalysis.Analyzer, SurfaceHolder.Call
 	}
 
 	
-	public int startCapture(final VideoPreview vp) {
-		SurfaceHolder holder = vp.getHolder();
-		Log.d(TAG, "startCapture on: " + vp + " holder=" + holder);
+	public int startCapture(final PreviewView vp) {
+		Log.d(TAG, "startCapture on: " + vp);
 
 		this.previewView = vp;
-		//startCamera2();
-		if (holder != null) {
-			holder.addCallback(this);
-			startCamera(holder);
-		}
+
+		startCamera();
 
 		return 0;
 	}
@@ -199,33 +152,26 @@ public class VideoCapturer implements ImageAnalysis.Analyzer, SurfaceHolder.Call
 		Log.i(TAG, "bindPreview: provider=" + cameraProvider);
 
 		Preview preview = new Preview.Builder()
-			//.setTargetAspectRatio(AspectRatio.RATIO_16_9)
-			.setTargetResolution(new Size(1280, 720))
+			.setTargetResolution(new Size(this.w, this.h))
 			.build();
 
 		ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
-			.setTargetResolution(new Size(1280, 720))
+			.setTargetResolution(new Size(this.w, this.h))
 			.setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
 			.build();
 		
-		Log.i(TAG, "bindPreview: setSurfaceProvider");
-		preview.setSurfaceProvider(this.previewProvider);
-		//preview.setTargetRotatopn(0);
+		preview.setSurfaceProvider(this.previewView.getSurfaceProvider());		
 
-		Log.i(TAG, "bindPreview: setAnalyzer");
-		imageAnalysis.setTargetRotation(0);
 		imageAnalysis.setAnalyzer(this.executor, this);
+		imageAnalysis.setTargetRotation(0);
 
-		/*
-		ViewPort viewPort = new ViewPort.Builder(new Rational(16, 9),
-							 preview.getTargetRotation())
+		ViewPort viewPort = new ViewPort.Builder(new Rational(16, 9), 0)
 			.setScaleType(ViewPort.FIT)
 			.build();
-		*/
-		
 		
 		LifecycleOwner lowner = ViewTreeLifecycleOwner.get(this.previewView);
 		UseCaseGroup useCaseGroup = new UseCaseGroup.Builder()
+			.setViewPort(viewPort)
 			.addUseCase(preview)
 			.addUseCase(imageAnalysis)
 			.build();
@@ -245,38 +191,26 @@ public class VideoCapturer implements ImageAnalysis.Analyzer, SurfaceHolder.Call
 		else {
 			Size res = resInfo.getResolution();
 			Log.i(TAG, "bindPreview: preview resolution=" + res.getWidth() + "x" + res.getHeight());
-			this.previewView.setPreviewSize(res.getWidth(), res.getHeight());
 		}
-		//this.previewView.setVideoOrientation(0);
-		
 	}
 
 	
 	private void initCamera(int facing, int w, int h, int fps) {
+
+		this.w = w;
+		this.h = h;
+		this.fps = fps;
+
 		if (facing == VideoCapturerInfo.FACING_BACK)
 			this.cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
 		else 
 			this.cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA;
 	}
 
-	public void surfaceCreated(SurfaceHolder holder) {
-		Log.d(TAG, "surfaceCreated:" + holder);
+	private void startCamera() {
 
-		if (!destroying && this.previewProvider == null) {
-			//startCamera2();
-			startCamera(holder);
-		}
-	}
-	
-	private void startCamera(SurfaceHolder holder) {
-
-		if (holder.getSurface() == null) {
-			Log.i(TAG, "startCamera: no surface");
-			return;
-		}
-
+		Log.i(TAG, "startCamera: " + this.w + "x" + this.h);
 		this.executor = ContextCompat.getMainExecutor(this.context);
-		this.previewProvider = new PreviewSurfaceProvider(this, holder, this.executor);
 
 		final ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(this.context);
 
@@ -297,65 +231,24 @@ public class VideoCapturer implements ImageAnalysis.Analyzer, SurfaceHolder.Call
 		}, this.executor);		
 	}
 
-	private void startCamera2() {
-
-		this.executor = ContextCompat.getMainExecutor(this.context);
-
-		final ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(this.context);
-
-		cameraProviderFuture.addListener(new Runnable() {
-			@Override
-			public void run() {
-				try {
-					ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
-					Log.i(TAG, "startCamera: binding preview");
-					bindPreview(cameraProvider);
-
-				} catch (Exception e) {
-					Log.e(TAG, "startCamera: exception: " + e);
-					// No errors need to be handled for this Future.
-					// This should never be reached.
-				}
-			}
-		}, this.executor);		
-	}
-	
-
 	private void cameraFailed() {
 		FlowManager.cameraFailed();
 	}
 
-	public void surfaceChanged(SurfaceHolder holder,
-				  int format, int width, int height) {
-		
-		// Ignored, Camera does all the work for us
-		Log.d(TAG, "surfaceChanged: " + width + "x" + height);
-
-		if (this.previewProvider != null)
-			this.previewProvider.invalidate();
-	}
-
-
-	public void surfaceDestroyed(SurfaceHolder surface) {
-		Log.d(TAG, "surfaceDestroyed: " + surface);
-
-		stopCamera();
-		if (capturerCallback != null) {
-			capturerCallback.onSurfaceDestroyed(this);
-		}
-	}
-	
 	@Override
 	public void analyze(@NonNull ImageProxy image)	{
 		 
 		ImageProxy.PlaneProxy[] planes = image.getPlanes();
 		ImageInfo imageInfo = image.getImageInfo();
+
+		/*
 		Log.d(TAG, "analyze: " + image.getWidth() + "x" + image.getHeight() +
 		      " format=" + image.getFormat() + 
 		      " planes=" + planes.length + " rot=" + imageInfo.getRotationDegrees() +
 		      " ystride=" + planes[0].getRowStride() + " / " + planes[0].getPixelStride() +
 		      " ustride=" + planes[1].getRowStride() + " / " + planes[1].getPixelStride() +
 		      " vstride=" + planes[2].getRowStride());
+		*/
 
 		handleCameraFrame2(image.getWidth(), image.getHeight(),
 				   planes[0].getBuffer(), planes[0].getRowStride(),

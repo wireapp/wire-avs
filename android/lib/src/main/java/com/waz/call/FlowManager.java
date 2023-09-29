@@ -32,7 +32,6 @@ import com.waz.avs.AVSystem;
 import com.waz.avs.VideoCapturer;
 import com.waz.avs.VideoCapturerCallback;
 import com.waz.avs.VideoCapturerInfo;
-import com.waz.avs.VideoPreview;
 import com.waz.call.FlowSource;
 import com.waz.call.RequestHandler;
 
@@ -59,6 +58,9 @@ import org.json.JSONException;
 
 
 import android.view.SurfaceView;
+
+import androidx.camera.view.PreviewView;
+
 
 public class FlowManager
 	implements VideoCapturerCallback {
@@ -117,6 +119,10 @@ public class FlowManager
 
   private int ui_rotation = Surface.ROTATION_0;
 
+  private int CAPTURE_WIDTH = 1280;
+  private int CAPTURE_HEIGHT = 720;
+  private int CAPTURE_FPS = 15;
+ 
   private HashSet<FlowManagerListener> getListenerSet ( ) {
     if ( this._listenerSet == null ) {
       this._listenerSet = new HashSet<FlowManagerListener>();
@@ -348,7 +354,8 @@ public class FlowManager
   public native boolean canSendVideo(String convId);
 
   private VideoCapturer videoCapturer = null;
-  private VideoPreview previewView = null;
+  private PreviewView previewView = null;
+	
   private int defaultFacing = VideoCapturerInfo.FACING_FRONT;
 	
   public void setVideoSendState(String convId, int state) {
@@ -384,8 +391,7 @@ public class FlowManager
   private static String TAG = "FlowManager";
       
   public void setVideoPreview(String convId, View view) {
-	  //final TextureView tv = (TextureView)view;
-	  final VideoPreview pv = (VideoPreview)view;
+	  final PreviewView pv = (PreviewView)view;
 	  
 	  Log.d(TAG, "setVideoPreview: " + view + " vcap=" + videoCapturer); 
 
@@ -454,7 +460,8 @@ public class FlowManager
 		
 		this.videoCapturer = new VideoCapturer(this.context,
 						       defaultFacing,
-						       1280, 720, 15);
+						       CAPTURE_WIDTH, CAPTURE_HEIGHT,
+						       CAPTURE_FPS);
 		this.videoCapturer.setCallback(this);
 
 		if (this.previewView != null)
