@@ -35,6 +35,7 @@ package com.waz.avs;
 import android.content.Context;
 
 import android.graphics.Matrix;
+import android.graphics.RectF;
 import android.util.Log;
 import android.view.SurfaceView;
 
@@ -46,7 +47,7 @@ public class VideoPreview extends SurfaceView
 {
 	private float aspectRatio = 4.0f/3.0f;
 	private boolean shouldFill = false;
-	private int orientation = 90;
+	private int orientation = 0;
 	private static final String TAG = "VideoPreview";
 	private float vWidth = 1.0f;
 	private float vHeight = 1.0f;
@@ -93,7 +94,79 @@ public class VideoPreview extends SurfaceView
 		updateTransform();
 	}
 
+
+	@Override
+	protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+
+
+		int widthMode = MeasureSpec.getMode(widthMeasureSpec);
+		int widthSize = MeasureSpec.getSize(widthMeasureSpec);
+		int heightMode = MeasureSpec.getMode(heightMeasureSpec);
+		int heightSize = MeasureSpec.getSize(heightMeasureSpec);
+
+		int width = widthSize;
+		int height = heightSize;
+
+		/*
+		//Measure Width
+		if (widthMode == MeasureSpec.EXACTLY) {
+			//Must be this size
+			width = widthSize;
+		} else if (widthMode == MeasureSpec.AT_MOST) {
+			//Can't be bigger than...
+			width = Math.min(desiredWidth, widthSize);
+		} else {
+			//Be whatever you want
+			width = desiredWidth;
+		}
+
+		//Measure Height
+		if (heightMode == MeasureSpec.EXACTLY) {
+			//Must be this size
+			height = heightSize;
+		} else if (heightMode == MeasureSpec.AT_MOST) {
+			//Can't be bigger than...
+			height = Math.min(desiredHeight, heightSize);
+		}
+			//Be whatever you want
+			height = desiredHeight;
+		}
+		*/
+
+		Log.i(TAG, "onMeasure: mode=" + widthMode + "/" + heightMode + " size:" + widthSize + "x" + heightSize); 
+		
+		//MUST CALL THIS
+		setMeasuredDimension(width, height);
+	}
+
 	private void updateTransform() {
+
+		if (this.tWidth == 0 || this.tHeight == 0
+		    || this.vWidth == 0 || this.vHeight == 0)
+			return;
+		
+		Matrix trans = new Matrix();
+		trans.setRectToRect(new RectF(0, 0, this.tWidth, this.tHeight),
+				    new RectF(0, 0, this.vWidth, this.vHeight),
+				    Matrix.ScaleToFit.CENTER);
+
+		RectF tRect = new RectF(0, 0, this.vWidth, this.vHeight);
+		RectF sRect = new RectF(0, 0, this.tWidth, this.tHeight);
+		
+		trans.mapRect(sRect);
+		float scaleX = sRect.width()/tRect.width();
+		float scaleY = sRect.height()/tRect.height();
+
+		Log.i(TAG, "updateTransform: t=" + tRect.width() + "x" + tRect.height() + "s="
+		      + sRect.width() + "x" + sRect.height() + " scale=" + scaleX + "/" + scaleY);
+
+		if (scaleX > 0)
+			this.setScaleX(scaleX);
+		if (scaleY > 0)
+			this.setScaleY(scaleY);
+	}
+
+	private void updateTransform2() {
 
 		if (this.vHeight == 0.0f) {
 			return;
@@ -129,15 +202,6 @@ public class VideoPreview extends SurfaceView
 		float width = orientation % 180 == 0 ? this.tWidth : this.tHeight;
 		float height = orientation % 180 == 0 ? this.tHeight : this.tWidth;
 
-		/*
-		if (scaleX == 1.0f) {
-			scaleY = scaleY * (vHeight/height);
-		}
-		if (scaleY == 1.0f) {
-			scaleX = 1.0f; //(vHeight * tAspRation) / vWidth;
-		}
-		*/
-
 		Log.i(TAG, "updateTransform:" +
 		      " view: " + this.vWidth + "x" + this.vHeight +
 		      " preview: " + width + "x" + height +
@@ -147,6 +211,7 @@ public class VideoPreview extends SurfaceView
 		this.setScaleY(scaleY);
 	}
 
+	/*
 	@Override
 	protected void onMeasure(int wSpec, int hSpec) {
 		int w;
@@ -156,4 +221,5 @@ public class VideoPreview extends SurfaceView
 		h = getDefaultSize(getSuggestedMinimumHeight(), hSpec);
 		setMeasuredDimension(w, h);
 	}
+	*/
 }
