@@ -1573,8 +1573,11 @@ function sdpCbrMap(sdp: string): string {
 	if(sdpLine.endsWith('sprop-stereo=0;useinbandfec=1')) {
 		outline = sdpLine + ";cbr=1";
 	}
-      
-	if (outline != null) {
+	else if (sdpLine.startsWith('a=ssrc-group:')) {
+	        outline = null;
+	}
+
+        if (outline != null) {
             sdpLines.push(outline);
 	}
     });
