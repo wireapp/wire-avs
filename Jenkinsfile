@@ -65,13 +65,17 @@ pipeline {
                         // run tests
                         sh './ztest'
 
+                        // cleanup old artifacts
+                        sh 'rm -rf ./build/artifacts'
+                        sh 'mkdir -p ./build/artifacts'
+
+                        // build
                         sh 'make dist_clean'
-                        sh 'make zcall AVS_VERSION=' + version
+                        sh 'make zcall sectest AVS_VERSION=' + version
+                        sh './sectest https://sft3.sft.staging.zinfra.io:443 > ./build/artifacts/avs-' + version + '-sectest.log'
                         sh '''#!/bin/bash
                             . ./scripts/android_devenv.sh && make dist_linux dist_android AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
                         '''
-                        sh 'rm -rf ./build/artifacts'
-                        sh 'mkdir -p ./build/artifacts'
                         sh 'cp ./build/dist/linux/avscore.tar.bz2 ./build/artifacts/avs.linux.' + version + '.tar.bz2'
                         sh 'zip -9j ./build/artifacts/avs.android.' + version + '.zip ./build/dist/android/avs.aar'
                         sh 'zip -9j ./build/artifacts/zcall_linux_' + version + '.zip ./zcall'
