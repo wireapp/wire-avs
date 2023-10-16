@@ -1650,8 +1650,7 @@ function sdpCbrMap(sdp: string): string {
 	else if (sdpLine.startsWith('a=ssrc-group:')) {
 	        outline = null;
 	}
-      
-	if (outline != null) {
+        if (outline != null) {
             sdpLines.push(outline);
 	}
     });
