@@ -205,7 +205,7 @@ pipeline {
                         """
                     )
                 }
-            }
+            } 
         }
         stage('Upload to Github') {
             when {
