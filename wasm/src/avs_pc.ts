@@ -73,9 +73,6 @@ interface PeerConnection {
   iva: Uint8Array;
   ivv: Uint8Array;
   streams: {[ssrc: string]: string};
-
-  insertable_legacy: boolean;
-  insertable_streams: boolean;
 }
 
 const ENV_FIREFOX = 1;
@@ -85,6 +82,9 @@ let logFn: WcallLogHandler | null = null;
 let userMediaHandler: UserMediaHandler | null = null;
 let audioStreamHandler: AudioStreamHandler | null = null;
 let videoStreamHandler: VideoStreamHandler | null = null;
+let insertableLegacy: boolean = false;
+let insertableStreams: boolean = false;
+
 let pc_env = 0;
 let pc_envver = 0;
 let worker: Worker;
@@ -1289,6 +1289,8 @@ function dataChannelHandler(pc: PeerConnection, event: RTCDataChannelEvent) {
 }
 
 function pc_SetEnv(env: number) {
+
+    pc_log(LOG_LEVEL_INFO, `setEnv=${env}`);
     pc_env = env;
 }
 
@@ -1322,8 +1324,6 @@ function pc_New(self: number, convidPtr: number,
     users: {},
     iva: iva8,
     ivv: ivv8,
-    insertable_legacy: false,
-    insertable_streams: false,
     stats: {
       ploss: 0,
       lastploss: 0,
@@ -1352,18 +1352,6 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
   }
 
   pc.conv_type = conv_type;
-
-  if (pc_env == ENV_FIREFOX) {
-      pc.insertable_streams = "transform" in RTCRtpSender.prototype;
-      pc_log(LOG_LEVEL_INFO, `Firefox: insertable: ${pc.insertable_streams}`);
-  }
-  else {
-      const pt : any = RTCRtpSender.prototype;  
-      pc.insertable_legacy = !!pt.createEncodedVideoStreams;
-      pc.insertable_streams = !!pt.createEncodedStreams;
-      pc_log(LOG_LEVEL_INFO, `insertable: ${pc.insertable_legacy}/${pc.insertable_streams}`);
-  }
-
   
   const transportPolicy = privacy !== 0 ? "relay" : "all";
 
@@ -1685,7 +1673,7 @@ function setupSenderTransform(pc: PeerConnection, sender: any) {
      return;
   }
 
-  if (!pc.insertable_legacy && !pc.insertable_streams) {
+  if (!insertableLegacy && !insertableStreams) {
       pc_log(LOG_LEVEL_WARN, "setupSenderTransform: insertable streams not supported");
       return;
   }  
@@ -1698,7 +1686,7 @@ function setupSenderTransform(pc: PeerConnection, sender: any) {
   const mtype = sender.track.kind === 'video' ? 1 : 0; // corresponds to enum frame_media_type
   let senderStreams = null;
 
-  if (pc.insertable_streams)
+  if (insertableStreams)
      senderStreams = sender.createEncodedStreams();
   else
      senderStreams = mtype === 1 ? sender.createEncodedVideoStreams() : sender.createEncodedAudioStreams();
@@ -1723,7 +1711,7 @@ function setupReceiverTransform(pc: PeerConnection, receiver: any) {
       return;
   }
 
-  if (!pc.insertable_legacy && !pc.insertable_streams) {
+  if (!insertableLegacy && !insertableStreams) {
       pc_log(LOG_LEVEL_WARN, "setupReceiverTransform: insertable streams not supported");
       return;
   }
@@ -1735,7 +1723,7 @@ function setupReceiverTransform(pc: PeerConnection, receiver: any) {
 
   const mtype = receiver.track.kind === 'video' ? 1 : 0 // corresponds to enum frame_media_type
   let receiverStreams = null;
-  if (pc.insertable_streams)
+  if (insertableStreams)
     receiverStreams = receiver.createEncodedStreams();
   else  
     receiverStreams =  mtype === 1 ? receiver.createEncodedVideoStreams() : receiver.createEncodedAudioStreams();
@@ -2279,7 +2267,14 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
   createWorker();
   em_module = module;
   logFn = logh;
-    
+
+  const pt : any = RTCRtpSender.prototype;  
+
+  insertableStreams = !!pt.createEncodedStreams || "transform" in pt;
+  insertableLegacy = !!pt.createEncodedVideoStreams;
+        
+  pc_log(LOG_LEVEL_INFO, `insertable: ${insertableLegacy}/${insertableStreams}`);
+
   const callbacks = [
     [pc_SetEnv, "vi"],
     [pc_New, "iiiiii"],
@@ -2322,6 +2317,10 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
 
 function pc_SetUserMediaHandler(umh: UserMediaHandler) {
   userMediaHandler = umh;
+}
+
+function pc_IsConferenceCallingSupported() {
+  return insertableStreams || insertableLegacy;
 }
 
 function pc_SetAudioStreamHandler(ash: AudioStreamHandler) {
@@ -2485,6 +2484,7 @@ export default {
   setUserMediaHandler: pc_SetUserMediaHandler,
   setAudioStreamHandler: pc_SetAudioStreamHandler,
   setVideoStreamHandler: pc_SetVideoStreamHandler,
+  isConferenceCallingSupported: pc_IsConferenceCallingSupported,
   replaceTrack: pc_ReplaceTrack,
   getStats: pc_GetStats
 };
