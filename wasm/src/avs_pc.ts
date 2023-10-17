@@ -1,7 +1,8 @@
 /*eslint-disable sort-keys, no-console */
 import {WcallLogHandler} from "./avs_wcall";
 
-declare var RTCRtpScriptTransform: any
+declare var RTCRtpSender: any;
+declare var RTCRtpScriptTransform: any;
 
 export type UserMediaHandler = (
   convid: string,
