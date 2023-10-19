@@ -1019,9 +1019,10 @@ static void ecall_quality_handler(struct icall *icall,
 		return;
 
 	tdiff = tmr_jiffies() - ccall->last_ping;
-	if (ccall->last_ping > 0)
-		downloss = tdiff > 7000 ? 30 :
-			   tdiff > 4000 ? 10 : downloss;
+	if (ccall->expected_ping >= CCALL_QUALITY_POOR_MISSING)
+		downloss = 30;
+	else if (ccall->expected_ping > CCALL_QUALITY_MEDIUM_MISSING)
+		downloss = 10;
 
 	info("ccall(%p): ecall_quality_handler rtt=%d up=%d dn=%d "
 	     "ping=%u pdiff=%llu\n",
