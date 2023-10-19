@@ -3108,9 +3108,9 @@ static void quality_handler(void *arg)
 			      &ecall->icall, 
 			      ecall->userid_peer,
 			      ecall->clientid_peer,
-			      stats.rtt,
-			      stats.dloss,
-			      0.0f,
+			      (int)stats.rtt,
+			      (int)stats.dloss,
+			      (int)stats.dloss,
 			      ecall->icall.arg);
 	}
 }
