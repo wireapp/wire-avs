@@ -197,8 +197,11 @@ public class VideoCapturer implements ImageAnalysis.Analyzer {
 	
 	private void initCamera(int facing, int w, int h, int fps) {
 
-		this.w = w;
-		this.h = h;
+		/* Android's camera is 90 degrees rotated, 
+		 * thus requires the width and height to be reversed
+		 */
+		this.w = h;
+		this.h = w;
 		this.fps = fps;
 
 		if (facing == VideoCapturerInfo.FACING_BACK)

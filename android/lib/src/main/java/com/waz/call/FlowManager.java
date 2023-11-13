@@ -460,7 +460,8 @@ public class FlowManager
 		
 		this.videoCapturer = new VideoCapturer(this.context,
 						       defaultFacing,
-						       CAPTURE_WIDTH, CAPTURE_HEIGHT,
+						       CAPTURE_WIDTH,
+						       CAPTURE_HEIGHT,
 						       CAPTURE_FPS);
 		this.videoCapturer.setCallback(this);
 
