@@ -240,7 +240,7 @@ int mm_android_jni_init(JNIEnv *env, jobject jobj, jobject ctx)
         goto out;
     }
     
-    info("jni attach env = %p \n", env);
+    info("jni attach env = %p\n", env);
     
     cls = (*env)->GetObjectClass(env, jobj);
     if (cls == NULL) {
@@ -687,18 +687,12 @@ int mm_platform_enable_bt_sco(void)
 {
     debug("mm: mm_platform_enable_bt_sco() \n");
 
-    tmr_start(&java.tmr_delay, 1000, enable_bt_handler, NULL);
+    enable_bt_handler(NULL);
+
+    /* Moved timer to Android Java code */
+    //tmr_start(&java.tmr_delay, 1000, enable_bt_handler, NULL);
 
     return 0;
-
-#if 0
-    // Android Hack wait 500 ms otherwise we will turn on too early if the BT device was just connected
-    struct timespec t;
-    t.tv_sec = 0;
-    t.tv_nsec = 500 * 1000 * 1000;
-    nanosleep(&t, NULL);
-#endif
-    
 }
 
 void mm_android_jni_on_playback_route_changed(enum mediamgr_auplay new_route, void *arg){
