@@ -36,8 +36,7 @@ void kcall_set_local_user(const char *userid, const char *clientid);
 void kcall_set_user_vidstate(const char *convid,
 			     const char *userid,
 			     const char *clientid,
-			     int state,
-			     void *arg);
+			     int state);
 
 void kcall_show_mute(bool muted);
 

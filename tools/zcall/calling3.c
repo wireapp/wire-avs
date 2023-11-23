@@ -368,8 +368,7 @@ static void wcall_vidstate_handler(const char *convid,
 	kcall_set_user_vidstate(convid,
 				userid,
 				clientid,
-				state,
-				arg);
+				state);
 }
 
 

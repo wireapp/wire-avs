@@ -148,10 +148,8 @@ AVS_EXPORT
 void kcall_set_user_vidstate(const char *convid,
 			     const char *userid,
 			     const char *clientid,
-			     int state,
-			     void *arg)
+			     int state)
 {
-
 	if (_view) {
 		_view->vidstate_changed(convid, userid, clientid, state);
 	}
