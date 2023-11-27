@@ -54,8 +54,7 @@ import android.os.Process;
 import android.util.Log;
 
 public class AudioRouter
-	extends AudioDeviceCallback
-	implements AudioManager.OnCommunicationDeviceChangedListener {
+	extends AudioDeviceCallback {
   private Context _context = null;
   private long _nativeMM = 0;
   private AudioManager _audio_manager = null;
@@ -105,7 +104,21 @@ public class AudioRouter
 	    public void execute(Runnable r) {
 		    handler.post(r);
 	    }
-    }   	
+    }
+
+    public class DeviceChangedListener implements AudioManager.OnCommunicationDeviceChangedListener {
+	    private AudioRouter router;
+	    
+	    DeviceChangedListener(AudioRouter router) {
+		    this.router = router;
+	    }
+
+	    @Override
+	    public void onCommunicationDeviceChanged(AudioDeviceInfo device) {
+		    DoLog("onCommunicationDeviceChanged: dev=" + device.getType());
+		    this.router.UpdateRoute();
+	    }
+    }
 
     private MainThreadExecutor executor;
 	
@@ -658,15 +671,10 @@ public class AudioRouter
 
 	  DoLog("running in API31 mode, subscribing to communication device changes");
 
-	  _audio_manager.addOnCommunicationDeviceChangedListener(this.executor, this);
+	  _audio_manager.addOnCommunicationDeviceChangedListener(this.executor, new DeviceChangedListener(this));
 	  _audio_manager.registerAudioDeviceCallback(this, null);
   }
 
-  @Override
-  public void onCommunicationDeviceChanged(AudioDeviceInfo device) {
-	  DoLog("onCommunicationDeviceChanged: dev=" + device.getType());
-	  UpdateRoute();
-  }
 
   private void registerForWiredHeadsetIntentBroadcast() {
 	  Context context = this._context;
