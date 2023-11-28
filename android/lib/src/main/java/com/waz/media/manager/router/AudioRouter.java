@@ -675,12 +675,6 @@ public class AudioRouter
 	  _audio_manager.registerAudioDeviceCallback(this, null);
   }
 
-  @Override
-  public void onCommunicationDeviceChanged(AudioDeviceInfo device) {
-	  DoLog("onCommunicationDeviceChanged: dev=" + device.getType());
-	  UpdateRoute();
-  }
-
   private void registerForWiredHeadsetIntentBroadcast() {
 	  Context context = this._context;
         
