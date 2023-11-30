@@ -2,6 +2,7 @@ Changes introduced in AVS 9.4
 =============================
 
 Added new API call:
+
 int wcall_process_notifications(WUSER_HANDLE wuser, bool processing);
 
 This API call allows clients to notify AVS about the fact that they are
