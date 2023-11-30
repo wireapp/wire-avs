@@ -33,13 +33,10 @@ $ brew install \
   jq \
   libsodium \
   libtool \
-  multirust \
+  rust \
   pkg-config \
   protobuf-c \
-  readline \
-  sdl \
-  yasm
-$ multirust default nightly
+  readline
 ```
 
 For **Android**, you need both the
