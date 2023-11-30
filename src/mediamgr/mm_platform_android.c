@@ -169,12 +169,12 @@ static void jni_detach(struct jni_env *je)
     }
 }
 
-bool mm_android_jni_java_get_initialized()
+bool mm_android_jni_java_get_initialized(void)
 {
     return java.initialized;
 }
 
-jfieldID mm_android_jni_java_get_fid()
+jfieldID mm_android_jni_java_get_fid(void)
 {
     return java.mmfid;
 }
