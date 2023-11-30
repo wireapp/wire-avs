@@ -7,7 +7,7 @@
 # This will place the SDKs in $WORKSPACE/devtools
 #
 
-if [ "$WORKSPACE" == "" ]; then
+if [ "$WORKSPACE" = "" ]; then
 	AVS_DEVTOOLS_ROOT=devtools
 else
 	AVS_DEVTOOLS_ROOT=$WORKSPACE/devtools
