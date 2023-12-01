@@ -47,6 +47,10 @@ export class Wcall {
     avs_pc.setVideoStreamHandler(videoStreamHandler);
   }
 
+  isConferenceCallingSupported() : boolean {
+    return avs_pc.isConferenceCallingSupported();
+  }
+
   replaceTrack(convid: string, newTrack: MediaStreamTrack): void {
     avs_pc.replaceTrack(convid, newTrack);
   }

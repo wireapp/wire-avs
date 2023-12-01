@@ -209,6 +209,8 @@ static bool wcall_has_calls(void);
 
 static void call_group_change_json(struct calling_instance *inst,
 				   struct wcall *wcall);
+static bool find_pending_event(struct list *eventl, const char *convid);
+
 
 
 struct calling_instance *wuser2inst(WUSER_HANDLE wuser)
@@ -1108,6 +1110,7 @@ static void icall_close_handler(struct icall *icall, int err,
 {
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
+	bool ignore_close = false;
 	int reason;
 
 	if (!WCALL_VALID(wcall)) {
@@ -1137,7 +1140,11 @@ static void icall_close_handler(struct icall *icall, int err,
 		userid = inst->userid;
 	}
 	set_state(wcall, WCALL_STATE_NONE);
-	if (!inst->processing_notifications && inst->closeh) {
+	if (inst->processing_notifications) {
+		if (find_pending_event(&inst->pending_eventl, wcall->convid))
+			ignore_close = true;
+	}
+	if (!ignore_close && inst->closeh) {
 		uint64_t now = tmr_jiffies();
 		inst->closeh(reason, wcall->convid,
 			     msg_time, userid, clientid, inst->arg);
@@ -1928,6 +1935,20 @@ void wcall_set_media_laddr(WUSER_HANDLE wuser, struct sa *laddr)
 	}
 	sa_cpy(maddr, laddr);
 	inst->media_laddr = maddr;
+}
+
+static bool find_pending_event(struct list *eventl, const char *convid)
+{
+	bool found = false;
+	struct le *le;
+
+	for(le = eventl->head; !found && le; le = le->next) {
+		struct incoming_event *ie = le->data;
+
+		found = streq(convid, ie->convid);
+	}
+
+	return found;
 }
 
 static void handle_pending_events(struct list *eventl)

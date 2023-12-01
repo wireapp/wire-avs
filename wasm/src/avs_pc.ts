@@ -1,6 +1,9 @@
 /*eslint-disable sort-keys, no-console */
 import {WcallLogHandler} from "./avs_wcall";
- 
+
+declare var RTCRtpSender: any;
+declare var RTCRtpScriptTransform: any;
+
 export type UserMediaHandler = (
   convid: string,
   useAudio: boolean,
@@ -71,9 +74,6 @@ interface PeerConnection {
   iva: Uint8Array;
   ivv: Uint8Array;
   streams: {[ssrc: string]: string};
-
-  insertable_legacy: boolean;
-  insertable_streams: boolean;
 }
 
 const ENV_FIREFOX = 1;
@@ -83,6 +83,9 @@ let logFn: WcallLogHandler | null = null;
 let userMediaHandler: UserMediaHandler | null = null;
 let audioStreamHandler: AudioStreamHandler | null = null;
 let videoStreamHandler: VideoStreamHandler | null = null;
+let insertableLegacy: boolean = false;
+let insertableStreams: boolean = false;
+
 let pc_env = 0;
 let pc_envver = 0;
 let worker: Worker;
@@ -390,7 +393,7 @@ function encryptFrame(coder, rtcFrame, controller) {
   });
 }
 
-function decryptFrame(coder, rtcFrame, controller) {
+function decryptFrame(track_id, coder, rtcFrame, controller) {
   const dataBuf = rtcFrame.data;
   const data = new Uint8Array(dataBuf);
 
@@ -439,7 +442,7 @@ function decryptFrame(coder, rtcFrame, controller) {
 
   if (isVideo && uinfo.transp_ssrcv != ssrc) {
       doLog("frame_dec: decrypt: first frame received type: video uid: " +
-            uinfo.userid.substring(0,8) + " fid: " + frameHdr.frameId + " csrc: " + csrc);
+            uinfo.userid.substring(0,8) + " fid: " + frameHdr.frameId + " csrc: " + csrc + " ssrc: " + ssrc + " uinfo.ssrcv: " + uinfo.ssrcv);
       uinfo.first_succ_video = false;
 
       /* Only call videoStreamHandler for selective video */
@@ -452,6 +455,7 @@ function decryptFrame(coder, rtcFrame, controller) {
                       userid: u.userid,
                       clientid: u.clientid,
                       ssrc: "0",
+		      track_id: "0",
                   });
                   u.transp_ssrcv = null;
               }
@@ -463,6 +467,7 @@ function decryptFrame(coder, rtcFrame, controller) {
               userid: uinfo.userid,
               clientid: uinfo.clientid,
               ssrc: ssrc,
+	      track_id: track_id,
           });
       }
       uinfo.transp_ssrcv = ssrc;
@@ -533,6 +538,45 @@ function decryptFrame(coder, rtcFrame, controller) {
   });
 }
 
+function setupSender(readableStream, writableStream, coder) {
+	const transformStream = new TransformStream({
+	    transform: (frame, controller) => {encryptFrame(coder, frame, controller);},
+	});
+	readableStream
+          .pipeThrough(transformStream)
+          .pipeTo(writableStream);
+}
+
+function setupReceiver(readableStream, writableStream, coder, track_id) {
+       const transformStream = new TransformStream({
+	   transform: (frame, controller) => {decryptFrame(track_id, coder, frame, controller);},
+       });
+       readableStream
+         .pipeThrough(transformStream)
+         .pipeTo(writableStream); 
+}
+
+
+onrtctransform = (event) => {
+    let transform;
+    const writableStream = event.transformer.writable;
+    const readableStream = event.transformer.readable;
+    const coder = coders[event.transformer.options.self];
+
+    if (!writableStream) {
+       pc_log(LOG_LEVEL_WARN, "onrtctransform: no writable stream");
+       return;
+    }
+    if (event.transformer.options.name === "senderTransform")
+      setupSender(readableStream, writableStream, coder);
+    else if (event.transformer.options.name === 'receiverTransform') {
+      const track_id = event.transformer.options.track_id;
+      doLog("onrtctransform: receiver trackid=" + track_id);
+      setupReceiver(readableStream, writableStream, coder, track_id);
+    }
+};
+
+
 onmessage = async (event) => {
     const {op, self} = event.data;
     doLog('AVS worker op=' + op + ' self=' + self);
@@ -590,12 +634,7 @@ onmessage = async (event) => {
     else if (op === 'setupSender') {
 	const {readableStream, writableStream} = event.data;
 
-	const transformStream = new TransformStream({
-	    transform: (frame, controller) => {encryptFrame(coder, frame, controller);},
-	});
-	readableStream
-          .pipeThrough(transformStream)
-            .pipeTo(writableStream);
+	setupSender(readableStream, writableStream, coder);
     }
     else if (op === 'setupReceiver') {
        const {readableStream, writableStream} = event.data;
@@ -605,12 +644,7 @@ onmessage = async (event) => {
            return;
        }
 
-       const transformStream = new TransformStream({
-	   transform: (frame, controller) => {decryptFrame(coder, frame, controller);},
-       });
-       readableStream
-        .pipeThrough(transformStream)
-        .pipeTo(writableStream);       
+       setupReceiver(readableStream, writableStream, coder, null);
    }
    else if (op === 'setMediaKey') {
        const {index, current, key} = event.data;
@@ -653,8 +687,10 @@ onmessage = async (event) => {
 function callStreamHandler(pc: PeerConnection,
                            userid: string,
                            clientid: string,
-                           ssrc: string) {
+                           ssrc: string,
+			   track_id: string) {
 
+  pc_log(LOG_LEVEL_INFO, `vsh: ${videoStreamHandler} rtc: ${pc.rtc} ssrc: ${ssrc}`);
   if (ssrc == "0") {
     if (videoStreamHandler) {
       pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) to remove renderer`);
@@ -665,19 +701,43 @@ function callStreamHandler(pc: PeerConnection,
     }
   }
   else if (pc.rtc) {
-    const label = pc.streams[ssrc];
-    pc.rtc.getTransceivers().forEach(trans => {
-      if (trans.receiver.track.label === label) {
-        let stream = new MediaStream([trans.receiver.track]);
-        if (videoStreamHandler) {
-          pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) with 1 stream`);
-          videoStreamHandler(pc.convid,
-                      userid,
-                      clientid,
-                      [stream]);
+    if (pc_env === ENV_FIREFOX) {
+      pc.rtc.getTransceivers().forEach(trans => {
+        const track = trans.receiver.track;
+
+	if (track.kind != 'video')
+	  return;
+	  
+        pc_log(LOG_LEVEL_INFO, `vsh: id:${track.id} looking for: ${track_id}`);
+        if (track.id === track_id) {
+          let stream = new MediaStream([trans.receiver.track]);
+          if (videoStreamHandler) {
+            pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) with 1 stream`);
+            videoStreamHandler(pc.convid,
+                               userid,
+                               clientid,
+                               [stream]);
+          }
         }
-      }
-    });
+      });
+    }
+    else {
+      const label = pc.streams[ssrc];
+      pc.rtc.getTransceivers().forEach(trans => {
+        const track = trans.receiver.track;
+        pc_log(LOG_LEVEL_INFO, `vsh: label:${track.label} id:${track.id} looking for: ${label}`);
+        if (trans.receiver.track.label === label) {
+          let stream = new MediaStream([trans.receiver.track]);
+          if (videoStreamHandler) {
+            pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) with 1 stream`);
+            videoStreamHandler(pc.convid,
+                               userid,
+                               clientid,
+                               [stream]);
+          }
+        }
+      });
+    }
   }
 }
 
@@ -702,11 +762,13 @@ function createWorker() {
       pc_log(level, logString);
     }
     else if (op === 'setvstream') {
-      const {userid, clientid, ssrc} = event.data;
+      const {userid, clientid, ssrc, track_id} = event.data;
+      pc_log(LOG_LEVEL_INFO, "setvstream: called");
       let pcs = connectionsStore.getPeerConnectionBySelf(self);
 
       if (pcs.length == 1) {
-        callStreamHandler(pcs[0], userid, clientid, ssrc);
+        pc_log(LOG_LEVEL_INFO, `setvstream: calling videoStreamHandler: pc=${pcs[0]}, ${userid}/${clientid} ssrc=${ssrc}`);
+        callStreamHandler(pcs[0], userid, clientid, ssrc, track_id);
       }
     }
   }
@@ -1228,6 +1290,8 @@ function dataChannelHandler(pc: PeerConnection, event: RTCDataChannelEvent) {
 }
 
 function pc_SetEnv(env: number) {
+
+    pc_log(LOG_LEVEL_INFO, `setEnv=${env}`);
     pc_env = env;
 }
 
@@ -1261,8 +1325,6 @@ function pc_New(self: number, convidPtr: number,
     users: {},
     iva: iva8,
     ivv: ivv8,
-    insertable_legacy: false,
-    insertable_streams: false,
     stats: {
       ploss: 0,
       lastploss: 0,
@@ -1291,12 +1353,6 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
   }
 
   pc.conv_type = conv_type;
-
-  const pt : any = RTCRtpSender.prototype;  
-  pc.insertable_legacy = !!pt.createEncodedVideoStreams;
-  pc.insertable_streams = !!pt.createEncodedStreams;
-
-  pc_log(LOG_LEVEL_INFO, `insertable: ${pc.insertable_legacy}/${pc.insertable_streams}`);
   
   const transportPolicy = privacy !== 0 ? "relay" : "all";
 
@@ -1336,8 +1392,11 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
 	      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid.substring(0,8)} stream=${stream}`);
 	      for (const track of stream.getTracks()) {
 		  if (track) {
-		      label = track.label;
-		      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid.substring(0,8)} track=${track.id}/${track.label} kind=${track.kind} enabled=${track.enabled}/${track.muted}/undefined/${track.readyState} remote=undefined`);
+		      if (pc_env === ENV_FIREFOX)
+		        label = track.id;
+	 	      else 
+		        label = track.label;
+		      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid.substring(0,8)} track=${track.id}/${track.label}=>${label} kind=${track.kind} enabled=${track.enabled}/${track.muted}/undefined/${track.readyState} remote=undefined`);
 		      if (!track.enabled)
 		       	track.enabled = true;
 
@@ -1396,7 +1455,11 @@ function pc_Close(hnd: number) {
     pc.rtc.getTransceivers().forEach(trans => {
       const track = trans.receiver.track;
       if (track && track.kind === "audio") {
-        const label = track.label;
+        let label: String = '';
+	if (pc_env == ENV_FIREFOX)
+	  label = track.id;
+	else
+          label = track.label;
         if (audioStreamHandler && pc.rtc) {
           pc_log(LOG_LEVEL_INFO, `pc_Close: calling ash(${pc.convid.substring(0,8)}, ${label}) with 0 streams`);
           audioStreamHandler(pc.convid, hnd.toString() + label, null);
@@ -1573,8 +1636,10 @@ function sdpCbrMap(sdp: string): string {
 	if(sdpLine.endsWith('sprop-stereo=0;useinbandfec=1')) {
 		outline = sdpLine + ";cbr=1";
 	}
-      
-	if (outline != null) {
+	else if (sdpLine.startsWith('a=ssrc-group:')) {
+	        outline = null;
+	}
+        if (outline != null) {
             sdpLines.push(outline);
 	}
     });
@@ -1609,15 +1674,20 @@ function setupSenderTransform(pc: PeerConnection, sender: any) {
      return;
   }
 
-  if (!pc.insertable_legacy && !pc.insertable_streams) {
+  if (!insertableLegacy && !insertableStreams) {
       pc_log(LOG_LEVEL_WARN, "setupSenderTransform: insertable streams not supported");
       return;
   }  
 
+  if (pc_env === ENV_FIREFOX) {
+     sender.transform = new RTCRtpScriptTransform(worker, { name: "senderTransform", self: pc.self });
+     return;
+  }
+
   const mtype = sender.track.kind === 'video' ? 1 : 0; // corresponds to enum frame_media_type
   let senderStreams = null;
 
-  if (pc.insertable_streams)
+  if (insertableStreams)
      senderStreams = sender.createEncodedStreams();
   else
      senderStreams = mtype === 1 ? sender.createEncodedVideoStreams() : sender.createEncodedAudioStreams();
@@ -1642,14 +1712,19 @@ function setupReceiverTransform(pc: PeerConnection, receiver: any) {
       return;
   }
 
-  if (!pc.insertable_legacy && !pc.insertable_streams) {
+  if (!insertableLegacy && !insertableStreams) {
       pc_log(LOG_LEVEL_WARN, "setupReceiverTransform: insertable streams not supported");
       return;
   }
 
+  if (pc_env == ENV_FIREFOX) {
+     receiver.transform = new RTCRtpScriptTransform(worker, { name: "receiverTransform", self: pc.self, track_id: receiver.track.id });
+     return;
+  }
+
   const mtype = receiver.track.kind === 'video' ? 1 : 0 // corresponds to enum frame_media_type
   let receiverStreams = null;
-  if (pc.insertable_streams)
+  if (insertableStreams)
     receiverStreams = receiver.createEncodedStreams();
   else  
     receiverStreams =  mtype === 1 ? receiver.createEncodedVideoStreams() : receiver.createEncodedAudioStreams();
@@ -1901,7 +1976,8 @@ function pc_SetRemoteDescription(hnd: number, typePtr: number, sdpPtr: number) {
       pc_log(LOG_LEVEL_WARN, "setRemoteDescription failed: " + err, err);
     });
 
-  extractSSRCs(pc, sdp);
+  if (pc_env != ENV_FIREFOX)
+    extractSSRCs(pc, sdp);
 }
 
 function pc_SetLocalDescription(hnd: number, typePtr: number, sdpPtr: number) {
@@ -2192,7 +2268,14 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
   createWorker();
   em_module = module;
   logFn = logh;
-    
+
+  const pt : any = RTCRtpSender.prototype;  
+
+  insertableStreams = !!pt.createEncodedStreams || "transform" in pt;
+  insertableLegacy = !!pt.createEncodedVideoStreams;
+        
+  pc_log(LOG_LEVEL_INFO, `insertable: ${insertableLegacy}/${insertableStreams}`);
+
   const callbacks = [
     [pc_SetEnv, "vi"],
     [pc_New, "iiiiii"],
@@ -2235,6 +2318,10 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
 
 function pc_SetUserMediaHandler(umh: UserMediaHandler) {
   userMediaHandler = umh;
+}
+
+function pc_IsConferenceCallingSupported() {
+  return insertableStreams || insertableLegacy;
 }
 
 function pc_SetAudioStreamHandler(ash: AudioStreamHandler) {
@@ -2398,6 +2485,7 @@ export default {
   setUserMediaHandler: pc_SetUserMediaHandler,
   setAudioStreamHandler: pc_SetAudioStreamHandler,
   setVideoStreamHandler: pc_SetVideoStreamHandler,
+  isConferenceCallingSupported: pc_IsConferenceCallingSupported,
   replaceTrack: pc_ReplaceTrack,
   getStats: pc_GetStats
 };

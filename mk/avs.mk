@@ -130,7 +130,8 @@ AVS_CPPFLAGS += \
 	-Iinclude \
 	-Werror \
 	-Wno-unknown-attributes \
-	-Wno-deprecated-declarations
+	-Wno-deprecated-declarations \
+	-Wno-deprecated
 
 ifneq ($(HAVE_PROTOBUF),)
 AVS_CPPFLAGS += -DHAVE_PROTOBUF=1

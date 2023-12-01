@@ -78,7 +78,8 @@ static int alloc_message(struct econn_message **msgp,
 static int  ccall_req_cfg_join(struct ccall *ccall,
 			       enum icall_call_type call_type,
 			       bool audio_cbr,
-			       bool retry_attempt);
+			       bool retry_attempt,
+			       bool is_outgoing);
 
 static int copy_sft(char **pdst, const char* src)
 {
@@ -218,6 +219,12 @@ const char *ccall_state_name(enum ccall_state state)
 		case CCALL_STATE_TERMINATING:
 			return "CCALL_STATE_TERMINATING";
 
+		case CCALL_STATE_WAITCONFIG:
+			return "CCALL_STATE_WAITCONFIG";
+
+		case CCALL_STATE_WAITCONFIG_OUTGOING:
+			return "CCALL_STATE_WAITCONFIG_OUTGOING";
+
 		default:
 			return "???";
 	}
@@ -269,12 +276,32 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		tmr_cancel(&ccall->tmr_alone);
 		break;
 
-	case CCALL_STATE_CONNSENT:
+	case CCALL_STATE_WAITCONFIG:
+	case CCALL_STATE_WAITCONFIG_OUTGOING:
+		ccall->sft_url = mem_deref(ccall->sft_url);
+		userlist_reset_keygenerator(ccall->userl);
 		ccall->received_confpart = false;
-		tmr_cancel(&ccall->tmr_ring);
+		keystore_reset_keys(ccall->keystore);
+		tmr_cancel(&ccall->tmr_rotate_key);
+		tmr_cancel(&ccall->tmr_rotate_mls);
 		tmr_cancel(&ccall->tmr_send_check);
 		tmr_start(&ccall->tmr_connect, CCALL_CONNECT_TIMEOUT,
 			  ccall_connect_timeout, ccall);
+		tmr_cancel(&ccall->tmr_decrypt_check);
+		tmr_cancel(&ccall->tmr_keepalive);
+		tmr_cancel(&ccall->tmr_alone);
+		tmr_cancel(&ccall->tmr_ring);
+		break;
+
+	case CCALL_STATE_CONNSENT:
+		ccall->received_confpart = false;
+		keystore_reset_keys(ccall->keystore);
+		tmr_cancel(&ccall->tmr_rotate_key);
+		tmr_cancel(&ccall->tmr_rotate_mls);
+		tmr_cancel(&ccall->tmr_send_check);
+		tmr_start(&ccall->tmr_connect, CCALL_CONNECT_TIMEOUT,
+			  ccall_connect_timeout, ccall);
+		tmr_cancel(&ccall->tmr_decrypt_check);
 		tmr_cancel(&ccall->tmr_keepalive);
 		tmr_cancel(&ccall->tmr_alone);
 		break;
@@ -1019,9 +1046,10 @@ static void ecall_quality_handler(struct icall *icall,
 		return;
 
 	tdiff = tmr_jiffies() - ccall->last_ping;
-	if (ccall->last_ping > 0)
-		downloss = tdiff > 7000 ? 30 :
-			   tdiff > 4000 ? 10 : downloss;
+	if (ccall->expected_ping >= CCALL_QUALITY_POOR_MISSING)
+		downloss = 30;
+	else if (ccall->expected_ping > CCALL_QUALITY_MEDIUM_MISSING)
+		downloss = 10;
 
 	info("ccall(%p): ecall_quality_handler rtt=%d up=%d dn=%d "
 	     "ping=%u pdiff=%llu\n",
@@ -2518,19 +2546,15 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		goto out;
 	}
 
-	switch (ccall->state) {
-	case CCALL_STATE_IDLE:
-	case CCALL_STATE_INCOMING:
-		break;
-		
-	default:
+	if (CCALL_STATE_WAITCONFIG != ccall->state &&
+	    CCALL_STATE_WAITCONFIG_OUTGOING != ccall->state) {
 		warning("ccall(%p): cfg_update in state %s, ignoring\n",
 			ccall, ccall_state_name(ccall->state));
 		goto out;
 	}
 
 	/* Prefer connecting to an already active sft */
-	if (CCALL_STATE_INCOMING == state) {
+	if (CCALL_STATE_WAITCONFIG == state) {
 		if (list_count(&ccall->sftl) > 0) {
 			uint32_t connected = 0;
 
@@ -2603,7 +2627,8 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 				err = ccall_req_cfg_join(ccall,
 							 je->call_type,
 							 je->audio_cbr,
-							 true);
+							 true,
+							 CCALL_STATE_WAITCONFIG_OUTGOING == ccall->state);
 				if (err) {
 					warning("ccall(%p): cfg_update error retrying "
 						"config err=%d\n",
@@ -2669,10 +2694,17 @@ static void je_destructor(void *arg)
 static int  ccall_req_cfg_join(struct ccall *ccall,
 			       enum icall_call_type call_type,
 			       bool audio_cbr,
-			       bool retry_attempt)
+			       bool retry_attempt,
+			       bool is_outgoing)
 {
 	struct join_elem *je;
 	int err;
+
+	info("ccall(%p): req_cfg type %d retry %s outgoing %s\n",
+	     ccall,
+	     call_type,
+	     retry_attempt ? "YES" : "NO",
+	     is_outgoing ? "YES" : "NO");
 
 	je = mem_zalloc(sizeof(*je), je_destructor);
 	if (!je)
@@ -2682,6 +2714,8 @@ static int  ccall_req_cfg_join(struct ccall *ccall,
 		ccall->je = mem_deref(ccall->je);
 	}
 
+	set_state(ccall, is_outgoing ? CCALL_STATE_WAITCONFIG_OUTGOING :
+				       CCALL_STATE_WAITCONFIG);
 	ccall->je = je;
 
 	je->ccall = ccall;
@@ -2718,7 +2752,7 @@ int  ccall_start(struct icall *icall,
 
 	case CCALL_STATE_IDLE:
 		ccall->is_caller = true;
-		err = ccall_req_cfg_join(ccall, call_type, audio_cbr, false);
+		err = ccall_req_cfg_join(ccall, call_type, audio_cbr, false, true);
 		break;
 
 	default:
@@ -2747,7 +2781,7 @@ int  ccall_answer(struct icall *icall,
 	case CCALL_STATE_INCOMING:
 		ccall->is_caller = false;
 		ccall->stop_ringing_reason = CCALL_STOP_RINGING_ANSWERED;
-		err = ccall_req_cfg_join(ccall, call_type, audio_cbr, false);
+		err = ccall_req_cfg_join(ccall, call_type, audio_cbr, false, false);
 		break;
 
 	default:
@@ -3155,15 +3189,16 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 	case CCALL_STATE_SETUPRECV:
 	case CCALL_STATE_CONNECTING:
 	case CCALL_STATE_CONNECTED:
+	case CCALL_STATE_WAITCONFIG:
+	case CCALL_STATE_WAITCONFIG_OUTGOING:
 		if (ts_cmp > 0) {
 			/* If remote call is earlier, drop connection and
 			   reconnect to the earlier call */
 			ecall_end(ccall->ecall);
 			ccall->ecall = NULL;
 
-			set_state(ccall, CCALL_STATE_INCOMING);
 			stringlist_clone(sftl, &ccall->sftl);
-			return ccall_req_cfg_join(ccall, ccall->call_type, true, false);
+			return ccall_req_cfg_join(ccall, ccall->call_type, true, false, false);
 		}
 		break;
 
@@ -3174,9 +3209,8 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			ecall_end(ccall->ecall);
 			ccall->ecall = NULL;
 
-			set_state(ccall, CCALL_STATE_INCOMING);
 			stringlist_clone(sftl, &ccall->sftl);
-			return ccall_req_cfg_join(ccall, ccall->call_type, true, false);
+			return ccall_req_cfg_join(ccall, ccall->call_type, true, false, false);
 		}
 		else if (ts_cmp < 0 && userlist_is_keygenerator_me(ccall->userl)) {
 			/* If local call is earlier. send new CONFSTART to
@@ -3248,6 +3282,8 @@ int  ccall_msg_recv(struct icall* icall,
 			break;
 
 		default:
+			info("ccall(%p): msg_recv ignoring CONFEND "
+			     "due to state %s\n", ccall, ccall_state_name(ccall->state));
 			break;
 		}
 		break;
@@ -3655,6 +3691,8 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 
 	case CCALL_STATE_CONNSENT:
 	case CCALL_STATE_INCOMING:
+	case CCALL_STATE_WAITCONFIG:
+	case CCALL_STATE_WAITCONFIG_OUTGOING:
 		set_state(ccall, CCALL_STATE_IDLE);
 		ICALL_CALL_CB(ccall->icall, leaveh,
 			      &ccall->icall, reason,
