@@ -680,6 +680,7 @@ JNI_SUFFIX := .jnilib
 # Settings
 #
 CPPFLAGS += \
+         -arch $(AVS_ARCH) \
          -isysroot $(SDK_PATH) \
          -DWEBRTC_POSIX -DWEBRTC_MAC -DZETA_USING_AU_HAL -DHAVE_GAI_STRERROR=1 \
 	 -pipe -no-cpp-precomp \
