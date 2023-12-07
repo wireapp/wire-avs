@@ -468,9 +468,10 @@ public class FlowManager
 		if (this.previewView != null)
 			this.videoCapturer.startCapture(this.previewView);
 		
-		this.videoCapturer.setUIRotation(this.ui_rotation);
+		if (this.videoCapturer != null)
+			this.videoCapturer.setUIRotation(this.ui_rotation);
 
-		Log.d(TAG, "createCapturer: created");
+		Log.d(TAG, "createCapturer: created=" + this.videoCapturer);
 	}
 
 	private void releaseCapturer() {
