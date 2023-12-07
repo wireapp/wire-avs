@@ -472,6 +472,7 @@ public class FlowManager
 			this.videoCapturer.setUIRotation(this.ui_rotation);
 
 		Log.d(TAG, "createCapturer: created=" + this.videoCapturer);
+		
 	}
 
 	private void releaseCapturer() {
