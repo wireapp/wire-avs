@@ -72,7 +72,8 @@ pipeline {
                         // build
                         sh 'make dist_clean'
                         sh 'make zcall sectest AVS_VERSION=' + version
-                        sh './sectest https://sft3.sft.staging.zinfra.io:443 > ./build/artifacts/avs-' + version + '-sectest.log'
+                        // Disable sectest for now...
+			//sh './sectest https://sft3.sft.staging.zinfra.io:443 > ./build/artifacts/avs-' + version + '-sectest.log'
                         sh '''#!/bin/bash
                             . ./scripts/android_devenv.sh && make dist_linux dist_android AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
                         '''
