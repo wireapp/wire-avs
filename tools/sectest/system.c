@@ -22,7 +22,7 @@
 
 struct config *config = NULL;
 static struct msystem *msys = NULL;
-static const char *sft_url = NULL;
+static char *sft_url = NULL;
 
 static void msys_mute_handler(bool muted, void *arg)
 {
@@ -96,11 +96,20 @@ static void config_update_handler(struct call_config *cfg,
 {
 }
 
+void system_update_sft_url(const char *url)
+{
+	sft_url = mem_deref(sft_url);
+	str_dup(&sft_url, url);
+
+	config_req_handler(NULL);
+
+}
+
 int init_system(const char *sft)
 {
 	int err = 0;
 
-	sft_url = sft;
+	str_dup(&sft_url, sft);
 
 	err = libre_init();
 	if (err)
@@ -134,6 +143,13 @@ int init_system(const char *sft)
 	iflow_set_alloc(peerflow_alloc);
 out:
 	return err;
+}
+
+void shutdown_system(void)
+{
+	config = mem_deref(config);
+	msys = mem_deref(msys);
+	sft_url = mem_deref(sft_url);
 }
 
 static void signal_handler(int sig)

@@ -110,7 +110,7 @@ static void http_resp_handler(int err, const struct http_msg *msg,
 	const uint8_t *buf = NULL;
 	int sz = 0;
 
-	//printf("XXXX %s\n", __FUNCTION__);
+	//printf("ERR %s\n", __FUNCTION__);
 	//printf("sft_resp: done err %d, %d bytes to send\n",
 	//     err, ctx->mb_body ? (int)ctx->mb_body->end : 0);
 	if (err == ECONNABORTED)
@@ -152,7 +152,7 @@ static void http_resp_handler(int err, const struct http_msg *msg,
 			goto out;
 		}
 
-		//printf("XXXX %s %s message received\n", __FUNCTION__, econn_msg_name(econn_msg->msg_type));
+		//printf("ERR %s %s message received\n", __FUNCTION__, econn_msg_name(econn_msg->msg_type));
 	}
 
 	if(ctx->responseh) {
@@ -165,13 +165,13 @@ static void http_resp_handler(int err, const struct http_msg *msg,
 	if (err)
 		goto out;
 */
-	//printf("XXXX %s\n", buf);
+	//printf("ERR %s\n", buf);
 	//wcall_sft_resp(ctx->wuser, err,
 	//	       buf, sz,
 	//	       ctx->arg);
  out:
 	if (err)
-		printf("XXXX %s err=%d\n", __FUNCTION__, err);
+		printf("ERR %s err=%d\n", __FUNCTION__, err);
 	mem_deref(ctx);
 }
 
