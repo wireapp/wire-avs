@@ -426,6 +426,7 @@ int main(int argc, char *argv[])
 	TEST(test_mls_keysync);
 	TEST(test_mls_keysync_timeout);
 
+	shutdown_system();
 	printf("%d tests passed, %d tests failed\n", tests_passed, tests_failed);
 	return tests_failed == 0 ? 0 : -1;
 }

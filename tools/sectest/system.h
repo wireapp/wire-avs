@@ -21,8 +21,11 @@
 
 int init_system(const char *sft);
 void run_main_loop(void);
+void shutdown_system(void);
 
 struct config *system_get_config(void);
 
 const char *system_get_sft_url(void);
+
+void system_update_sft_url(const char *url);
 

@@ -228,7 +228,7 @@ static void ecall_confmsg_handler(struct ecall *ecall,
 
 out:
 	if (err)
-		printf("XXXX failed to handle confpart properly\n");
+		printf("ERR failed to handle confpart properly\n");
 	mem_deref(rmsg);
 	mem_deref(str);
 	//ICALL_CALL(wrapper->icall, end);
