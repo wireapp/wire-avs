@@ -22,6 +22,8 @@ xcuserdata
 xcshareddata
 zcontrib
 ztest
+sectest
+devtools
 BUILDCONTROL.local
 artifacts
 version.buildinfo
@@ -41,6 +43,7 @@ test/data/out2.pcm
 test/data/rtp.dat
 
 android/java/org/
+android/lib/build/
 
 src/protobuf/proto/
 

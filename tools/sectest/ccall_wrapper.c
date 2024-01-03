@@ -50,6 +50,10 @@ static int ccall_send_handler(struct icall *icall,
 	//printf("%s: %s send %s(%s) message\n", __FUNCTION__, wrapper->name,
 	//       econn_msg_name(msg->msg_type), msg->resp ? "resp" : "req");
 
+	/* Update the SFT URL with the selected one */
+	if (msg->msg_type == ECONN_CONF_START)
+		system_update_sft_url(msg->u.confstart.sft_url);
+
 	/* Send messages to the client in conv_member */
 	if (wrapper->conv_member) {
 		err = ICALL_CALLE(wrapper->conv_member->icall, msg_recv,
