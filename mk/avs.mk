@@ -50,6 +50,7 @@ AVS_MODULES += flowmgr
 AVS_MODULES += frame_hdr
 AVS_MODULES += frame_enc
 AVS_MODULES += jzon
+AVS_MODULES += kalium
 ifneq ($(HAVE_CRYPTOBOX),)
 AVS_MODULES += kase
 endif
@@ -97,7 +98,6 @@ AVS_MODULES += network
 endif
 
 ifeq ($(BUILD_OPTIONAL_MODULES),1)
-AVS_MODULES += kalium
 AVS_MODULES += engine
 AVS_MODULES += rtpdump
 AVS_MODULES += store
