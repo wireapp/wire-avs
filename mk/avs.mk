@@ -50,6 +50,7 @@ AVS_MODULES += flowmgr
 AVS_MODULES += frame_hdr
 AVS_MODULES += frame_enc
 AVS_MODULES += jzon
+AVS_MODULES += kalium
 ifneq ($(HAVE_CRYPTOBOX),)
 AVS_MODULES += kase
 endif

@@ -24,8 +24,8 @@
 #include <re.h>
 #include <avs.h>
 #include <avs_wcall.h>
+#include <avs_kcall.h>
 #include "cli.h"
-#include "view.h"
 #include "options.h"
 
 // Batch retries, 5: 1+2+3+4+5 = 15 seconds max
@@ -79,7 +79,6 @@ static bool accept_key_handler(int ch);
 static void vstart_cmd_handler(int argc, char *argv[]);
 static void vstop_cmd_handler (int argc, char *argv[]);
 static void vpause_cmd_handler(int argc, char *argv[]);
-void test_view_capture_next_frame(void);
 
 
 static void conv_le_destructor(void *arg)
@@ -1004,7 +1003,7 @@ static bool vpage_key_handler(int ch)
 {
 	(void) ch;
 
-	view_next_page();
+	kcall_next_page();
 
 	return true;
 }
@@ -1830,7 +1829,7 @@ static void vstart_cmd_handler(int argc, char *argv[])
 {
 	if (WCALL_VIDEO_STATE_STARTED != conv_data.video_state) {
 		output("Enabling preview, send state STARTED\n");
-		preview_start();
+		kcall_preview_start();
 		conv_data.video_state = WCALL_VIDEO_STATE_STARTED;
 		calling3_set_video_send_state(conv_data.curr, conv_data.video_state);
 	}
@@ -1852,7 +1851,7 @@ static void vstop_cmd_handler(int argc, char *argv[])
 {
 	if (WCALL_VIDEO_STATE_STOPPED != conv_data.video_state) {
 		output("Disabling preview, send state STOPPED\n");
-		preview_stop();
+		kcall_preview_stop();
 		conv_data.video_state = WCALL_VIDEO_STATE_STOPPED;
 		calling3_set_video_send_state(conv_data.curr, conv_data.video_state);
 	}
@@ -1874,7 +1873,7 @@ static void vpause_cmd_handler(int argc, char *argv[])
 {
 	if (WCALL_VIDEO_STATE_STARTED == conv_data.video_state) {
 		output("Disabling preview, send state PAUSED\n");
-		preview_stop();
+		kcall_preview_stop();
 		conv_data.video_state = WCALL_VIDEO_STATE_PAUSED;
 		calling3_set_video_send_state(conv_data.curr, conv_data.video_state);
 	}
@@ -1895,7 +1894,7 @@ static void vsave_cmd_help(void)
 static void vsave_cmd_handler(int argc, char *argv[])
 {
 	output("Next frame will be saved in file <userid>.pgm\n");
-	test_view_capture_next_frame();
+	//test_view_capture_next_frame();
 }
 
 static struct command vsave_command = {

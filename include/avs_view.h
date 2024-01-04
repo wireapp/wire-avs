@@ -16,11 +16,8 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef VIEW_INTERNAL_H
-#define VIEW_INTERNAL_H
-
-typedef void (runloop_startf)(void);
-typedef void (runloop_stopf)(void);
+#ifndef AVS_VIEW_H
+#define AVS_VIEW_H
 
 typedef void (view_closef)(void);
 
@@ -45,9 +42,7 @@ typedef void (show_mutef)(bool muted);
 
 typedef void (next_pagef)(void);
 
-struct view {
-	runloop_startf    *runloop_start;
-	runloop_stopf     *runloop_stop;
+struct avs_view {
 	view_closef       *view_close;
 	view_showf        *view_show;
 	view_hidef        *view_hide;

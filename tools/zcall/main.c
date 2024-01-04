@@ -36,10 +36,9 @@
 #include <re.h>
 #include <avs.h>
 #include <avs_wcall.h>
+#include <avs_kcall.h>
 #include "cli.h"
 #include "options.h"
-
-#include "view.h"
 
 /* Defaults for arguments
  */
@@ -735,16 +734,12 @@ int main(int argc, char *argv[])
 	register_key_stroke(&cryptobox_stroke);
 #endif
 
-	wcall_set_video_handlers(render_handler, size_handler, NULL);
-
-	view_init(zcall_av_test);
-	runloop_start();
+	kcall_init(zcall_av_test);
 
 	re_main(signal_handler);
 
  out:
-	runloop_stop();
-	view_close();
+	kcall_close();
 	//pairing_close();
 	client_close();
 	conv_close();

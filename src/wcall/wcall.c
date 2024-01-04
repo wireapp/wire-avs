@@ -955,6 +955,7 @@ static void icall_vstate_handler(struct icall *icall, const char *userid,
 		wstate = WCALL_VIDEO_STATE_STOPPED;
 		break;
 	}
+
 	info(APITAG "wcall(%p): vstateh(%p) icall=%p conv=%s "
 	     "user=%s state=%d\n",
 	     wcall, inst->vstateh, icall, anon_id(convid_anon, wcall->convid),
@@ -3779,6 +3780,8 @@ void wcall_set_video_handlers(wcall_render_frame_h *render_frame_h,
 			      wcall_video_size_h *size_h,
 			      void *arg)
 {
+	info(APITAG "wcall: set_video_handlers r=%p s=%p\n",
+	     render_frame_h, size_h);
 	iflow_set_video_handlers(render_frame_h, size_h, arg);
 }
 

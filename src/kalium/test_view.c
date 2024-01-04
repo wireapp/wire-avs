@@ -19,16 +19,16 @@
 #include <re.h>
 #include <avs.h>
 #include <avs_wcall.h>
+#include <avs_kcall.h>
 
-#include "view_internal.h"
+#include <avs_view.h>
 #include "test_capturer.h"
 #include "pgm.h"
 
 extern char *zcall_vfile;
 
-int test_view_init(struct view** v);
+int test_view_init(struct avs_view** v);
 void test_view_capture_next_frame(void);
-WUSER_HANDLE calling3_get_wuser(void);
 
 static bool _capture_frame = false;
 static struct list _capturedl;
@@ -53,14 +53,6 @@ static void capture_destructor(void *arg)
 	mem_deref(cap->userid);
 }
 
-static void test_runloop_start(void)
-{
-}
-
-static void test_runloop_stop(void)
-{
-}
-
 static void test_view_close(void)
 {
 	list_flush(&_capturedl);
@@ -77,12 +69,14 @@ static void test_view_hide(void)
 
 static void test_preview_start(void)
 {
-	if (zcall_vfile) {
+// TODO: fix file input
+#if 0
+	if (zcall_vfile)
 		test_capturer_start_static(zcall_vfile, 15);
-	}
-	else {
+	else
+#endif
 		test_capturer_start_dynamic(640, 480, 15);
-	}
+
 }
 
 static void test_preview_stop(void)
@@ -120,7 +114,8 @@ static void test_request_streams(void)
 	jzon_encode(&json_str, jobj);
 
 	if (json_str) {
-		WUSER_HANDLE wuser = calling3_get_wuser();
+
+		WUSER_HANDLE wuser = kcall_get_wuser();
 		wcall_request_video_streams(wuser,
 					    _convid,
 					    0,
@@ -208,9 +203,7 @@ static void test_view_next_page(void)
 {
 }
 
-static struct view _view = {
-	.runloop_start = test_runloop_start,
-	.runloop_stop = test_runloop_stop,
+static struct avs_view _view = {
 	.view_close = test_view_close,
 	.view_show = test_view_show,
 	.view_hide = test_view_hide,
@@ -224,7 +217,7 @@ static struct view _view = {
 };
 
 
-int test_view_init(struct view** v)
+int test_view_init(struct avs_view** v)
 {
 
 	test_capturer_init();
