@@ -1,0 +1,57 @@
+Changes introduced in AVS 9.7
+=============================
+
+Added new API calls for Kalium video integration for testing. None of this should be used for production clients, so can be safely ignored unless you are working on Kalium testing code.
+
+
+void kcall_init(int test_view);
+
+Inits the kalium test video (kcall) code. Set test_view=1 to get generated video and fake renderers, 0 to get platform capturers and renderers (OSX only).
+
+
+void kcall_close(void);
+
+Deinit the kcall code.
+
+
+void kcall_set_wuser(WUSER_HANDLE wuser);
+WUSER_HANDLE kcall_get_wuser(void);
+
+Set and get the wuser used where kcall code calls into wcall code directly.
+
+
+void kcall_set_local_user(const char *userid, const char *clientid);
+
+Set the local user & client ids to identify the local client.
+
+
+void kcall_view_show(void);
+void kcall_view_hide(void);
+
+Show/hide the video view.
+
+
+void kcall_preview_start(void);
+void kcall_preview_stop(void);
+
+Start/stop video capture.
+
+
+void kcall_set_user_vidstate(const char *convid,
+			     const char *userid,
+			     const char *clientid,
+			     int state);
+
+Set the video state for a remote client, state is one of the wcall video states:
+
+#define	WCALL_VIDEO_STATE_STOPPED     0
+#define	WCALL_VIDEO_STATE_STARTED     1
+#define	WCALL_VIDEO_STATE_BAD_CONN    2
+#define	WCALL_VIDEO_STATE_PAUSED      3
+#define	WCALL_VIDEO_STATE_SCREENSHARE 4
+
+
+void kcall_show_mute(bool muted);
+
+Show the local mute state in the window (OSX real renderers only).
+
