@@ -295,9 +295,11 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 
 	case CCALL_STATE_CONNSENT:
 		ccall->received_confpart = false;
-		keystore_reset_keys(ccall->keystore);
+		if (!ccall->is_mls_call) {
+			keystore_reset_keys(ccall->keystore);
+			tmr_cancel(&ccall->tmr_rotate_mls);
+		}
 		tmr_cancel(&ccall->tmr_rotate_key);
-		tmr_cancel(&ccall->tmr_rotate_mls);
 		tmr_cancel(&ccall->tmr_send_check);
 		tmr_start(&ccall->tmr_connect, CCALL_CONNECT_TIMEOUT,
 			  ccall_connect_timeout, ccall);
