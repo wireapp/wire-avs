@@ -17,6 +17,12 @@
 */
 package com.waz.audioeffect;
 
+import android.content.Context;
+import android.media.MediaFormat;
+import android.util.Log;
+
+import java.io.File;
+
 import com.waz.avs.AVSystem;
 
 import com.waz.audioeffect.AudioEffectStatusHandler;
@@ -56,13 +62,84 @@ public class AudioEffect {
   public final static int AVS_AUDIO_EFFECT_NONE              = 27;
   public final static int AVS_AUDIO_EFFECT_CHORUS_MED        = 28;
   public final static int AVS_AUDIO_EFFECT_VOCODER_MIN       = 29;
-    
+
+
+  private static String TAG = "AudioEffect";
+  private Context context;
+
   public AudioEffect ( ) {
   }
-    
+
+  public AudioEffect (Context context) {
+	  this.context = context;
+  }
+
+  public int applyEffectM4A (String file_name_in, String file_name_out, int effect_type, boolean reduce_noise) {
+
+	  MediaFormat media_format = null;
+	  File pcm_file = null;
+	  File eff_file = null;
+	  Context ctx = null;
+	  int ret = -1;
+
+	  if (this.context == null) {
+		  ctx = AVSystem.context;
+	  }
+	  else {
+		  ctx = this.context;
+	  }
+
+	  if (ctx == null) {
+		  Log.e(TAG, "AudioEffect: no context for temporary file");
+		  return -1;
+	  }
+
+	  Log.d(TAG, "applyEffectM4A: in=" + file_name_in + " out=" + file_name_out
+		+ " effect=" + effect_type + " denoise=" + reduce_noise);
+
+	  try {
+		  pcm_file = File.createTempFile("raw", ".pcm", context.getCacheDir());
+		  eff_file = File.createTempFile("aueff", ".pcm", context.getCacheDir());
+
+		  MediaConverter converter = new MediaConverter(file_name_in, file_name_out);
+
+		  Log.d(TAG, "attempting decode: " + pcm_file.getAbsolutePath() + " -> " + eff_file.getAbsolutePath());
+
+		  ret = converter.decode(pcm_file.getAbsolutePath());
+		  if (ret != 0)
+			  return ret;
+
+		  MediaFormat format = converter.getMediaFormat();
+		  int sample_rate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+
+		  ret = applyEffectPCM(pcm_file.getAbsolutePath(),
+				       eff_file.getAbsolutePath(),
+				       sample_rate, effect_type, reduce_noise);
+		  if (ret != 0) {
+			  Log.e(TAG, "applyEffect: failed");
+			  return ret;
+		  }
+
+		  ret = converter.encode(eff_file.getAbsolutePath());
+	  }
+	  catch (Exception e) {
+		  Log.e(TAG, "applyEffectM4A failed: " + e);
+		  ret = -1;
+	  }
+	  finally {
+		  if (pcm_file != null)
+			  pcm_file.delete();
+		  if (eff_file != null)
+			  eff_file.delete();
+	  }
+
+	  return ret;
+  }
+ 
   public native int applyEffectWav (String file_name_in, String file_name_out, int effect_type, boolean reduce_noise);
     
   public native int applyEffectPCM (String file_name_in, String file_name_out, int fs_hz, int effect_type, boolean reduce_noise);
+
     
   public void destroy ( ) {
   }

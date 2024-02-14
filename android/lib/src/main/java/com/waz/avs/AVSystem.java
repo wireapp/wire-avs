@@ -17,6 +17,7 @@
 */
 package com.waz.avs;
 
+import android.content.Context;
 import android.util.Log;
 
 
@@ -29,6 +30,7 @@ public class AVSystem {
 		System.loadLibrary("avs");
 		isLoaded = true;
 	}
+	public static Context context;
 }
 
 		

@@ -155,11 +155,9 @@ public class FlowManager
       this.handler = handler;
                    
       sharedFm = this;
+      AVSystem.context = context;
       
       attach(context, flags);
-
-      File fileDir = context.getFilesDir();      
-      setFilePath(fileDir.getAbsolutePath());
   }
                
 	
