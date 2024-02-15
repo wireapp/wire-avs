@@ -24,7 +24,7 @@ class MediaConverter {
 	private	MediaFormat mediaFormat = null;
 	private String inPath;
 	private String outPath;
-	private int bitrate = 128*1024;
+	private int bitrate = 90000;
 
 	public MediaConverter(String inPath, String outPath) {
 		this.inPath = inPath;
