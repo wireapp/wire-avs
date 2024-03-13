@@ -904,6 +904,12 @@ static void ecall_media_estab_handler(struct icall *icall, const char *userid,
 
 	ICALL_CALL_CB(ccall->icall, media_estabh,
 		icall, userid, clientid, update, ccall->icall.arg);
+
+	if (ccall->is_mls_call) {
+		ICALL_CALL_CB(ccall->icall, req_clientsh,
+		      &ccall->icall, ccall->icall.arg);
+	}
+
 	if (CCALL_STATE_CONNSENT != ccall->state) {
 		set_state(ccall, CCALL_STATE_ACTIVE);
 		userlist_incall_clear(ccall->userl, true);

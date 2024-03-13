@@ -202,7 +202,6 @@ static jobject cbgp_jni_new(JNIEnv * jEnv,
 }
 
 static void nativeUpdateRoute(JNIEnv* env, jobject obj, jint route, jlong nativeMM) {
-    info("mm: nativeUpdateRoute to %d \n", route);
     
     callVoidMethodHelper(env, java.mm, java.mmOnPlaybackRouteChanged, route);
 }

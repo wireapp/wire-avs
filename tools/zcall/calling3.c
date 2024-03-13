@@ -1067,7 +1067,7 @@ out:
 
 static void set_clients_for_conv(struct engine_conv *conv)
 {
-	request_clients(conv, 0);
+	request_clients(conv, calling3.media_key_epoch);
 }
 
 static void wcall_req_clients_handler(WUSER_HANDLE wuser,
