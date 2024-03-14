@@ -53,6 +53,10 @@ struct c3_req_ctx {
 	struct http_req *http_req;
 };
 
+void test_capturer_init(void);
+void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps);
+void test_capturer_stop(void);
+
 static struct sftloader *sftloader = NULL;
 
 static void ctx_destructor(void *arg)
@@ -525,10 +529,10 @@ static void video_timeout(void *arg)
 	(void)tmo;
 
 	re_printf("video_timeout: su=%p use_video=%d\n", su, sftloader->use_video);
-	
+
 	if (!sftloader->use_video)
 		return;
-	
+
 	wcall_set_video_send_state(su->wuser, su->convid, su->video_state);
 	if (su->video_state == WCALL_VIDEO_STATE_STARTED) {
 		su->video_state = WCALL_VIDEO_STATE_STOPPED;
@@ -557,7 +561,85 @@ static void estab_handler(const char *convid,
 	video_timeout(su);
 }
 
+static void participant_changed_handler(const char *convid,
+					const char *mjson,
+					void *arg)
+{
+	struct sft_user *su = arg;
+	char *json_str = NULL;
+	struct json_object *jobj = NULL;
+	struct json_object *jclients = NULL;
+	size_t i, nclients = 0, vclients = 0;
+	struct json_object *robj = NULL;
+	struct json_object *rcli = NULL;
+	struct json_object *rclients = NULL;
+	int err = 0;
 
+	size_t jlen = strlen(mjson);
+	err = jzon_decode(&jobj, mjson, jlen);
+	if (err)
+		goto out;
+
+	err = jzon_array(&jclients, jobj, "members");
+	if (err)
+		goto out;
+
+	if (!jzon_is_array(jclients))
+		goto out;
+
+	nclients = json_object_array_length(jclients);
+
+	robj = jzon_alloc_object();
+	rclients = json_object_new_array();
+
+	for (i = 0; i < nclients; ++i) {
+		const char *uid, *cid;
+		struct json_object *jcli;
+		int32_t vstate;
+
+		jcli = json_object_array_get_idx(jclients, i);
+		if (!jcli) {
+			goto out;
+		}
+
+		err = jzon_int(&vstate, jcli, "vrecv");
+		if (err)
+			goto out;
+
+		uid = jzon_str(jcli, "userid");
+		cid = jzon_str(jcli, "clientid");
+		if (vstate == WCALL_VIDEO_STATE_STARTED && 
+		    (strcmp(su->userid, uid) != 0 || strcmp(su->clientid, cid) != 0) &&
+		    vclients < 9) {
+			rcli = jzon_alloc_object();
+			
+			jzon_add_str(rcli, "userid", "%s", uid);
+			jzon_add_str(rcli, "clientid", "%s", cid);
+			json_object_array_add(rclients, rcli);
+			vclients++;
+		}
+	}
+
+	if (vclients == 0)
+		goto out;
+	jzon_add_str(robj, "convid", "%s", convid);
+	json_object_object_add(robj, "clients", rclients);
+
+	jzon_encode(&json_str, robj);
+
+	if (json_str) {
+		re_printf("user %s.%s requesting %zu video streams\n", su->userid, su->clientid, vclients);
+
+		wcall_request_video_streams(su->wuser,
+					    convid,
+					    0,
+					    json_str);
+	}
+out:
+	mem_deref(jobj);
+	mem_deref(robj);
+	mem_deref(json_str);
+}
 
 static int create_user(void)
 {
@@ -596,6 +678,7 @@ static int create_user(void)
 	list_append(&sftloader->userl, &su->le, su);
 
 	wcall_set_req_clients_handler(su->wuser, req_clients_handler);
+	wcall_set_participant_changed_handler(su->wuser, participant_changed_handler, su);
 
 	re_printf("create_user: su: %p wuser=0x%08x\n", su, su->wuser);
 	
@@ -741,6 +824,10 @@ int main(int argc, char **argv)
 	dns_init(&sftloader->dnsc);
 	uuid_v4(&sftloader->convid);
 
+	if (sftloader->use_video) {
+		test_capturer_init();
+		test_capturer_start_dynamic(640,480,15);
+	}
 	for (i = 0; i < sftloader->nusers; ++i) {
 		create_user();
 	}
@@ -753,6 +840,9 @@ int main(int argc, char **argv)
 
 	mem_deref(sftloader);
 
+	if (sftloader->use_video) {
+		test_capturer_stop();
+	}
 	wcall_close();
 	
 	//tmr_debug();
