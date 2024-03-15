@@ -58,6 +58,9 @@ void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps);
 void test_capturer_stop(void);
 
 static struct sftloader *sftloader = NULL;
+const static char fake_userid[] = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const static char fake_clientid[] = "aaaaaaaaaaaaaaaa";
+const static char fake_secret[] = "ZG9udGxvb2tkb250bG9vaw==";
 
 static void ctx_destructor(void *arg)
 {
@@ -483,6 +486,19 @@ static int cfg_handler(WUSER_HANDLE wuser, void *arg)
 	return 0;
 }
 
+static void create_confstart(char *buf, size_t *blen)
+{
+	memset(buf, 0, *blen);
+	snprintf(buf, *blen, "{\"version\":\"3.0\",\"type\":\"CONFSTART\",\"sessid\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"src_userid\":\"%s\",\"src_clientid\":\"%s\",\"resp\":false,\"sft_url\":\"%s\",\"secret\":\"%s\",\"timestamp\":\"1\",\"seqno\":\"1\",\"sfts\":[\"%s\"],\"props\":{\"videosend\":\"%s\"}}",
+		 fake_userid,
+		 fake_clientid,
+		 sftloader->url,
+		 fake_secret,
+		 sftloader->url,
+		 sftloader->use_video ? "true" : "false");
+	*blen = strlen(buf);
+}
+
 static void req_clients_handler(WUSER_HANDLE wuser,
 				const char *convid, void *arg)
 {
@@ -700,17 +716,28 @@ static void end_timeout(void *arg)
 
 static void call_timeout(void *arg)
 {
-	struct sft_user *su = arg;
+	char cs_buf[2048];
+	size_t cs_len = sizeof(cs_buf);
+	struct le *le = NULL;
+
 	uint32_t rmo;
 
 	rmo = rand_u32() % 120000;
 	if (rmo < 30000)
 		rmo += 30000;
 
-	wcall_start(su->wuser, sftloader->convid,
-		    WCALL_CALL_TYPE_NORMAL,
-		    WCALL_CONV_TYPE_CONFERENCE,
-		    true);
+	create_confstart(cs_buf, &cs_len);
+
+	LIST_FOREACH(&sftloader->userl, le) {
+		struct sft_user *uu = le->data;
+
+		wcall_recv_msg(uu->wuser,
+			       (uint8_t*)cs_buf, cs_len,
+			       0, 0,
+			       sftloader->convid,
+			       fake_userid, fake_clientid,
+			       WCALL_CONV_TYPE_CONFERENCE);
+	}
 
 	//tmr_start(&su->tmr_duration, sftloader->duration, end_timeout, su);
 }
