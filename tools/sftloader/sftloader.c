@@ -336,7 +336,8 @@ static bool has_calls(void)
 	
 	while(le && !has_calls) {
 		struct sft_user *su = le->data;
-
+		
+		le = le->next;
 		has_calls = wcall_get_state(su->wuser, su->convid) != WCALL_STATE_NONE;
 	}
 
@@ -846,6 +847,8 @@ int main(int argc, char **argv)
 
 	sftloader->running = true;
 	wcall_set_log_handler(log_handler, NULL);
+	fd_setsize(0);	
+	fd_setsize(1048576);	
 	wcall_init(0);
 	wcall_setup_ex(AVS_FLAG_AUDIO_TEST);
 	dns_init(&sftloader->dnsc);
