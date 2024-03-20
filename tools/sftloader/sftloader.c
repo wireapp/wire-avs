@@ -5,6 +5,7 @@
 #include <re.h>
 #include <avs_base.h>
 #include <avs_wcall.h>
+#include <avs_econn.h>
 #include <avs_uuid.h>
 #include <avs_jzon.h>
 
@@ -15,10 +16,11 @@ struct sftloader {
 	
 	char *convid;
 	char *url;
-	int ncalls;
-	int nusers;
-	int tmo;
-	int duration;
+	uint32_t ncalls;
+	uint32_t nusers;
+	uint32_t clientno;
+	uint32_t tmo;
+	uint32_t duration;
 	bool use_video;
 	struct tmr tmr;
 	struct list userl;
@@ -27,8 +29,8 @@ struct sftloader {
 
 struct sft_user {
 	WUSER_HANDLE wuser;
-	char *userid;
-	char *clientid;
+	char userid[ECONN_ID_LEN];
+	char clientid[ECONN_ID_LEN];
 	char *convid;
 
 	struct dnsc *dnsc;
@@ -125,7 +127,7 @@ static int send_handler(void *ctx, const char *convid,
 			       0, 0,
 			       convid,
 			       userid_self, clientid_self,
-			       WCALL_CONV_TYPE_CONFERENCE);
+			       WCALL_CONV_TYPE_CONFERENCE_MLS);
 	}
 	
 	return 0;
@@ -515,24 +517,31 @@ static void req_clients_handler(WUSER_HANDLE wuser,
 	LIST_FOREACH(&sftloader->userl, le) {
 		struct sft_user *uu = le->data;
 		struct json_object *jcli;
+		uint32_t c;
 
-		jcli = jzon_alloc_object();
+		for (c = 0; c < 10; c++) {
+			char cid[ECONN_ID_LEN];
 
-		jzon_add_str(jcli, "userid", "%s", uu->userid);
-		jzon_add_str(jcli, "clientid", "%s", uu->clientid);
-		jzon_add_bool(jcli, "in_subconv", true);
+			snprintf(cid, ECONN_ID_LEN, "%04u", c);
+			jcli = jzon_alloc_object();
 
-		json_object_array_add(jclients, jcli);
+			jzon_add_str(jcli, "userid", "%s", uu->userid);
+			jzon_add_str(jcli, "clientid", "%s", cid);
+			jzon_add_bool(jcli, "in_subconv", true);
+
+			json_object_array_add(jclients, jcli);
+		}
 	}
 
 	jobj = jzon_alloc_object();
 	json_object_object_add(jobj, "clients", jclients);
 	jzon_encode(&json, jobj);
 
-	wcall_set_clients_for_conv(su->wuser,
-				   convid,
-				   json);
-
+	wcall_set_epoch_info(su->wuser,
+			     convid,
+			     1,
+			     json,
+			     "c3VwZXJzZWNyZXRrZXkwMA==");
 
 	mem_deref(jobj);
 	mem_deref(json);
@@ -658,7 +667,7 @@ out:
 	mem_deref(json_str);
 }
 
-static int create_user(void)
+static int create_user(uint32_t uidno, uint32_t cidno)
 {
 	struct sft_user *su;
 	
@@ -666,8 +675,8 @@ static int create_user(void)
 	if (!su)
 		return ENOMEM;
 
-	uuid_v4(&su->userid);
-	uuid_v4(&su->clientid);
+	snprintf(su->userid, ECONN_ID_LEN, "usr%05u", uidno);
+	snprintf(su->clientid, ECONN_ID_LEN, "%04u", cidno);
 	str_dup(&su->convid, sftloader->convid);
 	su->ncalls = sftloader->ncalls;
 	su->video_state = WCALL_VIDEO_STATE_STOPPED;
@@ -737,7 +746,7 @@ static void call_timeout(void *arg)
 			       0, 0,
 			       sftloader->convid,
 			       fake_userid, fake_clientid,
-			       WCALL_CONV_TYPE_CONFERENCE);
+			       WCALL_CONV_TYPE_CONFERENCE_MLS);
 	}
 
 	//tmr_start(&su->tmr_duration, sftloader->duration, end_timeout, su);
@@ -802,21 +811,30 @@ static void sl_destructor(void *arg)
 
 int main(int argc, char **argv)
 {
-	int i;
+	uint32_t i;
 
 	sftloader = mem_zalloc(sizeof(*sftloader), sl_destructor);
 	
 	sftloader->ncalls = INFINITE;
-	
+	sftloader->clientno = 0;
+
 	for (;;) {
-		const int c = getopt(argc, argv, "d:n:s:t:u:v");
+		const int c = getopt(argc, argv, "c:d:i:n:s:t:u:v");
 
 		if (c < 0)
 			break;
 
 		switch (c) {
+		case 'c':
+			sftloader->clientno = atoi(optarg);
+			break;
+
 		case 'd':
 			sftloader->duration = atoi(optarg) * 1000;
+			break;
+
+		case 'i':
+			str_dup(&sftloader->convid, optarg);
 			break;
 
 		case 'n':
@@ -852,14 +870,15 @@ int main(int argc, char **argv)
 	wcall_init(0);
 	wcall_setup_ex(AVS_FLAG_AUDIO_TEST);
 	dns_init(&sftloader->dnsc);
-	uuid_v4(&sftloader->convid);
+	if (!sftloader->convid)
+		uuid_v4(&sftloader->convid);
 
 	if (sftloader->use_video) {
 		test_capturer_init();
 		test_capturer_start_dynamic(640,480,15);
 	}
 	for (i = 0; i < sftloader->nusers; ++i) {
-		create_user();
+		create_user(i, sftloader->clientno);
 	}
 	tmr_init(&sftloader->tmr);
 	tmr_start(&sftloader->tmr, 1, start_timeout, NULL);
