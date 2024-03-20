@@ -23,6 +23,7 @@ xcshareddata
 zcontrib
 ztest
 sectest
+sftloader
 devtools
 BUILDCONTROL.local
 artifacts
