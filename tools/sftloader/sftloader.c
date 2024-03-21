@@ -368,8 +368,13 @@ static void close_handler(int reason,
 		--su->ncalls;
 	
 	if (su->ncalls == INFINITE || su->ncalls > 0) {
+		re_printf("close_handler(%p): answering\n", su);
 		answer_call(su);
-	}	
+	}
+	else if (reason == WCALL_REASON_NORMAL) {
+		re_printf("close_handler(%p): ending\n", su);
+		re_cancel();
+	}
 }
 
 static void cfg_timeout(void *arg)
