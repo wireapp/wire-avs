@@ -25,8 +25,9 @@ class MediaConverter {
 	private	MediaFormat mediaFormat = null;
 	private String inPath;
 	private String outPath;
-	private int bitrate = 90000;
-	private int samplerate = 44100;
+	private int bitRate = 90000;
+	private int sampleRate = 44100;
+	private int channelCount;
 
 	public MediaConverter(String inPath, String outPath) {
 		this.inPath = inPath;
@@ -72,8 +73,10 @@ class MediaConverter {
 			}
 
 			try {
-				bitrate = mediaFormat.getInteger(MediaFormat.KEY_BIT_RATE);
-				samplerate = mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+				bitRate = mediaFormat.getInteger(MediaFormat.KEY_BIT_RATE, bitRate);
+				sampleRate = mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE, sampleRate);
+				channelCount = mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT, channelCount);
+
 			}
 			catch(Exception e) {
 				Log.w(TAG, "decode: bitrate key exception: " + e);
@@ -177,9 +180,9 @@ class MediaConverter {
 
 			MediaFormat format = new MediaFormat();
 			format.setString(MediaFormat.KEY_MIME, mimeType);
-			format.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
-			format.setInteger(MediaFormat.KEY_CHANNEL_COUNT, 1);
-			format.setInteger(MediaFormat.KEY_SAMPLE_RATE, samplerate);
+			format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
+			format.setInteger(MediaFormat.KEY_CHANNEL_COUNT, channelCount);
+			format.setInteger(MediaFormat.KEY_SAMPLE_RATE, sampleRate);
 			format.setInteger(MediaFormat.KEY_AAC_PROFILE,
 					  mediaFormat.getInteger(MediaFormat.KEY_AAC_PROFILE,
 								 MediaCodecInfo.CodecProfileLevel.AACObjectLC));
@@ -203,13 +206,14 @@ class MediaConverter {
 
 							result = fc.read(inBuf);
 							if (result < 0) {
-								encoder.queueInputBuffer(idx, 0, 0, ts, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+								encoder.queueInputBuffer(idx, 0, 0, ts,
+											 MediaCodec.BUFFER_FLAG_END_OF_STREAM);
 								eos = true;
 							}
 							else {
 								inBuf.rewind();
 								encoder.queueInputBuffer(idx, 0, result, ts, 0);
-								ts += (((result/2) * 1000000L) / samplerate);
+								ts += (((result/ (2 * channelCount)) * 1000000L) / sampleRate);
 							}
 						}
 					}
