@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <pthread.h>
+#include <sys/time.h>
 
 #include <re.h>
 #include <avs_base.h>
@@ -8,6 +10,7 @@
 #include <avs_econn.h>
 #include <avs_uuid.h>
 #include <avs_jzon.h>
+#include <avs_log.h>
 
 #define INFINITE (-1)
 
@@ -24,7 +27,9 @@ struct sftloader {
 	bool use_video;
 	struct tmr tmr;
 	struct list userl;
-	struct dnsc *dnsc;	
+	struct dnsc *dnsc;
+
+	FILE *logfp;
 };
 
 struct sft_user {
@@ -49,7 +54,8 @@ struct sft_user {
 };
 
 struct c3_req_ctx {
-	WUSER_HANDLE wuser;
+	//WUSER_HANDLE wuser;
+	struct sft_user *su;
 	void *arg;
 	struct mbuf *mb_body;
 	struct http_req *http_req;
@@ -197,12 +203,13 @@ static void sft_resp_handler(int err, const struct http_msg *msg,
 			     void *arg)
 {
 	struct c3_req_ctx *c3ctx = arg;
+	struct sft_user *su = c3ctx->su;
 	const uint8_t *buf = NULL;
 	int sz = 0;
 
-#if 0
-	re_printf("sft_resp: done err %d, %d bytes to send\n",
-		  err, c3ctx->mb_body ? (int)c3ctx->mb_body->end : 0);
+#if 1
+	debug("sft_resp: su=%p err=%d %d bytes\n",
+	      su, err, c3ctx->mb_body ? (int)c3ctx->mb_body->end : 0);
 #endif
 	
 	if (err == ECONNABORTED)
@@ -230,12 +237,12 @@ static void sft_resp_handler(int err, const struct http_msg *msg,
 					c++;
 				}
 
-				re_printf("sft_resp_handler: HTML error code %d\n", errcode);
+				warning("sft_resp_handler: su=%p HTML error code %d\n", su, errcode);
 			}
 		}
 	}
 
-	wcall_sft_resp(c3ctx->wuser, err,
+	wcall_sft_resp(su->wuser, err,
 		       buf, sz,
 		       c3ctx->arg);
  error:
@@ -251,12 +258,11 @@ static int sft_handler(void *ctx, const char *url,
 	struct c3_req_ctx *c3ctx;
 	int err = 0;
 
-	re_printf("sft_handler: su: %p url: %s\n", su, url);
 	c3ctx = mem_zalloc(sizeof(*c3ctx), ctx_destructor);
 	if (!c3ctx)
 		return ENOMEM;
 	c3ctx->arg = ctx;
-	c3ctx->wuser = su->wuser;
+	c3ctx->su = su;
 
 	if (!su->httpc) {
 		err = http_client_alloc(&su->httpc,
@@ -267,6 +273,10 @@ static int sft_handler(void *ctx, const char *url,
 		}
 	}
 
+#if 1
+	debug("sft_req: su=%p %d bytes\n", su, len);
+#endif
+	
 	err = http_request(&c3ctx->http_req,
 			   su->httpc,
 			   "POST", url,
@@ -659,7 +669,7 @@ static void participant_changed_handler(const char *convid,
 	jzon_encode(&json_str, robj);
 
 	if (json_str) {
-		re_printf("user %s.%s requesting %zu video streams\n", su->userid, su->clientid, vclients);
+		//re_printf("user %s.%s requesting %zu video streams\n", su->userid, su->clientid, vclients);
 
 		wcall_request_video_streams(su->wuser,
 					    convid,
@@ -671,6 +681,24 @@ out:
 	mem_deref(robj);
 	mem_deref(json_str);
 }
+
+static void quality_handler(const char *convid,
+			    const char *userid,
+			    const char *clientid,
+			    int quality, /*  WCALL_QUALITY_ */
+			    int rtt, /* round trip time in ms */
+			    int uploss, /* upstream pkt loss % */
+			    int downloss, /* dnstream pkt loss % */
+			    void *arg)
+{
+	struct sft_user *su = arg;
+
+	(void)su;
+	
+	re_printf("quality_handler: %s[%s.%s] q=%d rtt=%d uloss=%d dloss=%d\n",
+		  convid, su->userid, su->clientid, quality, rtt, uploss, downloss);
+}
+
 
 static int create_user(uint32_t uidno, uint32_t cidno)
 {
@@ -710,10 +738,10 @@ static int create_user(uint32_t uidno, uint32_t cidno)
 
 	wcall_set_req_clients_handler(su->wuser, req_clients_handler);
 	wcall_set_participant_changed_handler(su->wuser, participant_changed_handler, su);
+	wcall_set_network_quality_handler(su->wuser, quality_handler, 10, su);
 
 	re_printf("create_user: su: %p wuser=0x%08x\n", su, su->wuser);
-	
-	
+
 	return 0;
 }
 
@@ -767,12 +795,54 @@ static void start_timeout(void *arg)
 	}
 }
 
+static const char *level_prefix(enum log_level level)
+{
+	switch (level) {
+
+	case LOG_LEVEL_DEBUG: return "DEBUG  : ";
+	case LOG_LEVEL_INFO:  return "INFO   : ";
+	case LOG_LEVEL_WARN:  return "WARNING: ";
+	case LOG_LEVEL_ERROR: return "ERROR  : ";
+	default:              return "       : ";
+	}
+}
+
 
 static void log_handler(int level,
 			const char *msg,
 			void *arg /*any*/)
 {
-	re_printf("%s", msg);
+	static struct lock *log_lock = NULL;
+	struct timeval tv;
+	const pthread_t tid = pthread_self();
+
+	if (!log_lock) {
+		lock_alloc(&log_lock);
+	}
+
+	lock_write_get(log_lock);
+
+	if (gettimeofday(&tv, NULL) != 0) {
+		re_fprintf(sftloader->logfp, "T(0x%08x) %s",
+			   (void *)tid,
+			   level_prefix(level), msg);
+	}
+	else {
+		struct tm  tstruct;
+		uint32_t tms;
+		char timebuf[64];
+
+		memset(timebuf, 0, 64);
+		tstruct = *localtime(&tv.tv_sec);
+		tms = tv.tv_usec / 1000;
+		strftime(timebuf, sizeof(timebuf), "%m-%d %X", &tstruct);
+		re_fprintf(sftloader->logfp, "%s.%03u T(0x%08x) %s%s",
+			   timebuf, tms,
+			   (void *)tid,
+			   level_prefix(level), msg);
+	}
+
+	lock_rel(log_lock);
 }
 
 static void shutdown_timeout(void *arg)
@@ -822,9 +892,10 @@ int main(int argc, char **argv)
 	
 	sftloader->ncalls = INFINITE;
 	sftloader->clientno = 0;
+	sftloader->logfp = stdout;
 
 	for (;;) {
-		const int c = getopt(argc, argv, "c:d:i:n:s:t:u:v");
+		const int c = getopt(argc, argv, "c:d:i:l:n:s:t:u:v");
 
 		if (c < 0)
 			break;
@@ -840,6 +911,10 @@ int main(int argc, char **argv)
 
 		case 'i':
 			str_dup(&sftloader->convid, optarg);
+			break;
+
+		case 'l':
+			sftloader->logfp = fopen(optarg, "w");
 			break;
 
 		case 'n':
@@ -892,12 +967,17 @@ int main(int argc, char **argv)
 
 	tmr_cancel(&sftloader->tmr);
 
-	mem_deref(sftloader);
+	if (sftloader->logfp != stdout)
+		fclose(sftloader->logfp);
 
 	if (sftloader->use_video) {
 		test_capturer_stop();
 	}
+	
 	wcall_close();
+
+	mem_deref(sftloader);
+	
 	
 	//tmr_debug();
 	//mem_debug();
