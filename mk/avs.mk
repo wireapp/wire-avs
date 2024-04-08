@@ -65,6 +65,9 @@ else
 ifeq ($(HAVE_WEBRTC),1)
 AVS_MODULES += peerflow
 endif
+ifeq ($(USE_REFLOW),1)
+AVS_MODULES += reflow
+endif
 endif
 ifneq ($(HAVE_PROTOBUF),)
 AVS_MODULES += protobuf
@@ -142,6 +145,10 @@ endif
 
 ifeq ($(HAVE_WEBRTC),1)
 AVS_CPPFLAGS += -DHAVE_WEBRTC=1 -DENABLE_AUDIO_IO=1 -DENABLE_PEERFLOW=1
+endif
+
+ifeq ($(USE_REFLOW),1)
+AVS_CPPFLAGS += -DENABLE_REFLOW=1
 endif
 
 AVS_DEPS := $(CONTRIB_LIBRE_TARGET) \

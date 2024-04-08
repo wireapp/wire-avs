@@ -67,7 +67,11 @@ ifeq ($(HAVE_WEBRTC),)
 ifeq ($(AVS_OS),wasm)
 HAVE_WEBRTC := 0
 else
+ifeq ($(USE_REFLOW),1)
+HAVE_WEBRTC := 0
+else
 HAVE_WEBRTC := 1
+endif
 endif
 endif
 
