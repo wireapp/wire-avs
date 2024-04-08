@@ -32,7 +32,8 @@ void econn_set_state(struct econn *conn, enum econn_state state)
 	if (conn->state == state)
 		return;
 
-	info("econn: State changed: `%s' --> `%s'\n",
+	info("econn(%p): State changed: `%s' --> `%s'\n",
+	     conn,
 	     econn_state_name(conn->state),
 	     econn_state_name(state));
 

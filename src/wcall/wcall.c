@@ -24,6 +24,9 @@
 
 #include <avs_wcall.h>
 #include <avs_peerflow.h>
+#if ENABLE_REFLOW
+#include <avs_reflow.h>
+#endif
 #include <avs_audio_level.h>
 #include <avs_audio_io.h>
 
@@ -1993,9 +1996,25 @@ void wcall_i_process_notifications(struct calling_instance *inst,
 	}
 }
 
+struct wcall_entry {
+	struct wcall *wcall;
+	struct le le;
+};
+
+static void we_destructor(void *arg)
+{
+	struct wcall_entry *we = arg;
+
+	list_unlink(&we->le);
+
+	mem_deref(we->wcall);
+}
+
 void wcall_i_mcat_changed(struct calling_instance *inst,
 			  enum mediamgr_state state)
 {
+	struct list wcalls = LIST_INIT;
+	struct wcall_entry *we;
 	struct le *le;
 	
 	info("wcall: mcat changed to: %d inst=%p\n", state, inst);
@@ -2006,12 +2025,21 @@ void wcall_i_mcat_changed(struct calling_instance *inst,
 	}
 
 	lock_write_get(inst->lock);
-	le = inst->wcalls.head;
-	while(le) {
+	LIST_FOREACH(&inst->wcalls, le) {
 		struct wcall *wcall = le->data;
-		le = le->next;
-		lock_rel(inst->lock);
+
+		we = mem_zalloc(sizeof(*we), we_destructor);
+		we->wcall = mem_ref(wcall);
+		list_append(&wcalls, &we->le, we);
+	}
+	lock_rel(inst->lock);
 	
+
+	LIST_FOREACH(&wcalls, le) {
+		struct wcall *wcall = we->wcall;
+
+		we = le->data;
+
 		switch(state) {
 		case MEDIAMGR_STATE_INCALL:
 		case MEDIAMGR_STATE_INVIDEOCALL:
@@ -2040,9 +2068,9 @@ void wcall_i_mcat_changed(struct calling_instance *inst,
 			//}
 			break;
 		}
-		lock_write_get(inst->lock);
 	}
-	lock_rel(inst->lock);	
+
+	list_flush(&wcalls);
 }
 
 static void mm_audio_route_changed(enum mediamgr_auplay new_route, void *arg)
@@ -2150,7 +2178,13 @@ int wcall_init(int env)
 	/* Ensure that Android linker pulls in all wcall symbols */
 	wcall_get_members(WUSER_INVALID_HANDLE, NULL);
 
-	peerflow_set_funcs();
+	peerflow_set_funcs();	
+#endif
+	
+#if ENABLE_REFLOW
+	wcall_get_members(WUSER_INVALID_HANDLE, NULL);
+
+	reflow_init();
 #endif
 
 	if (calling.initialized)
@@ -2800,6 +2834,24 @@ void wcall_i_config_update(struct calling_instance *inst,
 		warning("wcall(%p): config_update failed: %m\n", inst, err);
 }
 
+struct sft_ctx_entry {
+	struct wcall_ctx *ctx;
+	struct calling_instance *inst;
+
+	struct le le;
+};
+
+static void sce_destructor(void *arg)
+{
+	struct sft_ctx_entry *sce = arg;
+
+	list_unlink(&sce->le);
+	
+	lock_write_get(sce->inst->lock);
+	mem_deref(sce->ctx);
+	lock_rel(sce->inst->lock);
+}
+
 void wcall_i_sft_resp(struct calling_instance *inst,
 		      int status, struct econn_message *msg, void *arg)
 {
@@ -2808,6 +2860,7 @@ void wcall_i_sft_resp(struct calling_instance *inst,
 	char convid_anon[ANON_ID_LEN];
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
+	struct list ctxl = LIST_INIT;
 	struct le *le;
 
 	if (!ctx) {
@@ -2823,6 +2876,20 @@ void wcall_i_sft_resp(struct calling_instance *inst,
 	lock_write_get(inst->lock);
 	LIST_FOREACH(&inst->ctxl, le) {
 		struct wcall_ctx *at = le->data;
+		struct sft_ctx_entry *sce;
+
+		sce = mem_zalloc(sizeof(*sce), sce_destructor);
+		if (sce) {
+			sce->ctx = mem_ref(at);
+			sce->inst = inst;
+			list_append(&ctxl, &sce->le, sce);
+		}
+	}
+	lock_rel(inst->lock);
+	
+	LIST_FOREACH(&ctxl, le) {
+		struct sft_ctx_entry *sce = le->data;
+		struct wcall_ctx *at = sce->ctx;
 
 		if (at == ctx) {
 			info("wcall(%p): c3_message_recv: convid=%s from=SFT to=%s.%s msg=%H ctx=%p\n",
@@ -2841,7 +2908,7 @@ void wcall_i_sft_resp(struct calling_instance *inst,
 	ctx = NULL;
 
  out:
-	lock_rel(inst->lock);
+	list_flush(&ctxl);
 	mem_deref(ctx);
 }
 
