@@ -1610,6 +1610,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 {
 	struct ccall *ccall = arg;
 	bool list_changed = false;
+	bool first_confpart = false;
 	bool missing_parts = false;
 	int err = 0;
 
@@ -1617,11 +1618,14 @@ static void ecall_confpart_handler(struct ecall *ecall,
 	uint32_t seqno = msg->u.confpart.seqno;
 	bool should_start = msg->u.confpart.should_start;
 	const struct list *partlist = &msg->u.confpart.partl;
+	first_confpart = !ccall->received_confpart;
 
 	info("ccall(%p): ecall_confpart_handler ecall: %p "\
-	     "should_start %s partl: %u members ts: %llu sn: %u\n",
+	     "should_start %s partl: %u members ts: %llu sn: %u "\
+	     "first: %s\n",
 	     ccall, ecall, should_start ? "YES" : "NO",
-	     list_count(partlist), timestamp, seqno);
+	     list_count(partlist), timestamp, seqno,
+	     first_confpart ? "YES" : "NO");
 
 	if (!ccall || ecall != ccall->ecall) {
 		return;
@@ -1693,11 +1697,12 @@ static void ecall_confpart_handler(struct ecall *ecall,
 			}
 		}
 
-		if (ccall->ecall) {
-			err = ccall_sync_props(ccall);
-			if (err) {
-				warning("ccall(%p): sync_props failed\n", ccall);
-			}
+	}
+
+	if (first_confpart && ccall->ecall) {
+		err = ccall_sync_props(ccall);
+		if (err) {
+			warning("ccall(%p): sync_props failed\n", ccall);
 		}
 	}
 

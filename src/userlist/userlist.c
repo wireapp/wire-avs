@@ -339,11 +339,12 @@ int userlist_update_from_sftlist(struct userlist *list,
 		if (u) {
 			bool muted;
 
-			info("userlist(%p): update_from_sftlist found user %s.%s "
+			info("userlist(%p): update_from_sftlist found user %s.%s %s"
 			     "ssrca: %u ssrcv:%u incall_prev: %s\n",
 			     list, 
 			     anon_id(userid_anon, u->userid_real),
 			     anon_client(clientid_anon, u->clientid_real),
+			     u->userid_hash,
 			     p->ssrca, p->ssrcv,
 			     u->incall_prev ? "YES" : "NO");
 			if (le == first_approved) {
