@@ -2174,6 +2174,8 @@ static int create_ecall(struct ccall *ccall)
 		  0,
 		  ccall_sync_vstate_timeout, ccall);
 
+	info("ccall(%p): created ecall: %p for %s.%s\n", ccall, ecall, self->userid_hash, self->clientid_hash);
+
 out:
 	if (err) {
 		mem_deref(ecall);

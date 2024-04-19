@@ -2,7 +2,7 @@
 # tools.mk
 #
 
-TOOLS_ALL += zcall verifyd sectest
+TOOLS_ALL += zcall verifyd sectest sftloader
 #TOOLS_ALL += netprobe
 
 TOOLS_MKS := $(patsubst %,tools/%/tool.mk,$(TOOLS_ALL))

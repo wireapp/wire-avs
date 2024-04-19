@@ -492,10 +492,13 @@ static void handle_mq(struct peerflow *pf, struct mq_data *md, int id)
 		break;
 
 	case MQ_DC_OPEN:
-	//case MQ_DC_ESTAB:
-		warning("%s dce_estabh pf=%p arg=%p\n", __FUNCTION__, pf, pf->iflow.arg);
+		info("%s DC_OPEN pf=%p arg=%p\n", __FUNCTION__, pf, pf->iflow.arg);
 		IFLOW_CALL_CB(pf->iflow, dce_estabh,
 			pf->iflow.arg);
+		break;
+
+	case MQ_DC_ESTAB:
+		info("%s DC_ESTAB pf=%p arg=%p\n", __FUNCTION__, pf, pf->iflow.arg);
 		break;
 
 	case MQ_DC_CLOSE:
@@ -527,19 +530,94 @@ static void run_mq_on_pf(struct peerflow *pf, bool call_func)
 	struct le *le;
 	
 	lock_write_get(g_pf.mq.lock);
-	LIST_FOREACH(&g_pf.mq.l, le) {
+	le = g_pf.mq.l.head;
+	while (le) {
 		struct mq_data *md = (struct mq_data *)le->data;
 
+		md = (struct mq_data *)mem_ref(md);
+		le = le->next;
 		if (pf == md->pf) {
-			lock_rel(g_pf.mq.lock);
-			if (call_func)
-				handle_mq(pf, md, md->id);
-			else
+			if (!call_func) {
 				md->handled = true;
-			lock_write_get(g_pf.mq.lock);
+			}
+			else {
+				if (!md->handled) {
+					lock_rel(g_pf.mq.lock);
+					handle_mq(pf, md, md->id);
+					lock_write_get(g_pf.mq.lock);					
+				}
+				mem_deref(md);
+			}
 		}
+		mem_deref(md);
 	}
 	lock_rel(g_pf.mq.lock);
+}
+
+struct mq_entry {
+	struct mq_data *md;
+
+	struct le le;
+};
+
+static void mqe_destructor(void *arg)
+{
+	struct mq_entry *mqe = (struct mq_entry *)arg;
+
+	list_unlink(&mqe->le);
+	lock_write_get(g_pf.mq.lock);
+	mem_deref(mqe->md);
+	lock_rel(g_pf.mq.lock);
+}
+
+static void run_all_mq(void)
+{
+	struct list mql = LIST_INIT;
+	struct le *le;
+	
+	lock_write_get(g_pf.mq.lock);
+	le = g_pf.mq.l.head;
+	while(le) {
+		struct mq_data *md = (struct mq_data *)le->data;
+		struct mq_entry *mqe;
+
+		mqe = (struct mq_entry *)mem_zalloc(sizeof(*mqe), mqe_destructor);
+		if (!mqe)
+			continue;
+
+		mqe->md = md;
+		list_append(&mql, &mqe->le, mqe);
+
+		le = le->next;
+		list_unlink(&md->le);
+	}
+	lock_rel(g_pf.mq.lock);
+		
+	LIST_FOREACH(&mql, le) {
+		struct mq_entry *mqe = (struct mq_entry *)le->data;
+		struct mq_data *md = mqe->md;
+		struct peerflow *pf = md->pf;
+
+		lock_write_get(g_pf.lock);
+		if (valid_pf(pf)) {
+			pf = (struct peerflow *)mem_ref(pf);
+		}
+		else {
+			debug("pf(%p): handle_all: spurious event: 0x%02x\n", pf, md->id);
+			pf = NULL;
+		}
+		lock_rel(g_pf.lock);
+		
+		if (pf != NULL) {
+			if (!md->handled) {
+				handle_mq(pf, md, md->id);
+			}
+			lock_write_get(g_pf.lock);
+			mem_deref(pf);
+			lock_rel(g_pf.lock);
+		}
+	}
+	list_flush(&mql);
 }
 
 static void mq_handler(int id, void *data, void *arg)
@@ -555,30 +633,12 @@ static void mq_handler(int id, void *data, void *arg)
 		break;
 
 	default:
-		lock_write_get(g_pf.lock);
-		if (valid_pf(pf)) {
-			pf = (struct peerflow *)mem_ref(pf);
-		}
-		else {
-			debug("pf(%p): spurious event: 0x%02x\n", pf, id);
-			pf = NULL;
-		}
-		lock_rel(g_pf.lock);
-		if (pf == NULL)
-			goto out;
+		run_all_mq();
 		break;
 	}
 
-	lock_write_get(g_pf.mq.lock);
-	list_unlink(&md->le);
-	lock_rel(g_pf.mq.lock);
-	if (!md->handled)
-		handle_mq(pf, md, id);
-	
-	mem_deref(pf);
-	
  out:
-	mem_deref(md);
+	return;
 }
 
 
@@ -1019,8 +1079,11 @@ public:
 			warning("pf(%p): failed to alloc md\n", pf_);
 			return;
 		}
+
+		md->pf = pf_;
 		md->u.dcestab.id = dc->id();
 		str_dup(&md->u.dcestab.label, dc->label().c_str());
+
 		md->id = MQ_DC_ESTAB;
 
 		push_mq(md);
@@ -1891,9 +1954,7 @@ static void pf_destructor(void *arg)
 
 	run_mq_on_pf(pf, false);
 	
-	lock_write_get(g_pf.lock);
 	list_unlink(&pf->le);
-	lock_rel(g_pf.lock);
 
 	delete pf->offerOptions;
 	delete pf->answerOptions;
@@ -2820,7 +2881,9 @@ void peerflow_close(struct iflow *iflow)
 	 */
 	run_mq_on_pf(pf, false);
 
+	lock_write_get(g_pf.lock);
 	mem_deref(pf);
+	lock_rel(g_pf.lock);
 }
 
 bool peerflow_has_video(const struct iflow *iflow)

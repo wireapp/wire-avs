@@ -1054,7 +1054,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 
 	ecall->ts_start = tmr_jiffies();
 
-	info("ecall(%p): allocated\n", ecall);
+	info("ecall(%p): allocated: %s.%s\n", ecall, userid_self, clientid);
  out:
 	if (err)
 		mem_deref(ecall);
@@ -1821,8 +1821,15 @@ static void channel_close_handler(struct iflow *iflow, void *arg)
 		info("ecall(%p): ignoring %s on wrong flow\n", ecall, __FUNCTION__);
 		return;
 	}
-
-	ecall_close(ecall, EDATACHANNEL, ECONN_MESSAGE_TIME_UNKNOWN);
+	
+	if (ECONN_DATACHAN_ESTABLISHED == econn_current_state(ecall->econn)) {
+		info("ecall(%p): channel_close_handler: triggering restart due to DC drop\n",
+			ecall);
+		ecall_restart(ecall, ecall->call_type, true);
+	}
+	else {
+		ecall_close(ecall, EDATACHANNEL, ECONN_MESSAGE_TIME_UNKNOWN);
+	}
 }
 
 
