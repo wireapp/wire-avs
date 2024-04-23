@@ -1497,7 +1497,7 @@ function pc_AddTurnServer(
   const username = em_module.UTF8ToString(usernamePtr);
   const credential = em_module.UTF8ToString(passwordPtr);
 
-  pc_log(LOG_LEVEL_INFO, `pc_AddTurnServer: hnd=${hnd} adding: ${username}:${credential}@${url}`);
+  pc_log(LOG_LEVEL_INFO, `pc_AddTurnServer: hnd=${hnd} adding: ${url}`);
 
   const server = {
     urls: url,
