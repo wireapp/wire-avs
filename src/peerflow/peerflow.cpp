@@ -2177,7 +2177,7 @@ int peerflow_add_turnserver(struct iflow *iflow,
 	if (!pf->config)
 		return ENOSYS;
 
-	info("pf_add_turn: %s:%s@%s\n", username, password, url);
+	info("pf_add_turn: %s\n", username, password, url);
 
 	server.urls.push_back(url);
 	//server.uri = std::string(url);
