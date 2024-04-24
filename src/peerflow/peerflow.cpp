@@ -416,7 +416,6 @@ static void push_mq(struct mq_data *md)
 		
 	mqueue_push(g_pf.mq.q, md->id, md);
 	lock_rel(g_pf.mq.lock);
-	
 }
 
 static void send_close(struct peerflow *pf, int err)
@@ -514,6 +513,7 @@ static void handle_mq(struct peerflow *pf, struct mq_data *md, int id)
 		break;
 
 	case MQ_INTERNAL_SET_MUTE:
+		info("%s SET_MUTE\n", __FUNCTION__);
 		set_all_mute(g_pf.audio.muted);		
 		break;
 
@@ -581,6 +581,8 @@ static void run_all_mq(void)
 		struct mq_data *md = (struct mq_data *)le->data;
 		struct mq_entry *mqe;
 
+		le = le->next;
+
 		mqe = (struct mq_entry *)mem_zalloc(sizeof(*mqe), mqe_destructor);
 		if (!mqe)
 			continue;
@@ -588,7 +590,6 @@ static void run_all_mq(void)
 		mqe->md = md;
 		list_append(&mql, &mqe->le, mqe);
 
-		le = le->next;
 		list_unlink(&md->le);
 	}
 	lock_rel(g_pf.mq.lock);
@@ -599,19 +600,20 @@ static void run_all_mq(void)
 		struct peerflow *pf = md->pf;
 
 		lock_write_get(g_pf.lock);
-		if (valid_pf(pf)) {
+		if (pf && valid_pf(pf)) {
 			pf = (struct peerflow *)mem_ref(pf);
 		}
-		else {
+		else if (pf) {
 			debug("pf(%p): handle_all: spurious event: 0x%02x\n", pf, md->id);
-			pf = NULL;
+			lock_rel(g_pf.lock);
+			continue;
 		}
 		lock_rel(g_pf.lock);
 		
-		if (pf != NULL) {
-			if (!md->handled) {
-				handle_mq(pf, md, md->id);
-			}
+		if (!md->handled) {
+			handle_mq(pf, md, md->id);
+		}
+		if (pf) {
 			lock_write_get(g_pf.lock);
 			mem_deref(pf);
 			lock_rel(g_pf.lock);
@@ -622,23 +624,7 @@ static void run_all_mq(void)
 
 static void mq_handler(int id, void *data, void *arg)
 {
-	struct mq_data *md = (struct mq_data *)data;
-	struct peerflow *pf = md->pf;
-
-	(void)arg;
-
-	switch(id) {
-	case MQ_INTERNAL_SET_MUTE:
-		pf = NULL;
-		break;
-
-	default:
-		run_all_mq();
-		break;
-	}
-
- out:
-	return;
+	run_all_mq();
 }
 
 
