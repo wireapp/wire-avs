@@ -1674,6 +1674,13 @@ static void ecall_confpart_handler(struct ecall *ecall,
 			  ccall_alone_timeout, ccall);
 	}
 
+	if (first_confpart && ccall->ecall) {
+		err = ccall_sync_props(ccall);
+		if (err) {
+			warning("ccall(%p): sync_props failed\n", ccall);
+		}
+	}
+
 	err = userlist_update_from_sftlist(ccall->userl,
 					   partlist,
 					   &list_changed,
@@ -1697,13 +1704,6 @@ static void ecall_confpart_handler(struct ecall *ecall,
 			}
 		}
 
-	}
-
-	if (first_confpart && ccall->ecall) {
-		err = ccall_sync_props(ccall);
-		if (err) {
-			warning("ccall(%p): sync_props failed\n", ccall);
-		}
 	}
 
 	if (missing_parts) {

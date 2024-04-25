@@ -1726,6 +1726,7 @@ static int handle_propsync(struct ecall *ecall, struct econn_message *msg)
 
 	if (!ecall->devpair &&
 	    econn_message_isrequest(msg) &&
+	    ecall->conv_type != ICALL_CONV_TYPE_CONFERENCE &&
 	    econn_can_send_propsync(ecall->econn)) {
 
 		err = econn_send_propsync(ecall->econn, true,
