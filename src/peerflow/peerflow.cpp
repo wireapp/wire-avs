@@ -460,69 +460,77 @@ void timer_restart(void *arg)
 
 static void handle_mq(struct peerflow *pf, struct mq_data *md, int id)
 {
-	switch(id) {
-	case MQ_PC_ESTAB:
-		IFLOW_CALL_CB(pf->iflow, estabh,
-			"dtls", "opus", pf->iflow.arg);
-		IFLOW_CALL_CB(pf->iflow, rtp_stateh,
-			true, true, pf->iflow.arg);
-		break;
+	if (NULL == pf) {
+		switch(id) {
+		case MQ_INTERNAL_SET_MUTE:
+			info("%s SET_MUTE\n", __FUNCTION__);
+			set_all_mute(g_pf.audio.muted);
+			break;
 
-	case MQ_PC_GATHER:
-		IFLOW_CALL_CB(pf->iflow, gatherh,
-			pf->iflow.arg);
-		break;
+		default:
+			warning("%s pf is null\n", __FUNCTION__);
+			break;
+		}
+	}
+	else {
+		switch(id) {
+		case MQ_PC_ESTAB:
+			IFLOW_CALL_CB(pf->iflow, estabh,
+				      "dtls", "opus", pf->iflow.arg);
+			IFLOW_CALL_CB(pf->iflow, rtp_stateh,
+				      true, true, pf->iflow.arg);
+			break;
 
-	case MQ_PC_CLOSE:
-		IFLOW_CALL_CB(pf->iflow, closeh,
-			EINTR, pf->iflow.arg);
-		break;
+		case MQ_PC_GATHER:
+			IFLOW_CALL_CB(pf->iflow, gatherh,
+				      pf->iflow.arg);
+			break;
 
-	case MQ_PC_RESTART_NOW:
-		tmr_start(&pf->tmr_restart, 1, timer_restart, pf);
-		break;
+		case MQ_PC_CLOSE:
+			IFLOW_CALL_CB(pf->iflow, closeh,
+				      EINTR, pf->iflow.arg);
+			break;
 
-	case MQ_PC_RESTART_DELAY:
-		tmr_start(&pf->tmr_restart, TMR_RESTART_INTERVAL, timer_restart, pf);
-		break;
+		case MQ_PC_RESTART_NOW:
+			tmr_start(&pf->tmr_restart, 1, timer_restart, pf);
+			break;
 
-	case MQ_PC_RESTART_CANCEL:
-		tmr_cancel(&pf->tmr_restart);
-		break;
+		case MQ_PC_RESTART_DELAY:
+			tmr_start(&pf->tmr_restart, TMR_RESTART_INTERVAL, timer_restart, pf);
+			break;
 
-	case MQ_DC_OPEN:
-		info("%s DC_OPEN pf=%p arg=%p\n", __FUNCTION__, pf, pf->iflow.arg);
-		IFLOW_CALL_CB(pf->iflow, dce_estabh,
-			pf->iflow.arg);
-		break;
+		case MQ_PC_RESTART_CANCEL:
+			tmr_cancel(&pf->tmr_restart);
+			break;
 
-	case MQ_DC_ESTAB:
-		info("%s DC_ESTAB pf=%p arg=%p\n", __FUNCTION__, pf, pf->iflow.arg);
-		break;
+		case MQ_DC_OPEN:
+			info("%s DC_OPEN pf=%p arg=%p\n", __FUNCTION__, pf, pf->iflow.arg);
+			IFLOW_CALL_CB(pf->iflow, dce_estabh,
+				      pf->iflow.arg);
+			break;
 
-	case MQ_DC_CLOSE:
-		IFLOW_CALL_CB(pf->iflow, dce_closeh,
-			pf->iflow.arg);
-		break;
+		case MQ_DC_ESTAB:
+			info("%s DC_ESTAB pf=%p arg=%p\n", __FUNCTION__, pf, pf->iflow.arg);
+			break;
 
-	case MQ_DC_DATA:
-		IFLOW_CALL_CB(pf->iflow, dce_recvh,
-			      md->u.dcdata.mb->buf,
-			      md->u.dcdata.mb->end,
-			      pf->iflow.arg);
-		break;
+		case MQ_DC_CLOSE:
+			IFLOW_CALL_CB(pf->iflow, dce_closeh,
+				      pf->iflow.arg);
+			break;
 
-	case MQ_INTERNAL_SET_MUTE:
-		info("%s SET_MUTE\n", __FUNCTION__);
-		set_all_mute(g_pf.audio.muted);		
-		break;
+		case MQ_DC_DATA:
+			IFLOW_CALL_CB(pf->iflow, dce_recvh,
+				      md->u.dcdata.mb->buf,
+				      md->u.dcdata.mb->end,
+				      pf->iflow.arg);
+			break;
 
-	default:
-		break;
+		default:
+			break;
+		}
 	}
 
 	md->handled = true;
-	
 }
 
 static void run_mq_on_pf(struct peerflow *pf, bool call_func)
@@ -599,16 +607,23 @@ static void run_all_mq(void)
 		struct mq_data *md = mqe->md;
 		struct peerflow *pf = md->pf;
 
-		lock_write_get(g_pf.lock);
-		if (pf && valid_pf(pf)) {
-			pf = (struct peerflow *)mem_ref(pf);
-		}
-		else if (pf) {
-			debug("pf(%p): handle_all: spurious event: 0x%02x\n", pf, md->id);
+		switch(md->id) {
+		case MQ_INTERNAL_SET_MUTE:
+			break;
+
+		default:
+			lock_write_get(g_pf.lock);
+			if (pf && valid_pf(pf)) {
+				pf = (struct peerflow *)mem_ref(pf);
+			}
+			else if (pf) {
+				debug("pf(%p): handle_all: spurious event: 0x%02x\n", pf, md->id);
+				lock_rel(g_pf.lock);
+				continue;
+			}
 			lock_rel(g_pf.lock);
-			continue;
+			break;
 		}
-		lock_rel(g_pf.lock);
 		
 		if (!md->handled) {
 			handle_mq(pf, md, md->id);
