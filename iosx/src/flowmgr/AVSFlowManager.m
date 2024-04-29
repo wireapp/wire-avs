@@ -480,10 +480,7 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 
 		g_Fm = self;
 
-#if !(TARGET_IPHONE_SIMULATOR)
 		_capturer = [[AVSCapturer alloc] init];
-#endif
-	
 	}
 
 	return self;
