@@ -51,9 +51,7 @@ static NSArray *g_bt_routes;
 
 static void set_category(NSString *cat, bool speaker);
 static bool set_category_sync(NSString *cat, bool speaker);
-#if !TARGET_IPHONE_SIMULATOR
 static void default_category(bool sync);
-#endif
 
 
 static bool set_active_sync(bool active)
@@ -148,7 +146,6 @@ static void set_active(bool active)
 
 - (void)didStartPlayingMedia:(id<AVSMedia>)media
 {
-#if !TARGET_IPHONE_SIMULATOR
 	NSString *cname = NSStringFromClass([media class]);
 
 	info("mm_platform_ios: didStartPlaying: class=%s %s incall=%s\n",
@@ -161,7 +158,6 @@ static void set_active(bool active)
 			set_active_sync(true);
 		}
 	}
-#endif
 	
 	[_lock lock];
 	[_playingDict setObject:media forKey:media.name];
@@ -214,7 +210,6 @@ static void set_active(bool active)
 	info("mm_platform_ios: finished playing media: %s\n",
 	     [media.name UTF8String]);
 
-#if !TARGET_IPHONE_SIMULATOR
 	NSString *cname = NSStringFromClass([media class]);
 
 	info("mm_platform_ios: didFinishPlaying: class=%s\n",
@@ -226,8 +221,6 @@ static void set_active(bool active)
 		default_category(true);
 	}
 		
-#endif
-	
 	[_lock lock];
 
 	BOOL playing = ([_playingDict objectForKey:media.name] != nil);
@@ -680,7 +673,6 @@ static void handle_audio_notification(NSNotification *notification)
 	}
 }
 
-#if !TARGET_IPHONE_SIMULATOR
 static void default_category(bool sync)
 {
 	info("mm_platform_ios: default_category: %s recording: %s\n",
@@ -723,7 +715,6 @@ static void incall_category(void)
 		     mediamgr_get_speaker(mm_ios.mm));
 	set_active(true);
 }
-#endif /* #if !TARGET_IPHONE_SIMULATOR */
 
 #endif
 
@@ -1048,9 +1039,7 @@ enum mediamgr_auplay mm_platform_get_route(void)
 
 void mm_platform_incoming(void)
 {
-#if TARGET_IPHONE_SIMULATOR
-	mediamgr_sys_incoming(mm_ios.mm);
-#elif TARGET_OS_IPHONE
+#if TARGET_OS_IPHONE
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
 	NSString *cat = [sess category];
 
@@ -1066,9 +1055,7 @@ void mm_platform_incoming(void)
 
 void mm_platform_enter_call(void)
 {
-#if TARGET_IPHONE_SIMULATOR
-	mediamgr_sys_entered_call(mm_ios.mm);
-#elif TARGET_OS_IPHONE	
+#if TARGET_OS_IPHONE
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
  
 	info("mm_platform_ios: enter_call: incall=%s\n",
@@ -1089,9 +1076,7 @@ void mm_platform_enter_call(void)
 
 void mm_platform_exit_call(void)
 {
-#if TARGET_IPHONE_SIMULATOR
-	leave_call();
-#elif TARGET_OS_IPHONE		
+#if TARGET_OS_IPHONE
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
 	NSString *cat;
 
@@ -1197,14 +1182,10 @@ void mm_platform_start_recording(struct mm_platform_start_rec *rec_elem)
 	}
 	
 	mm_ios.recording = true;
-#if !TARGET_IPHONE_SIMULATOR
 	set_category(AVAudioSessionCategoryPlayAndRecord, false);
 	set_active(true);
 	
 	tmr_start(&mm_ios.tmr_rec, 1000, rec_start_handler, rec_elem);	
-#else
-	tmr_start(&mm_ios.tmr_rec, 1, rec_start_handler, rec_elem);	
-#endif
 }
 
 void mm_platform_stop_recording(void)
@@ -1212,12 +1193,10 @@ void mm_platform_stop_recording(void)
 	info("mm_platform_ios: stop_recording incall=%d\n", mm_ios.incall);
 
 	mm_ios.recording = false;
-#if !TARGET_IPHONE_SIMULATOR
 	if (!mm_ios.incall) {
 		default_category(true);
 		set_active_sync(false);
 	}		
-#endif
 }
 
 void mm_platform_confirm_route(enum mediamgr_auplay route)
