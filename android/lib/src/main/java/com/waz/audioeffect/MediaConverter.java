@@ -57,12 +57,17 @@ class MediaConverter {
 
 			while (i < numTracks && !found) {
 				mediaFormat = extractor.getTrackFormat(i);
-				mimeType = mediaFormat.getString(MediaFormat.KEY_MIME);
-				if (mimeType.startsWith("audio/")) {
-					found = true;
+				try {
+					mimeType = mediaFormat.getString(MediaFormat.KEY_MIME);
+					if (mimeType.startsWith("audio/")) {
+						found = true;
+					}
+					else {
+						i++;
+					}
 				}
-				else {
-					i++;
+				catch (Exception e) {
+					Log.w(TAG, "decode: no mime type");
 				}
 			}
 
@@ -73,13 +78,22 @@ class MediaConverter {
 			}
 
 			try {
-				bitRate = mediaFormat.getInteger(MediaFormat.KEY_BIT_RATE, bitRate);
-				sampleRate = mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE, sampleRate);
-				channelCount = mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT, channelCount);
-
+				bitRate = mediaFormat.getInteger(MediaFormat.KEY_BIT_RATE);
 			}
 			catch(Exception e) {
 				Log.w(TAG, "decode: bitrate key exception: " + e);
+			}
+			try {
+				sampleRate = mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+			}
+			catch(Exception e) {
+				Log.w(TAG, "decode: samplerate key exception: " + e);
+			}
+			try {
+				channelCount = mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+			}
+			catch(Exception e) {
+				Log.w(TAG, "decode: channel count exception: " + e);
 			}
 			
 			extractor.selectTrack(i);		
@@ -174,7 +188,22 @@ class MediaConverter {
 			int trackId = muxer.addTrack(mediaFormat);			
 			boolean finished = false;
 			boolean eos = false;
-			String mimeType = mediaFormat.getString(MediaFormat.KEY_MIME, "audio/mp4a-latm");
+			String mimeType = "audio/mp4a-latm";
+			int profileId = MediaCodecInfo.CodecProfileLevel.AACObjectLC;
+
+			try {
+				mediaFormat.getString(MediaFormat.KEY_MIME);
+			}
+			catch (Exception e) {
+				Log.w(TAG, "encode: no mime type");
+			}
+
+			try {
+				mediaFormat.getInteger(MediaFormat.KEY_AAC_PROFILE);
+			}
+			catch (Exception e) {
+				Log.w(TAG, "encode: no profile");
+			}
 
 			encoder = MediaCodec.createEncoderByType(mimeType);
 
@@ -183,9 +212,7 @@ class MediaConverter {
 			format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
 			format.setInteger(MediaFormat.KEY_CHANNEL_COUNT, channelCount);
 			format.setInteger(MediaFormat.KEY_SAMPLE_RATE, sampleRate);
-			format.setInteger(MediaFormat.KEY_AAC_PROFILE,
-					  mediaFormat.getInteger(MediaFormat.KEY_AAC_PROFILE,
-								 MediaCodecInfo.CodecProfileLevel.AACObjectLC));
+			format.setInteger(MediaFormat.KEY_AAC_PROFILE, profileId);
 
 			encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
 			muxer.start();
