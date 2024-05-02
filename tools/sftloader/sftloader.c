@@ -18,7 +18,9 @@ struct sftloader {
 	bool running;
 	
 	char *convid;
-	char *url;
+	char *sft_url;
+	char *start_url;
+	bool is_federating;
 	uint32_t ncalls;
 	uint32_t nusers;
 	uint32_t clientno;
@@ -408,7 +410,7 @@ static void cfg_timeout(void *arg)
 
 	int err = 0;
 
-	re_printf("cfg_handler: su: %p URL=%s\n", su, sftloader->url);
+	re_printf("cfg_handler: su: %p URL=%s\n", su, sftloader->sft_url);
 
 	jobj = json_object_new_object();
 	
@@ -424,7 +426,7 @@ static void cfg_timeout(void *arg)
 		goto out;
 	}
 
-	str_dup(&url, sftloader->url);
+	str_dup(&url, sftloader->sft_url);
 	jurls = json_object_new_array();
 	jsft = jzon_alloc_object();
 	user = strchr(url, '|');
@@ -479,13 +481,14 @@ static void cfg_timeout(void *arg)
 
 	json_object_object_add(jobj, "sft_servers", jsfts);
 	json_object_object_add(jobj, "sft_servers_all", jsfts_all);
-	json_object_object_add(jobj, "is_federating", json_object_new_boolean(false));
+	json_object_object_add(jobj, "is_federating", json_object_new_boolean(sftloader->is_federating));
 
 	if (!err && jobj) {
 		err = jzon_encode(&json_str, jobj);
 		if (err)
 			goto out;
 	}
+
  out:
 	re_printf("config_update json_str=%s\n", json_str);
 	wcall_config_update(su->wuser, 0, json_str);
@@ -507,14 +510,26 @@ static int cfg_handler(WUSER_HANDLE wuser, void *arg)
 static void create_confstart(char *buf, size_t *blen)
 {
 	memset(buf, 0, *blen);
-	snprintf(buf, *blen, "{\"version\":\"3.0\",\"type\":\"CONFSTART\",\"sessid\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"src_userid\":\"%s\",\"src_clientid\":\"%s\",\"resp\":false,\"sft_url\":\"%s\",\"secret\":\"%s\",\"timestamp\":\"1\",\"seqno\":\"1\",\"sfts\":[\"%s\"],\"props\":{\"videosend\":\"%s\"}}",
-		 fake_userid,
-		 fake_clientid,
-		 sftloader->url,
-		 fake_secret,
-		 sftloader->url,
-		 sftloader->use_video ? "true" : "false");
+
+	if (sftloader->start_url)
+		snprintf(buf, *blen, "{\"version\":\"3.0\",\"type\":\"CONFSTART\",\"sessid\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"src_userid\":\"%s\",\"src_clientid\":\"%s\",\"resp\":false,\"sft_url\":\"%s\",\"secret\":\"%s\",\"timestamp\":\"1\",\"seqno\":\"1\",\"sfts\":[\"%s\",\"%s\"],\"props\":{\"videosend\":\"%s\"}}",
+			 fake_userid,
+			 fake_clientid,
+			 sftloader->start_url,
+			 fake_secret,
+			 sftloader->start_url,
+			 sftloader->sft_url,
+			 sftloader->use_video ? "true" : "false");
+	else
+		snprintf(buf, *blen, "{\"version\":\"3.0\",\"type\":\"CONFSTART\",\"sessid\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"src_userid\":\"%s\",\"src_clientid\":\"%s\",\"resp\":false,\"sft_url\":\"%s\",\"secret\":\"%s\",\"timestamp\":\"1\",\"seqno\":\"1\",\"sfts\":[\"%s\"],\"props\":{\"videosend\":\"%s\"}}",
+			 fake_userid,
+			 fake_clientid,
+			 sftloader->sft_url,
+			 fake_secret,
+			 sftloader->sft_url,
+			 sftloader->use_video ? "true" : "false");
 	*blen = strlen(buf);
+	re_printf("confstart=%s\n", buf);
 }
 
 static void req_clients_handler(WUSER_HANDLE wuser,
@@ -879,7 +894,8 @@ static void sl_destructor(void *arg)
 	struct sftloader *sl = arg;
 
 	mem_deref(sl->convid);
-	mem_deref(sl->url);
+	mem_deref(sl->sft_url);
+	mem_deref(sl->start_url);
 	mem_deref(sl->dnsc);
 	
 }
@@ -895,7 +911,7 @@ int main(int argc, char **argv)
 	sftloader->logfp = stdout;
 
 	for (;;) {
-		const int c = getopt(argc, argv, "c:d:i:l:n:s:t:u:v");
+		const int c = getopt(argc, argv, "c:d:fi:l:n:s:S:t:u:v");
 
 		if (c < 0)
 			break;
@@ -907,6 +923,10 @@ int main(int argc, char **argv)
 
 		case 'd':
 			sftloader->duration = atoi(optarg) * 1000;
+			break;
+
+		case 'f':
+			sftloader->is_federating = true;
 			break;
 
 		case 'i':
@@ -922,10 +942,13 @@ int main(int argc, char **argv)
 			break;
 
 		case 's':
-			re_printf("copying URL=%s\n", optarg);
-			str_dup(&sftloader->url, optarg);
+			str_dup(&sftloader->sft_url, optarg);
 			break;
-			
+
+		case 'S':
+			str_dup(&sftloader->start_url, optarg);
+			break;
+
 		case 't':
 			sftloader->tmo = atoi(optarg);
 			break;
