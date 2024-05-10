@@ -1067,7 +1067,8 @@ void mm_platform_enter_call(void)
 	}
 	
 	mm_ios.incall = true;
-	if ([sess category] == AVAudioSessionCategoryPlayAndRecord)
+	if ([sess category] == AVAudioSessionCategoryPlayAndRecord
+	    || TARGET_IPHONE_SIMULATOR)
 		mediamgr_sys_entered_call(mm_ios.mm);
 	else 
 		incall_category();
