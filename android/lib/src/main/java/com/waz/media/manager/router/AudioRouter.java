@@ -415,6 +415,9 @@ public class AudioRouter
     if (hasApi31()) {
 	    List<AudioDeviceInfo> devices = _audio_manager.getAvailableCommunicationDevices();
 	    for (AudioDeviceInfo device : devices) {
+		    if (device == null)
+			    continue;
+
 		    if (device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
 			    speakerDevice = device;
 			    break;
