@@ -130,5 +130,9 @@ struct ccall {
 
 	uint64_t quality_interval;
 	enum econn_confconn_status confconn_status;
+
+	uint64_t ts_start;
+	struct icall_metrics metrics;
+	bool inc_reconnects;
 };
 

@@ -171,7 +171,8 @@ static void ccall_datachan_estab_handler(struct icall *icall,
 }
 
 static void ccall_close_handler(struct icall *icall, int err,
-				const char *metrics_json, uint32_t msg_time,
+				struct icall_metrics *metrics,
+				uint32_t msg_time,
 				const char *userid, const char *clientid,
 				void *arg)
 {

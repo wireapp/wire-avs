@@ -161,6 +161,11 @@ int userlist_reset_video_states(const struct userlist* list);
 int userlist_debug(struct re_printf *pf,
 		   const struct userlist* list);
 
+int userlist_get_active_counts(const struct userlist *list,
+			       uint32_t *active,
+			       uint32_t *active_a,
+			       uint32_t *active_v);
+
 int hash_conv(const uint8_t *secret,
 	      uint32_t secretlen,
 	      const char *convid, 

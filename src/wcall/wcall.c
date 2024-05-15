@@ -1108,13 +1108,15 @@ static int err2reason(int err)
 
 
 static void icall_close_handler(struct icall *icall, int err,
-				const char *metrics_json, uint32_t msg_time,
+				struct icall_metrics *metrics,
+				uint32_t msg_time,
 				const char *userid, const char *clientid,
 				void *arg)
 {
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
 	bool ignore_close = false;
+	char *metrics_json = NULL;
 	int reason;
 
 	if (!WCALL_VALID(wcall)) {
@@ -1156,16 +1158,21 @@ static void icall_close_handler(struct icall *icall, int err,
 		     wcall, tmr_jiffies() - now);
 	}
 
-	info(APITAG "wcall(%p): metricsh(%p) json=%p\n", wcall, inst->metricsh, metrics_json);
 
-	if (!inst->processing_notifications && inst->metricsh && metrics_json) {
-		uint64_t now = tmr_jiffies();
-		inst->metricsh(wcall->convid, metrics_json, inst->arg);
-		info(APITAG "wcall(%p): metricsh took %llu ms\n",
-		     wcall, tmr_jiffies() - now);
+	if (!inst->processing_notifications && inst->metricsh && metrics) {
+		metrics_json = icall_metrics2json(metrics, wcall_reason_name(reason));
+		if (metrics_json) {
+			info(APITAG "wcall(%p): metricsh(%p) json=%s\n", wcall, inst->metricsh, metrics_json);
+			uint64_t now = tmr_jiffies();
+			inst->metricsh(wcall->convid, metrics_json, inst->arg);
+			info(APITAG "wcall(%p): metricsh took %llu ms\n",
+			     wcall, tmr_jiffies() - now);
+		}
+
 	}
 out:
 	mem_deref(wcall);
+	mem_deref(metrics_json);
 }
 
 
@@ -1262,11 +1269,12 @@ static void icall_group_changed_handler(struct icall *icall, void *arg)
 }
 
 static void icall_metrics_handler(struct icall *icall,
-				   const char *metrics_json,
-				   void *arg)
+				  struct icall_metrics * metrics,
+				  void *arg)
 {
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
+	char *metrics_json = NULL;
 
 	(void)icall;
 
@@ -1276,9 +1284,14 @@ static void icall_metrics_handler(struct icall *icall,
 		return;
 	}
 
-	if (inst->metricsh && metrics_json) {
-		inst->metricsh(wcall->convid, metrics_json, inst->arg);
+	if (inst->metricsh && metrics) {
+		metrics_json = icall_metrics2json(metrics, NULL);
+		if (metrics_json) {
+			inst->metricsh(wcall->convid, metrics_json, inst->arg);
+		}
 	}
+
+	mem_deref(metrics_json);
 }
 
 static void ctx_destructor(void *arg)

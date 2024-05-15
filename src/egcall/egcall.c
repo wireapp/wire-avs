@@ -1068,7 +1068,7 @@ static void ecall_norelay_handler(struct icall *icall, bool local, void *arg)
 
 static void ecall_close_handler(struct icall *icall,
 				int err,
-				const char *metrics_json,
+				struct icall_metrics *metrics,
 				uint32_t msg_time,
 				const char *userid,
 				const char *clientid,
@@ -1080,9 +1080,9 @@ static void ecall_close_handler(struct icall *icall,
 	info("egcall(%p): ecall_close_handler err=%d ecall=%p\n",
 	     egcall, err, ecall);
 	
-	if(metrics_json){
+	if(metrics){
 		ICALL_CALL_CB(egcall->icall, metricsh,
-			&egcall->icall, metrics_json, egcall->icall.arg);
+			&egcall->icall, metrics, egcall->icall.arg);
 	}
 
 	ecall_set_conf_part(ecall, NULL);

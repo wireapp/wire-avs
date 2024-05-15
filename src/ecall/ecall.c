@@ -118,8 +118,6 @@ void ecall_close(struct ecall *ecall, int err, uint32_t msg_time)
 		info("ecall(%p): closed (normal)\n", ecall);
 	}
 
-	char *json_str = NULL;
-
 	/* Keep flow reference, but indicate that it's gone */
 	flow = ecall->flow;
 	ecall->flow = NULL;
@@ -140,9 +138,16 @@ void ecall_close(struct ecall *ecall, int err, uint32_t msg_time)
 		ecall->video.recv_state = ICALL_VIDEO_STATE_STOPPED;
 	}
 
-	if (closeh) {
+	if (closeh && ecall->ts_answered) {
+		uint64_t now = tmr_jiffies();
+		ecall->metrics.m.duration_call = (now - ecall->ts_answered) / 1000;
+		ecall->metrics.m.duration_active = ecall->metrics.m.duration_call;
+		ecall->metrics.m.participants_max = 2;
+		ecall->metrics.m.participants_audio_max = 2;
+		ecall->metrics.m.participants_video_max = ecall->metrics.video_local + ecall->metrics.video_remote;
+
 		ecall->icall.closeh = NULL;
-		closeh(&ecall->icall, err, json_str, msg_time,
+		closeh(&ecall->icall, err, &ecall->metrics.m, msg_time,
 			ecall->userid_peer, ecall->clientid_peer, ecall->icall.arg);
 	}
 
@@ -1053,6 +1058,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 	list_append(&g_ecalls, &ecall->ecall_le, ecall);
 
 	ecall->ts_start = tmr_jiffies();
+	ecall->metrics.m.conv_type = ICALL_CONV_TYPE_ONEONONE;
 
 	info("ecall(%p): allocated: %s.%s\n", ecall, userid_self, clientid);
  out:
@@ -1584,6 +1590,10 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 
 	ecall->update = false;
 	ecall->num_retries = 0;
+	if (ecall->metrics.inc_reconnects) {
+		ecall->metrics.m.reconnects_successful++;
+		ecall->metrics.inc_reconnects = false;
+	}
 
 	if (ecall->icall.audio_levelh) {
 		tmr_start(&ecall->audio.level.tmr, TIMEOUT_AUDIO_LEVEL,
@@ -1691,8 +1701,10 @@ static void propsync_handler(struct ecall *ecall)
 		     ecall,
 		     icall_vstate_name(ecall->video.recv_state),
 		     icall_vstate_name(vstate));
-		
+
 		ecall->video.recv_state = vstate;
+		if (vstate == ICALL_VIDEO_STATE_STARTED)
+			ecall->metrics.video_remote = 1;
 
 		if (ecall->icall.vstate_changedh) {
 			ICALL_CALL_CB(ecall->icall, vstate_changedh,
@@ -2164,6 +2176,7 @@ int ecall_start(struct ecall *ecall, enum icall_call_type call_type,
 
 	ecall->ts_started = tmr_jiffies();
 	ecall->call_setup_time = -1;
+	ecall->metrics.m.initiator = true;
 
  out:
 	/* err handling */
@@ -2554,6 +2567,7 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 	case ICALL_VIDEO_STATE_STARTED:
 		vstate_string = "true";
 		sstate_string = "false";
+		ecall->metrics.video_local = 1;
 		break;
 	case ICALL_VIDEO_STATE_SCREENSHARE:
 		vstate_string = "false";
@@ -3035,6 +3049,8 @@ int ecall_restart(struct ecall *ecall,
 	}
 
 	if (notify) {
+		ecall->metrics.m.reconnects_attempted++;
+		ecall->metrics.inc_reconnects = true;
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall, 
 			      ecall->userid_peer,
@@ -3112,6 +3128,8 @@ static void quality_handler(void *arg)
 			  &stats);
 
 	if (!err) {
+		uint32_t dloss = (uint32_t)stats.dloss;
+		uint32_t rtt = (uint32_t)stats.rtt;
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall, 
 			      ecall->userid_peer,
@@ -3120,6 +3138,11 @@ static void quality_handler(void *arg)
 			      (int)stats.dloss,
 			      (int)stats.dloss,
 			      ecall->icall.arg);
+
+		ecall->metrics.m.packetloss_last = dloss;
+		ecall->metrics.m.packetloss_max = MAX(ecall->metrics.m.packetloss_max, dloss);
+		ecall->metrics.m.rtt_last = rtt;
+		ecall->metrics.m.rtt_max = MAX(ecall->metrics.m.rtt_max, rtt);
 	}
 }
 

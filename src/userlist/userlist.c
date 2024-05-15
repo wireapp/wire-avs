@@ -1010,7 +1010,7 @@ out:
 	return err;
 }
 
-int userlist_reset_video_states(const struct userlist* list)
+int userlist_reset_video_states(const struct userlist *list)
 {
 	struct le *le = NULL;
 
@@ -1031,3 +1031,36 @@ int userlist_reset_video_states(const struct userlist* list)
 
 	return 0;
 }
+
+int userlist_get_active_counts(const struct userlist *list,
+			       uint32_t *active,
+			       uint32_t *active_a,
+			       uint32_t *active_v)
+{
+	struct le *le;
+	struct userinfo *u;
+	uint32_t ap = 1, aa = 0, av = 0;
+
+	if (!list || !active || !active_a || !active_v)
+		return EINVAL;
+
+	LIST_FOREACH(&list->users, le) {
+		u = le->data;
+
+		if (u && u->se_approved && u->incall_now) {
+			ap++;
+			if (u->ssrca > 0 && !u->muted)
+				aa++;
+
+			if (u->ssrcv > 0 && u->video_state != ICALL_VIDEO_STATE_STOPPED)
+				av++;
+		}
+	}
+
+	*active = ap;
+	*active_a = aa;
+	*active_v = av;
+
+	return 0;
+}
+

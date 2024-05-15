@@ -78,6 +78,23 @@ struct icall_client {
 	int quality;
 };
 
+struct icall_metrics {
+	enum icall_conv_type conv_type;
+	uint64_t duration_call;
+	uint64_t duration_active;
+	uint32_t participants_max;
+	uint32_t participants_audio_max;
+	uint32_t participants_video_max;
+	uint32_t participants_video_req;
+	uint32_t packetloss_last;
+	uint32_t packetloss_max;
+	uint32_t rtt_last;
+	uint32_t rtt_max;
+	uint32_t reconnects_attempted;
+	uint32_t reconnects_successful;
+	bool initiator;
+};
+
 /* Used in place of uploss/downloss in the quality handler,
  * to indicate network problem (i.e. no relay)
  */
@@ -176,13 +193,13 @@ typedef void (icall_group_changed_h)(struct icall *icall,
 				     void *arg);
 typedef void (icall_close_h)(struct icall *icall,
 			     int err,
-			     const char *metrics_json,
+			     struct icall_metrics *metrics,
 			     uint32_t msg_time,
 			     const char *userid,
 			     const char *clientid,
 			     void *arg);
 typedef void (icall_metrics_h)(struct icall *icall,
-			       const char *metrics_json,
+			       struct icall_metrics *metrics,
 			       void *arg);
 typedef void (icall_vstate_changed_h)(struct icall *icall,
 				      const char *userid,
@@ -309,4 +326,7 @@ void icall_set_callbacks(struct icall *icall,
 			 void			*arg);
 
 const char *icall_vstate_name(enum icall_vstate state);
+
+char *icall_metrics2json(const struct icall_metrics *metrics,
+			 const char *reason);
 

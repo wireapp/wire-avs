@@ -207,6 +207,13 @@ struct ecall {
 
 	bool should_reject;
 	ecall_ping_h *pingh;
+
+	struct{
+		struct icall_metrics m;
+		uint32_t video_local;
+		uint32_t video_remote;
+		bool inc_reconnects;
+	} metrics;
 };
 
 

@@ -175,3 +175,64 @@ struct icall_client *icall_client_alloc(const char *userid,
 
 }
 
+char *icall_metrics2json(const struct icall_metrics *metrics,
+			 const char *reason)
+{
+	struct json_object *jmetrics = NULL;
+	char *jsonstr = NULL;
+
+	jmetrics = jzon_alloc_object();
+	if (reason) {
+		char *lreason = NULL;
+		char *c;
+
+		str_dup(&lreason, reason);
+		if (lreason) {
+			for (c = lreason; *c != 0; c++)
+				*c = tolower(*c);
+
+			jzon_add_str(jmetrics, "end_reason", lreason);
+		}
+		mem_deref(lreason);
+	}
+
+	if (metrics) {
+		switch (metrics->conv_type) {
+		case ICALL_CONV_TYPE_ONEONONE:
+			jzon_add_str(jmetrics, "conv_type", "oneonone");
+			break;
+
+		case ICALL_CONV_TYPE_GROUP:
+			jzon_add_str(jmetrics, "conv_type", "group");
+			break;
+
+		case ICALL_CONV_TYPE_CONFERENCE:
+			jzon_add_str(jmetrics, "conv_type", "conference-proteus");
+			break;
+
+		case ICALL_CONV_TYPE_CONFERENCE_MLS:
+			jzon_add_str(jmetrics, "conv_type", "conference-mls");
+			break;
+		}
+
+		jzon_add_bool(jmetrics, "initiator", metrics->initiator);
+		jzon_add_int(jmetrics, "duration_call", metrics->duration_call);
+		jzon_add_int(jmetrics, "duration_active", metrics->duration_active);
+		jzon_add_int(jmetrics, "participants_max", metrics->participants_max);
+		jzon_add_int(jmetrics, "participants_audio_max", metrics->participants_audio_max);
+		jzon_add_int(jmetrics, "participants_video_max", metrics->participants_video_max);
+		jzon_add_int(jmetrics, "participants_video_req", metrics->participants_video_req);
+		jzon_add_int(jmetrics, "packetloss_last", metrics->packetloss_last);
+		jzon_add_int(jmetrics, "packetloss_max", metrics->packetloss_max);
+		jzon_add_int(jmetrics, "rtt_last", metrics->rtt_last);
+		jzon_add_int(jmetrics, "rtt_max", metrics->rtt_max);
+		jzon_add_int(jmetrics, "reconnects_attempted", metrics->reconnects_attempted);
+		jzon_add_int(jmetrics, "reconnects_successful", metrics->reconnects_successful);
+	}
+
+	jzon_encode(&jsonstr, jmetrics);
+	mem_deref(jmetrics);
+
+	return jsonstr;
+}
+

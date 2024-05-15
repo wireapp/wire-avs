@@ -65,6 +65,7 @@ static int ccall_sync_media_keys(struct ccall *ccall);
 static void ccall_stop_others_ringing(struct ccall *ccall);
 static struct zapi_ice_server* ccall_get_sft_info(struct ccall *ccall,
 						  const char *sft_url);
+static void ccall_update_active_counts(struct ccall *ccall);
 
 static int alloc_message(struct econn_message **msgp,
 			 struct ccall *ccall,
@@ -246,7 +247,10 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 
 	ccall->state = state;
 
-	switch(ccall->state) {
+	if (old_state == CCALL_STATE_IDLE && ccall->ts_start == 0)
+		ccall->ts_start = tmr_jiffies();
+
+	switch (ccall->state) {
 	case CCALL_STATE_IDLE:
 		ccall->sft_url = mem_deref(ccall->sft_url);
 		userlist_reset_keygenerator(ccall->userl);
@@ -393,7 +397,7 @@ static void ccall_ongoing_call_timeout(void *arg)
 
 		set_state(ccall, CCALL_STATE_IDLE);
 		ICALL_CALL_CB(ccall->icall, closeh, 
-			      &ccall->icall, 0, NULL, ECONN_MESSAGE_TIME_UNKNOWN,
+			      &ccall->icall, 0, &ccall->metrics, ECONN_MESSAGE_TIME_UNKNOWN,
 			      NULL, NULL, ccall->icall.arg);
 	}
 }
@@ -483,6 +487,11 @@ static void ccall_reconnect(struct ccall *ccall,
 	ccall->reconnect_attempts++;
 	ccall->expected_ping = 0;
 	ccall->last_ping = 0;
+
+	if (notify) {
+		ccall->inc_reconnects = true;
+		ccall->metrics.reconnects_attempted++;
+	}
 
 	userlist_incall_clear(ccall->userl, true);
 	set_state(ccall, CCALL_STATE_CONNSENT);
@@ -574,6 +583,10 @@ static int ecall_ping_handler(struct ecall *ecall,
 	ccall->expected_ping = 0;
 	ccall->reconnect_attempts = 0;
 
+	if (ccall->inc_reconnects) {
+		ccall->metrics.reconnects_successful++;
+		ccall->inc_reconnects = false;
+	}
 	info("ccall(%p): ping arrived\n",
 	     ccall);
 
@@ -956,7 +969,7 @@ static void ecall_aulevel_handler(struct icall *icall, struct list *levell, void
 
 static void ecall_close_handler(struct icall *icall,
 				int err,
-				const char *metrics_json,
+				struct icall_metrics *metrics,
 				uint32_t msg_time,
 				const char *userid,
 				const char *clientid,
@@ -1019,11 +1032,20 @@ static void ecall_close_handler(struct icall *icall,
 		break;
 	}
 
+	if (metrics) {
+		uint64_t now = tmr_jiffies();
+		ccall->metrics.duration_call = (now - ccall->ts_start) / 1000;
+		ccall->metrics.duration_active += metrics->duration_call;
+		ccall->metrics.packetloss_last = metrics->packetloss_last;
+		ccall->metrics.packetloss_max  = MAX(metrics->packetloss_max, ccall->metrics.packetloss_max);
+		ccall->metrics.rtt_last = metrics->rtt_last;
+		ccall->metrics.rtt_max  = MAX(metrics->rtt_max, ccall->metrics.rtt_max);
+	}
 	if (should_end) {
 		set_state(ccall, CCALL_STATE_IDLE);
 
 		ICALL_CALL_CB(ccall->icall, closeh, 
-			&ccall->icall, ccall->error, NULL, msg_time,
+			&ccall->icall, ccall->error, &ccall->metrics, msg_time,
 			NULL, NULL, ccall->icall.arg);
 	}
 	else {
@@ -1265,6 +1287,8 @@ int  ccall_request_video_streams(struct icall *icall,
 	     list_count(clientl),
 	     list_count(&msg->u.confstreams.streaml));
 
+	ccall->metrics.participants_video_req = MAX(ccall->metrics.participants_video_req,
+						    list_count(&msg->u.confstreams.streaml));
 	err = econn_message_encode(&str, msg);
 	if (err) {
 		warning("ccall(%p): request_video_streams: econn_message_encode"
@@ -1483,6 +1507,7 @@ static  int ecall_propsync_handler(struct ecall *ecall,
 		}
 	}
 
+	ccall_update_active_counts(ccall);
 out:
 	return err;
 }
@@ -1604,6 +1629,27 @@ static bool ccall_sftlist_changed(const struct list *lista, const struct list *l
 	return false;
 }
 
+
+static void ccall_update_active_counts(struct ccall *ccall)
+{
+	uint32_t active, active_a, active_v;
+	int err;
+
+	err = userlist_get_active_counts(ccall->userl, &active, &active_a, &active_v);
+	if (!err) {
+		if (!msystem_get_muted())
+			active_a++;
+
+		if (ccall->vstate == ICALL_VIDEO_STATE_STARTED)
+			active_v++;
+
+		ccall->metrics.participants_max = MAX(ccall->metrics.participants_max, active);
+		ccall->metrics.participants_audio_max = MAX(ccall->metrics.participants_audio_max, active_a);
+		ccall->metrics.participants_video_max = MAX(ccall->metrics.participants_video_max, active_v);
+	}
+}
+
+
 static void ecall_confpart_handler(struct ecall *ecall,
 				   const struct econn_message *msg,
 				   void *arg)
@@ -1647,6 +1693,8 @@ static void ecall_confpart_handler(struct ecall *ecall,
 
 	ccall->received_confpart = true;
 	ccall_keep_confpart_data(ccall, msg);
+	if (should_start)
+		ccall->metrics.initiator = true;
 
 	if (should_start && ccall->is_caller) {
 		ccall->sft_timestamp = timestamp;
@@ -2267,6 +2315,8 @@ static void userlist_sync_users_handler(void *arg)
 
 	if (ccall->ecall)
 		ecall_sync_decoders(ccall->ecall);
+
+	ccall_update_active_counts(ccall);
 }
 
 static void userlist_kg_change_handler(struct userinfo *keygenerator,
@@ -2414,6 +2464,7 @@ int ccall_alloc(struct ccall **ccallp,
 	ccall->state = CCALL_STATE_IDLE;
 	ccall->stop_ringing_reason = CCALL_STOP_RINGING_NONE;
 	ccall->is_mls_call = is_mls_call;
+	ccall->metrics.conv_type = is_mls_call ? ICALL_CONV_TYPE_CONFERENCE_MLS : ICALL_CONV_TYPE_CONFERENCE;
 
 	tmr_init(&ccall->tmr_connect);
 	tmr_init(&ccall->tmr_call);
@@ -3211,6 +3262,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			   reconnect to the earlier call */
 			ecall_end(ccall->ecall);
 			ccall->ecall = NULL;
+			ccall->metrics.initiator = false;
 
 			stringlist_clone(sftl, &ccall->sftl);
 			return ccall_req_cfg_join(ccall, ccall->call_type, true, false, false);
@@ -3277,7 +3329,7 @@ int  ccall_msg_recv(struct icall* icall,
 				    ECONN_ID_LEN) == 0) {
 				set_state(ccall, CCALL_STATE_IDLE);
 				ICALL_CALL_CB(ccall->icall, closeh, 
-					      &ccall->icall, 0, NULL,
+					      &ccall->icall, 0, &ccall->metrics,
 					      ECONN_MESSAGE_TIME_UNKNOWN,
 					      NULL, NULL, ccall->icall.arg);
 			}
