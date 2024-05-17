@@ -1,0 +1,31 @@
+Changes introduced in AVS 9.8
+=============================
+
+The callback wcall_metricsh will now be called at the end of calls. The callback has been present but unused previously, so the function definition has not changed:
+
+typedef void (wcall_metrics_h)(const char *convid,
+    const char *metrics_json, void *arg);
+
+metrics_json is a string containing a JSON object like the following:
+
+{"end_reason":"normal","conv_type":"conference-proteus","initiator":true,"duration_call":43,"duration_active":42,"participants_max":2,"participants_audio_max":2,"participants_video_max":2,"participants_video_req":1,"packetloss_last":0,"packetloss_max":5,"rtt_last":25,"rtt_max":27,"reconnects_attempted":0,"reconnects_successful":0}
+
+The fields available are currently as follows:
+
+call_type:               “oneonone”, “group”, “conference-proteus” or “conference-mls”
+initiator:               did this client initiate the call (true/false)
+end_reason:              “normal”, “error”, “timeout”, “noone-joined”, “everyone-left” or “auth-failed”
+duration_call:           duration of the call (seconds)
+duration_active:         duration this client was in the call (seconds)
+participants_max:        max number of simultaneous participants
+participants_audio_max:  max number of simultaneous unmuted audio senders
+participants_video_max:  max number of simultaneous video senders
+participants_video_req:  max number of video streams we requested
+packetloss_max:          max packet loss value (%)
+packetloss_last:         packet loss at end of call (%)
+rtt_max:                 max RTT value (ms)
+rtt_last:                RTT at the end of call (ms)
+reconnects_attempted:    number of times we attempted to reconnect
+reconnects_successful:   number of times we succeeded in reconnecting
+
+
