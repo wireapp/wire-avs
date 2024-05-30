@@ -195,7 +195,7 @@ int32_t audio_io_ios::StartPlayoutInternal(void)
         if (!is_recording_.load()) {
             OSStatus result = AudioOutputUnitStart(au_);
             if (result != noErr) {
-                error("audio_io_ios: AudioOutputUnitStart failed:0x08x\n", result);
+                error("audio_io_ios: AudioOutputUnitStart failed:0x%08x\n", result);
                 return -1;
             }
         }
@@ -550,7 +550,7 @@ int32_t audio_io_ios::PlayoutDeviceName(uint16_t index,
     
 int32_t audio_io_ios::init_play_or_record(void)
 {
-        info("audio_io_ios: AudioDeviceIOS::InitPlayOrRecord \n");
+        info("audio_io_ios: AudioDeviceIOS::InitPlayOrRecord\n");
 
         assert(!au_);
         
@@ -579,6 +579,7 @@ int32_t audio_io_ios::init_play_or_record(void)
              want_stereo_playout_, use_stereo_playout);
         
         NSString *cat = [AVAudioSession sharedInstance].category;
+	info("audio_io_ios: category=%s\n", [cat UTF8String]);
         if (cat != AVAudioSessionCategoryPlayAndRecord){
 		error("audio_io_ios: catagory not "
 		      "AVAudioSessionCategoryPlayAndRecord\n");
@@ -776,7 +777,7 @@ int32_t audio_io_ios::init_play_or_record(void)
         // Initialize here already to be able to get/set stream properties.
         result = AudioUnitInitialize(au_);
         if (0 != result) {
-            error("audio_io_ios: AudioUnitInitialize failed: %d \n", result);
+            error("audio_io_ios: AudioUnitInitialize failed: 0x%08x\n", result);
             return -1;
         }
         
