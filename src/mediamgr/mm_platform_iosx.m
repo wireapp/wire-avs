@@ -357,9 +357,12 @@ static bool set_category_sync(NSString *cat, bool speaker)
 
 #if TARGET_IPHONE_SIMULATOR
 	NSLog(@"mm_platform_ios: simulator using timer for cat change success=%d\n", success);
+	cat_change_timeout(NULL);
+	/*
 	if (success) {
 		tmr_start(&mm_ios.tmr_cat, 500, cat_change_timeout, NULL);
 	}
+	*/
 #endif
 
 	return success ? true : false;
@@ -376,7 +379,7 @@ static void set_category(NSString *cat, bool speaker)
 
 static void leave_call(void)
 {
-	info("mm_platforn_ios: leave_call\n");
+	info("mm_platform_ios: leave_call\n");
 
 	mm_ios.incall = false;
 	mediamgr_sys_left_call(mm_ios.mm);
@@ -1081,6 +1084,8 @@ enum mediamgr_auplay mm_platform_get_route(void)
 
 void mm_platform_incoming(void)
 {
+	NSLog(@"mm_platform_ios: incoming\n");
+
 #if TARGET_OS_IPHONE
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
 	NSString *cat = [sess category];
@@ -1099,17 +1104,19 @@ void mm_platform_enter_call(void)
 {
 #if TARGET_OS_IPHONE
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
+	NSString *cat = [sess category];
  
-	info("mm_platform_ios: enter_call: incall=%s\n",
-	     mm_ios.incall ? "yes" : "no");
+	info("mm_platform_ios: enter_call: incall=%s cat=$@\n",
+	     mm_ios.incall ? "yes" : "no", cat);
 
+	mm_ios.incall = true;
+	
 	if (mm_ios.interrupted) {
 		set_active(true);
 		mm_ios.interrupted = false;
 	}
 	
-	mm_ios.incall = true;
-	if ([sess category] == AVAudioSessionCategoryPlayAndRecord)
+	if (cat == AVAudioSessionCategoryPlayAndRecord)
 		mediamgr_sys_entered_call(mm_ios.mm);
 	else 
 		incall_category();
@@ -1120,14 +1127,14 @@ void mm_platform_exit_call(void)
 {
 #if TARGET_OS_IPHONE
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
-	NSString *cat;
+	NSString *cat = [sess category];
 
-	info("mm_platform_ios: exit_call: incall=%s\n",
-	     mm_ios.incall ? "yes" : "no");
+	info("mm_platform_ios: exit_call: incall=%s cat=%s\n",
+	     mm_ios.incall ? "yes" : "no", [cat UTF8String]);
+	
 
 	mm_ios.incall = false;
 	
-	cat = [sess category];
 	if (cat == AVAudioSessionCategoryAmbient ||
 	    cat == AVAudioSessionCategorySoloAmbient) {
 		leave_call();
