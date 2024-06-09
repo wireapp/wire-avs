@@ -571,14 +571,14 @@ LIBS	 += \
 
 ifeq ($(SDK),iphoneos)
 CPPFLAGS += \
-         -miphoneos-version-min=12.0
+         -miphoneos-version-min=13.0
 LFLAGS	 += \
-         -miphoneos-version-min=12.0
+         -miphoneos-version-min=13.0
 else
 CPPFLAGS += \
-         -mios-simulator-version-min=12.0
+         -mios-simulator-version-min=13.0
 LFLAGS	 += \
-         -mios-simulator-version-min=12.0
+         -mios-simulator-version-min=13.0
 endif
 
 # video

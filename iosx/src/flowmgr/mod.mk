@@ -8,11 +8,11 @@ IOSX_STUB_SRCS += \
 
 ifeq ($(AVS_OS),ios)
 IOSX_LIB_SRCS += \
-	flowmgr/AVSVideoView.m
+	flowmgr/AVSVideoView_Metal.mm
 endif
 ifeq ($(AVS_OS),iossim)
 IOSX_LIB_SRCS += \
-	flowmgr/AVSVideoView.m
+	flowmgr/AVSVideoView_Metal.mm
 endif
 ifeq ($(AVS_OS),osx)
 IOSX_LIB_SRCS += \
