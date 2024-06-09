@@ -111,7 +111,7 @@ IOSX_CPPFLAGS += \
 IOSX_OCPPFLAGS += \
 	 -fobjc-arc
 
-IOSX_LIBS += -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework VideoToolbox
+IOSX_LIBS += -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework VideoToolbox -framework MetalKit
 
 ifeq ($(AVS_OS),ios)
 IOSX_LIBS += -framework MobileCoreServices
@@ -136,7 +136,7 @@ endif
 $(IOSX_M_OBJS): $(IOSX_OBJ_PATH)/%.o: iosx/src/%.m
 	@echo "  OC   $(AVS_OS)-$(AVS_ARCH) iosx/src/$*.m"
 	@mkdir -p $(dir $@)
-	$(CC)  -fobjc-arc -fmodules \
+	@$(CC)  -fobjc-arc -fmodules \
 		-Xclang -fmodule-implementation-of -Xclang avs \
 		$(CPPFLAGS) $(CFLAGS) $(OCPPFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CFLAGS) $(AVS_OPPCFLAGS) \
@@ -147,7 +147,8 @@ $(IOSX_MM_OBJS): $(IOSX_OBJ_PATH)/%.o: iosx/src/%.mm
 	@echo "  OCXX $(AVS_OS)-$(AVS_ARCH) iosx/src/$*.mm"
 	@echo "  OCXX SRCS: $(IOSX_MM_OBJS)"
 	@mkdir -p $(dir $@)
-	@$(CXX) -fvisibility=default $(CPPFLAGS) $(CXXFLAGS) $(OCPPFLAGS) \
+	@$(CXX) -fvisibility=default \
+		$(CPPFLAGS) $(CXXFLAGS) $(OCPPFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) $(AVS_OPPCFLAGS) \
 		$(IOSX_CPPFLAGS) $(IOSX_CXXFLAGS) $(IOSX_OCPPFLAGS) \
 		-c $< -o $@ $(DFLAGS)
