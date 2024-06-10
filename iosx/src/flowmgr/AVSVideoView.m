@@ -610,12 +610,14 @@ out:
 		}
 	}
 
+#if !TARGET_IPHONE_SIMULATOR
 	if (self.window) {
 		[self startRunning];
 	}
 	else {
 		[self stopRunning];
 	}
+#endif
 }
 
 - (void)applicationWillResignActive:(NSNotification *)notification

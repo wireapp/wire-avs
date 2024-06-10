@@ -140,6 +140,7 @@ struct mm {
 	bool should_reset;
 	bool alloc_pending;
 	bool play_ready;
+	bool speaker_override;
 
 	pthread_t thread;
 
@@ -721,6 +722,11 @@ static void enable_speaker(struct mm *mm, bool enable)
 	enum mediamgr_auplay cur_route = mm_platform_get_route();
 	enum mediamgr_auplay wanted_route = MEDIAMGR_AUPLAY_UNKNOWN;
 
+	if (mm->speaker_override) {
+		info("enable_speaker: speaker manual override, ignoring\n");
+		return;
+	}
+
 	info("enable_speaker: enable=%d\n", enable);
 
 	mm->router.prefer_loudspeaker = enable;
@@ -898,6 +904,7 @@ static void exit_call(struct mm *mm)
 	case MM_SYS_STATE_INCOMING:
 	case MM_SYS_STATE_ENTERING_CALL:
 		set_sys_state(mm, MM_SYS_STATE_EXITING_CALL);
+		mm->speaker_override = false;
 		mm_platform_exit_call();
 		break;
 
@@ -1396,6 +1403,7 @@ static void sys_left_call_handler(struct mm *mm)
 		set_sys_state(mm, MM_SYS_STATE_NORMAL);
 		if (mm->call_state == MEDIAMGR_STATE_NORMAL) {
 			mm->router.prefer_loudspeaker = false;
+			mm->speaker_override = false;
 			update_route(mm, MM_DEVICE_CHANGED);
 		}
 	}
@@ -1534,6 +1542,7 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 
 	switch (new_state) {
 	case MEDIAMGR_STATE_NORMAL:
+		mm->speaker_override = false;
 		set_state(mm, new_state);
 		stop_all_media(mm);
 		audio_release(mm);
@@ -1751,7 +1760,9 @@ static void mqueue_handler(int id, void *data, void *arg)
 	case MM_MARSHAL_ENABLE_SPEAKER: {
 		bool enable = msg->bool_elem.val;
 
+		g_mm->speaker_override = false;
 		enable_speaker(g_mm, enable);
+		g_mm->speaker_override = true;
 	}
 	break;
 

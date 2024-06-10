@@ -49,7 +49,7 @@ public class CameraPreviewBuilder {
 
     public PreviewView build() {
         PreviewView preview = new PreviewView(context);
-	preview.setImplementationMode(PreviewView.ImplementationMode.PERFORMANCE);
+	preview.setImplementationMode(PreviewView.ImplementationMode.COMPATIBLE);
 	preview.setLayoutParams(new LinearLayout.LayoutParams(
 		LinearLayout.LayoutParams.MATCH_PARENT,
 		LinearLayout.LayoutParams.MATCH_PARENT));	

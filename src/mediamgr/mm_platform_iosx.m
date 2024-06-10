@@ -1,4 +1,5 @@
 
+#include <TargetConditionals.h>
 
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
@@ -31,6 +32,10 @@ struct {
 	struct tmr tmr_play;
 	struct tmr tmr_rec;
 
+#if TARGET_IPHONE_SIMULATOR
+	struct tmr tmr_cat;
+#endif
+
 } mm_ios = {
 	.mm = NULL,
 	.incall = false,
@@ -51,8 +56,9 @@ static NSArray *g_bt_routes;
 
 static void set_category(NSString *cat, bool speaker);
 static bool set_category_sync(NSString *cat, bool speaker);
-#if !TARGET_IPHONE_SIMULATOR
 static void default_category(bool sync);
+#if TARGET_IPHONE_SIMULATOR
+static void cat_change_timeout(void *arg);
 #endif
 
 
@@ -63,7 +69,7 @@ static bool set_active_sync(bool active)
 	AVAudioSessionSetActiveOptions options = 
 		AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation;
 
-	info("mm_ios: set_active_sync: active=%d\n", active);
+	info("mm_platform_ios: set_active_sync: active=%d\n", active);
 	
 	success = [[AVAudioSession sharedInstance]
 				setActive:active ? YES : NO
@@ -76,6 +82,9 @@ static bool set_active_sync(bool active)
 		      active ? "YES" : "NO", (long)err.code,
 		      [err.localizedDescription UTF8String]);
 	}
+	else {
+		NSLog(@"mm_platform_ios: active successfull\n");
+	}
 
 	mm_ios.active = active;
 
@@ -87,6 +96,8 @@ static void set_active(bool active)
 {
 	info("mm_platform_ios: set_active: active=%s\n",
 	     active ? "yes" : "no");
+	NSLog(@"mm_platform_ios: set_active: active=%s\n",
+	      active ? "yes" : "no");
 
 	dispatch_sync(dispatch_get_main_queue(), ^{
 		set_active_sync(active);
@@ -148,7 +159,6 @@ static void set_active(bool active)
 
 - (void)didStartPlayingMedia:(id<AVSMedia>)media
 {
-#if !TARGET_IPHONE_SIMULATOR
 	NSString *cname = NSStringFromClass([media class]);
 
 	info("mm_platform_ios: didStartPlaying: class=%s %s incall=%s\n",
@@ -161,7 +171,6 @@ static void set_active(bool active)
 			set_active_sync(true);
 		}
 	}
-#endif
 	
 	[_lock lock];
 	[_playingDict setObject:media forKey:media.name];
@@ -214,7 +223,6 @@ static void set_active(bool active)
 	info("mm_platform_ios: finished playing media: %s\n",
 	     [media.name UTF8String]);
 
-#if !TARGET_IPHONE_SIMULATOR
 	NSString *cname = NSStringFromClass([media class]);
 
 	info("mm_platform_ios: didFinishPlaying: class=%s\n",
@@ -226,8 +234,6 @@ static void set_active(bool active)
 		default_category(true);
 	}
 		
-#endif
-	
 	[_lock lock];
 
 	BOOL playing = ([_playingDict objectForKey:media.name] != nil);
@@ -349,6 +355,16 @@ static bool set_category_sync(NSString *cat, bool speaker)
 		      [err.localizedDescription UTF8String]);
 	}
 
+#if TARGET_IPHONE_SIMULATOR
+	NSLog(@"mm_platform_ios: simulator using timer for cat change success=%d\n", success);
+	cat_change_timeout(NULL);
+	/*
+	if (success) {
+		tmr_start(&mm_ios.tmr_cat, 500, cat_change_timeout, NULL);
+	}
+	*/
+#endif
+
 	return success ? true : false;
 }
 
@@ -363,7 +379,7 @@ static void set_category(NSString *cat, bool speaker)
 
 static void leave_call(void)
 {
-	info("mm_platforn_ios: leave_call\n");
+	info("mm_platform_ios: leave_call\n");
 
 	mm_ios.incall = false;
 	mediamgr_sys_left_call(mm_ios.mm);
@@ -497,7 +513,7 @@ static void handle_audio_interruption(NSNotification *notification)
 
 	NSDictionary *dict;
 	NSInteger type;
-
+	
 	dict = notification.userInfo;
 	type = [[dict valueForKey:AVAudioSessionInterruptionTypeKey]
 		       integerValue];
@@ -519,6 +535,67 @@ static void handle_audio_interruption(NSNotification *notification)
 	}
 }
 
+static void category_change(NSString *cat)
+{
+	AVAudioSession *sess = [AVAudioSession sharedInstance];
+
+	info("mm_platform_ios: cat change: in:%s new=%s rec=%d\n",
+	     cat_name(mm_ios.cat), cat_name(cat), mm_ios.recording);
+
+	if (msystem_audio_is_activated()) {
+		debug("mm_platform_ios: cat change without CallKit\n");
+		if (!mm_ios.interrupted
+		    && mediamgr_should_reset(mm_ios.mm)) {
+			debug("mm_platform_ios: reseting audio\n");
+			mediamgr_audio_reset_mm(mm_ios.mm);
+		}
+	}
+	else {
+		debug("mm_platform_ios: cat change with CallKit\n");
+	}
+
+	if (mm_ios.cat == cat && !mm_ios.incall)
+		return;
+
+	if (mm_ios.recording)
+		return;
+
+	if (cat == AVAudioSessionCategoryPlayAndRecord) {
+		NSError *err = nil;
+		BOOL success = [sess setMode:AVAudioSessionModeVoiceChat
+				       error:&err];
+		if (!success) {
+			error("mm_platform_ios: incall_category: "
+			      "could not set VoiceChat mode: %ld\n",
+			      (long)err.code);
+		}
+		mediamgr_sys_entered_call(mm_ios.mm);
+	}
+	else if (cat == AVAudioSessionCategorySoloAmbient) {
+		if (mm_ios.cat == AVAudioSessionCategoryPlayAndRecord)
+			leave_call();
+		else
+			mediamgr_sys_incoming(mm_ios.mm);
+	}
+	else {
+		leave_call();
+	}
+	mm_ios.cat = cat;
+}
+
+#if TARGET_IPHONE_SIMULATOR
+static void cat_change_timeout(void *arg)
+{
+	NSString *cat = [[AVAudioSession sharedInstance] category];
+
+	(void)arg;
+
+	NSLog(@"mm_platform_ios: cat_change_timeout: cat=%@\n", cat);
+
+	category_change(cat);
+}
+#endif
+
 static void handle_audio_notification(NSNotification *notification)
 {
 	NSDictionary *dict;
@@ -527,8 +604,8 @@ static void handle_audio_notification(NSNotification *notification)
 	AVAudioSession* sess;
 	NSString *cat;
 	NSArray *input_routes;
-	BOOL success;
-	NSError *err = nil;
+
+	NSLog(@"mm_platform_ios: handle_audio_notification: mm=%p\n", mm_ios.mm);
 
 	if (!mm_ios.mm)
 		return;
@@ -634,53 +711,11 @@ static void handle_audio_notification(NSNotification *notification)
 
 	case AVAudioSessionRouteChangeReasonOverride:
 	case AVAudioSessionRouteChangeReasonCategoryChange:
-		info("mm_platform_ios: cat change: in:%s new=%s rec=%d\n",
-		     cat_name(mm_ios.cat), cat_name(cat), mm_ios.recording);
-
-		if (msystem_audio_is_activated()) {
-			debug("mm_platform_ios: cat change without CallKit\n");
-			if (!mm_ios.interrupted
-			    && mediamgr_should_reset(mm_ios.mm)) {
-				debug("mm_platform_ios: reseting audio\n");
-				mediamgr_audio_reset_mm(mm_ios.mm);
-			}
-		}
-		else {
-			debug("mm_platform_ios: cat change with CallKit\n");
-		}
-		
-		if (mm_ios.cat == cat && !mm_ios.incall)
-			break;
-
-		if (mm_ios.recording)
-			break;
-
-		if (cat == AVAudioSessionCategoryPlayAndRecord) {
-			success = [sess setMode:AVAudioSessionModeVoiceChat
-					  error:&err];
-			if (!success) {
-				error("mm_platform_ios: incall_category: "
-				      "could not set VoiceChat mode: %ld\n",
-				      (long)err.code);
-			}
-				
-			mediamgr_sys_entered_call(mm_ios.mm);
-		}
-		else if (cat == AVAudioSessionCategorySoloAmbient) {
-			if (mm_ios.cat == AVAudioSessionCategoryPlayAndRecord)
-				leave_call();
-			else
-				mediamgr_sys_incoming(mm_ios.mm);
-		}
-		else {
-			leave_call();
-		}
-		mm_ios.cat = cat;
+		category_change(cat);
 		break;
 	}
 }
 
-#if !TARGET_IPHONE_SIMULATOR
 static void default_category(bool sync)
 {
 	info("mm_platform_ios: default_category: %s recording: %s\n",
@@ -723,14 +758,13 @@ static void incall_category(void)
 		     mediamgr_get_speaker(mm_ios.mm));
 	set_active(true);
 }
-#endif /* #if !TARGET_IPHONE_SIMULATOR */
 
 #endif
 
 int mm_platform_init(struct mm *mm, struct dict *sounds)
 {
 	info("mm_platform_ios: init for mm=%p\n", mm);
-	NSLog(@"mm_platform_ios: init changed for mm=%p\n", mm);
+	NSLog(@"mm_platform_ios: init for mm=%p\n", mm);
 	
 	mm_ios.mm = mm;
 	tmr_init(&mm_ios.tmr_play);
@@ -744,26 +778,28 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 
 #if TARGET_OS_IPHONE
 	NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+	NSOperationQueue *mq = [NSOperationQueue mainQueue];
+
+	NSLog(@"mm_platform_ios: adding observers for nc=%p mq=%p\n", nc, mq);
 
 	[nc addObserverForName:AVAudioSessionInterruptionNotification
 			object:nil
-			 queue:[NSOperationQueue mainQueue]
+			 queue:mq
 		    usingBlock: ^(NSNotification *notification) {
 			handle_audio_interruption(notification);
 		}];
 
-	
 	[nc addObserverForName:AVAudioSessionRouteChangeNotification
 			object:nil
-			 queue:[NSOperationQueue mainQueue]
+			 queue:mq
 		    usingBlock: ^(NSNotification *notification) {
-
+			NSLog(@"mm_platform_ios: notifcication SessionRouteChange\n");
 			handle_audio_notification(notification);
 		    }];
-	
+		
 	[nc addObserverForName:AVAudioSessionMediaServicesWereLostNotification
 			 object:nil
-			  queue:[NSOperationQueue mainQueue]
+			  queue:mq
 		     usingBlock: ^(NSNotification *notification) {
 
 			info("mediamgr: AVAudioSessionMediaServices"
@@ -773,7 +809,7 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 	
 	[nc addObserverForName:AVAudioSessionMediaServicesWereResetNotification
 			object:nil
-			 queue:[NSOperationQueue mainQueue]
+			 queue:mq
 		    usingBlock: ^(NSNotification *notification) {
 
 			/* According to Apple documentation we MUST
@@ -801,8 +837,8 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 			if (mm_ios.incall)
 				mediamgr_audio_reset_mm(mm_ios.mm);
 		}];
-	    
 #endif
+
 	set_category(AVAudioSessionCategoryAmbient, true);
 	mm_ios.cat = [AVAudioSession sharedInstance].category;
 	set_active_sync(false);
@@ -1048,9 +1084,9 @@ enum mediamgr_auplay mm_platform_get_route(void)
 
 void mm_platform_incoming(void)
 {
-#if TARGET_IPHONE_SIMULATOR
-	mediamgr_sys_incoming(mm_ios.mm);
-#elif TARGET_OS_IPHONE
+	NSLog(@"mm_platform_ios: incoming\n");
+
+#if TARGET_OS_IPHONE
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
 	NSString *cat = [sess category];
 
@@ -1066,21 +1102,21 @@ void mm_platform_incoming(void)
 
 void mm_platform_enter_call(void)
 {
-#if TARGET_IPHONE_SIMULATOR
-	mediamgr_sys_entered_call(mm_ios.mm);
-#elif TARGET_OS_IPHONE	
+#if TARGET_OS_IPHONE
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
+	NSString *cat = [sess category];
  
-	info("mm_platform_ios: enter_call: incall=%s\n",
-	     mm_ios.incall ? "yes" : "no");
+	info("mm_platform_ios: enter_call: incall=%s cat=$@\n",
+	     mm_ios.incall ? "yes" : "no", cat);
 
+	mm_ios.incall = true;
+	
 	if (mm_ios.interrupted) {
 		set_active(true);
 		mm_ios.interrupted = false;
 	}
 	
-	mm_ios.incall = true;
-	if ([sess category] == AVAudioSessionCategoryPlayAndRecord)
+	if (cat == AVAudioSessionCategoryPlayAndRecord)
 		mediamgr_sys_entered_call(mm_ios.mm);
 	else 
 		incall_category();
@@ -1089,18 +1125,16 @@ void mm_platform_enter_call(void)
 
 void mm_platform_exit_call(void)
 {
-#if TARGET_IPHONE_SIMULATOR
-	leave_call();
-#elif TARGET_OS_IPHONE		
+#if TARGET_OS_IPHONE
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
-	NSString *cat;
+	NSString *cat = [sess category];
 
-	info("mm_platform_ios: exit_call: incall=%s\n",
-	     mm_ios.incall ? "yes" : "no");
+	info("mm_platform_ios: exit_call: incall=%s cat=%s\n",
+	     mm_ios.incall ? "yes" : "no", [cat UTF8String]);
+	
 
 	mm_ios.incall = false;
 	
-	cat = [sess category];
 	if (cat == AVAudioSessionCategoryAmbient ||
 	    cat == AVAudioSessionCategorySoloAmbient) {
 		leave_call();
@@ -1197,14 +1231,10 @@ void mm_platform_start_recording(struct mm_platform_start_rec *rec_elem)
 	}
 	
 	mm_ios.recording = true;
-#if !TARGET_IPHONE_SIMULATOR
 	set_category(AVAudioSessionCategoryPlayAndRecord, false);
 	set_active(true);
 	
 	tmr_start(&mm_ios.tmr_rec, 1000, rec_start_handler, rec_elem);	
-#else
-	tmr_start(&mm_ios.tmr_rec, 1, rec_start_handler, rec_elem);	
-#endif
 }
 
 void mm_platform_stop_recording(void)
@@ -1212,12 +1242,10 @@ void mm_platform_stop_recording(void)
 	info("mm_platform_ios: stop_recording incall=%d\n", mm_ios.incall);
 
 	mm_ios.recording = false;
-#if !TARGET_IPHONE_SIMULATOR
 	if (!mm_ios.incall) {
 		default_category(true);
 		set_active_sync(false);
 	}		
-#endif
 }
 
 void mm_platform_confirm_route(enum mediamgr_auplay route)
