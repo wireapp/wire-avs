@@ -3464,10 +3464,6 @@ int  ccall_msg_recv(struct icall* icall,
 		}
 		break;
 
-	case ECONN_REMOTE_MUTE:
-		msystem_set_muted(true);
-		break;
-
 	default:
 		break;
 	}
