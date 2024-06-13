@@ -317,15 +317,22 @@
 	}
 	[_lock unlock];
 	
-	id<MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
-	commandBuffer.label = @"AVSCommandBuffer";
-	
-	id<CAMetalDrawable> currentDrawable = [_metalLayer nextDrawable];
-	if (!currentDrawable) {
+	__block dispatch_semaphore_t blockSem = _gpuSemaphore;
+
+	if (!_renderPassDescriptor || _viewFrame.size.width == 0 || _viewFrame.size.height == 0) {
+		dispatch_semaphore_signal(blockSem);
 		return;
 	}
 
-	__block dispatch_semaphore_t blockSem = _gpuSemaphore;
+	id<CAMetalDrawable> currentDrawable = [_metalLayer nextDrawable];
+	if (!currentDrawable) {
+		dispatch_semaphore_signal(blockSem);
+		return;
+	}
+
+	id<MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
+
+	commandBuffer.label = @"AVSCommandBuffer";
 	[commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull) {
 			// GPU work has completed.
 			[_lock lock];
@@ -335,33 +342,30 @@
 			dispatch_semaphore_signal(blockSem);
 		}];
 	
-	if (_renderPassDescriptor) {
-		_renderPassDescriptor.colorAttachments[0].texture = currentDrawable.texture;
+	_renderPassDescriptor.colorAttachments[0].texture = currentDrawable.texture;
 		
-		id<MTLRenderCommandEncoder> renderEncoder =
-			[commandBuffer renderCommandEncoderWithDescriptor:_renderPassDescriptor];
-		renderEncoder.label = @"AVSEncoder";
+	id<MTLRenderCommandEncoder> renderEncoder =
+		[commandBuffer renderCommandEncoderWithDescriptor:_renderPassDescriptor];
+	renderEncoder.label = @"AVSEncoder";
 
-		// Set context state.
-		//[renderEncoder pushDebugGroup:renderEncoderDebugGroup];
-		[renderEncoder setRenderPipelineState:_pipelineState];
-		[renderEncoder setVertexBuffer:_vertexBuffer offset:0 atIndex:0];
+	// Set context state.
+	//[renderEncoder pushDebugGroup:renderEncoderDebugGroup];
+	[renderEncoder setRenderPipelineState:_pipelineState];
+	[renderEncoder setVertexBuffer:_vertexBuffer offset:0 atIndex:0];
 
-		[renderEncoder setFragmentTexture:_yTexture atIndex:0];
-		[renderEncoder setFragmentTexture:_uTexture atIndex:1];
-		[renderEncoder setFragmentTexture:_vTexture atIndex:2];
+	[renderEncoder setFragmentTexture:_yTexture atIndex:0];
+	[renderEncoder setFragmentTexture:_uTexture atIndex:1];
+	[renderEncoder setFragmentTexture:_vTexture atIndex:2];
 
-		[renderEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
-				  vertexStart:0
-				  vertexCount:4
-				instanceCount:1];
+	[renderEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
+			  vertexStart:0
+			  vertexCount:4
+			instanceCount:1];
 		
-		//[renderEncoder popDebugGroup];
-		[renderEncoder endEncoding];
+	//[renderEncoder popDebugGroup];
+	[renderEncoder endEncoding];
 
-		[commandBuffer presentDrawable:currentDrawable];
-	}
-
+	[commandBuffer presentDrawable:currentDrawable];
 	[commandBuffer commit];
 }
 
@@ -402,7 +406,7 @@
 - (void)stopRunning
 {
 	_running = NO;
-	[_displayLink removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+	[_displayLink invalidate];
 	_displayLink = nil;
 }
 
