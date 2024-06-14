@@ -475,7 +475,22 @@ public class AudioRouter
     DoLog("EnableEarpiece()");
 
     if (hasApi31()) {
-	    _audio_manager.clearCommunicationDevice();
+	    AudioDeviceInfo seldev = null;
+	    List<AudioDeviceInfo> devices = _audio_manager.getAvailableCommunicationDevices();
+	    for (AudioDeviceInfo device : devices) {
+		    if (device.getType() == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) {
+			    seldev = device;
+			    break;
+		    }
+	    }
+	    if (seldev == null) {
+		    DoLog("EnableEarpiece(): no earpiece");
+		    return -1;
+	    }
+	    else {
+		    DoLog("EnableEarpiece: setting communication device");
+		    _audio_manager.setCommunicationDevice(seldev);
+	    }
     }
     else {
 	    if(!hasEarpiece())
