@@ -431,11 +431,16 @@ else
 EMCC 	:= $(WASM_PATH)/emcc
 endif
 
+ifeq ($(WASM_DEBUG),1)
+DIST_WASM_WITH_SOURCE_MAP := -gsource-map -g
+else
+DIST_WASM_WITH_SOURCE_MAP :=
+endif
 
 $(DIST_WASM_JS_TARGET):
 	$(MAKE) AVS_OS=wasm AVS_ARCH=generic avs
 	@mkdir -p $(BUILD_DIST_WASM)/src
-	$(EMCC) -o $(DIST_WASM_JS_TARGET) \
+	$(EMCC) $(DIST_WASM_WITH_SOURCE_MAP) -o $(DIST_WASM_JS_TARGET) \
 		$(BUILD_BASE)/wasm-generic/lib/libavscore.a \
 		$(BUILD_BASE)/wasm-generic/lib/libre.a \
 		$(BUILD_BASE)/wasm-generic/lib/libsodium.a \
