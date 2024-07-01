@@ -138,17 +138,22 @@ void ecall_close(struct ecall *ecall, int err, uint32_t msg_time)
 		ecall->video.recv_state = ICALL_VIDEO_STATE_STOPPED;
 	}
 
-	if (closeh && ecall->ts_answered) {
-		uint64_t now = tmr_jiffies();
-		ecall->metrics.m.duration_call = (now - ecall->ts_answered) / 1000;
-		ecall->metrics.m.duration_active = ecall->metrics.m.duration_call;
-		ecall->metrics.m.participants_max = 2;
-		ecall->metrics.m.participants_audio_max = 2;
-		ecall->metrics.m.participants_video_max = ecall->metrics.video_local + ecall->metrics.video_remote;
+	if (closeh) {
+		struct icall_metrics *metrics = NULL;
 
+		if (ecall->ts_answered) {
+			uint64_t now = tmr_jiffies();
+			ecall->metrics.m.duration_call = (now - ecall->ts_answered) / 1000;
+			ecall->metrics.m.duration_active = ecall->metrics.m.duration_call;
+			ecall->metrics.m.participants_max = 2;
+			ecall->metrics.m.participants_audio_max = 2;
+			ecall->metrics.m.participants_video_max = ecall->metrics.video_local + ecall->metrics.video_remote;
+
+			metrics = &ecall->metrics.m;
+		}
 		ecall->icall.closeh = NULL;
-		closeh(&ecall->icall, err, &ecall->metrics.m, msg_time,
-			ecall->userid_peer, ecall->clientid_peer, ecall->icall.arg);
+		closeh(&ecall->icall, err, metrics, msg_time,
+		       ecall->userid_peer, ecall->clientid_peer, ecall->icall.arg);
 	}
 
 	/* NOTE here the app should have destroyed the econn */
