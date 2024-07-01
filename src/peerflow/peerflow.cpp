@@ -1650,7 +1650,10 @@ public:
 			}
 
 			sdp_check(sdp_str.c_str(), true, true, NULL, pf_norelay_handler, NULL, pf_);
-			sdp = sdp_modify_offer(sess, pf_->conv_type, pf_->audio.local_cbr);
+			sdp = sdp_modify_offer(sess,
+					       pf_->conv_type,
+					       pf_->vstate == ICALL_VIDEO_STATE_SCREENSHARE,
+					       pf_->audio.local_cbr);
 
 			info("SDP-fromPC: %s\n", sdp);
 			
@@ -1670,7 +1673,10 @@ public:
 			
 			sdp_check(sdp_str.c_str(), true, false, NULL, pf_norelay_handler, NULL, pf_);
 
-			sdp = sdp_modify_answer(sess, pf_->conv_type, pf_->audio.local_cbr);
+			sdp = sdp_modify_answer(sess,
+						pf_->conv_type,
+						pf_->vstate == ICALL_VIDEO_STATE_SCREENSHARE,
+						pf_->audio.local_cbr);
 			imod_sdp = sdp_interface(sdp, webrtc::SdpType::kAnswer);
 			pf_->peerConn->SetLocalDescription(
 					pf_->answerObserver,
