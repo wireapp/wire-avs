@@ -153,12 +153,15 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 		return EINVAL;
 	}
 
-	if (srcsz < 1) {
+	if (srcsz < FRAME_HDR_MINSZ) {
 		err = EAGAIN;
 		goto out;
 	}
 
-	hsize = frame_hdr_read(src, srcsz, &frameid, &kid, &fcsrc);
+	err = frame_hdr_read(src, srcsz, &frameid, &kid, &fcsrc, &hsize);
+	if (err)
+		goto out;
+
 	fid32 = (uint32_t)frameid;
 
 	if (fcsrc)

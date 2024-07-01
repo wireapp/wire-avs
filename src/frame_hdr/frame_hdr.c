@@ -163,15 +163,16 @@ size_t frame_hdr_write(uint8_t  *buf,
 }
 
 
-size_t frame_hdr_read(const uint8_t *buf,
-		      size_t   bsz,
-		      uint64_t *frameid,
-		      uint64_t *key,
-		      uint32_t *csrc)
+int frame_hdr_read(const uint8_t *buf,
+		   size_t   bsz,
+		   uint64_t *frameid,
+		   uint64_t *key,
+		   uint32_t *csrc,
+		   size_t *rlen)
 {
 	uint8_t x = 0;
 	uint8_t klen, flen, elen;
-	size_t p = 2;
+	size_t p = FRAME_HDR_MINSZ;
 	uint8_t ext, b, eid;
 	uint64_t csrc64;
 	uint32_t i = 0;
@@ -182,12 +183,18 @@ size_t frame_hdr_read(const uint8_t *buf,
 	klen = buf[1] & 7;
 
 	if (x) {
-		p += read_bytes(buf + p, klen+1, key);
+		if (bsz < (p + klen + 1))
+			return ERANGE;
+
+		p += read_bytes(buf + p, klen+1, key);	
 	}
 	else {
 		*key = klen;
 	}
 
+	if (bsz < p + flen)
+		return ERANGE;
+	
 	p += read_bytes(buf + p, flen, frameid);
 
 	while(ext && p < bsz && i < MAX_EXTS) {
@@ -196,9 +203,13 @@ size_t frame_hdr_read(const uint8_t *buf,
 		elen = ((b >> 4) & 7) + 1;
 		if (p + elen + 1 >= bsz)
 			break;
-		eid = b &  0x0f;
+
+		eid = b & 0x0f;
 
 		if (eid == 0x01 && elen == 4) {
+			if (bsz < p + 5)
+				return ERANGE;
+			
 			read_bytes(buf + p + 1, 4, &csrc64);
 			*csrc = csrc64;
 		}
@@ -206,6 +217,7 @@ size_t frame_hdr_read(const uint8_t *buf,
 		i++;
 	}
 
-	return p;
+	*rlen = p;
+	return 0;
 }
 
