@@ -2292,12 +2292,6 @@ int ecall_msg_recv(struct ecall *ecall,
 		return err;
 	}
 
-	if (ECONN_REMOTE_MUTE == msg->msg_type) {
-		msystem_set_muted(true);
-
-		return 0;
-	}
-
 	/* Check that message was received via correct transport */
 	if (ECONN_TRANSP_BACKEND != econn_transp_resolve(msg->msg_type)) {
 		warning("ecall: recv: wrong transport for type %s\n",

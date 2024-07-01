@@ -822,16 +822,6 @@ int econn_message_decode(struct econn_message **msgp,
 		err = EBADMSG;
 		goto out;
 	}
-	/* The REMOTEMUTE message is not a real calling message,
-	 * bypass all other handling
-	 */
-	if (0 == str_casecmp(type, econn_msg_name(ECONN_REMOTE_MUTE))) {
-
-		msg->msg_type = ECONN_REMOTE_MUTE;
-		err = 0;
-
-		goto out;
-	}
 
 	ver = jzon_str(jobj, "version");
 	if (!ver) {

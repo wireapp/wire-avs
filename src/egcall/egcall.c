@@ -1511,10 +1511,6 @@ int egcall_msg_recv(struct icall *icall,
 		recv_reject(egcall, userid_sender, clientid_sender, msg);
 		return 0;
 
-	case ECONN_REMOTE_MUTE:
-		msystem_set_muted(true);
-		return 0;
-
 	default:
 		if (!str_isset(msg->dest_userid) || !str_isset(msg->dest_clientid)) {
 			info("egcall(%p): ignoring message as user & dest arent set\n", egcall);
