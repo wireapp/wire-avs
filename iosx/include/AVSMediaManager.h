@@ -61,7 +61,7 @@ typedef NS_ENUM (NSUInteger, AVSRecordingRoute) {
 };
 
 
-typedef NS_ENUM (NSUInteger, AVSIntensityLevel) {
+typedef NS_CLOSED_ENUM (NSUInteger, AVSIntensityLevel) {
     AVSIntensityLevelNone = 0,
     AVSIntensityLevelSome = 50,
     AVSIntensityLevelFull = 100
