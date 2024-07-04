@@ -26,10 +26,8 @@
 #define MAX_NET_ID 5
 
 enum {
-      AUDIO_ONEONE_BANDWIDTH = 50,
-      AUDIO_GROUP_BANDWIDTH = 32,
-      VIDEO_ONEONE_BANDWIDTH = 800,
-      VIDEO_GROUP_BANDWIDTH = 600,
+      AUDIO_GROUP_BANDWIDTH = 50,
+      VIDEO_GROUP_BANDWIDTH = 1200,
 };
       
 
@@ -336,18 +334,13 @@ const char *sdp_modify_offer(struct sdp_session *sess,
 		struct sdp_media *sdpm = (struct sdp_media *)le->data;
 
 		if (streq(sdp_media_name(sdpm), "video") && !screenshare) {
-			uint32_t bw = conv_type == ICALL_CONV_TYPE_ONEONONE ?
-				VIDEO_ONEONE_BANDWIDTH : VIDEO_GROUP_BANDWIDTH;
-
-			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, bw);
+            if (conv_type != ICALL_CONV_TYPE_ONEONONE){
+                sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, VIDEO_GROUP_BANDWIDTH);
+            }
 		}
 		else if (streq(sdp_media_name(sdpm), "audio")) {
-			uint32_t bw = conv_type == ICALL_CONV_TYPE_ONEONONE ?
-				AUDIO_ONEONE_BANDWIDTH : AUDIO_GROUP_BANDWIDTH;
-			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, bw);
-
 			if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
-
+                sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, AUDIO_GROUP_BANDWIDTH);
 				info("sdp_modify_offer: group mode, "
 				     "setting ptime\n");
 				sdp_media_set_lattr(sdpm, true, "ptime", "40");
@@ -406,16 +399,13 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 		struct sdp_media *sdpm = (struct sdp_media *)le->data;
 		
 		if (streq(sdp_media_name(sdpm), "video") && !screenshare) {
-			uint32_t bw = conv_type == ICALL_CONV_TYPE_ONEONONE ?
-				VIDEO_ONEONE_BANDWIDTH : VIDEO_GROUP_BANDWIDTH;
-			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, bw);
+            if(conv_type != ICALL_CONV_TYPE_ONEONONE) {
+                sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, VIDEO_GROUP_BANDWIDTH);
+            }
 		}
 		else if (streq(sdp_media_name(sdpm), "audio")) {
-			uint32_t bw = conv_type == ICALL_CONV_TYPE_ONEONONE ?
-				AUDIO_ONEONE_BANDWIDTH : AUDIO_GROUP_BANDWIDTH;
-			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, bw);
-
 			if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
+                sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, AUDIO_GROUP_BANDWIDTH);
 				const struct list *fmtl;
 				struct le *fle;
 
