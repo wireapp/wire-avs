@@ -26,8 +26,8 @@
 #define MAX_NET_ID 5
 
 enum {
-      AUDIO_GROUP_BANDWIDTH = 50,
-      VIDEO_GROUP_BANDWIDTH = 1200,
+      AUDIO_GROUP_BANDWIDTH = 32,
+      VIDEO_GROUP_BANDWIDTH = 600,
 };
       
 
