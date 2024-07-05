@@ -42,12 +42,13 @@ TEST_F(FrameHdrTest, write_read_inline_key)
 	size_t bw, br;
 	uint64_t f, k;
 	uint32_t c;
+	int err;
 
 	bw = frame_hdr_write(buffer, BUFSZ, 0x11, 0x03, 0);
 	ASSERT_EQ(bw, 3);
 
-	br = frame_hdr_read(buffer, BUFSZ, &f, &k, &c);
-
+	err = frame_hdr_read(buffer, BUFSZ, &f, &k, &c, &br);
+	ASSERT_EQ(err, 0);	
 	ASSERT_EQ(br, bw);
 	ASSERT_EQ(k, 0x03);
 	ASSERT_EQ(f, 0x11);
@@ -58,12 +59,14 @@ TEST_F(FrameHdrTest, write_read_external_key)
 	size_t bw, br;
 	uint64_t f, k;
 	uint32_t c;
+	int err;
 
 	bw = frame_hdr_write(buffer, BUFSZ, 0x11, 0x22, 0);
 	ASSERT_EQ(bw, 4);
 
-	br = frame_hdr_read(buffer, BUFSZ, &f, &k, &c);
+	err = frame_hdr_read(buffer, BUFSZ, &f, &k, &c, &br);
 
+	ASSERT_EQ(err, 0);
 	ASSERT_EQ(br, bw);
 	ASSERT_EQ(k, 0x22);
 	ASSERT_EQ(f, 0x11);
@@ -74,12 +77,14 @@ TEST_F(FrameHdrTest, write_read_multibyte)
 	size_t bw, br;
 	uint64_t f, k;
 	uint32_t c;
+	int err;
 
 	bw = frame_hdr_write(buffer, BUFSZ, 0x224466, 0x11335577, 0);
 	ASSERT_EQ(bw, 9);
 
-	br = frame_hdr_read(buffer, BUFSZ, &f, &k, &c);
-
+	err = frame_hdr_read(buffer, BUFSZ, &f, &k, &c, &br);
+	
+	ASSERT_EQ(err, 0);
 	ASSERT_EQ(br, bw);
 	ASSERT_EQ(f, 0x224466);
 	ASSERT_EQ(k, 0x11335577);
@@ -90,10 +95,13 @@ TEST_F(FrameHdrTest, read_buffer_inline)
 	size_t br;
 	uint64_t f, k;
 	uint32_t c;
+	int err;
 
 	memcpy(buffer, "\x00\x06\x11", 3);
 
-	br = frame_hdr_read(buffer, BUFSZ, &f, &k, &c);
+	err = frame_hdr_read(buffer, BUFSZ, &f, &k, &c, &br);
+
+	ASSERT_EQ(err, 0);
 	ASSERT_EQ(br, 3);
 	ASSERT_EQ(k, 0x06);
 	ASSERT_EQ(f, 0x11);
@@ -104,10 +112,13 @@ TEST_F(FrameHdrTest, read_buffer_external)
 	size_t br;
 	uint64_t f, k;
 	uint32_t c;
+	int err;
 
 	memcpy(buffer, "\x00\x08\x22\x11", 4);
 
-	br = frame_hdr_read(buffer, BUFSZ, &f, &k, &c);
+	err = frame_hdr_read(buffer, BUFSZ, &f, &k, &c, &br);
+
+	ASSERT_EQ(err, 0);
 	ASSERT_EQ(br, 4);
 	ASSERT_EQ(k, 0x22);
 	ASSERT_EQ(f, 0x11);
@@ -118,10 +129,13 @@ TEST_F(FrameHdrTest, read_buffer_skip_extensions1)
 	size_t br;
 	uint64_t f, k;
 	uint32_t c;
+	int err;
 
 	memcpy(buffer, "\x10\x1B\x22\x44\x66\x88\x11\x33\x80\x00\x00\x00", 12);
 
-	br = frame_hdr_read(buffer, BUFSZ, &f, &k, &c);
+	err = frame_hdr_read(buffer, BUFSZ, &f, &k, &c, &br);
+
+	ASSERT_EQ(err, 0);
 	ASSERT_EQ(br, 12);
 	ASSERT_EQ(k, 0x22446688);
 	ASSERT_EQ(f, 0x1133);
@@ -132,10 +146,13 @@ TEST_F(FrameHdrTest, read_buffer_skip_extensions2)
 	size_t br;
 	uint64_t f, k;
 	uint32_t c;
+	int err;
 
 	memcpy(buffer, "\x10\x1B\x22\x44\x66\x88\x11\x33\x80\x00\x90\x00\x00\x00\x00", 15);
 
-	br = frame_hdr_read(buffer, BUFSZ, &f, &k, &c);
+	err = frame_hdr_read(buffer, BUFSZ, &f, &k, &c, &br);
+
+	ASSERT_EQ(err, 0);
 	ASSERT_EQ(br, 15);
 	ASSERT_EQ(k, 0x22446688);
 	ASSERT_EQ(f, 0x1133);
@@ -146,12 +163,14 @@ TEST_F(FrameHdrTest, write_read_csrc)
 	size_t bw, br;
 	uint64_t f, k;
 	uint32_t c;
+	int err;
 
 	bw = frame_hdr_write(buffer, BUFSZ, 0x11, 0x22, 0x12345678);
 	ASSERT_EQ(bw, 9);
 
-	br = frame_hdr_read(buffer, BUFSZ, &f, &k, &c);
+	err = frame_hdr_read(buffer, BUFSZ, &f, &k, &c, &br);
 
+	ASSERT_EQ(err, 0);
 	ASSERT_EQ(br, bw);
 	ASSERT_EQ(k, 0x22);
 	ASSERT_EQ(f, 0x11);
