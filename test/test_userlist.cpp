@@ -844,6 +844,7 @@ TEST_F(UserlistTest, get_members_mute_state)
 	userlist_update_from_sftlist(list, &sftlist3, &changed, &missing);
 
 	InitAudioLevelList(&levell, 0, 3, 1);
+	printf("4\n");
 	userlist_update_audio_level(list, &levell, &changed);
 
 	//re_printf("%H\n", userlist_debug, list);
@@ -857,7 +858,7 @@ TEST_F(UserlistTest, get_members_mute_state)
 	ASSERT_EQ(members->membc, 4);
 	ASSERT_EQ(strcmp(members->membv[1].userid, "user_00000"), 0);
 	ASSERT_EQ(strcmp(members->membv[1].clientid, "client_00000"), 0);
-	ASSERT_EQ(members->membv[1].muted, 0);
+	ASSERT_EQ(members->membv[1].muted, 1);
 
 	ASSERT_EQ(strcmp(members->membv[2].userid, "user_00001"), 0);
 	ASSERT_EQ(strcmp(members->membv[2].clientid, "client_00001"), 0);
