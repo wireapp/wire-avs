@@ -844,7 +844,6 @@ TEST_F(UserlistTest, get_members_mute_state)
 	userlist_update_from_sftlist(list, &sftlist3, &changed, &missing);
 
 	InitAudioLevelList(&levell, 0, 3, 1);
-	printf("4\n");
 	userlist_update_audio_level(list, &levell, &changed);
 
 	//re_printf("%H\n", userlist_debug, list);
