@@ -963,6 +963,9 @@ void userlist_update_audio_level(struct userlist *list,
 
 		u = userlist_find_by_real(list, uid, cid);
 		if (u) {
+			if (u->muted) {
+				audio_level_set(a, 0, 0);
+			}
 			u->active_audio = audio_level(a) > 0;
 			if (u->muted && (u->active_audio != u->active_prev)) {
 				*list_changed = true;
