@@ -323,7 +323,7 @@ static void sdp_set_bandwidth(struct sdp_media *sdpm, bool screenshare)
     }
     else if (streq(sdp_media_name(sdpm), "audio")){
         sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, AUDIO_GROUP_BANDWIDTH);
-        info("sdp_modify_offer: group mode, setting ptime\n");
+        info("sdp_set_bandwidth: group mode, setting ptime\n");
         sdp_media_set_lattr(sdpm, true, "ptime", "40");
     }
 }
