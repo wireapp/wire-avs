@@ -26,9 +26,7 @@
 #define MAX_NET_ID 5
 
 enum {
-      AUDIO_ONEONE_BANDWIDTH = 50,
       AUDIO_GROUP_BANDWIDTH = 32,
-      VIDEO_ONEONE_BANDWIDTH = 800,
       VIDEO_GROUP_BANDWIDTH = 600,
 };
       
@@ -318,9 +316,21 @@ int sdp_dup(struct sdp_session **sessp,
 	return sdp_dup_int(sessp, conv_type, sdp, offer, false);
 }
 
+static void sdp_set_bandwidth(struct sdp_media *sdpm, bool screenshare)
+{
+    if (streq(sdp_media_name(sdpm), "video") && !screenshare) {
+        sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, VIDEO_GROUP_BANDWIDTH);
+    }
+    else if (streq(sdp_media_name(sdpm), "audio")){
+        sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, AUDIO_GROUP_BANDWIDTH);
+        info("sdp_set_bandwidth: group mode, setting ptime\n");
+        sdp_media_set_lattr(sdpm, true, "ptime", "40");
+    }
+}
 
 const char *sdp_modify_offer(struct sdp_session *sess,
 			     enum icall_conv_type conv_type,
+			     bool screenshare,
 			     bool audio_cbr)
 {
 	char *sdpres = NULL;
@@ -334,24 +344,11 @@ const char *sdp_modify_offer(struct sdp_session *sess,
 
 		struct sdp_media *sdpm = (struct sdp_media *)le->data;
 
-		if (streq(sdp_media_name(sdpm), "video")) {
-			uint32_t bw = conv_type == ICALL_CONV_TYPE_ONEONONE ?
-				VIDEO_ONEONE_BANDWIDTH : VIDEO_GROUP_BANDWIDTH;
+        if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
+            sdp_set_bandwidth(sdpm, screenshare);
+        }
 
-			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, bw);
-		}
-		else if (streq(sdp_media_name(sdpm), "audio")) {
-			uint32_t bw = conv_type == ICALL_CONV_TYPE_ONEONONE ?
-				AUDIO_ONEONE_BANDWIDTH : AUDIO_GROUP_BANDWIDTH;
-			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, bw);
-
-			if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
-
-				info("sdp_modify_offer: group mode, "
-				     "setting ptime\n");
-				sdp_media_set_lattr(sdpm, true, "ptime", "40");
-			}
-
+		if (streq(sdp_media_name(sdpm), "audio")) {
 			debug("sdp_modify_offer: audio_cbr=%d\n", audio_cbr);
 			if (audio_cbr) {
 				const struct list *fmtl;
@@ -393,6 +390,7 @@ const char *sdp_sess2str(struct sdp_session *sess)
 
 const char *sdp_modify_answer(struct sdp_session *sess,
 			      enum icall_conv_type conv_type,
+			      bool screenshare,
 			      bool audio_cbr)
 {
 	const struct list *medial;
@@ -402,22 +400,16 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 	for(le = medial->head; le; le = le->next) {
 
 		struct sdp_media *sdpm = (struct sdp_media *)le->data;
-		
-		if (streq(sdp_media_name(sdpm), "video")) {
-			uint32_t bw = conv_type == ICALL_CONV_TYPE_ONEONONE ?
-				VIDEO_ONEONE_BANDWIDTH : VIDEO_GROUP_BANDWIDTH;
-			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, bw);
-		}
-		else if (streq(sdp_media_name(sdpm), "audio")) {
-			uint32_t bw = conv_type == ICALL_CONV_TYPE_ONEONONE ?
-				AUDIO_ONEONE_BANDWIDTH : AUDIO_GROUP_BANDWIDTH;
-			sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS, bw);
 
+        if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
+            sdp_set_bandwidth(sdpm, screenshare);
+        }
+
+		if (streq(sdp_media_name(sdpm), "audio")) {
 			if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
-				const struct list *fmtl;
+                const struct list *fmtl;
 				struct le *fle;
 
-				sdp_media_set_lattr(sdpm, true, "ptime", "40");
 				fmtl = sdp_media_format_lst(sdpm, true);
 
 				LIST_FOREACH(fmtl, fle) {

@@ -25,9 +25,11 @@ const char *sdp_sess2str(struct sdp_session *sess);
 
 const char *sdp_modify_offer(struct sdp_session *sess,
 			     enum icall_conv_type conv_type,
+			     bool screenshare,
 			     bool audio_cbr);
 const char *sdp_modify_answer(struct sdp_session *sess,
 			      enum icall_conv_type conv_type,
+			      bool screenshare,
 			      bool audio_cbr);
 
 int sdp_strip_video(char **sdp, enum icall_conv_type conv_type,
