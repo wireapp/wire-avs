@@ -962,11 +962,13 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 	if (isoffer) {
 		sdp_modify_offer(sess,
 				 jsflow->conv_type,
+				 jsflow->vstate == ICALL_VIDEO_STATE_SCREENSHARE,
 				 jsflow->audio.req_local_cbr);
 	}
 	else {
 		sdp_modify_answer(sess,
 				  jsflow->conv_type,
+				  jsflow->vstate == ICALL_VIDEO_STATE_SCREENSHARE,
 				  jsflow->audio.req_local_cbr);
 	}
 	
@@ -1449,11 +1451,17 @@ void pc_local_sdp_handler(int self, int err,
 	/* Modify SDP here */
 	if (isoffer) {
 		sdp_dup(&sess, flow->conv_type, sdp, true);
-		modsdp = sdp_modify_offer(sess, flow->conv_type, flow->audio.req_local_cbr);
+		modsdp = sdp_modify_offer(sess,
+					  flow->conv_type,
+					  flow->vstate == ICALL_VIDEO_STATE_SCREENSHARE,
+					  flow->audio.req_local_cbr);
 	}
 	else if (streq(type, "answer")) {
 		sdp_dup(&sess, flow->conv_type, sdp, false);		
-		modsdp = sdp_modify_answer(sess, flow->conv_type, flow->audio.req_local_cbr);
+		modsdp = sdp_modify_answer(sess,
+					   flow->conv_type,
+					   flow->vstate == ICALL_VIDEO_STATE_SCREENSHARE,
+					   flow->audio.req_local_cbr);
 	}
 	else {
 		str_dup((char **)&modsdp, sdp);
