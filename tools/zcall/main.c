@@ -69,6 +69,7 @@ bool g_use_conference = false;
 bool g_use_mls = false;
 char *zcall_vfile = NULL;
 struct list g_sftl = LIST_INIT;
+struct list g_turnl = LIST_INIT;
 bool g_fed = false;
 
 #ifdef HAVE_CRYPTOBOX
@@ -383,12 +384,12 @@ static int create_store(struct store **stp, const char *store_dir,
 	return err;
 }
 
-static void parse_sfts(char *sftstr)
+static void parse_servers(struct list *sl, char *sftstr)
 {
 	char *tok;
 
 	while ((tok = strtok_r(sftstr, ",", &sftstr))) {
-		stringlist_append(&g_sftl, tok);
+		stringlist_append(sl, tok);
 	}
 
 }
@@ -429,7 +430,7 @@ int main(int argc, char *argv[])
 
 	for (;;) {
 		const int c = getopt(argc, argv,
-				     "ABc:CdDe:fFGhiIKl:m:Mn:Np:P:q:r:sS:tTV:WZ");
+				     "ABc:CdDe:fFGhiIKl:m:Mn:Np:P:q:r:sS:tTU:V:WZ");
 		if (c < 0)
 			break;
 
@@ -527,7 +528,11 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'S':
-			parse_sfts(optarg);
+			parse_servers(&g_sftl, optarg);
+			break;
+
+		case 'U':
+			parse_servers(&g_turnl, optarg);
 			break;
 
 		case 't':

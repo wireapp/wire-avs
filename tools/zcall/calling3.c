@@ -470,35 +470,125 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 	char *json_str = NULL;
 	struct json_object *jobj = raw_jobj;
 	struct le *le;
+	struct list *turnl = NULL;
+	struct list *sftl = NULL;
 
+	struct json_object *jices = NULL;
+	struct json_object *jsfts = NULL;
+	struct json_object *jsfts_all = NULL;
+
+	{
+		char *jstr;
+
+		jzon_encode(&jstr, raw_jobj);
+		re_printf("cfg_resp_handler: in: %s\n", jstr);
+
+		mem_deref(jstr);
+	}
+	
 	if (err == ECONNABORTED)
 		goto error;
 
+	if (list_count(&g_turnl) > 0) {
+		turnl = &g_turnl;
+	}
+	
 	if (list_count(&g_sftl) > 0) {
-		struct json_object *jices;
-		struct json_object *jsfts;
-		struct json_object *jsfts_all;
+		sftl = &g_sftl;
+	}
 
-		jobj = json_object_new_object();
+	if (!sftl && !turnl) {
+		goto send_update;
+	}
+
+	jobj = json_object_new_object();
+	if (!turnl) {
 		err = jzon_array(&jices, raw_jobj, "ice_servers");
-		if (!err)
-			json_object_object_add(jobj, "ice_servers", jices);
+		if (err)
+			jices = NULL;
+	}
+	else {
+		jices = json_object_new_array();
+		if (!jices) {
+			err = ENOMEM;
+			goto error;
+		}
 
+		LIST_FOREACH(turnl, le) {
+			struct stringlist_info *nfo = le->data;
+
+			struct json_object *jurls;
+			struct json_object *jurl;
+			struct json_object *jice;
+			struct json_object *juser;
+			struct json_object *jcred;
+
+			char *url;
+			char *user = NULL;
+			char *cred = NULL;
+
+			str_dup(&url, nfo->str);
+			jurls = json_object_new_array();
+			jice = jzon_alloc_object();
+			user = strchr(url, '|');
+			if (user) {
+				*user = 0;
+				user++;
+				cred = strchr(user, '|');
+				if (cred) {
+					*cred = 0;
+					cred++;
+				}
+			}
+				
+			jurl = json_object_new_string(url);
+			if (!jurls || !jice || !jurl) {
+				err = ENOMEM;
+				goto error;
+			}
+			json_object_array_add(jurls, jurl);
+			json_object_object_add(jice, "urls", jurls);
+			if (user) {
+				juser = json_object_new_string(user);
+				json_object_object_add(jice, "username", juser);
+			}
+			if (cred) {
+				jcred = json_object_new_string(cred);
+				json_object_object_add(jice, "credential", jcred);
+			}
+			json_object_array_add(jices, jice);
+
+			mem_deref(url);
+		}
+	}
+		
+	json_object_object_add(jobj, "ice_servers", jices);
+	
+	if (!sftl) {
+		err = jzon_array(&jsfts, raw_jobj, "sft_servers");
+		if (err)
+			jsfts = NULL;
+		
+		err = jzon_array(&jsfts_all, raw_jobj, "sft_servers_all");
+		if (err)
+			jsfts_all = NULL;
+			
+	}
+	else {
 		jsfts = json_object_new_array();
 		if (!jsfts) {
 			err = ENOMEM;
-			goto out;
+			goto error;
 		}
 
 		jsfts_all = json_object_new_array();
-		if (!jsfts) {
+		if (!jsfts_all) {
 			err = ENOMEM;
-			goto out;
+			goto error;
 		}
 
-		LIST_FOREACH(&g_sftl, le) {
+		LIST_FOREACH(sftl, le) {
 			struct stringlist_info *nfo = le->data;
-
 			struct json_object *jurls;
 			struct json_object *jsft;
 			struct json_object *jurl;
@@ -525,7 +615,7 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 			jurl = json_object_new_string(url);
 			if (!jurls || !jsft || !jurl) {
 				err = ENOMEM;
-				goto out;
+				goto error;
 			}
 			json_object_array_add(jurls, jurl);
 			json_object_object_add(jsft, "urls", jurls);
@@ -544,7 +634,7 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 			jurl = json_object_new_string(url);
 			if (!jurls || !jsft || !jurl) {
 				err = ENOMEM;
-				goto out;
+				goto error;
 			}
 			json_object_array_add(jurls, jurl);
 			json_object_object_add(jsft, "urls", jurls);
@@ -559,14 +649,15 @@ static void cfg_resp_handler(int err, const struct http_msg *msg,
 			json_object_array_add(jsfts_all, jsft);
 
 			mem_deref(url);
-		}
+		}			
 
 		json_object_object_add(jobj, "sft_servers", jsfts);
 		json_object_object_add(jobj, "sft_servers_all", jsfts_all);
 		json_object_object_add(jobj, "is_federating", json_object_new_boolean(g_fed));
-		info("is_federating %s", g_fed ? "YES" : "NO");
+		info("is_federating %s\n", g_fed ? "YES" : "NO");
 	}
 
+ send_update:
 	if (!err && jobj) {
 		err = jzon_encode(&json_str, jobj);
 		if (err)
