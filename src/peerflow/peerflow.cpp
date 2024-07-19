@@ -1642,6 +1642,8 @@ public:
 		
 		switch(type) {
 		case webrtc::SdpType::kOffer:
+			info("SDP-fromPC: %s\n", sdp_str.c_str());
+
 			err = sdp_dup(&sess, pf_->conv_type,
 				      sdp_str.c_str(), true);
 			if (err) {
@@ -1655,8 +1657,8 @@ public:
 					       pf_->vstate == ICALL_VIDEO_STATE_SCREENSHARE,
 					       pf_->audio.local_cbr);
 
-			info("SDP-fromPC: %s\n", sdp);
-			
+			info("SDP-moded: %s\n", sdp);
+
 			imod_sdp = sdp_interface(sdp, webrtc::SdpType::kOffer);
 			pf_->peerConn->SetLocalDescription(
 					pf_->offerObserver,

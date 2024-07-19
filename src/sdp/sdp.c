@@ -27,7 +27,7 @@
 
 enum {
       AUDIO_GROUP_BANDWIDTH = 32,
-      VIDEO_GROUP_BANDWIDTH = 600,
+      VIDEO_GROUP_BANDWIDTH = 800,
 };
       
 
@@ -76,9 +76,16 @@ static bool cand_handler(const char *name, const char *value, void *arg)
 }
 
 
+struct fmt_mod {
+	struct sdp_media *sdpm;
+	char *vid;
+};
+
 static bool fmt_handler(struct sdp_format *fmt, void *arg)
 {
-	struct sdp_media *sdpm = (struct sdp_media *)arg;
+	struct fmt_mod *fmtm = arg;
+	struct sdp_media *sdpm = fmtm->sdpm;
+	bool use_fmt = false;
 
 	if (streq(sdp_media_name(sdpm), "audio")) {
 		if (streq(fmt->name, "opus")) {
@@ -89,7 +96,24 @@ static bool fmt_handler(struct sdp_format *fmt, void *arg)
 		}
 	}
 	else if (streq(sdp_media_name(sdpm), "video")) {
+		char aptid[16];
+
 		if (strcaseeq(fmt->name, "vp8")) {
+			use_fmt = true;
+			if (fmtm->vid == NULL) {
+				str_dup(&fmtm->vid, fmt->id);
+			}
+		}
+		if (strcaseeq(fmt->name, "rtx")) {
+			int n;
+
+			n = sscanf(fmt->params, "apt=%15s", aptid);
+			if (n == 1) {
+				if (strcaseeq(aptid, fmtm->vid))
+					use_fmt = true;
+			}
+		}
+		if (use_fmt) {
 			sdp_format_add(NULL, sdpm, false,
 				       fmt->id, fmt->name, fmt->srate, fmt->ch,
 				       NULL, NULL, NULL, false,
@@ -262,6 +286,7 @@ static int sdp_dup_int(struct sdp_session **sessp,
 		enum sdp_dir rdir;
 		int rport;
 		struct conv_sdp csdp;
+		struct fmt_mod fmtm;
 
 		rport = sdp_media_rport(sdpm);
 		sdp_media_add(NULL, sess, mname,
@@ -271,8 +296,11 @@ static int sdp_dup_int(struct sdp_session **sessp,
 		sdp_media_set_laddr(sdpm, sdp_media_raddr(sdpm));
 		sdp_media_set_lport(sdpm, rport);
 
+		fmtm.sdpm = sdpm;
+		fmtm.vid = NULL;
 		sdp_media_format_apply(sdpm, false, NULL, -1, NULL,
-				       -1, -1, fmt_handler, sdpm);
+				       -1, -1, fmt_handler, &fmtm);
+		mem_deref(fmtm.vid);
 
 		csdp.sdpm = sdpm;
 		csdp.conv_type = conv_type;
@@ -344,9 +372,9 @@ const char *sdp_modify_offer(struct sdp_session *sess,
 
 		struct sdp_media *sdpm = (struct sdp_media *)le->data;
 
-        if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
-            sdp_set_bandwidth(sdpm, screenshare);
-        }
+		if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
+			sdp_set_bandwidth(sdpm, screenshare);
+		}
 
 		if (streq(sdp_media_name(sdpm), "audio")) {
 			debug("sdp_modify_offer: audio_cbr=%d\n", audio_cbr);
@@ -360,7 +388,6 @@ const char *sdp_modify_offer(struct sdp_session *sess,
 					char *params;
 
 					str_dup(&params, fmt->params);
-
 					sdp_format_set_params(fmt, "%s;cbr=1", params);
 					mem_deref(params);
 				}
@@ -401,13 +428,13 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 
 		struct sdp_media *sdpm = (struct sdp_media *)le->data;
 
-        if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
-            sdp_set_bandwidth(sdpm, screenshare);
-        }
+		if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
+			sdp_set_bandwidth(sdpm, screenshare);
+		}
 
 		if (streq(sdp_media_name(sdpm), "audio")) {
 			if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
-                const struct list *fmtl;
+				const struct list *fmtl;
 				struct le *fle;
 
 				fmtl = sdp_media_format_lst(sdpm, true);
