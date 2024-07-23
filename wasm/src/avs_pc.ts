@@ -1636,11 +1636,9 @@ function sdpCbrMap(sdp: string): string {
 	if(sdpLine.endsWith('sprop-stereo=0;useinbandfec=1')) {
 		outline = sdpLine + ";cbr=1";
 	}
-	else if (sdpLine.startsWith('a=ssrc-group:')) {
-	        outline = null;
-	}
-        if (outline != null) {
-            sdpLines.push(outline);
+
+    if (outline != null) {
+        sdpLines.push(outline);
 	}
     });
 
@@ -1930,10 +1928,10 @@ function extractSSRCs(pc: PeerConnection,
                       sdp: string) {
 
   sdp.split('\r\n').forEach(l => {
-    let m = l.match(/a=ssrc:(\d+) label:(.*)/)
+    let m = l.match(/a=ssrc:(\d+) msid:(.*) (.*)/)
     if (m) {
       let ssrc = m[1];
-      let label = m[2];
+      let label = m[3];
 
       pc.streams[ssrc] = label;
     }
