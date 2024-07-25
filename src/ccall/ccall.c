@@ -2714,28 +2714,32 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 
 	urlc = MIN(urlc, 3);
 	for (sft = 0; sft < urlc; sft++) {
+		sfti = ccall_get_sft_info(ccall, urlv[sft].url);
+		if (!sfti)
+			sfti = &urlv[sft];
+
 		/* If one SFT fails, keep trying the rest */
 		info("ccall(%p): cfg_update connecting to sft "
 			"%s user %s cred %s \n",
 			ccall, 
-			urlv[sft].url,
-			urlv[sft].username,
-			urlv[sft].credential);
+			sfti->url,
+			sfti->username,
+			sfti->credential);
 
 		err = ccall_send_conf_conn(ccall,
-					   urlv[sft].url,
-					   urlv[sft].username,
-					   urlv[sft].credential,
+					   sfti->url,
+					   sfti->username,
+					   sfti->credential,
 					   false);
 		if (err) {
 			warning("ccall(%p): cfg_update failed to send "
 				"confconn to sft %s err=%d\n",
-				ccall, urlv[sft].url, err);
+				ccall, sfti->url, err);
 		}
 		else {
 			info("ccall(%p): cfg_update connecting to %s "
 				"from calls/config\n",
-				ccall, urlv[sft].url);
+				ccall, sfti->url);
 		}
 	}
  out:
