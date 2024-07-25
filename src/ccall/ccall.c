@@ -65,6 +65,8 @@ static int ccall_sync_media_keys(struct ccall *ccall);
 static void ccall_stop_others_ringing(struct ccall *ccall);
 static struct zapi_ice_server* ccall_get_sft_info(struct ccall *ccall,
 						  const char *sft_url);
+static struct zapi_ice_server* ccall_get_sft_info_at_index(struct ccall *ccall,
+							   int ix);
 static void ccall_update_active_counts(struct ccall *ccall);
 
 static int alloc_message(struct econn_message **msgp,
@@ -2556,6 +2558,27 @@ static struct zapi_ice_server* ccall_get_sft_info(struct ccall *ccall,
 	return NULL;
 }
 
+static struct zapi_ice_server* ccall_get_sft_info_at_index(struct ccall *ccall,
+							   int ix)
+{
+	struct zapi_ice_server *sftv = NULL;
+	size_t sftc = 0;
+
+	if (!ccall || ix < 0) {
+		return NULL;
+	}
+
+	sftv = config_get_sftservers_all(ccall->cfg, &sftc);
+	if (sftv) {
+		if ((size_t)ix >= sftc)
+			return NULL;
+
+		return &sftv[ix];
+	}
+	return NULL;
+}
+
+
 static bool ccall_can_connect_sft(struct ccall *ccall, const char *sft_url)
 {
 	size_t sftc = 0;
@@ -2715,8 +2738,12 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	urlc = MIN(urlc, 3);
 	for (sft = 0; sft < urlc; sft++) {
 		sfti = ccall_get_sft_info(ccall, urlv[sft].url);
-		if (!sfti)
+		if (!sfti) {
+			sfti = ccall_get_sft_info_at_index(ccall, 0);
+		}
+		if (!sfti) {
 			sfti = &urlv[sft];
+		}
 
 		/* If one SFT fails, keep trying the rest */
 		info("ccall(%p): cfg_update connecting to sft "
