@@ -2608,7 +2608,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	size_t urlc, sft;
 	int state = ccall->state;
 	struct le *le;
-	const struct zapi_ice_server *sfti = NULL;
+	struct zapi_ice_server *sfti = NULL;
 	bool deref_je = true;
 	int err = 0;
 
@@ -2740,9 +2740,14 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		sfti = ccall_get_sft_info(ccall, urlv[sft].url);
 		if (!sfti) {
 			sfti = ccall_get_sft_info_at_index(ccall, 0);
-		}
-		if (!sfti) {
-			sfti = &urlv[sft];
+			if (sfti) {
+				str_ncpy(sfti->url,
+					 urlv[sft].url,
+					 sizeof(sfti->url));
+			}
+			else {
+				sfti = &urlv[sft];
+			}
 		}
 
 		/* If one SFT fails, keep trying the rest */
