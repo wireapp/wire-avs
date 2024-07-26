@@ -2609,6 +2609,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	int state = ccall->state;
 	struct le *le;
 	struct zapi_ice_server *sfti = NULL;
+	struct zapi_ice_server tmp_sft;
 	bool deref_je = true;
 	int err = 0;
 
@@ -2737,13 +2738,19 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 
 	urlc = MIN(urlc, 3);
 	for (sft = 0; sft < urlc; sft++) {
-		sfti = ccall_get_sft_info(ccall, urlv[sft].url);
-		if (!sfti) {
-			sfti = ccall_get_sft_info_at_index(ccall, 0);
-			if (sfti) {
-				str_ncpy(sfti->url,
+		struct zapi_ice_server *si;
+
+		si = ccall_get_sft_info(ccall, urlv[sft].url);
+		if (si)
+			sfti = si;
+		else {
+			si = ccall_get_sft_info_at_index(ccall, 0);
+			if (si) {
+				tmp_sft = *si;
+				str_ncpy(tmp_sft.url,
 					 urlv[sft].url,
-					 sizeof(sfti->url));
+					 sizeof(tmp_sft.url));
+				sfti = &tmp_sft;				
 			}
 			else {
 				sfti = &urlv[sft];
