@@ -260,8 +260,8 @@ void log_mask_ipaddr(const char *msg)
 		const size_t len = pend - p;
 
 		if (0 == re_regex(p, len,
-				  "[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+:"
-				  "[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+",
+				  "[0-9a-fA-F]*:[0-9a-fA-F]*:[0-9a-fA-F]*:[0-9a-fA-F]*:"
+				  "[0-9a-fA-F]*:[0-9a-fA-F]*:[0-9a-fA-F]*:[0-9a-fA-F]*",
 				  &a, &b, &c, &d, &e, &f, &g, &h)) {
 
 			for (i=0; i<d.l; i++)
