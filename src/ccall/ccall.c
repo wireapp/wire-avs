@@ -452,7 +452,8 @@ static void ccall_sync_vstate_timeout(void *arg)
 
 static void ccall_reconnect(struct ccall *ccall,
 			    uint32_t msg_time,
-			    bool notify)
+			    bool notify,
+			    bool again)
 {
 	bool decrypt_attempted = false;
 	bool decrypt_successful = false;
@@ -484,7 +485,7 @@ static void ccall_reconnect(struct ccall *ccall,
 	ccall->expected_ping = 0;
 	ccall->last_ping = 0;
 
-	userlist_incall_clear(ccall->userl, true);
+	userlist_incall_clear(ccall->userl, true, again);
 	set_state(ccall, CCALL_STATE_CONNSENT);
 	if (ccall->sft_url) {
 		sfti = ccall_get_sft_info(ccall, ccall->sft_url);
@@ -528,7 +529,8 @@ static void ccall_decrypt_check_timeout(void *arg)
 		info("ccall(%p): decrypt_check_timeout no confpart received, "
 		     "reconnecting\n",
 		     ccall);
-		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN, true);
+		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN, true,
+				false);
 		return;
 	}
 
@@ -606,7 +608,7 @@ static void ccall_keepalive_timeout(void *arg)
 	ecall_ping(ccall->ecall, false);
 	ccall->expected_ping++;
 	if (ccall->expected_ping > CCALL_MAX_MISSING_PINGS) {
-		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN, true);
+		ccall_reconnect(ccall, ECONN_MESSAGE_TIME_UNKNOWN, true, false);
 	}
 	else {
 		tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
@@ -912,7 +914,7 @@ static void ecall_media_estab_handler(struct icall *icall, const char *userid,
 
 	if (CCALL_STATE_CONNSENT != ccall->state) {
 		set_state(ccall, CCALL_STATE_ACTIVE);
-		userlist_incall_clear(ccall->userl, true);
+		userlist_incall_clear(ccall->userl, true, false);
 	}
 	else {
 		info("ccall(%p): refusing to go to CCALL_STATE_ACTIVE "
@@ -1000,11 +1002,13 @@ static void ecall_close_handler(struct icall *icall,
 		ccall->expected_ping = 0;
 		ccall->last_ping = 0;
 
-		ccall_reconnect(ccall, msg_time, err == ENOTCONN);
+		ccall_reconnect(ccall, msg_time,
+				err == ENOTCONN,
+				err == EAGAIN);
 		return;
 	}
 
-	userlist_incall_clear(ccall->userl, false);
+	userlist_incall_clear(ccall->userl, false, false);
 	mem_deref(ecall);
 	ccall->ecall = NULL;
 
@@ -3718,7 +3722,7 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 		break;
 	}
 
-	userlist_incall_clear(ccall->userl, false);
+	userlist_incall_clear(ccall->userl, false, false);
 	if (ccall->ecall)
 		ecall_end(ccall->ecall);
 	else
