@@ -434,7 +434,7 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 
 		if (streq(sdp_media_name(sdpm), "audio")) {
 			if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
-				const struct list *fmtl;
+                const struct list *fmtl;
 				struct le *fle;
 
 				fmtl = sdp_media_format_lst(sdpm, true);

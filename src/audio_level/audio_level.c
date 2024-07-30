@@ -246,3 +246,16 @@ int audio_level_list_debug(struct re_printf *pf, const struct list *levell)
 
 	return err;
 }
+
+int audio_level_set(struct audio_level *a,
+		    uint8_t aulevel,
+		    uint8_t aulevel_smooth)
+{
+	if (!a)
+		return EINVAL;
+
+	a->aulevel = aulevel;
+	a->aulevel_smooth = aulevel_smooth;
+
+	return 0;
+}

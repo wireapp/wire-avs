@@ -33,6 +33,9 @@ int audio_level_alloc(struct audio_level **levelp,
 const char *audio_level_userid(const struct audio_level *a);
 const char *audio_level_clientid(const struct audio_level *a);
 int audio_level(struct audio_level *a);
+int audio_level_set(struct audio_level *a,
+		    uint8_t aulevel,
+		    uint8_t aulevel_smooth);
 
 bool audio_level_eq(struct audio_level *a, struct audio_level *b);
 bool audio_level_list_cmp(struct le *le1, struct le *le2, void *arg);

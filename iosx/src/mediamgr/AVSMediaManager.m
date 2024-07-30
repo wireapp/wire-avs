@@ -259,7 +259,7 @@ static AVSMediaManager *_defaultMediaManager;
 {
 	bool mixing = true;
 	bool incall = false;
-	int intensity = 100;
+	int intensity = AVSIntensityLevelFull;
 	int priority = 0;
 
 	mediamgr_register_media(_mm, [media.name UTF8String], (__bridge_retained void *)(media),
@@ -386,7 +386,7 @@ static AVSMediaManager *_defaultMediaManager;
 
 - (float)intensityForMediaName:(NSString *)name
 {
-	return 0.0f;
+	return AVSIntensityLevelNone;
 }
 
 - (void)setIntensity:(float)intensity forMediaName:(NSString *)name

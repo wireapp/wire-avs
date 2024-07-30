@@ -243,34 +243,13 @@ void avsmm_on_route_changed(enum mediamgr_auplay new_route, void *arg)
 
 - (AVSIntensityLevel)intensityLevel
 {
-    float intensity = [self intensity];
-    
-    if ( intensity == 0 ) {
-        return AVSIntensityLevelNone;
-    }
-    
-    if ( intensity == 100 ) {
-        return AVSIntensityLevelFull;
-    }
-    
-    return AVSIntensityLevelSome;
+    return [self intensity];
 }
 
-- (void)setIntensityLevel:(AVSIntensityLevel)intensityLevel
+- (void)setIntensityLevel:(AVSIntensityLevel)intensityLevel	
 {
-    switch ( intensityLevel ) {
-        case AVSIntensityLevelNone:
-            [self setIntensity:0];
-            break;
-            
-        case AVSIntensityLevelSome:
-            [self setIntensity:50];
-            break;
-            
-        case AVSIntensityLevelFull:
-            [self setIntensity:100];
-            break;
-    }
+
+	[self setIntensity:intensityLevel];
 }
 
 

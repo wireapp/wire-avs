@@ -212,7 +212,7 @@ static bool wcall_has_calls(void);
 
 static void call_group_change_json(struct calling_instance *inst,
 				   struct wcall *wcall);
-static bool find_pending_event(struct list *eventl, const char *convid);
+static struct incoming_event *find_pending_event(struct list *eventl, const char *convid);
 
 
 
@@ -1158,7 +1158,6 @@ static void icall_close_handler(struct icall *icall, int err,
 		     wcall, tmr_jiffies() - now);
 	}
 
-
 	if (!inst->processing_notifications && inst->metricsh && metrics) {
 		metrics_json = icall_metrics2json(metrics, wcall_reason_name(reason));
 		if (metrics_json) {
@@ -1180,6 +1179,8 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 {
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
+	int wreason = WCALL_REASON_NORMAL;
+	bool ignore_close = false;
 
 	if (!WCALL_VALID(wcall)) {
 		warning("wcall(%p): icall_leave_handler: invalid wcall "
@@ -1188,41 +1189,63 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 	}
 
 	set_state(wcall, WCALL_STATE_INCOMING);
-	if (inst->closeh) {
-		int wreason = WCALL_REASON_NORMAL;
 
-		switch (reason) {
-		case ICALL_REASON_STILL_ONGOING:
-			wreason = WCALL_REASON_STILL_ONGOING;
-			break;
-		case ICALL_REASON_ANSWERED_ELSEWHERE:
-			wreason = WCALL_REASON_ANSWERED_ELSEWHERE;
-			break;
-		case ICALL_REASON_REJECTED:
-			wreason = WCALL_REASON_REJECTED;
-			break;
-		case ICALL_REASON_OUTDATED_CLIENT:
-			wreason = WCALL_REASON_OUTDATED_CLIENT;
-			break;
-		case ICALL_REASON_TIMEOUT:
-			wreason = WCALL_REASON_TIMEOUT;
-			break;
-		case ICALL_REASON_NOONE_JOINED:
-			wreason = WCALL_REASON_NOONE_JOINED;
-			break;
-		case ICALL_REASON_EVERYONE_LEFT:
-			wreason = WCALL_REASON_EVERYONE_LEFT;
-			break;
-		case ICALL_REASON_AUTH_FAILED:
-			wreason = WCALL_REASON_AUTH_FAILED;
-			break;
-		case ICALL_REASON_AUTH_FAILED_START:
-			wreason = WCALL_REASON_AUTH_FAILED_START;
-			break;
-		default:
-			wreason = WCALL_REASON_NORMAL;
-			break;
+	switch (reason) {
+	case ICALL_REASON_STILL_ONGOING:
+		wreason = WCALL_REASON_STILL_ONGOING;
+		break;
+
+	case ICALL_REASON_ANSWERED_ELSEWHERE:
+		wreason = WCALL_REASON_ANSWERED_ELSEWHERE;
+		break;
+
+	case ICALL_REASON_REJECTED:
+		wreason = WCALL_REASON_REJECTED;
+		break;
+
+	case ICALL_REASON_OUTDATED_CLIENT:
+		wreason = WCALL_REASON_OUTDATED_CLIENT;
+		break;
+
+	case ICALL_REASON_TIMEOUT:
+		wreason = WCALL_REASON_TIMEOUT;
+		break;
+
+	case ICALL_REASON_NOONE_JOINED:
+		wreason = WCALL_REASON_NOONE_JOINED;
+		break;
+
+	case ICALL_REASON_EVERYONE_LEFT:
+		wreason = WCALL_REASON_EVERYONE_LEFT;
+		break;
+
+	case ICALL_REASON_AUTH_FAILED:
+		wreason = WCALL_REASON_AUTH_FAILED;
+		break;
+
+	case ICALL_REASON_AUTH_FAILED_START:
+		wreason = WCALL_REASON_AUTH_FAILED_START;
+		break;
+
+	default:
+		wreason = WCALL_REASON_NORMAL;
+		break;
+	}
+
+	if (inst->processing_notifications) {
+		struct incoming_event *ie;
+
+		ie = find_pending_event(&inst->pending_eventl,
+					wcall->convid);
+		if (ie) {
+			info("wcall(%p): icall_leave_handler: ignoring close while prcessing notifications\n",
+			     wcall);
+			ie->should_ring = false;
+			ignore_close = true;
 		}
+	}
+	
+	if (inst->closeh && !ignore_close) {
 		uint64_t now = tmr_jiffies();
 		info(APITAG "wcall(%p): icall_leave_handler: closeh(%p) "
 		     "state=%s reason=%s\n",
@@ -1231,9 +1254,11 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 
 		inst->closeh(wreason, wcall->convid, msg_time,
 			     inst->userid, inst->clientid, inst->arg);
-		info(APITAG "wcall(%p): icall_leave_handler: closeh took %llu ms\n",
+		info(APITAG "wcall(%p): icall_leave_handler: "
+		     "closeh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
 	}
+
 	wcall->disable_audio = true;
 	if (!wcall_has_calls() && inst->mm) {
 		mediamgr_set_call_state(inst->mm,
@@ -1954,18 +1979,20 @@ void wcall_set_media_laddr(WUSER_HANDLE wuser, struct sa *laddr)
 	inst->media_laddr = maddr;
 }
 
-static bool find_pending_event(struct list *eventl, const char *convid)
+static struct incoming_event *find_pending_event(struct list *eventl,
+						 const char *convid)
 {
 	bool found = false;
+	struct incoming_event *ie;
 	struct le *le;
 
 	for(le = eventl->head; !found && le; le = le->next) {
-		struct incoming_event *ie = le->data;
+		ie = le->data;
 
 		found = streq(convid, ie->convid);
 	}
 
-	return found;
+	return found ? ie : NULL;
 }
 
 static void handle_pending_events(struct list *eventl)
