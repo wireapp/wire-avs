@@ -687,7 +687,8 @@ uint32_t userlist_get_key_index(struct userlist *list)
 }
 
 void userlist_incall_clear(struct userlist *list,
-			   bool force_decoder)
+			   bool force_decoder,
+			   bool again)
 {
 	struct le *le;
 	LIST_FOREACH(&list->users, le) {
@@ -697,8 +698,10 @@ void userlist_incall_clear(struct userlist *list,
 		u->incall_now = u->incall_now && force_decoder;
 		u->force_decoder = u->incall_now;
 		u->incall_prev = false;
-		u->ssrca = 0;
-		u->ssrcv = 0;
+		if (!again) {
+			u->ssrca = 0;
+			u->ssrcv = 0;
+		}
 	}
 }
 
