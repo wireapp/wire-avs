@@ -136,7 +136,8 @@ int userlist_set_latest_epoch_for_client(struct userlist *list,
 uint32_t userlist_get_key_index(struct userlist *list);
 
 void userlist_incall_clear(struct userlist *list,
-			   bool force_decoder);
+			   bool force_decoder,
+			   bool again);
 
 uint32_t userlist_incall_count(struct userlist *list);
 
