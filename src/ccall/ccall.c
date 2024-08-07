@@ -913,8 +913,10 @@ static void ecall_media_estab_handler(struct icall *icall, const char *userid,
 	}
 
 	if (CCALL_STATE_CONNSENT != ccall->state) {
+		enum ccall_state old_state = ccall->state;
 		set_state(ccall, CCALL_STATE_ACTIVE);
-		userlist_incall_clear(ccall->userl, true, false);
+		userlist_incall_clear(ccall->userl, true,
+				      old_state == CCALL_STATE_ACTIVE);
 	}
 	else {
 		info("ccall(%p): refusing to go to CCALL_STATE_ACTIVE "
