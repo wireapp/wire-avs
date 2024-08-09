@@ -497,7 +497,9 @@ contrib_librew: $(CONTRIB_LIBREW_TARGET)
 
 #--- Protobuf ---
 
-HOST_PROTOC	:= protoc-c
+#HOST_PROTOC	:= protoc-c
+# Protobuf cmd changed on mac arm
+HOST_PROTOC	:= protoc
 
 CONTRIB_PROTOBUF_PATH := contrib/generic-message-proto
 
