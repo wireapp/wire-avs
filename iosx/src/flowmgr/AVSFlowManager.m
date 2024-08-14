@@ -915,8 +915,20 @@ out:
 	BOOL found = NO;
 
 	[_viewLock lock];
-	for (unsigned int v = 0; v < _videoViews.count; v++) {
-		AVSVideoView *view = [_videoViews objectAtIndex: v];
+	unsigned int cnt = _videoViews.count;
+	[_viewLock unlock];
+
+	for (unsigned int v = 0; v < cnt; v++) {
+		AVSVideoView *view = nil;
+
+		[_viewLock lock];
+		if (v < _videoViews.count) {
+			view = [_videoViews objectAtIndex: v];
+		}
+		[_viewLock unlock];
+
+		if (view == nil)
+			continue;
 
 		if (view.userid == nil) {
 			warning("Found renderer without userid\n");
@@ -930,7 +942,6 @@ out:
 			found = YES;
 		}
 	}
-	[_viewLock unlock];
 
 	if (!found) {
 		warning("flowmgr: render_frame couldnt find renderer for frame "
