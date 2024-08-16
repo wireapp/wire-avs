@@ -131,6 +131,9 @@
 	
 		NSLog(@"AVSVideoView-init: source compiled successfully\n");
 
+		self.autoresizingMask =
+			UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+
 #if TARGET_OS_IPHONE
 		[[NSNotificationCenter defaultCenter] addObserver:self
 		      selector:@selector(applicationWillResignActive:)
@@ -473,7 +476,7 @@
 	_metalLayer.drawableSize = CGSizeMake(self.bounds.size.width * scale,
 					      self.bounds.size.height * scale);
 					  
-	_viewFrame = _metalLayer.drawableSize;
+	_viewFrame = self.bounds.size;
 	_forceRecalc = YES;
 	[_lock unlock];
 
