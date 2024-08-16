@@ -1629,22 +1629,28 @@ function sdpCbrMap(sdp: string): string {
     const sdpLines:  string[] = [];
     
     sdp.split('\r\n').forEach(sdpLine => {
-	let outline: string | null;
+      let outline: string | null;
 
-	outline = sdpLine;
+      outline = sdpLine;
 
-	if(sdpLine.endsWith('sprop-stereo=0;useinbandfec=1')) {
-		outline = sdpLine + ";cbr=1";
-	}
-	else if (sdpLine.startsWith('a=ssrc-group:')) {
-	        outline = null;
-	}
-        if (outline != null) {
-            sdpLines.push(outline);
-	}
-    });
+      if(sdpLine.endsWith('sprop-stereo=0;useinbandfec=1')) {
+        outline = sdpLine + ";cbr=1";
+      }
+      else if (sdpLine.startsWith('a=ssrc-group:')) {
+        const group = sdpLine;
+        // in case of only one ssrc in group (no nack/rtx), remove attribute
+        const spaces = group.trim().split(' ').length;
+        if (spaces < 3) {
+          outline = null;
+        }
+      }
 
-    return sdpLines.join('\r\n');
+      if (outline != null) {
+        sdpLines.push(outline);
+      }
+  });
+
+  return sdpLines.join('\r\n');
 }
 
 function pc_SetMediaKey(hnd: number, index: number, current: number, keyPtr: number, keyLen: number) {
@@ -1930,10 +1936,10 @@ function extractSSRCs(pc: PeerConnection,
                       sdp: string) {
 
   sdp.split('\r\n').forEach(l => {
-    let m = l.match(/a=ssrc:(\d+) label:(.*)/)
+    let m = l.match(/a=ssrc:(\d+) msid:(.*) (.*)/)
     if (m) {
       let ssrc = m[1];
-      let label = m[2];
+      let label = m[3];
 
       pc.streams[ssrc] = label;
     }
