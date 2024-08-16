@@ -43,14 +43,14 @@
 	int _chromaWidth;
 	int _chromaHeight;
 
-	dispatch_semaphore_t _gpuSemaphore;
+	//dispatch_semaphore_t _gpuSemaphore;
 
 	int _oldRotation;
 	int _oldWidth;
 	int _oldHeight;
 
 	NSLock *_lock;
-	CGRect _viewFrame;
+	CGSize _viewFrame;
 	BOOL _shouldFill;
 	BOOL _forceRecalc;
 }
@@ -80,7 +80,7 @@
 		}
 		[self setupLayer];
 
-		_gpuSemaphore = dispatch_semaphore_create(1);
+		//_gpuSemaphore = dispatch_semaphore_create(1);
 	
 		NSLog(@"AVSVideoView_metal: compiling source...\n");
 		id<MTLLibrary> metalLib = [_metalDevice newLibraryWithSource:g_ShaderSrc options:nil error:&err];
@@ -131,6 +131,9 @@
 	
 		NSLog(@"AVSVideoView-init: source compiled successfully\n");
 
+		self.autoresizingMask =
+			UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+
 #if TARGET_OS_IPHONE
 		[[NSNotificationCenter defaultCenter] addObserver:self
 		      selector:@selector(applicationWillResignActive:)
@@ -162,9 +165,9 @@
 - (void)getVertexData:(struct avs_vidframe *)vf
 	buffer:(float *)buffer
 {
-	CGRect frame = _viewFrame; //self.frame;
-	float dw = (float)frame.size.width;
-	float dh = (float)frame.size.height;
+	CGSize frame = _viewFrame; //self.frame;
+	float dw = (float)frame.width;
+	float dh = (float)frame.height;
 	
 	float vw = vf->w;
 	float vh = vf->h;
@@ -317,16 +320,16 @@
 	}
 	[_lock unlock];
 	
-	__block dispatch_semaphore_t blockSem = _gpuSemaphore;
+	//__block dispatch_semaphore_t blockSem = _gpuSemaphore;
 
-	if (!_renderPassDescriptor || _viewFrame.size.width == 0 || _viewFrame.size.height == 0) {
-		dispatch_semaphore_signal(blockSem);
+	if (!_renderPassDescriptor || _viewFrame.width == 0 || _viewFrame.height == 0) {
+		//dispatch_semaphore_signal(blockSem);
 		return;
 	}
 
 	id<CAMetalDrawable> currentDrawable = [_metalLayer nextDrawable];
 	if (!currentDrawable) {
-		dispatch_semaphore_signal(blockSem);
+		//dispatch_semaphore_signal(blockSem);
 		return;
 	}
 
@@ -339,7 +342,7 @@
 			if (_newFrame > 0)
 				_newFrame--;
 			[_lock unlock];
-			dispatch_semaphore_signal(blockSem);
+			//dispatch_semaphore_signal(blockSem);
 		}];
 	
 	_renderPassDescriptor.colorAttachments[0].texture = currentDrawable.texture;
@@ -375,14 +378,14 @@
 	//NSLog(@"handleFrame: frame=%dx%d\n", frame->w, frame->h);
 	@autoreleasepool {
 		// Wait until any pending GPU work is done
-		__block dispatch_semaphore_t blockSem = _gpuSemaphore;		
-		dispatch_semaphore_wait(blockSem, DISPATCH_TIME_FOREVER);
+		//_block dispatch_semaphore_t blockSem = _gpuSemaphore;		
+		//dispatch_semaphore_wait(blockSem, DISPATCH_TIME_FOREVER);
 		if ([self setupTexturesForFrame:frame]) {
 			[_lock lock];
 			_newFrame++;
 			[_lock unlock];
 		} else {
-			dispatch_semaphore_signal(blockSem);
+			//dispatch_semaphore_signal(blockSem);
 		}
 	}
 
@@ -469,10 +472,19 @@
 - (void)layoutSubviews
 {
 	[_lock lock];
-	_viewFrame = self.frame;
+	CGFloat scale = [UIScreen mainScreen].scale;
+	_metalLayer.drawableSize = CGSizeMake(self.bounds.size.width * scale,
+					      self.bounds.size.height * scale);
+					  
+	_viewFrame = self.bounds.size;
 	_forceRecalc = YES;
 	[_lock unlock];
-	
+
+	info("layoutSubviews: bounds=%dx%d frame=%dx%d drawable=%dx%d scale=%f\n",
+	     (int)self.bounds.size.width, (int)self.bounds.size.height,
+	     (int)self.frame.size.width, (int)self.frame.size.height,
+	     (int)_metalLayer.drawableSize.width, (int)_metalLayer.drawableSize.height,
+	     scale);
 }
 
 -(void)dealloc
