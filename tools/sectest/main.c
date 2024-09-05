@@ -155,7 +155,7 @@ static bool test_anonymous_ids_sft(void)
 	bob = init_ccall("bob", CONV_ID, true, false);
 	eve = init_ecall("eve", false);
 
-	/* Connect alice and bob for fake Proteus message passing */
+	/* Connect alice and bob for fake message passing */
 	alice->conv_member = bob;
 	bob->conv_member = alice;
 
@@ -219,7 +219,7 @@ static bool test_authorisation(void)
 	bob = init_ccall("bob", CONV_ID, true, false);
 	eve = init_ecall("eve", true);
 
-	/* Connect alice and bob for fake Proteus message passing */
+	/* Connect alice and bob for fake message passing */
 	alice->conv_member = bob;
 	bob->conv_member = alice;
 
@@ -276,7 +276,7 @@ static bool test_force_key(void)
 	alice = init_ccall("alice", CONV_ID, true, false);
 	bob = init_ccall("bob", CONV_ID, true, false);
 
-	/* Connect alice and bob for fake Proteus message passing */
+	/* Connect alice and bob for fake message passing */
 	alice->conv_member = bob;
 	bob->conv_member = alice;
 
