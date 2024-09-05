@@ -225,7 +225,7 @@ static void force_key_timeout(void *arg)
 
 	list_append(&msg->u.confkey.keyl, &key->le, key);
 
-	/* eve cannot fake the "from" here, because it comes from the proteus session */
+	/* eve cannot fake the "from" here, because it comes from the crypto session */
 	err = ICALL_CALLE(wrapper->icall, msg_recv,
 			  0, 0, "eve", "eve", msg);
 	if (err)
