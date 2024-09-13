@@ -503,7 +503,7 @@ int wcall_marshal_alloc(struct wcall_marshal **wmp)
 static int md_enqueue(struct mq_data *md)
 {
 	struct wcall_marshal *wm = NULL;
-	int err;
+	int err = 0;
 
 	wm = wcall_get_marshal(md->inst);
 	if (wm == NULL) {
@@ -514,9 +514,15 @@ static int md_enqueue(struct mq_data *md)
 	lock_write_get(wm->lock);
 	list_append(&wm->mdl, &md->le, md);
 	lock_rel(wm->lock);
-	err = mqueue_push(wm->mq, md->event, md);
-	if (err)
-		goto out;
+
+	if (WCALL_MODE_MARSHAL == wcall_get_mode()) {
+		err = mqueue_push(wm->mq, md->event, md);
+		if (err)
+			goto out;
+	}
+	else {
+		mqueue_handler(md->event, md, NULL);
+	}
 
  out:
 	return err;

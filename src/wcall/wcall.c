@@ -62,6 +62,7 @@ static struct {
 		wcall_mute_h *h;
 		void *arg;
 	} mute;
+	int mode;
 } calling = {
 	.initialized = false,
 	.instances = LIST_INIT,
@@ -71,6 +72,7 @@ static struct {
 	.run_err = 0,
 	.flags = 0,
 	.wuser_index = 0,
+	.mode = WCALL_MODE_MARSHAL,
 };
 
 
@@ -90,7 +92,8 @@ struct calling_instance {
 	struct mediamgr *mm;
 	char *userid;
 	char *clientid;
-	struct ecall_conf conf;
+	struct ecall_conf config;
+	struct ecall_conf conf_config;
 	struct call_config *call_config;
 	struct lock *lock;
 	struct msystem *msys;
@@ -1774,7 +1777,7 @@ int wcall_add(struct calling_instance *inst,
 		struct ecall* ecall;
 		err = ecall_alloc(&ecall, &inst->ecalls,
 				  ICALL_CONV_TYPE_ONEONONE,
-				  &inst->conf, inst->msys,
+				  &inst->config, inst->msys,
 				  convid,
 				  inst->userid,
 				  inst->clientid);
@@ -1813,7 +1816,7 @@ int wcall_add(struct calling_instance *inst,
 	case WCALL_CONV_TYPE_GROUP: {
 		struct egcall* egcall;
 		err = egcall_alloc(&egcall,
-				   &inst->conf,
+				   &inst->config,
 				   convid,
 				   inst->userid,
 				   inst->clientid);
@@ -1854,7 +1857,7 @@ int wcall_add(struct calling_instance *inst,
 	case WCALL_CONV_TYPE_CONFERENCE_MLS: {
 		struct ccall* ccall;
 		err = ccall_alloc(&ccall,
-				   &inst->conf,
+				   &inst->conf_config,
 				   convid,
 				   inst->userid,
 				   inst->clientid,
@@ -2614,9 +2617,14 @@ WUSER_HANDLE wcall_create_ex(const char *userid,
 	inst->acbrh = acbrh;
 	inst->arg = arg;
 
-	inst->conf.econf.timeout_setup = 60000;
-	inst->conf.econf.timeout_term  =  5000;
-	inst->conf.trace = 0;
+	inst->config.econf.timeout_setup = 60000;
+	inst->config.econf.timeout_term  =  5000;
+	inst->config.trace = 0;
+
+	inst->conf_config.econf.timeout_setup = 60000;
+	inst->conf_config.econf.timeout_term  =  1000;
+	inst->conf_config.trace = 0;
+	
 	
 	err = lock_alloc(&inst->lock);
 	if (err)
@@ -2987,7 +2995,7 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 	     econn_message_brief, msg, msg->age, inst);
 
 	if (econn_is_creator(inst->userid, userid, msg) &&
-	    (msg->age * 1000) > inst->conf.econf.timeout_setup) {
+	    (msg->age * 1000) > inst->config.econf.timeout_setup) {
 		bool is_video = false;
 
 		if (msg->u.setup.props) {
@@ -3498,7 +3506,7 @@ void wcall_set_trace(WUSER_HANDLE wuser, int trace)
 		return;
 	}
 	
-	inst->conf.trace = trace;
+	inst->config.trace = trace;
 }
 
 
@@ -4198,6 +4206,18 @@ AVS_EXPORT
 int wcall_set_proxy(const char *host, int port)
 {
 	return msystem_set_proxy(host, port);
+}
+
+AVS_EXPORT
+void wcall_set_mode(int mode)
+{
+	calling.mode = mode;
+}
+
+AVS_EXPORT
+int wcall_get_mode(void)
+{
+	return calling.mode;
 }
 
 #ifndef __EMSCRIPTEN__
