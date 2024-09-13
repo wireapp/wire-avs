@@ -557,6 +557,12 @@ int wcall_setup(void);
 int wcall_setup_ex(int flags);
 
 
+#define WCALL_MODE_MARSHAL 0
+#define WCALL_MODE_DIRECT  1
+
+void wcall_set_mode(int mode);
+int  wcall_get_mode(void);
+
 #ifdef __cplusplus
 }
 #endif
