@@ -22,6 +22,9 @@
 
 #include "avs_peerflow.h"
 
+const char *VIDEO_CODEC = "vp9";
+const char *VIDEO_CODEC_FMTP = "profile-id=0";
+
 
 #define MAX_NET_ID 5
 
@@ -98,10 +101,13 @@ static bool fmt_handler(struct sdp_format *fmt, void *arg)
 	else if (streq(sdp_media_name(sdpm), "video")) {
 		char aptid[16];
 
-		if (strcaseeq(fmt->name, "vp8")) {
-			use_fmt = true;
-			if (fmtm->vid == NULL) {
-				str_dup(&fmtm->vid, fmt->id);
+		if (strcaseeq(fmt->name, VIDEO_CODEC)) {
+			if (VIDEO_CODEC_FMTP == NULL
+			    || strcaseeq(fmt->params, VIDEO_CODEC_FMTP)) {
+				use_fmt = true;
+				if (fmtm->vid == NULL) {
+					str_dup(&fmtm->vid, fmt->id);
+				}
 			}
 		}
 		if (strcaseeq(fmt->name, "rtx")) {

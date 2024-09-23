@@ -72,6 +72,8 @@ extern "C" {
 
 #define GROUP_PTIME 40
 
+#define SCALABILITY_MODE "S2T1"
+
 static const char trials_str[] =
 	"WebRTC-GenericDescriptorAdvertised/Enabled/WebRTC-GenericDescriptor/Enabled/";
 
@@ -769,7 +771,7 @@ int peerflow_init(void)
 	//rtc::LogMessage::LogToDebug(rtc::LS_INFO);
 
 #ifndef ANDROID	/* webrtc logging crashes on Android due to JNI/JNA mix */
-	//peerflow_start_log();
+	peerflow_start_log();
 #endif
 	
 	//pf_platform_init();
@@ -1638,7 +1640,8 @@ public:
 			warning("pf(%p): ToString failed\n");
 			return;
 		}
-		
+
+		info("%s\n", sdp_str.c_str());
 		
 		switch(type) {
 		case webrtc::SdpType::kOffer:
@@ -1900,25 +1903,70 @@ static int create_pf(struct peerflow *pf)
 		webrtc::VideoTrackSourceInterface *src = wire::CaptureSource::GetInstance();
 
 		pf->video.track = g_pf.pc_factory->CreateVideoTrack(
-			 "foo",
+			 "vtrack",
 			 src);
 
+		webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::RtpTransceiverInterface>> vtrx_or_err;
+		webrtc::RtpEncodingParameters enc_hi;
+		webrtc::RtpEncodingParameters enc_lo;
+
+		enc_hi.max_framerate = 30;
+		enc_hi.max_bitrate_bps = 2048 * 1024;
+		enc_hi.scalability_mode = SCALABILITY_MODE;
+		enc_hi.rid = "h";
+		enc_hi.active = true;
+
+		enc_lo.max_framerate = 15;
+		enc_lo.max_bitrate_bps = 256 * 1024;
+		enc_lo.scalability_mode = SCALABILITY_MODE;
+		//enc_lo.scale_resolution_down_by = 2.0;
+		enc_lo.rid = "l";
+		enc_lo.active = true;
+
+		//info("pf(%p): has local_streams=%d\n", pf, pf->peerConn->local_streams()->count());
+#if 1
+		webrtc::RtpTransceiverInit vtrx_init;
+
+		vtrx_init.stream_ids.push_back(pf->video.track->id());
+		vtrx_init.send_encodings.push_back(enc_lo);
+		vtrx_init.send_encodings.push_back(enc_hi);
+		vtrx_or_err = pf->peerConn->AddTransceiver(pf->video.track, vtrx_init);
+
+		if (!vtrx_or_err.ok()) {
+			warning("pf(%p): failed to add transceiver\n", pf);
+			goto out;
+		}
+
+		rtc::scoped_refptr<webrtc::RtpSenderInterface> video_track = vtrx_or_err.value()->sender();
+#else
 		rtc::scoped_refptr<webrtc::RtpSenderInterface> video_track =
 			pf->peerConn->AddTrack(pf->video.track,
 					       {rtc::CreateRandomUuid()}).value();
+#endif
+
+		std::vector<rtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
+
+#if 0
+		trxs = pf->peerConn->GetTransceivers();
+		for(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
+			rtc::scoped_refptr<webrtc::RtpReceiverInterface> rx = trx->receiver();
+			std::vector<webrtc::RtpSource> sources;
+		}
+#endif
+
 		webrtc::RtpParameters params = video_track->GetParameters();
-		if (params.encodings.size() > 0) {
-			params.encodings[0].max_framerate = 15;
-		}
-		else {
-			webrtc::RtpEncodingParameters enc;
-			enc.max_framerate = 15;
-			params.encodings.push_back(enc);
-		}
+
+		params.encodings = video_track->init_send_encodings();
+		info("video_track: stream_ids: %d[%s] %d encodings %d codecs\n",
+		     video_track->stream_ids().size(), video_track->stream_ids()[0].c_str(),
+		     (int)params.encodings.size(), params.codecs.size());
+
 		params.degradation_preference = webrtc::DegradationPreference::MAINTAIN_RESOLUTION;
 
 		video_track->SetParameters(params);
 
+		webrtc::RtpParameters params2 = video_track->GetParameters();
+		info("video_track: %d encodings\n", (int)params2.encodings.size());
 
 #if DOUBLE_ENCRYPTION
 		if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
