@@ -924,61 +924,60 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
 
     return false;
 }
-function update_tracks(pc: PeerConnection, stream: MediaStream) {
-
+function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
+    const tasks: Promise<void>[] = []
     const rtc = pc.rtc;
     const tracks = stream.getTracks();
+
     let found = false;
-   
 
     pc_log(LOG_LEVEL_INFO, `update_tracks: pc=${pc.self} tracks=${tracks.length}`);
-    
-    if (!rtc)
-	return;
-    
-    const senders = rtc.getSenders();    
-    for (const sender of senders) {
-	found = false;
-	if (!sender)
-	    continue;
-	
-	if (!sender.track) {
-	    rtc.removeTrack(sender);
-	    continue;
-	}
-
-	for (const track of tracks) {
-	    if (track)
-		pc_log(LOG_LEVEL_INFO, `update_tracks: kind=${track.kind} sender=${sender.track.kind}`);
-	    else
-		pc_log(LOG_LEVEL_INFO, `update_tracks: sender.track=${sender.track} track=${track}`);
-
-	    if (sender.track) {
-		if (sender.track.kind === track.kind) {
-		    found = true;
-		    sender.track.enabled = true;
-		    break;
-		}
-	    }
-	}
-	if (!found) {
-	    if (sender.track)
-		sender.track.enabled = false;
-	}
+    if (!rtc) {
+        return Promise.resolve();
     }
-    
+    const senders = rtc.getSenders();
+    for (const sender of senders) {
+        found = false;
+        if (!sender)
+            continue;
+
+        if (!sender.track) {
+            rtc.removeTrack(sender);
+            continue;
+        }
+
+        for (const track of tracks) {
+            if (track)
+                pc_log(LOG_LEVEL_INFO, `update_tracks: kind=${track.kind} sender=${sender.track.kind}`);
+            else
+                pc_log(LOG_LEVEL_INFO, `update_tracks: sender.track=${sender.track} track=${track}`);
+
+            if (sender.track) {
+                if (sender.track.kind === track.kind) {
+                    found = true;
+                    sender.track.enabled = true;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            if (sender.track)
+                sender.track.enabled = false;
+        }
+    }
     tracks.forEach(track => {
-	if (track.kind === 'video') {
-	    pc.sending_video = true;
-	}
-	else {
-	    track.enabled = !pc.muted;
-	}
-	if (!replace_track(pc, track)) {
-	    pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}`);
-	    rtc.addTrack(track, stream);
-	}
+        if (track.kind === 'video') {
+            pc.sending_video = true;
+        } else {
+            track.enabled = !pc.muted;
+        }
+        if (!replace_track(pc, track)) {
+            pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}`);
+            const xsender = rtc.addTrack(track, stream);
+        }
     });
+
+    return Promise.all(tasks).then();
 }
 
 
@@ -1589,7 +1588,7 @@ function pc_SetVideoState(hnd: number, vstate: number) {
 	pc_log(LOG_LEVEL_INFO, `pc_SetVideoState: calling umh(1, ${use_video}, ${use_ss})`);
 	userMediaHandler(pc.convid, true, use_video, use_ss)
 	    .then((stream: MediaStream) => {
-		update_tracks(pc, stream);
+            return update_tracks(pc, stream);
 	    });
 	pc.sending_video = use_video || use_ss;
     }
@@ -1773,8 +1772,8 @@ function createSdp(
     
     if (userMediaHandler) {
 	userMediaHandler(pc.convid, true, use_video, use_ss)
-	    .then((stream: MediaStream) => {
-		update_tracks(pc, stream);
+        .then((stream: MediaStream) => update_tracks(pc, stream))
+	    .then(() => {
 
 		const doSdp: (options: RTCOfferOptions) => Promise<RTCSessionDescriptionInit> = isOffer
 		      ? rtc.createOffer

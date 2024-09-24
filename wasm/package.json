@@ -2,6 +2,7 @@
   "description": "AVS API for the web",
   "devDependencies": {
     "@types/jasmine": "^4.3.1",
+    "@types/node": "^22.6.1",
     "jasmine": "^4.5.0",
     "karma": "^6.4.1",
     "karma-chrome-launcher": "^3.1.1",
