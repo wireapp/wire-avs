@@ -1,5 +1,6 @@
 /*eslint-disable sort-keys, no-console */
 import {WcallLogHandler} from "./avs_wcall";
+import * as sdpTransform from 'sdp-transform';
 
 declare var RTCRtpSender: any;
 declare var RTCRtpScriptTransform: any;
@@ -890,11 +891,11 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
     const rtc = pc.rtc;
 
     if (!rtc)
-	return false;
+        return false;
 
     const senders = rtc.getSenders();
     if (!senders)
-	return false;
+        return false;
     
     for (const sender of senders) {
 	if (!sender)
@@ -925,7 +926,6 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
     return false;
 }
 function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
-    const tasks: Promise<void>[] = []
     const rtc = pc.rtc;
     const tracks = stream.getTracks();
 
@@ -965,6 +965,8 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
                 sender.track.enabled = false;
         }
     }
+
+    const videoSenderUpdates: Promise<void>[] = []
     tracks.forEach(track => {
         if (track.kind === 'video') {
             pc.sending_video = true;
@@ -973,13 +975,57 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
         }
         if (!replace_track(pc, track)) {
             pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}`);
-            const xsender = rtc.addTrack(track, stream);
+
+            if (track.kind === 'video') {
+                const transceivers = rtc.getTransceivers();
+                for (const trans of transceivers) {
+                    if (trans.mid === 'video') {
+                        rtc.addTrack(track, stream);
+                        pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
+
+                        const params = trans.sender.getParameters()
+                        pc_log(LOG_LEVEL_INFO, `update_tracks: params ${JSON.stringify(params)}`)
+
+                        if (!params.encodings) {
+                            pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
+                            params.encodings = [{}];
+                        }
+
+                        params.encodings[0].rid = 'h';
+                        params.encodings[0].active = true;
+                        params.encodings[0].maxBitrate = 1500000;
+
+                        params.encodings[1].rid = 'm';
+                        params.encodings[1].active = true;
+                        params.encodings[1].maxBitrate = 400000;
+                        params.encodings[1].scaleResolutionDownBy = 2;
+
+                        params.encodings[2].rid = 'l';
+                        params.encodings[2].active = true;
+                        params.encodings[2].maxBitrate = 100000;
+                        params.encodings[2].scaleResolutionDownBy = 4;
+
+                        trans.sender.setStreams(stream);
+                        videoSenderUpdates.push(trans.sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set params ${e}`))
+                            .then(() => {
+                                if(!!trans.sender.track) {
+                                    trans.sender?.track.applyConstraints()
+                                }
+                            })
+                            .then((e) => pc_log(LOG_LEVEL_INFO, `update_tracks: stream added`))
+                            .then())
+                    }
+                }
+            } else {
+                const sender = rtc.addTrack(track, stream);
+            }
         }
     });
 
-    return Promise.all(tasks).then();
+    return Promise.all(videoSenderUpdates).catch(e => {
+        pc_log(LOG_LEVEL_ERROR, `update_tracks: error=${e}`)
+    }).then();
 }
-
 
 function sigState(stateStr: string) {
   let state = PC_SIG_STATE_UNKNOWN;
@@ -1373,6 +1419,15 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
   );
 
   const rtc = new RTCPeerConnection(config);
+  // create sending transceiver
+  // rtc.addTransceiver('audio');
+  // rtc.addTransceiver('video', {
+  //     sendEncodings: [
+  //           { rid: 'h', active: true, maxBitrate: 1500000 },
+  //           { rid: 'm', active: true, maxBitrate: 400000, scaleResolutionDownBy: 2 },
+  //           { rid: 'l', active: true, maxBitrate: 100000, scaleResolutionDownBy: 4 }
+  //     ]
+  // });
 
   pc.rtc = rtc;
   rtc.onicegatheringstatechange = () => gatheringHandler(pc);
@@ -1626,30 +1681,102 @@ function sdpMap(sdp: string, local: boolean, bundle: boolean): string {
 
 function sdpCbrMap(sdp: string): string {
     const sdpLines:  string[] = [];
-    
+
+    // TODO Refactor this and use parser
     sdp.split('\r\n').forEach(sdpLine => {
-      let outline: string | null;
+        let outline: string | null;
 
-      outline = sdpLine;
+        outline = sdpLine;
 
-      if(sdpLine.endsWith('sprop-stereo=0;useinbandfec=1')) {
-        outline = sdpLine + ";cbr=1";
-      }
-      else if (sdpLine.startsWith('a=ssrc-group:')) {
-        const group = sdpLine;
-        // in case of only one ssrc in group (no nack/rtx), remove attribute
-        const spaces = group.trim().split(' ').length;
-        if (spaces < 3) {
-          outline = null;
+        if(sdpLine.endsWith('sprop-stereo=0;useinbandfec=1')) {
+            outline = sdpLine + ";cbr=1";
+        } else if (sdpLine.startsWith('a=ssrc-group:')) {
+            const group = sdpLine;
+            // in case of only one ssrc in group (no nack/rtx), remove attribute
+            const spaces = group.trim().split(' ').length;
+            if (spaces < 3) {
+                outline = null;
+            }
         }
-      }
 
-      if (outline != null) {
-        sdpLines.push(outline);
-      }
-  });
+        if (outline != null) {
+            sdpLines.push(outline);
+        }
+    });
 
-  return sdpLines.join('\r\n');
+    const newSDP =  sdpLines.join('\r\n');
+    const parsed = sdpTransform.parse(newSDP);
+    for (const video of parsed.media) {
+        if (video.mid === 'video') {
+            // Add extentions
+            video.ext = [];
+            video.ext.push({value:  2, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time'});
+            video.ext.push({value:  3, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/generic-frame-descriptor-00'});
+            video.ext.push({value:  4, uri: 'urn:ietf:params:rtp-hdrext:toffset'});
+            video.ext.push({value:  5, uri: 'urn:3gpp:video-orientation'});
+            // video.ext.push({value:  6, uri: 'http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01'});
+
+            video.ext.push({value:  7, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/playout-delay'});
+            video.ext.push({value:  8, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/video-content-type'});
+            video.ext.push({value:  9, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/video-timing'});
+            video.ext.push({value:  10, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/color-space'});
+            video.ext.push({value:  11, uri: 'urn:ietf:params:rtp-hdrext:sdes:mid'});
+            video.ext.push({value:  12, uri: 'urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id'});
+            video.ext.push({value:  13, uri: 'urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id'});
+            video.ext.push({value:  14, uri: 'https://aomediacodec.github.io/av1-rtp-spec/#dependency-descriptor-rtp-header-extension'});
+            video.ext.push({value:  15, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/video-layers-allocation00'});
+
+            // Add rids
+            if(!video.rids) {
+                video.rids = [];
+            }
+            // video.rids.push({id: 'h', direction: 'recv', params: 'pt=100;max-width=1920;max-height=1080;max-fps=30;max-br=1500000'});// 1080p
+            // video.rids.push({id: 'm', direction: 'recv', params: 'pt=100;max-width=1280;max-height=720;max-fps=30;max-br=400000'}); // 720p
+            // video.rids.push({id: 'l', direction: 'recv', params: 'pt=100;max-width=640;max-height=360;max-fps=30;max-br=100000'}); // 360p
+
+            video.rids.push({id: 'h', direction: 'recv'});// 1080p
+            video.rids.push({id: 'm', direction: 'recv'}); // 720p
+            video.rids.push({id: 'l', direction: 'recv'}); // 360p
+
+            // Simulcast
+            if(!video.simulcast) {
+                video.simulcast = {dir1: '', list1: ''};
+            }
+            video.simulcast.dir1= 'recv';
+            video.simulcast.list1= 'h;m;l'
+
+            if (!video.rtp) {
+                video.rtp = [];
+            }
+            if (!video.fmtp) {
+                video.fmtp = [];
+            }
+
+            //video.rtp.push({payload: 116, codec:'red/90000'})
+            //video.rtp.push({payload: 117, codec:'rtx/90000'})
+            //video.fmtp.push({payload: 117, config:'apt=116'})
+            video.rtp.push({payload: 117, codec:'ulpfec/90000'})
+
+            // media.rtpm
+            //
+            //
+            //     a=rtpmap:116 red/90000
+            //
+            //
+            //
+            // a=rtpmap:117 rtx/90000
+            // a=fmtp:117 apt=116
+            // a=rtpmap:118 ulpfec/90000
+            // a=rid:0 send
+            // a=rid:1 send
+            // a=rid:2 send
+            // a=simulcast:send 0;1;2)
+        }
+    }
+    const returnSDP = sdpTransform.write(parsed)
+    pc_log(LOG_LEVEL_INFO, `pc_SetRemoteDescription: hnd=parsed SDP=${returnSDP}`);
+    return returnSDP;
+
 }
 
 function pc_SetMediaKey(hnd: number, index: number, current: number, keyPtr: number, keyLen: number) {
@@ -1775,6 +1902,7 @@ function createSdp(
         .then((stream: MediaStream) => update_tracks(pc, stream))
 	    .then(() => {
 
+            pc_log(LOG_LEVEL_ERROR, `update_tracks: A`)
 		const doSdp: (options: RTCOfferOptions) => Promise<RTCSessionDescriptionInit> = isOffer
 		      ? rtc.createOffer
 		      : rtc.createAnswer;
