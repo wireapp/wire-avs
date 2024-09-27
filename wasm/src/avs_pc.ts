@@ -974,13 +974,14 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
             track.enabled = !pc.muted;
         }
         if (!replace_track(pc, track)) {
-            pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}`);
+            pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}, id=${track.id}`);
 
             if (track.kind === 'video') {
+                //tc.addTrack(track, stream)
+                const videoTrack = track;
                 const transceivers = rtc.getTransceivers();
                 for (const trans of transceivers) {
                     if (trans.mid === 'video') {
-                        rtc.addTrack(track, stream);
                         pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
 
                         const params = trans.sender.getParameters()
@@ -988,30 +989,43 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
 
                         if (!params.encodings) {
                             pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
-                            params.encodings = [{}];
+                            params.encodings = [];
                         }
+                        // @ts-ignore
+                        params.encodings.push({scalabilityMode: 'L1T2'})
 
-                        params.encodings[0].rid = 'h';
-                        params.encodings[0].active = true;
-                        params.encodings[0].maxBitrate = 1500000;
+                        // params scalabilityMode InvalidModificationError: Read-only field modified in setParameters().
+                        //
+                        // params.encodings[0].rid = 'h';
+                        // params.encodings[0].active = true;
+                        // params.encodings[0].maxBitrate = 1500000;
+                        //
+                        // params.encodings[1].rid = 'm';
+                        // params.encodings[1].active = true;
+                        // params.encodings[1].maxBitrate = 400000;
+                        // params.encodings[1].scaleResolutionDownBy = 2;
+                        //
+                        // params.encodings[2].rid = 'l';
+                        // params.encodings[2].active = true;
+                        // params.encodings[2].maxBitrate = 100000;
+                        // params.encodings[2].scaleResolutionDownBy = 4;
+                        //
 
-                        params.encodings[1].rid = 'm';
-                        params.encodings[1].active = true;
-                        params.encodings[1].maxBitrate = 400000;
-                        params.encodings[1].scaleResolutionDownBy = 2;
+                        const waitForRenegotiation = new Promise<void>((resolve) => {
+                            rtc.onnegotiationneeded = () => {
+                                resolve();
+                            }
+                        })
 
-                        params.encodings[2].rid = 'l';
-                        params.encodings[2].active = true;
-                        params.encodings[2].maxBitrate = 100000;
-                        params.encodings[2].scaleResolutionDownBy = 4;
-
-                        trans.sender.setStreams(stream);
+                        rtc.addTrack(track, stream)
                         videoSenderUpdates.push(trans.sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set params ${e}`))
-                            .then(() => {
-                                if(!!trans.sender.track) {
-                                    trans.sender?.track.applyConstraints()
-                                }
-                            })
+                            // .then(() => trans.sender.replaceTrack(videoTrack))
+                            // // .then(() => {
+                            // //     // return waitForRenegotiation
+                            // //     // if(!!trans.sender.track) {
+                            // //     //     trans.sender?.track.applyConstraints()
+                            // //     // }
+                            // // })
                             .then((e) => pc_log(LOG_LEVEL_INFO, `update_tracks: stream added`))
                             .then())
                     }
@@ -1687,6 +1701,9 @@ function sdpCbrMap(sdp: string): string {
         let outline: string | null;
 
         outline = sdpLine;
+        if (sdpLine.startsWith('a=group:BUNDLE')) {
+            sdpLines.push('a=extmap-allow-mixed');
+        }
 
         if(sdpLine.endsWith('sprop-stereo=0;useinbandfec=1')) {
             outline = sdpLine + ";cbr=1";
@@ -1704,73 +1721,120 @@ function sdpCbrMap(sdp: string): string {
         }
     });
 
+    // return sdpLines.join('\r\n');
     const newSDP =  sdpLines.join('\r\n');
     const parsed = sdpTransform.parse(newSDP);
-    for (const video of parsed.media) {
-        if (video.mid === 'video') {
+
+    // parsed.msidSemantic = {semantic: 'WMS', token: '852d6c3f-3126-47c7-83f1-bac7fbe1562b'}
+    for (const media of parsed.media) {
+        if (media.mid === 'video') {
+            //Add msid
+            if(!media.ssrcs) {
+                media.ssrcs = [];
+            }
+            for (const ssrc of media.ssrcs) {
+                if (ssrc.attribute === 'msid') {
+                    if (!ssrc.value) {
+                        ssrc.value = '-- --'
+                    }
+                    media.msid = ssrc.value
+                    const attr = ssrc.value.split(' ');
+                    parsed.msidSemantic = {semantic: 'WMS', token: attr[0]}
+                    break;
+                }
+            }
+
             // Add extentions
-            video.ext = [];
-            video.ext.push({value:  2, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time'});
-            video.ext.push({value:  3, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/generic-frame-descriptor-00'});
-            video.ext.push({value:  4, uri: 'urn:ietf:params:rtp-hdrext:toffset'});
-            video.ext.push({value:  5, uri: 'urn:3gpp:video-orientation'});
+            media.ext = [];
+            media.ext.push({value:  2, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time'});
+            media.ext.push({value:  3, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/generic-frame-descriptor-00'});
+            media.ext.push({value:  4, uri: 'urn:ietf:params:rtp-hdrext:toffset'});
+            media.ext.push({value:  5, uri: 'urn:3gpp:video-orientation'});
             // video.ext.push({value:  6, uri: 'http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01'});
 
-            video.ext.push({value:  7, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/playout-delay'});
-            video.ext.push({value:  8, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/video-content-type'});
-            video.ext.push({value:  9, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/video-timing'});
-            video.ext.push({value:  10, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/color-space'});
-            video.ext.push({value:  11, uri: 'urn:ietf:params:rtp-hdrext:sdes:mid'});
-            video.ext.push({value:  12, uri: 'urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id'});
-            video.ext.push({value:  13, uri: 'urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id'});
-            video.ext.push({value:  14, uri: 'https://aomediacodec.github.io/av1-rtp-spec/#dependency-descriptor-rtp-header-extension'});
-            video.ext.push({value:  15, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/video-layers-allocation00'});
+            media.ext.push({value:  7, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/playout-delay'});
+            media.ext.push({value:  8, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/video-content-type'});
+            media.ext.push({value:  9, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/video-timing'});
+            media.ext.push({value:  10, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/color-space'});
+            media.ext.push({value:  11, uri: 'urn:ietf:params:rtp-hdrext:sdes:mid'});
+            media.ext.push({value:  12, uri: 'urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id'});
+            media.ext.push({value:  13, uri: 'urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id'});
+            media.ext.push({value:  14, uri: 'https://aomediacodec.github.io/av1-rtp-spec/#dependency-descriptor-rtp-header-extension'});
+            media.ext.push({value:  15, uri: 'http://www.webrtc.org/experiments/rtp-hdrext/video-layers-allocation00'});
 
             // Add rids
-            if(!video.rids) {
-                video.rids = [];
-            }
-            // video.rids.push({id: 'h', direction: 'recv', params: 'pt=100;max-width=1920;max-height=1080;max-fps=30;max-br=1500000'});// 1080p
+            // if(!video.rids) {
+            //     video.rids = [];
+            // }
+            // video.rids.push({id: 'h', direction: 'recv', params: 'pt=100;scalabilityMode=L1T2'});// 1080p
             // video.rids.push({id: 'm', direction: 'recv', params: 'pt=100;max-width=1280;max-height=720;max-fps=30;max-br=400000'}); // 720p
             // video.rids.push({id: 'l', direction: 'recv', params: 'pt=100;max-width=640;max-height=360;max-fps=30;max-br=100000'}); // 360p
 
-            video.rids.push({id: 'h', direction: 'recv'});// 1080p
-            video.rids.push({id: 'm', direction: 'recv'}); // 720p
-            video.rids.push({id: 'l', direction: 'recv'}); // 360p
+            // video.rids.push({id: 'h', direction: 'recv'});// 1080p
+            // video.rids.push({id: 'm', direction: 'recv'}); // 720p
+            // video.rids.push({id: 'l', direction: 'recv'}); // 360p
 
             // Simulcast
-            if(!video.simulcast) {
-                video.simulcast = {dir1: '', list1: ''};
-            }
-            video.simulcast.dir1= 'recv';
-            video.simulcast.list1= 'h;m;l'
-
-            if (!video.rtp) {
-                video.rtp = [];
-            }
-            if (!video.fmtp) {
-                video.fmtp = [];
-            }
+            // if(!video.simulcast) {
+            //     video.simulcast = {dir1: '', list1: ''};
+            // }
+            // video.simulcast.dir1= 'recv';
+            // video.simulcast.list1= 'h'
+            //
+            // if (!video.rtp) {
+            //     video.rtp = [];
+            // }
+            // if (!video.fmtp) {
+            //     video.fmtp = [];
+            // }
 
             //video.rtp.push({payload: 116, codec:'red/90000'})
             //video.rtp.push({payload: 117, codec:'rtx/90000'})
             //video.fmtp.push({payload: 117, config:'apt=116'})
-            video.rtp.push({payload: 117, codec:'ulpfec/90000'})
 
-            // media.rtpm
-            //
-            //
-            //     a=rtpmap:116 red/90000
-            //
-            //
-            //
-            // a=rtpmap:117 rtx/90000
-            // a=fmtp:117 apt=116
-            // a=rtpmap:118 ulpfec/90000
-            // a=rid:0 send
-            // a=rid:1 send
-            // a=rid:2 send
-            // a=simulcast:send 0;1;2)
+            // video.rtp.push({payload: 117, codec:'ulpfec/90000'})
+    //
+    //
+    //         // media.rtpm
+    //         //
+    //         //
+    //         //     a=rtpmap:116 red/90000
+    //         //
+    //         //
+    //         //
+    //         // a=rtpmap:117 rtx/90000
+    //         // a=fmtp:117 apt=116
+    //         // a=rtpmap:118 ulpfec/90000
+    //         // a=rid:0 send
+    //         // a=rid:1 send
+    //         // a=rid:2 send
+    //         // a=simulcast:send 0;1;2)
+        }
+
+        if(media.type == 'video' ) {
+            media.rtp = [];
+            media.rtcpFb = [];
+            media.fmtp = []
+            // a=rtpmap:98 VP9/90000
+            // a=rtcp-fb:98 goog-remb
+            // a=rtcp-fb:98 transport-cc
+            // a=rtcp-fb:98 ccm fir
+            // a=rtcp-fb:98 nack
+            // a=rtcp-fb:98 nack pli
+            // a=fmtp:98 profile-id=0
+            // a=rtpmap:99 rtx/90000
+            // a=fmtp:99 apt=98
+
+
+            // media.rtp.push({payload: 100, codec:'VP9', rate: 90000})
+            // media.rtcpFb.push({payload: 98, type:'goog-remb'})
+            // media.rtcpFb.push({payload: 98, type:'ccm fir'})
+            // media.rtcpFb.push({payload: 98, type:'nack'})
+            //media.rtcpFb.push({payload: 98, type:'nack', subtype:'pli'})
+            // media.fmtp.push({payload: 98, config: 'profile-id=0'})
+
+            // media.rtp.push({payload: 99, codec:'rtx', rate: 90000})
+            // media.fmtp.push({payload: 99, config: 'apt=98'})
         }
     }
     const returnSDP = sdpTransform.write(parsed)
