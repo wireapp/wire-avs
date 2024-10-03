@@ -90,6 +90,9 @@ typedef int  (iflow_get_stats)(struct iflow *flow,
 typedef int  (iflow_get_audio_level)(struct iflow *flow,
 				     struct list *levell);
 
+typedef int  (iflow_update_ssrc)(struct iflow *flow,
+				 uint32_t ssrca, uint32_t ssrcv);
+
 
 typedef int  (iflow_debug)(struct re_printf *pf, const struct iflow *flow);
 
@@ -176,6 +179,7 @@ struct iflow {
 	iflow_close			*close;
 	iflow_get_stats			*get_stats;
 	iflow_get_audio_level           *get_audio_level;
+	iflow_update_ssrc               *update_ssrc;
 	iflow_debug			*debug;
 
 	iflow_estab_h			*estabh;
@@ -224,6 +228,7 @@ void iflow_set_functions(struct iflow *iflow,
 			 iflow_close			*close,
 			 iflow_get_stats		*get_stats,
 			 iflow_get_audio_level          *get_audio_level,
+			 iflow_update_ssrc              *update_ssrc,
 			 iflow_debug			*debug);
 
 void iflow_set_callbacks(struct iflow *iflow,

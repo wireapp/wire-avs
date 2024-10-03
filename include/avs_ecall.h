@@ -93,6 +93,7 @@ int  ecall_restart(struct ecall *ecall,
 
 struct conf_part *ecall_get_conf_part(struct ecall *ecall);
 void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp);
+int ecall_update_ssrc(struct ecall *ecall, uint32_t ssrca, uint32_t ssrcv);
 
 void ecall_set_clients(struct ecall* ecall,
 		       struct list *clientl);

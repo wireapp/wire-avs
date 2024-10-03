@@ -334,7 +334,10 @@ function encryptFrame(coder, rtcFrame, controller) {
   const userid = "self";
 
   const meta = rtcFrame.getMetadata();
-  const ssrc = meta.synchronizationSource;
+  let ssrc = meta.synchronizationSource;
+
+  if (isVideo)
+    ssrc = coder.video.ssrc;
 
   if (isVideo && !coder.video.first_recv) {
     doLog("frame_enc: encrypt: first frame received type: video uid: " +
@@ -356,7 +359,7 @@ function encryptFrame(coder, rtcFrame, controller) {
 
   const baseiv = isVideo ? coder.video.iv : coder.audio.iv;
   const iv = xor_iv(baseiv, coder.frameId, coder.currentKey.id);
-    
+
   const hdr = frameHeaderEncode(coder.frameId, coder.currentKey.id, ssrc);
   crypto.subtle.encrypt(
     {
@@ -601,12 +604,14 @@ onmessage = async (event) => {
 		    first_recv: false,
 		    first_succ: false,
 		    iv: iva,
+		    ssrc: "0",
 		    users: {},
 		},
 		video: {
 		    first_recv: false,
 		    first_succ: false,
 		    iv: ivv,
+		    ssrc: "0",
 		    users: {},
 		},
 	    }
@@ -617,6 +622,11 @@ onmessage = async (event) => {
     }
     else if (op === 'destroy') {
 	coders[self] = null;
+    }
+    else if (op === 'updateSsrc') {
+	const { srca, srcv } = event.data;
+	coder.audio.ssrc = ssrca;
+	coder.video.ssrc = ssrcv;
     }
     else if (op === 'addUser') {
 	if (!coder) {
@@ -1675,6 +1685,28 @@ function pc_SetMediaKey(hnd: number, index: number, current: number, keyPtr: num
   });
 }
 
+function pc_UpdateSsrc(hnd: number, ssrcaPtr: number, ssrcvPtr: number) {
+
+  const pc = connectionsStore.getPeerConnection(hnd);
+
+  if (pc == null) {
+    return;
+  }
+
+  const ssrca = em_module.UTF8ToString(ssrcaPtr);
+  const ssrcv = em_module.UTF8ToString(ssrcvPtr);
+
+  pc_log(LOG_LEVEL_INFO, `pc_UpdateSsrc: hnd=${hnd} ssrc=${ssrca} ssrcv=${ssrcv}`);
+
+  worker.postMessage({
+    op: 'updateSsrc',
+    self: pc.self,
+    ssrca: ssrca,
+    ssrcv: ssrcv
+  });
+}
+
+
 function setupSenderTransform(pc: PeerConnection, sender: any) {
   if (!sender || !sender.track) {
      return;
@@ -2312,6 +2344,7 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_DataChannelSend, "viii"],
     [pc_DataChannelClose, "vi"],
     [pc_SetMediaKey, "viiiii"],
+    [pc_UpdateSsrc, "viii"],
   ].map(([callback, signature]) => em_module.addFunction(callback, signature));
 
   em_module.ccall(

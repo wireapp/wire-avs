@@ -288,6 +288,7 @@ static struct le *find_first_approved(struct userlist *list, const struct list *
 int userlist_update_from_sftlist(struct userlist *list,
 				 const struct list *partlist,
 				 bool *changed,
+				 bool *self_changed,
 				 bool *missing_parts)
 {
 	struct le *le, *cle;
@@ -300,7 +301,7 @@ int userlist_update_from_sftlist(struct userlist *list,
 	bool missing = false;
 	uint32_t listpos = 0;
 
-	if (!list || !partlist || !changed)
+	if (!list || !partlist || !changed || !self_changed)
 		return EINVAL;
 
 	info("userlist(%p): update_from_sftlist %u members\n", list, list_count(partlist));
@@ -329,6 +330,20 @@ int userlist_update_from_sftlist(struct userlist *list,
 			if (le == first_approved) {
 				info("userlist(%p): setting self as keygenerator\n", list);
 				list->keygenerator = list->self;
+			}
+			*self_changed = false;
+			if (list->self->ssrca != p->ssrca
+			    || list->self->ssrcv != p->ssrcv) {
+				info("userlist(%p): update_from_sftlist: setting self ssrca:%u->%u ssrcv%u->%u\n",
+				     list,
+				     list->self->ssrca,
+				     p->ssrca,
+				     list->self->ssrcv,
+				     p->ssrcv);
+
+				list->self->ssrca = p->ssrca;
+				list->self->ssrcv = p->ssrcv;
+				*self_changed = true;
 			}
 			list->self->listpos = listpos;
 			listpos++;

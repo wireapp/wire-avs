@@ -72,8 +72,20 @@ extern "C" {
 
 #define GROUP_PTIME 40
 
+#define SCALABILITY_MODE "L1T1"
+
+#define RID_HI "h"
+#define RID_LO "l"
+#define VIDEO_BITRATE_HI (600 * 1024)
+#define VIDEO_BITRATE_LO (160 * 1024)
+
 static const char trials_str[] =
+#if 1
+	"WebRTC-GenericDescriptorAdvertised/Enabled/WebRTC-GenericDescriptor/Enabled/WebRTC-DependencyDescriptorAdvertised/Enabled/WebRTC-DependencyDescriptor/Enabled/";
+#else
 	"WebRTC-GenericDescriptorAdvertised/Enabled/WebRTC-GenericDescriptor/Enabled/";
+#endif
+
 
 static struct {
 	std::unique_ptr<rtc::Thread> thread;
@@ -141,6 +153,7 @@ struct peerflow {
 
 	webrtc::SetSessionDescriptionObserver *offerObserver;
 	webrtc::SetSessionDescriptionObserver *answerObserver;
+	webrtc::SetSessionDescriptionObserver *decoderAnswerObserver;
 	webrtc::RtpReceiverObserverInterface *rtpObserver;
 	
 	rtc::scoped_refptr<webrtc::RtpSenderInterface> rtpSender;
@@ -165,6 +178,8 @@ struct peerflow {
 		rtc::scoped_refptr<webrtc::VideoTrackInterface>	track;
 		struct list renderl;
 		bool negotiated;
+		rtc::scoped_refptr<wire::FrameEncryptor> encryptor;
+		uint32_t ssrc;
 	} video;
 
 	struct {
@@ -769,7 +784,7 @@ int peerflow_init(void)
 	//rtc::LogMessage::LogToDebug(rtc::LS_INFO);
 
 #ifndef ANDROID	/* webrtc logging crashes on Android due to JNI/JNA mix */
-	//peerflow_start_log();
+	peerflow_start_log();
 #endif
 	
 	//pf_platform_init();
@@ -1485,23 +1500,27 @@ public:
 		pf_(pf) {
 	};
 
-	virtual ~OfferObserver() {
+	virtual ~OfferObserver()
+	{
 	};
 
-	void AddRef() const {
+	void AddRef() const
+	{
 	}
 
-	virtual rtc::RefCountReleaseStatus Release() const {
+	virtual rtc::RefCountReleaseStatus Release() const
+	{
 		return rtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
-	virtual void OnSuccess() {
+	virtual void OnSuccess()
+	{
 		bool success;
 		
 		info("pf(%p): setSdpOffer successfull\n", pf_);
 	}
 
-	virtual void OnFailure(webrtc::RTCError err) {
-
+	virtual void OnFailure(webrtc::RTCError err)
+	{
 		warning("pf(%p): setSdpOffer failed: %s\n",
 			pf_, err.message());
 
@@ -1517,25 +1536,32 @@ class AnswerObserver : public webrtc::SetSessionDescriptionObserver {
 public:
 	AnswerObserver(struct peerflow *pf)
 		:
-		pf_(pf) {
+		pf_(pf)
+	{
 	};
 
-	virtual ~AnswerObserver() {
+	virtual ~AnswerObserver()
+	{
 	};
 
-	void AddRef() const {
+	void AddRef() const
+	{
 	}
 
-	virtual rtc::RefCountReleaseStatus Release() const {
+	virtual rtc::RefCountReleaseStatus Release() const
+	{
 		return rtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
-	virtual void OnSuccess() {
+
+	virtual void OnSuccess()
+	{
 		bool success;
 
 		info("pf(%p): setSdpAnswer sucessfull\n", pf_);
 	}
 
-	virtual void OnFailure(webrtc::RTCError err) {
+	virtual void OnFailure(webrtc::RTCError err)
+	{
 		warning("pf(%p): setSdpAnswer failed: %s\n",
 			pf_, err.message());
 
@@ -1552,19 +1578,79 @@ class SdpRemoteObserver
 public:
 	SdpRemoteObserver(struct peerflow *pf)
 		:
-		pf_(pf) {
+		pf_(pf)
+	{
 	};
-	~SdpRemoteObserver() {
+	~SdpRemoteObserver()
+	{
 	};
 
-	void AddRef() const {
+	void AddRef() const
+	{
 	}
 
-	virtual rtc::RefCountReleaseStatus Release() const {
+	virtual rtc::RefCountReleaseStatus Release() const
+	{
 		return rtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
 	
-	virtual void OnSetRemoteDescriptionComplete(webrtc::RTCError err) {		
+	virtual void OnSetRemoteDescriptionComplete(webrtc::RTCError err)
+	{
+		info("OnSetRemoteDescriptionComplete(%p): %s\n", pf_, err.ok() ? "OK" : "FAIL");
+
+		if (!erro.ok())
+			return;
+
+		if (pf_->conv_type != ICALL_CONV_TYPE_CONFERENCE)
+			return;
+
+		auto trxs = pf_->peerConn->GetTransceivers();
+		info("pf(%p): %d trxs\n", pf_, (int)trxs.size());
+		for(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> txrx: trxs) {
+			std::string mid = txrx->mid().value_or("-");
+
+			rtc::scoped_refptr<webrtc::RtpSenderInterface> sender = txrx->sender();
+			webrtc::RtpParameters params = sender->GetParameters();
+
+			if (txrx->media_type() != cricket::MEDIA_TYPE_VIDEO && mid != "video")
+				continue;
+
+			if (pf_->call_type == ICALL_CALL_TYPE_VIDEO ||
+			    pf_->vstate != ICALL_VIDEO_STATE_STOPPED) {
+
+				txrx->SetDirection(webrtc::RtpTransceiverDirection::kSendRecv);
+
+				rtc::scoped_refptr<webrtc::RtpSenderInterface> sender = txrx->sender();
+				sender->SetTrack(pf_->video.track.get());
+#if DOUBLE_ENCRYPTION
+				if (pf_->video.ssrc)
+					pf_->video.encryptor->SetSsrc(pf_->video.ssrc);
+				sender->SetFrameEncryptor(pf_->video.encryptor);
+#endif
+				webrtc::RtpParameters params = sender->GetParameters();
+
+				for(int i = 0; i < params.encodings.size(); ++i) {
+					webrtc::RtpEncodingParameters *enc = &params.encodings[i];
+
+					enc->max_framerate = 15;
+					enc->scalability_mode = SCALABILITY_MODE;
+					if (enc->rid == RID_LO) {
+						enc->max_bitrate_bps = VIDEO_BITRATE_LO;
+						enc->scale_resolution_down_by = 4;
+						enc->active = true;
+					}
+					else if (enc->rid == RID_HI) {
+						enc->max_bitrate_bps = VIDEO_BITRATE_HI;
+						enc->scale_resolution_down_by = 1;
+						enc->active = true;
+					}
+				}
+
+				params.degradation_preference = webrtc::DegradationPreference::MAINTAIN_FRAMERATE;
+				sender->SetParameters(params);
+				sender->track()->set_enabled(true);
+			}
+		}
 	}
 
 private:
@@ -1618,11 +1704,12 @@ public:
 	void AddRef() const {
 	}
 
-	virtual rtc::RefCountReleaseStatus Release() const {
+	virtual rtc::RefCountReleaseStatus Release() const
+	{
 		return rtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
-	virtual void OnSuccess(webrtc::SessionDescriptionInterface *isdp) {
-		
+	virtual void OnSuccess(webrtc::SessionDescriptionInterface *isdp)
+	{		
 		webrtc::SdpType type;
 		struct sdp_session *sess = NULL;
 		std::string sdp_str;
@@ -1642,7 +1729,7 @@ public:
 		
 		switch(type) {
 		case webrtc::SdpType::kOffer:
-			info("SDP-fromPC: %s\n", sdp_str.c_str());
+			info("SDP-offer-fromPC: %s\n", sdp_str.c_str());
 
 			err = sdp_dup(&sess, pf_->conv_type,
 				      sdp_str.c_str(), true);
@@ -1657,7 +1744,7 @@ public:
 					       pf_->vstate == ICALL_VIDEO_STATE_SCREENSHARE,
 					       pf_->audio.local_cbr);
 
-			info("SDP-moded: %s\n", sdp);
+			info("SDP-offer-moded: %s\n", sdp);
 
 			imod_sdp = sdp_interface(sdp, webrtc::SdpType::kOffer);
 			pf_->peerConn->SetLocalDescription(
@@ -1665,7 +1752,9 @@ public:
 					imod_sdp);
 			break;
 
-		case webrtc::SdpType::kAnswer:			
+		case webrtc::SdpType::kAnswer: {
+			info("SDP-answer-fromPC: %s\n", sdp_str.c_str());
+
 			err = sdp_dup(&sess, pf_->conv_type,
 				      sdp_str.c_str(), false);
 			if (err) {
@@ -1679,10 +1768,13 @@ public:
 						pf_->conv_type,
 						pf_->vstate == ICALL_VIDEO_STATE_SCREENSHARE,
 						pf_->audio.local_cbr);
+			info("SDP-answer-moded: %s\n", sdp);
+
 			imod_sdp = sdp_interface(sdp, webrtc::SdpType::kAnswer);
 			pf_->peerConn->SetLocalDescription(
 					pf_->answerObserver,
 					imod_sdp);
+		}
 			break;
 
 		default:
@@ -1748,14 +1840,15 @@ public:
 	virtual rtc::RefCountReleaseStatus Release() const {
 		return rtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
-	virtual void OnSuccess(webrtc::SessionDescriptionInterface *isdp) {
+	virtual void OnSuccess(webrtc::SessionDescriptionInterface *isdp)
+	{
 		webrtc::SdpType type;
 
 		type = isdp->GetType();
 		info("pf(%p): addDecoder SDP-%s\n",
 		     pf_, SdpTypeToString(type));
 
-		pf_->peerConn->SetLocalDescription(pf_->answerObserver,
+		pf_->peerConn->SetLocalDescription(pf_->decoderAnswerObserver,
 						   isdp);
 	}
 
@@ -1900,25 +1993,16 @@ static int create_pf(struct peerflow *pf)
 		webrtc::VideoTrackSourceInterface *src = wire::CaptureSource::GetInstance();
 
 		pf->video.track = g_pf.pc_factory->CreateVideoTrack(
-			 "foo",
+			 "vtrack",
 			 src);
 
-		rtc::scoped_refptr<webrtc::RtpSenderInterface> video_track =
-			pf->peerConn->AddTrack(pf->video.track,
-					       {rtc::CreateRandomUuid()}).value();
-		webrtc::RtpParameters params = video_track->GetParameters();
-		if (params.encodings.size() > 0) {
-			params.encodings[0].max_framerate = 15;
-		}
-		else {
-			webrtc::RtpEncodingParameters enc;
-			enc.max_framerate = 15;
-			params.encodings.push_back(enc);
-		}
-		params.degradation_preference = webrtc::DegradationPreference::MAINTAIN_RESOLUTION;
+		pf->video.track->set_enabled(true);
 
-		video_track->SetParameters(params);
-
+		if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
+			rtc::scoped_refptr<webrtc::RtpSenderInterface> video_track =
+				pf->peerConn->AddTrack(pf->video.track,
+						       {rtc::CreateRandomUuid()}).value();
+		}
 
 #if DOUBLE_ENCRYPTION
 		if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
@@ -1932,7 +2016,7 @@ static int create_pf(struct peerflow *pf)
 					pf, err);
 				goto out;
 			}
-			video_track->SetFrameEncryptor(encryptor);
+			pf->video.encryptor = encryptor;
 		}
 #endif
 	}
@@ -1975,7 +2059,10 @@ static void pf_destructor(void *arg)
 	pf->sdpRemoteObserver = NULL;
 	pf->offerObserver = NULL;
 	pf->answerObserver = NULL;
+	pf->decoderAnswerObserver = NULL;
 	pf->rtpSender = NULL;
+
+	pf->video.encryptor = NULL;
 
 	mem_deref(pf->keystore);
 	mem_deref(pf->convid);
@@ -2134,6 +2221,23 @@ static int peerflow_get_aulevel(struct iflow *iflow,
 	return err;
 }
 
+int peerflow_update_ssrc(struct iflow *iflow, uint32_t ssrca, uint32_t ssrcv)
+{
+	struct peerflow *pf = (struct peerflow *)iflow;
+
+	if (!iflow)
+		return EINVAL;
+
+	(void)ssrca;
+
+	pf->video.ssrc = ssrcv;
+	if (pf->video.encryptor) {
+		pf->video.encryptor->SetSsrc(ssrcv);
+	}
+
+	return 0;
+}
+
 int peerflow_alloc(struct iflow		**flowp,
 		   const char		*convid,
 		   const char		*userid_self,
@@ -2181,7 +2285,8 @@ int peerflow_alloc(struct iflow		**flowp,
 			    peerflow_stop_media,
 			    peerflow_close,
 			    peerflow_get_stats,
-			    peerflow_get_aulevel,			    
+			    peerflow_get_aulevel,
+			    peerflow_update_ssrc,
 			    peerflow_debug);
 
 	str_dup(&pf->convid, convid);
@@ -2214,6 +2319,7 @@ int peerflow_alloc(struct iflow		**flowp,
 	pf->sdpRemoteObserver = new SdpRemoteObserver(pf);
 	pf->offerObserver = new OfferObserver(pf);
 	pf->answerObserver = new AnswerObserver(pf);
+	pf->decoderAnswerObserver = new AnswerObserver(pf);
 	
 	lock_write_get(g_pf.lock);
 	list_append(&g_pf.pfl, &pf->le, pf);
@@ -2484,7 +2590,7 @@ int peerflow_handle_offer(struct iflow *iflow,
 	info("peerflow(%p): handle SDP-offer:\n"
 	     "%s\n",
 	     pf, sdp_str);
-	
+
 	sdp_check(sdp_str, false, true, pf_acbr_handler,
 		  pf_norelay_handler, pf_tool_handler, pf);
 
@@ -2507,7 +2613,6 @@ int peerflow_handle_offer(struct iflow *iflow,
 
 		pf->peerConn->SetRemoteDescription(std::move(sdp),
 						   pf->sdpRemoteObserver);
-						   
 						   
 		
 		const webrtc::SessionDescriptionInterface *rsdp = pf->peerConn->remote_description();

@@ -42,7 +42,8 @@ void iflow_set_functions(struct iflow *iflow,
 			 iflow_stop_media		*stop_media,
 			 iflow_close			*close,
 			 iflow_get_stats		*get_stats,
-			 iflow_get_audio_level          *get_audio_level,			 
+			 iflow_get_audio_level          *get_audio_level,
+			 iflow_update_ssrc              *update_ssrc,
 			 iflow_debug			*debug)
 {
 	if (!iflow) {
@@ -72,6 +73,7 @@ void iflow_set_functions(struct iflow *iflow,
 	iflow->close			= close;
 	iflow->get_stats		= get_stats;
 	iflow->get_audio_level          = get_audio_level;
+	iflow->update_ssrc              = update_ssrc;
 	iflow->debug			= debug;
 }
 

@@ -1665,6 +1665,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 {
 	struct ccall *ccall = arg;
 	bool list_changed = false;
+	bool self_changed = false;
 	bool first_confpart = false;
 	bool missing_parts = false;
 	int err = 0;
@@ -1741,6 +1742,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 	err = userlist_update_from_sftlist(ccall->userl,
 					   partlist,
 					   &list_changed,
+					   &self_changed,
 					   &missing_parts);
 	if (err) {
 		warning("ccall(%p): update_from_sftlist failed\n", ccall);
@@ -1748,6 +1750,12 @@ static void ecall_confpart_handler(struct ecall *ecall,
 	}
 
 	send_confpart_response(ccall);
+
+	if (self_changed) {
+		const struct userinfo *self = userlist_get_self(ccall->userl);
+
+		ecall_update_ssrc(ccall->ecall, self->ssrca, self->ssrcv);
+	}
 
 	if (list_changed) {
 		ICALL_CALL_CB(ccall->icall, group_changedh,
