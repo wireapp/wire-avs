@@ -90,7 +90,7 @@ void vlog(enum log_level level, const char *fmt, va_list ap)
 	if (err)
 		return;
 
-	//log_mask_ipaddr(msg);
+	log_mask_ipaddr(msg);
 
 	if (lg.stder) {
 
@@ -226,7 +226,7 @@ const char *anon_client(char *outid, const char *inid)
 #define MASK_CHAR 'x'
 
 
-#if 0
+#if 1
 void log_mask_ipaddr(const char *msg)
 {
 	struct pl a, b, c, d, e, f, g, h;
