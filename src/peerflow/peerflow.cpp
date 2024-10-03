@@ -1598,7 +1598,7 @@ public:
 	{
 		info("OnSetRemoteDescriptionComplete(%p): %s\n", pf_, err.ok() ? "OK" : "FAIL");
 
-		if (!erro.ok())
+		if (!err.ok())
 			return;
 
 		if (pf_->conv_type != ICALL_CONV_TYPE_CONFERENCE)
@@ -1612,7 +1612,7 @@ public:
 			rtc::scoped_refptr<webrtc::RtpSenderInterface> sender = txrx->sender();
 			webrtc::RtpParameters params = sender->GetParameters();
 
-			if (txrx->media_type() != cricket::MEDIA_TYPE_VIDEO && mid != "video")
+			if (txrx->media_type() != cricket::MEDIA_TYPE_VIDEO || mid != "video")
 				continue;
 
 			if (pf_->call_type == ICALL_CALL_TYPE_VIDEO ||
