@@ -890,11 +890,11 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
     const rtc = pc.rtc;
 
     if (!rtc)
-	return false;
+        return false;
 
     const senders = rtc.getSenders();
     if (!senders)
-	return false;
+        return false;
     
     for (const sender of senders) {
 	if (!sender)
@@ -924,63 +924,72 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
 
     return false;
 }
-function update_tracks(pc: PeerConnection, stream: MediaStream) {
-
+function update_tracks(pc: PeerConnection, stream: MediaStream, isScreenShare: boolean): Promise<void> {
     const rtc = pc.rtc;
     const tracks = stream.getTracks();
+
     let found = false;
-   
 
     pc_log(LOG_LEVEL_INFO, `update_tracks: pc=${pc.self} tracks=${tracks.length}`);
-    
-    if (!rtc)
-	return;
-    
-    const senders = rtc.getSenders();    
-    for (const sender of senders) {
-	found = false;
-	if (!sender)
-	    continue;
-	
-	if (!sender.track) {
-	    rtc.removeTrack(sender);
-	    continue;
-	}
-
-	for (const track of tracks) {
-	    if (track)
-		pc_log(LOG_LEVEL_INFO, `update_tracks: kind=${track.kind} sender=${sender.track.kind}`);
-	    else
-		pc_log(LOG_LEVEL_INFO, `update_tracks: sender.track=${sender.track} track=${track}`);
-
-	    if (sender.track) {
-		if (sender.track.kind === track.kind) {
-		    found = true;
-		    sender.track.enabled = true;
-		    break;
-		}
-	    }
-	}
-	if (!found) {
-	    if (sender.track)
-		sender.track.enabled = false;
-	}
+    if (!rtc) {
+        return Promise.resolve();
     }
-    
-    tracks.forEach(track => {
-	if (track.kind === 'video') {
-	    pc.sending_video = true;
-	}
-	else {
-	    track.enabled = !pc.muted;
-	}
-	if (!replace_track(pc, track)) {
-	    pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}`);
-	    rtc.addTrack(track, stream);
-	}
-    });
-}
+    const senders = rtc.getSenders();
+    for (const sender of senders) {
+        found = false;
+        if (!sender)
+            continue;
 
+        if (!sender.track) {
+            rtc.removeTrack(sender);
+            continue;
+        }
+
+        for (const track of tracks) {
+            if (track)
+                pc_log(LOG_LEVEL_INFO, `update_tracks: kind=${track.kind} sender=${sender.track.kind}`);
+            else
+                pc_log(LOG_LEVEL_INFO, `update_tracks: sender.track=${sender.track} track=${track}`);
+
+            if (sender.track) {
+                if (sender.track.kind === track.kind) {
+                    found = true;
+                    sender.track.enabled = true;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            if (sender.track)
+                sender.track.enabled = false;
+        }
+    }
+
+    const videoSenderUpdates: Promise<void>[] = []
+    tracks.forEach(track => {
+        if (track.kind === 'video') {
+            pc.sending_video = true;
+        } else {
+            track.enabled = !pc.muted;
+        }
+        if (!replace_track(pc, track)) {
+            pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}, id=${track.id}`);
+            if (track.kind === 'video' && isScreenShare) {
+                const sender = rtc.addTrack(track, stream)
+                const params = sender.getParameters();
+                params.degradationPreference = 'maintain-resolution';
+
+                videoSenderUpdates.push(sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set sender params ${e}`)))
+            } else {
+                rtc.addTrack(track, stream);
+            }
+        }
+    });
+
+    return Promise.all(videoSenderUpdates).catch(e => {
+        pc_log(LOG_LEVEL_ERROR, `update_tracks: error=${e}`)
+    }).then();
+}
 
 function sigState(stateStr: string) {
   let state = PC_SIG_STATE_UNKNOWN;
@@ -1589,7 +1598,7 @@ function pc_SetVideoState(hnd: number, vstate: number) {
 	pc_log(LOG_LEVEL_INFO, `pc_SetVideoState: calling umh(1, ${use_video}, ${use_ss})`);
 	userMediaHandler(pc.convid, true, use_video, use_ss)
 	    .then((stream: MediaStream) => {
-		update_tracks(pc, stream);
+            return update_tracks(pc, stream, use_ss);
 	    });
 	pc.sending_video = use_video || use_ss;
     }
@@ -1755,10 +1764,9 @@ function createSdp(
   isOffer: boolean
 ) {
     const rtc = pc.rtc;
-
     pc_log(LOG_LEVEL_INFO, `createSdp: isOffer=${isOffer} rtc=${rtc}`); 
     if (!rtc) {
-	return;
+        return;
     }
 
     pc.call_type = callType;
@@ -1772,38 +1780,34 @@ function createSdp(
     pc.sending_video = use_video || use_ss;
     
     if (userMediaHandler) {
-	userMediaHandler(pc.convid, true, use_video, use_ss)
-	    .then((stream: MediaStream) => {
-		update_tracks(pc, stream);
+        userMediaHandler(pc.convid, true, use_video, use_ss)
+            .then((stream: MediaStream) => update_tracks(pc, stream, use_ss))
+            .then(() => {
+                pc_log(LOG_LEVEL_ERROR, `update_tracks: A`)
+                const doSdp: (options: RTCOfferOptions) => Promise<RTCSessionDescriptionInit> = isOffer
+                    ? rtc.createOffer
+                    : rtc.createAnswer;
 
-		const doSdp: (options: RTCOfferOptions) => Promise<RTCSessionDescriptionInit> = isOffer
-		      ? rtc.createOffer
-		      : rtc.createAnswer;
+                const offerVideoRx: RTCOfferOptions = isOffer ? {offerToReceiveVideo: true} : {};
+                ccallStartGatherHandler(pc);
 
-		const offerVideoRx: RTCOfferOptions = isOffer ? {offerToReceiveVideo: true} : {};
+                doSdp.bind(rtc)(offerVideoRx).then(sdp => {
+                    const typeStr = sdp.type;
+                    const sdpStr = sdp.sdp || '';
 
-		ccallStartGatherHandler(pc);
-
-		doSdp
-		    .bind(rtc)(offerVideoRx)
-		    .then(sdp => {
-			const typeStr = sdp.type;
-			const sdpStr = sdp.sdp || '';
-
-			pc_log(LOG_LEVEL_INFO, `createSdp: type=${typeStr} sdp=${sdpStr}`);
-			
-			const modSdp = sdpMap(sdpStr, true, false);
-			ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
-		    })
-		    .catch((err: any) => {
-		        pc_log(LOG_LEVEL_WARN, 'createSdp: doSdp failed: ' + err, err);
-			ccallLocalSdpHandler(pc, 1, "sdp-error", err.toString());
-		    })
-	    })
-	    .catch((err: any) => {
-	        pc_log(LOG_LEVEL_WARN, 'createSdp: userMedia failed: ' + err, err);
-		ccallLocalSdpHandler(pc, 1, "media-error", err.toString());
-	    });
+                    pc_log(LOG_LEVEL_INFO, `createSdp: type=${typeStr} sdp=${sdpStr}`);
+                    const modSdp = sdpMap(sdpStr, true, false);
+                    ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
+                })
+                .catch((err: any) => {
+                    pc_log(LOG_LEVEL_WARN, 'createSdp: doSdp failed: ' + err, err);
+                    ccallLocalSdpHandler(pc, 1, "sdp-error", err.toString());
+                })
+            })
+            .catch((err: any) => {
+                pc_log(LOG_LEVEL_WARN, 'createSdp: userMedia failed: ' + err, err);
+                ccallLocalSdpHandler(pc, 1, "media-error", err.toString());
+            });
     }
 }
 
