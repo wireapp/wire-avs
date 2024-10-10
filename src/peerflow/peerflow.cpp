@@ -1268,19 +1268,34 @@ public:
 	virtual void OnIceCandidate(const webrtc::IceCandidateInterface* icand)
 	{
 		std::string cand_str;
-		const cricket::Candidate& cand = icand->candidate();
 
+		if (!icand) {
+			const webrtc::SessionDescriptionInterface *isdp;
+
+			info("pf(%p): OnIceCandidate: end-of-candidates\n", pf_);
+			pf_->gathered = true;
+			isdp = pf_->peerConn->local_description();
+			if (isdp)
+				invoke_gather(pf_, isdp);
+			else {
+				warning("pf(%p): ice candidate "
+					"no local SDP\n", pf_);
+			}
+			return;
+		}
+		
+		const cricket::Candidate& cand = icand->candidate();
+		
 		icand->ToString(&cand_str);
-		info("pf(%p): OnIceCandidate: %s has %d candidates\n",
-		     pf_, cand_str.c_str(), pf_->ncands);
+		info("pf(%p): OnIceCandidate: %s url=%s has %d candidates\n",
+		     pf_, cand_str.c_str(), icand->server_url().c_str(), pf_->ncands);
 
 		++pf_->ncands;
 
-		if (!pf_->gathered && cand.type() == std::string("relay")) {
-			const webrtc::SessionDescriptionInterface *isdp;
+		if (cand.type() == std::string("relay")) {
 			
-			info("pf(%p): received first RELAY candidate\n", pf_);
-
+			info("pf(%p): received RELAY candidate\n", pf_);
+#if 0
 			pf_->gathered = true;
 			isdp = pf_->peerConn->local_description();
 			if (isdp)
@@ -1290,7 +1305,7 @@ public:
 					"no local SDP\n", pf_);
 				return;
 			}
-			
+#endif
 		}
 	}
 
@@ -2598,6 +2613,7 @@ int peerflow_handle_offer(struct iflow *iflow,
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
 		webrtc::CreateSessionDescription(webrtc::SdpType::kOffer,
 						 sdp_str, &parse_err);
+
 	if (sdp == nullptr) {
 		warning("peerflow_handle_offer: failed to parse SDP: "
 			"line=%s reason=%s\n",

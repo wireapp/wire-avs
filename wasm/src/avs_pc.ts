@@ -68,7 +68,6 @@ interface PeerConnection {
   call_type: number;
   sending_video: boolean;
   muted: boolean;
-  cands: any[];
   stats: LocalStats;
   users: any;
   iva: Uint8Array;
@@ -1212,44 +1211,6 @@ function candidateHandler(pc: PeerConnection, cand: RTCIceCandidate | null) {
 
 	return;
     }
-
-    if (pc_env === ENV_FIREFOX) {
-	if (mindex != null) {
-	    const cmid = pc.cands[mindex];
-	    if (!cmid) {
-		pc_log(LOG_LEVEL_INFO, `candidateHandler: adding mindex=${mindex}`);
-		pc.cands[mindex] = {
-		    mindex: mindex,
-		    hasRelay: false
-		}
-	    }
-	}
-    }
-
-    if (cand.type === 'relay') {
-	const sdp = pc.rtc.localDescription;
-	if (!sdp) {
-            return;
-	}
-
-	if (pc_env == ENV_FIREFOX) {
-	    if (mindex != null) {
-		const rmid = pc.cands[mindex];
-		if (rmid)
-		    rmid.hasRelay = true;
-	    }
-	
-	    for (const cc of pc.cands) {
-		if (cc && !cc.hasRelay) {
-		    pc_log(LOG_LEVEL_INFO, `candidateHandler: mindex=${cc.mindex} still missing relay`);
-		    return;
-		}
-	    }
-	}
-
-	pc_log(LOG_LEVEL_INFO, 'candidateHandler: relay(s) found, finished gathering');
-	ccallGatheringHandler(pc, sdp.type.toString(), sdp.sdp.toString());
-    }
 }
 
 function connectionHandler(pc: PeerConnection) {
@@ -1331,7 +1292,6 @@ function pc_New(self: number, convidPtr: number,
     call_type: CALL_TYPE_NORMAL,
     conv_type: CONV_TYPE_ONEONONE,
     muted: false,
-    cands: [null, null, null],
     users: {},
     iva: iva8,
     ivv: ivv8,
