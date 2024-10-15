@@ -1100,7 +1100,7 @@ int ecall_add_turnserver(struct ecall *ecall,
 	}
 
 	/* Filter out turns servers */
-	u = strcasestr(srv->url, "turns:");
+	u = strstr(srv->url, "turns:");
 	if (u == srv->url) {
 		info("ecall(%p): ignoring TURNS turnserver: %s\n", ecall, srv->url);
 		return 0;
