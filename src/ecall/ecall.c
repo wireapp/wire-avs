@@ -1085,6 +1085,7 @@ struct icall *ecall_get_icall(struct ecall *ecall)
 int ecall_add_turnserver(struct ecall *ecall,
 			 struct zapi_ice_server *srv)
 {
+	char *u;
 	int err = 0;
 
 	if (!ecall || !srv)
@@ -1097,6 +1098,14 @@ int ecall_add_turnserver(struct ecall *ecall,
 			ARRAY_SIZE(ecall->turnv));
 		return 0;
 	}
+
+	/* Filter out turns servers */
+	u = strcasestr(srv->url, "turns:");
+	if (u == srv->url) {
+		info("ecall(%p): ignoring TURNS turnserver: %s\n", ecall, srv->url);
+		return 0;
+	}
+	
 
 	ecall->turnv[ecall->turnc] = *srv;
 	++ecall->turnc;
