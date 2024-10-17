@@ -67,6 +67,7 @@ extern "C" {
 #define TMR_STATS_INTERVAL      1000
 #define TMR_CBR_INTERVAL        2500
 #define TMR_RESTART_INTERVAL    2000
+#define TMR_GATHER_TIMEOUT      2000
 
 #define DOUBLE_ENCRYPTION 1
 
@@ -202,6 +203,7 @@ struct peerflow {
 	struct le le;
 
 	struct tmr tmr_stats;
+	struct tmr tmr_gather;
 	wire::NetStatsCallback *netStatsCb;
 	std::string remoteSdp;
 	bool selective_audio;
@@ -1012,6 +1014,8 @@ static void invoke_gather(struct peerflow *pf,
 	std::string sdp_str;
 	struct mq_data *md;
 	const char *type;
+
+	tmr_cancel(&pf->tmr_gather);
 	
 	type = SdpTypeToString(isdp->GetType());
 	
@@ -1030,6 +1034,16 @@ static void disconnect_timeout_handler(void *arg)
 	pf = (struct peerflow *)arg;
 	IFLOW_CALL_CB(pf->iflow, restarth,
 		false, pf->iflow.arg);
+}
+
+static void gather_timeout_handler(void *arg)
+{
+	struct peerflow *pf = (struct peerflow *)arg;
+	const webrtc::SessionDescriptionInterface *isdp;
+
+	isdp = pf->peerConn->local_description();
+	if (isdp)
+		invoke_gather(pf, isdp);
 }
 
 class AvsPeerConnectionObserver : public webrtc::PeerConnectionObserver {
@@ -1295,6 +1309,9 @@ public:
 		if (cand.type() == std::string("relay")) {
 			
 			info("pf(%p): received RELAY candidate\n", pf_);
+
+			tmr_start(&pf_->tmr_gather, TMR_GATHER_TIMEOUT,
+				  gather_timeout_handler, pf_);
 #if 0
 			pf_->gathered = true;
 			isdp = pf_->peerConn->local_description();
@@ -2049,6 +2066,7 @@ static void pf_destructor(void *arg)
 
 	pf->netStatsCb->setActive(false);
 	tmr_cancel(&pf->tmr_stats);
+	tmr_cancel(&pf->tmr_gather);
 
 	delete pf->netStatsCb;
 	pf->netStatsCb = NULL;
