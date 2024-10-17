@@ -73,9 +73,12 @@ interface PeerConnection {
   iva: Uint8Array;
   ivv: Uint8Array;
   streams: {[ssrc: string]: string};
+  gatherTimer: any;
 }
 
 const ENV_FIREFOX = 1;
+
+const TIMEOUT_GATHER = 2000;
 
 let em_module: any;
 let logFn: WcallLogHandler | null = null;
@@ -1130,6 +1133,21 @@ function ccallGetCurrentMediaKey(
   );
 }
 
+function gatheringComplete(pc: PeerConnection) {
+  if (pc.gatherTimer != null) {
+     clearTimeout(pc.gatherTimer);
+     pc.gatherTimer = null;
+  }
+  const rtc = pc.rtc;
+  if (!rtc) {
+    return;
+  }
+  const sdp = rtc.localDescription;
+  if (!sdp) {
+    return;
+  }
+  ccallGatheringHandler(pc, sdp.type.toString(), sdp.sdp.toString());
+}
 
 function gatheringHandler(pc: PeerConnection) {
   const rtc = pc.rtc;
@@ -1148,11 +1166,7 @@ function gatheringHandler(pc: PeerConnection) {
       break;
 
     case "complete":
-      const sdp = rtc.localDescription;
-      if (!sdp) {
-        return;
-      }
-      ccallGatheringHandler(pc, sdp.type.toString(), sdp.sdp.toString());
+      gatheringComplete(pc);
       break;
   }
 }
@@ -1202,14 +1216,23 @@ function candidateHandler(pc: PeerConnection, cand: RTCIceCandidate | null) {
 	return;
     
     if (!cand) {
-	pc_log(LOG_LEVEL_INFO, 'candidateHandler: end-of-candidates');
-	
-	const sdp = pc.rtc.localDescription;
+	pc_log(LOG_LEVEL_INFO, 'candidateHandler: end-of-candidates');	
+	gatheringComplete(pc);
 
-	if (sdp)
-	    ccallGatheringHandler(pc, sdp.type.toString(), sdp.sdp.toString());
+        return;
+    }
 
-	return;
+    /* As soon as we get the first relay, we start a gathering timer
+     * this was we ensure that gathering never takes more than the
+     * timeout period.
+     */
+    if (cand.type === 'relay') {
+        if (pc.gatherTimer == null) {
+	    pc.gatherTimer = setTimeout(() => {
+	      pc.gatherTimer = null;
+	      gatheringComplete(pc);
+	    }, TIMEOUT_GATHER);
+	}
     }
 }
 
@@ -1307,6 +1330,7 @@ function pc_New(self: number, convidPtr: number,
       rtt: 0
     },
     streams: {},
+    gatherTimer: null
   };
 
   worker.postMessage({op: 'create', self: pc.self, iva: iva8, ivv: ivv8});
