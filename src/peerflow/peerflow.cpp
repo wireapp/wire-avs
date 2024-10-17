@@ -1310,8 +1310,10 @@ public:
 			
 			info("pf(%p): received RELAY candidate\n", pf_);
 
-			tmr_start(&pf_->tmr_gather, TMR_GATHER_TIMEOUT,
-				  gather_timeout_handler, pf_);
+			if (!tmr_isrunning(&pf_->tmr_gather)) {
+				tmr_start(&pf_->tmr_gather, TMR_GATHER_TIMEOUT,
+					  gather_timeout_handler, pf_);
+			}
 #if 0
 			pf_->gathered = true;
 			isdp = pf_->peerConn->local_description();
