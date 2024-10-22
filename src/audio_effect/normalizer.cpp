@@ -38,11 +38,11 @@ void* create_normalizer(int fs_hz, int strength)
 {
     struct normalizer_effect* ne = (struct normalizer_effect*)calloc(sizeof(struct normalizer_effect),1);
  
-    ne->resampler = new webrtc::PushResampler<int16_t>;
+    ne->resampler = new webrtc::PushResampler<int16_t>(fs_hz,
+						       NE_VAD_FS_KHZ*1000,
+						       1);
 
     ne->fs_khz = fs_hz/1000;
-    
-    ne->resampler->InitializeIfNeeded(fs_hz, NE_VAD_FS_KHZ*1000, 1);
     
     silk_VAD_Init(&ne->silk_enc.sVAD);
     
@@ -60,8 +60,14 @@ void reset_normalizer(void *st, int fs_hz)
     struct normalizer_effect *ne = (struct normalizer_effect*)st;
     
     ne->fs_khz = fs_hz/1000;
-    
-    ne->resampler->InitializeIfNeeded(fs_hz, NE_VAD_FS_KHZ*1000, 1);
+
+
+    if (ne->resampler) {
+	    delete ne->resampler;
+    }
+    ne->resampler = new webrtc::PushResampler<int16_t>(fs_hz,
+						       NE_VAD_FS_KHZ*1000,
+						       1);
     
     silk_VAD_Init(&ne->silk_enc.sVAD);
     
@@ -135,7 +141,10 @@ void normalizer_process(void *st, int16_t in[], int16_t out[], size_t L_in, size
     int L_buf = (NE_VAD_FS_KHZ * L10) / ne->fs_khz;
     int16_t buf[L_buf];
     for( int i = 0; i < N; i++){
-        ne->resampler->Resample( &in[i*L10], L10, buf, L_buf);
+	webrtc::MonoView<int16_t> inv(&in[i*L10], L10);
+	webrtc::MonoView<int16_t> outv(buf, L_buf);
+	    
+        ne->resampler->Resample(inv, outv); 
 
         ne->silk_enc.frame_length = L_buf;
         silk_VAD_GetSA_Q8_c(&ne->silk_enc, buf);

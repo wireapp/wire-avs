@@ -32,17 +32,22 @@ extern "C" {
 #endif
 
 #include "api/scoped_refptr.h"
+#include "api/enable_media.h"
 #include "api/peer_connection_interface.h"
-#include "api/call/call_factory_interface.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
+#include "api/video_codecs/video_decoder_factory_template.h"
+#include "api/video_codecs/video_decoder_factory_template_libvpx_vp8_adapter.h"
+#include "api/video_codecs/video_encoder_factory_template.h"
+#include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
 #include "api/media_stream_interface.h"
 #include "api/data_channel_interface.h"
 #include "api/task_queue/default_task_queue_factory.h"
 #include "modules/audio_processing/include/audio_processing.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
+#include "rtc_base/crypto_random.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/physical_socket_server.h"
 #include "media/engine/webrtc_media_engine.h"
@@ -762,7 +767,6 @@ int peerflow_init(void)
 {
 	webrtc::AudioDeviceModule *adm;
 	webrtc::PeerConnectionFactoryDependencies pc_deps;
-	cricket::MediaEngineDependencies me_deps;
 	int err;
 
 	if (g_pf.initialized)
@@ -793,7 +797,7 @@ int peerflow_init(void)
 
 	g_pf.thread = rtc::Thread::Create();
 	g_pf.thread->Start();
-#if 1
+#if 0
 	g_pf.thread->Invoke<void>(RTC_FROM_HERE, [] {
 		info("pf: starting runnable\n");
 		pc_platform_init();
@@ -811,20 +815,30 @@ int peerflow_init(void)
 
 	adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
 	if (adm)
-		me_deps.adm = adm;
-	me_deps.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory().release();
-	me_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
-	me_deps.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
-	me_deps.video_encoder_factory = webrtc::CreateBuiltinVideoEncoderFactory();
-	me_deps.video_decoder_factory = webrtc::CreateBuiltinVideoDecoderFactory();
-	me_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();
+		pc_deps.adm = adm;
 
 	pc_deps.signaling_thread = g_pf.thread.get();
-	pc_deps.media_engine = cricket::CreateMediaEngine(std::move(me_deps));
-	pc_deps.call_factory = webrtc::CreateCallFactory();
 	pc_deps.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
+	pc_deps.network_thread = rtc::Thread::Current();
+	pc_deps.worker_thread = rtc::Thread::Current();
+	pc_deps.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
 
-	//pc_deps.event_log_factory = webrtc::CreateRtcEventLogFactory();
+	/* Media dependencies */
+
+	/* Audio */
+	pc_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
+	pc_deps.audio_decoder_factory =	webrtc::CreateBuiltinAudioDecoderFactory();
+	pc_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();
+
+	/* Video */
+	pc_deps.video_encoder_factory =
+		std::make_unique<webrtc::VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter>>();
+	pc_deps.video_decoder_factory =
+		std::make_unique<webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter>>();
+
+	/* Media must be explicilty enabled */
+	webrtc::EnableMedia(pc_deps);
+
 	g_pf.pc_factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
 
 	if (!g_pf.pc_factory) {
@@ -1306,7 +1320,7 @@ public:
 
 		++pf_->ncands;
 
-		if (cand.type() == std::string("relay")) {
+		if (cand.type() == webrtc::IceCandidateType::kRelay) {
 			
 			info("pf(%p): received RELAY candidate\n", pf_);
 
@@ -1953,6 +1967,10 @@ static int create_pf(struct peerflow *pf)
 	struct msystem_proxy *proxy = msystem_get_proxy();
 
 	if (proxy) {
+		/* This approach is deprecated and using a
+		 * PacketSocketFactory is the correct approach now
+		 */
+#if 0
 		rtc::ProxyInfo pri;
 		rtc::SocketAddress sa(proxy->host, proxy->port);
 		rtc::PhysicalSocketServer socket_server;
@@ -1966,10 +1984,10 @@ static int create_pf(struct peerflow *pf)
 					   nullptr);
 		
 		port_allocator->set_proxy("wire-call", pri);
+#endif
 	}
 
 	webrtc::PeerConnectionDependencies deps(pf->observer);
-
 	deps.allocator = std::move(port_allocator);
 	webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::PeerConnectionInterface>> pcorerr;
 	pcorerr = g_pf.pc_factory->CreatePeerConnectionOrError(
@@ -1978,7 +1996,7 @@ static int create_pf(struct peerflow *pf)
 	if (!pcorerr.ok()) {
 		warning("peerflow(%p): failed to create PC\n", pf);
 		err = ENOENT;
-		goto out;
+		return err;
 	}
 
 	pf->peerConn = pcorerr.value();
@@ -1999,11 +2017,19 @@ static int create_pf(struct peerflow *pf)
 	if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
 		tmr_start(&pf->tmr_cbr, TMR_CBR_INTERVAL, timer_cbr, pf);
 	}
-	pf->rtpSender = pf->peerConn->AddTrack(pf->audio.track,
-					       {rtc::CreateRandomUuid()}).value();
+	auto sid = rtc::CreateRandomUuid();
+	webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::RtpSenderInterface>> aserr =
+		pf->peerConn->AddTrack(pf->audio.track, {sid});
+	if (aserr.ok()) {
+		pf->rtpSender = aserr.value();
+	}
+	else {
+		warning("createPC: failed to create audio track: %s\n",
+			aserr.error().message());
+	}
 
 #if DOUBLE_ENCRYPTION
-	if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
+	if (pf->rtpSender && pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
 		rtc::scoped_refptr<wire::FrameEncryptor> encryptor;
 		encryptor = new wire::FrameEncryptor(pf->userid_self,
 						     FRAME_MEDIA_AUDIO);
@@ -2017,7 +2043,7 @@ static int create_pf(struct peerflow *pf)
 		pf->rtpSender->SetFrameEncryptor(encryptor);
 	} else
 #endif
-	if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
+	if (pf->rtpSender && pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
 		pf->rtpSender->SetFrameEncryptor(pf->cbr_det_local);
 	}
 
@@ -2031,7 +2057,6 @@ static int create_pf(struct peerflow *pf)
 			 src);
 
 		pf->video.track->set_enabled(true);
-
 		if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
 			rtc::scoped_refptr<webrtc::RtpSenderInterface> video_track =
 				pf->peerConn->AddTrack(pf->video.track,
@@ -3051,11 +3076,11 @@ bool peerflow_has_video(const struct iflow *iflow)
 		cricket::MediaType mt = trx->media_type();
 		debug("pf(%p): has_video: mt=%d\n", pf, mt);
 		if (mt == cricket::MEDIA_TYPE_VIDEO) {
-			absl::optional<webrtc::RtpTransceiverDirection>	dir;
+			std::optional<webrtc::RtpTransceiverDirection>	dir;
 
 			dir = trx->current_direction();
-			if (dir.has_value()) {
-				switch (dir.value()) {
+			if (dir) {
+				switch (*dir) {
 				case webrtc::RtpTransceiverDirection::kSendRecv:
 				case webrtc::RtpTransceiverDirection::kSendOnly:
 					return true;

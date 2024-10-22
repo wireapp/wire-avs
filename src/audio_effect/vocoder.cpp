@@ -33,11 +33,13 @@ void* create_vocoder(int fs_hz, int strength)
 {
     struct vocoder_effect* ve = (struct vocoder_effect*)calloc(sizeof(struct vocoder_effect),1);
     
-    ve->resampler_in = new webrtc::PushResampler<int16_t>;
-    ve->resampler_in->InitializeIfNeeded(fs_hz, PROC_FS_KHZ*1000, 1);
+    ve->resampler_in = new webrtc::PushResampler<int16_t>(fs_hz,
+							  PROC_FS_KHZ*1000,
+							  1);
     
-    ve->resampler_out = new webrtc::PushResampler<int16_t>;
-    ve->resampler_out->InitializeIfNeeded(PROC_FS_KHZ*1000, fs_hz, 1);
+    ve->resampler_out = new webrtc::PushResampler<int16_t>(PROC_FS_KHZ*1000,
+							   fs_hz,
+							   1);
     
     ve->fs_khz = fs_hz/1000;
     
@@ -320,7 +322,10 @@ void vocoder_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t 
     float g, mix, tilt;
     int pL, median_pL;
     for( int i = 0; i < N; i++){
-        ve->resampler_in->Resample( &in[i*L10], L10, &ve->buf[L10_out], L10_out);
+	webrtc::MonoView<int16_t> inv(&in[i*L10], L10);
+	webrtc::MonoView<int16_t> outv(&ve->buf[L10_out], L10_out);
+	    
+        ve->resampler_in->Resample(inv, outv); 
         
         find_pitch_lags(&ve->pest, &ve->buf[L10_out], L10_out);
         
@@ -379,8 +384,11 @@ void vocoder_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t 
         for(int j = 0; j < L10_out; j++){
             tmp_buf[j] = (int16_t)compress(filt_out[j]);
         }
-        
-        ve->resampler_out->Resample( tmp_buf, L10_out, &out[i*L10], L10);
+
+	webrtc::MonoView<int16_t> tin(tmp_buf, L10_out);
+	webrtc::MonoView<int16_t> tout(&out[i*L10], L10);
+	
+        ve->resampler_out->Resample(tin, tout); 
         
         memmove(ve->pL_buf, &ve->pL_buf[1], (E_PL_BUF_SZ-1) * sizeof(int));
         memmove(ve->buf, &ve->buf[L10_out], L10_out * sizeof(int16_t));

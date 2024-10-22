@@ -30,8 +30,8 @@ namespace webrtc {
 	    fake_audiodevice(bool realtime = false);
 	    ~fake_audiodevice();
 	    void AddRef() const {};
-	    rtc::RefCountReleaseStatus Release() const {
-		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+	    RefCountReleaseStatus Release() const {
+		return RefCountReleaseStatus::kDroppedLastRef;
 	    }
 		    
 	    /*

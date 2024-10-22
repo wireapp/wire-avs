@@ -43,8 +43,6 @@ void* create_pitch_up_shift(int fs_hz, int strength)
     };
     struct pitch_shift_effect* pse = (struct pitch_shift_effect*)calloc(sizeof(struct pitch_shift_effect),1);
  
-    pse->resampler = new webrtc::PushResampler<int16_t>;
-
     pse->fs_khz = fs_hz/1000;
     
     init_find_pitch_lags(&pse->pest, fs_hz, 2);
@@ -61,7 +59,7 @@ void* create_pitch_up_shift(int fs_hz, int strength)
 
     time_scale_init(&pse->tscale, (fs_hz*pse->up)/pse->down, fs_hz);
     
-    pse->resampler->InitializeIfNeeded(fs_hz, (fs_hz*pse->up)/pse->down, 1);
+    pse->resampler = new webrtc::PushResampler<int16_t>(fs_hz, (fs_hz*pse->up)/pse->down, 1);
     
     return (void*)pse;
 }
@@ -75,9 +73,7 @@ void* create_pitch_down_shift(int fs_hz, int strength)
         {3,2}   // 100 Hz -> 66 Hz
     };
     
-    struct pitch_shift_effect* pse = (struct pitch_shift_effect*)calloc(sizeof(struct pitch_shift_effect),1);
-    
-    pse->resampler = new webrtc::PushResampler<int16_t>;
+    struct pitch_shift_effect* pse = (struct pitch_shift_effect*)calloc(sizeof(struct pitch_shift_effect),1);   
     
     pse->fs_khz = fs_hz/1000;
     
@@ -94,8 +90,8 @@ void* create_pitch_down_shift(int fs_hz, int strength)
     pse->down = up_down_table[strength].down;
     
     time_scale_init(&pse->tscale, (fs_hz*pse->up)/pse->down, fs_hz);
-    
-    pse->resampler->InitializeIfNeeded(fs_hz, (fs_hz*pse->up)/pse->down, 1);
+
+    pse->resampler = new webrtc::PushResampler<int16_t>(fs_hz, (fs_hz*pse->up)/pse->down, 1);
     
     return (void*)pse;
 }
@@ -146,7 +142,9 @@ void pitch_shift_process(void *st, int16_t in[], int16_t out[], size_t L_in, siz
     for( int i = 0; i < N; i++){
         find_pitch_lags(&pse->pest, &in[i*L10], L10);
 
-        pse->resampler->Resample( &in[i*L10], L10, tmp_buf, L10_out);
+	webrtc::MonoView<int16_t> inv(&in[i*L10], L10);
+	webrtc::MonoView<int16_t> outv(tmp_buf, L10_out);
+        pse->resampler->Resample(inv, outv); 
         
         int min_pL, max_pL;
         find_min_max_pitch(pse, &min_pL, &max_pL);
