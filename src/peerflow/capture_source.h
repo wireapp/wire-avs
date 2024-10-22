@@ -46,7 +46,7 @@ public:
 
 	bool is_screencast() const { return false; }
 
-	absl::optional<bool> needs_denoising() const { return absl::nullopt; }
+	std::optional<bool> needs_denoising() const { return std::nullopt; }
 
 	bool GetStats(Stats* stats) { return false; }
 

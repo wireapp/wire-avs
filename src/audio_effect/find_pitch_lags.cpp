@@ -35,8 +35,7 @@ extern "C" {
 
 void init_find_pitch_lags(struct pitch_estimator *pest, int fs_hz, int complexity)
 {
-    pest->resampler = new webrtc::PushResampler<int16_t>;
-    pest->resampler->InitializeIfNeeded(fs_hz, 16000, 1);
+    pest->resampler = new webrtc::PushResampler<int16_t>(fs_hz, 16000, 1);
     pest->fs_khz = fs_hz/1000;
     if(complexity < 0){
         pest->complexity = 0;
@@ -64,7 +63,9 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     int L_re = (L*Z_FS_KHZ)/pest->fs_khz;
     
     /* resample to 16 khz if > 16 khz */
-    pest->resampler->Resample( x, L, &pest->buf[(Z_FS_KHZ*Z_PEST_BUF_SZ_MS) - L_re], L_re);
+    webrtc::MonoView<int16_t> inv(x, L);
+    webrtc::MonoView<int16_t> outv(&pest->buf[(Z_FS_KHZ*Z_PEST_BUF_SZ_MS) - L_re], L_re);
+    pest->resampler->Resample(inv, outv); 
 
     /* Apply window */
     for( int i = 0; i < Z_FS_KHZ*Z_PEST_BUF_SZ_MS; i++ ) {
@@ -123,9 +124,11 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     opus_int32 A_Q24[     MAX_FIND_PITCH_LPC_ORDER ];
     opus_int16 A_Q12[     MAX_FIND_PITCH_LPC_ORDER ];
     int L_re = (L*16)/pest->fs_khz;
-    
+        
     /* resample to 16 khz if > 16 khz */
-    pest->resampler->Resample( x, L, &pest->buf[(Z_FS_KHZ*Z_PEST_BUF_SZ_MS) - L_re], L_re);
+    webrtc::MonoView<int16_t> inv(x, L);
+    webrtc::MonoView<int16_t> outv(&pest->buf[(Z_FS_KHZ*Z_PEST_BUF_SZ_MS) - L_re], L_re);
+    pest->resampler->Resample(inv, outv);
     
     /* Window 40 ms */
     silk_apply_sine_window( Wsig, pest->buf, 1, Z_WIN_LEN_MS*Z_FS_KHZ );
