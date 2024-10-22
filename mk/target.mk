@@ -247,7 +247,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 20230222.69
+WEBRTC_VER := 20241021.71
 endif
 
 JAVAC := javac
@@ -352,7 +352,7 @@ endif
 ifeq ($(AVS_ARCH),arm64)
 AVS_FAMILY := arm64
 CPPFLAGS += \
-	-DWEBRTC_ARCH_ARM -DWEBRTC_ARCH_ARM64
+	-DWEBRTC_ARCH_ARM64
 endif
 ifeq ($(AVS_ARCH),i386)
 AVS_FAMILY := x86
@@ -571,14 +571,14 @@ LIBS	 += \
 
 ifeq ($(SDK),iphoneos)
 CPPFLAGS += \
-         -miphoneos-version-min=13.0
+         -miphoneos-version-min=14.0
 LFLAGS	 += \
-         -miphoneos-version-min=13.0
+         -miphoneos-version-min=14.0
 else
 CPPFLAGS += \
-         -mios-simulator-version-min=13.0
+         -mios-simulator-version-min=14.0
 LFLAGS	 += \
-         -mios-simulator-version-min=13.0
+         -mios-simulator-version-min=14.0
 endif
 
 # video
@@ -713,7 +713,8 @@ LIBS += \
 	-framework CoreVideo \
 	-framework QTKit \
 	-framework CoreMedia \
-	-framework AVFoundation
+	-framework AVFoundation \
+	-framework ScreenCaptureKit
 
 ifneq ($(AVS_ARCH),i386)
 CPPFLAGS	+= -DCARBON_DEPRECATED=YES
