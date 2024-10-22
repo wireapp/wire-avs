@@ -46,8 +46,6 @@ static int resampler_unit_test(
     
     timerclear(&totTime);
     
-    PushResampler<int16_t> resampler;
-    
     in_file = fopen(in_file_name,"rb");
     if( in_file == NULL ){
         printf("Could not open file for reading \n");
@@ -60,31 +58,31 @@ static int resampler_unit_test(
         return -1;
     }
     
-    if (resampler.InitializeIfNeeded(in_sample_rate,
-                                      out_sample_rate,
-                                      num_channels) != 0) {
-        printf("InitializeIfNeeded failed");
-        return -1;
-    }
     
-    int samples_per_channel = in_sample_rate/100; // 10 ms
+    int in_samps_per_channel = in_sample_rate/100; // 10 ms
+    int out_samps_per_channel = out_sample_rate/100; // 10 ms
     
-    size_t size = samples_per_channel * num_channels;
+    size_t size = in_samps_per_channel * num_channels;
     size_t read_count;
     int num_frames = 0;
+
+    PushResampler<int16_t> resampler(in_samps_per_channel * num_channels,
+				     out_samps_per_channel * num_channels,
+				     num_channels);
+    
     while(1){
         read_count = fread(input_buffer,
                            sizeof(int16_t),
-                           samples_per_channel,
+                           in_samps_per_channel,
                            in_file);
     
     
         gettimeofday(&startTime, NULL);
-        
-        int out_length = resampler.Resample(input_buffer,
-                                             samples_per_channel * num_channels,
-                                             output_buffer,
-                                             MAX_SAMPLE_RATE/100);
+
+	webrtc::MonoView<int16_t> inv(input_buffer, in_samps_per_channel * num_channels);
+	webrtc::MonoView<int16_t> outv(output_buffer, out_samps_per_channel * num_channels);
+	
+        int out_length = resampler.Resample(inv, outv);
         
         gettimeofday(&now, NULL);
         timersub(&now, &startTime, &res);
