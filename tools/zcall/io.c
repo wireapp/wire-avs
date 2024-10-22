@@ -34,6 +34,15 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #endif
+/* MacOS SDK 15 has a LIST_INIT and
+ * LIST_FOREACH defined
+ */
+#ifdef LIST_INIT
+#undef LIST_INIT
+#endif
+#ifdef LIST_FOREACH
+#undef LIST_FOREACH
+#endif
 #include <re.h>
 #include <avs.h>
 #include "options.h"
