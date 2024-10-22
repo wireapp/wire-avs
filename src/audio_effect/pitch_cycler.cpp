@@ -43,11 +43,8 @@ void* create_pitch_cycler(int fs_hz, int strength)
     
     time_scale_init(&pce->tscale, fs_hz * PCE_EXTRA_UP, fs_hz * PCE_EXTRA_UP);
  
-    pce->resampler = new webrtc::PushResampler<int16_t>;
-    pce->resampler->InitializeIfNeeded(fs_hz, fs_hz * PCE_UP_FAC * PCE_EXTRA_UP, 1);
-
-    pce->resampler_out = new webrtc::PushResampler<int16_t>;
-    pce->resampler_out->InitializeIfNeeded(fs_hz * PCE_EXTRA_UP, fs_hz, 1);
+    pce->resampler = new webrtc::PushResampler<int16_t>(fs_hz, fs_hz * PCE_UP_FAC * PCE_EXTRA_UP, 1);
+    pce->resampler_out = new webrtc::PushResampler<int16_t>(fs_hz * PCE_EXTRA_UP, fs_hz, 1);
     
     pce->read_idx = pce->fs_khz * PCE_EXTRA_BUF_MS * PCE_UP_FAC * PCE_EXTRA_UP;
     
@@ -122,7 +119,9 @@ void pitch_cycler_process(void *st, int16_t in[], int16_t out[], size_t L_in, si
     for( int i = 0; i < N; i++){
         find_pitch_lags(&pce->pest, &in[i*L10], L10);
 
-        pce->resampler->Resample( &in[i*L10], L10, &pce->buf[(PCE_BUF_FRAMES-1)*L10_out + L_extra], L10_out);
+	webrtc::MonoView<int16_t> inv(&in[i*L10], L10);
+	webrtc::MonoView<int16_t> outv(&pce->buf[(PCE_BUF_FRAMES-1)*L10_out + L_extra], L10_out);
+        pce->resampler->Resample(inv, outv); 
         
         int n = 0;
         while(pce->read_idx < (L10_out + L_extra)){
@@ -146,8 +145,11 @@ void pitch_cycler_process(void *st, int16_t in[], int16_t out[], size_t L_in, si
         time_scale_insert(&pce->tscale, tmp_buf, n, max_pL, min_pL, pce->pest.voiced);
         
         time_scale_extract(&pce->tscale, tmp_out, L10 * PCE_EXTRA_UP);
-        
-        pce->resampler_out->Resample( tmp_out, L10 * PCE_EXTRA_UP, &out[i*L10], L10);
+
+	webrtc::MonoView<int16_t> tin(tmp_out, L10 * PCE_EXTRA_UP);
+	webrtc::MonoView<int16_t> tout(&out[i*L10], L10);
+	
+        pce->resampler_out->Resample(tin, tout); 
         
         memmove(pce->buf, &pce->buf[L10_out], ((PCE_BUF_FRAMES-1)*L10_out + L_extra) * sizeof(int16_t));
         pce->read_idx -= L10_out;

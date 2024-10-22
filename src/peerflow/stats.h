@@ -104,43 +104,43 @@ public:
 		current_stats_ = tmp;
 		lock_rel(lock_);
 
-		std::vector<const webrtc::RTCInboundRTPStreamStats*> streamStats =
-			report->GetStatsOfType<webrtc::RTCInboundRTPStreamStats>();
-		std::vector<const webrtc::RTCInboundRTPStreamStats*>::iterator it;
+		std::vector<const webrtc::RTCInboundRtpStreamStats*> streamStats =
+			report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>();
+		std::vector<const webrtc::RTCInboundRtpStreamStats*>::iterator it;
 		uint32_t packetsLost = 0, packetsTotal = 0;
 
 		for (it = streamStats.begin(); it != streamStats.end(); it++) {
-			const webrtc::RTCInboundRTPStreamStats* s = *it;
+			const webrtc::RTCInboundRtpStreamStats* s = *it;
 
-			if (s->media_type.is_defined()) {
-				if (*s->media_type == "video") {
+			if (s->kind) {
+				if (s->kind == "video") {
 					vpkts_recv += *s->packets_received;
 				}
-				else if (*s->media_type == "audio") {
+				else if (s->kind == "audio") {
 					apkts_recv += *s->packets_received;
 				}
 			}
-			if (s->packets_received.is_defined()) {
+			if (s->packets_received) {
 				packetsTotal += *s->packets_received;
 			}
-			if (s->packets_lost.is_defined()) {
+			if (s->packets_lost) {
 				packetsTotal += *s->packets_lost;
 				packetsLost += *s->packets_lost;
 			}
 		}
 
-		std::vector<const webrtc::RTCOutboundRTPStreamStats*> ostreamStats =
-			report->GetStatsOfType<webrtc::RTCOutboundRTPStreamStats>();
-		std::vector<const webrtc::RTCOutboundRTPStreamStats*>::iterator oit;
+		std::vector<const webrtc::RTCOutboundRtpStreamStats*> ostreamStats =
+			report->GetStatsOfType<webrtc::RTCOutboundRtpStreamStats>();
+		std::vector<const webrtc::RTCOutboundRtpStreamStats*>::iterator oit;
 
 		for (oit = ostreamStats.begin(); oit != ostreamStats.end(); oit++) {
-			const webrtc::RTCOutboundRTPStreamStats* s = *oit;
+			const webrtc::RTCOutboundRtpStreamStats* s = *oit;
 
-			if (s->media_type.is_defined()) {
-				if (*s->media_type == "video") {
+			if (s->kind) {
+				if (s->kind == "video") {
 					vpkts_sent += *s->packets_sent;
 				}
-				else if (*s->media_type == "audio") {
+				else if (s->kind == "audio") {
 					apkts_sent += *s->packets_sent;
 				}
 			}

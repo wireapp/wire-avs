@@ -36,8 +36,9 @@ static void* create_chorus_org(int fs_hz, int strength)
     int period_len;
     struct chorus_org_effect* cho = (struct chorus_org_effect*)calloc(sizeof(struct chorus_org_effect),1);
     
-    cho->resampler = new webrtc::PushResampler<int16_t>;
-    cho->resampler->InitializeIfNeeded(fs_hz, fs_hz*UP_FAC, 1);
+    cho->resampler = new webrtc::PushResampler<int16_t>(fs_hz,
+							fs_hz*UP_FAC,
+							1);
     cho->fs_khz = (fs_hz/1000);
     
     float max_a = MAX_A;
@@ -151,7 +152,11 @@ static void chorus_process_org(void *st, int16_t in[], int16_t out[], size_t L)
     }
     
     for( int i = 0; i < N; i++){
-        cho->resampler->Resample( &in[i*L10], L10, &cho->buf[hist_size + i*L10*UP_FAC], L10*UP_FAC);
+	webrtc::MonoView<int16_t> inv(&in[i*L10], L10);
+	webrtc::MonoView<int16_t> outv(&cho->buf[hist_size + i*L10*UP_FAC],
+			       L10*UP_FAC);
+	    
+        cho->resampler->Resample(inv, outv);
     }
             
     ptr = &cho->buf[hist_size];
