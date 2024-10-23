@@ -34,6 +34,12 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #endif
+#ifdef LIST_INIT
+#undef LIST_INIT
+#endif
+#ifdef LIST_FOREACH
+#undef LIST_FOREACH
+#endif
 #include <re.h>
 #include <avs.h>
 #include "options.h"
