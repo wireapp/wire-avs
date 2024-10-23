@@ -971,6 +971,7 @@ int main(int argc, char **argv)
 	fd_setsize(0);	
 	fd_setsize(1048576);	
 	wcall_init(0);
+	wcall_set_mode(WCALL_MODE_DIRECT);
 	wcall_setup_ex(AVS_FLAG_AUDIO_TEST);
 	dns_init(&sftloader->dnsc);
 	if (!sftloader->convid)

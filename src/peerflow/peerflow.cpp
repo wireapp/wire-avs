@@ -67,6 +67,7 @@ extern "C" {
 #define TMR_STATS_INTERVAL      1000
 #define TMR_CBR_INTERVAL        2500
 #define TMR_RESTART_INTERVAL    2000
+#define TMR_GATHER_TIMEOUT      2000
 
 #define DOUBLE_ENCRYPTION 1
 
@@ -187,6 +188,7 @@ struct peerflow {
 	struct le le;
 
 	struct tmr tmr_stats;
+	struct tmr tmr_gather;
 	wire::NetStatsCallback *netStatsCb;
 	std::string remoteSdp;
 	bool selective_audio;
@@ -997,6 +999,8 @@ static void invoke_gather(struct peerflow *pf,
 	std::string sdp_str;
 	struct mq_data *md;
 	const char *type;
+
+	tmr_cancel(&pf->tmr_gather);
 	
 	type = SdpTypeToString(isdp->GetType());
 	
@@ -1015,6 +1019,16 @@ static void disconnect_timeout_handler(void *arg)
 	pf = (struct peerflow *)arg;
 	IFLOW_CALL_CB(pf->iflow, restarth,
 		false, pf->iflow.arg);
+}
+
+static void gather_timeout_handler(void *arg)
+{
+	struct peerflow *pf = (struct peerflow *)arg;
+	const webrtc::SessionDescriptionInterface *isdp;
+
+	isdp = pf->peerConn->local_description();
+	if (isdp)
+		invoke_gather(pf, isdp);
 }
 
 class AvsPeerConnectionObserver : public webrtc::PeerConnectionObserver {
@@ -1253,19 +1267,39 @@ public:
 	virtual void OnIceCandidate(const webrtc::IceCandidateInterface* icand)
 	{
 		std::string cand_str;
-		const cricket::Candidate& cand = icand->candidate();
 
+		if (!icand) {
+			const webrtc::SessionDescriptionInterface *isdp;
+
+			info("pf(%p): OnIceCandidate: end-of-candidates\n", pf_);
+			pf_->gathered = true;
+			isdp = pf_->peerConn->local_description();
+			if (isdp)
+				invoke_gather(pf_, isdp);
+			else {
+				warning("pf(%p): ice candidate "
+					"no local SDP\n", pf_);
+			}
+			return;
+		}
+		
+		const cricket::Candidate& cand = icand->candidate();
+		
 		icand->ToString(&cand_str);
-		info("pf(%p): OnIceCandidate: %s has %d candidates\n",
-		     pf_, cand_str.c_str(), pf_->ncands);
+		info("pf(%p): OnIceCandidate: %s url=%s has %d candidates\n",
+		     pf_, cand_str.c_str(), icand->server_url().c_str(), pf_->ncands);
 
 		++pf_->ncands;
 
-		if (!pf_->gathered && cand.type() == std::string("relay")) {
-			const webrtc::SessionDescriptionInterface *isdp;
+		if (cand.type() == std::string("relay")) {
 			
-			info("pf(%p): received first RELAY candidate\n", pf_);
+			info("pf(%p): received RELAY candidate\n", pf_);
 
+			if (!tmr_isrunning(&pf_->tmr_gather)) {
+				tmr_start(&pf_->tmr_gather, TMR_GATHER_TIMEOUT,
+					  gather_timeout_handler, pf_);
+			}
+#if 0
 			pf_->gathered = true;
 			isdp = pf_->peerConn->local_description();
 			if (isdp)
@@ -1275,7 +1309,7 @@ public:
 					"no local SDP\n", pf_);
 				return;
 			}
-			
+#endif
 		}
 	}
 
@@ -1950,6 +1984,7 @@ static void pf_destructor(void *arg)
 
 	pf->netStatsCb->setActive(false);
 	tmr_cancel(&pf->tmr_stats);
+	tmr_cancel(&pf->tmr_gather);
 
 	delete pf->netStatsCb;
 	pf->netStatsCb = NULL;
@@ -2492,6 +2527,7 @@ int peerflow_handle_offer(struct iflow *iflow,
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
 		webrtc::CreateSessionDescription(webrtc::SdpType::kOffer,
 						 sdp_str, &parse_err);
+
 	if (sdp == nullptr) {
 		warning("peerflow_handle_offer: failed to parse SDP: "
 			"line=%s reason=%s\n",

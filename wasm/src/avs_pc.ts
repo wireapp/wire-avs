@@ -68,15 +68,17 @@ interface PeerConnection {
   call_type: number;
   sending_video: boolean;
   muted: boolean;
-  cands: any[];
   stats: LocalStats;
   users: any;
   iva: Uint8Array;
   ivv: Uint8Array;
   streams: {[ssrc: string]: string};
+  gatherTimer: any;
 }
 
 const ENV_FIREFOX = 1;
+
+const TIMEOUT_GATHER = 2000;
 
 let em_module: any;
 let logFn: WcallLogHandler | null = null;
@@ -1121,6 +1123,21 @@ function ccallGetCurrentMediaKey(
   );
 }
 
+function gatheringComplete(pc: PeerConnection) {
+  if (pc.gatherTimer != null) {
+     clearTimeout(pc.gatherTimer);
+     pc.gatherTimer = null;
+  }
+  const rtc = pc.rtc;
+  if (!rtc) {
+    return;
+  }
+  const sdp = rtc.localDescription;
+  if (!sdp) {
+    return;
+  }
+  ccallGatheringHandler(pc, sdp.type.toString(), sdp.sdp.toString());
+}
 
 function gatheringHandler(pc: PeerConnection) {
   const rtc = pc.rtc;
@@ -1139,11 +1156,7 @@ function gatheringHandler(pc: PeerConnection) {
       break;
 
     case "complete":
-      const sdp = rtc.localDescription;
-      if (!sdp) {
-        return;
-      }
-      ccallGatheringHandler(pc, sdp.type.toString(), sdp.sdp.toString());
+      gatheringComplete(pc);
       break;
   }
 }
@@ -1193,52 +1206,23 @@ function candidateHandler(pc: PeerConnection, cand: RTCIceCandidate | null) {
 	return;
     
     if (!cand) {
-	pc_log(LOG_LEVEL_INFO, 'candidateHandler: end-of-candidates');
-	
-	const sdp = pc.rtc.localDescription;
+	pc_log(LOG_LEVEL_INFO, 'candidateHandler: end-of-candidates');	
+	gatheringComplete(pc);
 
-	if (sdp)
-	    ccallGatheringHandler(pc, sdp.type.toString(), sdp.sdp.toString());
-
-	return;
+        return;
     }
 
-    if (pc_env === ENV_FIREFOX) {
-	if (mindex != null) {
-	    const cmid = pc.cands[mindex];
-	    if (!cmid) {
-		pc_log(LOG_LEVEL_INFO, `candidateHandler: adding mindex=${mindex}`);
-		pc.cands[mindex] = {
-		    mindex: mindex,
-		    hasRelay: false
-		}
-	    }
-	}
-    }
-
+    /* As soon as we get the first relay, we start a gathering timer
+     * this was we ensure that gathering never takes more than the
+     * timeout period.
+     */
     if (cand.type === 'relay') {
-	const sdp = pc.rtc.localDescription;
-	if (!sdp) {
-            return;
+        if (pc.gatherTimer == null) {
+	    pc.gatherTimer = setTimeout(() => {
+	      pc.gatherTimer = null;
+	      gatheringComplete(pc);
+	    }, TIMEOUT_GATHER);
 	}
-
-	if (pc_env == ENV_FIREFOX) {
-	    if (mindex != null) {
-		const rmid = pc.cands[mindex];
-		if (rmid)
-		    rmid.hasRelay = true;
-	    }
-	
-	    for (const cc of pc.cands) {
-		if (cc && !cc.hasRelay) {
-		    pc_log(LOG_LEVEL_INFO, `candidateHandler: mindex=${cc.mindex} still missing relay`);
-		    return;
-		}
-	    }
-	}
-
-	pc_log(LOG_LEVEL_INFO, 'candidateHandler: relay(s) found, finished gathering');
-	ccallGatheringHandler(pc, sdp.type.toString(), sdp.sdp.toString());
     }
 }
 
@@ -1321,7 +1305,6 @@ function pc_New(self: number, convidPtr: number,
     call_type: CALL_TYPE_NORMAL,
     conv_type: CONV_TYPE_ONEONONE,
     muted: false,
-    cands: [null, null, null],
     users: {},
     iva: iva8,
     ivv: ivv8,
@@ -1337,6 +1320,7 @@ function pc_New(self: number, convidPtr: number,
       rtt: 0
     },
     streams: {},
+    gatherTimer: null
   };
 
   worker.postMessage({op: 'create', self: pc.self, iva: iva8, ivv: ivv8});
