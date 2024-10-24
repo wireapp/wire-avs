@@ -35,7 +35,6 @@ extern "C" {
 
 void init_find_pitch_lags(struct pitch_estimator *pest, int fs_hz, int complexity)
 {
-    pest->resampler = new webrtc::PushResampler<int16_t>(fs_hz, 16000, 1);
     pest->fs_khz = fs_hz/1000;
     if(complexity < 0){
         pest->complexity = 0;
@@ -47,12 +46,10 @@ void init_find_pitch_lags(struct pitch_estimator *pest, int fs_hz, int complexit
 
 void free_find_pitch_lags(struct pitch_estimator *pest)
 {
-    delete pest->resampler;
 }
 
 void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
 {
-#if !defined(WEBRTC_ARCH_ARM)
     silk_float thrhld, res_nrg;
     silk_float auto_corr[ Z_LPC_ORDER + 1 ];
     silk_float A[         Z_LPC_ORDER ];
@@ -61,11 +58,12 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     silk_float sig[Z_FS_KHZ*Z_PEST_BUF_SZ_MS];
     silk_float res[Z_FS_KHZ*Z_PEST_BUF_SZ_MS];
     int L_re = (L*Z_FS_KHZ)/pest->fs_khz;
-    
+
     /* resample to 16 khz if > 16 khz */
+    auto resampler = webrtc::PushResampler<int16_t>(L, L_re, 1);
     webrtc::MonoView<int16_t> inv(x, L);
     webrtc::MonoView<int16_t> outv(&pest->buf[(Z_FS_KHZ*Z_PEST_BUF_SZ_MS) - L_re], L_re);
-    pest->resampler->Resample(inv, outv); 
+    resampler.Resample(inv, outv); 
 
     /* Apply window */
     for( int i = 0; i < Z_FS_KHZ*Z_PEST_BUF_SZ_MS; i++ ) {
@@ -114,71 +112,5 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     pest->LTPCorr_Q15 = (opus_int)(LTPCorr * (float)((int)1 << 15));
     memmove(&pest->buf[0], &pest->buf[L_re], ((Z_FS_KHZ*Z_PEST_BUF_SZ_MS) - L_re)*sizeof(int16_t));
     (void)res_nrg;
-#else
-    opus_int16 Wsig[16*Z_PEST_BUF_SZ_MS];
-    opus_int16 res[16*Z_PEST_BUF_SZ_MS];
-    opus_int   scale;
-    opus_int32 auto_corr[ Z_LPC_ORDER + 1 ];
-    opus_int32 res_nrg;
-    opus_int16 rc_Q15[ Z_LPC_ORDER ];
-    opus_int32 A_Q24[     MAX_FIND_PITCH_LPC_ORDER ];
-    opus_int16 A_Q12[     MAX_FIND_PITCH_LPC_ORDER ];
-    int L_re = (L*16)/pest->fs_khz;
-        
-    /* resample to 16 khz if > 16 khz */
-    webrtc::MonoView<int16_t> inv(x, L);
-    webrtc::MonoView<int16_t> outv(&pest->buf[(Z_FS_KHZ*Z_PEST_BUF_SZ_MS) - L_re], L_re);
-    pest->resampler->Resample(inv, outv);
-    
-    /* Window 40 ms */
-    silk_apply_sine_window( Wsig, pest->buf, 1, Z_WIN_LEN_MS*Z_FS_KHZ );
-    for( int i = Z_WIN_LEN_MS*Z_FS_KHZ; i < Z_FS_KHZ*(Z_PEST_BUF_SZ_MS-Z_WIN_LEN_MS) ; i++ ) {
-        Wsig[i] = (opus_int16)pest->buf[i];
-    }
-    silk_apply_sine_window( &Wsig[Z_FS_KHZ*(Z_PEST_BUF_SZ_MS-Z_WIN_LEN_MS)], &pest->buf[Z_FS_KHZ*(Z_PEST_BUF_SZ_MS-Z_WIN_LEN_MS)], 2, Z_WIN_LEN_MS*Z_FS_KHZ );
-    
-    /* Calculate autocorrelation sequence */
-    silk_autocorr( auto_corr, &scale, pest->buf, Z_FS_KHZ*Z_PEST_BUF_SZ_MS, Z_LPC_ORDER + 1, 0 );
-    
-    /* Add white noise, as fraction of energy */
-    auto_corr[ 0 ] = silk_SMLAWB( auto_corr[ 0 ], auto_corr[ 0 ], 65 ) + 1;
-    
-    /* Calculate the reflection coefficients using schur */
-    res_nrg = silk_schur( rc_Q15, auto_corr, Z_LPC_ORDER );
-    
-    /* Convert reflection coefficients to prediction coefficients */
-    silk_k2a( A_Q24, rc_Q15, Z_LPC_ORDER );
-    
-    /* Convert From 32 bit Q24 to 16 bit Q12 coefs */
-    for( int i = 0; i < Z_LPC_ORDER; i++ ) {
-        A_Q12[ i ] = (opus_int16)silk_SAT16( silk_RSHIFT( A_Q24[ i ], 12 ) );
-    }
-    
-    /* Do BWE */
-    silk_bwexpander( A_Q12, Z_LPC_ORDER, 64881); // 0.99 in Q16
-    
-    /* LPC analysis filtering */
-    silk_LPC_analysis_filter( res, pest->buf, A_Q12, Z_FS_KHZ*Z_PEST_BUF_SZ_MS, Z_LPC_ORDER, 0 );
-    
-    /* Threshold for pitch estimator */
-    opus_int thrhld_Q13  = 1638; // 0.2f
-    opus_int thrhld_Q16  = 45875;
-    opus_int16 lagIndex;
-    opus_int8 contourIndex;
-    /*****************************************/
-    /* Call Pitch estimator                  */
-    /*****************************************/
-    if( silk_pitch_analysis_core( res, pest->pitchL, &lagIndex,
-                                     &contourIndex, &pest->LTPCorr_Q15, pest->pitchL[3],
-                                     thrhld_Q16, thrhld_Q13, 16, pest->complexity , 4, 0 ) == 0 )
-    {
-        pest->voiced = true;
-    } else {
-        pest->voiced = false;
-    }
-    memmove(&pest->buf[0], &pest->buf[L_re], ((16*Z_PEST_BUF_SZ_MS) - L_re)*sizeof(int16_t));
-
-    (void)res_nrg;
-#endif
 }
 
