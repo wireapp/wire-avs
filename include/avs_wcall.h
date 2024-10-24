@@ -524,6 +524,15 @@ void wcall_set_active_speaker_handler(WUSER_HANDLE wuser,
 				      wcall_active_speaker_h *activeh);
 
 #define WCALL_VSTREAMS_LIST 0
+
+/* Request Video quality resolution layers */
+/* any resolution (avs decides) */
+#define WCALL_RESOLUTION_ANY  0
+/* low quality resolution */
+#define WCALL_RESOLUTION_LOW  1
+/* high quality resolution */
+#define WCALL_RESOLUTION_HIGH 2
+
 /**
  * Video stream selection (conference calls).
  */
