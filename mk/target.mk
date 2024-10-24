@@ -247,7 +247,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 20241021.72
+WEBRTC_VER := 20241021.74
 endif
 
 JAVAC := javac
@@ -371,10 +371,10 @@ AVS_OS_FAMILY := linux
 # Cross-compiling tools have a prefix that's differing per architecture.
 # We use this opportunity to check for a known $(AVS_ARCH).
 
-CROSS_PREFIX_armv7  := armv7a-linux-androideabi21
-CROSS_PREFIX_arm64  := aarch64-linux-android21
-CROSS_PREFIX_i386   := i686-linux-android21
-CROSS_PREFIX_x86_64 := x86_64-linux-android21
+CROSS_PREFIX_armv7  := armv7a-linux-androideabi27
+CROSS_PREFIX_arm64  := aarch64-linux-android27
+CROSS_PREFIX_i386   := i686-linux-android27
+CROSS_PREFIX_x86_64 := x86_64-linux-android27
 CROSS_PREFIX        := $(CROSS_PREFIX_$(AVS_ARCH))
 
 ifeq ($(CROSS_PREFIX),)
@@ -416,7 +416,8 @@ CFLAGS   += \
 	 -fomit-frame-pointer -fno-strict-aliasing \
 	 -fPIC
 
-CXXFLAGS += -fPIC
+CXXFLAGS += -fPIC \
+	 -Wno-vla-cxx-extension
 
 ifneq ($(BLA),)
 LFLAGS   += \
@@ -444,7 +445,7 @@ LIBS += \
 	-lcpufeatures -lc -lm -ldl -llog -lGLESv2 -latomic -lOpenSLES -lc++
 
 # this one was added to get ztest to link:
-#LIBS +=
+
 
 ifeq ($(AVS_ARCH),armv7)
 #LIBS +=
