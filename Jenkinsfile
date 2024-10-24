@@ -282,27 +282,27 @@ pipeline {
                 }
             }
         }
-        stage('Publish to ios github repo') {
-            when {
-                anyOf {
-                    expression { return "${branchName}".contains('release') }
-                }
-            }
-            agent {
-                label 'built-in'
-            }
-            steps {
-                withCredentials([ string( credentialsId: 'ios-github', variable: 'accessToken' ) ]) {
-                    sh """
-                        GITHUB_TOKEN=${ accessToken } \
-                        python3 ./scripts/upload-ios.py \
-                            ./build/artifacts/avs.xcframework.zip \
-                            ${version} \
-                            appstore
-                    """
-                }
-            }
-        }
+//        stage('Publish to ios github repo') {
+//            when {
+//                anyOf {
+//                    expression { return "${branchName}".contains('release') }
+//                }
+//            }
+//            agent {
+//                label 'built-in'
+//            }
+//            steps {
+//                withCredentials([ string( credentialsId: 'ios-github', variable: 'accessToken' ) ]) {
+//                    sh """
+//                        GITHUB_TOKEN=${ accessToken } \
+//                        python3 ./scripts/upload-ios.py \
+//                            ./build/artifacts/avs.xcframework.zip \
+//                            ${version} \
+//                            appstore
+//                    """
+//                }
+//            }
+//        }
         stage('Publish to npm') {
             when {
                 anyOf {
