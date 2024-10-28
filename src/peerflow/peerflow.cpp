@@ -1411,8 +1411,8 @@ public:
 				rtc::scoped_refptr<wire::FrameDecryptor> decryptor(
 					rtc::make_ref_counted<wire::FrameDecryptor>(
 					FRAME_MEDIA_VIDEO, pf_));
-				err = decryptor->SetKeystore(pf_->keystore);
-				if (err) {
+				int e2 = decryptor->SetKeystore(pf_->keystore);
+				if (e2) {
 					warning("pf(%p): failed to set keystore for "
 						"decryptor (%m)\n",
 						pf_, err);
@@ -1436,18 +1436,18 @@ public:
 				rtc::scoped_refptr<wire::FrameDecryptor> decryptor(
 					rtc::make_ref_counted<wire::FrameDecryptor>(
 					FRAME_MEDIA_AUDIO, pf_));
-				err = decryptor->SetKeystore(pf_->keystore);
-				if (err) {
+				int e2 = decryptor->SetKeystore(pf_->keystore);
+				if (e2) {
 					warning("pf(%p): failed to set keystore for "
 						"decryptor (%m)\n",
-						pf_, err);
+						pf_, e2);
 				}
 				if (dec_uid) {
 					err = decryptor->SetUserID(dec_uid);
 					if (err) {
 						warning("pf(%p): failed to set userid for "
 							"decryptor (%m)\n",
-							pf_, err);
+							pf_, e2);
 					}
 				}
 				rx->SetFrameDecryptor(decryptor);
@@ -1612,7 +1612,17 @@ public:
 		return rtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
 	
-	virtual void OnSetRemoteDescriptionComplete(webrtc::RTCError err) {		
+	virtual void OnSetRemoteDescriptionComplete(webrtc::RTCError err) {
+		info("peerflow(%p): OnSetRemoteDescriptionComplete err=%s\n", pf_, err.message());
+		if (err.ok()) {
+			const webrtc::SessionDescriptionInterface *rsdp = pf_->peerConn->remote_description();
+			info("peerflow(%p): remote sdp=%p\n", pf_, rsdp);
+			if (rsdp)
+				rsdp->ToString(&pf_->remoteSdp);
+		}
+		else {
+			warning("peerflow(%p): set remote description: err=%s\n", pf_, err.message());
+		}
 	}
 
 private:
@@ -1951,21 +1961,18 @@ static int create_pf(struct peerflow *pf)
 		}
 		info("peerflow(%p): setting frame encryptor on: %p\n", pf, pf->rtpSender.get());
 		pf->rtpSender->SetFrameEncryptor(encryptor);
-		info("peerflow(%p): setting frame encryptor done\n", pf, pf->rtpSender.get());
+		info("peerflow(%p): setting frame encryptor on: %p done\n", pf, pf->rtpSender.get());
 	} else
 #endif
 	if (pf->rtpSender && pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
 		pf->rtpSender->SetFrameEncryptor(pf->cbr_det_local);
 	}
-
 	if (pf->call_type == ICALL_CALL_TYPE_VIDEO ||
 	    pf->vstate != ICALL_VIDEO_STATE_STOPPED) {
 
 		webrtc::VideoTrackSourceInterface *src = wire::CaptureSource::GetInstance();
 
-		pf->video.track = g_pf.pc_factory->CreateVideoTrack(
-			 "foo",
-			 src);
+		pf->video.track = g_pf.pc_factory->CreateVideoTrack("foo", src);
 
 		rtc::scoped_refptr<webrtc::RtpSenderInterface> video_track =
 			pf->peerConn->AddTrack(pf->video.track,
@@ -1983,8 +1990,6 @@ static int create_pf(struct peerflow *pf)
 			params.degradation_preference = webrtc::DegradationPreference::MAINTAIN_RESOLUTION;
 
 			video_track->SetParameters(params);
-
-
 #if DOUBLE_ENCRYPTION
 			if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
 				rtc::scoped_refptr<wire::FrameEncryptor> encryptor;
@@ -1995,15 +2000,14 @@ static int create_pf(struct peerflow *pf)
 					warning("pf(%p): failed to set keystore for "
 						"encryptor (%m)\n",
 						pf, err);
-					goto out;
+					return err;
 				}
 				video_track->SetFrameEncryptor(encryptor);
 			}
 #endif
 		}
-	}	
+	}
 
-	info("peerflow(%p): handle_offer done\n", pf);
  out:
 	return err;
 }
@@ -2574,13 +2578,9 @@ int peerflow_handle_offer(struct iflow *iflow,
 				goto out;
 		}
 
+		info("peerflow(%p): setting remote description on pc=%p\n", pf, pf->peerConn.get());
 		pf->peerConn->SetRemoteDescription(std::move(sdp),
 						   pf->sdpRemoteObserver);
-						   
-						   
-		
-		const webrtc::SessionDescriptionInterface *rsdp = pf->peerConn->remote_description();
-		rsdp->ToString(&pf->remoteSdp);
 	}
 
 out:
@@ -2618,8 +2618,6 @@ int peerflow_handle_answer(struct iflow *iflow,
 	else {
 		pf->peerConn->SetRemoteDescription(std::move(sdp),
 					     pf->sdpRemoteObserver);
-		const webrtc::SessionDescriptionInterface *rsdp = pf->peerConn->remote_description();
-		rsdp->ToString(&pf->remoteSdp);
 	}
 
 	return err;
