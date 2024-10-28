@@ -439,10 +439,10 @@ SH_LFLAGS += \
 	-shared
 
 SH_LIBS += \
-	-llog -lOpenSLES -lstdc++
+	-llog -lOpenSLES -lc++_static -lc++abi
 
 LIBS += \
-	-lcpufeatures -lc -lm -ldl -llog -lGLESv2 -latomic -lOpenSLES -lc++
+	-lcpufeatures -lc -lm -ldl -llog -lGLESv2 -latomic -lOpenSLES -lc++ -lc++abi
 
 # this one was added to get ztest to link:
 
