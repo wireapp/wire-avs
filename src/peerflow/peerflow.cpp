@@ -213,6 +213,7 @@ struct peerflow {
 	std::string remoteSdp;
 	bool selective_audio;
 	bool selective_video;
+	bool sdp_needs_munging;
 };
 
 
@@ -2624,12 +2625,18 @@ static void pf_tool_handler(const char *tool, void *arg)
 		}
 		pf->selective_audio = major >= 2;
 		pf->selective_video = major > 2 || (major == 2 && minor >= 1);
+		if (major == 4 && minor == 1) {
+			pf->sdp_needs_munging = true;
+		}
 		info("peerflow(%p): set_sft_options: ver: %d.%d"
-		     " selective_audio: %s selective_video: %s\n",
+		     " selective_audio: %s selective_video: %s"
+		     " sdp_needs_munging: %s\n",
 		     pf,
 		     major, minor,
 		     pf->selective_audio ? "YES" : "NO",
-		     pf->selective_video ? "YES" : "NO");
+		     pf->selective_video ? "YES" : "NO",
+		     pf->sdp_needs_munging ? "YES" : "NO");
+
 	}
 
 	mem_deref(tc);
@@ -2637,7 +2644,7 @@ static void pf_tool_handler(const char *tool, void *arg)
 
 
 int peerflow_handle_offer(struct iflow *iflow,
-			  const char *sdp_str)
+			  const char *sdp_in)
 {
 	struct sdp_media *sdpm = NULL;
 	struct sdp_media *newm = NULL;
@@ -2649,23 +2656,36 @@ int peerflow_handle_offer(struct iflow *iflow,
 	char *label;	
 	uint32_t ssrc;
 	struct peerflow *pf = (struct peerflow*)iflow;
-	webrtc::SessionDescriptionInterface *isdp;	
+	webrtc::SessionDescriptionInterface *isdp;
+	char *sdp_str;
 	int err = 0;
 	
-	if (!pf || !sdp_str)
+	if (!pf || !sdp_in)
 		return EINVAL;
 
 	info("peerflow(%p): handle SDP-offer:\n"
 	     "%s\n",
-	     pf, sdp_str);
-
-	sdp_check(sdp_str, false, true, pf_acbr_handler,
+	     pf, sdp_in);
+	
+	sdp_check(sdp_in, false, true, pf_acbr_handler,
 		  pf_norelay_handler, pf_tool_handler, pf);
+
+	if (pf->sdp_needs_munging) {
+		err = sdp_munge(&sdp_str, sdp_in, pf->conv_type, true);
+		if (err) {
+			warning("peerflow_handle_offer: failed to munge SDP: %m\n", err);
+			return err;
+		}
+		info("peerflow(%p): handle SDP-offer-munged:\n"
+		     "%s\n",
+		     pf, sdp_str);
+	}
 
 	webrtc::SdpParseError parse_err;
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
 		webrtc::CreateSessionDescription(webrtc::SdpType::kOffer,
 						 sdp_str, &parse_err);
+	mem_deref(sdp_str);
 
 	if (sdp == nullptr) {
 		warning("peerflow_handle_offer: failed to parse SDP: "
@@ -2806,7 +2826,13 @@ static int peerflow_bundle_update(struct iflow *flow, const char *sdp)
 	rtc::scoped_refptr<webrtc::SetRemoteDescriptionObserverInterface> observer;
 	webrtc::SessionDescriptionInterface *isdp;
 
+	info("peerflow_bundle_update(%p): sdp-bundle=\n%s\n", flow, sdp);
+
 	isdp = sdp_interface(sdp, webrtc::SdpType::kOffer);
+	if (!isdp) {
+		warning("peerflow_bundle_update(%p): sdp failed\n", flow);
+		return EPROTO;
+	}
 
 	std::string sdpoffer;
 	
@@ -2901,7 +2927,7 @@ int peerflow_sync_decoders(struct iflow *iflow)
 	char *sdp = NULL;
 	int err = 0;
 
-	info("pf(%p): sync_decoders\n", pf);
+	info("pf(%p): sync_decoders selective_video=%d\n", pf, pf->selective_video);
 
 	if (!pf)
 		return EINVAL;

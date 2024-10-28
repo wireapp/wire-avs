@@ -41,6 +41,7 @@ struct norelay_elem {
 struct conv_sdp {
 	struct sdp_media *sdpm;
 	enum icall_conv_type conv_type;
+	bool munge;
 };
 
 void sdp_safe_session_set_lattr(struct sdp_session *sess, bool replace,
@@ -239,6 +240,18 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 			sdp_safe_media_set_lattr(sdpm, false, name, value);
 		}
 	}
+	else if (csdp->munge && streq(name, "ssrc-group")) {
+		uint32_t s1;
+		uint32_t s2;
+		/* Skip ssrc-group with FID if only 1 ssrc exists */
+		int n = sscanf(value, "FID %u %u", &s1, &s2);
+		if (n == 2) {
+			sdp_safe_media_set_lattr(sdpm, false, name, value);
+		}
+		else {
+			info("sdp_dup: dropping invalid ssrc-group: %s\n", value);
+		}
+	}
 	else {
 		sdp_safe_media_set_lattr(sdpm, false, name, value);
 	}
@@ -251,10 +264,11 @@ out:
 
 
 static int sdp_dup_int(struct sdp_session **sessp,
-		enum icall_conv_type conv_type,
-		const char *sdp,
-		bool offer,
-		bool strip_video)
+		       enum icall_conv_type conv_type,
+		       const char *sdp,
+		       bool offer,
+		       bool strip_video,
+		       bool munge)
 {
 	struct mbuf mb;
 	struct sdp_session *sess;
@@ -310,6 +324,7 @@ static int sdp_dup_int(struct sdp_session **sessp,
 
 		csdp.sdpm = sdpm;
 		csdp.conv_type = conv_type;
+		csdp.munge = munge;
 		sdp_media_rattr_apply(sdpm, NULL,
 				      media_rattr_handler, &csdp);
 		//sdp_media_set_lbandwidth(sdpm, SDP_BANDWIDTH_AS,
@@ -347,7 +362,7 @@ int sdp_dup(struct sdp_session **sessp,
 	    const char *sdp,
 	    bool offer)
 {
-	return sdp_dup_int(sessp, conv_type, sdp, offer, false);
+	return sdp_dup_int(sessp, conv_type, sdp, offer, false, false);
 }
 
 #if 0
@@ -562,7 +577,7 @@ int sdp_strip_video(char **sdp, enum icall_conv_type conv_type,
 	if (!sdp)
 		return EINVAL;
 
-	err = sdp_dup_int(&sess, conv_type, osdp, true, true);
+	err = sdp_dup_int(&sess, conv_type, osdp, true, true, false);
 	if (!err) {		
 		*sdp = (char *)sdp_sess2str(sess);
 	}
@@ -571,3 +586,20 @@ int sdp_strip_video(char **sdp, enum icall_conv_type conv_type,
 	return err;
 }
 
+int sdp_munge(char **sdp_out, const char *sdp,
+	      enum icall_conv_type conv_type, bool offer)
+{
+	struct sdp_session *sess = NULL;
+	int err = 0;
+
+	if (!sdp || !sdp_out)
+		return EINVAL;
+
+	err = sdp_dup_int(&sess, conv_type, sdp, offer, false, true);
+	if (!err) {
+		*sdp_out = (char *)sdp_sess2str(sess);
+	}
+	mem_deref(sess);
+
+	return err;
+}
