@@ -1277,10 +1277,12 @@ int  ccall_request_video_streams(struct icall *icall,
 	LIST_FOREACH(clientl, le) {
 		struct icall_client *cli = le->data;
 		struct userinfo *user;
+		uint32_t quality = (uint32_t)cli->quality;
 
 		user = userlist_find_by_real(ccall->userl, cli->userid, cli->clientid);
 		if (user) {
-			sinfo = econn_stream_info_alloc(user->userid_hash, 0);
+
+			sinfo = econn_stream_info_alloc(user->userid_hash, quality);
 			if (!sinfo) {
 				err = ENOMEM;
 				goto out;
