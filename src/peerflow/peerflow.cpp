@@ -1924,15 +1924,16 @@ static int create_pf(struct peerflow *pf)
 	if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
 		tmr_start(&pf->tmr_cbr, TMR_CBR_INTERVAL, timer_cbr, pf);
 	}
-	auto sid = rtc::CreateRandomUuid();
 	webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::RtpSenderInterface>> aserr =
-		pf->peerConn->AddTrack(pf->audio.track, {sid});
+		pf->peerConn->AddTrack(pf->audio.track,
+				       {rtc::CreateRandomUuid()});
 	if (aserr.ok()) {
 		pf->rtpSender = aserr.value();
 	}
 	else {
 		warning("createPC: failed to create audio track: %s\n",
 			aserr.error().message());
+		return ENOSYS;
 	}
 
 #if DOUBLE_ENCRYPTION
@@ -1940,14 +1941,17 @@ static int create_pf(struct peerflow *pf)
 		rtc::scoped_refptr<wire::FrameEncryptor> encryptor;
 		encryptor = new wire::FrameEncryptor(pf->userid_self,
 						     FRAME_MEDIA_AUDIO);
+		info("peerflow(%p): setting keystore on encryptor\n", pf);
 		err = encryptor->SetKeystore(pf->keystore);
 		if (err) {
 			warning("pf(%p): failed to set keystore for "
 				"encryptor (%m)\n",
 				pf, err);
-			goto out;
+			return err;
 		}
+		info("peerflow(%p): setting frame encryptor on: %p\n", pf, pf->rtpSender.get());
 		pf->rtpSender->SetFrameEncryptor(encryptor);
+		info("peerflow(%p): setting frame encryptor done\n", pf, pf->rtpSender.get());
 	} else
 #endif
 	if (pf->rtpSender && pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
@@ -1997,8 +2001,9 @@ static int create_pf(struct peerflow *pf)
 			}
 #endif
 		}
-	}
+	}	
 
+	info("peerflow(%p): handle_offer done\n", pf);
  out:
 	return err;
 }
