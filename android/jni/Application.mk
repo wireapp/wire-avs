@@ -1,5 +1,5 @@
-APP_STL := c++_static
+APP_STL := c++_shared
 NDK_TOOLCHAIN_VERSION := clang
-APP_PLATFORM := android-25
+APP_PLATFORM := android-27
  
 include Arch.mk

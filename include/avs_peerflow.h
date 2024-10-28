@@ -8,6 +8,7 @@ struct avs_vidframe;
 
 int peerflow_set_funcs(void);
 
+void peerflow_set_adm(void *adm);
 int peerflow_init(void);
 
 typedef void (peerflow_acbr_h)(bool enabled, bool offer, void *arg);

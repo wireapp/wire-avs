@@ -57,6 +57,11 @@ extern "C" {
 
 #include "p2p/client/basic_port_allocator.h"
 
+#ifdef ANDROID
+#include <android/log.h>
+#include "sdk/android/native_api/audio_device_module/audio_device_android.h"
+#endif
+
 #include "capture_source.h"
 #include "cbr_detector_local.h"
 #include "cbr_detector_remote.h"
@@ -113,6 +118,9 @@ static struct {
 		bool muted;
 	} audio;
 
+#ifdef ANDROID
+	rtc::scoped_refptr<webrtc::AudioDeviceModule> androidAdm;
+#endif
 
 #if PC_STANDALONE
 	struct dnsc *dnsc;
@@ -692,24 +700,34 @@ public:
 	virtual void OnLogMessage(const std::string& msg,
 					   rtc::LoggingSeverity severity,
 					   const char* tag) {
-		
 		enum log_level lvl = severity2level(severity);
+#ifdef ANDROID
+		__android_log_write(ANDROID_LOG_INFO, tag, msg.c_str());
+#else
 		loglv(lvl, "[%s] %s", tag, msg.c_str());
+#endif
 	}
 
 	virtual void OnLogMessage(const std::string& msg,
 				   rtc::LoggingSeverity severity) {
 		
 		enum log_level lvl = severity2level(severity);
+#ifdef ANDROID
+		__android_log_write(ANDROID_LOG_INFO, "AVS", msg.c_str());
+#else
 		loglv(lvl, "%s", msg.c_str());
+#endif
 	}
 	
 	
 	virtual void OnLogMessage(const std::string& msg) {
+#ifdef ANDROID
+		__android_log_write(ANDROID_LOG_INFO, "AVS", msg.c_str());
+#else
 		error("%s", msg.c_str());
+#endif
 	}	
 };
-
 
 void peerflow_start_log(void)
 {
@@ -764,6 +782,13 @@ int peerflow_set_funcs(void)
 	return 0;
 }
 
+void peerflow_set_adm(void *adm)
+{
+#ifdef ANDROID
+	g_pf.androidAdm = (webrtc::AudioDeviceModule *)adm;
+#endif
+}
+
 int peerflow_init(void)
 {
 	webrtc::AudioDeviceModule *adm;
@@ -793,30 +818,26 @@ int peerflow_init(void)
 #ifndef ANDROID	/* webrtc logging crashes on Android due to JNI/JNA mix */
 	peerflow_start_log();
 #endif
-	
+
 	//pf_platform_init();
 
 	g_pf.thread = rtc::Thread::Create();
 	g_pf.thread->Start();
-#if 0
-	g_pf.thread->Invoke<void>(RTC_FROM_HERE, [] {
-		info("pf: starting runnable\n");
-		pc_platform_init();
-		info("pf: platform initialized\n");
-	});
-#else
 	g_pf.thread->BlockingCall([] {
 		info("pf: starting runnable\n");
 		pc_platform_init();
 		info("pf: platform initialized\n");		
 	});
-#endif
 
 	webrtc::field_trial::InitFieldTrialsFromString(trials_str);
 
+#ifdef ANDROID
+	pc_deps.adm = g_pf.androidAdm;
+#else
 	adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
 	if (adm)
 		pc_deps.adm = adm;
+#endif
 
 	pc_deps.signaling_thread = g_pf.thread.get();
 	pc_deps.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
