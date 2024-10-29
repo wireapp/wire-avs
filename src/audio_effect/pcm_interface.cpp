@@ -165,8 +165,6 @@ int apply_effect_to_pcm(const char* pcmIn,
         return -1;
     }
     
-    webrtc::PushResampler<int16_t> input_resampler(fs_hz, FS_PROC, 1);
-    webrtc::PushResampler<int16_t> output_resampler(FS_PROC, fs_hz, 1);
     
     // Setup Audio Buffer used by apm
     webrtc::AudioFrame near_frame;
@@ -205,6 +203,10 @@ int apply_effect_to_pcm(const char* pcmIn,
     int16_t bufIn[L], procOut[L_proc];
     //int16_t procIn[L_proc], procOut[L_proc];
     size_t count;
+
+    webrtc::PushResampler<int16_t> input_resampler(L, L_proc, 1);
+    webrtc::PushResampler<int16_t> output_resampler(L_proc, L, 1);
+    
     for(int i = 0; i < n_frames; i++){
         count = fread(bufIn,
                       sizeof(int16_t),

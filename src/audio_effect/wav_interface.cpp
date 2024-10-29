@@ -357,9 +357,6 @@ int apply_effect_to_wav(const char* wavIn,
     int progress = 0;
     int rem = 0;
     int n_samp_out = 0;
-
-    webrtc::PushResampler<int16_t> input_resampler(format.sample_rate, FS_PROC, 1);
-    webrtc::PushResampler<int16_t> output_resampler(FS_PROC, format.sample_rate, 1);
     
     // Setup Audio Buffer used by apm
     webrtc::AudioFrame near_frame;
@@ -398,6 +395,10 @@ int apply_effect_to_wav(const char* wavIn,
     int16_t bufIn[L];
     int16_t procIn[L_proc], procOut[L_proc];
     size_t count;
+
+    webrtc::PushResampler<int16_t> input_resampler(L, L_proc, 1);
+    webrtc::PushResampler<int16_t> output_resampler(L_proc, L, 1);
+    
     for(int i = 0; i < N; i++){
         count = fread(bufIn,
                       sizeof(int16_t),
