@@ -624,7 +624,7 @@ onmessage = async (event) => {
 	coders[self] = null;
     }
     else if (op === 'updateSsrc') {
-	const { srca, srcv } = event.data;
+	const { ssrca, ssrcv } = event.data;
 	coder.audio.ssrc = ssrca;
 	coder.video.ssrc = ssrcv;
     }
