@@ -351,6 +351,7 @@ TEST_F(UserlistTest, add_from_sftlist)
 	uint8_t secret1[32] = "secret1                        ";
 	char *userid_hash = NULL;
 	bool changed = false;
+	bool self_changed = false;
 	bool missing = false;
 
 	ASSERT_EQ(userlist_get_count(list), 0);
@@ -358,7 +359,7 @@ TEST_F(UserlistTest, add_from_sftlist)
 	InitSftList(&sftlist1, 0, 1, secret1, sizeof(secret1));
 	InitSftList(&sftlist3, 0, 3, secret1, sizeof(secret1));
 
-	userlist_update_from_sftlist(list, &sftlist1, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist1, &changed, &self_changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 1);
 
 	hash_user(secret1, sizeof(secret1), "user_00000", "client_00000", &userid_hash);
@@ -366,7 +367,7 @@ TEST_F(UserlistTest, add_from_sftlist)
 	ASSERT_TRUE(u != NULL);
 	ASSERT_TRUE(strcmp(u->userid_hash, userid_hash) == 0);
 
-	userlist_update_from_sftlist(list, &sftlist3, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist3, &changed, &self_changed, &missing);
 
 	ASSERT_EQ(userlist_get_count(list), 3);
 
@@ -379,6 +380,7 @@ TEST_F(UserlistTest, merge_sftlist_into_selist)
 	char *userid_hash = NULL;
 	const struct userinfo *u;
 	bool changed = false;
+	bool self_changed = false;
 	bool missing = false;
 	bool removed = false;
 
@@ -394,7 +396,7 @@ TEST_F(UserlistTest, merge_sftlist_into_selist)
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	/* sftlist: [user_00000] */
-	userlist_update_from_sftlist(list, &sftlist1, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist1, &changed, &self_changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	u = userlist_find_by_real(list, "user_00000", "client_00000");
@@ -423,7 +425,7 @@ TEST_F(UserlistTest, merge_sftlist_into_selist)
 	users_synced = false;
 
 	/* sftlist: [user_00000,user_00001,user_00002] */
-	userlist_update_from_sftlist(list, &sftlist3, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist3, &changed, &self_changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	u = userlist_find_by_real(list, "user_00001", "client_00001");
@@ -450,6 +452,7 @@ TEST_F(UserlistTest, merge_selist_into_sftlist)
 	char *userid_hash = NULL;
 	const struct userinfo *u;
 	bool changed = false;
+	bool self_changed = false;
 	bool missing = false;
 	bool removed = false;
 
@@ -460,7 +463,7 @@ TEST_F(UserlistTest, merge_selist_into_sftlist)
 	ASSERT_EQ(userlist_get_count(list), 0);
 
 	/* sftlist: [user_00000] */
-	userlist_update_from_sftlist(list, &sftlist1, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist1, &changed, &self_changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 1);
 
 	ASSERT_TRUE(!users[0].added);
@@ -514,6 +517,7 @@ TEST_F(UserlistTest, kg_change)
 	uint8_t secret1[32] = "secret1                        ";
 	const struct userinfo *u;
 	bool changed = false;
+	bool self_changed = false;
 	bool missing = false;
 	bool removed = false;
 
@@ -529,7 +533,7 @@ TEST_F(UserlistTest, kg_change)
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	/* sftlist: [user_00000] */
-	userlist_update_from_sftlist(list, &sftlist1, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist1, &changed, &self_changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	/* incall: [user_00000] kg: user_00000 */
@@ -541,7 +545,7 @@ TEST_F(UserlistTest, kg_change)
 	users_synced = false;
 
 	/* sftlist: [user_00000,user_00001,user_00002] */
-	userlist_update_from_sftlist(list, &sftlist3, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist3, &changed, &self_changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	/* incall: [user_00000,user_00001,user_00002] kg: user_00000 */
@@ -555,7 +559,7 @@ TEST_F(UserlistTest, kg_change)
 	users_synced = false;
 
 	/* sftlist: [user_0001,user_0002] */
-	userlist_update_from_sftlist(list, &sftlist2, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist2, &changed, &self_changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	/* incall: [user_00001,user_00002] kg: user_00001 */
@@ -657,6 +661,7 @@ TEST_F(UserlistTest, keysync_breakout)
 	uint8_t secret1[32] = "secret1                        ";
 	const struct userinfo *u;
 	bool changed = false;
+	bool self_changed = false;
 	bool missing = false;
 	bool removed = false;
 
@@ -667,7 +672,7 @@ TEST_F(UserlistTest, keysync_breakout)
 
 	SetInSubconv(&selist3, 1);
 	userlist_update_from_selist(list, &selist3, 1, secret1, sizeof(secret1), &changed, &removed);
-	userlist_update_from_sftlist(list, &sftlist3, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist3, &changed, &self_changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	userlist_set_latest_epoch(list, 1);
@@ -699,6 +704,7 @@ TEST_F(UserlistTest, keysync_newclient)
 	uint8_t secret1[32] = "secret1                        ";
 	const struct userinfo *u;
 	bool changed = false;
+	bool self_changed = false;
 	bool missing = false;
 	bool removed = false;
 
@@ -709,7 +715,7 @@ TEST_F(UserlistTest, keysync_newclient)
 
 	SetInSubconv(&selist1, 1);
 	userlist_update_from_selist(list, &selist1, 1, secret1, sizeof(secret1), &changed, &removed);
-	userlist_update_from_sftlist(list, &sftlist3, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist3, &changed, &self_changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	userlist_set_latest_epoch(list, 5);
@@ -731,6 +737,7 @@ TEST_F(UserlistTest, keysync_sftlist)
 	uint8_t secret1[32] = "secret1                        ";
 	const struct userinfo *u;
 	bool changed = false;
+	bool self_changed = false;
 	bool missing = false;
 	bool removed = false;
 
@@ -750,7 +757,7 @@ TEST_F(UserlistTest, keysync_sftlist)
 	userlist_set_latest_epoch_for_client(list, "user_00001", "client_00001", 3);
 	userlist_set_latest_epoch_for_client(list, "user_00002", "client_00002", 2);
 
-	userlist_update_from_sftlist(list, &sftlist1, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist1, &changed, &self_changed, &missing);
 
 	/* key = 1 (self) */
 	ASSERT_EQ(1, userlist_get_key_index(list));
@@ -759,11 +766,11 @@ TEST_F(UserlistTest, keysync_sftlist)
 	/* key = 4 (user_00000) */
 	ASSERT_EQ(4, userlist_get_key_index(list));
 
-	userlist_update_from_sftlist(list, &sftlist3, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist3, &changed, &self_changed, &missing);
 	/* key = 2 (user_00002) */
 	ASSERT_EQ(2, userlist_get_key_index(list));
 
-	userlist_update_from_sftlist(list, &sftlist2, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist2, &changed, &self_changed, &missing);
 	/* key = 3 (user_00001) */
 	ASSERT_EQ(3, userlist_get_key_index(list));
 
@@ -779,6 +786,7 @@ TEST_F(UserlistTest, get_members)
 	const struct userinfo *u;
 	struct wcall_members *members = NULL;
 	bool changed = false;
+	bool self_changed = false;
 	bool missing = false;
 	bool removed = false;
 
@@ -791,7 +799,7 @@ TEST_F(UserlistTest, get_members)
 	userlist_update_from_selist(list, &selist2, 1, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 2);
 
-	userlist_update_from_sftlist(list, &sftlist2, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist2, &changed, &self_changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	ASSERT_EQ(0, userlist_get_members(list,
@@ -828,6 +836,7 @@ TEST_F(UserlistTest, get_members_mute_state)
 	struct list levell = LIST_INIT;
 	struct wcall_members *members = NULL;
 	bool changed = false;
+	bool self_changed = false;
 	bool missing = false;
 	bool removed = false;
 
@@ -841,7 +850,7 @@ TEST_F(UserlistTest, get_members_mute_state)
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	SetMuted(&sftlist3, 2);
-	userlist_update_from_sftlist(list, &sftlist3, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist3, &changed, &self_changed, &missing);
 
 	InitAudioLevelList(&levell, 0, 3, 1);
 	userlist_update_audio_level(list, &levell, &changed);
@@ -882,6 +891,7 @@ TEST_F(UserlistTest, get_partlist)
 	struct econn_group_part *p = NULL;
 	char *userid_hash = NULL;
 	bool changed = false;
+	bool self_changed = false;
 	bool missing = false;
 	bool removed = false;
 
@@ -895,7 +905,7 @@ TEST_F(UserlistTest, get_partlist)
 	userlist_update_from_selist(list, &selist2, 1, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 2);
 
-	userlist_update_from_sftlist(list, &sftlist2, &changed, &missing);
+	userlist_update_from_sftlist(list, &sftlist2, &changed, &self_changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
 	ASSERT_EQ(0, userlist_get_partlist(list, &partlist, false));
