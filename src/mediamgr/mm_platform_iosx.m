@@ -817,13 +817,16 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 			 * re-init session
 			 */
 			info("mediamgr: AVAudioSessionMediaServices"
-			     "WereResetNotification received\n");
+			     "WereResetNotification received incall=%d\n",
+			     mm_ios.incall);
 
-			mm_ios.route_override = false;
-			interrupt_action(true);
-			mediamgr_reset_sounds(mm_ios.mm);
-			interrupt_action(false);
-			mediamgr_audio_reset_mm(mm_ios.mm);
+			if (mm_ios.incall) {
+				mm_ios.route_override = false;
+				interrupt_action(true);
+				mediamgr_reset_sounds(mm_ios.mm);
+				interrupt_action(false);
+				mediamgr_audio_reset_mm(mm_ios.mm);
+			}
 		}];
 
 	[nc addObserverForName:UIApplicationDidBecomeActiveNotification
@@ -1106,8 +1109,8 @@ void mm_platform_enter_call(void)
 	AVAudioSession *sess = [AVAudioSession sharedInstance];
 	NSString *cat = [sess category];
  
-	info("mm_platform_ios: enter_call: incall=%s cat=$@\n",
-	     mm_ios.incall ? "yes" : "no", cat);
+	info("mm_platform_ios: enter_call: incall=%s cat=%s\n",
+	     mm_ios.incall ? "yes" : "no", [cat UTF8String]);
 
 	mm_ios.incall = true;
 	
