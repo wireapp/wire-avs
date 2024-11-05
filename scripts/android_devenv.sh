@@ -15,11 +15,11 @@ fi
 PLATFORM=$(uname -s | awk '{ print tolower($1) }')
 MACHINE=$(uname -m)
 
-TOOLS_VER=9123335_latest
-BUILDTOOLS_VER=32.0.0
+TOOLS_VER=11076708_latest
+BUILDTOOLS_VER=34.0.0
 # Use NDK r22b for building with M102 webrtc
-ANDROID_NDK_VER=22.1.7171670
-ANDROID_SDK_VER=android-21
+ANDROID_NDK_VER=27.2.12479018
+ANDROID_SDK_VER=android-27
 
 if [[ "$PLATFORM" == "darwin" ]]; then
 	ANDROID_SDK_PLAT=mac

@@ -32,17 +32,22 @@ extern "C" {
 #endif
 
 #include "api/scoped_refptr.h"
+#include "api/enable_media.h"
 #include "api/peer_connection_interface.h"
-#include "api/call/call_factory_interface.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
+#include "api/video_codecs/video_decoder_factory_template.h"
+#include "api/video_codecs/video_decoder_factory_template_libvpx_vp8_adapter.h"
+#include "api/video_codecs/video_encoder_factory_template.h"
+#include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
 #include "api/media_stream_interface.h"
 #include "api/data_channel_interface.h"
 #include "api/task_queue/default_task_queue_factory.h"
 #include "modules/audio_processing/include/audio_processing.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
+#include "rtc_base/crypto_random.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/physical_socket_server.h"
 #include "media/engine/webrtc_media_engine.h"
@@ -51,6 +56,11 @@ extern "C" {
 #include "modules/video_capture/video_capture_factory.h"
 
 #include "p2p/client/basic_port_allocator.h"
+
+#ifdef ANDROID
+#include <android/log.h>
+#include "sdk/android/native_api/audio_device_module/audio_device_android.h"
+#endif
 
 #include "capture_source.h"
 #include "cbr_detector_local.h"
@@ -67,6 +77,7 @@ extern "C" {
 #define TMR_STATS_INTERVAL      1000
 #define TMR_CBR_INTERVAL        2500
 #define TMR_RESTART_INTERVAL    2000
+#define TMR_GATHER_TIMEOUT      2000
 
 #define DOUBLE_ENCRYPTION 1
 
@@ -76,8 +87,8 @@ extern "C" {
 
 #define RID_HI "h"
 #define RID_LO "l"
-#define VIDEO_BITRATE_HI (600 * 1024)
-#define VIDEO_BITRATE_LO (160 * 1024)
+#define VIDEO_BITRATE_HI (800 * 1024)
+#define VIDEO_BITRATE_LO (240 * 1024)
 
 static const char trials_str[] =
 #if 1
@@ -107,6 +118,9 @@ static struct {
 		bool muted;
 	} audio;
 
+#ifdef ANDROID
+	rtc::scoped_refptr<webrtc::AudioDeviceModule> androidAdm;
+#endif
 
 #if PC_STANDALONE
 	struct dnsc *dnsc;
@@ -202,10 +216,12 @@ struct peerflow {
 	struct le le;
 
 	struct tmr tmr_stats;
+	struct tmr tmr_gather;
 	wire::NetStatsCallback *netStatsCb;
 	std::string remoteSdp;
 	bool selective_audio;
 	bool selective_video;
+	bool sdp_needs_munging;
 };
 
 
@@ -684,24 +700,34 @@ public:
 	virtual void OnLogMessage(const std::string& msg,
 					   rtc::LoggingSeverity severity,
 					   const char* tag) {
-		
 		enum log_level lvl = severity2level(severity);
+#ifdef ANDROID
+		__android_log_write(ANDROID_LOG_INFO, tag, msg.c_str());
+#else
 		loglv(lvl, "[%s] %s", tag, msg.c_str());
+#endif
 	}
 
 	virtual void OnLogMessage(const std::string& msg,
 				   rtc::LoggingSeverity severity) {
 		
 		enum log_level lvl = severity2level(severity);
+#ifdef ANDROID
+		__android_log_write(ANDROID_LOG_INFO, "AVS", msg.c_str());
+#else
 		loglv(lvl, "%s", msg.c_str());
+#endif
 	}
 	
 	
 	virtual void OnLogMessage(const std::string& msg) {
+#ifdef ANDROID
+		__android_log_write(ANDROID_LOG_INFO, "AVS", msg.c_str());
+#else
 		error("%s", msg.c_str());
+#endif
 	}	
 };
-
 
 void peerflow_start_log(void)
 {
@@ -756,11 +782,17 @@ int peerflow_set_funcs(void)
 	return 0;
 }
 
+void peerflow_set_adm(void *adm)
+{
+#ifdef ANDROID
+	g_pf.androidAdm = (webrtc::AudioDeviceModule *)adm;
+#endif
+}
+
 int peerflow_init(void)
 {
 	webrtc::AudioDeviceModule *adm;
 	webrtc::PeerConnectionFactoryDependencies pc_deps;
-	cricket::MediaEngineDependencies me_deps;
 	int err;
 
 	if (g_pf.initialized)
@@ -786,43 +818,49 @@ int peerflow_init(void)
 #ifndef ANDROID	/* webrtc logging crashes on Android due to JNI/JNA mix */
 	peerflow_start_log();
 #endif
-	
+
 	//pf_platform_init();
 
 	g_pf.thread = rtc::Thread::Create();
 	g_pf.thread->Start();
-#if 1
-	g_pf.thread->Invoke<void>(RTC_FROM_HERE, [] {
-		info("pf: starting runnable\n");
-		pc_platform_init();
-		info("pf: platform initialized\n");
-	});
-#else
 	g_pf.thread->BlockingCall([] {
 		info("pf: starting runnable\n");
 		pc_platform_init();
 		info("pf: platform initialized\n");		
 	});
-#endif
 
 	webrtc::field_trial::InitFieldTrialsFromString(trials_str);
 
+#ifdef ANDROID
+	pc_deps.adm = g_pf.androidAdm;
+#else
 	adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
 	if (adm)
-		me_deps.adm = adm;
-	me_deps.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory().release();
-	me_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
-	me_deps.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
-	me_deps.video_encoder_factory = webrtc::CreateBuiltinVideoEncoderFactory();
-	me_deps.video_decoder_factory = webrtc::CreateBuiltinVideoDecoderFactory();
-	me_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();
+		pc_deps.adm = adm;
+#endif
 
 	pc_deps.signaling_thread = g_pf.thread.get();
-	pc_deps.media_engine = cricket::CreateMediaEngine(std::move(me_deps));
-	pc_deps.call_factory = webrtc::CreateCallFactory();
 	pc_deps.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
+	pc_deps.network_thread = rtc::Thread::Current();
+	pc_deps.worker_thread = rtc::Thread::Current();
+	pc_deps.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
 
-	//pc_deps.event_log_factory = webrtc::CreateRtcEventLogFactory();
+	/* Media dependencies */
+
+	/* Audio */
+	pc_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
+	pc_deps.audio_decoder_factory =	webrtc::CreateBuiltinAudioDecoderFactory();
+	pc_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();
+
+	/* Video */
+	pc_deps.video_encoder_factory =
+		std::make_unique<webrtc::VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter>>();
+	pc_deps.video_decoder_factory =
+		std::make_unique<webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter>>();
+
+	/* Media must be explicilty enabled */
+	webrtc::EnableMedia(pc_deps);
+
 	g_pf.pc_factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
 
 	if (!g_pf.pc_factory) {
@@ -1012,6 +1050,8 @@ static void invoke_gather(struct peerflow *pf,
 	std::string sdp_str;
 	struct mq_data *md;
 	const char *type;
+
+	tmr_cancel(&pf->tmr_gather);
 	
 	type = SdpTypeToString(isdp->GetType());
 	
@@ -1030,6 +1070,16 @@ static void disconnect_timeout_handler(void *arg)
 	pf = (struct peerflow *)arg;
 	IFLOW_CALL_CB(pf->iflow, restarth,
 		false, pf->iflow.arg);
+}
+
+static void gather_timeout_handler(void *arg)
+{
+	struct peerflow *pf = (struct peerflow *)arg;
+	const webrtc::SessionDescriptionInterface *isdp;
+
+	isdp = pf->peerConn->local_description();
+	if (isdp)
+		invoke_gather(pf, isdp);
 }
 
 class AvsPeerConnectionObserver : public webrtc::PeerConnectionObserver {
@@ -1268,19 +1318,39 @@ public:
 	virtual void OnIceCandidate(const webrtc::IceCandidateInterface* icand)
 	{
 		std::string cand_str;
-		const cricket::Candidate& cand = icand->candidate();
 
+		if (!icand) {
+			const webrtc::SessionDescriptionInterface *isdp;
+
+			info("pf(%p): OnIceCandidate: end-of-candidates\n", pf_);
+			pf_->gathered = true;
+			isdp = pf_->peerConn->local_description();
+			if (isdp)
+				invoke_gather(pf_, isdp);
+			else {
+				warning("pf(%p): ice candidate "
+					"no local SDP\n", pf_);
+			}
+			return;
+		}
+		
+		const cricket::Candidate& cand = icand->candidate();
+		
 		icand->ToString(&cand_str);
-		info("pf(%p): OnIceCandidate: %s has %d candidates\n",
-		     pf_, cand_str.c_str(), pf_->ncands);
+		info("pf(%p): OnIceCandidate: %s url=%s has %d candidates\n",
+		     pf_, cand_str.c_str(), icand->server_url().c_str(), pf_->ncands);
 
 		++pf_->ncands;
 
-		if (!pf_->gathered && cand.type() == std::string("relay")) {
-			const webrtc::SessionDescriptionInterface *isdp;
+		if (cand.type() == webrtc::IceCandidateType::kRelay) {
 			
-			info("pf(%p): received first RELAY candidate\n", pf_);
+			info("pf(%p): received RELAY candidate\n", pf_);
 
+			if (!tmr_isrunning(&pf_->tmr_gather)) {
+				tmr_start(&pf_->tmr_gather, TMR_GATHER_TIMEOUT,
+					  gather_timeout_handler, pf_);
+			}
+#if 0
 			pf_->gathered = true;
 			isdp = pf_->peerConn->local_description();
 			if (isdp)
@@ -1290,7 +1360,7 @@ public:
 					"no local SDP\n", pf_);
 				return;
 			}
-			
+#endif
 		}
 	}
 
@@ -1378,8 +1448,8 @@ public:
 				rtc::scoped_refptr<wire::FrameDecryptor> decryptor(
 					rtc::make_ref_counted<wire::FrameDecryptor>(
 					FRAME_MEDIA_VIDEO, pf_));
-				err = decryptor->SetKeystore(pf_->keystore);
-				if (err) {
+				int e2 = decryptor->SetKeystore(pf_->keystore);
+				if (e2) {
 					warning("pf(%p): failed to set keystore for "
 						"decryptor (%m)\n",
 						pf_, err);
@@ -1403,18 +1473,18 @@ public:
 				rtc::scoped_refptr<wire::FrameDecryptor> decryptor(
 					rtc::make_ref_counted<wire::FrameDecryptor>(
 					FRAME_MEDIA_AUDIO, pf_));
-				err = decryptor->SetKeystore(pf_->keystore);
-				if (err) {
+				int e2 = decryptor->SetKeystore(pf_->keystore);
+				if (e2) {
 					warning("pf(%p): failed to set keystore for "
 						"decryptor (%m)\n",
-						pf_, err);
+						pf_, e2);
 				}
 				if (dec_uid) {
 					err = decryptor->SetUserID(dec_uid);
 					if (err) {
 						warning("pf(%p): failed to set userid for "
 							"decryptor (%m)\n",
-							pf_, err);
+							pf_, e2);
 					}
 				}
 				rx->SetFrameDecryptor(decryptor);
@@ -1601,6 +1671,11 @@ public:
 		if (!err.ok())
 			return;
 
+		const webrtc::SessionDescriptionInterface *rsdp = pf_->peerConn->remote_description();
+		info("peerflow(%p): remote sdp=%p\n", pf_, rsdp);
+		if (rsdp)
+			rsdp->ToString(&pf_->remoteSdp);
+		
 		if (pf_->conv_type != ICALL_CONV_TYPE_CONFERENCE)
 			return;
 
@@ -1646,7 +1721,7 @@ public:
 					}
 				}
 
-				params.degradation_preference = webrtc::DegradationPreference::MAINTAIN_FRAMERATE;
+				params.degradation_preference = webrtc::DegradationPreference::MAINTAIN_RESOLUTION;
 				sender->SetParameters(params);
 				sender->track()->set_enabled(true);
 			}
@@ -1919,6 +1994,10 @@ static int create_pf(struct peerflow *pf)
 	struct msystem_proxy *proxy = msystem_get_proxy();
 
 	if (proxy) {
+		/* This approach is deprecated and using a
+		 * PacketSocketFactory is the correct approach now
+		 */
+#if 0
 		rtc::ProxyInfo pri;
 		rtc::SocketAddress sa(proxy->host, proxy->port);
 		rtc::PhysicalSocketServer socket_server;
@@ -1932,10 +2011,10 @@ static int create_pf(struct peerflow *pf)
 					   nullptr);
 		
 		port_allocator->set_proxy("wire-call", pri);
+#endif
 	}
 
 	webrtc::PeerConnectionDependencies deps(pf->observer);
-
 	deps.allocator = std::move(port_allocator);
 	webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::PeerConnectionInterface>> pcorerr;
 	pcorerr = g_pf.pc_factory->CreatePeerConnectionOrError(
@@ -1944,7 +2023,7 @@ static int create_pf(struct peerflow *pf)
 	if (!pcorerr.ok()) {
 		warning("peerflow(%p): failed to create PC\n", pf);
 		err = ENOENT;
-		goto out;
+		return err;
 	}
 
 	pf->peerConn = pcorerr.value();
@@ -1965,28 +2044,39 @@ static int create_pf(struct peerflow *pf)
 	if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
 		tmr_start(&pf->tmr_cbr, TMR_CBR_INTERVAL, timer_cbr, pf);
 	}
-	pf->rtpSender = pf->peerConn->AddTrack(pf->audio.track,
-					       {rtc::CreateRandomUuid()}).value();
+	webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::RtpSenderInterface>> aserr =
+		pf->peerConn->AddTrack(pf->audio.track,
+				       {rtc::CreateRandomUuid()});
+	if (aserr.ok()) {
+		pf->rtpSender = aserr.value();
+	}
+	else {
+		warning("createPC: failed to create audio track: %s\n",
+			aserr.error().message());
+		return ENOSYS;
+	}
 
 #if DOUBLE_ENCRYPTION
-	if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
+	if (pf->rtpSender && pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
 		rtc::scoped_refptr<wire::FrameEncryptor> encryptor;
 		encryptor = new wire::FrameEncryptor(pf->userid_self,
 						     FRAME_MEDIA_AUDIO);
+		info("peerflow(%p): setting keystore on encryptor\n", pf);
 		err = encryptor->SetKeystore(pf->keystore);
 		if (err) {
 			warning("pf(%p): failed to set keystore for "
 				"encryptor (%m)\n",
 				pf, err);
-			goto out;
+			return err;
 		}
+		info("peerflow(%p): setting frame encryptor on: %p\n", pf, pf->rtpSender.get());
 		pf->rtpSender->SetFrameEncryptor(encryptor);
+		info("peerflow(%p): setting frame encryptor on: %p done\n", pf, pf->rtpSender.get());
 	} else
 #endif
-	if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
+	if (pf->rtpSender && pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
 		pf->rtpSender->SetFrameEncryptor(pf->cbr_det_local);
 	}
-
 	if (pf->call_type == ICALL_CALL_TYPE_VIDEO ||
 	    pf->vstate != ICALL_VIDEO_STATE_STOPPED) {
 
@@ -1997,7 +2087,6 @@ static int create_pf(struct peerflow *pf)
 			 src);
 
 		pf->video.track->set_enabled(true);
-
 		if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
 			rtc::scoped_refptr<webrtc::RtpSenderInterface> video_track =
 				pf->peerConn->AddTrack(pf->video.track,
@@ -2034,6 +2123,7 @@ static void pf_destructor(void *arg)
 
 	pf->netStatsCb->setActive(false);
 	tmr_cancel(&pf->tmr_stats);
+	tmr_cancel(&pf->tmr_gather);
 
 	delete pf->netStatsCb;
 	pf->netStatsCb = NULL;
@@ -2556,12 +2646,18 @@ static void pf_tool_handler(const char *tool, void *arg)
 		}
 		pf->selective_audio = major >= 2;
 		pf->selective_video = major > 2 || (major == 2 && minor >= 1);
+		if (major == 4 && minor == 1) {
+			pf->sdp_needs_munging = true;
+		}
 		info("peerflow(%p): set_sft_options: ver: %d.%d"
-		     " selective_audio: %s selective_video: %s\n",
+		     " selective_audio: %s selective_video: %s"
+		     " sdp_needs_munging: %s\n",
 		     pf,
 		     major, minor,
 		     pf->selective_audio ? "YES" : "NO",
-		     pf->selective_video ? "YES" : "NO");
+		     pf->selective_video ? "YES" : "NO",
+		     pf->sdp_needs_munging ? "YES" : "NO");
+
 	}
 
 	mem_deref(tc);
@@ -2569,7 +2665,7 @@ static void pf_tool_handler(const char *tool, void *arg)
 
 
 int peerflow_handle_offer(struct iflow *iflow,
-			  const char *sdp_str)
+			  const char *sdp_in)
 {
 	struct sdp_media *sdpm = NULL;
 	struct sdp_media *newm = NULL;
@@ -2581,23 +2677,42 @@ int peerflow_handle_offer(struct iflow *iflow,
 	char *label;	
 	uint32_t ssrc;
 	struct peerflow *pf = (struct peerflow*)iflow;
-	webrtc::SessionDescriptionInterface *isdp;	
+	webrtc::SessionDescriptionInterface *isdp;
+	char *sdp_str;
 	int err = 0;
 	
-	if (!pf || !sdp_str)
+	if (!pf || !sdp_in)
 		return EINVAL;
 
 	info("peerflow(%p): handle SDP-offer:\n"
 	     "%s\n",
-	     pf, sdp_str);
-
-	sdp_check(sdp_str, false, true, pf_acbr_handler,
+	     pf, sdp_in);
+	
+	sdp_check(sdp_in, false, true, pf_acbr_handler,
 		  pf_norelay_handler, pf_tool_handler, pf);
+
+	if (!pf->sdp_needs_munging) {
+		sdp_str = sdp_in;
+	}
+	else {
+		err = sdp_munge(&sdp_str, sdp_in, pf->conv_type, true);
+		if (err) {
+			warning("peerflow_handle_offer: failed to munge SDP: %m\n", err);
+			return err;
+		}
+		info("peerflow(%p): handle SDP-offer-munged:\n"
+		     "%s\n",
+		     pf, sdp_str);
+	}
 
 	webrtc::SdpParseError parse_err;
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
 		webrtc::CreateSessionDescription(webrtc::SdpType::kOffer,
 						 sdp_str, &parse_err);
+	if (pf->sdp_needs_munging) {
+		mem_deref(sdp_str);
+	}
+
 	if (sdp == nullptr) {
 		warning("peerflow_handle_offer: failed to parse SDP: "
 			"line=%s reason=%s\n",
@@ -2611,12 +2726,9 @@ int peerflow_handle_offer(struct iflow *iflow,
 				goto out;
 		}
 
+		info("peerflow(%p): setting remote description on pc=%p\n", pf, pf->peerConn.get());
 		pf->peerConn->SetRemoteDescription(std::move(sdp),
 						   pf->sdpRemoteObserver);
-						   
-		
-		const webrtc::SessionDescriptionInterface *rsdp = pf->peerConn->remote_description();
-		rsdp->ToString(&pf->remoteSdp);
 	}
 
 out:
@@ -2654,8 +2766,6 @@ int peerflow_handle_answer(struct iflow *iflow,
 	else {
 		pf->peerConn->SetRemoteDescription(std::move(sdp),
 					     pf->sdpRemoteObserver);
-		const webrtc::SessionDescriptionInterface *rsdp = pf->peerConn->remote_description();
-		rsdp->ToString(&pf->remoteSdp);
 	}
 
 	return err;
@@ -2742,7 +2852,13 @@ static int peerflow_bundle_update(struct iflow *flow, const char *sdp)
 	rtc::scoped_refptr<webrtc::SetRemoteDescriptionObserverInterface> observer;
 	webrtc::SessionDescriptionInterface *isdp;
 
+	info("peerflow_bundle_update(%p): sdp-bundle=\n%s\n", flow, sdp);
+
 	isdp = sdp_interface(sdp, webrtc::SdpType::kOffer);
+	if (!isdp) {
+		warning("peerflow_bundle_update(%p): sdp failed\n", flow);
+		return EPROTO;
+	}
 
 	std::string sdpoffer;
 	
@@ -2837,7 +2953,7 @@ int peerflow_sync_decoders(struct iflow *iflow)
 	char *sdp = NULL;
 	int err = 0;
 
-	info("pf(%p): sync_decoders\n", pf);
+	info("pf(%p): sync_decoders selective_video=%d\n", pf, pf->selective_video);
 
 	if (!pf)
 		return EINVAL;
@@ -3015,11 +3131,11 @@ bool peerflow_has_video(const struct iflow *iflow)
 		cricket::MediaType mt = trx->media_type();
 		debug("pf(%p): has_video: mt=%d\n", pf, mt);
 		if (mt == cricket::MEDIA_TYPE_VIDEO) {
-			absl::optional<webrtc::RtpTransceiverDirection>	dir;
+			std::optional<webrtc::RtpTransceiverDirection>	dir;
 
 			dir = trx->current_direction();
-			if (dir.has_value()) {
-				switch (dir.value()) {
+			if (dir) {
+				switch (*dir) {
 				case webrtc::RtpTransceiverDirection::kSendRecv:
 				case webrtc::RtpTransceiverDirection::kSendOnly:
 					return true;

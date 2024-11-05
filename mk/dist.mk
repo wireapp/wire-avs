@@ -96,7 +96,7 @@ DIST_BUNDLE_LIB := \
 	DTPlatformBuild="14C89";\
 	DTCompiler="com.apple.compilers.llvm.clang.1_0";\
 	DTXCodeBuild="8C1002";\
-	MinimumOSVersion="13.0";\
+	MinimumOSVersion="15.0";\
 	UIDeviceFamily=(1, 2);\
 	BuildMachineOSBuild="16D32";\
 	CFBundleDevelopmentRegion="en";\
@@ -151,6 +151,7 @@ AVS_ARCH_NAME := $1\n\
 		$(BUILD_DIST_AND)/aar/jni/$2/libavs.so
 	mkdir -p $(BUILD_DIST_AND)/debug/$2/
 	cp android/obj/local/$2/libavs.so $(BUILD_DIST_AND)/debug/$2/libavs.so
+	cp $(TOOLCHAIN_PATH)/sysroot/usr/lib/$3/libc++_shared.so $(BUILD_DIST_AND)/aar/jni/$2/
 endef
 
 
@@ -162,19 +163,19 @@ $(BUILD_DIST_AND)/avs.aar:
 		$(BUILD_DIST_AND)/aar
 
 ifneq ($(filter armv7,$(DIST_ARCH)),)
-	$(call build_arch,armv7,armeabi-v7a)
+	$(call build_arch,armv7,armeabi-v7a,arm-linux-androideabi)
 endif
 
 ifneq ($(filter arm64,$(DIST_ARCH)),)
-	$(call build_arch,arm64,arm64-v8a)
+	$(call build_arch,arm64,arm64-v8a,aarch64-linux-android)
 endif
 
 ifneq ($(filter i386,$(DIST_ARCH)),)
-	$(call build_arch,i386,x86)
+	$(call build_arch,i386,x86,i686-linux-android)
 endif
 
 ifneq ($(filter x86_64,$(DIST_ARCH)),)
-	$(call build_arch,x86_64,x86_64)
+	$(call build_arch,x86_64,x86_64,x86_64-linux-android)
 endif
 
 #ifneq ($(filter osx,$(DIST_ARCH)),)

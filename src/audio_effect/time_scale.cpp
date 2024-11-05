@@ -126,7 +126,7 @@ void time_scale_init(struct time_scale* ts, int fs_in_hz, int fs_out_hz)
 }
 
 void time_scale_insert(struct time_scale* ts,
-                       int16_t in[],
+                       int16_t *in,
                        int N,
                        int pL_max,
                        int pL_min,
@@ -143,7 +143,7 @@ void time_scale_insert(struct time_scale* ts,
 }
 
 void time_scale_extract(struct time_scale* ts,
-                        int16_t out[],
+                        int16_t *out,
                         int N)
 {
     int pitchL, maxL, minL;

@@ -45,7 +45,9 @@ LOCAL_LDLIBS    += \
 		-lsodium \
 		-llog -lz -lGLESv2 \
 		-latomic \
-		-lwebrtc
+		-lwebrtc \
+		-lc++ \
+		-lc++abi
 
 
 ifeq ($(TARGET_ARCH_ABI),armeabi-v7a)

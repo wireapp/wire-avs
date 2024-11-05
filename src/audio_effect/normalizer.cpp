@@ -38,11 +38,7 @@ void* create_normalizer(int fs_hz, int strength)
 {
     struct normalizer_effect* ne = (struct normalizer_effect*)calloc(sizeof(struct normalizer_effect),1);
  
-    ne->resampler = new webrtc::PushResampler<int16_t>;
-
     ne->fs_khz = fs_hz/1000;
-    
-    ne->resampler->InitializeIfNeeded(fs_hz, NE_VAD_FS_KHZ*1000, 1);
     
     silk_VAD_Init(&ne->silk_enc.sVAD);
     
@@ -60,9 +56,8 @@ void reset_normalizer(void *st, int fs_hz)
     struct normalizer_effect *ne = (struct normalizer_effect*)st;
     
     ne->fs_khz = fs_hz/1000;
-    
-    ne->resampler->InitializeIfNeeded(fs_hz, NE_VAD_FS_KHZ*1000, 1);
-    
+
+
     silk_VAD_Init(&ne->silk_enc.sVAD);
     
     memset(ne->vad_buf, 0, sizeof(ne->vad_buf));
@@ -79,12 +74,10 @@ void free_normalizer(void *st)
 {
     struct normalizer_effect *ne = (struct normalizer_effect*)st;
     
-    delete ne->resampler;
-    
     free(ne);
 }
 
-static void apply_gain(struct normalizer_effect *ne,  int16_t in[], int16_t out[], int L)
+static void apply_gain(struct normalizer_effect *ne,  int16_t *in, int16_t *out, int L)
 {
     int L_sub = ne->fs_khz;
     int N = L / L_sub;
@@ -124,7 +117,7 @@ static void apply_gain(struct normalizer_effect *ne,  int16_t in[], int16_t out[
     }
 }
 
-void normalizer_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t *L_out)
+void normalizer_process(void *st, int16_t *in, int16_t *out, size_t L_in, size_t *L_out)
 {
     struct normalizer_effect *ne = (struct normalizer_effect*)st;
     int L10 = (ne->fs_khz * 10);
@@ -134,8 +127,15 @@ void normalizer_process(void *st, int16_t in[], int16_t out[], size_t L_in, size
     }
     int L_buf = (NE_VAD_FS_KHZ * L10) / ne->fs_khz;
     int16_t buf[L_buf];
+    auto resampler = webrtc::PushResampler<int16_t>(L10,
+						    L_buf,
+						    1);
+
     for( int i = 0; i < N; i++){
-        ne->resampler->Resample( &in[i*L10], L10, buf, L_buf);
+	webrtc::MonoView<int16_t> inv(&in[i*L10], L10);
+	webrtc::MonoView<int16_t> outv(buf, L_buf);
+	    
+        resampler.Resample(inv, outv); 
 
         ne->silk_enc.frame_length = L_buf;
         silk_VAD_GetSA_Q8_c(&ne->silk_enc, buf);

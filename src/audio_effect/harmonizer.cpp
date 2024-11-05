@@ -93,13 +93,9 @@ void* create_harmonizer(int fs_hz, int strength)
 {
     struct harmonizer_effect* he = (struct harmonizer_effect*)calloc(sizeof(struct harmonizer_effect),1);
  
-    he->resampler = new webrtc::PushResampler<int16_t>;
-
     he->fs_khz = fs_hz/1000;
     
     init_find_pitch_lags(&he->pest, fs_hz, 2);
-    
-    he->resampler->InitializeIfNeeded(fs_hz, fs_hz * HMZ_UP_FAC, 1);
     
     for(int i = 0; i < HMZ_NUM_CHANNELS; i++){
         time_scale_init(&he->hm_ch[i].tscale, fs_hz, fs_hz);
@@ -128,7 +124,6 @@ void free_harmonizer(void *st)
 {
     struct harmonizer_effect *he = (struct harmonizer_effect*)st;
     
-    delete he->resampler;
     free_find_pitch_lags(&he->pest);
     
     free(he);
@@ -198,6 +193,8 @@ void harmonizer_process(void *st, int16_t in[], int16_t out[], size_t L_in, size
     int16_t in_lp[L10];
     int pL[HMZ_NUM_CHANNELS], median_pL;
     float comp[HMZ_NUM_CHANNELS];
+    auto resampler = webrtc::PushResampler<int16_t>(L10, L10_out, 1);
+
     for( int i = 0; i < N; i++){
         biquad(&he->lp_filt[0], a_lp[0], b_lp[0], &in[i*L10], in_lp, L10);
         for(int j = 1 ; j < HMZ_NUM_BIQUADS; j++){
@@ -206,7 +203,11 @@ void harmonizer_process(void *st, int16_t in[], int16_t out[], size_t L_in, size
         
         find_pitch_lags(&he->pest, &in[i*L10], L10);
 
-        he->resampler->Resample( &in[i*L10], L10, &he->buf[(HMZ_BUF_FRAMES-1)*L10_out + L_extra], L10_out);
+	webrtc::MonoView<int16_t> inv(&in[i*L10], L10);
+	webrtc::MonoView<int16_t> outv(&he->buf[(HMZ_BUF_FRAMES-1)*L10_out + L_extra],
+				       L10_out);
+	
+        resampler.Resample(inv, outv);
         
         he->pL_buf[HMZ_PL_BUF_SZ-1] = ((he->pest.pitchL[2] + he->pest.pitchL[3]) >> 1);
         

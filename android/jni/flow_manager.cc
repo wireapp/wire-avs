@@ -24,6 +24,9 @@
 //#include "webrtc/voice_engine/include/voe_base.h"
 #include "rtc_base/platform_thread_types.h"
 #include "modules/utility/include/jvm_android.h"
+#ifdef ANDROID
+#include "sdk/android/native_api/audio_device_module/audio_device_android.h"
+#endif
 
 #include <unistd.h>
 #include <pthread.h>
@@ -425,7 +428,7 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 	//info("Calling SetAndroidObjects\n");
 	//	webrtc::VoiceEngine::SetAndroidObjects(java.vm, ctx);
 
-	//__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: setting ctx\n");
+	__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: setting ctx\n");
 	info("calling webrtc::JVM:Initialize: vm=%p ctx=%p\n",
 	     java.vm, ctx);
 
@@ -437,7 +440,9 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 
 
 	if (1) {
+		__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: calling JVM::Initialize\n");
 		webrtc::JVM::Initialize(java.vm, ctx);
+		__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: calling JVM::Initialize done\n");
 		std::unique_ptr<webrtc::JNIEnvironment> jenv = webrtc::JVM::GetInstance()->environment();
 		info("flow_manager: init: vm: %p env: %p\n",
 		     webrtc::JVM::GetInstance()->jvm(),
@@ -445,6 +450,11 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 	}
 	
 	java.context = env->NewGlobalRef(ctx);
+
+#ifdef ANDROID
+	auto adm = webrtc::CreateOpenSLESAudioDeviceModule(env, ctx);
+	peerflow_set_adm((void *)adm.get());
+#endif
 
 #if 0//USE_BREAKPAD	
 	setup_breakpad(env, ctx);
@@ -1322,7 +1332,7 @@ static int vie_jni_get_view_size_handler(const void *view, int *w, int *h)
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved)
 {
 	//info("JNI_OnLoad\n");
-	//__android_log_write(ANDROID_LOG_INFO, "AVS-I", "JNI_OnLoad\n");
+	__android_log_write(ANDROID_LOG_INFO, "AVS-I", "JNI_OnLoad\n");
 
 	(void)reserved;
 

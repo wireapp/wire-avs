@@ -102,15 +102,11 @@ void* create_auto_tune(int fs_hz, int strength)
 {
     struct auto_tune_effect* ate = (struct auto_tune_effect*)calloc(sizeof(struct auto_tune_effect),1);
  
-    ate->resampler = new webrtc::PushResampler<int16_t>;
-
     ate->fs_khz = fs_hz/1000;
     
     init_find_pitch_lags(&ate->pest, fs_hz, 2);
     
     time_scale_init(&ate->tscale, fs_hz, fs_hz);
-    
-    ate->resampler->InitializeIfNeeded(fs_hz, fs_hz * ATE_UP_FAC, 1);
     
     ate->read_idx = ate->fs_khz * ATE_EXTRA_BUF_MS * ATE_UP_FAC;
     ate->comp_smth = 1.0f;
@@ -140,7 +136,6 @@ void free_auto_tune(void *st)
 {
     struct auto_tune_effect *ate = (struct auto_tune_effect*)st;
     
-    delete ate->resampler;
     free_find_pitch_lags(&ate->pest);
     
     free(ate);
@@ -210,6 +205,7 @@ void auto_tune_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_
     int16_t in_lp[L10];
     int pL, median_pL;
     float comp;
+    auto resampler = webrtc::PushResampler<int16_t>(L10, L10_out, 1);
     for( int i = 0; i < N; i++){
         biquad(&ate->lp_filt[0], a_lp[0], b_lp[0], &in[i*L10], in_lp, L10);
         for(int j = 1 ; j < ATE_NUM_BIQUADS; j++){
@@ -218,7 +214,11 @@ void auto_tune_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_
         
         find_pitch_lags(&ate->pest, &in[i*L10], L10);
 
-        ate->resampler->Resample( &in[i*L10], L10, &ate->buf[(ATE_BUF_FRAMES-1)*L10_out + L_extra], L10_out);
+	webrtc::MonoView<int16_t> inv(&in[i*L10], L10);
+	webrtc::MonoView<int16_t> outv(&ate->buf[(ATE_BUF_FRAMES-1)*L10_out + L_extra],
+				       L10_out);
+	
+        resampler.Resample(inv, outv); 
         
         pL = ((ate->pest.pitchL[2] + ate->pest.pitchL[3]) >> 1);
         ate->pL_buf[ATE_PL_BUF_SZ-1] = pL;

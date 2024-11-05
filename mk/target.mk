@@ -247,7 +247,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 20230222.69
+WEBRTC_VER := 20241021.74
 endif
 
 JAVAC := javac
@@ -352,7 +352,7 @@ endif
 ifeq ($(AVS_ARCH),arm64)
 AVS_FAMILY := arm64
 CPPFLAGS += \
-	-DWEBRTC_ARCH_ARM -DWEBRTC_ARCH_ARM64
+	-DWEBRTC_ARCH_ARM64
 endif
 ifeq ($(AVS_ARCH),i386)
 AVS_FAMILY := x86
@@ -371,10 +371,10 @@ AVS_OS_FAMILY := linux
 # Cross-compiling tools have a prefix that's differing per architecture.
 # We use this opportunity to check for a known $(AVS_ARCH).
 
-CROSS_PREFIX_armv7  := armv7a-linux-androideabi21
-CROSS_PREFIX_arm64  := aarch64-linux-android21
-CROSS_PREFIX_i386   := i686-linux-android21
-CROSS_PREFIX_x86_64 := x86_64-linux-android21
+CROSS_PREFIX_armv7  := armv7a-linux-androideabi27
+CROSS_PREFIX_arm64  := aarch64-linux-android27
+CROSS_PREFIX_i386   := i686-linux-android27
+CROSS_PREFIX_x86_64 := x86_64-linux-android27
 CROSS_PREFIX        := $(CROSS_PREFIX_$(AVS_ARCH))
 
 ifeq ($(CROSS_PREFIX),)
@@ -416,7 +416,8 @@ CFLAGS   += \
 	 -fomit-frame-pointer -fno-strict-aliasing \
 	 -fPIC
 
-CXXFLAGS += -fPIC
+CXXFLAGS += -fPIC \
+	 -Wno-vla-cxx-extension
 
 ifneq ($(BLA),)
 LFLAGS   += \
@@ -438,13 +439,13 @@ SH_LFLAGS += \
 	-shared
 
 SH_LIBS += \
-	-llog -lOpenSLES -lstdc++
+	-llog -lOpenSLES -lc++_static -lc++abi
 
 LIBS += \
-	-lcpufeatures -lc -lm -ldl -llog -lGLESv2 -latomic -lOpenSLES -lc++
+	-lcpufeatures -lc -lm -ldl -llog -lGLESv2 -latomic -lOpenSLES -lc++ -lc++abi
 
 # this one was added to get ztest to link:
-#LIBS +=
+
 
 ifeq ($(AVS_ARCH),armv7)
 #LIBS +=
@@ -571,14 +572,14 @@ LIBS	 += \
 
 ifeq ($(SDK),iphoneos)
 CPPFLAGS += \
-         -miphoneos-version-min=13.0
+         -miphoneos-version-min=15.0
 LFLAGS	 += \
-         -miphoneos-version-min=13.0
+         -miphoneos-version-min=15.0
 else
 CPPFLAGS += \
-         -mios-simulator-version-min=13.0
+         -mios-simulator-version-min=15.0
 LFLAGS	 += \
-         -mios-simulator-version-min=13.0
+         -mios-simulator-version-min=15.0
 endif
 
 # video
@@ -713,7 +714,8 @@ LIBS += \
 	-framework CoreVideo \
 	-framework QTKit \
 	-framework CoreMedia \
-	-framework AVFoundation
+	-framework AVFoundation \
+	-framework ScreenCaptureKit
 
 ifneq ($(AVS_ARCH),i386)
 CPPFLAGS	+= -DCARBON_DEPRECATED=YES

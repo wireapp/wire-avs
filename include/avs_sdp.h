@@ -49,6 +49,9 @@ void sdp_safe_session_set_lattr(struct sdp_session *sess, bool replace,
 void sdp_safe_media_set_lattr(struct sdp_media *sdpm, bool replace,
 			      const char *name, const char *value);
 
+int sdp_munge(char **sdp_out, const char *sdp,
+	      enum icall_conv_type conv_type, bool offer);
+
 /* bundle */
 
 typedef int (bundle_flow_update_h)(struct iflow *flow, const char *sdp);

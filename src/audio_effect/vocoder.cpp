@@ -33,12 +33,6 @@ void* create_vocoder(int fs_hz, int strength)
 {
     struct vocoder_effect* ve = (struct vocoder_effect*)calloc(sizeof(struct vocoder_effect),1);
     
-    ve->resampler_in = new webrtc::PushResampler<int16_t>;
-    ve->resampler_in->InitializeIfNeeded(fs_hz, PROC_FS_KHZ*1000, 1);
-    
-    ve->resampler_out = new webrtc::PushResampler<int16_t>;
-    ve->resampler_out->InitializeIfNeeded(PROC_FS_KHZ*1000, fs_hz, 1);
-    
     ve->fs_khz = fs_hz/1000;
     
     float omega = PI/2.0f;
@@ -75,9 +69,6 @@ void free_vocoder(void *st)
 {
     struct vocoder_effect *ve = (struct vocoder_effect*)st;
     
-    delete ve->resampler_in;
-    delete ve->resampler_out;
-    
     free(ve);
 }
 
@@ -94,7 +85,6 @@ static float compress(float x)
 
 static void find_res(struct vocoder_effect *ve, int16_t x[], int L, int16_t res[], silk_float a[], float *g,  float *tilt)
 {
-#if !defined(WEBRTC_ARCH_ARM)
     silk_float thrhld, res_nrg;
     silk_float auto_corr[ Z_REST_LPC_ORDER + 1 ];
     silk_float A[         Z_REST_LPC_ORDER ];
@@ -158,73 +148,6 @@ static void find_res(struct vocoder_effect *ve, int16_t x[], int L, int16_t res[
     
     memmove(&ve->rest.buf[0], &ve->rest.buf[L], ((PROC_FS_KHZ*Z_REST_BUF_SZ_MS) - L)*sizeof(int16_t));
     (void)res_nrg;
-#else
-    opus_int16 Wsig[16*Z_REST_BUF_SZ_MS];
-    opus_int16 res_buf[16*Z_REST_BUF_SZ_MS];
-    opus_int   scale;
-    opus_int32 auto_corr[ Z_REST_LPC_ORDER + 1 ];
-    opus_int32 res_nrg;
-    opus_int16 rc_Q15[ Z_REST_LPC_ORDER ];
-    opus_int32 A_Q24[     Z_REST_LPC_ORDER ];
-    opus_int16 A_Q12[     Z_REST_LPC_ORDER ];
-    
-    for( int i = 0; i < L; i++ ) {
-        ve->rest.buf[(PROC_FS_KHZ*Z_REST_BUF_SZ_MS) - L + i] = x[i];
-    }
-    
-    /* Apply Window */
-    for(int i = 0; i < Z_REST_WIN_L1*PROC_FS_KHZ; i++){
-        Wsig[i] = (int16_t)((float)ve->rest.buf[i] * ve->rest.win1[i]);
-    }
-    for(int i = Z_REST_WIN_L1*PROC_FS_KHZ; i < (Z_REST_WIN_L1+Z_REST_WIN_L2)*PROC_FS_KHZ; i++){
-        Wsig[i] = ve->rest.buf[i];
-    }
-    for(int i = 0; i < Z_REST_WIN_L3*PROC_FS_KHZ; i++){
-        Wsig[(Z_REST_WIN_L1+Z_REST_WIN_L2)*PROC_FS_KHZ + i] = (opus_int16)((float)ve->rest.buf[(Z_REST_WIN_L1+Z_REST_WIN_L2)*PROC_FS_KHZ +i] * ve->rest.win3[i]);
-    }
-        
-    /* Calculate autocorrelation sequence */
-    silk_autocorr( auto_corr, &scale, Wsig, PROC_FS_KHZ*Z_REST_BUF_SZ_MS, Z_REST_LPC_ORDER + 1, 0 );
-    
-    /* Add white noise, as fraction of energy */
-    auto_corr[ 0 ] = silk_SMLAWB( auto_corr[ 0 ], auto_corr[ 0 ], 65 ) + 1;
-    
-    *tilt = (float)auto_corr[ 1 ] / (float)auto_corr[ 0 ];
-    
-    /* Calculate the reflection coefficients using schur */
-    res_nrg = silk_schur( rc_Q15, auto_corr, Z_REST_LPC_ORDER );
-    
-    /* Convert reflection coefficients to prediction coefficients */
-    silk_k2a( A_Q24, rc_Q15, Z_REST_LPC_ORDER );
-    
-    /* Convert From 32 bit Q24 to 16 bit Q12 coefs */
-    for( int i = 0; i < Z_REST_LPC_ORDER; i++ ) {
-        A_Q12[ i ] = (opus_int16)silk_SAT16( silk_RSHIFT( A_Q24[ i ], 12 ) );
-    }
-    
-    /* Do BWE */
-    silk_bwexpander( A_Q12, Z_REST_LPC_ORDER, 64881); // 0.99 in Q16
-    
-    /* LPC analysis filtering */
-    silk_LPC_analysis_filter( res_buf, &ve->rest.buf[0], A_Q12, PROC_FS_KHZ*Z_REST_BUF_SZ_MS, Z_REST_LPC_ORDER, 0 );
-    
-    for(int i = 0; i < 10*PROC_FS_KHZ; i++){
-        res[i] = (int16_t)res_buf[Z_REST_WIN_L1*PROC_FS_KHZ + i];
-    }
-    
-    float e1 = 1;
-    for(int i = Z_REST_LPC_ORDER; i < Z_REST_BUF_SZ_MS*PROC_FS_KHZ; i++){
-        e1 = e1 + (float)res_buf[i] * (float)res_buf[i];
-    }
-    *g = sqrtf(e1/(Z_REST_BUF_SZ_MS*PROC_FS_KHZ - Z_REST_LPC_ORDER));
-    
-    for(int i = 0; i < Z_REST_LPC_ORDER; i++){
-        a[i] = (silk_float)A_Q12[i] * 2.4414e-4f;
-    }
-    
-    memmove(&ve->rest.buf[0], &ve->rest.buf[L], ((PROC_FS_KHZ*Z_REST_BUF_SZ_MS) - L)*sizeof(int16_t));
-    (void)res_nrg;
-#endif
 }
 
 static void lpc_synthesis(struct vocoder_effect *ve, int16_t res[], silk_float a[], silk_float out[], int L)
@@ -319,8 +242,21 @@ void vocoder_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t 
     silk_float a[Z_REST_LPC_ORDER];
     float g, mix, tilt;
     int pL, median_pL;
+
+    auto resampler_in = webrtc::PushResampler<int16_t>(L10,
+						       L10_out,
+						       1);
+    
+    auto resampler_out = webrtc::PushResampler<int16_t>(L10_out,
+							L10,
+							1);
+    
+    
     for( int i = 0; i < N; i++){
-        ve->resampler_in->Resample( &in[i*L10], L10, &ve->buf[L10_out], L10_out);
+	webrtc::MonoView<int16_t> inv(&in[i*L10], L10);
+	webrtc::MonoView<int16_t> outv(&ve->buf[L10_out], L10_out);
+	    
+        resampler_in.Resample(inv, outv); 
         
         find_pitch_lags(&ve->pest, &ve->buf[L10_out], L10_out);
         
@@ -379,8 +315,11 @@ void vocoder_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t 
         for(int j = 0; j < L10_out; j++){
             tmp_buf[j] = (int16_t)compress(filt_out[j]);
         }
-        
-        ve->resampler_out->Resample( tmp_buf, L10_out, &out[i*L10], L10);
+
+	webrtc::MonoView<int16_t> tin(tmp_buf, L10_out);
+	webrtc::MonoView<int16_t> tout(&out[i*L10], L10);
+	
+        resampler_out.Resample(tin, tout); 
         
         memmove(ve->pL_buf, &ve->pL_buf[1], (E_PL_BUF_SZ-1) * sizeof(int));
         memmove(ve->buf, &ve->buf[L10_out], L10_out * sizeof(int16_t));

@@ -64,8 +64,8 @@ public:
 	audio_io_ios();
 	~audio_io_ios();
 	void AddRef() const {};
-	rtc::RefCountReleaseStatus Release() const {
-		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+	RefCountReleaseStatus Release() const {
+		return RefCountReleaseStatus::kDroppedLastRef;
 	}
 	int32_t RegisterAudioCallback(AudioTransport* audioCallback);
 	int32_t Init();

@@ -307,8 +307,6 @@ int apply_effect_to_wav(const char* wavIn,
         return -1;
     }
     
-    webrtc::PushResampler<int16_t> input_resampler;
-    webrtc::PushResampler<int16_t> output_resampler;
     rtc::scoped_refptr<webrtc::AudioProcessing> apm(webrtc::AudioProcessingBuilder().Create());
     
     struct aueffect *aue;
@@ -359,9 +357,9 @@ int apply_effect_to_wav(const char* wavIn,
     int progress = 0;
     int rem = 0;
     int n_samp_out = 0;
-    
-    input_resampler.InitializeIfNeeded(format.sample_rate, FS_PROC, 1);
-    output_resampler.InitializeIfNeeded(FS_PROC, format.sample_rate, 1);
+
+    webrtc::PushResampler<int16_t> input_resampler(format.sample_rate, FS_PROC, 1);
+    webrtc::PushResampler<int16_t> output_resampler(FS_PROC, format.sample_rate, 1);
     
     // Setup Audio Buffer used by apm
     webrtc::AudioFrame near_frame;
@@ -416,8 +414,10 @@ int apply_effect_to_wav(const char* wavIn,
                 progress_h(progress, arg);
             }
         }
-        
-        input_resampler.Resample( bufIn, L, near_frame.mutable_data(), L_proc);
+
+	webrtc::MonoView<int16_t> inv(bufIn, L);
+	webrtc::MonoView<int16_t> outv(near_frame.mutable_data(), L_proc);
+        input_resampler.Resample(inv, outv);
 
         webrtc::StreamConfig inConfig(near_frame.sample_rate_hz_, 1);
         webrtc::StreamConfig outConfig(near_frame.sample_rate_hz_, 1);
@@ -443,7 +443,9 @@ int apply_effect_to_wav(const char* wavIn,
                 procOut[j] = circ_buf[read_idx];
                 read_idx = (read_idx + 1) & CIRC_BUF_MASK;
             }
-            output_resampler.Resample( procOut, L_proc, bufIn, L);
+	    webrtc::MonoView<int16_t> pin(procOut, L_proc);
+	    webrtc::MonoView<int16_t> pout(bufIn, L);
+            output_resampler.Resample(pin, pout);
             
             fwrite(bufIn, sizeof(int16_t), L, out_file);
             n_samp_out+=L;

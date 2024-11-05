@@ -36,8 +36,6 @@ static void* create_chorus_org(int fs_hz, int strength)
     int period_len;
     struct chorus_org_effect* cho = (struct chorus_org_effect*)calloc(sizeof(struct chorus_org_effect),1);
     
-    cho->resampler = new webrtc::PushResampler<int16_t>;
-    cho->resampler->InitializeIfNeeded(fs_hz, fs_hz*UP_FAC, 1);
     cho->fs_khz = (fs_hz/1000);
     
     float max_a = MAX_A;
@@ -90,11 +88,10 @@ static void free_chorus_org(void *st)
 {
     struct chorus_org_effect *cho = (struct chorus_org_effect*)st;
     
-    delete cho->resampler;
     free(cho);
 }
 
-static int16_t update_rand_chorus_elem(struct rand_chorus_elem *r_elem, int16_t buf[], int up_fac)
+static int16_t update_rand_chorus_elem(struct rand_chorus_elem *r_elem, int16_t *buf, int up_fac)
 {
     r_elem->cnt++;
     if(r_elem->cnt > r_elem->period_smpls){
@@ -113,7 +110,7 @@ static int16_t update_rand_chorus_elem(struct rand_chorus_elem *r_elem, int16_t 
     return ret;
 }
 
-static int16_t update_sine_chorus_elem(struct sine_chorus_elem *s_elem, int16_t buf[], int up_fac)
+static int16_t update_sine_chorus_elem(struct sine_chorus_elem *s_elem, int16_t *buf, int up_fac)
 {
     s_elem->omega += s_elem->d_omega;
     s_elem->omega = fmod(s_elem->omega, 2*3.1415926536);
@@ -135,7 +132,7 @@ static float compress(float x)
     return y;
 }
 
-static void chorus_process_org(void *st, int16_t in[], int16_t out[], size_t L)
+static void chorus_process_org(void *st, int16_t *in, int16_t *out, size_t L)
 {
     struct chorus_org_effect *cho = (struct chorus_org_effect*)st;
     
@@ -149,9 +146,15 @@ static void chorus_process_org(void *st, int16_t in[], int16_t out[], size_t L)
     if( N * L10 != L || L > (cho->fs_khz * MAX_L_MS)){
         error("chorus_process needs 10 ms chunks max %d ms \n", MAX_L_MS);
     }
+
+    auto resampler = webrtc::PushResampler<int16_t>(L10, L10*UP_FAC, 1);
     
     for( int i = 0; i < N; i++){
-        cho->resampler->Resample( &in[i*L10], L10, &cho->buf[hist_size + i*L10*UP_FAC], L10*UP_FAC);
+	webrtc::MonoView<int16_t> inv(&in[i*L10], L10);
+	webrtc::MonoView<int16_t> outv(&cho->buf[hist_size + i*L10*UP_FAC],
+				       L10*UP_FAC);
+	    
+        resampler.Resample(inv, outv);
     }
             
     ptr = &cho->buf[hist_size];
@@ -199,7 +202,7 @@ static void free_chorus_alt(void *st)
     free(cho);
 }
 
-static void chorus_process_alt(void *st, int16_t in[], int16_t out[], size_t L)
+static void chorus_process_alt(void *st, int16_t *in, int16_t *out, size_t L)
 {
     struct chorus_alt_effect *cho = (struct chorus_alt_effect*)st;
     int16_t out1[L], out2[L];
@@ -245,7 +248,7 @@ void free_chorus(void *st)
 }
 
 
-void chorus_process(void *st, int16_t in[], int16_t out[], size_t L_in, size_t *L_out)
+void chorus_process(void *st, int16_t *in, int16_t *out, size_t L_in, size_t *L_out)
 {
     struct chorus_effect *cho = (struct chorus_effect*)st;
     
