@@ -336,7 +336,10 @@ function encryptFrame(coder, rtcFrame, controller) {
   const userid = "self";
 
   const meta = rtcFrame.getMetadata();
-  const ssrc = meta.synchronizationSource;
+  let ssrc = meta.synchronizationSource;
+
+  if (isVideo)
+    ssrc = coder.video.ssrc;
 
   if (isVideo && !coder.video.first_recv) {
     doLog("frame_enc: encrypt: first frame received type: video uid: " +
@@ -358,7 +361,7 @@ function encryptFrame(coder, rtcFrame, controller) {
 
   const baseiv = isVideo ? coder.video.iv : coder.audio.iv;
   const iv = xor_iv(baseiv, coder.frameId, coder.currentKey.id);
-    
+
   const hdr = frameHeaderEncode(coder.frameId, coder.currentKey.id, ssrc);
   crypto.subtle.encrypt(
     {
@@ -603,12 +606,14 @@ onmessage = async (event) => {
 		    first_recv: false,
 		    first_succ: false,
 		    iv: iva,
+		    ssrc: "0",
 		    users: {},
 		},
 		video: {
 		    first_recv: false,
 		    first_succ: false,
 		    iv: ivv,
+		    ssrc: "0",
 		    users: {},
 		},
 	    }
@@ -619,6 +624,11 @@ onmessage = async (event) => {
     }
     else if (op === 'destroy') {
 	coders[self] = null;
+    }
+    else if (op === 'updateSsrc') {
+	const { ssrca, ssrcv } = event.data;
+	coder.audio.ssrc = ssrca;
+	coder.video.ssrc = ssrcv;
     }
     else if (op === 'addUser') {
 	if (!coder) {
@@ -926,63 +936,106 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
 
     return false;
 }
-function update_tracks(pc: PeerConnection, stream: MediaStream) {
+function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
 
     const rtc = pc.rtc;
     const tracks = stream.getTracks();
+
     let found = false;
-   
 
     pc_log(LOG_LEVEL_INFO, `update_tracks: pc=${pc.self} tracks=${tracks.length}`);
-    
-    if (!rtc)
-	return;
-    
-    const senders = rtc.getSenders();    
-    for (const sender of senders) {
-	found = false;
-	if (!sender)
-	    continue;
-	
-	if (!sender.track) {
-	    rtc.removeTrack(sender);
-	    continue;
-	}
-
-	for (const track of tracks) {
-	    if (track)
-		pc_log(LOG_LEVEL_INFO, `update_tracks: kind=${track.kind} sender=${sender.track.kind}`);
-	    else
-		pc_log(LOG_LEVEL_INFO, `update_tracks: sender.track=${sender.track} track=${track}`);
-
-	    if (sender.track) {
-		if (sender.track.kind === track.kind) {
-		    found = true;
-		    sender.track.enabled = true;
-		    break;
-		}
-	    }
-	}
-	if (!found) {
-	    if (sender.track)
-		sender.track.enabled = false;
-	}
+    if (!rtc) {
+        return Promise.resolve();
     }
-    
-    tracks.forEach(track => {
-	if (track.kind === 'video') {
-	    pc.sending_video = true;
-	}
-	else {
-	    track.enabled = !pc.muted;
-	}
-	if (!replace_track(pc, track)) {
-	    pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}`);
-	    rtc.addTrack(track, stream);
-	}
-    });
-}
+    const senders = rtc.getSenders();
+    for (const sender of senders) {
+        found = false;
+        if (!sender)
+            continue;
 
+        if (!sender.track) {
+            rtc.removeTrack(sender);
+            continue;
+        }
+
+        for (const track of tracks) {
+            if (track)
+                pc_log(LOG_LEVEL_INFO, `update_tracks: kind=${track.kind} sender=${sender.track.kind}`);
+            else
+                pc_log(LOG_LEVEL_INFO, `update_tracks: sender.track=${sender.track} track=${track}`);
+
+            if (sender.track) {
+                if (sender.track.kind === track.kind) {
+                    found = true;
+                    sender.track.enabled = true;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            if (sender.track)
+                sender.track.enabled = false;
+        }
+    }
+
+    const videoSenderUpdates: Promise<void>[] = []
+    tracks.forEach(track => {
+        if (track.kind === 'video') {
+            pc.sending_video = true;
+        } else {
+            track.enabled = !pc.muted;
+        }
+        if (!replace_track(pc, track)) {
+            pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}, id=${track.id}`);
+            if (track.kind === 'video') {
+                const videoTrack = track;
+                const transceivers = rtc.getTransceivers();
+                for (const trans of transceivers) {
+                    if (trans.mid === 'video') {
+                        pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
+
+                        const params = trans.sender.getParameters()
+                        pc_log(LOG_LEVEL_INFO, `update_tracks: params ${JSON.stringify(params)}`)
+
+                        if (!params.encodings) {
+                            pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
+                            params.encodings = [];
+                        }
+
+                        params.encodings.forEach((coding) => {
+                            if(coding.rid === 'l') {
+                                // @ts-ignore
+                                coding.scalabilityMode = 'L1T1'
+                                coding.scaleResolutionDownBy = 4;
+                                coding.maxBitrate = 245760 // 240 * 1024
+                            }
+                            if(coding.rid === 'h') {
+                                // @ts-ignore
+                                coding.scalabilityMode = 'L1T1'
+                                coding.scaleResolutionDownBy = 1;
+                                coding.maxBitrate = 819200 // 800 * 1024
+                            }
+                        });
+
+                        rtc.addTrack(track, stream)
+                        videoSenderUpdates.push(trans.sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set params ${e}`))
+                            // Reinsert the track so that the changes are transferred to the track (needed for FF)
+                            .then(() => trans.sender.replaceTrack(videoTrack))
+                            .then((e) => pc_log(LOG_LEVEL_INFO, `update_tracks: stream added`))
+                            .then())
+                    }
+                }
+            } else {
+                const sender = rtc.addTrack(track, stream);
+            }
+        }
+    });
+
+    // Wait until setup is finish
+    return Promise.all(videoSenderUpdates).catch(e => {
+        pc_log(LOG_LEVEL_ERROR, `update_tracks: error=${e}`)
+    }).then();
+}
 
 function sigState(stateStr: string) {
   let state = PC_SIG_STATE_UNKNOWN;
@@ -1573,7 +1626,7 @@ function pc_SetVideoState(hnd: number, vstate: number) {
 	pc_log(LOG_LEVEL_INFO, `pc_SetVideoState: calling umh(1, ${use_video}, ${use_ss})`);
 	userMediaHandler(pc.convid, true, use_video, use_ss)
 	    .then((stream: MediaStream) => {
-		update_tracks(pc, stream);
+            return update_tracks(pc, stream);
 	    });
 	pc.sending_video = use_video || use_ss;
     }
@@ -1658,6 +1711,28 @@ function pc_SetMediaKey(hnd: number, index: number, current: number, keyPtr: num
     key: buf8
   });
 }
+
+function pc_UpdateSsrc(hnd: number, ssrcaPtr: number, ssrcvPtr: number) {
+
+  const pc = connectionsStore.getPeerConnection(hnd);
+
+  if (pc == null) {
+    return;
+  }
+
+  const ssrca = em_module.UTF8ToString(ssrcaPtr);
+  const ssrcv = em_module.UTF8ToString(ssrcvPtr);
+
+  pc_log(LOG_LEVEL_INFO, `pc_UpdateSsrc: hnd=${hnd} ssrc=${ssrca} ssrcv=${ssrcv}`);
+
+  worker.postMessage({
+    op: 'updateSsrc',
+    self: pc.self,
+    ssrca: ssrca,
+    ssrcv: ssrcv
+  });
+}
+
 
 function setupSenderTransform(pc: PeerConnection, sender: any) {
   if (!sender || !sender.track) {
@@ -1757,8 +1832,9 @@ function createSdp(
     
     if (userMediaHandler) {
 	userMediaHandler(pc.convid, true, use_video, use_ss)
-	    .then((stream: MediaStream) => {
-		update_tracks(pc, stream);
+        .then((stream: MediaStream) => {
+            return update_tracks(pc, stream).then(() => stream);
+        }).then((stream: MediaStream) => {
 
 		const doSdp: (options: RTCOfferOptions) => Promise<RTCSessionDescriptionInit> = isOffer
 		      ? rtc.createOffer
@@ -2296,6 +2372,7 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_DataChannelSend, "viii"],
     [pc_DataChannelClose, "vi"],
     [pc_SetMediaKey, "viiiii"],
+    [pc_UpdateSsrc, "viii"],
   ].map(([callback, signature]) => em_module.addFunction(callback, signature));
 
   em_module.ccall(

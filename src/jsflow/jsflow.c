@@ -120,6 +120,8 @@ typedef void (pc_DataChannelClose_t)(int handle);
 /* Frame enc/dec */
 typedef void (pc_SetMediaKey_t)(int handle, int index, int current, const uint8_t *key, int len);
 
+typedef void  (pc_UpdateSsrc_t)(int handle, const char *ssrca, const char *ssrcv);
+
 static pc_SetEnv_t *pc_SetEnv = NULL;
 static pc_New_t *pc_New = NULL;
 static pc_Create_t *pc_Create = NULL;
@@ -153,6 +155,8 @@ static pc_DataChannelClose_t *pc_DataChannelClose = NULL;
 
 /* Frame enc/dec */
 static pc_SetMediaKey_t *pc_SetMediaKey = NULL;
+
+static pc_UpdateSsrc_t *pc_UpdateSsrc = NULL;
 
 #define ENV_NONE -1
 #define ENV_DEFAULT 0
@@ -204,6 +208,7 @@ struct jsflow {
 
 	struct {
 		bool negotiated;
+		uint32_t ssrc;
 	} video;
 
 	struct iflow_stats stats;
@@ -614,6 +619,7 @@ int jsflow_alloc(struct iflow		**flowp,
 			    jsflow_close,
 			    jsflow_get_stats,
 			    jsflow_get_aulevel,
+			    jsflow_update_ssrc,
 			    NULL); //jsflow_debug);
 	pc2self(flow);
 
@@ -1409,6 +1415,24 @@ int jsflow_get_aulevel(struct iflow *iflow,
 	return err;
 }
 
+int jsflow_update_ssrc(struct iflow *iflow, uint32_t ssrca, uint32_t ssrcv)
+{
+	struct jsflow *jf = (struct jsflow *)iflow;
+	char ssrca_str[16];
+	char ssrcv_str[16];
+
+	if (!iflow)
+		return EINVAL;
+
+	re_snprintf(ssrca_str, sizeof(ssrca_str), "%u", ssrca);
+	re_snprintf(ssrcv_str, sizeof(ssrcv_str), "%u", ssrcv);
+
+	pc_UpdateSsrc(jf->handle, ssrca_str, ssrcv_str);
+
+	return 0;
+}
+
+
 void pc_log(int level, const char *msg);
 
 EMSCRIPTEN_KEEPALIVE
@@ -1917,7 +1941,9 @@ void pc_set_callbacks(
 	pc_DataChannelSend_t *dataChannelSend,
 	pc_DataChannelClose_t *dataChannelClose,
 
-	pc_SetMediaKey_t *setMediaKey);
+	pc_SetMediaKey_t *setMediaKey,
+
+	pc_UpdateSsrc_t *updateSsrc);
 
 EMSCRIPTEN_KEEPALIVE
 void pc_set_callbacks(
@@ -1951,7 +1977,9 @@ void pc_set_callbacks(
 	pc_DataChannelSend_t *dataChannelSend,
 	pc_DataChannelClose_t *dataChannelClose,
 
-	pc_SetMediaKey_t *setMediaKey)
+	pc_SetMediaKey_t *setMediaKey,
+
+	pc_UpdateSsrc_t *updateSsrc)
 {
 	pc_SetEnv = setEnv;
 	pc_New = new;
@@ -1984,6 +2012,7 @@ void pc_set_callbacks(
 	pc_DataChannelClose = dataChannelClose;
 
 	pc_SetMediaKey = setMediaKey;
+	pc_UpdateSsrc = updateSsrc;
 
 	jsflow_init();
 }

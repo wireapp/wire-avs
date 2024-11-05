@@ -26,6 +26,8 @@ namespace wire {
 
 FrameEncryptor::FrameEncryptor(const char *userid_hash,
 			       enum frame_media_type mtype)
+	:
+	_ssrc(0)
 {
 	info("FrameEncryptor::ctor: %p\n", this);
 	frame_encryptor_alloc(&_enc,
@@ -37,6 +39,11 @@ FrameEncryptor::~FrameEncryptor()
 {
 	info("FrameEncryptor::dtor: %p\n", this);
 	_enc = (struct frame_encryptor*)mem_deref(_enc);
+}
+
+void FrameEncryptor::SetSsrc(uint32_t ssrc)
+{
+	_ssrc = ssrc;
 }
 
 int FrameEncryptor::SetKeystore(struct keystore *keystore)
@@ -51,6 +58,8 @@ int FrameEncryptor::Encrypt(cricket::MediaType media_type,
 			    rtc::ArrayView<uint8_t> encrypted_frame,
 			    size_t* bytes_written)
 {
+	ssrc = _ssrc ? _ssrc : ssrc;
+
 	return frame_encryptor_encrypt(_enc,
 				       ssrc,
 				       frame.data(),

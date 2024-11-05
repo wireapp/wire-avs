@@ -84,6 +84,7 @@ int jsflow_get_stats(struct iflow *flow,
 int jsflow_get_aulevel(struct iflow *iflow,
 		       struct list *levell);
 	
+int jsflow_update_ssrc(struct iflow *iflow, uint32_t ssrca, uint32_t ssrcv);
 
 int jsflow_debug(struct re_printf *pf, const struct iflow *flow);
 

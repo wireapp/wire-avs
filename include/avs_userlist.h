@@ -86,6 +86,7 @@ int userlist_alloc(struct userlist **listp,
 int userlist_update_from_sftlist(struct userlist *list,
 				 const struct list *partlist,
 				 bool *changed,
+				 bool *self_changed,
 				 bool *missing_parts);
 
 void userlist_update_from_selist(struct userlist* list,

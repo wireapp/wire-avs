@@ -226,6 +226,7 @@ const char *anon_client(char *outid, const char *inid)
 #define MASK_CHAR 'x'
 
 
+#if 1
 void log_mask_ipaddr(const char *msg)
 {
 	struct pl a, b, c, d, e, f, g, h;
@@ -286,3 +287,4 @@ void log_mask_ipaddr(const char *msg)
 		}
 	}
 }
+#endif

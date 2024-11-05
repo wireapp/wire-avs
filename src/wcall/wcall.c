@@ -4112,6 +4112,7 @@ void wcall_i_request_video_streams(struct wcall *wcall,
 	nclients = json_object_array_length(jclients);
 	for (i = 0; i < nclients; ++i) {
 		const char *uid, *cid;
+        int quality = 0;
 		struct json_object *jcli;
 		struct icall_client *cli;
 
@@ -4122,9 +4123,10 @@ void wcall_i_request_video_streams(struct wcall *wcall,
 
 		uid = jzon_str(jcli, "userid");
 		cid = jzon_str(jcli, "clientid");
-		//q = jzon_int(jcli, "quality");
+		jzon_int(&quality, jcli, "quality");
 		if (uid && cid) {
 			cli = icall_client_alloc(uid, cid);
+            cli->quality = quality;
 			list_append(&clientl, &cli->le, cli);
 		}
 	}

@@ -3105,6 +3105,14 @@ void ecall_set_conf_part(struct ecall *ecall, struct conf_part *cp)
 	//	ecall->conf_part->data = ecall->flow;
 }
 
+int ecall_update_ssrc(struct ecall *ecall, uint32_t ssrca, uint32_t ssrcv)
+{
+	if (!ecall)
+		return EINVAL;
+
+	return IFLOW_CALLE(ecall->flow, update_ssrc, ssrca, ssrcv);
+}
+
 
 int ecall_remove(struct ecall *ecall)
 {

@@ -391,6 +391,7 @@ struct econn_stream_info *econn_stream_info_alloc(const char *userid,
 	}
 
 	str_ncpy(stream->userid, userid, sizeof(stream->userid));
+	stream->quality = quality;
 
 	return stream;
 }

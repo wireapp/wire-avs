@@ -35,6 +35,7 @@ public:
 	~FrameEncryptor();
 
 	int SetKeystore(struct keystore *keystore);
+	void SetSsrc(uint32_t ssrc);
 
 	int Encrypt(cricket::MediaType media_type,
 		    uint32_t ssrc,
@@ -48,6 +49,7 @@ public:
 
 private:
 	struct frame_encryptor *_enc;
+	uint32_t _ssrc;
 };
 
 }  // namespace wire
