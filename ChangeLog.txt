@@ -1,5 +1,31 @@
 ChangeLog for AVS -- latest on top!
 ==============================================================================
+AVS Release 9.10
+
+Date:       November 5, 2024
+GIT:        https://github.com/wireapp/wire-avs/tree/release-9.10
+Android:    Android NDK r27
+iOS:        iOS SDK 18.0
+OSX:        MacOS SDK 14.5
+Linux:      Ubuntu x86_64 18.04 (LTS)
+
+Summary:    - Add simulcast support
+
+ChangeLog for AVS -- latest on top!
+==============================================================================
+AVS Release 9.10
+
+Date:       October 30, 2024
+GIT:        https://github.com/wireapp/wire-avs/tree/release-9.10
+Android:    Android NDK r27
+iOS:        iOS SDK 18.0
+OSX:        MacOS SDK 14.5
+Linux:      Ubuntu x86_64 18.04 (LTS)
+
+Summary:    - Bump webrtc version to M130
+
+ChangeLog for AVS -- latest on top!
+==============================================================================
 AVS Release 9.1
 
 Date:       February 16, 2022
