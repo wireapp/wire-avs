@@ -87,8 +87,8 @@ extern "C" {
 
 #define RID_HI "h"
 #define RID_LO "l"
-#define VIDEO_BITRATE_HI (600 * 1024)
-#define VIDEO_BITRATE_LO (160 * 1024)
+#define VIDEO_BITRATE_HI (800 * 1024)
+#define VIDEO_BITRATE_LO (240 * 1024)
 
 static const char trials_str[] =
 #if 1
