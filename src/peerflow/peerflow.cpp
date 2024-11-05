@@ -1721,7 +1721,7 @@ public:
 					}
 				}
 
-				params.degradation_preference = webrtc::DegradationPreference::MAINTAIN_FRAMERATE;
+				params.degradation_preference = webrtc::DegradationPreference::MAINTAIN_RESOLUTION;
 				sender->SetParameters(params);
 				sender->track()->set_enabled(true);
 			}
@@ -2691,7 +2691,10 @@ int peerflow_handle_offer(struct iflow *iflow,
 	sdp_check(sdp_in, false, true, pf_acbr_handler,
 		  pf_norelay_handler, pf_tool_handler, pf);
 
-	if (pf->sdp_needs_munging) {
+	if (!pf->sdp_needs_munging) {
+		sdp_str = sdp_in;
+	}
+	else {
 		err = sdp_munge(&sdp_str, sdp_in, pf->conv_type, true);
 		if (err) {
 			warning("peerflow_handle_offer: failed to munge SDP: %m\n", err);
@@ -2706,7 +2709,9 @@ int peerflow_handle_offer(struct iflow *iflow,
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
 		webrtc::CreateSessionDescription(webrtc::SdpType::kOffer,
 						 sdp_str, &parse_err);
-	mem_deref(sdp_str);
+	if (pf->sdp_needs_munging) {
+		mem_deref(sdp_str);
+	}
 
 	if (sdp == nullptr) {
 		warning("peerflow_handle_offer: failed to parse SDP: "
