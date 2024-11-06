@@ -1777,6 +1777,7 @@ int wcall_add(struct calling_instance *inst,
 		struct ecall* ecall;
 		err = ecall_alloc(&ecall, &inst->ecalls,
 				  ICALL_CONV_TYPE_ONEONONE,
+				  ICALL_CALL_TYPE_NORMAL,
 				  &inst->config, inst->msys,
 				  convid,
 				  inst->userid,

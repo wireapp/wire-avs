@@ -1197,6 +1197,7 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 	/* If call has been answered, send SETUP */
 	err = ecall_alloc(&ecall, &egcall->ecalll,
 			  ICALL_CONV_TYPE_GROUP,
+			  ICALL_CALL_TYPE_NORMAL,
 			  egcall->conf,
 			  msys,
 			  egcall->convid,

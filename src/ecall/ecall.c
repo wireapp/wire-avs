@@ -971,6 +971,7 @@ static int _icall_stats(struct re_printf *pf, const struct icall *icall)
 
 int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		enum icall_conv_type conv_type,
+		enum icall_call_type call_type,
 		const struct ecall_conf *conf,
 		struct msystem *msys,
 		const char *convid,
@@ -991,6 +992,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 	ecall->magic = ECALL_MAGIC;
 	ecall->conf = conf ? *conf : default_conf;
 	ecall->conv_type = conv_type;
+	ecall->call_type = call_type;
 	switch(conv_type) {
 	case ICALL_CONV_TYPE_CONFERENCE:
 	case ICALL_CONV_TYPE_GROUP:

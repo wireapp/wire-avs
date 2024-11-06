@@ -2187,6 +2187,7 @@ static int create_ecall(struct ccall *ccall)
 
 	err = ecall_alloc(&ecall, NULL,
 			  ICALL_CONV_TYPE_CONFERENCE,
+			  ccall->call_type,
 			  ccall->conf,
 			  msys,
 			  ccall->convid_real,
