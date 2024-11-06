@@ -2579,11 +2579,19 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 	if (!ecall)
 		return EINVAL;
 
-	info("ecall(%p): set_video_send_state %s econn %p update %d\n",
+	info("ecall(%p): set_video_send_state %s->%s  econn %p update %d\n",
 	     ecall,
+	     icall_vstate_name(ecall->vstate),
 	     icall_vstate_name(vstate),
 	     ecall->econn,
 	     ecall->update);
+
+	if (ecall->vstate == vstate) {
+		info("ecall(%p): set_video_send_state: ignorig, already in state: %s\n",
+		     ecall, icall_vstate_name(ecall->vstate));
+
+		return 0;
+	}
 
 	const char *vstate_string;
 	const char *sstate_string;
