@@ -979,6 +979,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		const char *clientid)
 {
 	struct ecall *ecall;
+	bool send_video = false;
 	bool muted;
 	int err = 0;
 
@@ -1005,12 +1006,25 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 	}
 	ecall->num_retries = 0;
 
+	switch(call_type) {
+	case ICALL_CALL_TYPE_VIDEO:
+		send_video = true;
+		ecall->vstate = ICALL_VIDEO_STATE_STARTED;
+		break;
+
+	default:
+		send_video = false;
+		break;
+	}
+
 	/* Add some properties */
 	err = econn_props_alloc(&ecall->props_local, NULL);
 	if (err)
 		goto out;
 
-	err = econn_props_add(ecall->props_local, "videosend", "false");
+	err = econn_props_add(ecall->props_local,
+			      "videosend",
+			      send_video ? "true" : "false");
 	if (err)
 		goto out;
 
