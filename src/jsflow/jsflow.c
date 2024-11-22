@@ -1884,8 +1884,6 @@ void pc_get_current_media_key(int self)
 		return;
 	}
 
-	info("pc_get_current_media_key\n");
-
 	err = keystore_get_current(flow->frame.keystore, &current, &ts);
 	if (err)
 		goto out;
@@ -1903,9 +1901,11 @@ void pc_get_current_media_key(int self)
 
 out:
 	sodium_memzero(media_key, E2EE_SESSIONKEY_SIZE);
+#if 0
 	if (err) {
 		warning("pc_get_current_media_key err=%d\n", err);
 	}
+#endif
 #endif
 }
 
