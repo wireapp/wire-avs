@@ -968,13 +968,17 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
                 if (sender.track.kind === track.kind) {
                     found = true;
                     sender.track.enabled = true;
+                    pc_log(LOG_LEVEL_WARN, `update_tracks: heyyyyy disable sender.track=${sender.track} track=${track}`);
                     break;
                 }
             }
         }
         if (!found) {
-            if (sender.track)
+            if (sender.track) {
                 sender.track.enabled = false;
+                pc_log(LOG_LEVEL_WARN, `update_tracks: heyyyyy disable sender.track=${sender.track} track=${sender.track}`);
+            }
+
         }
     }
 
@@ -983,19 +987,21 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
         if (track.kind === 'video') {
             pc.sending_video = true;
         } else {
+            pc_log(LOG_LEVEL_WARN, `update_tracks: heyyyyy`);
             track.enabled = !pc.muted;
         }
         if (!replace_track(pc, track)) {
             pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}, id=${track.id}`);
             if (track.kind === 'video') {
                 const videoTrack = track;
+                const strseam = stream;
                 const transceivers = rtc.getTransceivers();
                 for (const trans of transceivers) {
                     if (trans.mid === 'video') {
                         pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
 
                         const params = trans.sender.getParameters()
-                        pc_log(LOG_LEVEL_INFO, `update_tracks: params ${JSON.stringify(params)}`)
+                        pc_log(LOG_LEVEL_INFO, `update_tracks ########: params ${JSON.stringify(params)}`)
 
                         if (!params.encodings) {
                             pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
@@ -1004,20 +1010,26 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
 
                         params.encodings.forEach((coding) => {
                             if(coding.rid === 'l') {
-                                // @ts-ignore
+                                //@ts-ignore
                                 coding.scalabilityMode = 'L1T1'
                                 coding.scaleResolutionDownBy = 4;
                                 coding.maxBitrate = 245760 // 240 * 1024
+                                coding.active = true;
+                                pc_log(LOG_LEVEL_INFO, `update_tracks lll ########`)
                             }
                             if(coding.rid === 'h') {
-                                // @ts-ignore
+                                //@ts-ignore
                                 coding.scalabilityMode = 'L1T1'
                                 coding.scaleResolutionDownBy = 1;
-                                coding.maxBitrate = 819200 // 800 * 1024
+                                coding.maxBitrate = 100819200; // 800 * 1024
+                                coding.active = true;
+                                pc_log(LOG_LEVEL_INFO, `update_tracks hhh ########`)
                             }
+
+                            pc_log(LOG_LEVEL_INFO, `update_tracks alll ########`)
                         });
 
-                        rtc.addTrack(track, stream)
+                        rtc.addTrack(videoTrack, strseam)
                         videoSenderUpdates.push(trans.sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set params ${e}`))
                             // Reinsert the track so that the changes are transferred to the track (needed for FF)
                             .then(() => trans.sender.replaceTrack(videoTrack))
