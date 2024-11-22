@@ -1712,7 +1712,9 @@ void pc_set_audio_level(int self,
 		conf_member_set_audio_level(cm, audio_level);
 	}
 	else {
-		warning("jsflow(%p): no conf member for ssrc: %u\n", jf, ssrc);
+		if (ssrc != 0) {
+			warning("jsflow(%p): no conf member for ssrc: %u\n", jf, ssrc);
+		}
 	}
 }
 
