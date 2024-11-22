@@ -1837,7 +1837,7 @@ void pc_get_media_key(int self, int index)
 		return;
 	}
 
-	info("pc_get_media_key idx %d\n", index);
+	//info("pc_get_media_key idx %d\n", index);
 
 	err = keystore_get_media_key(flow->frame.keystore, index,
 				     media_key, E2EE_SESSIONKEY_SIZE);
