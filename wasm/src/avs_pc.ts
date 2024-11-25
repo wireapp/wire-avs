@@ -968,7 +968,6 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
                 if (sender.track.kind === track.kind) {
                     found = true;
                     sender.track.enabled = true;
-                    pc_log(LOG_LEVEL_WARN, `update_tracks: heyyyyy disable sender.track=${sender.track} track=${track}`);
                     break;
                 }
             }
@@ -976,7 +975,6 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
         if (!found) {
             if (sender.track) {
                 sender.track.enabled = false;
-                pc_log(LOG_LEVEL_WARN, `update_tracks: heyyyyy disable sender.track=${sender.track} track=${sender.track}`);
             }
 
         }
