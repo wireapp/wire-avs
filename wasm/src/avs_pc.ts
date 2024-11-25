@@ -993,15 +993,11 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
         if (!replace_track(pc, track)) {
             pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}, id=${track.id}`);
             if (track.kind === 'video') {
-                const videoTrack = track;
-                const strseam = stream;
                 const transceivers = rtc.getTransceivers();
                 for (const trans of transceivers) {
                     if (trans.mid === 'video') {
                         pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
-
                         const params = trans.sender.getParameters()
-                        pc_log(LOG_LEVEL_INFO, `update_tracks ########: params ${JSON.stringify(params)}`)
 
                         if (!params.encodings) {
                             pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
@@ -1013,32 +1009,25 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
                                 //@ts-ignore
                                 coding.scalabilityMode = 'L1T1'
                                 coding.scaleResolutionDownBy = 4;
-                                coding.maxBitrate = 245760 // 240 * 1024
                                 coding.active = true;
-                                pc_log(LOG_LEVEL_INFO, `update_tracks lll ########`)
                             }
                             if(coding.rid === 'h') {
                                 //@ts-ignore
                                 coding.scalabilityMode = 'L1T1'
                                 coding.scaleResolutionDownBy = 1;
-                                coding.maxBitrate = 100819200; // 800 * 1024
                                 coding.active = true;
-                                pc_log(LOG_LEVEL_INFO, `update_tracks hhh ########`)
                             }
-
-                            pc_log(LOG_LEVEL_INFO, `update_tracks alll ########`)
                         });
 
-                        rtc.addTrack(videoTrack, strseam)
+                        rtc.addTrack(track, stream)
                         videoSenderUpdates.push(trans.sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set params ${e}`))
                             // Reinsert the track so that the changes are transferred to the track (needed for FF)
-                            .then(() => trans.sender.replaceTrack(videoTrack))
-                            .then((e) => pc_log(LOG_LEVEL_INFO, `update_tracks: stream added`))
+                            .then(() => trans.sender.replaceTrack(track))
                             .then())
                     }
                 }
             } else {
-                const sender = rtc.addTrack(track, stream);
+                rtc.addTrack(track, stream);
             }
         }
     });
