@@ -10,11 +10,10 @@
 # The target "dist_android" builds the following:
 #
 #    o  an Android AAR build/dist/android/avs.aar with the release code for
-#       armv7 and i386 architectures. 64 bit architectures will follow as
-#       soon as certain build troubles are sorted out.
+#       armv7, arm64 and x86_64 architectures. 
 #
 #    o  a Zip archive build/dist/android/avs.zip with the NDK shared
-#       libraries for Android armv7 and i386 as well as for OSX x86_64, and
+#       libraries for Android armv7, arm64 as well as for OSX x86_64, and
 #       the class files in non-jar form.
 #
 # The targets "dist_ios" and "dist_osx" build the following:
@@ -52,7 +51,7 @@ ifeq ($(DIST_ARCH),)
 	DIST_ARCH := $(ALL_AVS_ARCH) osx
 endif
 
-DIST_ARCH_android := $(filter armv7 arm64 i386 x86_64 osx,$(DIST_ARCH))
+DIST_ARCH_android := $(filter armv7 arm64 x86_64 osx,$(DIST_ARCH))
 DIST_ARCH_ios := $(filter arm64,$(DIST_ARCH))
 DIST_ARCH_iossim := $(filter arm64 x86_64,$(DIST_ARCH))
 DIST_ARCH_osx := $(filter arm64 x86_64,$(DIST_ARCH))
@@ -170,10 +169,6 @@ ifneq ($(filter arm64,$(DIST_ARCH)),)
 	$(call build_arch,arm64,arm64-v8a,aarch64-linux-android)
 endif
 
-ifneq ($(filter i386,$(DIST_ARCH)),)
-	$(call build_arch,i386,x86,i686-linux-android)
-endif
-
 ifneq ($(filter x86_64,$(DIST_ARCH)),)
 	$(call build_arch,x86_64,x86_64,x86_64-linux-android)
 endif
@@ -215,14 +210,6 @@ ifneq ($(filter arm64,$(DIST_ARCH)),)
 	@mkdir -p $(BUILD_DIST_AND)/zip/libs/arm64-v8a
 	@cp $(BUILD_BASE)/android-arm64/lib/libavs.so \
 		$(BUILD_DIST_AND)/zip/libs/arm64-v8a
-endif
-ifneq ($(filter i386,$(DIST_ARCH)),)
-	$(MAKE) contrib AVS_OS=android AVS_ARCH=i386 && \
-	$(MAKE) $(JOBS) avs AVS_OS=android AVS_ARCH=i386 && \
-	$(MAKE) android_shared AVS_OS=android AVS_ARCH=i386
-	@mkdir -p $(BUILD_DIST_AND)/zip/libs/x86
-	@cp $(BUILD_BASE)/android-i386/lib/libavs.so \
-		$(BUILD_DIST_AND)/zip/libs/x86
 endif
 ifneq ($(filter x86_64,$(DIST_ARCH)),)
 	$(MAKE) contrib AVS_OS=android AVS_ARCH=x86_64 && \

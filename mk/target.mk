@@ -14,7 +14,6 @@
 #
 #     AVS_OS=android		AVS_ARCH=armv7
 #				AVS_ARCH=arm64
-#     				AVS_ARCH=i386
 #     				AVS_ARCH=x86_64
 #     AVS_OS=linux		AVS_ARCH=x86_64
 #     				AVS_ARCH=i386
@@ -373,7 +372,6 @@ AVS_OS_FAMILY := linux
 
 CROSS_PREFIX_armv7  := armv7a-linux-androideabi27
 CROSS_PREFIX_arm64  := aarch64-linux-android27
-CROSS_PREFIX_i386   := i686-linux-android27
 CROSS_PREFIX_x86_64 := x86_64-linux-android27
 CROSS_PREFIX        := $(CROSS_PREFIX_$(AVS_ARCH))
 
@@ -457,7 +455,6 @@ ifeq ($(AVS_ARCH),armv7)
 CPPFLAGS += \
 	-march=armv7-a -mfpu=neon -mfloat-abi=softfp -mcpu=cortex-a8
 else ifeq ($(AVS_ARCH),arm64)
-else ifeq ($(AVS_ARCH),i386)
 else ifeq ($(AVS_ARCH),x86_64)
 else
 $(error Unknown architecture $(AVS_ARCH) for Android.)

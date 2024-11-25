@@ -1712,7 +1712,9 @@ void pc_set_audio_level(int self,
 		conf_member_set_audio_level(cm, audio_level);
 	}
 	else {
-		warning("jsflow(%p): no conf member for ssrc: %u\n", jf, ssrc);
+		if (ssrc != 0) {
+			warning("jsflow(%p): no conf member for ssrc: %u\n", jf, ssrc);
+		}
 	}
 }
 
@@ -1837,7 +1839,7 @@ void pc_get_media_key(int self, int index)
 		return;
 	}
 
-	info("pc_get_media_key idx %d\n", index);
+	//info("pc_get_media_key idx %d\n", index);
 
 	err = keystore_get_media_key(flow->frame.keystore, index,
 				     media_key, E2EE_SESSIONKEY_SIZE);
@@ -1884,8 +1886,6 @@ void pc_get_current_media_key(int self)
 		return;
 	}
 
-	info("pc_get_current_media_key\n");
-
 	err = keystore_get_current(flow->frame.keystore, &current, &ts);
 	if (err)
 		goto out;
@@ -1903,9 +1903,11 @@ void pc_get_current_media_key(int self)
 
 out:
 	sodium_memzero(media_key, E2EE_SESSIONKEY_SIZE);
+#if 0
 	if (err) {
 		warning("pc_get_current_media_key err=%d\n", err);
 	}
+#endif
 #endif
 }
 
