@@ -985,7 +985,6 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
         if (track.kind === 'video') {
             pc.sending_video = true;
         } else {
-            pc_log(LOG_LEVEL_WARN, `update_tracks: heyyyyy`);
             track.enabled = !pc.muted;
         }
         if (!replace_track(pc, track)) {
