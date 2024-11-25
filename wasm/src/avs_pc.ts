@@ -989,7 +989,7 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
         }
         if (!replace_track(pc, track)) {
             pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}, id=${track.id}`);
-            if (track.kind === 'video') {
+            if (track.kind === 'video' && pc.conv_type !== CONV_TYPE_ONEONONE) {
                 const transceivers = rtc.getTransceivers();
                 for (const trans of transceivers) {
                     if (trans.mid === 'video') {
@@ -1001,26 +1001,31 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
                             params.encodings = [];
                         }
 
+                        let layerFound = false;
                         params.encodings.forEach((coding) => {
                             if(coding.rid === 'l') {
                                 //@ts-ignore
                                 coding.scalabilityMode = 'L1T1'
                                 coding.scaleResolutionDownBy = 4;
                                 coding.active = true;
+                                layerFound = true;
                             }
                             if(coding.rid === 'h') {
                                 //@ts-ignore
                                 coding.scalabilityMode = 'L1T1'
                                 coding.scaleResolutionDownBy = 1;
                                 coding.active = true;
+                                layerFound = true;
                             }
                         });
 
                         rtc.addTrack(track, stream)
-                        videoSenderUpdates.push(trans.sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set params ${e}`))
-                            // Reinsert the track so that the changes are transferred to the track (needed for FF)
-                            .then(() => trans.sender.replaceTrack(track))
-                            .then())
+                        if (layerFound) {
+                            videoSenderUpdates.push(trans.sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set params ${e}`))
+                                // Reinsert the track so that the changes are transferred to the track (needed for FF)
+                                .then(() => trans.sender.replaceTrack(track))
+                                .then())
+                        }
                     }
                 }
             } else {
@@ -1028,7 +1033,11 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
             }
         }
     });
-
+    // Either the codecs did not need to be adjusted because we are in a 1:1 call, or we are not sending a video track.
+    // In that case, there is no need to wait for the asynchronous process
+    if (videoSenderUpdates.length === 0) {
+        return Promise.resolve();
+    }
     // Wait until setup is finish
     return Promise.all(videoSenderUpdates).catch(e => {
         pc_log(LOG_LEVEL_ERROR, `update_tracks: error=${e}`)
