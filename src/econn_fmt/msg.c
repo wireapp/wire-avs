@@ -362,6 +362,12 @@ static int econn_streams_encode(struct json_object *jobj,
 		}
 		jzon_add_str(jstream, "userid", "%s", stream->userid);
 		jzon_add_int(jstream, "quality", stream->quality);
+		if (stream->ssrcv.hi)
+			jzon_add_int(jstream, "ssrcv_hi", stream->ssrcv.hi);
+		if (stream->ssrcv.lo)
+			jzon_add_int(jstream, "ssrcv_lo", stream->ssrcv.lo);
+		if (str_isset(stream->ssrcv.clientid))
+			jzon_add_str(jstream, "clientid", "%s", stream->ssrcv.clientid);
 
 		json_object_array_add(jstreams, jstream);
 	}
@@ -403,7 +409,11 @@ static bool stream_decode_handler(const char *keystr,
 	struct econn_stream_info *stream;
 	struct list *streaml = arg;
 	const char *userid = NULL;
+	const char *clientid = NULL;
 	int32_t quality = 0;
+	uint32_t ssrcv = 0;
+	uint32_t ssrcv_hi = 0;
+	uint32_t ssrcv_lo = 0;
 	int err;
 
 	err = jzon_int(&quality, jobj, "quality");
@@ -414,12 +424,29 @@ static bool stream_decode_handler(const char *keystr,
 	if (!userid)
 		goto out;
 
+	err = jzon_u32(&ssrcv, jobj, "ssrcv_hi");
+	if (0 == err)
+		ssrcv_hi = ssrcv;
+	err = jzon_u32(&ssrcv, jobj, "ssrcv_lo");
+	if (0 == err)
+		ssrcv_lo = ssrcv;
+
+	clientid = jzon_str(jobj, "clientid");
+
 	stream = econn_stream_info_alloc(userid, quality);
 	if (!stream) {
 		warning("econn: stream_decode_handler: could not alloc stream\n");
 		goto out;
 	}
-
+	if (ssrcv_hi)
+		stream->ssrcv.hi = ssrcv_hi;
+	if (ssrcv_lo)
+		stream->ssrcv.lo = ssrcv_lo;
+	if (clientid) {
+		str_ncpy(stream->ssrcv.clientid, clientid,
+			 ARRAY_SIZE(stream->ssrcv.clientid));
+	}
+	
 	list_append(streaml, &stream->le, stream);
 
 out:

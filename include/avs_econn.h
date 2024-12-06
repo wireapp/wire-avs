@@ -46,11 +46,13 @@ enum econn_msg {
 	ECONN_REJECT = 0x11,
 	ECONN_ALERT  = 0x12,
 	ECONN_PING   = 0x13,
-	
+
 	/* Device pairing messages */
 	ECONN_DEVPAIR_PUBLISH = 0x21,
 	ECONN_DEVPAIR_ACCEPT  = 0x22,
 
+	/* Application level */
+	ECONN_APP_DATA = 0x30,
 };
 
 enum econn_state {
@@ -255,6 +257,12 @@ struct econn_key_info {
 struct econn_stream_info {
 	char userid[ECONN_ID_LEN];
 	uint32_t quality;
+	struct {
+		char clientid[ECONN_ID_LEN];
+		uint32_t hi;
+		uint32_t lo;
+	} ssrcv;
+	
 	struct le le;
 };
 
