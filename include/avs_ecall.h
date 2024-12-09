@@ -128,6 +128,7 @@ typedef int (ecall_propsync_h)(struct ecall *ecall,
 int ecall_set_propsync_handler(struct ecall *ecall,
 			       ecall_propsync_h propsynch);
 
+
 /* Device pairing */
 void ecall_set_devpair(struct ecall *ecall, bool devpair);
 int  ecall_devpair_start(struct ecall *ecall);
