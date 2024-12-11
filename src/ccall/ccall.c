@@ -923,7 +923,7 @@ static void ecall_media_estab_handler(struct icall *icall, const char *userid,
 
 	if (ccall->ecall != ecall) {
 		warning("ccall(%p): media_estab_handler: on wrong ecall: %p(%p)\n",
-			ccall, ecall, ccall->ecall):
+			ccall, ecall, ccall->ecall);
 		return;
 	}
 
