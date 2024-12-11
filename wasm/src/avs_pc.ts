@@ -973,8 +973,10 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
             }
         }
         if (!found) {
-            if (sender.track)
+            if (sender.track) {
                 sender.track.enabled = false;
+            }
+
         }
     }
 
@@ -987,50 +989,55 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
         }
         if (!replace_track(pc, track)) {
             pc_log(LOG_LEVEL_INFO, `update_tracks: adding track of kind=${track.kind}, id=${track.id}`);
-            if (track.kind === 'video') {
-                const videoTrack = track;
+            if (track.kind === 'video' && pc.conv_type !== CONV_TYPE_ONEONONE) {
                 const transceivers = rtc.getTransceivers();
                 for (const trans of transceivers) {
                     if (trans.mid === 'video') {
                         pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
-
                         const params = trans.sender.getParameters()
-                        pc_log(LOG_LEVEL_INFO, `update_tracks: params ${JSON.stringify(params)}`)
 
                         if (!params.encodings) {
                             pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
                             params.encodings = [];
                         }
 
+                        let layerFound = false;
                         params.encodings.forEach((coding) => {
                             if(coding.rid === 'l') {
-                                // @ts-ignore
+                                //@ts-ignore
                                 coding.scalabilityMode = 'L1T1'
                                 coding.scaleResolutionDownBy = 4;
-                                coding.maxBitrate = 245760 // 240 * 1024
+                                coding.active = true;
+                                layerFound = true;
                             }
                             if(coding.rid === 'h') {
-                                // @ts-ignore
+                                //@ts-ignore
                                 coding.scalabilityMode = 'L1T1'
                                 coding.scaleResolutionDownBy = 1;
-                                coding.maxBitrate = 819200 // 800 * 1024
+                                coding.active = true;
+                                layerFound = true;
                             }
                         });
 
                         rtc.addTrack(track, stream)
-                        videoSenderUpdates.push(trans.sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set params ${e}`))
-                            // Reinsert the track so that the changes are transferred to the track (needed for FF)
-                            .then(() => trans.sender.replaceTrack(videoTrack))
-                            .then((e) => pc_log(LOG_LEVEL_INFO, `update_tracks: stream added`))
-                            .then())
+                        if (layerFound) {
+                            videoSenderUpdates.push(trans.sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set params ${e}`))
+                                // Reinsert the track so that the changes are transferred to the track (needed for FF)
+                                .then(() => trans.sender.replaceTrack(track))
+                                .then())
+                        }
                     }
                 }
             } else {
-                const sender = rtc.addTrack(track, stream);
+                rtc.addTrack(track, stream);
             }
         }
     });
-
+    // Either the codecs did not need to be adjusted because we are in a 1:1 call, or we are not sending a video track.
+    // In that case, there is no need to wait for the asynchronous process
+    if (videoSenderUpdates.length === 0) {
+        return Promise.resolve();
+    }
     // Wait until setup is finish
     return Promise.all(videoSenderUpdates).catch(e => {
         pc_log(LOG_LEVEL_ERROR, `update_tracks: error=${e}`)

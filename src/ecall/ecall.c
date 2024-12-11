@@ -971,6 +971,7 @@ static int _icall_stats(struct re_printf *pf, const struct icall *icall)
 
 int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		enum icall_conv_type conv_type,
+		enum icall_call_type call_type,
 		const struct ecall_conf *conf,
 		struct msystem *msys,
 		const char *convid,
@@ -978,6 +979,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		const char *clientid)
 {
 	struct ecall *ecall;
+	bool send_video = false;
 	bool muted;
 	int err = 0;
 
@@ -991,6 +993,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 	ecall->magic = ECALL_MAGIC;
 	ecall->conf = conf ? *conf : default_conf;
 	ecall->conv_type = conv_type;
+	ecall->call_type = call_type;
 	switch(conv_type) {
 	case ICALL_CONV_TYPE_CONFERENCE:
 	case ICALL_CONV_TYPE_GROUP:
@@ -1003,12 +1006,25 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 	}
 	ecall->num_retries = 0;
 
+	switch(call_type) {
+	case ICALL_CALL_TYPE_VIDEO:
+		send_video = true;
+		ecall->vstate = ICALL_VIDEO_STATE_STARTED;
+		break;
+
+	default:
+		send_video = false;
+		break;
+	}
+
 	/* Add some properties */
 	err = econn_props_alloc(&ecall->props_local, NULL);
 	if (err)
 		goto out;
 
-	err = econn_props_add(ecall->props_local, "videosend", "false");
+	err = econn_props_add(ecall->props_local,
+			      "videosend",
+			      send_video ? "true" : "false");
 	if (err)
 		goto out;
 
@@ -2563,11 +2579,19 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 	if (!ecall)
 		return EINVAL;
 
-	info("ecall(%p): set_video_send_state %s econn %p update %d\n",
+	info("ecall(%p): set_video_send_state %s->%s  econn %p update %d\n",
 	     ecall,
+	     icall_vstate_name(ecall->vstate),
 	     icall_vstate_name(vstate),
 	     ecall->econn,
 	     ecall->update);
+
+	if (ecall->vstate == vstate) {
+		info("ecall(%p): set_video_send_state: ignorig, already in state: %s\n",
+		     ecall, icall_vstate_name(ecall->vstate));
+
+		return 0;
+	}
 
 	const char *vstate_string;
 	const char *sstate_string;
