@@ -2422,7 +2422,7 @@ void ecall_end(struct ecall *ecall)
 	if (!ecall)
 		return;
 
-	info("ecall(%p): [self=%s] end\n", ecall, anon_id(userid_anon, ecall->userid_self));
+	info("ecall(%p): [self=%s] econn: %p end\n", ecall, anon_id(userid_anon, ecall->userid_self), ecall->econn);
 
 	/* disconnect all connections */
 	econn_end(ecall->econn);

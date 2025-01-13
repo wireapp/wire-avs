@@ -3824,7 +3824,7 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 	}
 
 	userlist_incall_clear(ccall->userl, false, false);
-	if (ccall->ecall)
+	if (ccall->ecall && ecall_get_econn(ccall->ecall))
 		ecall_end(ccall->ecall);
 	else
 		set_state(ccall, CCALL_STATE_IDLE);
