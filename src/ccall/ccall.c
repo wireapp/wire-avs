@@ -915,10 +915,17 @@ static void ecall_datachan_estab_handler(struct icall *icall,
 static void ecall_media_estab_handler(struct icall *icall, const char *userid,
 				      const char *clientid, bool update, void *arg)
 {
+	struct ecall *ecall = (struct ecall *)icall;
 	struct ccall *ccall = arg;
 
 	if (!ccall)
 		return;
+
+	if (ccall->ecall != ecall) {
+		warning("ccall(%p): media_estab_handler: on wrong ecall: %p(%p)\n",
+			ccall, ecall, ccall->ecall);
+		return;
+	}
 
 	ICALL_CALL_CB(ccall->icall, media_estabh,
 		icall, userid, clientid, update, ccall->icall.arg);
@@ -2187,6 +2194,7 @@ static int create_ecall(struct ccall *ccall)
 
 	err = ecall_alloc(&ecall, NULL,
 			  ICALL_CONV_TYPE_CONFERENCE,
+			  ccall->call_type,
 			  ccall->conf,
 			  msys,
 			  ccall->convid_real,
@@ -3834,7 +3842,7 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 	}
 
 	userlist_incall_clear(ccall->userl, false, false);
-	if (ccall->ecall)
+	if (ccall->ecall && ecall_get_econn(ccall->ecall))
 		ecall_end(ccall->ecall);
 	else
 		set_state(ccall, CCALL_STATE_IDLE);

@@ -68,6 +68,7 @@ struct keystore
 	bool has_keys;
 	bool decrypt_successful;
 	bool decrypt_attempted;
+	bool err_reported;
 	const EVP_MD *hash_md;
 
 	struct list listeners;
@@ -166,6 +167,7 @@ int keystore_reset_keys(struct keystore *ks)
 	ks->has_keys = false;
 	ks->decrypt_attempted = false;
 	ks->decrypt_successful = false;
+	ks->err_reported = false;
 
 	lock_rel(ks->lock);
 
@@ -570,10 +572,14 @@ int keystore_get_media_key(struct keystore *ks,
 
 	if (!found && ks->hash_forward) {
 		if (!kinfo) {
-			warning("keystore(%p): get_media_key nothing to hash forward from\n", ks);
+			if (!ks->err_reported) {
+				warning("keystore(%p): get_media_key nothing to hash forward from\n", ks);
+			}
+			ks->err_reported = true;
 			err = ENOENT;
 			goto out;
 		}
+		ks->err_reported = false;
 
 		if (index > kinfo->index &&
 		    index < kinfo->index + NUM_KEYS) {

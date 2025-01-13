@@ -948,7 +948,10 @@ public:
 			if (!str_isset(cli->userid))
 				continue;
 
-			err = ecall_alloc(&cli->ecall, &lst, ICALL_CONV_TYPE_ONEONONE, &conf,
+			err = ecall_alloc(&cli->ecall, &lst,
+					  ICALL_CONV_TYPE_ONEONONE,
+					  ICALL_CALL_TYPE_NORMAL,
+					  &conf,
 					  msys, loop->convid,
 					  cli->userid, cli->clientid);
 

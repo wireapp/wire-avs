@@ -253,6 +253,7 @@ struct ecall_wrapper *init_ecall(const char *name, bool fake_auth)
 	wrapper->fake_auth = fake_auth;
 	err = ecall_alloc(&ecall, NULL,
 			  ICALL_CONV_TYPE_CONFERENCE,
+			  ICALL_CALL_TYPE_NORMAL,
 			  NULL,
 			  msystem_instance(),
 			  "guess",
