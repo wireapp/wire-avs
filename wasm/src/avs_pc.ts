@@ -43,10 +43,13 @@ type LocalStats = {
 
 type UserInfo = {
     label: string;
+    video_track_id: string;
     userid: string;
     clientid: string;
     ssrca: string;
     ssrcv: string;
+    frame_width: number;
+    frame_height: number;
     iva: Uint8Array;
     ivv: Uint8Array;
     audio_level: number;
@@ -455,12 +458,12 @@ function decryptFrame(track_id, coder, rtcFrame, controller) {
           for (const [key, u] of Object.entries(coder.video.users)) {
               if (u.transp_ssrcv == ssrc) {
                   postMessage({
-                      op: "setvstream",
-                      self: coder.self,
-                      userid: u.userid,
-                      clientid: u.clientid,
-                      ssrc: "0",
-		      track_id: "0",
+                       op: "setvstream",
+                       self: coder.self,
+                       userid: u.userid,
+                       clientid: u.clientid,
+                       ssrc: "0",
+                       track_id: "0",
                   });
                   u.transp_ssrcv = null;
               }
@@ -472,7 +475,7 @@ function decryptFrame(track_id, coder, rtcFrame, controller) {
               userid: uinfo.userid,
               clientid: uinfo.clientid,
               ssrc: ssrc,
-	      track_id: track_id,
+              track_id: track_id,
           });
       }
       uinfo.transp_ssrcv = ssrc;
@@ -631,17 +634,17 @@ onmessage = async (event) => {
 	coder.video.ssrc = ssrcv;
     }
     else if (op === 'addUser') {
-	if (!coder) {
-	    doLog('addUser: no coder');
-	    return;
-	}
-	const {userInfo} = event.data;
-
-	doLog('addUser: adding audio ssrc: '+userInfo.ssrca);
-	coder.audio.users[userInfo.ssrca] = userInfo;
-	if (userInfo.ssrcv != 0) {
-	    coder.video.users[userInfo.ssrcv] = userInfo;
-	}
+        if (!coder) {
+            doLog('addUser: no coder');
+            return;
+        }
+        const {userInfo} = event.data;
+        
+        doLog('addUser: adding audio ssrc: '+userInfo.ssrca);
+        coder.audio.users[userInfo.ssrca] = userInfo;
+        if (userInfo.ssrcv != 0) {
+            coder.video.users[userInfo.ssrcv] = userInfo;
+        }
     }
     else if (op === 'setupSender') {
 	const {readableStream, writableStream} = event.data;
@@ -700,10 +703,15 @@ function callStreamHandler(pc: PeerConnection,
                            userid: string,
                            clientid: string,
                            ssrc: string,
-			   track_id: string) {
+                           track_id: string) {
 
   pc_log(LOG_LEVEL_INFO, `vsh: ${videoStreamHandler} rtc: ${pc.rtc} ssrc: ${ssrc}`);
+  const uinfo = uinfo_from_device(pc, userid, clientid)
   if (ssrc == "0") {
+    if (uinfo) {
+      uinfo.video_track_id = "0"
+    }
+
     if (videoStreamHandler) {
       pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) to remove renderer`);
       videoStreamHandler(pc.convid,
@@ -711,17 +719,19 @@ function callStreamHandler(pc: PeerConnection,
                          clientid,
                          null);
     }
-  }
-  else if (pc.rtc) {
+  } else if (pc.rtc) {
     if (pc_env === ENV_FIREFOX) {
       pc.rtc.getTransceivers().forEach(trans => {
         const track = trans.receiver.track;
 
-	if (track.kind != 'video')
-	  return;
-	  
+        if (track.kind != 'video')
+            return;
+
         pc_log(LOG_LEVEL_INFO, `vsh: id:${track.id} looking for: ${track_id}`);
         if (track.id === track_id) {
+            if (uinfo) {
+                uinfo.video_track_id = track_id
+            }
           let stream = new MediaStream([trans.receiver.track]);
           if (videoStreamHandler) {
             pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) with 1 stream`);
@@ -732,13 +742,15 @@ function callStreamHandler(pc: PeerConnection,
           }
         }
       });
-    }
-    else {
+    } else {
       const label = pc.streams[ssrc];
       pc.rtc.getTransceivers().forEach(trans => {
         const track = trans.receiver.track;
         pc_log(LOG_LEVEL_INFO, `vsh: label:${track.label} id:${track.id} looking for: ${label}`);
         if (trans.receiver.track.label === label) {
+          if (uinfo) {
+              uinfo.video_track_id = track.id;
+          }
           let stream = new MediaStream([trans.receiver.track]);
           if (videoStreamHandler) {
             pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) with 1 stream`);
@@ -760,7 +772,7 @@ function createWorker() {
   worker = new Worker(url , {name: 'AVS worker'});
   worker.onmessage = (event) => {
     const {op, self} = event.data;
-  
+
     if (op === 'getMediaKey') {
       const {index} = event.data;
 
@@ -784,7 +796,7 @@ function createWorker() {
       }
     }
   }
-  
+
 }
 
 /* The following constants closely reflect the values
@@ -898,6 +910,27 @@ function uinfo_from_ssrca(pc: PeerConnection, ssrc: string) : UserInfo | null
   return null;
 }
 
+function uinfo_from_device(pc: PeerConnection, user_id: string, client_id: string) : UserInfo | null
+{
+    for (const key of Object.keys(pc.users)) {
+        const uinfo : UserInfo = pc.users[key];
+        if (uinfo.userid === user_id && uinfo.clientid === client_id) {
+            return uinfo;
+        }
+    }
+    return null;
+}
+
+function uinfo_from_video_track_id(pc: PeerConnection, track_id: string) : UserInfo | null
+{
+    for (const key of Object.keys(pc.users)) {
+        const uinfo : UserInfo = pc.users[key];
+        if (uinfo.video_track_id === track_id) {
+            return uinfo;
+        }
+    }
+    return null;
+}
 function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
     const rtc = pc.rtc;
 
@@ -907,7 +940,7 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
     const senders = rtc.getSenders();
     if (!senders)
 	return false;
-    
+
     for (const sender of senders) {
 	if (!sender)
 	    continue;
@@ -921,7 +954,7 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
 	    if (!oldTrack) {
 		pc_log(LOG_LEVEL_INFO, 'replace_track: oldtrack null');
 	    }
-	    else {			
+	    else {
 		const enabled = oldTrack.enabled;
 
 		newTrack.enabled = enabled;
@@ -1215,7 +1248,7 @@ function gatheringHandler(pc: PeerConnection) {
 }
 
 function negotiationHandler(pc: PeerConnection) {
-  pc_log(LOG_LEVEL_INFO, `negotiationHandler: ${pc.self}`);    
+  pc_log(LOG_LEVEL_INFO, `negotiationHandler: ${pc.self}`);
 }
 
 
@@ -1246,7 +1279,7 @@ function setMute(pc: PeerConnection) {
   }
 }
 
-function candidateHandler(pc: PeerConnection, cand: RTCIceCandidate | null) {    
+function candidateHandler(pc: PeerConnection, cand: RTCIceCandidate | null) {
     const mindex = cand ? cand.sdpMLineIndex : null;
 
     if (cand !== null)
@@ -1257,9 +1290,9 @@ function candidateHandler(pc: PeerConnection, cand: RTCIceCandidate | null) {
 
     if (!pc || !pc.rtc)
 	return;
-    
+
     if (!cand) {
-	pc_log(LOG_LEVEL_INFO, 'candidateHandler: end-of-candidates');	
+	pc_log(LOG_LEVEL_INFO, 'candidateHandler: end-of-candidates');
 	gatheringComplete(pc);
 
         return;
@@ -1338,12 +1371,12 @@ function pc_New(self: number, convidPtr: number,
 
   const iva = new ArrayBuffer(ivlen);
   const aptr = new Uint8Array(em_module.HEAPU8.buffer, audioIvPtr, ivlen);
-  const iva8 = new Uint8Array(iva); 
+  const iva8 = new Uint8Array(iva);
   iva8.set(aptr);
 
   const ivv = new ArrayBuffer(ivlen);
   const vptr = new Uint8Array(em_module.HEAPU8.buffer, videoIvPtr, ivlen);
-  const ivv8 = new Uint8Array(ivv); 
+  const ivv8 = new Uint8Array(ivv);
   ivv8.set(vptr);
 
   const pc: PeerConnection = {
@@ -1390,7 +1423,7 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
   }
 
   pc.conv_type = conv_type;
-  
+
   const transportPolicy = privacy !== 0 ? "relay" : "all";
 
   const useEncoding = pc.conv_type === CONV_TYPE_CONFERENCE;
@@ -1415,67 +1448,68 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
   pc.rtc = rtc;
   rtc.onicegatheringstatechange = () => gatheringHandler(pc);
   rtc.oniceconnectionstatechange = () => connectionHandler(pc);
-  rtc.onicecandidate = (event) => candidateHandler(pc, event.candidate);  
+  rtc.onicecandidate = (event) => candidateHandler(pc, event.candidate);
   rtc.onsignalingstatechange = event => signallingHandler(pc);
   rtc.ondatachannel = event => dataChannelHandler(pc, event);
-  rtc.onnegotiationneeded = () => negotiationHandler(pc);  
+  rtc.onnegotiationneeded = () => negotiationHandler(pc);
 
   let label: string = '';
   rtc.ontrack = event => {
       pc_log(LOG_LEVEL_INFO, `onTrack: self=${pc.self} convid=${pc.convid.substring(0,8)} userid=${pc.remote_userid.substring(0,8)}/${pc.remote_clientid.substring(0,4)} streams=${event.streams.length}`);
 
       if (event.streams && event.streams.length > 0) {
-	  for (const stream of event.streams) {
-	      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid.substring(0,8)} stream=${stream}`);
-	      for (const track of stream.getTracks()) {
-		  if (track) {
-		      if (pc_env === ENV_FIREFOX)
-		        label = track.id;
-	 	      else 
-		        label = track.label;
-		      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid.substring(0,8)} track=${track.id}/${track.label}=>${label} kind=${track.kind} enabled=${track.enabled}/${track.muted}/undefined/${track.readyState} remote=undefined`);
-		      if (!track.enabled)
-		       	track.enabled = true;
+          for (const stream of event.streams) {
+              pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid.substring(0,8)} stream=${stream}`);
+              for (const track of stream.getTracks()) {
+                  if (track) {
 
-			if (pc.conv_type === CONV_TYPE_CONFERENCE) {
-			  try {
-			    setupReceiverTransform(pc, event.receiver);
-			  }
-			  catch(err) {
-			    pc_log(LOG_LEVEL_WARN, "onTrack: setupReceiverTransform failed: " + err, err);
-			  }
-		      }
-		  }
-	      }
-	  }
+                      if (pc_env === ENV_FIREFOX)
+                          label = track.id;
+                      else
+                          label = track.label;
+
+                      pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid.substring(0,8)} track=${track.id}/${track.label}=>${label} kind=${track.kind} enabled=${track.enabled}/${track.muted}/undefined/${track.readyState} remote=undefined`);
+                      if (!track.enabled)
+                          track.enabled = true;
+
+                      if (pc.conv_type === CONV_TYPE_CONFERENCE) {
+                          try {
+                              setupReceiverTransform(pc, event.receiver);
+                          } catch(err) {
+                              pc_log(LOG_LEVEL_WARN, "onTrack: setupReceiverTransform failed: " + err, err);
+                          }
+                      }
+                  }
+              }
+          }
       }
 
       if (event.track.kind == "audio" && audioStreamHandler) {
           pc_log(LOG_LEVEL_INFO, `onTrack: calling ash(${pc.convid.substring(0,8)}, ${label}) with ${event.streams.length} streams`);
-	  audioStreamHandler(
-	      pc.convid,
+          audioStreamHandler(
+              pc.convid,
               hnd.toString() + label,
-	      event.streams);
+              event.streams);
       }
       if (event.track.kind == "video" && videoStreamHandler) {
           let userid = pc.remote_userid;
-	  let clientid = pc.remote_clientid;
+          let clientid = pc.remote_clientid;
 
-	  const uinfo: UserInfo = pc.users[label];
-
-	  if (uinfo) {
-	      userid = uinfo.userid;
-	      clientid = uinfo.clientid;
-	  }
+          // @TODO: Remove, because the `keys` from `pc.users[]` is are random strings and not track.id or track.label, so means `uinfo` will be `undefined` everytime!
+          const uinfo: UserInfo = pc.users[label];
+          if (uinfo) {
+              userid = uinfo.userid;
+              clientid = uinfo.clientid;
+          }
 
           if (userid != "sft" && userid != "") {
               pc_log(LOG_LEVEL_INFO, `onTrack: calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) with ${event.streams.length} streams`);
-	      videoStreamHandler(
-	          pc.convid,
-	          userid,
-	          clientid,
-	          event.streams);
-	  }
+              videoStreamHandler(
+              pc.convid,
+              userid,
+              clientid,
+              event.streams);
+          }
       }
   };
 }
@@ -1507,12 +1541,12 @@ function pc_Close(hnd: number) {
   worker.postMessage({op: 'destroy', self: pc.self});
 
   connectionsStore.removePeerConnection(hnd);
-    
+
   const rtc = pc.rtc;
   if (!rtc) {
     return;
   }
-    
+
   rtc.close();
   pc.rtc = null;
 }
@@ -1576,9 +1610,9 @@ function pc_HasVideo(hnd: number) : number {
 	const tx = txrx.sender;
 	pc_log(LOG_LEVEL_INFO, `pc_HasVideo: txrx dir=${txrx.direction}/${txrx.currentDirection} rx=${rx} tx=${tx}`);
     }
-    
+
     return 0;
-} 
+}
 
 function pc_SetVideoState(hnd: number, vstate: number) {
   const pc = connectionsStore.getPeerConnection(hnd);
@@ -1587,7 +1621,7 @@ function pc_SetVideoState(hnd: number, vstate: number) {
   }
 
   pc_log(LOG_LEVEL_INFO, `pc_SetVideoState: hnd=${hnd} vstate=${vstate}/${pc.vstate} callType=${pc.call_type} active=${pc.sending_video}`);
-    
+
     if (pc.vstate === vstate)
 	return;
 
@@ -1603,11 +1637,11 @@ function pc_SetVideoState(hnd: number, vstate: number) {
 	active = false;
 	break;
     }
-    
+
     const rtc = pc.rtc;
     if (!rtc)
 	return;
-    
+
     let should_update = false;
 
     if (pc.vstate === PC_VIDEO_STATE_SCREENSHARE)
@@ -1630,13 +1664,13 @@ function pc_SetVideoState(hnd: number, vstate: number) {
 	    });
 	pc.sending_video = use_video || use_ss;
     }
-    
+
     pc.vstate = vstate
 }
 
 function sdpMap(sdp: string, local: boolean, bundle: boolean): string {
     const sdpLines:  string[] = [];
-    
+
     sdp.split('\r\n').forEach(sdpLine => {
 	let outline: string | null;
 
@@ -1653,7 +1687,7 @@ function sdpMap(sdp: string, local: boolean, bundle: boolean): string {
 		outline = 'a=sctp-port:5000';
 	    }
 	}
-      
+
 	if (outline != null) {
             sdpLines.push(outline);
 	}
@@ -1664,7 +1698,7 @@ function sdpMap(sdp: string, local: boolean, bundle: boolean): string {
 
 function sdpCbrMap(sdp: string): string {
     const sdpLines:  string[] = [];
-    
+
     sdp.split('\r\n').forEach(sdpLine => {
       let outline: string | null;
 
@@ -1700,7 +1734,7 @@ function pc_SetMediaKey(hnd: number, index: number, current: number, keyPtr: num
 
   const buf = new ArrayBuffer(keyLen);
   const ptr = new Uint8Array(em_module.HEAPU8.buffer, keyPtr, keyLen);
-  const buf8 = new Uint8Array(buf); 
+  const buf8 = new Uint8Array(buf);
   buf8.set(ptr);
 
   worker.postMessage({
@@ -1742,7 +1776,7 @@ function setupSenderTransform(pc: PeerConnection, sender: any) {
   if (!insertableLegacy && !insertableStreams) {
       pc_log(LOG_LEVEL_WARN, "setupSenderTransform: insertable streams not supported");
       return;
-  }  
+  }
 
   if (pc_env === ENV_FIREFOX) {
      sender.transform = new RTCRtpScriptTransform(worker, { name: "senderTransform", self: pc.self });
@@ -1758,12 +1792,12 @@ function setupSenderTransform(pc: PeerConnection, sender: any) {
      senderStreams = mtype === 1 ? sender.createEncodedVideoStreams() : sender.createEncodedAudioStreams();
 
   pc_log(LOG_LEVEL_INFO, `setupSenderTransform: senderStream: ${senderStreams.readable}/${senderStreams.readableStream}`);
-  
+
   const readableStream = senderStreams.readable || senderStreams.readableStream;
   const writableStream = senderStreams.writable || senderStreams.writableStream;
 
 
-  worker.postMessage({   
+  worker.postMessage({
     op: 'setupSender',
     self: pc.self,
     readableStream,
@@ -1791,7 +1825,7 @@ function setupReceiverTransform(pc: PeerConnection, receiver: any) {
   let receiverStreams = null;
   if (insertableStreams)
     receiverStreams = receiver.createEncodedStreams();
-  else  
+  else
     receiverStreams =  mtype === 1 ? receiver.createEncodedVideoStreams() : receiver.createEncodedAudioStreams();
 
   pc_log(LOG_LEVEL_INFO, `setupReceiverTransform: receiverStream: ${receiverStreams.readable}/${receiverStreams.readableStream}`);
@@ -1815,7 +1849,7 @@ function createSdp(
 ) {
     const rtc = pc.rtc;
 
-    pc_log(LOG_LEVEL_INFO, `createSdp: isOffer=${isOffer} rtc=${rtc}`); 
+    pc_log(LOG_LEVEL_INFO, `createSdp: isOffer=${isOffer} rtc=${rtc}`);
     if (!rtc) {
 	return;
     }
@@ -1825,11 +1859,11 @@ function createSdp(
 
     const use_video = vstate === PC_VIDEO_STATE_STARTED;
     const use_ss = vstate === PC_VIDEO_STATE_SCREENSHARE;
-    
+
     pc_log(LOG_LEVEL_INFO, `createSdp: calling umh(1, ${use_video}, ${use_ss})`);
 
     pc.sending_video = use_video || use_ss;
-    
+
     if (userMediaHandler) {
 	userMediaHandler(pc.convid, true, use_video, use_ss)
         .then((stream: MediaStream) => {
@@ -1851,7 +1885,7 @@ function createSdp(
 			const sdpStr = sdp.sdp || '';
 
 			pc_log(LOG_LEVEL_INFO, `createSdp: type=${typeStr} sdp=${sdpStr}`);
-			
+
 			const modSdp = sdpMap(sdpStr, true, false);
 			ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
 		    })
@@ -1905,25 +1939,30 @@ function pc_AddDecoderAnswer(hnd: number) {
   const rtc = pc.rtc;
   if (!rtc)
      return;
-     
+
   rtc.createAnswer().then(sdp => {
 	const typeStr = sdp.type;
 	const sdpStr = sdp.sdp || '';
 
 	 //pc_log(LOG_LEVEL_INFO, `createSdp: type=${typeStr} sdp=${sdpStr}`);
-			
+
 	ccallLocalSdpHandler(pc, 0, typeStr, sdpStr);
   })
   .catch((err: any) => {
-	pc_log(LOG_LEVEL_WARN, 'addDecoderAnswer: createAnswer failed: ' + err, err);  
+	pc_log(LOG_LEVEL_WARN, 'addDecoderAnswer: createAnswer failed: ' + err, err);
 	ccallLocalSdpHandler(pc, 1, "sdp-error", err.toString());
   });
 }
 
+/**
+ * This methode is called by the jsflow
+ *
+ * @see: jsflow.c::jsflow_add_decoders_for_user
+ */
 function pc_AddUserInfo(hnd: number, labelPtr: number,
-	                useridPtr: number, clientidPtr: number,
-			ssrcaPtr: number, ssrcvPtr: number,
-	                audioIvPtr: number, videoIvPtr: number, ivlen: number) {
+                        useridPtr: number, clientidPtr: number,
+                        ssrcaPtr: number, ssrcvPtr: number,
+                        audioIvPtr: number, videoIvPtr: number, ivlen: number) {
   pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo2: hnd=${hnd}`);
 
   const pc = connectionsStore.getPeerConnection(hnd);
@@ -1939,27 +1978,30 @@ function pc_AddUserInfo(hnd: number, labelPtr: number,
 
   const iva = new ArrayBuffer(ivlen);
   const aptr = new Uint8Array(em_module.HEAPU8.buffer, audioIvPtr, ivlen);
-  const iva8 = new Uint8Array(iva); 
+  const iva8 = new Uint8Array(iva);
   iva8.set(aptr);
 
   const ivv = new ArrayBuffer(ivlen);
   const vptr = new Uint8Array(em_module.HEAPU8.buffer, videoIvPtr, ivlen);
-  const ivv8 = new Uint8Array(ivv); 
+  const ivv8 = new Uint8Array(ivv);
   ivv8.set(vptr);
 
   const uinfo : UserInfo = {
-  	label: label,
-  	userid: userId,
-	clientid: clientId,
-	ssrca: ssrca,
-	ssrcv: ssrcv,
-	iva: iva8,
-	ivv: ivv8,
-	audio_level: 0,
-	first_recv_audio: false,
-	first_succ_audio: false,
-	first_succ_video: false,
-	transp_ssrcv: null,
+      label: label,
+      video_track_id: "0",
+      userid: userId,
+      clientid: clientId,
+      ssrca: ssrca,
+      ssrcv: ssrcv,
+      iva: iva8,
+      ivv: ivv8,
+      frame_width: 0,
+      frame_height: 0,
+      audio_level: 0,
+      first_recv_audio: false,
+      first_succ_audio: false,
+      first_succ_video: false,
+      transp_ssrcv: null,
   };
 
   pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: label=${label} ${userId.substring(0,8)}/${clientId.substring(0,4)} ssrc:${ssrca}/${ssrcv}`);
@@ -2068,7 +2110,7 @@ function pc_SetLocalDescription(hnd: number, typePtr: number, sdpPtr: number) {
 	sdpStr = sdpMap(sdp, true, false);
     else
 	sdpStr = sdp;
-    
+
 
     //pc_log(LOG_LEVEL_INFO, `pc_SetLocalDesription: type=${type} sdp=${sdpStr}`);
   rtc
@@ -2113,15 +2155,15 @@ function pc_LocalDescription(hnd: number, typePtr: number) {
   let sdpStr = sdp;
 
   pc_log(LOG_LEVEL_INFO, `pc_LocalDescription: env=${pc_env}`);
-    
+
   if (pc_env === ENV_FIREFOX) {
-      sdpStr = sdp.replace(' UDP/DTLS/SCTP', ' DTLS/SCTP');	    
+      sdpStr = sdp.replace(' UDP/DTLS/SCTP', ' DTLS/SCTP');
       sdpStr = sdpMap(sdpStr, true, false);
   }
-    
+
   const sdpLen = em_module.lengthBytesUTF8(sdpStr) + 1; // +1 for '\0'
   const ptr = em_module._malloc(sdpLen);
-    
+
   em_module.stringToUTF8(sdpStr, ptr, sdpLen);
 
   return ptr;
@@ -2335,11 +2377,11 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
   em_module = module;
   logFn = logh;
 
-  const pt : any = RTCRtpSender.prototype;  
+  const pt : any = RTCRtpSender.prototype;
 
   insertableStreams = !!pt.createEncodedStreams || "transform" in pt;
   insertableLegacy = !!pt.createEncodedVideoStreams;
-        
+
   pc_log(LOG_LEVEL_INFO, `insertable: ${insertableLegacy}/${insertableStreams}`);
 
   const callbacks = [
@@ -2445,41 +2487,38 @@ function pc_GetLocalStats(hnd: number) {
       const ssrcs = rx.getSynchronizationSources();
       ssrcs.forEach(ssrc => {
           let ssrca = "";
-	  let aulevel = 0;
+          let aulevel = 0;
 
-	  if (typeof ssrc.audioLevel !== 'undefined')
-	      aulevel = ((ssrc.audioLevel * 512.0) | 0);
+          if (typeof ssrc.audioLevel !== 'undefined')
+              aulevel = ((ssrc.audioLevel * 512.0) | 0);
 
-	  if (pc.conv_type != CONV_TYPE_ONEONONE) {
+          if (pc.conv_type != CONV_TYPE_ONEONONE) {
               const uinfo = uinfo_from_ssrca(pc, ssrc.source.toString());
-	      if (uinfo) {
-	         uinfo.audio_level = aulevel;
-	         ssrca = uinfo.ssrca;
-	      }
-	  }
+              if (uinfo) {
+                  uinfo.audio_level = aulevel;
+                  ssrca = uinfo.ssrca;
+              }
+          }
 
-	  em_module.ccall(
-	    "pc_set_audio_level",
-	    null,
-	    ["number", "number", "number"],
-	    [pc.self, ssrca, aulevel]);
+          em_module.ccall(
+              "pc_set_audio_level", null, ["number", "number", "number"], [pc.self, ssrca, aulevel]
+          );
       });
+
       const csrcs = rx.getContributingSources();
       csrcs.forEach(csrc => {
-        const uinfo = uinfo_from_ssrca(pc, csrc.source.toString());
-	if (uinfo) {
-	  uinfo.audio_level = 0;
-	  if (typeof csrc.audioLevel !== 'undefined')
-	    uinfo.audio_level = ((csrc.audioLevel * 512.0) | 0);
+          const uinfo = uinfo_from_ssrca(pc, csrc.source.toString());
+          if (uinfo) {
+              uinfo.audio_level = 0;
+              if (typeof csrc.audioLevel !== 'undefined')
+                  uinfo.audio_level = ((csrc.audioLevel * 512.0) | 0);
 
-	  em_module.ccall(
-	    "pc_set_audio_level",
-	    null,
-	    ["number", "number", "number"],
-	    [pc.self, uinfo.ssrca, uinfo.audio_level]);
-	  }
-	});
-     }
+              em_module.ccall("pc_set_audio_level", null,
+                  ["number", "number", "number"],
+                  [pc.self, uinfo.ssrca, uinfo.audio_level]);
+          }
+      });
+    }
   });
 
   let self_audio_level = 0;
@@ -2488,63 +2527,71 @@ function pc_GetLocalStats(hnd: number) {
 
   rtc.getStats()
     .then((stats) => {
-	let rtt = 0;
+        let rtt = 0;
 
         stats.forEach(stat => {
-	    if (stat.type === 'inbound-rtp') {
+            if (stat.type === 'inbound-rtp') {
+                const ploss = stat.packetsLost;
+                pc.stats.ploss = ploss - pc.stats.lastploss;
 
-		const ploss = stat.packetsLost;		    
-		pc.stats.ploss = ploss - pc.stats.lastploss;
-		pc.stats.lastploss = ploss;
-		    		 
-		pc.stats.bytes = stat.bytesReceived;
-		
-		const p = stat.packetsReceived;		
-		if (stat.kind === 'audio') {
-		    if (p > max_apkts)
-		        max_apkts = p;
-		}
-		else if (stat.kind === 'video') {
-		    if (p > max_vpkts)
-		        max_vpkts = p;
-		}		
-	    }
-	    else if (stat.type === 'outbound-rtp') {
-		const p = stat.packetsSent;		
-		if (stat.kind === 'audio') {
-		    pc.stats.sent_apkts = p;
-		}
-		else if (stat.kind === 'video') {
-		    pc.stats.sent_vpkts = p;
-		}		
-	    }	    
-	    else if (stat.type === 'candidate-pair') {
-		rtt = stat.currentRoundTripTime * 1000;
-	    }
-	    else if (stat.type === 'media-source') {
-	    	 if (stat.kind === 'audio')
-	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
-	    }
-	});
-	pc.stats.recv_apkts = max_apkts;
-	pc.stats.recv_vpkts = max_vpkts;
+                pc.stats.lastploss = ploss;
+                pc.stats.bytes = stat.bytesReceived;
+                const p = stat.packetsReceived;
+                if (stat.kind === 'audio') {
+                    if (p > max_apkts)
+                        max_apkts = p;
+                } else if (stat.kind === 'video') {
+                    let user_info: UserInfo | null = null
+                    if(!!stat.trackIdentifier) {
+                        user_info = uinfo_from_video_track_id(pc, stat.trackIdentifier)
+                    }
+                    if(user_info !== null) {
+                        const frame_height = !!stat.frameHeight ? stat?.frameHeight : 0;
+                        const frame_width = !!stat.frameWidth ? stat?.frameWidth : 0;
+                        if(user_info.frame_width !== frame_width || user_info.frame_height !== frame_height) {
+                            user_info.frame_width = frame_width;
+                            user_info.frame_height = frame_height;
+                            pc_log(LOG_LEVEL_INFO, `pc_user_resolution: label=${user_info.label} ${user_info.userid.substring(0,8)}/${user_info.clientid.substring(0,4)} resolution:${user_info.frame_width}x${user_info.frame_height}`);
+                        }
+                    }
 
-	em_module.ccall(
-	    "pc_set_stats",
-	    null,
-	    ["number",
-	     "number",
-	     "number", "number",
-	     "number", "number",
-	     "number", "number"],
-	    [pc.self,
-	     self_audio_level,
-	     pc.stats.recv_apkts, pc.stats.recv_vpkts,
-	     pc.stats.sent_apkts, pc.stats.sent_vpkts,
-	     pc.stats.ploss, rtt]
-	);
-    })
-    .catch((err) => pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: failed hnd=${hnd} err=${err}`, err));
+                    if (p > max_vpkts)
+                        max_vpkts = p;
+                }
+
+            } else if (stat.type === 'outbound-rtp') {
+                const p = stat.packetsSent;
+                if (stat.kind === 'audio') {
+                    pc.stats.sent_apkts = p;
+                } else if (stat.kind === 'video') {
+                    pc.stats.sent_vpkts = p;
+                }
+
+            } else if (stat.type === 'candidate-pair') {
+                rtt = stat.currentRoundTripTime * 1000;
+
+            } else if (stat.type === 'media-source') {
+                if (stat.kind === 'audio')
+                    self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
+            }
+        });
+        pc.stats.recv_apkts = max_apkts;
+        pc.stats.recv_vpkts = max_vpkts;
+
+        em_module.ccall(
+            "pc_set_stats", null,
+            ["number", "number", "number", "number", "number", "number", "number", "number"],
+            [
+                pc.self, self_audio_level,
+                pc.stats.recv_apkts,
+                pc.stats.recv_vpkts,
+                pc.stats.sent_apkts,
+                pc.stats.sent_vpkts,
+                pc.stats.ploss,
+                rtt
+            ]
+        );
+    }).catch((err) => pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: failed hnd=${hnd} err=${err}`, err));
 }
 
 export default {
