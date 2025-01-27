@@ -42,6 +42,13 @@
 
 #define CCALL_MAX_VSTREAMS             (       9)
 
+#define CCALL_RESOLUTION_ANY  0
+/* low quality resolution */
+#define CCALL_RESOLUTION_LOW  1
+/* high quality resolution */
+#define CCALL_RESOLUTION_HIGH 2
+
+
 struct sftconfig {
 	struct le le;
 	char *url;
@@ -134,5 +141,6 @@ struct ccall {
 	uint64_t ts_start;
 	struct icall_metrics metrics;
 	bool inc_reconnects;
-};
 
+	struct list videol;
+};
