@@ -140,6 +140,7 @@ static void destructor(void *arg)
 
 	list_flush(&ccall->sftl);
 	list_flush(&ccall->saved_partl);
+	list_flush(&ccall->videol);
 
 	mbuf_reset(&ccall->confpart_data);
 }
@@ -1077,6 +1078,7 @@ static void ecall_quality_handler(struct icall *icall,
 {
 	struct ccall *ccall = arg;
 	uint64_t tdiff;
+	bool dec_res = false;
 
 	if (!icall || !ccall)
 		return;
@@ -1085,15 +1087,43 @@ static void ecall_quality_handler(struct icall *icall,
 		return;
 
 	tdiff = tmr_jiffies() - ccall->last_ping;
-	if (ccall->expected_ping >= CCALL_QUALITY_POOR_MISSING)
-		downloss = 30;
-	else if (ccall->expected_ping > CCALL_QUALITY_MEDIUM_MISSING)
-		downloss = 10;
 
 	info("ccall(%p): ecall_quality_handler rtt=%d up=%d dn=%d "
 	     "ping=%u pdiff=%llu\n",
 	     ccall, rtt, uploss, downloss, ccall->expected_ping, tdiff);
-	
+
+	if (downloss > 20) {
+		dec_res = true;
+	}
+	if (ccall->expected_ping >= CCALL_QUALITY_POOR_MISSING) {
+		dec_res = true;
+		downloss = 30;
+	}
+	else if (ccall->expected_ping > CCALL_QUALITY_MEDIUM_MISSING) {
+		dec_res = true;
+		downloss = 10;
+	}
+
+	if (dec_res) {
+		struct le *le;
+		bool update = false;
+
+		LIST_FOREACH(&ccall->videol, le) {
+			struct icall_client *cli = le->data;
+
+			if (cli->quality >= CCALL_RESOLUTION_HIGH) {
+				cli->quality = CCALL_RESOLUTION_LOW;
+				update = true;
+			}
+		}
+
+		if (update) {
+			ccall_request_video_streams((struct icall *)ccall,
+						    &ccall->videol,
+						    0);
+		}
+	}
+
 	ICALL_CALL_CB(ccall->icall, qualityh,
 		      &ccall->icall, 
 		      userid,
@@ -1273,13 +1303,16 @@ int  ccall_request_video_streams(struct icall *icall,
 		goto out;
 	}
 
+	list_flush(&ccall->videol);
 	str_dup(&msg->u.confstreams.mode, "list");
 	LIST_FOREACH(clientl, le) {
 		struct icall_client *cli = le->data;
 		struct userinfo *user;
 		uint32_t quality = (uint32_t)cli->quality;
+		struct icall_client *vinfo;
 
-		user = userlist_find_by_real(ccall->userl, cli->userid, cli->clientid);
+		user = userlist_find_by_real(ccall->userl,
+					     cli->userid, cli->clientid);
 		if (user) {
 
 			sinfo = econn_stream_info_alloc(user->userid_hash, quality);
@@ -1289,6 +1322,12 @@ int  ccall_request_video_streams(struct icall *icall,
 			}
 		
 			list_append(&msg->u.confstreams.streaml, &sinfo->le, sinfo);
+
+			vinfo = icall_client_alloc(cli->userid,
+						   cli->clientid);
+			vinfo->quality = cli->quality;
+
+			list_append(&ccall->videol, &vinfo->le, vinfo);
 		}
 	}
 
