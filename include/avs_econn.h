@@ -166,6 +166,7 @@ struct econn_message {
 			struct zapi_ice_server *turnv;
 			size_t turnc;
 			bool update;
+			int env;
 			char *tool;
 			char *toolver;
 			enum econn_confconn_status status;

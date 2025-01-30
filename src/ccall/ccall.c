@@ -2167,6 +2167,8 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	if (err) {
 		goto out;
 	}
+	msg->u.confconn.env = msystem_get_env();
+	
 	msg->u.confconn.update = update;
 	msg->u.confconn.selective_audio = true;
 	msg->u.confconn.selective_video = true;

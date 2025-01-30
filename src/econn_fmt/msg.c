@@ -662,6 +662,8 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 			     "%s", msg->u.confconn.tool);
 		jzon_add_str(jobj, "toolver",
 			     "%s", msg->u.confconn.toolver);
+		jzon_add_int(jobj, "env",
+			      msg->u.confconn.env);
 		jzon_add_int(jobj, "status",
 			      msg->u.confconn.status);
 		jzon_add_bool(jobj, "selective_audio",
@@ -1122,6 +1124,8 @@ int econn_message_decode(struct econn_message **msgp,
 				goto out;
 		}
 
+		jzon_int(&msg->u.confconn.env, jobj, "env");
+		
 		/* status is optional, missing = 0 */
 		err = jzon_int(&status, jobj, "status");
 		if (err) {
