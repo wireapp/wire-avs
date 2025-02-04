@@ -55,5 +55,5 @@ apt clean
 curl https://sh.rustup.rs -sSf | sh -s -- -y
 
 # Downgrade to rust 1.71.1 to mitigate https://github.com/rust-lang/rust/issues/123285
-rustup install 1.71.1
-rustup default 1.71.1-x86_64-unknown-linux-gnu
+/build/avs/.cargo/bin/rustup install 1.71.1
+/build/avs/.cargo/bin/rustup default 1.71.1-x86_64-unknown-linux-gnu
