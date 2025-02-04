@@ -10,7 +10,7 @@ COPY scripts/ubuntu_20.04_dependencies.sh /build/avs
 RUN /build/avs/ubuntu_20.04_dependencies.sh
 
 # Needed to workaround JENKINS-38438
-RUN chown -R 1001:1001 /build/avs
+RUN chown -R 1015:1015 /build/avs
 
 ENV PATH="/build/avs/.cargo/bin:${PATH}"
 
