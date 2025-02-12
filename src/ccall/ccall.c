@@ -399,7 +399,7 @@ static void ccall_ongoing_call_timeout(void *arg)
 		info("ccall(%p): ongoing_call_timeout\n", ccall);
 
 		set_state(ccall, CCALL_STATE_IDLE);
-		ICALL_CALL_CB(ccall->icall, closeh, 
+		ICALL_CALL_CB(ccall->icall, closeh,
 			      &ccall->icall, 0, &ccall->metrics, ECONN_MESSAGE_TIME_UNKNOWN,
 			      NULL, NULL, ccall->icall.arg);
 	}
@@ -483,7 +483,7 @@ static void ccall_reconnect(struct ccall *ccall,
 
 	if (ccall->reconnect_attempts >= CCALL_MAX_RECONNECT_ATTEMPTS) {
 		ccall_end_with_err(ccall, ETIMEDOUT);
-		ICALL_CALL_CB(ccall->icall, leaveh, 
+		ICALL_CALL_CB(ccall->icall, leaveh,
 			&ccall->icall, ICALL_REASON_STILL_ONGOING,
 			msg_time, ccall->icall.arg);
 		return;
@@ -511,7 +511,7 @@ static void ccall_reconnect(struct ccall *ccall,
 
 	if (notify) {
 		ICALL_CALL_CB(ccall->icall, qualityh,
-			      &ccall->icall, 
+			      &ccall->icall,
 			      "SFT",
 			      "SFT",
 			      0,
@@ -550,7 +550,7 @@ static void ccall_decrypt_check_timeout(void *arg)
 	if (!userlist_get_keygenerator(ccall->userl)) {
 		info("ccall(%p): decrypt_check_timeout no keygenerator, waiting\n",
 		     ccall);
-		
+
 		tmr_start(&ccall->tmr_decrypt_check, CCALL_DECRYPT_CHECK_TIMEOUT,
 			  ccall_decrypt_check_timeout, ccall);
 		return;
@@ -1061,14 +1061,14 @@ static void ecall_close_handler(struct icall *icall,
 	if (should_end) {
 		set_state(ccall, CCALL_STATE_IDLE);
 
-		ICALL_CALL_CB(ccall->icall, closeh, 
+		ICALL_CALL_CB(ccall->icall, closeh,
 			&ccall->icall, ccall->error, &ccall->metrics, msg_time,
 			NULL, NULL, ccall->icall.arg);
 	}
 	else {
 		set_state(ccall, CCALL_STATE_INCOMING);
 
-		ICALL_CALL_CB(ccall->icall, leaveh, 
+		ICALL_CALL_CB(ccall->icall, leaveh,
 			&ccall->icall, ICALL_REASON_STILL_ONGOING,
 			msg_time, ccall->icall.arg);
 	}
@@ -1132,7 +1132,7 @@ static void ecall_quality_handler(struct icall *icall,
 	}
 
 	ICALL_CALL_CB(ccall->icall, qualityh,
-		      &ccall->icall, 
+		      &ccall->icall,
 		      userid,
 		      clientid,
 		      rtt,
@@ -1173,7 +1173,7 @@ static int ccall_send_msg_sft(struct ccall *ccall,
 		}
 
 		len = strlen(fmt) +
-		      strlen(sft_url) + 
+		      strlen(sft_url) +
 		      strlen(ccall->convid_hash) + 3;
 
 		url = mem_zalloc(len + 1, NULL);
@@ -1327,7 +1327,7 @@ int  ccall_request_video_streams(struct icall *icall,
 				err = ENOMEM;
 				goto out;
 			}
-		
+
 			list_append(&msg->u.confstreams.streaml, &sinfo->le, sinfo);
 
 			vinfo = icall_client_alloc(cli->userid,
@@ -1368,6 +1368,26 @@ int  ccall_request_video_streams(struct icall *icall,
 			" failed (%m)\n", ccall, err);
 		goto out;
 	}
+
+    if (list_count(clientl) == 1 ) {
+
+        struct le *lex = NULL;
+        LIST_FOREACH(clientl, lex){
+            struct icall_client *clix = lex->data;
+
+            info("xxxxx: %s yyyy: %s \n",
+                 clix->userid,
+                 clix->clientid
+                 );
+            err = ecall_update_remote_user_track(ccall->ecall, clix->userid, clix->clientid);
+        }
+
+        if (err) {
+            warning("ccall(%p): request_video_streams: ecall_update_remote_user_track"
+                    " failed (%m)\n", ccall, err);
+            goto out;
+        }
+    }
 
  out:
 	mem_deref(str);
@@ -1530,7 +1550,7 @@ static  int ecall_propsync_handler(struct ecall *ecall,
 		     ccall,
 		     icall_vstate_name(user->video_state),
 		     icall_vstate_name(vstate));
-		
+
 		user->video_state = vstate;
 
 		ICALL_CALL_CB(ccall->icall, vstate_changedh,
@@ -1551,7 +1571,7 @@ static  int ecall_propsync_handler(struct ecall *ecall,
 
 	if (group_changed) {
 		ICALL_CALL_CB(ccall->icall, group_changedh,
-			&ccall->icall, ccall->icall.arg);	
+			&ccall->icall, ccall->icall.arg);
 	}
 
 	if (latest_epoch > 0 && latest_epoch != user->latest_epoch) {
@@ -1767,7 +1787,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		ccall->sft_seqno = seqno;
 		warning("ccall(%p): setting ts and seqno because they are currently unset\n", ccall);
 	}
-		
+
 
 	if (list_count(partlist) > 1) {
 		tmr_cancel(&ccall->tmr_alone);
@@ -1807,7 +1827,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 
 	if (list_changed) {
 		ICALL_CALL_CB(ccall->icall, group_changedh,
-			&ccall->icall, ccall->icall.arg);	
+			&ccall->icall, ccall->icall.arg);
 
 		if (userlist_is_keygenerator_me(ccall->userl) &&
 		    !ccall->is_mls_call) {
@@ -1826,7 +1846,7 @@ static void ecall_confpart_handler(struct ecall *ecall,
 
 	bool sft_changed = ccall_sftlist_changed(&ccall->sftl, &msg->u.confpart.sftl);
 	stringlist_clone(&msg->u.confpart.sftl, &ccall->sftl);
-	
+
 	if (userlist_is_keygenerator_me(ccall->userl) &&
 	    !should_start &&
 	    sft_changed) {
@@ -2146,7 +2166,7 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	if (turnv) {
 		struct zapi_ice_server *turns;
 		size_t i;
-		
+
 		turns = mem_zalloc(sizeof(*turns)*turnc, NULL);
 		for (i = 0; i < turnc; ++i)
 			turns[i] = turnv[i];
@@ -2168,13 +2188,13 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 		goto out;
 	}
 	msg->u.confconn.env = msystem_get_env();
-	
+
 	msg->u.confconn.update = update;
 	msg->u.confconn.selective_audio = true;
 	msg->u.confconn.selective_video = true;
 	msg->u.confconn.vstreams = CCALL_MAX_VSTREAMS;
 
-	if (ccall->primary_sft_url && 
+	if (ccall->primary_sft_url &&
 	    strcmp(ccall->primary_sft_url, sft_url_term) != 0) {
 		info("ccall(%p): send_msg_sft setting primary_sft_url %s\n",
 		     ccall, ccall->primary_sft_url);
@@ -2249,7 +2269,7 @@ static int create_ecall(struct ccall *ccall)
 	icall_set_callbacks(ecall_get_icall(ecall),
 			    ecall_transp_send_handler,
 			    NULL, // sft_handler,
-			    ecall_setup_handler, 
+			    ecall_setup_handler,
 			    ecall_setup_resp_handler,
 			    ecall_media_estab_handler,
 			    ecall_audio_estab_handler,
@@ -2465,7 +2485,7 @@ static void userlist_vstate_handler(const struct userinfo *user,
 }
 
 int ccall_alloc(struct ccall **ccallp,
-		const struct ecall_conf *conf,		 
+		const struct ecall_conf *conf,
 		const char *convid,
 		const char *userid_self,
 		const char *clientid,
@@ -2591,7 +2611,7 @@ int  ccall_add_turnserver(struct icall *icall,
 
 	if (ccall->turnc >= MAX_TURN_SERVERS)
 		return EOVERFLOW;
-	
+
 	ccall->turnv[ccall->turnc] = *srv;
 	++ccall->turnc;
 
@@ -2695,7 +2715,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	     urlc,
 	     ccall_state_name(ccall->state),
 	     config_is_federating(ccall->cfg) ? "YES" : "NO");
-	
+
 	if (!urlv || !urlc) {
 		warning("ccall(%p): no SFT server configured\n", ccall);
 		ccall_end_with_err(ccall, ENOTSUP);
@@ -2816,7 +2836,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 				str_ncpy(tmp_sft.url,
 					 urlv[sft].url,
 					 sizeof(tmp_sft.url));
-				sfti = &tmp_sft;				
+				sfti = &tmp_sft;
 			}
 			else {
 				sfti = &urlv[sft];
@@ -2826,7 +2846,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		/* If one SFT fails, keep trying the rest */
 		info("ccall(%p): cfg_update connecting to sft "
 			"%s user %s cred %s \n",
-			ccall, 
+			ccall,
 			sfti->url,
 			sfti->username,
 			sfti->credential);
@@ -2998,7 +3018,7 @@ int  ccall_media_start(struct icall *icall)
 	struct ccall *ccall = (struct ccall*)icall;
 
 	ecall_media_start(ccall->ecall);
-	
+
 	return 0;
 }
 
@@ -3073,7 +3093,7 @@ int  ccall_set_quality_interval(struct icall *icall, uint64_t interval)
 
 	if (ccall->ecall)
 		ecall_set_quality_interval(ccall->ecall, interval);
-	
+
 	return 0;
 }
 
@@ -3162,7 +3182,7 @@ void ccall_set_clients(struct icall* icall,
 
 	if (list_changed) {
 		ICALL_CALL_CB(ccall->icall, group_changedh,
-			      &ccall->icall, ccall->icall.arg);	
+			      &ccall->icall, ccall->icall.arg);
 	}
 
 	if (list_removed) {
@@ -3171,7 +3191,7 @@ void ccall_set_clients(struct icall* icall,
 			  CCALL_ROTATE_KEY_FAST_TIMEOUT,
 			  ccall_rotate_key_timeout, ccall);
 	}
-	
+
 	if (CCALL_STATE_ACTIVE == ccall->state) {
 		if (list_changed) {
 			info("ccall(%p): set_clients sending confpart "
@@ -3195,7 +3215,7 @@ int ccall_update_mute_state(const struct icall* icall)
 		return EINVAL;
 
 	ICALL_CALL_CB(ccall->icall, group_changedh,
-		&ccall->icall, ccall->icall.arg);	
+		&ccall->icall, ccall->icall.arg);
 
 	if (ccall->ecall) {
 		return ecall_update_mute_state(ccall->ecall);
@@ -3437,7 +3457,7 @@ int  ccall_msg_recv(struct icall* icall,
 			if (strncmp(msg->sessid_sender, ccall->convid_hash,
 				    ECONN_ID_LEN) == 0) {
 				set_state(ccall, CCALL_STATE_IDLE);
-				ICALL_CALL_CB(ccall->icall, closeh, 
+				ICALL_CALL_CB(ccall->icall, closeh,
 					      &ccall->icall, 0, &ccall->metrics,
 					      ECONN_MESSAGE_TIME_UNKNOWN,
 					      NULL, NULL, ccall->icall.arg);
