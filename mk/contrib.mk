@@ -134,7 +134,7 @@ endif
 CONTRIB_OPENSSL_FILES := $(shell git ls-files contrib/openssl | grep -v opensslconf.h )
 CONTRIB_OPENSSL_TARGET := $(BUILD_TARGET)/stamp/openssl
 
-CONTRIB_OPENSSL_LIBS := -lssl -lcrypto 
+CONTRIB_OPENSSL_LIBS := -lssl -lcrypto
 CONTRIB_OPENSSL_LIB_FILES := \
 	$(BUILD_TARGET)/lib/libssl.a \
 	$(BUILD_TARGET)/lib/libcrypto.a
@@ -358,7 +358,7 @@ else
 CONTRIB_LIBRE_LIBS += -lresolv
 endif
 CONTRIB_LIBRE_LIB_FILES := \
-	$(CONTRIB_LIBRE_TARGET) 
+	$(CONTRIB_LIBRE_TARGET)
 
 ifeq ($(HAVE_WEBRTC),1)
 LIBRE_CFLAGS += "-DUSE_BORINGSSL"

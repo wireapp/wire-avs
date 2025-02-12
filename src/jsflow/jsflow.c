@@ -122,6 +122,8 @@ typedef void (pc_SetMediaKey_t)(int handle, int index, int current, const uint8_
 
 typedef void  (pc_UpdateSsrc_t)(int handle, const char *ssrca, const char *ssrcv);
 
+typedef void  (pc_UpdateRemoteUserTrack_t)(int handle, const char *userid, const char *clientid);
+
 static pc_SetEnv_t *pc_SetEnv = NULL;
 static pc_New_t *pc_New = NULL;
 static pc_Create_t *pc_Create = NULL;
@@ -157,6 +159,9 @@ static pc_DataChannelClose_t *pc_DataChannelClose = NULL;
 static pc_SetMediaKey_t *pc_SetMediaKey = NULL;
 
 static pc_UpdateSsrc_t *pc_UpdateSsrc = NULL;
+
+/* Update receive tracks */
+static pc_UpdateRemoteUserTrack_t *pc_UpdateRemoteUserTrack = NULL;
 
 #define ENV_NONE -1
 #define ENV_DEFAULT 0
@@ -231,12 +236,12 @@ struct jsflow {
 	struct tmr tmr_gather;
 	struct tmr tmr_disconnect;
 	struct tmr tmr_stats;
-	char *remote_sdp;	
+	char *remote_sdp;
 	bool selective_audio;
 	bool selective_video;
 
 	struct tmr tmr_cbr;
-	
+
 	struct le le;
 };
 
@@ -250,7 +255,7 @@ static void send_close(struct jsflow *flow, int err)
 {
 	if (flow->closed)
 		return;
-	
+
 	IFLOW_CALL_CB(flow->iflow, closeh,
 		err, flow->iflow.arg);
 }
@@ -290,7 +295,7 @@ int jsflow_dce_send(struct iflow *flow,
 		      size_t len)
 {
 	struct jsflow *jsflow = (struct jsflow *)flow;
-       
+
 	if (!jsflow)
 		return EINVAL;
 
@@ -298,7 +303,7 @@ int jsflow_dce_send(struct iflow *flow,
 		warning("jsflow(%p): dce_send: no valid data channel\n");
 		return EINVAL;
 	}
-	
+
 	pc_DataChannelSend(jsflow->dc.handle, (const int8_t *)data, len);
 
 	return 0;
@@ -376,10 +381,10 @@ static void jsflow_set_mute(bool muted)
 	struct le *le;
 
 	info("jsflow: set_mute: %d->%d\n", g_jf.muted, muted);
-	
+
 	if (g_jf.muted == muted)
 		return;
-	
+
 	g_jf.muted = muted;
 	LIST_FOREACH(&g_jf.pcl, le) {
 		struct jsflow *flow = le->data;
@@ -387,7 +392,7 @@ static void jsflow_set_mute(bool muted)
 		set_mute(flow, muted);
 	}
 }
- 
+
 static bool jsflow_get_mute(void)
 {
 	return g_jf.muted;
@@ -397,7 +402,7 @@ void jsflow_destroy(void)
 {
 	if (!g_jf.initialized)
 		return;
-	
+
 	g_jf.initialized = false;
 }
 
@@ -407,7 +412,7 @@ static int jsflow_init(void)
 			       jsflow_set_mute,
 			       jsflow_get_mute);
 	g_jf.initialized = true;
-	
+
 	return 0;
 }
 
@@ -444,11 +449,11 @@ static void timer_cbr(void *arg)
 
 	if (!jf)
 		return;
-	
+
 	cbr_detected = jf->audio.local_cbr && jf->audio.remote_cbr;
 	IFLOW_CALL_CB(jf->iflow, acbr_detecth,
 		      cbr_detected ? 1 : 0, jf->iflow.arg);
-	
+
 	tmr_start(&jf->tmr_cbr, TMR_CBR_INTERVAL, timer_cbr, jf);
 }
 
@@ -467,10 +472,10 @@ static int create_pc(struct jsflow *flow)
 		g_jf.env = msystem_get_env();
 		pc_SetEnv(g_jf.env);
 	}
-	
+
 	if (flow->handle != PC_INVALID_HANDLE)
 		return EALREADY;
- 
+
 	if (flow->frame.keystore) {
 		err = keystore_generate_iv(flow->frame.keystore,
 					   flow->userid_self,
@@ -512,7 +517,7 @@ static int create_pc(struct jsflow *flow)
 	pc_SetMute(flow->handle, g_jf.muted);
 	pc_SetRemoteUserClientId(flow->handle,
 				 flow->remote_userid, flow->remote_clientid);
-	
+
 	for (i = 0; i < flow->turnc; ++i) {
 		struct zapi_ice_server *turn = &flow->turnv[i];
 
@@ -528,7 +533,7 @@ static int create_pc(struct jsflow *flow)
 
 	if (flow->conv_type == ICALL_CONV_TYPE_ONEONONE)
 		tmr_start(&flow->tmr_cbr, TMR_CBR_INTERVAL, timer_cbr, flow);
-	
+
  out:
 	sodium_memzero(audio_iv, IV_SIZE);
 	sodium_memzero(video_iv, IV_SIZE);
@@ -551,7 +556,7 @@ static uint32_t pc2self(struct jsflow *flow)
 
 static struct jsflow *self2pc(int self)
 {
-	struct jsflow *flow;	
+	struct jsflow *flow;
 	struct le *le;
 	bool found = false;
 
@@ -559,7 +564,7 @@ static struct jsflow *self2pc(int self)
 		warning("self2pc: bad magic\n");
 		return NULL;
 	}
-	
+
 	for(le = g_jf.pcl.head; !found && le; le = le->next) {
 		flow = le->data;
 
@@ -587,10 +592,10 @@ int jsflow_alloc(struct iflow		**flowp,
 		if (!g_jf.initialized)
 			return ENOSYS;
 	}
-	
+
 	if (!flowp)
 		return EINVAL;
-	
+
 	flow = mem_zalloc(sizeof(*flow), destructor);
 	if (!flow)
 		return ENOMEM;
@@ -620,6 +625,7 @@ int jsflow_alloc(struct iflow		**flowp,
 			    jsflow_get_stats,
 			    jsflow_get_aulevel,
 			    jsflow_update_ssrc,
+			    jsflow_update_remote_user_track,
 			    NULL); //jsflow_debug);
 	pc2self(flow);
 
@@ -655,11 +661,11 @@ void jsflow_close(struct iflow *flow)
 	tmr_cancel(&jsflow->tmr_disconnect);
 	tmr_cancel(&jsflow->tmr_stats);
 	tmr_cancel(&jsflow->tmr_cbr);
-	tmr_cancel(&jsflow->tmr_gather);	
+	tmr_cancel(&jsflow->tmr_gather);
 
 	if (jsflow->dc.handle != PC_INVALID_HANDLE)
 		pc_DataChannelClose(jsflow->dc.handle);
-	
+
 	pc_Close(jsflow->handle);
 
 	jsflow->dc.handle = PC_INVALID_HANDLE;
@@ -684,11 +690,11 @@ int jsflow_add_turnserver(struct iflow *flow,
 
 	turn = &jsflow->turnv[jsflow->turnc];
 	++jsflow->turnc;
-		
+
 	str_ncpy(turn->url, url, sizeof(turn->url));
 	str_ncpy(turn->username, username, sizeof(turn->username));
 	str_ncpy(turn->credential, password, sizeof(turn->credential));
-	
+
 	return 0;
 }
 
@@ -719,7 +725,7 @@ bool jsflow_get_audio_cbr(const struct iflow *iflow, bool local)
 	if (!jsflow)
 		return false;
 
-	return local ? jsflow->audio.local_cbr : jsflow->audio.remote_cbr;	
+	return local ? jsflow->audio.local_cbr : jsflow->audio.remote_cbr;
 }
 
 
@@ -747,20 +753,20 @@ int  jsflow_gather_all_turn(struct iflow *flow, bool offer)
 {
 	struct jsflow *jsflow = (struct jsflow*)flow;
 	int state;
-	
+
 	if (!jsflow)
 		return EINVAL;
 
 	if (jsflow->handle == PC_INVALID_HANDLE)
 		create_pc(jsflow);
 
-	
+
 	state = pc_SignallingState(jsflow->handle);
 
 	info("jsflow(%p): gather: offer=%d state=%d\n",
 	     jsflow, offer, state);
 
-	jsflow->video.negotiated = jsflow->call_type == ICALL_CALL_TYPE_VIDEO;	
+	jsflow->video.negotiated = jsflow->call_type == ICALL_CALL_TYPE_VIDEO;
 	jsflow->pending_gather = true;
 
 	if (offer) {
@@ -789,19 +795,19 @@ static void remote_acbr_handler(bool enabled, bool offer, void *arg)
 {
 	struct jsflow *jsflow = (struct jsflow*)arg;
 	bool local_cbr;
-	
+
 	local_cbr = jsflow->audio.local_cbr;
 	jsflow->audio.remote_cbr = enabled;
 	jsflow->audio.req_local_cbr = enabled;// && g_jf.env != ENV_FIREFOX;
 
 	info("jsflow(%p): remote_acbr: enabled=%d local CBR=%d\n",
 	     jsflow, enabled, local_cbr);
-	
+
 	if (offer) {
 		/* If this is an offer, then we just need to set
 		 * the local cbr
 		 */
-	}		
+	}
 	else if (enabled && !local_cbr && (g_jf.env != ENV_FIREFOX)) {
 		IFLOW_CALL_CB(jsflow->iflow, restarth,
 			true, jsflow->iflow.arg);
@@ -864,7 +870,7 @@ int jsflow_handle_offer(struct iflow *flow,
 
 	info("jsflow(%p): handle_offer: SDP-offer %s\n",
 	     jsflow, sdp_str);
-	
+
 	if (jsflow->handle == PC_INVALID_HANDLE)
 		create_pc(jsflow);
 
@@ -872,7 +878,7 @@ int jsflow_handle_offer(struct iflow *flow,
 	info("jsflow(%p): handle SDP-offer:\n"
 	     "%s\n",
 	     jsflow, sdp_str);
-	
+
 	sdp_check(sdp_str, false, true,
 		  remote_acbr_handler, jf_norelay_handler,
 		  jsflow_tool_handler, jsflow);
@@ -890,14 +896,14 @@ int jsflow_handle_answer(struct iflow *flow,
 {
 	struct jsflow *jsflow = (struct jsflow*)flow;
 	bool has_video;
-	
+
 	if (!flow)
 		return EINVAL;
 
 	sdp_check(sdp_str, false, false,
 		  remote_acbr_handler, jf_norelay_handler,
 		  jsflow_tool_handler, jsflow);
-	
+
 	has_video = pc_HasVideo(jsflow->handle);
 
 	jsflow->remote_sdp = mem_deref(jsflow->remote_sdp);
@@ -908,7 +914,7 @@ int jsflow_handle_answer(struct iflow *flow,
 
 	info("jsflow(%p): handle_answer: has_video=%d SDP-answer %s\n",
 	     jsflow, has_video, jsflow->remote_sdp);
-	
+
 	pc_SetRemoteDescription(jsflow->handle, SDP_TYPE_ANSWER, jsflow->remote_sdp);
 
 	return 0;
@@ -924,9 +930,9 @@ static void local_acbr_handler(bool enabled, bool offer, void *arg)
 	info("local_acbr_handler: flow(%p): offer=%d local CBR=%d "
 	     "remote CBR=%d\n",
 	     flow, offer, enabled, flow->audio.remote_cbr);
-	
+
 	is_cbr = flow->audio.local_cbr && flow->audio.remote_cbr;
-	
+
 	IFLOW_CALL_CB(flow->iflow, acbr_detecth,
 		      is_cbr ? 1 : 0, flow->iflow.arg);
 }
@@ -957,10 +963,10 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 
 	isoffer = streq(type, "offer");
 	sdp_check(sdpstr, true, isoffer, local_acbr_handler, NULL, NULL, jsflow);
-	
+
 	sdp_dup(&sess, jsflow->conv_type, sdpstr, true);
 
-	/* We have converted the string to a session now, 
+	/* We have converted the string to a session now,
 	 * so we are good to free it
 	 */
 	pc_HeapFree(sdpstr);
@@ -977,10 +983,10 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 				  jsflow->vstate == ICALL_VIDEO_STATE_SCREENSHARE,
 				  jsflow->audio.req_local_cbr);
 	}
-	
+
 	(void)sdp_session_set_lattr(sess, true, "tool", "wasm-%s: %s",
 			(g_jf.env == ENV_FIREFOX) ? "firefox" : "default",
-			 avs_version_str());	
+			 avs_version_str());
 
 	modsdp = (char *)sdp_sess2str(sess);
 	len = str_len(modsdp);
@@ -1162,10 +1168,10 @@ int jsflow_sync_decoders(struct iflow *iflow)
 	int err = 0;
 
 	info("jsflow(%p): sync_decoders\n", jf);
-	
+
 	if (!jf)
 		return EINVAL;
-	
+
 	if (!jf->selective_video) {
 		err = bundle_update((struct iflow *)jf,
 				    jf->conv_type,
@@ -1209,7 +1215,7 @@ int jsflow_set_remote_userclientid(struct iflow *iflow,
 				  0,
 				  "");
 	}
-	
+
 	info("jsflow: set_remote_userclientid: handle=%d userid: %s clientid: %s\n",
 	     jsflow->handle,
 	     anon_id(userid_anon, jsflow->remote_userid),
@@ -1229,7 +1235,7 @@ int jsflow_set_remote_userclientid(struct iflow *iflow,
 bool jsflow_is_dcopen(struct jsflow *flow)
 {
 	int state;
-	
+
 	if (!flow)
 		return false;
 
@@ -1248,8 +1254,8 @@ int jsflow_dcid(struct jsflow *flow)
 		return -1;
 
 	if (flow->dc.handle == PC_INVALID_HANDLE)
-		return -1; 
-	
+		return -1;
+
 	return pc_DataChannelId(flow->dc.handle);
 }
 
@@ -1263,7 +1269,7 @@ int jsflow_dcsend(struct jsflow *flow,
 		warning("jsflow(%p): dcsend: no valid data channel\n");
 		return EINVAL;
 	}
-	
+
 	pc_DataChannelSend(flow->dc.handle, (const int8_t *)data, len);
 
 	return 0;
@@ -1306,16 +1312,16 @@ int jsflow_set_video_state(struct iflow *iflow,
 bool jsflow_has_video(struct jsflow *flow)
 {
 	int ret;
-	
+
 	if (!flow || flow->handle == PC_INVALID_HANDLE) {
 		return false;
 	}
 
 	//if (flow->video.negotiated)
 	//	return true;
-	
+
 	ret = pc_HasVideo(flow->handle);
-	
+
 	return ret != 0;
 }
 
@@ -1351,10 +1357,10 @@ static int set_aulevel(struct conf_member *cm, struct list *levell)
 {
 	struct audio_level *aulevel;
 	int err = 0;
-	
+
 	if (!cm || !cm->active)
 		return EINVAL;
-		
+
 	if (cm->audio_level_smooth > 0
 	    || cm->audio_level > AUDIO_LEVEL_FLOOR) {
 
@@ -1381,7 +1387,7 @@ int jsflow_get_aulevel(struct iflow *iflow,
 	int err;
 
 	if (!levell)
-		return EINVAL;	
+		return EINVAL;
 
 	if (jf->stats.audio_level_smooth > 0
 	    || jf->stats.audio_level > AUDIO_LEVEL_FLOOR) {
@@ -1432,6 +1438,18 @@ int jsflow_update_ssrc(struct iflow *iflow, uint32_t ssrca, uint32_t ssrcv)
 	return 0;
 }
 
+int jsflow_update_remote_user_track(struct iflow *iflow, const char *userid, const char *clientid)
+{
+    struct jsflow *jf = (struct jsflow *)iflow;
+
+    if (!iflow)
+        return EINVAL;
+
+    pc_UpdateRemoteUserTrack(jf->handle, userid, clientid);
+
+    return 0;
+}
+
 
 void pc_log(int level, const char *msg);
 
@@ -1470,7 +1488,7 @@ void pc_local_sdp_handler(int self, int err,
 
 	isoffer = streq(type, "offer");
 	sdp_check(sdp, true, isoffer, NULL, jf_norelay_handler, NULL, flow);
-	
+
 #if MODIFY_SDP
 	/* Modify SDP here */
 	if (isoffer) {
@@ -1481,7 +1499,7 @@ void pc_local_sdp_handler(int self, int err,
 					  flow->audio.req_local_cbr);
 	}
 	else if (streq(type, "answer")) {
-		sdp_dup(&sess, flow->conv_type, sdp, false);		
+		sdp_dup(&sess, flow->conv_type, sdp, false);
 		modsdp = sdp_modify_answer(sess,
 					   flow->conv_type,
 					   flow->vstate == ICALL_VIDEO_STATE_SCREENSHARE,
@@ -1493,7 +1511,7 @@ void pc_local_sdp_handler(int self, int err,
 #else
 	str_dup((char **)&modsdp, sdp);
 #endif
-	
+
 	pc_SetLocalDescription(flow->handle, type, modsdp);
 
 	mem_deref(sess);
@@ -1508,7 +1526,7 @@ void pc_start_gather_handler(int self)
 	struct jsflow *flow = self2pc(self);
 
 	debug("jsflow(%p): start_gather_handler\n", flow);
-	
+
 	if (!flow) {
 		warning("pc_start_gather_handler: pc=%08X not found\n", self);
 		return;
@@ -1521,7 +1539,7 @@ void pc_start_gather_handler(int self)
 	}
 
 	flow->pending_gather = false;
-	tmr_start(&flow->tmr_gather, GATHER_TIMEOUT, gather_timeout_handler, flow);	
+	tmr_start(&flow->tmr_gather, GATHER_TIMEOUT, gather_timeout_handler, flow);
 }
 
 
@@ -1567,7 +1585,7 @@ void pc_signalling_handler(int self, int state)
 	default:
 		break;
 	}
-	
+
 }
 
 void pc_gather_handler(int self, const char *type, const char *sdp);
@@ -1665,7 +1683,7 @@ void pc_set_stats(int self,
 
 
 	flow->stats.audio_level = g_jf.muted ? 0 : audio_level;
-	
+
 	if (g_jf.muted) {
 		if (flow->stats.audio_level_smooth > 0)
 			flow->stats.audio_level_smooth--;
@@ -1676,13 +1694,13 @@ void pc_set_stats(int self,
 		flow->stats.audio_level_smooth = AUDIO_LEVEL_CEIL;
 	else if (flow->stats.audio_level_smooth > 0)
 		flow->stats.audio_level_smooth--;
-	
+
 	flow->stats.apkts_recv = apkts_recv;
 	flow->stats.vpkts_recv = vpkts_recv;
 	flow->stats.apkts_sent = apkts_sent;
 	flow->stats.vpkts_sent = vpkts_sent;
 	flow->stats.dloss = (float)downloss;
-	flow->stats.rtt = (float)rtt;	
+	flow->stats.rtt = (float)rtt;
 }
 
 
@@ -1759,16 +1777,16 @@ void dc_state_handler(int self, int state)
 		warning("flow(%p): dc_state_handler: no data channel\n", flow);
 		return;
 	}
-	
+
 
 	info("flow(%p): dc-state: %d\n", flow, state);
-	
-	
+
+
 	switch(state) {
 	case DC_STATE_CONNECTING:
 	case DC_STATE_CLOSING:
 		break;
-		
+
 	case DC_STATE_OPEN:
 		IFLOW_CALL_CB(flow->iflow, dce_estabh,
 			flow->iflow.arg);
@@ -1808,7 +1826,7 @@ void dc_data_handler(int self, const uint8_t *data, int len)
 		warning("flow(%p): dc_data_handler: no data channel\n", flow);
 		return;
 	}
-	
+
 	info("flow(%p): dc_data_handler: length=%d(%p)\n", flow, len, data);
 	IFLOW_CALL_CB(flow->iflow, dce_recvh,
 		data, len, flow->iflow.arg);
@@ -1945,7 +1963,8 @@ void pc_set_callbacks(
 
 	pc_SetMediaKey_t *setMediaKey,
 
-	pc_UpdateSsrc_t *updateSsrc);
+	pc_UpdateSsrc_t *updateSsrc,
+	pc_UpdateRemoteUserTrack_t *updateRemoteUserTrack);
 
 EMSCRIPTEN_KEEPALIVE
 void pc_set_callbacks(
@@ -1981,7 +2000,8 @@ void pc_set_callbacks(
 
 	pc_SetMediaKey_t *setMediaKey,
 
-	pc_UpdateSsrc_t *updateSsrc)
+	pc_UpdateSsrc_t *updateSsrc,
+	pc_UpdateRemoteUserTrack_t *updateRemoteUserTrack)
 {
 	pc_SetEnv = setEnv;
 	pc_New = new;
@@ -2007,7 +2027,7 @@ void pc_set_callbacks(
 	pc_SetRemoteUserClientId = setRemoteUserClientId;
 	pc_HasVideo = hasVideo;
 	pc_SetVideoState = setVideoState;
-	
+
 	pc_DataChannelId = dataChannelId;
 	pc_DataChannelState = dataChannelState;
 	pc_DataChannelSend = dataChannelSend;
@@ -2015,6 +2035,7 @@ void pc_set_callbacks(
 
 	pc_SetMediaKey = setMediaKey;
 	pc_UpdateSsrc = updateSsrc;
+	pc_UpdateRemoteUserTrack = updateRemoteUserTrack;
 
 	jsflow_init();
 }

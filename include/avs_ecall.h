@@ -120,6 +120,8 @@ int ecall_dce_sendmsg(struct ecall *ecall, struct econn_message *msg);
 int ecall_set_quality_interval(struct ecall *ecall,
 			       uint64_t interval);
 
+int ecall_update_remote_user_track(struct ecall *ecall, const char *userid, const char *clientid);
+
 int ecall_update_mute_state(const struct ecall* ecall);
 
 typedef int (ecall_propsync_h)(struct ecall *ecall,
@@ -163,8 +165,8 @@ int ecall_set_keystore(struct ecall *ecall,
 void ecall_activate(void);
 
 void propsync_get_states(struct econn_props *props,
-			 bool *vstate_present, 
-			 enum icall_vstate *vstate, 
+			 bool *vstate_present,
+			 enum icall_vstate *vstate,
 			 bool *muted_present,
 			 bool *muted);
 
