@@ -957,10 +957,13 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
 	    else {
 		const enabled = oldTrack.enabled;
 
-		newTrack.enabled = enabled;
-		sender.replaceTrack(newTrack);
-		sender.track.enabled = enabled;
-		pc_log(LOG_LEVEL_INFO, `replace_track: kind=${newTrack.kind} enabled=${sender.track.enabled}`);
+        // newTrack.enabled = enabled;
+        sender.replaceTrack(newTrack).then(() => {
+            if(!!sender && !!sender.track) {
+                sender.track.enabled = enabled
+                pc_log(LOG_LEVEL_INFO, `replace_track: kind=${newTrack.kind} enabled=${sender.track.enabled}`);
+            }
+        });
 
 		return true;
 	    }
@@ -973,7 +976,6 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
 
     const rtc = pc.rtc;
     const tracks = stream.getTracks();
-
     let found = false;
 
     pc_log(LOG_LEVEL_INFO, `update_tracks: pc=${pc.self} tracks=${tracks.length}`);
@@ -1025,39 +1027,18 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
             if (track.kind === 'video' && pc.conv_type !== CONV_TYPE_ONEONONE) {
                 const transceivers = rtc.getTransceivers();
                 for (const trans of transceivers) {
-                    if (trans.mid === 'video') {
+                    if (trans.mid === 'video' && !!trans.sender) {
                         pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
-                        const params = trans.sender.getParameters()
+                        const {params, layerFound} = getEncodingParameter(trans.sender, pc.vstate === PC_VIDEO_STATE_SCREENSHARE)
 
-                        if (!params.encodings) {
-                            pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
-                            params.encodings = [];
-                        }
-
-                        let layerFound = false;
-                        params.encodings.forEach((coding) => {
-                            if(coding.rid === 'l') {
-                                //@ts-ignore
-                                coding.scalabilityMode = 'L1T1'
-                                coding.scaleResolutionDownBy = 4;
-                                coding.active = true;
-                                layerFound = true;
-                            }
-                            if(coding.rid === 'h') {
-                                //@ts-ignore
-                                coding.scalabilityMode = 'L1T1'
-                                coding.scaleResolutionDownBy = 1;
-                                coding.active = true;
-                                layerFound = true;
-                            }
-                        });
-
+                        pc_log(LOG_LEVEL_INFO, 'add track: ' + layerFound);
                         rtc.addTrack(track, stream)
                         if (layerFound) {
                             videoSenderUpdates.push(trans.sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set params ${e}`))
-                                // Reinsert the track so that the changes are transferred to the track (needed for FF)
-                                .then(() => trans.sender.replaceTrack(track))
-                                .then())
+                                .then(() => {
+                                    pc_log(LOG_LEVEL_INFO, 'setParameters: ' + JSON.stringify(params));
+                                })
+                                .then());
                         }
                     }
                 }
@@ -1075,6 +1056,46 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
     return Promise.all(videoSenderUpdates).catch(e => {
         pc_log(LOG_LEVEL_ERROR, `update_tracks: error=${e}`)
     }).then();
+}
+
+function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {
+    pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
+    const params = sender.getParameters()
+
+    if (!params.encodings) {
+        pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
+        params.encodings = [];
+    }
+
+    let layerFound = false;
+    params.encodings.forEach((coding) => {
+        if(coding.rid === 'l') {
+            if(pc_env !== ENV_FIREFOX) {
+                //@ts-ignore
+                coding.scalabilityMode = 'L1T1'
+            }
+
+            if(pc_env === ENV_FIREFOX && isScreenShare) {
+                coding.active = false;
+            } else {
+                coding.active = true;
+            }
+            coding.scaleResolutionDownBy = 4;
+            layerFound = true;
+        }
+        if(coding.rid === 'h') {
+            if(pc_env !== ENV_FIREFOX) {
+                //@ts-ignore
+                coding.scalabilityMode = 'L1T1'
+            }
+
+            coding.scaleResolutionDownBy = 1;
+            coding.active = true;
+            layerFound = true;
+        }
+    });
+
+    return {params, layerFound}
 }
 
 function sigState(stateStr: string) {
@@ -1722,6 +1743,18 @@ function sdpCbrMap(sdp: string): string {
           outline = null;
         }
       }
+      // reorder rids for firefox
+      else if (sdpLine.startsWith('a=simulcast:recv l;h') && pc_env === ENV_FIREFOX) {
+          outline = 'a=simulcast:recv h;l'
+      }
+
+      else if (sdpLine.startsWith('a=rid:l recv') && pc_env === ENV_FIREFOX) {
+          outline = 'a=rid:h recv';
+      }
+
+      else if (sdpLine.startsWith('a=rid:h recv') && pc_env === ENV_FIREFOX) {
+          outline = 'a=rid:l recv';
+      }
 
       if (outline != null) {
         sdpLines.push(outline);
@@ -1729,6 +1762,33 @@ function sdpCbrMap(sdp: string): string {
   });
 
   return sdpLines.join('\r\n');
+}
+
+function sdpRidReOrder (sdp: string): string {
+    const sdpLines:  string[] = [];
+
+    sdp.split('\r\n').forEach(sdpLine => {
+        let outline: string | null;
+
+        outline = sdpLine;
+
+        if (sdpLine.startsWith('a=simulcast:send h;l') && pc_env === ENV_FIREFOX) {
+            outline = 'a=simulcast:send l;h';
+        }
+
+        else if (sdpLine.startsWith('a=rid:h send') && pc_env === ENV_FIREFOX) {
+            outline = 'a=rid:l send';
+        }
+
+        else if (sdpLine.startsWith('a=rid:l send') && pc_env === ENV_FIREFOX) {
+            outline = 'a=rid:h send';
+        }
+
+        if (outline != null) {
+            sdpLines.push(outline);
+        }
+    });
+    return sdpLines.join('\r\n');
 }
 
 function pc_SetMediaKey(hnd: number, index: number, current: number, keyPtr: number, keyLen: number) {
@@ -1894,6 +1954,9 @@ function createSdp(
 			pc_log(LOG_LEVEL_INFO, `createSdp: type=${typeStr} sdp=${sdpStr}`);
 
 			const modSdp = sdpMap(sdpStr, true, false);
+
+
+
 			ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
 		    })
 		    .catch((err: any) => {
@@ -2118,15 +2181,16 @@ function pc_SetLocalDescription(hnd: number, typePtr: number, sdpPtr: number) {
     else
 	sdpStr = sdp;
 
+    pc_log(LOG_LEVEL_INFO, `pc_SetLocalDesription: type=${type} sdp=${sdpStr}`);
 
-    //pc_log(LOG_LEVEL_INFO, `pc_SetLocalDesription: type=${type} sdp=${sdpStr}`);
   rtc
     .setLocalDescription({ type: type, sdp: sdpStr })
     .then(() => {
       if (rtc && pc.conv_type === CONV_TYPE_CONFERENCE) {
-	for (const sender of rtc.getSenders())
-	  setupSenderTransform(pc, sender);
-	}
+
+        for (const sender of rtc.getSenders())
+          setupSenderTransform(pc, sender);
+        }
     })
     .catch((err: any) => {
       pc_log(LOG_LEVEL_INFO, "setLocalDescription failed: " + err, err);
@@ -2167,6 +2231,14 @@ function pc_LocalDescription(hnd: number, typePtr: number) {
       sdpStr = sdp.replace(' UDP/DTLS/SCTP', ' DTLS/SCTP');
       sdpStr = sdpMap(sdpStr, true, false);
   }
+
+    /* Ensure that we force CBR on the offer */
+    if (pc_env === ENV_FIREFOX && pc.conv_type == CONV_TYPE_CONFERENCE) {
+        sdpStr = sdpRidReOrder(sdpStr);
+    }
+
+    pc_log(LOG_LEVEL_INFO, `pc_LocalDescription: hnd=${sdpStr}`);
+
 
   const sdpLen = em_module.lengthBytesUTF8(sdpStr) + 1; // +1 for '\0'
   const ptr = em_module._malloc(sdpLen);
