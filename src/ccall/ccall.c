@@ -2228,6 +2228,18 @@ static int create_ecall(struct ccall *ccall)
 	if (!self)
 		return ENOENT;
 
+	if (ccall->call_type == ICALL_CALL_TYPE_NORMAL) {
+		switch(ccall->vstate) {
+		case ICALL_VIDEO_STATE_STARTED:
+		case ICALL_VIDEO_STATE_SCREENSHARE:
+			ccall->call_type = ICALL_CALL_TYPE_VIDEO;
+			break;
+
+		default:
+			break;
+		}
+	}
+
 	err = ecall_alloc(&ecall, NULL,
 			  ICALL_CONV_TYPE_CONFERENCE,
 			  ccall->call_type,
