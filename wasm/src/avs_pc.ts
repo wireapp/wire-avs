@@ -1005,6 +1005,7 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
                             videoSenderUpdates.push(trans.sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set params ${e}`))
                                 .then(() => {
                                     pc_log(LOG_LEVEL_INFO, 'setParameters: ' + JSON.stringify(params));
+                                    return  trans.sender.replaceTrack(track);
                                 })
                                 .then());
                         }
@@ -1030,38 +1031,39 @@ function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {
     pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
     const params = sender.getParameters()
 
-                        if (!params.encodings) {
-                            pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
-                            params.encodings = [];
-                        }
+    if (!params.encodings) {
+        pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
+        params.encodings = [];
+    }
 
-                        let layerFound = false;
-                        params.encodings.forEach((coding) => {
-                            if(coding.rid === 'l') {
+    let layerFound = false;
+    params.encodings.forEach((coding) => {
+        if(coding.rid === 'l') {
             if(pc_env !== ENV_FIREFOX) {
-                                //@ts-ignore
-                                coding.scalabilityMode = 'L1T1'
+                //@ts-ignore
+                coding.scalabilityMode = 'L1T1'
             }
-
             if(pc_env === ENV_FIREFOX && isScreenShare) {
                 coding.active = false;
             } else {
                 coding.active = true;
             }
-                                coding.scaleResolutionDownBy = 4;
-                                layerFound = true;
-                            }
-                            if(coding.rid === 'h') {
+            coding.scaleResolutionDownBy = 4;
+            coding.maxBitrate = 200000;
+            layerFound = true;
+        }
+        if(coding.rid === 'h') {
             if(pc_env !== ENV_FIREFOX) {
-                                //@ts-ignore
-                                coding.scalabilityMode = 'L1T1'
+                //@ts-ignore
+                coding.scalabilityMode = 'L1T1'
             }
 
-                                coding.scaleResolutionDownBy = 1;
-                                coding.active = true;
-                                layerFound = true;
-                            }
-                        });
+            coding.scaleResolutionDownBy = 1;
+            coding.active = true;
+            coding.maxBitrate = 3000000;
+            layerFound = true;
+        }
+    });
 
     return {params, layerFound}
 }
