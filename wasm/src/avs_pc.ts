@@ -2367,42 +2367,50 @@ function pc_GetLocalStats(hnd: number) {
     if (rx) {
       const ssrcs = rx.getSynchronizationSources();
       ssrcs.forEach(ssrc => {
-          let ssrca = "";
-	  let aulevel = 0;
+        let ssrca = "";
+        let aulevel = 0;
 
-	  if (typeof ssrc.audioLevel !== 'undefined')
-	      aulevel = ((ssrc.audioLevel * 512.0) | 0);
+        if (typeof ssrc.audioLevel !== 'undefined')
+          aulevel = ((ssrc.audioLevel * 512.0) | 0);
 
-	  if (pc.conv_type != CONV_TYPE_ONEONONE) {
-              const uinfo = uinfo_from_ssrca(pc, ssrc.source.toString());
-	      if (uinfo) {
-	         uinfo.audio_level = aulevel;
-	         ssrca = uinfo.ssrca;
-	      }
-	  }
+        if (pc.conv_type === CONV_TYPE_ONEONONE) {
+          ssrca = ssrc.source.toString();
+        }
+        else {
+          const uinfo = uinfo_from_ssrca(pc, ssrc.source.toString());
+          if (uinfo) {
+            uinfo.audio_level = aulevel;
+            ssrca = uinfo.ssrca;
+          }
+        }
 
-	  em_module.ccall(
-	    "pc_set_audio_level",
-	    null,
-	    ["number", "number", "number"],
-	    [pc.self, ssrca, aulevel]);
+        if (!!ssrca && ssrca !== "0") {
+          em_module.ccall(
+              "pc_set_audio_level",
+              null,
+              ["number", "number", "number"],
+              [pc.self, ssrca, aulevel]
+          );
+        }
       });
+
       const csrcs = rx.getContributingSources();
       csrcs.forEach(csrc => {
         const uinfo = uinfo_from_ssrca(pc, csrc.source.toString());
-	if (uinfo) {
-	  uinfo.audio_level = 0;
-	  if (typeof csrc.audioLevel !== 'undefined')
-	    uinfo.audio_level = ((csrc.audioLevel * 512.0) | 0);
+        if (uinfo) {
+          uinfo.audio_level = 0;
+          if (typeof csrc.audioLevel !== 'undefined')
+            uinfo.audio_level = ((csrc.audioLevel * 512.0) | 0);
 
-	  em_module.ccall(
-	    "pc_set_audio_level",
-	    null,
-	    ["number", "number", "number"],
-	    [pc.self, uinfo.ssrca, uinfo.audio_level]);
-	  }
-	});
-     }
+          em_module.ccall(
+              "pc_set_audio_level",
+              null,
+              ["number", "number", "number"],
+              [pc.self, uinfo.ssrca, uinfo.audio_level]
+          );
+        }
+      });
+    }
   });
 
   let self_audio_level = 0;
