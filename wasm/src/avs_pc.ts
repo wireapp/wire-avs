@@ -1030,38 +1030,31 @@ function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {
     pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
     const params = sender.getParameters()
 
-                        if (!params.encodings) {
-                            pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
-                            params.encodings = [];
-                        }
+    if (!params.encodings) {
+        pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
+        params.encodings = [];
+    }
 
-                        let layerFound = false;
-                        params.encodings.forEach((coding) => {
-                            if(coding.rid === 'l') {
-            if(pc_env !== ENV_FIREFOX) {
-                                //@ts-ignore
-                                coding.scalabilityMode = 'L1T1'
-            }
+    let layerFound = false;
+    params.encodings.forEach((coding) => {
+        if(coding.rid === 'l') {
+            //@ts-ignore
+            coding.scalabilityMode = 'L1T1'
+            coding.active = true
+            coding.scaleResolutionDownBy = 4;
+            coding.maxBitrate = 250000;
+            layerFound = true;
+        }
+        if(coding.rid === 'h') {
+            //@ts-ignore
+            coding.scalabilityMode = 'L1T1'
 
-            if(pc_env === ENV_FIREFOX && isScreenShare) {
-                coding.active = false;
-            } else {
-                coding.active = true;
-            }
-                                coding.scaleResolutionDownBy = 4;
-                                layerFound = true;
-                            }
-                            if(coding.rid === 'h') {
-            if(pc_env !== ENV_FIREFOX) {
-                                //@ts-ignore
-                                coding.scalabilityMode = 'L1T1'
-            }
-
-                                coding.scaleResolutionDownBy = 1;
-                                coding.active = true;
-                                layerFound = true;
-                            }
-                        });
+            coding.scaleResolutionDownBy = 1;
+            coding.active = true;
+            coding.maxBitrate = 3000000;
+            layerFound = true;
+        }
+    });
 
     return {params, layerFound}
 }
@@ -1340,7 +1333,7 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   };
   dc.onmessage = event => {
     pc_log(LOG_LEVEL_INFO, `dc-onmessage: data=${event.data.length}`);
-    ccallDcDataHandler(pc, event.data.toString());
+        ccallDcDataHandler(pc, event.data.toString());
   };
 
   return dcHnd;
