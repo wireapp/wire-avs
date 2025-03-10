@@ -237,6 +237,7 @@ pipeline {
                                 string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
                                 sh(
                                     script: """
+                                        sleep 5
                                         GITHUB_USER=${repoUser} \
                                         GITHUB_TOKEN=${accessToken} \
                                         python3 ./scripts/release-on-github.py \
