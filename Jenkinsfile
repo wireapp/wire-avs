@@ -166,7 +166,7 @@ pipeline {
                 echo(changelog)
             }
         }
-        stage('Tag + Create Github release') {
+        stage('Tag release') {
             agent {
                 label "linuxbuild"
             }
@@ -189,25 +189,6 @@ pipeline {
                                 -c core.sshCommand='ssh -i ${sshPrivateKeyPath}' \
                                 push \
                                 origin ${version}
-                        """
-                    )
-                }
-                echo 'Creating release on Github'
-                // Unfortunately it is not allowed to access github API with a deploy key so we have to rely on
-                // a user token to upload via python github package
-                withCredentials([ string( credentialsId: 'github-repo-user', variable: 'repoUser' ),
-                    string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
-                    // NOTE: creating an empty stub directory just to create the release
-                    sh(
-                        script: """
-                            cd "${env.WORKSPACE}"
-                            GITHUB_USER=${repoUser} \
-                            GITHUB_TOKEN=${accessToken} \
-			    python3 ./scripts/release-on-github.py \
-                                ${repoName} \
-                                \$(mktemp -d) \
-                                ${version} \
-                                "${changelog}"
                         """
                     )
                 }
