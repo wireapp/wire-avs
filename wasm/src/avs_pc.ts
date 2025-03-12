@@ -2554,12 +2554,15 @@ function pc_GetLocalStats(hnd: number) {
   let self_audio_level = 0;
   let max_apkts = 0;
   let max_vpkts = 0;
+  let ploss = 0;
+  let precv = 0;
 
   rtc.getStats()
     .then((stats) => {
 	let rtt = 0;
 
         stats.forEach(stat => {
+<<<<<<< release-10.0
 	    if (stat.type === 'inbound-rtp') {
 
 		const ploss = stat.packetsLost;		    
@@ -2614,6 +2617,69 @@ function pc_GetLocalStats(hnd: number) {
 	);
     })
     .catch((err) => pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: failed hnd=${hnd} err=${err}`, err));
+=======
+            if (stat.type === 'inbound-rtp') {
+                ploss = ploss + stat.packetsLost;
+		precv = precv + stat.packetsReceived;
+
+                const p = stat.packetsReceived;
+                if (stat.kind === 'audio') {
+                    if (p > max_apkts)
+                          apkts = apkts + p;
+                } else if (stat.kind === 'video') {
+                    let user_info: UserInfo | null = null
+                    if(!!stat.trackIdentifier) {
+                        user_info = uinfo_from_video_track_id(pc, stat.trackIdentifier)
+                    }
+                    if(user_info !== null) {
+                        const frame_height = !!stat.frameHeight ? stat?.frameHeight : 0;
+                        const frame_width = !!stat.frameWidth ? stat?.frameWidth : 0;
+                        if(user_info.frame_width !== frame_width || user_info.frame_height !== frame_height) {
+                            user_info.frame_width = frame_width;
+                            user_info.frame_height = frame_height;
+                            pc_log(LOG_LEVEL_INFO, `pc_user_resolution: label=${user_info.label} ${user_info.userid.substring(0,8)}/${user_info.clientid.substring(0,4)} resolution:${user_info.frame_width}x${user_info.frame_height}`);
+                        }
+                    }
+
+		    vpkts = vpkts + p;
+                }
+
+            } else if (stat.type === 'outbound-rtp') {
+                const p = stat.packetsSent;
+                if (stat.kind === 'audio') {
+                    pc.stats.sent_apkts = p;
+                } else if (stat.kind === 'video') {
+                    pc.stats.sent_vpkts = p;
+                }
+
+            } else if (stat.type === 'candidate-pair') {
+                rtt = stat.currentRoundTripTime * 1000;
+
+            } else if (stat.type === 'media-source') {
+                if (stat.kind === 'audio')
+                    self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
+            }
+        });
+        pc.stats.recv_apkts = apkts;
+        pc.stats.recv_vpkts = vpkts;
+	pc.stats.ploss = ploss - pc.stats.lastploss;
+	pc.stats.lastploss = ploss;
+
+        em_module.ccall(
+            "pc_set_stats", null,
+            ["number", "number", "number", "number", "number", "number", "number", "number"],
+            [
+                pc.self, self_audio_level,
+                pc.stats.recv_apkts,
+                pc.stats.recv_vpkts,
+                pc.stats.sent_apkts,
+                pc.stats.sent_vpkts,
+                pc.stats.ploss,
+                rtt
+            ]
+        );
+    }).catch((err) => pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: failed hnd=${hnd} err=${err}`, err));
+>>>>>>> local
 }
 
 export default {
