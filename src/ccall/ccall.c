@@ -1106,22 +1106,26 @@ static void ecall_quality_handler(struct icall *icall,
 
 	if (dec_res) {
 		struct le *le;
-		bool update = false;
+		struct list clil = LIST_INIT;
 
 		LIST_FOREACH(&ccall->videol, le) {
 			struct icall_client *cli = le->data;
+			struct icall_client *vinfo = NULL;
 
 			if (cli->quality >= CCALL_RESOLUTION_HIGH) {
-				cli->quality = CCALL_RESOLUTION_LOW;
-				update = true;
+				vinfo = icall_client_alloc(cli->userid,
+							   cli->clientid);
+				vinfo->quality = CCALL_RESOLUTION_LOW;
+				list_append(&clil, &vinfo->le, vinfo);
 			}
 		}
 
-		if (update) {
+		if (clil.head) {
 			ccall_request_video_streams((struct icall *)ccall,
-						    &ccall->videol,
+						    &clil,
 						    0);
 		}
+		list_flush(&clil);
 	}
 
 	ICALL_CALL_CB(ccall->icall, qualityh,
