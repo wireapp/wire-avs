@@ -2552,8 +2552,9 @@ function pc_GetLocalStats(hnd: number) {
   });
 
   let self_audio_level = 0;
-  let max_apkts = 0;
-  let max_vpkts = 0;
+  let apkts = 0;
+  let vpkts = 0;
+  let ploss = 0;
 
   rtc.getStats()
     .then((stats) => {
@@ -2561,21 +2562,13 @@ function pc_GetLocalStats(hnd: number) {
 
         stats.forEach(stat => {
 	    if (stat.type === 'inbound-rtp') {
-
-		const ploss = stat.packetsLost;		    
-		pc.stats.ploss = ploss - pc.stats.lastploss;
-		pc.stats.lastploss = ploss;
-		    		 
-		pc.stats.bytes = stat.bytesReceived;
-		
+               ploss = ploss + stat.packetsLost;
 		const p = stat.packetsReceived;		
 		if (stat.kind === 'audio') {
-		    if (p > max_apkts)
-		        max_apkts = p;
+		   apkts = apkts + p;
 		}
 		else if (stat.kind === 'video') {
-		    if (p > max_vpkts)
-		        max_vpkts = p;
+		   vpkts = vpkts + p;
 		}		
 	    }
 	    else if (stat.type === 'outbound-rtp') {
@@ -2595,8 +2588,10 @@ function pc_GetLocalStats(hnd: number) {
 	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
 	    }
 	});
-	pc.stats.recv_apkts = max_apkts;
-	pc.stats.recv_vpkts = max_vpkts;
+	pc.stats.recv_apkts = apkts;
+	pc.stats.recv_vpkts = vpkts;
+	pc.stats.ploss = ploss - pc.stats.lastploss;
+	pc.stats.lastploss = ploss;
 
 	em_module.ccall(
 	    "pc_set_stats",
