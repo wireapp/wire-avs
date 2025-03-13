@@ -17,20 +17,6 @@ afterEvaluate {
             mavenJava(MavenPublication) {
                 artifact "build/dist/android/avs.aar"
                 pom {
-                    name.set("wire-avs")
-                    description.set("Wire - Audio, Video, and Signaling (AVS)")
-                    url.set("https://github.com/wireapp/wire-avs")
-                    licenses {
-                        license {
-                            name.set("GPL-3.0")
-                            url.set("https://opensource.org/licenses/GPL-3.0")
-                        }
-                    }
-                    scm {
-                        connection.set("scm:git:git://github.com/wireapp/wire-avs")
-                        developerConnection.set("scm:git:git://github.com/wireapp/wire-avs")
-                        url.set("https://github.com/wireapp/wire-avs")
-                    }
                     withXml {
                         def dependenciesNode = asNode().appendNode('dependencies')
                         findProject(':android:lib').configurations.implementation.allDependencies.each {
