@@ -957,10 +957,13 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
 	    else {
 		const enabled = oldTrack.enabled;
 
-		newTrack.enabled = enabled;
-		sender.replaceTrack(newTrack);
-		sender.track.enabled = enabled;
+        // newTrack.enabled = enabled;
+        sender.replaceTrack(newTrack).then(() => {
+            if(!!sender && !!sender.track) {
+                sender.track.enabled = enabled
 		pc_log(LOG_LEVEL_INFO, `replace_track: kind=${newTrack.kind} enabled=${sender.track.enabled}`);
+            }
+        });
 
 		return true;
 	    }
@@ -1025,39 +1028,18 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
             if (track.kind === 'video' && pc.conv_type !== CONV_TYPE_ONEONONE) {
                 const transceivers = rtc.getTransceivers();
                 for (const trans of transceivers) {
-                    if (trans.mid === 'video') {
+                    if (trans.mid === 'video' && !!trans.sender) {
                         pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
-                        const params = trans.sender.getParameters()
+                        const {params, layerFound} = getEncodingParameter(trans.sender, pc.vstate === PC_VIDEO_STATE_SCREENSHARE)
 
-                        if (!params.encodings) {
-                            pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
-                            params.encodings = [];
-                        }
-
-                        let layerFound = false;
-                        params.encodings.forEach((coding) => {
-                            if(coding.rid === 'l') {
-                                //@ts-ignore
-                                coding.scalabilityMode = 'L1T1'
-                                coding.scaleResolutionDownBy = 4;
-                                coding.active = true;
-                                layerFound = true;
-                            }
-                            if(coding.rid === 'h') {
-                                //@ts-ignore
-                                coding.scalabilityMode = 'L1T1'
-                                coding.scaleResolutionDownBy = 1;
-                                coding.active = true;
-                                layerFound = true;
-                            }
-                        });
-
+                        pc_log(LOG_LEVEL_INFO, 'add track: ' + layerFound);
                         rtc.addTrack(track, stream)
                         if (layerFound) {
                             videoSenderUpdates.push(trans.sender.setParameters(params).catch((e) => pc_log(LOG_LEVEL_ERROR, `update_tracks: set params ${e}`))
-                                // Reinsert the track so that the changes are transferred to the track (needed for FF)
-                                .then(() => trans.sender.replaceTrack(track))
-                                .then())
+                                .then(() => {
+                                    pc_log(LOG_LEVEL_INFO, 'setParameters: ' + JSON.stringify(params));
+                                })
+                                .then());
                         }
                     }
                 }
@@ -1075,6 +1057,39 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
     return Promise.all(videoSenderUpdates).catch(e => {
         pc_log(LOG_LEVEL_ERROR, `update_tracks: error=${e}`)
     }).then();
+}
+
+function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {
+    pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
+    const params = sender.getParameters()
+
+    if (!params.encodings) {
+        pc_log(LOG_LEVEL_INFO, `update_tracks: no params`)
+        params.encodings = [];
+    }
+
+    let layerFound = false;
+    params.encodings.forEach((coding) => {
+        if(coding.rid === 'l') {
+            //@ts-ignore
+            coding.scalabilityMode = 'L1T1'
+            coding.active = true
+            coding.scaleResolutionDownBy = 4;
+            coding.maxBitrate = 250000;
+            layerFound = true;
+        }
+        if(coding.rid === 'h') {
+            //@ts-ignore
+            coding.scalabilityMode = 'L1T1'
+
+            coding.scaleResolutionDownBy = 1;
+            coding.active = true;
+            coding.maxBitrate = 3000000;
+            layerFound = true;
+        }
+    });
+
+    return {params, layerFound}
 }
 
 function sigState(stateStr: string) {
@@ -1351,7 +1366,7 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   };
   dc.onmessage = event => {
     pc_log(LOG_LEVEL_INFO, `dc-onmessage: data=${event.data.length}`);
-    ccallDcDataHandler(pc, event.data.toString());
+        ccallDcDataHandler(pc, event.data.toString());
   };
 
   return dcHnd;
@@ -1722,6 +1737,18 @@ function sdpCbrMap(sdp: string): string {
           outline = null;
         }
       }
+      // reorder rids for firefox
+      else if (sdpLine.startsWith('a=simulcast:recv l;h') && pc_env === ENV_FIREFOX) {
+          outline = 'a=simulcast:recv h;l'
+      }
+
+      else if (sdpLine.startsWith('a=rid:l recv') && pc_env === ENV_FIREFOX) {
+          outline = 'a=rid:h recv';
+      }
+
+      else if (sdpLine.startsWith('a=rid:h recv') && pc_env === ENV_FIREFOX) {
+          outline = 'a=rid:l recv';
+      }
 
       if (outline != null) {
         sdpLines.push(outline);
@@ -1729,6 +1756,33 @@ function sdpCbrMap(sdp: string): string {
   });
 
   return sdpLines.join('\r\n');
+}
+
+function sdpRidReOrder (sdp: string): string {
+    const sdpLines:  string[] = [];
+
+    sdp.split('\r\n').forEach(sdpLine => {
+        let outline: string | null;
+
+        outline = sdpLine;
+
+        if (sdpLine.startsWith('a=simulcast:send h;l') && pc_env === ENV_FIREFOX) {
+            outline = 'a=simulcast:send l;h';
+        }
+
+        else if (sdpLine.startsWith('a=rid:h send') && pc_env === ENV_FIREFOX) {
+            outline = 'a=rid:l send';
+        }
+
+        else if (sdpLine.startsWith('a=rid:l send') && pc_env === ENV_FIREFOX) {
+            outline = 'a=rid:h send';
+        }
+
+        if (outline != null) {
+            sdpLines.push(outline);
+        }
+    });
+    return sdpLines.join('\r\n');
 }
 
 function pc_SetMediaKey(hnd: number, index: number, current: number, keyPtr: number, keyLen: number) {
@@ -2167,6 +2221,13 @@ function pc_LocalDescription(hnd: number, typePtr: number) {
       sdpStr = sdp.replace(' UDP/DTLS/SCTP', ' DTLS/SCTP');
       sdpStr = sdpMap(sdpStr, true, false);
   }
+    
+    /* Ensure that we force CBR on the offer */
+    if (pc_env === ENV_FIREFOX && pc.conv_type == CONV_TYPE_CONFERENCE) {
+        sdpStr = sdpRidReOrder(sdpStr);
+    }
+
+    pc_log(LOG_LEVEL_INFO, `pc_LocalDescription: hnd=${sdpStr}`);
 
   const sdpLen = em_module.lengthBytesUTF8(sdpStr) + 1; // +1 for '\0'
   const ptr = em_module._malloc(sdpLen);
@@ -2529,25 +2590,22 @@ function pc_GetLocalStats(hnd: number) {
   });
 
   let self_audio_level = 0;
-  let max_apkts = 0;
-  let max_vpkts = 0;
+  let apkts = 0;
+  let vpkts = 0;
+  let ploss = 0;
 
   rtc.getStats()
     .then((stats) => {
         let rtt = 0;
 
         stats.forEach(stat => {
-            if (stat.type === 'inbound-rtp') {
-                const ploss = stat.packetsLost;
-                pc.stats.ploss = ploss - pc.stats.lastploss;
-
-                pc.stats.lastploss = ploss;
-                pc.stats.bytes = stat.bytesReceived;
-                const p = stat.packetsReceived;
-                if (stat.kind === 'audio') {
-                    if (p > max_apkts)
-                        max_apkts = p;
-                } else if (stat.kind === 'video') {
+	    if (stat.type === 'inbound-rtp') {
+               ploss = ploss + stat.packetsLost;
+		const p = stat.packetsReceived;		
+		if (stat.kind === 'audio') {
+		   apkts = apkts + p;
+		}
+		else if (stat.kind === 'video') {
                     let user_info: UserInfo | null = null
                     if(!!stat.trackIdentifier) {
                         user_info = uinfo_from_video_track_id(pc, stat.trackIdentifier)
@@ -2561,6 +2619,32 @@ function pc_GetLocalStats(hnd: number) {
                             pc_log(LOG_LEVEL_INFO, `pc_user_resolution: label=${user_info.label} ${user_info.userid.substring(0,8)}/${user_info.clientid.substring(0,4)} resolution:${user_info.frame_width}x${user_info.frame_height}`);
                         }
                     }
+		
+		   vpkts = vpkts + p;
+		}		
+	    }
+	    else if (stat.type === 'outbound-rtp') {
+		const p = stat.packetsSent;		
+		if (stat.kind === 'audio') {
+		    pc.stats.sent_apkts = p;
+		}
+		else if (stat.kind === 'video') {
+		    pc.stats.sent_vpkts = p;
+		}		
+	    }	    
+	    else if (stat.type === 'candidate-pair') {
+		rtt = stat.currentRoundTripTime * 1000;
+	    }
+	    else if (stat.type === 'media-source') {
+	    	 if (stat.kind === 'audio')
+	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
+	    }
+	});
+	pc.stats.recv_apkts = apkts;
+	pc.stats.recv_vpkts = vpkts;
+	pc.stats.ploss = ploss - pc.stats.lastploss;
+	pc.stats.lastploss = ploss;
+>>>>>>> release-10.0
 
                     if (p > max_vpkts)
                         max_vpkts = p;

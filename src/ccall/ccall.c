@@ -1113,22 +1113,26 @@ static void ecall_quality_handler(struct icall *icall,
 
 	if (dec_res) {
 		struct le *le;
-		bool update = false;
+		struct list clil = LIST_INIT;
 
 		LIST_FOREACH(&ccall->videol, le) {
 			struct icall_client *cli = le->data;
+			struct icall_client *vinfo = NULL;
 
 			if (cli->quality >= CCALL_RESOLUTION_HIGH) {
-				cli->quality = CCALL_RESOLUTION_LOW;
-				update = true;
+				vinfo = icall_client_alloc(cli->userid,
+							   cli->clientid);
+				vinfo->quality = CCALL_RESOLUTION_LOW;
+				list_append(&clil, &vinfo->le, vinfo);
 			}
 		}
 
-		if (update) {
+		if (clil.head) {
 			ccall_request_video_streams((struct icall *)ccall,
-						    &ccall->videol,
+						    &clil,
 						    0);
 		}
+		list_flush(&clil);
 	}
 
 	ICALL_CALL_CB(ccall->icall, qualityh,
@@ -2232,6 +2236,18 @@ static int create_ecall(struct ccall *ccall)
 	self = userlist_get_self(ccall->userl);
 	if (!self)
 		return ENOENT;
+
+	if (ccall->call_type == ICALL_CALL_TYPE_NORMAL) {
+		switch(ccall->vstate) {
+		case ICALL_VIDEO_STATE_STARTED:
+		case ICALL_VIDEO_STATE_SCREENSHARE:
+			ccall->call_type = ICALL_CALL_TYPE_VIDEO;
+			break;
+
+		default:
+			break;
+		}
+	}
 
 	err = ecall_alloc(&ecall, NULL,
 			  ICALL_CONV_TYPE_CONFERENCE,
