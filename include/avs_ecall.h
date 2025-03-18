@@ -73,6 +73,8 @@ int ecall_mfdebug(struct re_printf *pf, const struct ecall *ecall);
 int ecall_stats_struct(const struct ecall *ecall,
 		       struct iflow_stats *stats);
 
+int ecall_set_background(struct ecall *ecall, bool background);
+
 //struct mediaflow *ecall_mediaflow(const struct ecall *ecall);
 struct econn *ecall_get_econn(const struct ecall *ecall);
 enum econn_state ecall_state(const struct ecall *ecall);

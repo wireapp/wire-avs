@@ -1,71 +1,39 @@
+import com.vanniktech.maven.publish.SonatypeHost
+
 plugins {
     id "java-library"
-    id "maven-publish"
-    id "signing"
-    id("io.github.gradle-nexus.publish-plugin") version "1.1.0"
+    id("com.vanniktech.maven.publish.base") version "0.29.0"
 }
 
-group = "com.wire"
-version = System.getenv("version")
-
-def Properties properties = new Properties()
-properties.load(project.rootProject.file("local.properties").newDataInputStream())
-
-nexusPublishing {
-    repositories {
-        sonatype {
-            username = properties.getProperty("sonatype.username") ?: System.getenv("SONATYPE_USERNAME")
-            password = properties.getProperty("sonatype.password") ?: System.getenv("SONATYPE_PASSWORD")
-        }
-    }
+mavenPublishing {
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+    pomFromGradleProperties()
+    signAllPublications()
 }
 
-publishing {
-    publications {
-        mavenJava(MavenPublication) {
-            artifact "build/dist/android/avs.aar"
-
-            pom {
-                name.set("wire-avs")
-                description.set("Wire - Audio, Video, and Signaling (AVS)")
-                url.set("https://github.com/wireapp/wire-avs")
-                licenses {
-                    license {
-                        name.set("GPL-3.0")
-                        url.set("https://opensource.org/licenses/GPL-3.0")
-                    }
-                }
-                developers {
-                    developer {
-                        id.set("svenwire")
-                        name.set("Sven Jost")
-                        email.set("sven@wire.com")
-                        organization.set("Wire Swiss GmbH")
-                    }
-                }
-                scm {
-                    connection.set("scm:git:git://github.com/wireapp/wire-avs")
-                    developerConnection.set("scm:git:git://github.com/wireapp/wire-avs")
-                    url.set("https://github.com/wireapp/wire-avs")
-                }
-                withXml {
-                    def dependenciesNode = asNode().appendNode('dependencies')
-                    findProject(':android:lib').configurations.implementation.allDependencies.each {
-                        def dependencyNode = dependenciesNode.appendNode('dependency')
-                        dependencyNode.appendNode('groupId', it.group)
-                        dependencyNode.appendNode('artifactId', it.name)
-                        dependencyNode.appendNode('version', it.version)
+afterEvaluate {
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                artifact "build/dist/android/avs.aar"
+                pom {
+                    withXml {
+                        def dependenciesNode = asNode().appendNode('dependencies')
+                        findProject(':android:lib').configurations.implementation.allDependencies.each {
+                            def dependencyNode = dependenciesNode.appendNode('dependency')
+                            dependencyNode.appendNode('groupId', it.group)
+                            dependencyNode.appendNode('artifactId', it.name)
+                            dependencyNode.appendNode('version', it.version)
+                        }
                     }
                 }
             }
         }
     }
-}
-
-signing {
-    def signingKeyFile = properties.getProperty("signingKeyFile") ?: System.getenv("PGP_PRIVATE_KEY_FILE")
-    def signingKey = new File(signingKeyFile).text
-    def signingPassword = properties.getProperty("signingPassword") ?: System.getenv("PGP_PASSPHRASE")
-    useInMemoryPgpKeys(signingKey, signingPassword)
-    sign publishing.publications.mavenJava
+    // Allows skipping signing jars published to 'MavenLocal' repository
+    tasks.named("signMavenJavaPublication").configure {
+        if (System.getenv("CI") == null) { // i.e. not in Github Action runner
+            enabled = false
+        }
+    }
 }
