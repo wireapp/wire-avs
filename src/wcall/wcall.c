@@ -467,26 +467,6 @@ void wcall_i_invoke_incoming_handler(const char *convid,
 	info(APITAG "wcall(%p): wcall=%p calling incomingh: %p processing_notifications: %d\n",
 	     inst, wcall, inst->incomingh, inst->processing_notifications);
 
-	if (inst->processing_notifications) {
-		struct incoming_event *ie;
-
-		ie = mem_zalloc(sizeof(*ie), ie_destructor);
-		if (ie) {
-			str_dup(&ie->convid, convid);
-			ie->msg_time = msg_time;
-			str_dup(&ie->userid, userid);
-			str_dup(&ie->clientid, clientid);
-			ie->video_call = video_call;
-			ie->should_ring = should_ring;
-			ie->conv_type = conv_type;
-			ie->arg = arg;
-
-			list_append(&inst->pending_eventl, &ie->le, ie);
-		}
-
-		return;
-	}
-
 	if (!wcall) {
 		warning("wcall(%p): invoke_incoming_handler: wcall=NULL, ignoring\n", inst);
 		return;
@@ -572,10 +552,29 @@ static void icall_start_handler(struct icall *icall,
 
 		mediamgr_set_call_state(inst->mm, state);
 	}
+
+	if (inst->processing_notifications && inst->incomingh) {
+		struct incoming_event *ie;
+
+		ie = mem_zalloc(sizeof(*ie), ie_destructor);
+		if (ie) {
+			str_dup(&ie->convid, wcall->convid);
+			ie->msg_time = msg_time;
+			str_dup(&ie->userid, userid_sender);
+			str_dup(&ie->clientid, clientid_sender);
+			ie->video_call = video;
+			ie->should_ring = should_ring;
+			ie->conv_type = conv_type;
+			ie->arg = inst;
+
+			list_append(&inst->pending_eventl, &ie->le, ie);
+		}
+
+		return;
+	}
 	
 	if (inst->incomingh) {
 		if (inst->mm) {
-			
 			mediamgr_invoke_incomingh(inst->mm,
 						  wcall_invoke_incoming_handler,
 						  wcall->convid, msg_time,
@@ -2005,17 +2004,36 @@ static void handle_pending_events(struct list *eventl)
 
 	while(le) {
 		struct incoming_event *ie = le->data;
+		struct calling_instance *inst;
 
 		le = le->next;
 
-		wcall_i_invoke_incoming_handler(ie->convid,
-						ie->msg_time,
-						ie->userid,
-						ie->clientid,
-						ie->video_call,
-						ie->should_ring,
-						ie->conv_type,
-						ie->arg);
+		if (!ie)
+			continue;
+
+		inst = ie->arg;
+		if (inst->mm) {
+			mediamgr_invoke_incomingh(inst->mm,
+						  wcall_invoke_incoming_handler,
+						  ie->convid,
+						  ie->msg_time,
+						  ie->userid,
+						  ie->clientid,
+						  ie->video_call,
+						  ie->should_ring,
+						  ie->conv_type,
+						  inst);
+		}
+		else {
+			wcall_i_invoke_incoming_handler(ie->convid,
+							ie->msg_time,
+							ie->userid,
+							ie->clientid,
+							ie->video_call,
+							ie->should_ring,
+							ie->conv_type,
+							inst);
+		}
 
 		mem_deref(ie);
 	}
