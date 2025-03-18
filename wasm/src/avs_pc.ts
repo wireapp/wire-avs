@@ -2619,7 +2619,6 @@ function pc_GetLocalStats(hnd: number) {
                             pc_log(LOG_LEVEL_INFO, `pc_user_resolution: label=${user_info.label} ${user_info.userid.substring(0,8)}/${user_info.clientid.substring(0,4)} resolution:${user_info.frame_width}x${user_info.frame_height}`);
                         }
                     }
-		
 		   vpkts = vpkts + p;
 		}		
 	    }
@@ -2644,10 +2643,6 @@ function pc_GetLocalStats(hnd: number) {
 	pc.stats.recv_vpkts = vpkts;
 	pc.stats.ploss = ploss - pc.stats.lastploss;
 	pc.stats.lastploss = ploss;
->>>>>>> release-10.0
-
-                    if (p > max_vpkts)
-                        max_vpkts = p;
                 }
 
             } else if (stat.type === 'outbound-rtp') {
