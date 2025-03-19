@@ -211,7 +211,7 @@ pipeline {
                         """
                     )
                 }
-            } 
+            }
         }
         stage('Upload to Github') {
             when {
@@ -237,6 +237,7 @@ pipeline {
                                 string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
                                 sh(
                                     script: """
+                                        sleep 5
                                         GITHUB_USER=${repoUser} \
                                         GITHUB_TOKEN=${accessToken} \
                                         python3 ./scripts/release-on-github.py \
@@ -267,14 +268,16 @@ pipeline {
             steps {
                 script {
                     echo '### Sign and upload to sonatype'
-                    withCredentials([ usernamePassword( credentialsId: 'android-sonatype-nexus', usernameVariable: 'SONATYPE_USERNAME', passwordVariable: 'SONATYPE_PASSWORD' ),
-                                        file(credentialsId: 'D599C1AA126762B1.asc', variable: 'PGP_PRIVATE_KEY_FILE'),
-                                        string(credentialsId: 'PGP_PASSPHRASE', variable: 'PGP_PASSPHRASE') ]) {
+                    withCredentials([
+                            usernamePassword( credentialsId: 'sonatype-central', usernameVariable: 'ORG_GRADLE_PROJECT_mavenCentralUsername', passwordVariable: 'ORG_GRADLE_PROJECT_mavenCentralPassword' ),
+                            string(credentialsId: 'sonatype-signing-key-password', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKeyPassword'),
+                            string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
+                        ]) {
                         withMaven(maven: 'M3', jdk: 'JDK17') {
                             sh(
                                 script: """
                                     touch local.properties
-                                    version=$version ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
+                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishAndReleaseToMavenCentral
                                 """
                             )
                         }
