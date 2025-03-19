@@ -957,7 +957,6 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
 	    else {
 		const enabled = oldTrack.enabled;
 
-        // newTrack.enabled = enabled;
         sender.replaceTrack(newTrack).then(() => {
             if(!!sender && !!sender.track) {
                 sender.track.enabled = enabled
@@ -2221,7 +2220,7 @@ function pc_LocalDescription(hnd: number, typePtr: number) {
       sdpStr = sdp.replace(' UDP/DTLS/SCTP', ' DTLS/SCTP');
       sdpStr = sdpMap(sdpStr, true, false);
   }
-    
+
     /* Ensure that we force CBR on the offer */
     if (pc_env === ENV_FIREFOX && pc.conv_type == CONV_TYPE_CONFERENCE) {
         sdpStr = sdpRidReOrder(sdpStr);
@@ -2599,34 +2598,9 @@ function pc_GetLocalStats(hnd: number) {
         let rtt = 0;
 
         stats.forEach(stat => {
-            if (stat.type === 'inbound-rtp') {
-                const ploss = stat.packetsLost;
-                pc.stats.ploss = ploss - pc.stats.lastploss;
-
-                pc.stats.lastploss = ploss;
-                pc.stats.bytes = stat.bytesReceived;
-                const p = stat.packetsReceived;
-                if (stat.kind === 'audio') {
-                    if (p > max_apkts)
-                        max_apkts = p;
-                } else if (stat.kind === 'video') {
-                    let user_info: UserInfo | null = null
-                    if(!!stat.trackIdentifier) {
-                        user_info = uinfo_from_video_track_id(pc, stat.trackIdentifier)
-                    }
-                    if(user_info !== null) {
-                        const frame_height = !!stat.frameHeight ? stat?.frameHeight : 0;
-                        const frame_width = !!stat.frameWidth ? stat?.frameWidth : 0;
-                        if(user_info.frame_width !== frame_width || user_info.frame_height !== frame_height) {
-                            user_info.frame_width = frame_width;
-                            user_info.frame_height = frame_height;
-                            pc_log(LOG_LEVEL_INFO, `pc_user_resolution: label=${user_info.label} ${user_info.userid.substring(0,8)}/${user_info.clientid.substring(0,4)} resolution:${user_info.frame_width}x${user_info.frame_height}`);
-                        }
-                    }
-=======
 	    if (stat.type === 'inbound-rtp') {
                ploss = ploss + stat.packetsLost;
-		const p = stat.packetsReceived;		
+		const p = stat.packetsReceived;
 		if (stat.kind === 'audio') {
 		   apkts = apkts + p;
 		}
@@ -2644,23 +2618,23 @@ function pc_GetLocalStats(hnd: number) {
                             pc_log(LOG_LEVEL_INFO, `pc_user_resolution: label=${user_info.label} ${user_info.userid.substring(0,8)}/${user_info.clientid.substring(0,4)} resolution:${user_info.frame_width}x${user_info.frame_height}`);
                         }
                     }
-		   vpkts = vpkts + p;		    
-		}	
+		   vpkts = vpkts + p;
+		}
 	    }
 	    else if (stat.type === 'outbound-rtp') {
-		const p = stat.packetsSent;		
+		const p = stat.packetsSent;
 		if (stat.kind === 'audio') {
 		    pc.stats.sent_apkts = p;
 		}
 		else if (stat.kind === 'video') {
 		    pc.stats.sent_vpkts = p;
-		}		
-	    }	    
+		}
+	    }
 	    else if (stat.type === 'candidate-pair') {
 		rtt = stat.currentRoundTripTime * 1000;
 	    }
 	    else if (stat.type === 'media-source') {
-	    	 if (stat.kind === 'audio')
+	      if (stat.kind === 'audio')
 	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
 	    }
 	});
@@ -2668,26 +2642,7 @@ function pc_GetLocalStats(hnd: number) {
 	pc.stats.recv_vpkts = vpkts;
 	pc.stats.ploss = ploss - pc.stats.lastploss;
 	pc.stats.lastploss = ploss;
-                }
-
-            } else if (stat.type === 'outbound-rtp') {
-                const p = stat.packetsSent;
-                if (stat.kind === 'audio') {
-                    pc.stats.sent_apkts = p;
-                } else if (stat.kind === 'video') {
-                    pc.stats.sent_vpkts = p;
-                }
-
-            } else if (stat.type === 'candidate-pair') {
-                rtt = stat.currentRoundTripTime * 1000;
-
-            } else if (stat.type === 'media-source') {
-                if (stat.kind === 'audio')
-                    self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
-            }
-        });
-        pc.stats.recv_apkts = max_apkts;
-        pc.stats.recv_vpkts = max_vpkts;
+	}
 
         em_module.ccall(
             "pc_set_stats", null,
