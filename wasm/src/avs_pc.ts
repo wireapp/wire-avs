@@ -2642,12 +2642,11 @@ function pc_GetLocalStats(hnd: number) {
 	      if (stat.kind === 'audio')
 	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
 	    }
-	});
-	pc.stats.recv_apkts = apkts;
-	pc.stats.recv_vpkts = vpkts;
-	pc.stats.ploss = ploss - pc.stats.lastploss;
-	pc.stats.lastploss = ploss;
-	}
+	    });
+        pc.stats.recv_apkts = apkts;
+        pc.stats.recv_vpkts = vpkts;
+        pc.stats.ploss = ploss - pc.stats.lastploss;
+        pc.stats.lastploss = ploss;
 
         em_module.ccall(
             "pc_set_stats", null,
