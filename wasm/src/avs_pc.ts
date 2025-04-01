@@ -1073,7 +1073,7 @@ function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {
             //@ts-ignore
             coding.scalabilityMode = 'L1T1'
             coding.active = true
-            coding.scaleResolutionDownBy = 4;
+            coding.scaleResolutionDownBy = 4.0;
             coding.maxBitrate = 250000;
             layerFound = true;
         }
@@ -1081,7 +1081,7 @@ function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {
             //@ts-ignore
             coding.scalabilityMode = 'L1T1'
 
-            coding.scaleResolutionDownBy = 1;
+            coding.scaleResolutionDownBy = 1.0;
             coding.active = true;
             coding.maxBitrate = 3000000;
             layerFound = true;
@@ -1735,6 +1735,11 @@ function sdpCbrMap(sdp: string): string {
         if (spaces < 3) {
           outline = null;
         }
+      }
+
+      else if (sdpLine.startsWith('a=simulcast:recv l;h') && pc_env !== ENV_FIREFOX) {
+          // add conference attribute for chrome
+          sdpLines.push('a=x-google-flag:conference')
       }
       // reorder rids for firefox
       else if (sdpLine.startsWith('a=simulcast:recv l;h') && pc_env === ENV_FIREFOX) {
@@ -2637,12 +2642,11 @@ function pc_GetLocalStats(hnd: number) {
 	      if (stat.kind === 'audio')
 	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
 	    }
-	});
-	pc.stats.recv_apkts = apkts;
-	pc.stats.recv_vpkts = vpkts;
-	pc.stats.ploss = ploss - pc.stats.lastploss;
-	pc.stats.lastploss = ploss;
-	}
+	    });
+        pc.stats.recv_apkts = apkts;
+        pc.stats.recv_vpkts = vpkts;
+        pc.stats.ploss = ploss - pc.stats.lastploss;
+        pc.stats.lastploss = ploss;
 
         em_module.ccall(
             "pc_set_stats", null,
