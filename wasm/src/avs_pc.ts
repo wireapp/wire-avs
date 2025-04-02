@@ -1861,12 +1861,10 @@ function pc_UpdateRemoteUserTrack(hnd: number, userIdPtr: number, clientIdPtr: n
         return;
     }
 
+    // Inform client when srcc changed but track not moved to another transceiver
     pc.rtc.getTransceivers().forEach((tc) => {
-        if (tc.receiver.track.kind === "video" && tc.mid === "6") {
-            if (tc.receiver.track.id === uinfo.video_track_id && !!videoStreamHandler) {
-                pc_log(LOG_LEVEL_INFO, `###XX pc_UpdateRemoteUserTrack: trigger track update ${userId}`);
-                videoStreamHandler(pc.convid, userId, clientId, [new MediaStream([tc.receiver.track])]);
-            }
+        if (tc.receiver.track.kind === "video" && tc.receiver.track.id === uinfo.video_track_id && !!videoStreamHandler) {
+            videoStreamHandler(pc.convid, userId, clientId, [new MediaStream([tc.receiver.track])]);
         }
     });
 }
