@@ -57,6 +57,7 @@ type UserInfo = {
     first_succ_audio: boolean;
     first_succ_video: boolean;
     transp_ssrcv: string | null;
+    update_on_key_frame: boolean;
 };
 
 interface PeerConnection {
@@ -82,6 +83,8 @@ interface PeerConnection {
 const ENV_FIREFOX = 1;
 
 const TIMEOUT_GATHER = 2000;
+
+const NULL_VIDEO_TRACK_ID = "0";
 
 let em_module: any;
 let logFn: WcallLogHandler | null = null;
@@ -135,7 +138,7 @@ function calcLen(val) {
 
     while (val != 0) {
 	l++;
-	val = val >>> 8;	
+	val = val >>> 8;
     }
 
     return l;
@@ -155,7 +158,7 @@ function writeBytes(buf, p, len, val)
     case 6:
 	buf[p] = (val >>> 40) & 0xff;
 	p++;
-	
+
     case 5:
 	buf[p] = (val >>> 32) & 0xff;
 	p++;
@@ -179,7 +182,7 @@ function writeBytes(buf, p, len, val)
     default:
 	return 0;
     }
-    
+
     return len;
 }
 
@@ -198,7 +201,7 @@ function readBytes(buf, p, len) {
 	len: len,
 	val: v
     };
-    
+
     return lv;
 }
 
@@ -377,9 +380,9 @@ function encryptFrame(coder, rtcFrame, controller) {
     data
   )
   .then(function(encdata){
-    const enc8 = new Uint8Array(encdata);  	    
+    const enc8 = new Uint8Array(encdata);
     const enc = new Uint8Array(hdr.length + enc8.length);
-      
+
     enc.set(hdr);
     enc.set(enc8, hdr.length);
 
@@ -445,7 +448,7 @@ function decryptFrame(track_id, coder, rtcFrame, controller) {
       doLog('decryptFrame: no userinfo for csrc: ' + csrc);
       return;
   }
- 
+
   //console.log('frame_dec: video ' + isVideo + ' ssrc ' + ssrc + ' csrc ' + csrc + ' user ' + uinfo.userid.substring(0,8));
 
   if (isVideo && uinfo.transp_ssrcv != ssrc) {
@@ -466,17 +469,10 @@ function decryptFrame(track_id, coder, rtcFrame, controller) {
                        track_id: "0",
                   });
                   u.transp_ssrcv = null;
+                  u.update_on_key_frame = false;
               }
           }
-
-          postMessage({
-              op: "setvstream",
-              self: coder.self,
-              userid: uinfo.userid,
-              clientid: uinfo.clientid,
-              ssrc: ssrc,
-              track_id: track_id,
-          });
+          uinfo.update_on_key_frame = true;
       }
       uinfo.transp_ssrcv = ssrc;
   }
@@ -530,6 +526,19 @@ function decryptFrame(track_id, coder, rtcFrame, controller) {
   .then(function(decdata){
     rtcFrame.data = decdata;
     controller.enqueue(rtcFrame);
+
+    if (isVideo && uinfo.update_on_key_frame && rtcFrame.type == 'key') {
+      postMessage({
+          op: "setvstream",
+          self: coder.self,
+          userid: uinfo.userid,
+          clientid: uinfo.clientid,
+          ssrc: ssrc,
+          track_id: track_id,
+      });
+
+      uinfo.update_on_key_frame = false;
+    }
     if (isVideo && !uinfo.first_succ_video) {
       doLog("frame_dec: decrypt: first frame decrypted type: video uid: " +
             uinfo.userid.substring(0,8) + " fid: " + frameHdr.frameId + " csrc: " + csrc);
@@ -561,7 +570,7 @@ function setupReceiver(readableStream, writableStream, coder, track_id) {
        });
        readableStream
          .pipeThrough(transformStream)
-         .pipeTo(writableStream); 
+         .pipeTo(writableStream);
 }
 
 
@@ -592,7 +601,7 @@ onmessage = async (event) => {
     let coder = coders[self];
     if (!coder) {
 	doLog('AVS worker: no coder for self=' + self);
-    }    
+    }
     /*
     const {opinfo, readableStream, writableStream} = event.data;
     const mval = opinfo.mtype === 'video' ? 1 : 0; // corresponds to enum frame_media_type
@@ -639,7 +648,7 @@ onmessage = async (event) => {
             return;
         }
         const {userInfo} = event.data;
-        
+
         doLog('addUser: adding audio ssrc: '+userInfo.ssrca);
         coder.audio.users[userInfo.ssrca] = userInfo;
         if (userInfo.ssrcv != 0) {
@@ -695,7 +704,7 @@ onmessage = async (event) => {
            coder.keys.shift();
          }
        });
-   }    
+   }
 };
 `
 
@@ -703,66 +712,66 @@ function callStreamHandler(pc: PeerConnection,
                            userid: string,
                            clientid: string,
                            ssrc: string,
-                           track_id: string) {
+			               track_id: string) {
 
-  pc_log(LOG_LEVEL_INFO, `vsh: ${videoStreamHandler} rtc: ${pc.rtc} ssrc: ${ssrc}`);
-  const uinfo = uinfo_from_device(pc, userid, clientid)
-  if (ssrc == "0") {
-    if (uinfo) {
-      uinfo.video_track_id = "0"
-    }
-
-    if (videoStreamHandler) {
-      pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) to remove renderer`);
-      videoStreamHandler(pc.convid,
-                         userid,
-                         clientid,
-                         null);
-    }
-  } else if (pc.rtc) {
-    if (pc_env === ENV_FIREFOX) {
-      pc.rtc.getTransceivers().forEach(trans => {
-        const track = trans.receiver.track;
-
-        if (track.kind != 'video')
-            return;
-
-        pc_log(LOG_LEVEL_INFO, `vsh: id:${track.id} looking for: ${track_id}`);
-        if (track.id === track_id) {
-            if (uinfo) {
-                uinfo.video_track_id = track_id
-            }
-          let stream = new MediaStream([trans.receiver.track]);
-          if (videoStreamHandler) {
-            pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) with 1 stream`);
-            videoStreamHandler(pc.convid,
-                               userid,
-                               clientid,
-                               [stream]);
-          }
+    pc_log(LOG_LEVEL_INFO, `vsh: ${videoStreamHandler} rtc: ${pc.rtc} ssrc: ${ssrc}`);
+    const uinfo = uinfo_from_device(pc, userid, clientid)
+    if (ssrc == "0") {
+        if (uinfo) {
+            uinfo.video_track_id = NULL_VIDEO_TRACK_ID;
         }
-      });
-    } else {
-      const label = pc.streams[ssrc];
-      pc.rtc.getTransceivers().forEach(trans => {
-        const track = trans.receiver.track;
-        pc_log(LOG_LEVEL_INFO, `vsh: label:${track.label} id:${track.id} looking for: ${label}`);
-        if (trans.receiver.track.label === label) {
-          if (uinfo) {
-              uinfo.video_track_id = track.id;
-          }
-          let stream = new MediaStream([trans.receiver.track]);
-          if (videoStreamHandler) {
-            pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0,8)}, ${userid.substring(0,8)}, ${clientid.substring(0,4)}) with 1 stream`);
+
+        if (videoStreamHandler) {
+            pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0, 8)}, ${userid.substring(0, 8)}, ${clientid.substring(0, 4)}) to remove renderer`);
             videoStreamHandler(pc.convid,
-                               userid,
-                               clientid,
-                               [stream]);
-          }
+                userid,
+                clientid,
+                null);
         }
-      });
+    } else if (pc.rtc) {
+        if (pc_env === ENV_FIREFOX) {
+            pc.rtc.getTransceivers().forEach(trans => {
+                const track = trans.receiver.track;
+
+                if (track.kind != 'video')
+                    return;
+
+                pc_log(LOG_LEVEL_INFO, `vsh: id:${track.id} looking for: ${track_id}`);
+                if (track.id === track_id) {
+                    if (uinfo) {
+                        uinfo.video_track_id = track_id
+                    }
+                    let stream = new MediaStream([trans.receiver.track]);
+                    if (videoStreamHandler) {
+                        pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0, 8)}, ${userid.substring(0, 8)}, ${clientid.substring(0, 4)}) with 1 stream`);
+                        videoStreamHandler(pc.convid,
+                            userid,
+                            clientid,
+                            [stream]);
+                    }
+                }
+            });
+        } else {
+            const label = pc.streams[ssrc];
+            pc.rtc.getTransceivers().forEach(trans => {
+                const track = trans.receiver.track;
+                pc_log(LOG_LEVEL_INFO, `vsh: label:${track.label} id:${track.id} looking for: ${label}`);
+                if (trans.receiver.track.label === label) {
+                    if (uinfo) {
+                        uinfo.video_track_id = track.id;
+                    }
+                    let stream = new MediaStream([trans.receiver.track]);
+                    if (videoStreamHandler) {
+                        pc_log(LOG_LEVEL_INFO, `calling vsh(${pc.convid.substring(0, 8)}, ${userid.substring(0, 8)}, ${clientid.substring(0, 4)}) with 1 stream`);
+                        videoStreamHandler(pc.convid,
+                            userid,
+                            clientid,
+                            [stream]);
+                    }
+                }
+            });
+        }
     }
-  }
 }
 
 function createWorker() {
@@ -910,10 +919,9 @@ function uinfo_from_ssrca(pc: PeerConnection, ssrc: string) : UserInfo | null
   return null;
 }
 
-function uinfo_from_device(pc: PeerConnection, user_id: string, client_id: string) : UserInfo | null
-{
+function uinfo_from_device(pc: PeerConnection, user_id: string, client_id: string): UserInfo | null {
     for (const key of Object.keys(pc.users)) {
-        const uinfo : UserInfo = pc.users[key];
+        const uinfo: UserInfo = pc.users[key];
         if (uinfo.userid === user_id && uinfo.clientid === client_id) {
             return uinfo;
         }
@@ -921,16 +929,16 @@ function uinfo_from_device(pc: PeerConnection, user_id: string, client_id: strin
     return null;
 }
 
-function uinfo_from_video_track_id(pc: PeerConnection, track_id: string) : UserInfo | null
-{
+function uinfo_from_video_track_id(pc: PeerConnection, track_id: string): UserInfo | null {
     for (const key of Object.keys(pc.users)) {
-        const uinfo : UserInfo = pc.users[key];
+        const uinfo: UserInfo = pc.users[key];
         if (uinfo.video_track_id === track_id) {
             return uinfo;
         }
     }
     return null;
 }
+
 function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
     const rtc = pc.rtc;
 
@@ -939,7 +947,7 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
 
     const senders = rtc.getSenders();
     if (!senders)
-	return false;
+        return false;
 
     for (const sender of senders) {
 	if (!sender)
@@ -951,11 +959,10 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
 	if (sender.track.kind === newTrack.kind) {
 	    const oldTrack = sender.track;
 
-	    if (!oldTrack) {
-		pc_log(LOG_LEVEL_INFO, 'replace_track: oldtrack null');
-	    }
-	    else {
-		const enabled = oldTrack.enabled;
+            if (!oldTrack) {
+                pc_log(LOG_LEVEL_INFO, 'replace_track: oldtrack null');
+            } else {
+                const enabled = oldTrack.enabled;
 
         sender.replaceTrack(newTrack).then(() => {
             if(!!sender && !!sender.track) {
@@ -971,6 +978,7 @@ function replace_track(pc: PeerConnection, newTrack: MediaStreamTrack) {
 
     return false;
 }
+
 function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
 
     const rtc = pc.rtc;
@@ -1310,11 +1318,11 @@ function candidateHandler(pc: PeerConnection, cand: RTCIceCandidate | null) {
     }
 
     if (!pc || !pc.rtc)
-	return;
+        return;
 
     if (!cand) {
-	pc_log(LOG_LEVEL_INFO, 'candidateHandler: end-of-candidates');
-	gatheringComplete(pc);
+        pc_log(LOG_LEVEL_INFO, 'candidateHandler: end-of-candidates');
+        gatheringComplete(pc);
 
         return;
     }
@@ -1661,7 +1669,7 @@ function pc_SetVideoState(hnd: number, vstate: number) {
 
     const rtc = pc.rtc;
     if (!rtc)
-	return;
+        return;
 
     let should_update = false;
 
@@ -1676,14 +1684,14 @@ function pc_SetVideoState(hnd: number, vstate: number) {
 
     pc_log(LOG_LEVEL_INFO, `pc_SetVideoState: should_update=${should_update} vstate=${vstate} active=${active}`);
     if (should_update && userMediaHandler) {
-	const use_video = vstate === PC_VIDEO_STATE_STARTED;
-	const use_ss = vstate === PC_VIDEO_STATE_SCREENSHARE;
-	pc_log(LOG_LEVEL_INFO, `pc_SetVideoState: calling umh(1, ${use_video}, ${use_ss})`);
-	userMediaHandler(pc.convid, true, use_video, use_ss)
-	    .then((stream: MediaStream) => {
-            return update_tracks(pc, stream);
-	    });
-	pc.sending_video = use_video || use_ss;
+        const use_video = vstate === PC_VIDEO_STATE_STARTED;
+        const use_ss = vstate === PC_VIDEO_STATE_SCREENSHARE;
+        pc_log(LOG_LEVEL_INFO, `pc_SetVideoState: calling umh(1, ${use_video}, ${use_ss})`);
+        userMediaHandler(pc.convid, true, use_video, use_ss)
+            .then((stream: MediaStream) => {
+                return update_tracks(pc, stream);
+            });
+        pc.sending_video = use_video || use_ss;
     }
 
     pc.vstate = vstate
@@ -1830,6 +1838,35 @@ function pc_UpdateSsrc(hnd: number, ssrcaPtr: number, ssrcvPtr: number) {
     ssrca: ssrca,
     ssrcv: ssrcv
   });
+}
+
+
+function pc_UpdateRemoteUserTrack(hnd: number, userIdPtr: number, clientIdPtr: number) {
+    const userId = em_module.UTF8ToString(userIdPtr);
+    const clientId = em_module.UTF8ToString(clientIdPtr);
+
+    const pc = connectionsStore.getPeerConnection(hnd);
+
+    if (pc == null || pc.rtc == null) {
+        return;
+    }
+
+    const uinfo = uinfo_from_device(pc, userId, clientId);
+
+    if (uinfo == null) {
+        return;
+    }
+
+    if (uinfo.video_track_id == NULL_VIDEO_TRACK_ID || !uinfo.video_track_id) {
+        return;
+    }
+
+    // Inform client when srcc changed but track not moved to another transceiver
+    pc.rtc.getTransceivers().forEach((tc) => {
+        if (tc.receiver.track.kind === "video" && tc.receiver.track.id === uinfo.video_track_id && !!videoStreamHandler) {
+            videoStreamHandler(pc.convid, userId, clientId, [new MediaStream([tc.receiver.track])]);
+        }
+    });
 }
 
 
@@ -2051,33 +2088,34 @@ function pc_AddUserInfo(hnd: number, labelPtr: number,
   const ivv8 = new Uint8Array(ivv);
   ivv8.set(vptr);
 
-  const uinfo : UserInfo = {
-      label: label,
-      video_track_id: "0",
-      userid: userId,
-      clientid: clientId,
-      ssrca: ssrca,
-      ssrcv: ssrcv,
-      iva: iva8,
-      ivv: ivv8,
-      frame_width: 0,
-      frame_height: 0,
-      audio_level: 0,
-      first_recv_audio: false,
-      first_succ_audio: false,
-      first_succ_video: false,
-      transp_ssrcv: null,
-  };
+    const uinfo: UserInfo = {
+        label: label,
+        video_track_id: NULL_VIDEO_TRACK_ID,
+        userid: userId,
+        clientid: clientId,
+        ssrca: ssrca,
+        ssrcv: ssrcv,
+        iva: iva8,
+        ivv: ivv8,
+        frame_width: 0,
+        frame_height: 0,
+        audio_level: 0,
+        first_recv_audio: false,
+        first_succ_audio: false,
+        first_succ_video: false,
+        transp_ssrcv: null,
+        update_on_key_frame: false,
+    };
 
-  pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: label=${label} ${userId.substring(0,8)}/${clientId.substring(0,4)} ssrc:${ssrca}/${ssrcv}`);
+    pc_log(LOG_LEVEL_INFO, `pc_AddUserInfo: label=${label} ${userId.substring(0, 8)}/${clientId.substring(0, 4)} ssrc:${ssrca}/${ssrcv}`);
 
-  pc.users[label] = uinfo;
+    pc.users[label] = uinfo;
 
-  worker.postMessage({
-    op: 'addUser',
-    self: pc.self,
-    userInfo: uinfo
-  });
+    worker.postMessage({
+        op: 'addUser',
+        self: pc.self,
+        userInfo: uinfo
+    });
 }
 
 function pc_RemoveUserInfo(hnd: number, labelPtr: number) {
@@ -2154,27 +2192,27 @@ function pc_SetRemoteDescription(hnd: number, typePtr: number, sdpPtr: number) {
 }
 
 function pc_SetLocalDescription(hnd: number, typePtr: number, sdpPtr: number) {
-  pc_log(LOG_LEVEL_INFO, `pc_SetLocalDescription: hnd=${hnd}`);
+    pc_log(LOG_LEVEL_INFO, `pc_SetLocalDescription: hnd=${hnd}`);
 
-  const pc = connectionsStore.getPeerConnection(hnd);
-  if (pc == null) {
-    return;
-  }
+    const pc = connectionsStore.getPeerConnection(hnd);
+    if (pc == null) {
+        return;
+    }
 
-  const type = em_module.UTF8ToString(typePtr);
-  const sdp = em_module.UTF8ToString(sdpPtr);
+    const type = em_module.UTF8ToString(typePtr);
+    const sdp = em_module.UTF8ToString(sdpPtr);
 
-  const rtc = pc.rtc;
-  if (!rtc) {
-    return;
-  }
+    const rtc = pc.rtc;
+    if (!rtc) {
+        return;
+    }
 
-  let sdpStr = '';
+    let sdpStr = '';
 
     if (pc_env === ENV_FIREFOX)
-	sdpStr = sdpMap(sdp, true, false);
+        sdpStr = sdpMap(sdp, true, false);
     else
-	sdpStr = sdp;
+        sdpStr = sdp;
 
 
     //pc_log(LOG_LEVEL_INFO, `pc_SetLocalDesription: type=${type} sdp=${sdpStr}`);
@@ -2456,49 +2494,50 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
 
   pc_log(LOG_LEVEL_INFO, `insertable: ${insertableLegacy}/${insertableStreams}`);
 
-  const callbacks = [
-    [pc_SetEnv, "vi"],
-    [pc_New, "iiiiii"],
-    [pc_Create, "viii"],
-    [pc_Close, "vi"],
-    [pc_HeapFree, "vi"],
-    [pc_AddTurnServer, "viiii"],
-    [pc_IceGatheringState, "ii"],
-    [pc_SignalingState, "ii"],
-    [pc_ConnectionState, "ii"],
-    [pc_CreateDataChannel, "iii"],
-    [pc_CreateOffer, "viii"],
-    [pc_CreateAnswer, "viii"],
-    [pc_AddDecoderAnswer, "vi"],
-    [pc_AddUserInfo, "viiiiiiiii"],
-    [pc_RemoveUserInfo, "vii"],
-    [pc_SetRemoteDescription, "viii"],
-    [pc_SetLocalDescription, "viii"],
-    [pc_LocalDescription, "iii"],
-    [pc_SetMute, "vii"],
-    [pc_GetMute, "ii"],
-    [pc_GetLocalStats, "vi"],
-    [pc_SetRemoteUserClientId, "viii"],
-    [pc_HasVideo, "ii"],
-    [pc_SetVideoState, "vii"],
-    [pc_DataChannelId, "ii"],
-    [pc_DataChannelState, "ii"],
-    [pc_DataChannelSend, "viii"],
-    [pc_DataChannelClose, "vi"],
-    [pc_SetMediaKey, "viiiii"],
-    [pc_UpdateSsrc, "viii"],
-  ].map(([callback, signature]) => em_module.addFunction(callback, signature));
+    const callbacks = [
+        [pc_SetEnv, "vi"],
+        [pc_New, "iiiiii"],
+        [pc_Create, "viii"],
+        [pc_Close, "vi"],
+        [pc_HeapFree, "vi"],
+        [pc_AddTurnServer, "viiii"],
+        [pc_IceGatheringState, "ii"],
+        [pc_SignalingState, "ii"],
+        [pc_ConnectionState, "ii"],
+        [pc_CreateDataChannel, "iii"],
+        [pc_CreateOffer, "viii"],
+        [pc_CreateAnswer, "viii"],
+        [pc_AddDecoderAnswer, "vi"],
+        [pc_AddUserInfo, "viiiiiiiii"],
+        [pc_RemoveUserInfo, "vii"],
+        [pc_SetRemoteDescription, "viii"],
+        [pc_SetLocalDescription, "viii"],
+        [pc_LocalDescription, "iii"],
+        [pc_SetMute, "vii"],
+        [pc_GetMute, "ii"],
+        [pc_GetLocalStats, "vi"],
+        [pc_SetRemoteUserClientId, "viii"],
+        [pc_HasVideo, "ii"],
+        [pc_SetVideoState, "vii"],
+        [pc_DataChannelId, "ii"],
+        [pc_DataChannelState, "ii"],
+        [pc_DataChannelSend, "viii"],
+        [pc_DataChannelClose, "vi"],
+        [pc_SetMediaKey, "viiiii"],
+        [pc_UpdateSsrc, "viii"],
+        [pc_UpdateRemoteUserTrack, "viii"],
+    ].map(([callback, signature]) => em_module.addFunction(callback, signature));
 
-  em_module.ccall(
-    "pc_set_callbacks",
-    "null",
-    callbacks.map(() => "number"),
-    callbacks
-  );
+    em_module.ccall(
+        "pc_set_callbacks",
+        "null",
+        callbacks.map(() => "number"),
+        callbacks
+    );
 }
 
 function pc_SetUserMediaHandler(umh: UserMediaHandler) {
-  userMediaHandler = umh;
+    userMediaHandler = umh;
 }
 
 function pc_IsConferenceCallingSupported() {

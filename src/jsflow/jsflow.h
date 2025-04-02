@@ -68,7 +68,7 @@ int jsflow_remove_decoders_for_user(struct iflow *iflow,
 				    const char *userid,
 				    const char *clientid);
 int jsflow_sync_decoders(struct iflow *iflow);
-	
+
 
 void jsflow_stop_media(struct iflow *iflow);
 void jsflow_close(struct iflow *iflow);
@@ -83,8 +83,10 @@ int jsflow_get_stats(struct iflow *flow,
 
 int jsflow_get_aulevel(struct iflow *iflow,
 		       struct list *levell);
-	
+
 int jsflow_update_ssrc(struct iflow *iflow, uint32_t ssrca, uint32_t ssrcv);
+
+int jsflow_update_remote_user_track(struct iflow *iflow, const char *userid, const char *clientid);
 
 int jsflow_debug(struct re_printf *pf, const struct iflow *flow);
 

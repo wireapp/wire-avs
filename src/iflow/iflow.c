@@ -44,6 +44,7 @@ void iflow_set_functions(struct iflow *iflow,
 			 iflow_get_stats		*get_stats,
 			 iflow_get_audio_level          *get_audio_level,
 			 iflow_update_ssrc              *update_ssrc,
+			 iflow_update_remote_user_track *update_remote_user_track,
 			 iflow_debug			*debug)
 {
 	if (!iflow) {
@@ -74,6 +75,7 @@ void iflow_set_functions(struct iflow *iflow,
 	iflow->get_stats		= get_stats;
 	iflow->get_audio_level          = get_audio_level;
 	iflow->update_ssrc              = update_ssrc;
+	iflow->update_remote_user_track = update_remote_user_track;
 	iflow->debug			= debug;
 }
 
