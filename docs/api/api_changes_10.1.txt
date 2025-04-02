@@ -1,0 +1,13 @@
+Changes introduces in AVS 10.1
+==============================
+
+Added the method:
+
+int wcall_set_background(WUSER_HANDLE wuser, int background);
+
+parameter background is a boolean indicating 1 if application is going to the background and
+0 if application is being brought to the foreground.
+
+This method allows an application to inform AVS about the intention of going to the background or foreground.
+Going to the background means that no AVS threads will execute, thus we need to cancel any relevant
+pending activity and re-start it when application is later brought to the foreground.
