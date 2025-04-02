@@ -1373,18 +1373,9 @@ int  ccall_request_video_streams(struct icall *icall,
 		goto out;
 	}
 
-    if (list_count(clientl) == 1 ) {
-
-        struct le *lex = NULL;
-        LIST_FOREACH(clientl, lex){
-            struct icall_client *clix = lex->data;
-
-            info("xxxxx: %s yyyy: %s \n",
-                 clix->userid,
-                 clix->clientid
-                 );
-            err = ecall_update_remote_user_track(ccall->ecall, clix->userid, clix->clientid);
-        }
+    if (list_count(clientl) == 1) {
+        struct icall_client *clix = list_ledata(clientl->head);
+        err = ecall_update_remote_user_track(ccall->ecall, clix->userid, clix->clientid);
 
         if (err) {
             warning("ccall(%p): request_video_streams: ecall_update_remote_user_track"

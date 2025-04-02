@@ -477,11 +477,6 @@ function decryptFrame(track_id, coder, rtcFrame, controller) {
       uinfo.transp_ssrcv = ssrc;
   }
 
-  if(isVideo) {
-      doLog("Enrico  frame_dec:" + rtcFrame.type );
-      doLog("Enrico  frame_dec:" + JSON.stringify(rtcFrame));
-  }
-
   if (!isVideo && !uinfo.first_recv_audio) {
     doLog("frame_dec: decrypt: first frame received type: audio uid: " +
           uinfo.userid.substring(0,8) + " fid: " + frameHdr.frameId + " csrc: " + csrc);
@@ -533,7 +528,6 @@ function decryptFrame(track_id, coder, rtcFrame, controller) {
     controller.enqueue(rtcFrame);
 
     if (isVideo && uinfo.update_on_key_frame && rtcFrame.type == 'key') {
-      doLog("##XX send:" + rtcFrame.type);
       postMessage({
           op: "setvstream",
           self: coder.self,
