@@ -1291,6 +1291,8 @@ int  ccall_request_video_streams(struct icall *icall,
 	char *str = NULL;
 	struct mbuf mb;
 	struct le *le = NULL;
+	struct mbuf *qb;
+	char *clients_str;
 	int err = 0;
 
 	if (!ccall)
@@ -1309,11 +1311,14 @@ int  ccall_request_video_streams(struct icall *icall,
 
 	list_flush(&ccall->videol);
 	str_dup(&msg->u.confstreams.mode, "list");
+	qb = mbuf_alloc(1024);
 	LIST_FOREACH(clientl, le) {
 		struct icall_client *cli = le->data;
 		struct userinfo *user;
 		uint32_t quality = (uint32_t)cli->quality;
 		struct icall_client *vinfo;
+		char userid_anon[ANON_ID_LEN];
+		char clientid_anon[ANON_CLIENT_LEN];
 
 		user = userlist_find_by_real(ccall->userl,
 					     cli->userid, cli->clientid);
@@ -1330,16 +1335,25 @@ int  ccall_request_video_streams(struct icall *icall,
 			vinfo = icall_client_alloc(cli->userid,
 						   cli->clientid);
 			vinfo->quality = cli->quality;
+			mbuf_printf(qb, "%s.%s(q=%d) ",
+				    anon_id(userid_anon, cli->userid),
+				    anon_client(clientid_anon, cli->clientid),
+				    cli->quality);
 
 			list_append(&ccall->videol, &vinfo->le, vinfo);
 		}
 	}
 
-	info("ccall(%p): request_video_streams mode: %u clients: %u matched: %u\n",
+	mbuf_rewind(qb);
+	mbuf_strdup(qb, &clients_str, mbuf_get_left(qb));
+	mem_deref(qb);
+	info("ccall(%p): request_video_streams mode: %u clients: %u matched: %u [%s]\n",
 	     ccall,
 	     mode,
 	     list_count(clientl),
-	     list_count(&msg->u.confstreams.streaml));
+	     list_count(&msg->u.confstreams.streaml),
+	     clients_str ? clients_str : "");
+	mem_deref(clients_str);
 
 	ccall->metrics.participants_video_req = MAX(ccall->metrics.participants_video_req,
 						    list_count(&msg->u.confstreams.streaml));
