@@ -1339,20 +1339,20 @@ int  ccall_request_video_streams(struct icall *icall,
 				    anon_id(userid_anon, cli->userid),
 				    anon_client(clientid_anon, cli->clientid),
 				    cli->quality);
-
 			list_append(&ccall->videol, &vinfo->le, vinfo);
 		}
 	}
 
-	mbuf_rewind(qb);
-	mbuf_strdup(qb, &clients_str, mbuf_get_left(qb));
+	qb->pos = 0;
+	mbuf_strdup(qb, &clients_str, qb->end);
 	mem_deref(qb);
+
 	info("ccall(%p): request_video_streams mode: %u clients: %u matched: %u [%s]\n",
 	     ccall,
 	     mode,
 	     list_count(clientl),
 	     list_count(&msg->u.confstreams.streaml),
-	     clients_str ? clients_str : "");
+         strlen(clients_str) != 0 ? clients_str : "");
 	mem_deref(clients_str);
 
 	ccall->metrics.participants_video_req = MAX(ccall->metrics.participants_video_req,
