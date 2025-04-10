@@ -2733,7 +2733,18 @@ int ecall_media_start(struct ecall *ecall)
 	}
 */	info("ecall(%p): media started on flow:%p\n", ecall, ecall->flow);
 
-	tmr_cancel(&ecall->media_start_tmr);
+	if (tmr_isrunning(&ecall->media_start_tmr))
+		tmr_cancel(&ecall->media_start_tmr);
+	else {
+		/* Unsolicited media start,
+		 * re-establish media connection
+		 */
+		if (ECONN_DATACHAN_ESTABLISHED == econn_current_state(ecall->econn)) {
+			info("ecall(%p): media_start: triggering restart due to media re-start\n",
+			     ecall);
+			ecall_restart(ecall, ecall->call_type, true);
+		}
+	}
 
  //out:
 	return err;
