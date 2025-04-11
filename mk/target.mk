@@ -553,6 +553,10 @@ CPPFLAGS += \
 	 -DZETA_IOS_STEREO_PLAYOUT -DHAVE_GAI_STRERROR=1 \
 	 -DUSE_APPLE_COMMONCRYPTO \
 	 -DIPHONE -pipe -no-cpp-precomp
+
+#CXXFLAGS += \
+#	-Wno-vla-cxx-extension
+
 LFLAGS	 += \
 	 -arch $(AVS_ARCH) \
 	 -isysroot $(SDK_PATH) \
