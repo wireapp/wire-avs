@@ -2584,7 +2584,8 @@ int ccall_alloc(struct ccall **ccallp,
 			    ccall_request_video_streams,
 			    ccall_set_media_key,
 			    ccall_debug,
-			    ccall_stats);
+			    ccall_stats,
+			    ccall_activate);
 out:
 	if (err == 0) {
 		*ccallp = ccall;
@@ -3825,6 +3826,18 @@ int  ccall_debug(struct re_printf *pf, const struct icall* icall)
 	}
 out:
 	return err;
+}
+
+int ccall_activate(struct icall *icall, bool active)
+{
+	struct ccall *ccall = (struct ccall *)icall;
+
+	info("ccall(%p): activate: active=%d\n", ccall, active);
+	if (ccall->ecall) {
+		ecall_activate(ccall->ecall, active);
+	}
+
+	return 0;
 }
 
 static void ccall_connect_timeout(void *arg)

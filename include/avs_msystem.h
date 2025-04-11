@@ -35,7 +35,7 @@ struct msystem_proxy {
 	int port;
 };
 
-typedef void (msystem_activate_h)(void *arg);
+typedef void (msystem_activate_h)(bool active, void *arg);
 typedef void (msystem_mute_h)(bool muted, void *arg);
 
 void msystem_set_env(int env);
@@ -46,6 +46,7 @@ int msystem_get(struct msystem **msysp, const char *msysname,
 		msystem_mute_h *muteh,
 		void *arg);
 void msystem_unregister_listener(void *arg);
+void *msystem_add_activate_handler(msystem_activate_h *activateh, void *arg);
 bool msystem_is_initialized(struct msystem *msys);
 struct msystem *msystem_instance(void);
 void msystem_set_version(const char *ver);
@@ -100,6 +101,7 @@ void msystem_set_bitrate(int rate_bps);
 void msystem_set_packet_size(int packet_size_ms);
 bool msystem_get_muted(void);
 void msystem_set_muted(bool muted);
+void msystem_activate(bool active);
 
 
 #endif

@@ -41,7 +41,8 @@ void icall_set_functions(struct icall *icall,
 			 icall_request_video_streams	*request_video_streams,
 			 icall_set_media_key		*set_media_key,
 			 icall_debug			*debug,
-			 icall_stats			*stats)
+			 icall_stats			*stats,
+			 icall_activate                 *activate)
 {
 	if (!icall) {
 		warning("icall_set_functions called on NULL icall\n");
@@ -68,6 +69,7 @@ void icall_set_functions(struct icall *icall,
 	icall->set_media_key		= set_media_key;
 	icall->debug			= debug;
 	icall->stats			= stats;
+	icall->activate                 = activate;
 }
 
 
