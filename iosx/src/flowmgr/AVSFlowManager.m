@@ -732,7 +732,7 @@ out:
 {
 	AVSMediaManager *mm = [self getMediaManager];
     
-	if ( category == FLOWMGR_MCAT_CALL ) {
+	if ( category == FLOWMANAGER_CATEGORY_CALL ) {
 		if ( convId ) {
 			if ( mm.isInterrupted == NO ) {
 				[mm setCallState:YES forConversation:convId];
@@ -744,7 +744,7 @@ out:
 		//debug("Update Mode in Conversation - PLAY DONE");
     }
 
-	if ( category == FLOWMGR_MCAT_CALL_VIDEO ) {
+	if ( category == FLOWMANAGER_CATEGORY_CALL_VIDEO ) {
 		if ( convId ) {
 			if ( mm.isInterrupted == NO ) {
 				[mm setVideoCallState: convId];
@@ -755,7 +755,7 @@ out:
 		}
 	}
     
-	if ( category == FLOWMGR_MCAT_NORMAL ) {
+	if ( category == FLOWMANAGER_CATEGORY_NORMAL ) {
 		if ( convId ) {
 			[mm setCallState:NO forConversation:convId];
 		}
