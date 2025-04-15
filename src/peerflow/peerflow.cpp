@@ -87,8 +87,8 @@ extern "C" {
 
 #define RID_HI "h"
 #define RID_LO "l"
-#define VIDEO_BITRATE_HI (800 * 1024)
-#define VIDEO_BITRATE_LO (240 * 1024)
+#define VIDEO_BITRATE_HI (1000 * 1024)
+#define VIDEO_BITRATE_LO (250 * 1024)
 
 static const char trials_str[] =
 #if 1
@@ -1711,7 +1711,7 @@ public:
 					enc->scalability_mode = SCALABILITY_MODE;
 					if (enc->rid == RID_LO) {
 						enc->max_bitrate_bps = VIDEO_BITRATE_LO;
-						enc->scale_resolution_down_by = 4;
+						enc->scale_resolution_down_by = 2;
 						enc->active = true;
 					}
 					else if (enc->rid == RID_HI) {

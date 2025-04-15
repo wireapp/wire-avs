@@ -1041,7 +1041,7 @@ function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {
             //@ts-ignore
             coding.scalabilityMode = 'L1T1'
             coding.active = true
-            coding.scaleResolutionDownBy = 4.0;
+            coding.scaleResolutionDownBy = 2.0;
             coding.maxBitrate = 250000;
             layerFound = true;
         }
