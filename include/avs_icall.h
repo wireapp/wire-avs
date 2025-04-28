@@ -76,6 +76,7 @@ struct icall_client {
 	char *clientid;
 	bool in_subconv;
 	int quality;
+	enum icall_vstate vstate;
 };
 
 struct icall_metrics {
