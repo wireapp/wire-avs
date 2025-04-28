@@ -74,10 +74,10 @@ extern "C" {
 
 #include "peerflow.h"
 
-#define TMR_STATS_INTERVAL      1000
-#define TMR_CBR_INTERVAL        2500
-#define TMR_RESTART_INTERVAL    2000
-#define TMR_GATHER_TIMEOUT      2000
+#define TMR_STATS_INTERVAL       1000
+#define TMR_CBR_INTERVAL         2500
+#define TMR_RESTART_INTERVAL    10000
+#define TMR_GATHER_TIMEOUT      10000
 
 #define DOUBLE_ENCRYPTION 1
 
