@@ -1107,20 +1107,25 @@ static void ecall_quality_handler(struct icall *icall,
 	if (dec_res) {
 		struct le *le;
 		struct list clil = LIST_INIT;
+		bool send_request = false;
 
 		LIST_FOREACH(&ccall->videol, le) {
 			struct icall_client *cli = le->data;
 			struct icall_client *vinfo = NULL;
 
-			if (cli->quality >= CCALL_RESOLUTION_HIGH) {
-				vinfo = icall_client_alloc(cli->userid,
-							   cli->clientid);
+			vinfo = icall_client_alloc(cli->userid,
+						   cli->clientid);
+			vinfo->quality = cli->quality;
+			vinfo->vstate = cli->vstate;
+			if (cli->vstate != ICALL_VIDEO_STATE_SCREENSHARE
+			 && cli->quality >= CCALL_RESOLUTION_HIGH) {
 				vinfo->quality = CCALL_RESOLUTION_LOW;
-				list_append(&clil, &vinfo->le, vinfo);
+				send_request = true;
 			}
+			list_append(&clil, &vinfo->le, vinfo);
 		}
 
-		if (clil.head) {
+		if (send_request && clil.head) {
 			ccall_request_video_streams((struct icall *)ccall,
 						    &clil,
 						    0);
@@ -1335,6 +1340,7 @@ int  ccall_request_video_streams(struct icall *icall,
 			vinfo = icall_client_alloc(cli->userid,
 						   cli->clientid);
 			vinfo->quality = cli->quality;
+			vinfo->vstate = user->video_state;
 			mbuf_printf(qb, "%s.%s(q=%d) ",
 				    anon_id(userid_anon, cli->userid),
 				    anon_client(clientid_anon, cli->clientid),
@@ -2584,7 +2590,8 @@ int ccall_alloc(struct ccall **ccallp,
 			    ccall_request_video_streams,
 			    ccall_set_media_key,
 			    ccall_debug,
-			    ccall_stats);
+			    ccall_stats,
+			    ccall_activate);
 out:
 	if (err == 0) {
 		*ccallp = ccall;
@@ -3825,6 +3832,18 @@ int  ccall_debug(struct re_printf *pf, const struct icall* icall)
 	}
 out:
 	return err;
+}
+
+int ccall_activate(struct icall *icall, bool active)
+{
+	struct ccall *ccall = (struct ccall *)icall;
+
+	info("ccall(%p): activate: active=%d\n", ccall, active);
+	if (ccall->ecall) {
+		ecall_activate(ccall->ecall, active);
+	}
+
+	return 0;
 }
 
 static void ccall_connect_timeout(void *arg)

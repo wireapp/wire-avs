@@ -2550,7 +2550,29 @@ static void msys_mute_handler(bool muted, void *arg)
 			call_group_change_json(inst, wcall);
 		}
 	}
+}
+
+static void msys_activate_handler(bool active, void *arg)
+{
+	WUSER_HANDLE wuser = (WUSER_HANDLE)(unsigned long)arg;
+	struct calling_instance *inst;
+	struct le *le;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: msys_activate_handler: invalid wuser=0x%08X\n",
+			wuser);
+		return;
+	}
 	
+
+	LIST_FOREACH(&inst->wcalls, le) {
+		struct wcall *wcall = le->data;
+
+		if (wcall) {
+			ICALL_CALL(wcall->icall, activate, active);
+		}
+	}
 }
 
 
@@ -2667,6 +2689,8 @@ WUSER_HANDLE wcall_create_ex(const char *userid,
 			inst, err);
 		goto out;
 	}
+
+	msystem_add_activate_handler(msys_activate_handler, (void*)vuser);
 	
 	err = config_alloc(&inst->cfg,
 			   config_req_handler,

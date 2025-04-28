@@ -968,6 +968,11 @@ static int _icall_stats(struct re_printf *pf, const struct icall *icall)
 	return ecall_stats(pf, (const struct ecall*)icall);
 }
 
+static int _icall_activate(struct icall *icall, bool active)
+{
+	return ecall_activate((struct ecall *)icall, active);
+}
+
 
 int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		enum icall_conv_type conv_type,
@@ -1073,7 +1078,8 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 			    NULL, // _icall_request_video_streams
 			    NULL, // _icall_set_media_key
 			    _icall_debug,
-			    _icall_stats);
+			    _icall_stats,
+			    _icall_activate);
 
 	list_append(ecalls, &ecall->le, ecall);
 	list_append(&g_ecalls, &ecall->ecall_le, ecall);
@@ -3147,6 +3153,21 @@ int ecall_remove(struct ecall *ecall)
 	return 0;
 }
 
+int ecall_activate(struct ecall *ecall, bool active)
+{
+	info("ecall(%p): activate: active=%d\n", ecall, active);
+
+	if (!active)
+		return EINVAL;
+
+	if (ECONN_DATACHAN_ESTABLISHED == econn_current_state(ecall->econn)) {
+		info("ecall(%p): activate: triggering restart due to activation\n",
+		     ecall);
+		ecall_restart(ecall, ecall->call_type, true);
+	}
+
+	return 0;
+}
 
 static void quality_handler(void *arg)
 {
