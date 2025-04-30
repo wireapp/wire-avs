@@ -1032,30 +1032,34 @@ type DownScaleFactor = { scaleResolutionDownBy: number, maxBitrate: number };
 
 function determineDownScaleFactor(videoTrack: MediaStreamTrack, isScreenShare: boolean) {
     // Firefox do not support MediaTrackSettings for screen share tracks, so we ignore this one.
-    if (!isScreenShare || pc_env === ENV_FIREFOX) {
+    if (!isScreenShare || pc_env === ENV_FIREFOX || videoTrack?.getSettings == undefined) {
         return {scaleResolutionDownBy: 2.0, maxBitrate: 800000}
     }
 
-    // do screen share downscaling
-    const settings: MediaTrackSettings = videoTrack.getSettings();
+    const settings: MediaTrackSettings = videoTrack?.getSettings();
+    if (!settings?.width || !settings?.height) {
+        return {scaleResolutionDownBy: 2.0, maxBitrate: 1500000}
+    }
+
+    pc_log(LOG_LEVEL_INFO, `### screen share resolution: ${settings?.width}x${settings?.height}`);
     // No downscaling for SD
     if (settings.width <= 640 || settings.height <= 480) {
-        return {scaleResolutionDownBy: 1.0, maxBitrate: 300000}
+        return {scaleResolutionDownBy: 1.0, maxBitrate: 1500000}
     }
     // Down scale HD (should be the most case)
     if (settings.width <= 1280 || settings.height <= 720) {
-        return {scaleResolutionDownBy: 1.3, maxBitrate: 80000}
+        return {scaleResolutionDownBy: 1.5, maxBitrate: 1500000}
     }
     // Down scale Full HD
     if (settings.width <= 1920 || settings.height <= 1080) {
-        return {scaleResolutionDownBy: 2.0, maxBitrate: 300000}
+        return {scaleResolutionDownBy: 2.0, maxBitrate: 1500000}
     }
     // Down 2K
     if (settings.width <= 2048) {
-        return {scaleResolutionDownBy: 3.0, maxBitrate: 300000}
+        return {scaleResolutionDownBy: 3.0, maxBitrate: 1500000}
     }
     // Down scale Ultra HD (4K) and more
-    return {scaleResolutionDownBy: 4.0, maxBitrate: 300000}
+    return {scaleResolutionDownBy: 2.0, maxBitrate: 80000}
 }
 
 function getEncodingParameter(sender: RTCRtpSender, downScaleFactor: DownScaleFactor) {
@@ -1073,10 +1077,11 @@ function getEncodingParameter(sender: RTCRtpSender, downScaleFactor: DownScaleFa
             const isActive = downScaleFactor.scaleResolutionDownBy !== 1.0;
             //@ts-ignore
             coding.scalabilityMode = 'L1T1'
-            coding.active = isActive;
-            coding.scaleResolutionDownBy = downScaleFactor.scaleResolutionDownBy;
-            coding.maxBitrate = downScaleFactor.maxBitrate;
+            coding.active = true;
+            coding.scaleResolutionDownBy = 2.0; //downScaleFactor.scaleResolutionDownBy;
+            coding.maxBitrate = 250000;//downScaleFactor.maxBitrate;
             layerFound = true;
+            pc_log(LOG_LEVEL_INFO, `### low resolution layer: on:${coding.active}, factor:${coding.scaleResolutionDownBy}`);
         }
         if(coding.rid === 'h') {
             //@ts-ignore
