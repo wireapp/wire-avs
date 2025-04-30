@@ -1040,9 +1040,9 @@ function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {
         if(coding.rid === 'l') {
             //@ts-ignore
             coding.scalabilityMode = 'L1T1'
-            coding.active = true
+            coding.active = !isScreenShare
             coding.scaleResolutionDownBy = 2.0;
-            coding.maxBitrate = 250000;
+            coding.maxBitrate = 500000;
             layerFound = true;
         }
         if(coding.rid === 'h') {
@@ -1051,7 +1051,7 @@ function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {
 
             coding.scaleResolutionDownBy = 1.0;
             coding.active = true;
-            coding.maxBitrate = 3000000;
+            coding.maxBitrate = isScreenShare? 1500000: 3000000;
             layerFound = true;
         }
     });
