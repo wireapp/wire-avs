@@ -1593,6 +1593,11 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 
 	tmr_cancel(&ecall->dc_tmr);
 
+	if (ecall->oldflow) {
+		IFLOW_CALL(ecall->oldflow, close);
+		ecall->oldflow = NULL;
+	}
+	
 	econn_set_datachan_established(ecall->econn);
 
 	if (ecall->delayed_restart) {
@@ -1908,10 +1913,12 @@ static void rtp_start_handler(struct iflow *iflow,
 			ecall->call_setup_time = now - ecall->ts_started;
 		}
 
+#if 0
 		if (ecall->oldflow) {
 			IFLOW_CALL(ecall->oldflow, close);
 			ecall->oldflow = NULL;
 		}
+#endif
 	}
 }
 
@@ -2735,7 +2742,7 @@ int ecall_media_start(struct ecall *ecall)
 	if (err) {
 		warning("ecall: mediaflow start media failed (%m)\n", err);
 		econn_set_error(ecall->econn, err);
-		goto out;
+		goto out;w
 	}
 */	info("ecall(%p): media started on flow:%p\n", ecall, ecall->flow);
 
