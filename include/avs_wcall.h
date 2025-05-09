@@ -217,11 +217,14 @@ typedef void (wcall_log_h)(int level,
 #define WCALL_AUDIO_STATE_NETWORK_PROBLEM  2 
 
 /* Video receive state */
-#define	WCALL_VIDEO_STATE_STOPPED     0
-#define	WCALL_VIDEO_STATE_STARTED     1
-#define	WCALL_VIDEO_STATE_BAD_CONN    2
-#define	WCALL_VIDEO_STATE_PAUSED      3
-#define	WCALL_VIDEO_STATE_SCREENSHARE 4
+#define	WCALL_VIDEO_STATE_STOPPED      0
+#define	WCALL_VIDEO_STATE_STARTED      1
+#define	WCALL_VIDEO_STATE_BAD_CONN     2
+#define	WCALL_VIDEO_STATE_PAUSED       3
+#define	WCALL_VIDEO_STATE_SCREENSHARE  4
+/* RECONNECTING is only needed in Web to dealing with reconnecting when toggle camera on! */
+/* This is not used inside of AVS */
+#define	WCALL_VIDEO_STATE_RECONNECTING 5
 
 /**
  * Callback used to inform user that received video has started or stopped

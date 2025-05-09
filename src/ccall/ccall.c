@@ -303,8 +303,10 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 	case CCALL_STATE_CONNSENT:
 		ccall->received_confpart = false;
 		if (!ccall->is_mls_call) {
-			keystore_reset_keys(ccall->keystore);
-			tmr_cancel(&ccall->tmr_rotate_mls);
+			if (ccall->reconnect_attempts == 0) {
+				keystore_reset_keys(ccall->keystore);
+				tmr_cancel(&ccall->tmr_rotate_mls);
+			}
 		}
 		tmr_cancel(&ccall->tmr_rotate_key);
 		tmr_cancel(&ccall->tmr_send_check);
@@ -498,6 +500,7 @@ static void ccall_reconnect(struct ccall *ccall,
 	}
 
 	userlist_incall_clear(ccall->userl, true, again);
+	list_flush(&ccall->videol);
 
 	set_state(ccall, CCALL_STATE_CONNSENT);
 	if (ccall->sft_url) {
@@ -1285,6 +1288,22 @@ static int send_confpart_response(struct ccall *ccall)
 	return err;
 }
 
+static bool has_video_for_client(struct ccall *ccall, struct icall_client *cli)
+{
+	bool found = false;
+	struct le *le;
+
+	for(le = ccall->videol.head; !found && le; le = le->next) {
+		struct icall_client *vi = le->data;
+
+		found = streq(vi->userid, cli->userid)
+		     && streq(vi->clientid, cli->clientid)
+		     && vi->quality == cli->quality;
+	}
+
+	return found;
+}
+
 int  ccall_request_video_streams(struct icall *icall,
 				 struct list *clientl,
 				 enum icall_stream_mode mode)
@@ -1298,10 +1317,24 @@ int  ccall_request_video_streams(struct icall *icall,
 	struct le *le = NULL;
 	struct mbuf *qb;
 	char *clients_str;
+	bool found = true;
 	int err = 0;
 
 	if (!ccall)
 		return EINVAL;
+
+	if (!clientl || NULL == clientl->head)
+		return EINVAL;
+
+	for(le = clientl->head; found && le; le = le->next) {
+		struct icall_client *cli = le->data;
+
+		found = has_video_for_client(ccall, cli);
+	}
+	if (found) {
+		info("ccall(%p): request_video_streams skipping for identical clients\n", ccall);
+		return 0;
+	}
 
 	self = userlist_get_self(ccall->userl);
 	if (!self)
