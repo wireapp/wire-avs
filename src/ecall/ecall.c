@@ -2588,7 +2588,6 @@ struct econn *ecall_get_econn(const struct ecall *ecall)
 int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 {
 	int err = 0;
-
 	if (!ecall)
 		return EINVAL;
 
@@ -2605,6 +2604,14 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 
 		return 0;
 	}
+
+    enum econn_state conn_current_state = econn_current_state(ecall->econn);
+    if (ecall->conv_type == ICALL_CONV_TYPE_ONEONONE && (ecall->update || conn_current_state == ECONN_UPDATE_RECV)) {
+        info("ecall(%p): set_video_send_state: ignored, already in update state\n", ecall);
+
+        return 0;
+    }
+
 
 	const char *vstate_string;
 	const char *sstate_string;
@@ -2667,7 +2674,7 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 		case ECONN_DATACHAN_ESTABLISHED:
 			ecall_restart(ecall, ICALL_CALL_TYPE_VIDEO, false);
 			goto out;
-			
+
 		default:
 			break;
 		}
