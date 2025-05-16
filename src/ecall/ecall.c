@@ -1653,6 +1653,16 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		      0,
 		      0,
 		      ecall->icall.arg);
+
+	if (ecall->update_glare) {
+		info("ecall(%p): handle delayed glare %s->%s\n",
+		     ecall,
+		     icall_vstate_name(ecall->vstate),
+		     icall_vstate_name(ecall->glare_vstate));
+		ecall->update_glare = false;
+		err = ecall_set_video_send_state(ecall, ecall->glare_vstate);
+	}
+
 	return;
 
  error:
@@ -2588,7 +2598,6 @@ struct econn *ecall_get_econn(const struct ecall *ecall)
 int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 {
 	int err = 0;
-
 	if (!ecall)
 		return EINVAL;
 
@@ -2605,6 +2614,15 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 
 		return 0;
 	}
+
+	enum econn_state conn_current_state = econn_current_state(ecall->econn);
+	if (ecall->conv_type == ICALL_CONV_TYPE_ONEONONE && (ecall->update || conn_current_state == ECONN_UPDATE_RECV)) {
+		info("ecall(%p): set_video_send_state: postpone video update state %s, because of glare\n", ecall, icall_vstate_name(ecall->vstate));
+		ecall->update_glare = true;
+		ecall->glare_vstate = vstate;
+		return 0;
+	}
+
 
 	const char *vstate_string;
 	const char *sstate_string;
@@ -2667,7 +2685,7 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 		case ECONN_DATACHAN_ESTABLISHED:
 			ecall_restart(ecall, ICALL_CALL_TYPE_VIDEO, false);
 			goto out;
-			
+
 		default:
 			break;
 		}
