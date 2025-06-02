@@ -1288,6 +1288,8 @@ static int send_confpart_response(struct ccall *ccall)
 	return err;
 }
 
+#if USE_VIDEO_REQUEST_LIMITER
+// Right now it's causing more problems, so we're disabling this feature. But we'll reconsider
 static bool has_video_for_client(struct ccall *ccall, struct icall_client *cli)
 {
 	bool found = false;
@@ -1303,6 +1305,7 @@ static bool has_video_for_client(struct ccall *ccall, struct icall_client *cli)
 
 	return found;
 }
+#endif
 
 int  ccall_request_video_streams(struct icall *icall,
 				 struct list *clientl,
@@ -1317,7 +1320,6 @@ int  ccall_request_video_streams(struct icall *icall,
 	struct le *le = NULL;
 	struct mbuf *qb;
 	char *clients_str;
-	bool found = true;
 	int err = 0;
 
 	if (!ccall)
@@ -1326,6 +1328,9 @@ int  ccall_request_video_streams(struct icall *icall,
 	if (!clientl || NULL == clientl->head)
 		return EINVAL;
 
+#if USE_VIDEO_REQUEST_LIMITER
+	bool found = true;
+	info("ccall(%p): video request limiter is on!\n", ccall);
 	for(le = clientl->head; found && le; le = le->next) {
 		struct icall_client *cli = le->data;
 
@@ -1335,6 +1340,7 @@ int  ccall_request_video_streams(struct icall *icall,
 		info("ccall(%p): request_video_streams skipping for identical clients\n", ccall);
 		return 0;
 	}
+#endif
 
 	self = userlist_get_self(ccall->userl);
 	if (!self)
