@@ -4224,6 +4224,13 @@ void wcall_set_mute_handler(WUSER_HANDLE wuser, wcall_mute_h *muteh, void *arg)
 }
 
 AVS_EXPORT
+int wcall_audio_record(WUSER_HANDLE wuser, const char *path)
+{
+        (void)wuser;
+        return avs_set_audio_record(path);
+}
+
+AVS_EXPORT
 int wcall_set_proxy(const char *host, int port)
 {
 	return msystem_set_proxy(host, port);

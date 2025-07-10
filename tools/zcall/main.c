@@ -71,6 +71,7 @@ char *zcall_vfile = NULL;
 struct list g_sftl = LIST_INIT;
 struct list g_turnl = LIST_INIT;
 bool g_fed = false;
+char *g_audio_record = NULL;
 
 #ifdef HAVE_CRYPTOBOX
 struct cryptobox *g_cryptobox;
@@ -130,8 +131,9 @@ static void usage(void)
 				 "\n");
 	(void)re_fprintf(stderr, "URLs default to regular backend.\n");
 	(void)re_fprintf(stderr, "\t-W             Enable video when auto-answering\n");
-	(void)re_fprintf(stderr, "\t-Z             Auto-answer incoming "
+	(void)re_fprintf(stderr, "\t-Z             Auto-answer incoming "			 
 			 "calls\n");
+        (void)re_fprintf(stderr, "\t-R <path>      Record incoming audio to file");
 }
 
 
@@ -430,7 +432,7 @@ int main(int argc, char *argv[])
 
 	for (;;) {
 		const int c = getopt(argc, argv,
-				     "ABc:CdDe:fFGhiIKl:m:Mn:Np:P:q:r:sS:tTU:V:WZ");
+				     "ABc:CdDe:fFGhiIKl:m:Mn:Np:P:q:r:R:sS:tTU:V:WZ");
 		if (c < 0)
 			break;
 
@@ -521,6 +523,10 @@ int main(int argc, char *argv[])
 
 		case 'r':
 			request_uri = optarg;
+			break;
+
+		case 'R':
+		        str_dup(&g_audio_record, optarg);
 			break;
 
 		case 's':

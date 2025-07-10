@@ -2449,6 +2449,8 @@ static void userlist_kg_change_handler(struct userinfo *keygenerator,
 		      anon_id(userid_anon, keygenerator->userid_real),
 		      anon_client(clientid_anon, keygenerator->clientid_real));
 
+		keystore_reset(ccall->keystore);
+
 		if (ccall->request_key) {
 			info("ccall(%p): requesting key resend from %s.%s\n",
 			     ccall,

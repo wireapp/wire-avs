@@ -1687,7 +1687,7 @@ public:
 			rtc::scoped_refptr<webrtc::RtpSenderInterface> sender = txrx->sender();
 			webrtc::RtpParameters params = sender->GetParameters();
 
-			if (txrx->media_type() != cricket::MEDIA_TYPE_VIDEO || mid != "video")
+			if (txrx->media_type() != cricket::MEDIA_TYPE_VIDEO)
 				continue;
 
 			if (pf_->call_type == ICALL_CALL_TYPE_VIDEO ||
@@ -1724,6 +1724,8 @@ public:
 				params.degradation_preference = webrtc::DegradationPreference::MAINTAIN_RESOLUTION;
 				sender->SetParameters(params);
 				sender->track()->set_enabled(true);
+
+				break;
 			}
 		}
 	}
@@ -2958,6 +2960,7 @@ int peerflow_sync_decoders(struct iflow *iflow)
 	if (!pf)
 		return EINVAL;
 
+	/*
 	if (!pf->selective_video) {
 		str_dup(&sdp, pf->remoteSdp.c_str());
 		err = bundle_update((struct iflow *)pf,
@@ -2969,6 +2972,7 @@ int peerflow_sync_decoders(struct iflow *iflow)
 		if (err)
 			goto out;
 	}
+	*/
  out:
 	mem_deref(sdp);
 

@@ -24,6 +24,7 @@
 
 #include "avs_audio_io.h"
 #include "src/audio_io/mock/fake_audiodevice.h"
+#include "src/audio_io/record/record_audiodevice.h"
 #if TARGET_OS_IPHONE
 #include "src/audio_io/ios/audio_io_ios.h"
 #endif
@@ -40,6 +41,7 @@ extern "C" {
 static webrtc::audio_io_class *g_aioc = nullptr;
 static bool g_enable_sine = false;
 static bool g_enable_noise = false;
+static bool g_enable_record = false;
 
 static void audio_io_destructor(void *arg)
 {
@@ -56,17 +58,22 @@ static void audio_io_destructor(void *arg)
 
 void *audio_io_create_adm(void)
 {
-	uint64_t flags;	
+	uint64_t flags;
+	const char *record_path;
 
 	flags = avs_get_flags();
+	record_path = avs_get_audio_record();
 
-	info("audio_io: create_adm: flags=%llu aioc=%p\n",
-	     flags, g_aioc);
+	info("audio_io: create_adm: audio_record=%s flags=%llu aioc=%p\n",
+	     record_path, flags, g_aioc);
 	
 	if (g_aioc)
 		return (void *)g_aioc;
-	
-	if (flags & AVS_FLAG_AUDIO_TEST) {
+
+	if (record_path) {
+	  g_aioc = new webrtc::record_audiodevice(record_path); 
+	}
+	else if (flags & AVS_FLAG_AUDIO_TEST) {
 		info("audio_io: create_adm: creating fake audio device\n");
 		g_aioc = new webrtc::fake_audiodevice(true);		
 	}

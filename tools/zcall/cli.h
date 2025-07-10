@@ -102,6 +102,7 @@ extern bool g_use_mls;
 extern struct list g_sftl;
 extern struct list g_turnl;
 extern bool g_fed;
+extern char * g_audio_record;
 #ifdef HAVE_CRYPTOBOX
 extern struct cryptobox *g_cryptobox;
 #endif

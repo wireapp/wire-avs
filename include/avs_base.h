@@ -29,6 +29,8 @@ enum {
 
 int  avs_init(uint64_t flags);
 int  avs_start(const char *token);
+int  avs_set_audio_record(const char *path);
+const char *avs_get_audio_record(void);
 void avs_close(void);
 uint64_t  avs_get_flags(void);
 void avs_print_versions(void);

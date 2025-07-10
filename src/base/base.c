@@ -38,11 +38,13 @@
 static struct {
 	bool inited;
 	uint64_t flags;
+        char *audio_record_path;
 
 	char *token;
 } base = {
 	.inited = false,
 	.flags = 0,
+	.audio_record_path = NULL,
 	.token = NULL,
 };
 
@@ -172,4 +174,18 @@ void avs_print_network(void)
 	info("init: Interfaces:\n");
 	//net_if_apply(ifaddr_handler, 0);
 	info("init\n");
+}
+
+
+int  avs_set_audio_record(const char *path)
+{
+      if (base.audio_record_path) {
+           base.audio_record_path = mem_deref(base.audio_record_path);
+      }
+      return str_dup(&base.audio_record_path, path);
+}
+
+const char *avs_get_audio_record(void)
+{
+      return base.audio_record_path; 
 }
