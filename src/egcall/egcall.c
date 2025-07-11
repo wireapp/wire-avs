@@ -610,7 +610,8 @@ int egcall_alloc(struct egcall **egcallp,
 			    NULL, // egcall_set_media_key
 			    egcall_debug,
 			    egcall_stats,
-			    NULL); // egcall_set_background
+			    NULL, // egcall_set_background
+			    NULL);
 out:
 	if (err == 0) {
 		*egcallp = egcall;

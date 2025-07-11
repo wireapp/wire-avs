@@ -303,8 +303,10 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 	case CCALL_STATE_CONNSENT:
 		ccall->received_confpart = false;
 		if (!ccall->is_mls_call) {
-			keystore_reset_keys(ccall->keystore);
-			tmr_cancel(&ccall->tmr_rotate_mls);
+			if (ccall->reconnect_attempts == 0) {
+				keystore_reset_keys(ccall->keystore);
+				tmr_cancel(&ccall->tmr_rotate_mls);
+			}
 		}
 		tmr_cancel(&ccall->tmr_rotate_key);
 		tmr_cancel(&ccall->tmr_send_check);
@@ -498,6 +500,7 @@ static void ccall_reconnect(struct ccall *ccall,
 	}
 
 	userlist_incall_clear(ccall->userl, true, again);
+	list_flush(&ccall->videol);
 
 	set_state(ccall, CCALL_STATE_CONNSENT);
 	if (ccall->sft_url) {
@@ -1114,20 +1117,25 @@ static void ecall_quality_handler(struct icall *icall,
 	if (dec_res) {
 		struct le *le;
 		struct list clil = LIST_INIT;
+		bool send_request = false;
 
 		LIST_FOREACH(&ccall->videol, le) {
 			struct icall_client *cli = le->data;
 			struct icall_client *vinfo = NULL;
 
-			if (cli->quality >= CCALL_RESOLUTION_HIGH) {
-				vinfo = icall_client_alloc(cli->userid,
-							   cli->clientid);
+			vinfo = icall_client_alloc(cli->userid,
+						   cli->clientid);
+			vinfo->quality = cli->quality;
+			vinfo->vstate = cli->vstate;
+			if (cli->vstate != ICALL_VIDEO_STATE_SCREENSHARE
+			 && cli->quality >= CCALL_RESOLUTION_HIGH) {
 				vinfo->quality = CCALL_RESOLUTION_LOW;
-				list_append(&clil, &vinfo->le, vinfo);
+				send_request = true;
 			}
+			list_append(&clil, &vinfo->le, vinfo);
 		}
 
-		if (clil.head) {
+		if (send_request && clil.head) {
 			ccall_request_video_streams((struct icall *)ccall,
 						    &clil,
 						    0);
@@ -1287,6 +1295,25 @@ static int send_confpart_response(struct ccall *ccall)
 	return err;
 }
 
+#if USE_VIDEO_REQUEST_LIMITER
+// Right now it's causing more problems, so we're disabling this feature. But we'll reconsider
+static bool has_video_for_client(struct ccall *ccall, struct icall_client *cli)
+{
+	bool found = false;
+	struct le *le;
+
+	for(le = ccall->videol.head; !found && le; le = le->next) {
+		struct icall_client *vi = le->data;
+
+		found = streq(vi->userid, cli->userid)
+		     && streq(vi->clientid, cli->clientid)
+		     && vi->quality == cli->quality;
+	}
+
+	return found;
+}
+#endif
+
 int  ccall_request_video_streams(struct icall *icall,
 				 struct list *clientl,
 				 enum icall_stream_mode mode)
@@ -1298,10 +1325,29 @@ int  ccall_request_video_streams(struct icall *icall,
 	char *str = NULL;
 	struct mbuf mb;
 	struct le *le = NULL;
+	struct mbuf *qb;
+	char *clients_str;
 	int err = 0;
 
 	if (!ccall)
 		return EINVAL;
+
+	if (!clientl || NULL == clientl->head)
+		return EINVAL;
+
+#if USE_VIDEO_REQUEST_LIMITER
+	bool found = true;
+	info("ccall(%p): video request limiter is on!\n", ccall);
+	for(le = clientl->head; found && le; le = le->next) {
+		struct icall_client *cli = le->data;
+
+		found = has_video_for_client(ccall, cli);
+	}
+	if (found) {
+		info("ccall(%p): request_video_streams skipping for identical clients\n", ccall);
+		return 0;
+	}
+#endif
 
 	self = userlist_get_self(ccall->userl);
 	if (!self)
@@ -1316,11 +1362,14 @@ int  ccall_request_video_streams(struct icall *icall,
 
 	list_flush(&ccall->videol);
 	str_dup(&msg->u.confstreams.mode, "list");
+	qb = mbuf_alloc(1024);
 	LIST_FOREACH(clientl, le) {
 		struct icall_client *cli = le->data;
 		struct userinfo *user;
 		uint32_t quality = (uint32_t)cli->quality;
 		struct icall_client *vinfo;
+		char userid_anon[ANON_ID_LEN];
+		char clientid_anon[ANON_CLIENT_LEN];
 
 		user = userlist_find_by_real(ccall->userl,
 					     cli->userid, cli->clientid);
@@ -1337,16 +1386,26 @@ int  ccall_request_video_streams(struct icall *icall,
 			vinfo = icall_client_alloc(cli->userid,
 						   cli->clientid);
 			vinfo->quality = cli->quality;
-
+			vinfo->vstate = user->video_state;
+			mbuf_printf(qb, "%s.%s(q=%d) ",
+				    anon_id(userid_anon, cli->userid),
+				    anon_client(clientid_anon, cli->clientid),
+				    cli->quality);
 			list_append(&ccall->videol, &vinfo->le, vinfo);
 		}
 	}
 
-	info("ccall(%p): request_video_streams mode: %u clients: %u matched: %u\n",
+	qb->pos = 0;
+	mbuf_strdup(qb, &clients_str, qb->end);
+	mem_deref(qb);
+
+	info("ccall(%p): request_video_streams mode: %u clients: %u matched: %u [%s]\n",
 	     ccall,
 	     mode,
 	     list_count(clientl),
-	     list_count(&msg->u.confstreams.streaml));
+	     list_count(&msg->u.confstreams.streaml),
+         strlen(clients_str) != 0 ? clients_str : "");
+	mem_deref(clients_str);
 
 	ccall->metrics.participants_video_req = MAX(ccall->metrics.participants_video_req,
 						    list_count(&msg->u.confstreams.streaml));
@@ -2580,7 +2639,8 @@ int ccall_alloc(struct ccall **ccallp,
 			    ccall_set_media_key,
 			    ccall_debug,
 			    ccall_stats,
-			    ccall_set_background);
+			    ccall_set_background,
+			    ccall_activate);
 out:
 	if (err == 0) {
 		*ccallp = ccall;
@@ -3848,6 +3908,18 @@ int  ccall_debug(struct re_printf *pf, const struct icall* icall)
 	}
 out:
 	return err;
+}
+
+int ccall_activate(struct icall *icall, bool active)
+{
+	struct ccall *ccall = (struct ccall *)icall;
+
+	info("ccall(%p): activate: active=%d\n", ccall, active);
+	if (ccall->ecall) {
+		ecall_activate(ccall->ecall, active);
+	}
+
+	return 0;
 }
 
 static void ccall_connect_timeout(void *arg)

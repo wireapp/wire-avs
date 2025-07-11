@@ -1073,18 +1073,18 @@ function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {
         if(coding.rid === 'l') {
             //@ts-ignore
             coding.scalabilityMode = 'L1T1'
-            coding.active = true
-            coding.scaleResolutionDownBy = 4;
-            coding.maxBitrate = 250000;
+            coding.active = !isScreenShare
+            coding.scaleResolutionDownBy = 2.0;
+            coding.maxBitrate = 500000;
             layerFound = true;
         }
         if(coding.rid === 'h') {
             //@ts-ignore
             coding.scalabilityMode = 'L1T1'
 
-            coding.scaleResolutionDownBy = 1;
+            coding.scaleResolutionDownBy = 1.0;
             coding.active = true;
-            coding.maxBitrate = 3000000;
+            coding.maxBitrate = isScreenShare? 1500000: 3000000;
             layerFound = true;
         }
     });
@@ -1736,6 +1736,11 @@ function sdpCbrMap(sdp: string): string {
         if (spaces < 3) {
           outline = null;
         }
+      }
+
+      else if (sdpLine.startsWith('a=simulcast:recv l;h') && pc_env !== ENV_FIREFOX) {
+          // add conference attribute for chrome
+          sdpLines.push('a=x-google-flag:conference')
       }
       // reorder rids for firefox
       else if (sdpLine.startsWith('a=simulcast:recv l;h') && pc_env === ENV_FIREFOX) {

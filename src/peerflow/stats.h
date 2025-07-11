@@ -62,7 +62,6 @@ class NetStatsCallback : public webrtc::RTCStatsCollectorCallback
 public:
 	NetStatsCallback(struct peerflow* pf) :
 		pf_(pf),
-		total_(0),
 		lost_(0),
 		current_stats_(NULL),		
 		active_(true)
@@ -107,7 +106,7 @@ public:
 		std::vector<const webrtc::RTCInboundRtpStreamStats*> streamStats =
 			report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>();
 		std::vector<const webrtc::RTCInboundRtpStreamStats*>::iterator it;
-		uint32_t packetsLost = 0, packetsTotal = 0;
+		uint32_t packetsLost = 0;
 
 		for (it = streamStats.begin(); it != streamStats.end(); it++) {
 			const webrtc::RTCInboundRtpStreamStats* s = *it;
@@ -120,11 +119,7 @@ public:
 					apkts_recv += *s->packets_received;
 				}
 			}
-			if (s->packets_received) {
-				packetsTotal += *s->packets_received;
-			}
 			if (s->packets_lost) {
-				packetsTotal += *s->packets_lost;
 				packetsLost += *s->packets_lost;
 			}
 		}
@@ -145,21 +140,11 @@ public:
 				}
 			}
 		}
-
-		if (packetsTotal < total_) {
-			total_ = 0;
-			lost_ = 0;
-		}
-
-		packetsTotal -= total_;
-		packetsLost -= lost_;
-		total_ += packetsTotal;
-		lost_ += packetsLost;
-
 		float downloss = 0.0f;
-		if (packetsTotal > 0) {
-			downloss = (100.0f * packetsLost) / packetsTotal;
-		}
+
+		downloss = packetsLost - lost_;
+		lost_ = packetsLost;
+		lost_ += packetsLost;
 
 		std::vector<const webrtc::RTCIceCandidatePairStats*> iceStats =
 			report->GetStatsOfType<webrtc::RTCIceCandidatePairStats>();
@@ -230,7 +215,7 @@ public:
 
 private:
 	struct peerflow* pf_;
-	uint32_t total_, lost_;
+	uint32_t lost_;
 	bool active_;
 	struct lock *lock_;
 	char *current_stats_;	

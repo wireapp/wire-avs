@@ -835,7 +835,7 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 		    usingBlock: ^(NSNotification *notification) {
 			
 			info("mm_platform_ios: didBecomeActive\n");
-			//msystem_activate(true);
+			msystem_activate(true);
 
 			if (mm_ios.incall)
 				mediamgr_audio_reset_mm(mm_ios.mm);

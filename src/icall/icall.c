@@ -42,7 +42,8 @@ void icall_set_functions(struct icall *icall,
 			 icall_set_media_key		*set_media_key,
 			 icall_debug			*debug,
 			 icall_stats			*stats,
-			 icall_set_background           *set_background)
+			 icall_set_background           *set_background,
+			 icall_activate                 *activate)
 {
 	if (!icall) {
 		warning("icall_set_functions called on NULL icall\n");
@@ -70,6 +71,7 @@ void icall_set_functions(struct icall *icall,
 	icall->debug			= debug;
 	icall->stats			= stats;
 	icall->set_background           = set_background;
+	icall->activate                 = activate;
 }
 
 
