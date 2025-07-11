@@ -328,6 +328,8 @@ void wcall_destroy(WUSER_HANDLE wuser);
 
 void wcall_set_trace(WUSER_HANDLE wuser, int trace);
 
+int wcall_set_background(WUSER_HANDLE wuser, int background);
+
 
 #define WCALL_CALL_TYPE_NORMAL          0
 #define WCALL_CALL_TYPE_VIDEO           1

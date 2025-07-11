@@ -919,10 +919,17 @@ static void ecall_datachan_estab_handler(struct icall *icall,
 static void ecall_media_estab_handler(struct icall *icall, const char *userid,
 				      const char *clientid, bool update, void *arg)
 {
+	struct ecall *ecall = (struct ecall *)icall;
 	struct ccall *ccall = arg;
 
 	if (!ccall)
 		return;
+
+	if (ccall->ecall != ecall) {
+		warning("ccall(%p): media_estab_handler: on wrong ecall: %p(%p)\n",
+			ccall, ecall, ccall->ecall);
+		return;
+	}
 
 	ICALL_CALL_CB(ccall->icall, media_estabh,
 		icall, userid, clientid, update, ccall->icall.arg);
@@ -2223,6 +2230,8 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	if (err) {
 		goto out;
 	}
+	msg->u.confconn.env = msystem_get_env();
+	
 	msg->u.confconn.update = update;
 	msg->u.confconn.selective_audio = true;
 	msg->u.confconn.selective_video = true;
@@ -2630,6 +2639,7 @@ int ccall_alloc(struct ccall **ccallp,
 			    ccall_set_media_key,
 			    ccall_debug,
 			    ccall_stats,
+			    ccall_set_background,
 			    ccall_activate);
 out:
 	if (err == 0) {
@@ -3789,6 +3799,33 @@ int ccall_stats(struct re_printf *pf, const struct icall *icall)
 	else {
 		return 0;
 	}
+}
+
+int ccall_set_background(struct icall *icall, bool background)
+{
+	struct ccall *ccall = (struct ccall*)icall;
+
+	if (!ccall)
+		return EINVAL;
+
+	/* If we are in incoming call state, and there is an ongoing timer,
+	 * we should stop it, until the app comes back to foreground
+	 */
+	if (background) {
+		if (CCALL_STATE_INCOMING == ccall->state) {
+			if (tmr_isrunning(&ccall->tmr_ongoing)) {
+				tmr_cancel(&ccall->tmr_ongoing);
+			}
+		}
+	}
+	else {
+		if (CCALL_STATE_INCOMING == ccall->state) {
+			tmr_start(&ccall->tmr_ongoing, CCALL_ONGOING_CALL_TIMEOUT,
+				  ccall_ongoing_call_timeout, ccall);
+		}
+	}
+
+	return 0;
 }
 
 int  ccall_debug(struct re_printf *pf, const struct icall* icall)

@@ -941,6 +941,10 @@ int ecall_dce_sendmsg(struct ecall *ecall, struct econn_message *msg)
 	return err;
 }
 
+int ecall_set_background(struct ecall *ecall, bool background)
+{
+	return 0;
+}
 
 static int _icall_dce_send(struct icall *icall, struct mbuf *mb)
 {
@@ -966,6 +970,11 @@ static int _icall_debug(struct re_printf *pf, const struct icall *icall)
 static int _icall_stats(struct re_printf *pf, const struct icall *icall)
 {
 	return ecall_stats(pf, (const struct ecall*)icall);
+}
+
+static int _icall_set_background(struct icall *icall, bool background)
+{
+	return ecall_set_background((struct ecall *)icall, background);
 }
 
 static int _icall_activate(struct icall *icall, bool active)
@@ -1079,6 +1088,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 			    NULL, // _icall_set_media_key
 			    _icall_debug,
 			    _icall_stats,
+			    _icall_set_background,
 			    _icall_activate);
 
 	list_append(ecalls, &ecall->le, ecall);

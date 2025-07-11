@@ -74,6 +74,8 @@ int ecall_stats_struct(const struct ecall *ecall,
 		       struct iflow_stats *stats);
 int ecall_activate(struct ecall *ecall, bool active);
 
+int ecall_set_background(struct ecall *ecall, bool background);
+
 //struct mediaflow *ecall_mediaflow(const struct ecall *ecall);
 struct econn *ecall_get_econn(const struct ecall *ecall);
 enum econn_state ecall_state(const struct ecall *ecall);
@@ -129,6 +131,7 @@ typedef int (ecall_propsync_h)(struct ecall *ecall,
 
 int ecall_set_propsync_handler(struct ecall *ecall,
 			       ecall_propsync_h propsynch);
+
 
 /* Device pairing */
 void ecall_set_devpair(struct ecall *ecall, bool devpair);
