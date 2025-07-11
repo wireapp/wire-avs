@@ -1506,6 +1506,9 @@ int calling3_init(void)
 					  wcall_quality_handler,
 					  5,
 					  NULL);
+	if (g_audio_record) {
+	        wcall_audio_record(calling3.wuser, g_audio_record);
+	}
 
 	kcall_set_local_user(self->id, clientid);
 	register_dummy_sounds();
