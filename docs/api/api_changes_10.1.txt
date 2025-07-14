@@ -1,7 +1,7 @@
 Changes introduces in AVS 10.1
 ==============================
 
-Added the method:
+Added the methods:
 
 int wcall_set_background(WUSER_HANDLE wuser, int background);
 
@@ -11,3 +11,11 @@ parameter background is a boolean indicating 1 if application is going to the ba
 This method allows an application to inform AVS about the intention of going to the background or foreground.
 Going to the background means that no AVS threads will execute, thus we need to cancel any relevant
 pending activity and re-start it when application is later brought to the foreground.
+
+
+int wcall_audio_record(WUSER_HANDLE wuser, const char *path);
+
+Parameter path is the path to the recorded file in raw-PCM format with 16-bit signed samples with sampling rate 16kHz.
+
+This method overrides the normal audio subsytem and replaces it with a recording facilty as per above.
+The normal audio will not be reproduced over the system's audio subsytem.
