@@ -2226,7 +2226,7 @@ function pc_LocalDescription(hnd: number, typePtr: number) {
       sdpStr = sdp.replace(' UDP/DTLS/SCTP', ' DTLS/SCTP');
       sdpStr = sdpMap(sdpStr, true, false);
   }
-    
+
     /* Ensure that we force CBR on the offer */
     if (pc_env === ENV_FIREFOX && pc.conv_type == CONV_TYPE_CONFERENCE) {
         sdpStr = sdpRidReOrder(sdpStr);
@@ -2541,148 +2541,128 @@ function pc_GetStats(convid: string) : Promise<Array<{userid: string, stats: RTC
 }
 
 function pc_GetLocalStats(hnd: number) {
-  pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: hnd=${hnd}`);
+    pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: hnd=${hnd}`);
 
-  const pc = connectionsStore.getPeerConnection(hnd);
-  if (pc == null) {
-     return;
-  }
-
-  const rtc = pc.rtc;
-  if (!rtc) {
-    return;
-  }
-
-  const txrxs = rtc.getTransceivers();
-  txrxs.forEach(txrx => {
-    const rx = txrx.receiver;
-    if (rx) {
-      const ssrcs = rx.getSynchronizationSources();
-      ssrcs.forEach(ssrc => {
-          let ssrca = "";
-          let aulevel = 0;
-
-          if (typeof ssrc.audioLevel !== 'undefined')
-              aulevel = ((ssrc.audioLevel * 512.0) | 0);
-
-          if (pc.conv_type != CONV_TYPE_ONEONONE) {
-              const uinfo = uinfo_from_ssrca(pc, ssrc.source.toString());
-              if (uinfo) {
-                  uinfo.audio_level = aulevel;
-                  ssrca = uinfo.ssrca;
-              }
-          }
-
-          em_module.ccall(
-              "pc_set_audio_level", null, ["number", "number", "number"], [pc.self, ssrca, aulevel]
-          );
-      });
-
-      const csrcs = rx.getContributingSources();
-      csrcs.forEach(csrc => {
-          const uinfo = uinfo_from_ssrca(pc, csrc.source.toString());
-          if (uinfo) {
-              uinfo.audio_level = 0;
-              if (typeof csrc.audioLevel !== 'undefined')
-                  uinfo.audio_level = ((csrc.audioLevel * 512.0) | 0);
-
-              em_module.ccall("pc_set_audio_level", null,
-                  ["number", "number", "number"],
-                  [pc.self, uinfo.ssrca, uinfo.audio_level]);
-          }
-      });
+    const pc = connectionsStore.getPeerConnection(hnd);
+    if (pc == null) {
+	return;
     }
-  });
 
-  let self_audio_level = 0;
-  let apkts = 0;
-  let vpkts = 0;
-  let ploss = 0;
+    const rtc = pc.rtc;
+    if (!rtc) {
+	return;
+    }
 
-  rtc.getStats()
-    .then((stats) => {
-        let rtt = 0;
+    const txrxs = rtc.getTransceivers();
+    txrxs.forEach(txrx => {
+	const rx = txrx.receiver;
+	if (rx) {
+	    const ssrcs = rx.getSynchronizationSources();
+	    ssrcs.forEach(ssrc => {
+		let ssrca = "";
+		let aulevel = 0;
 
-        stats.forEach(stat => {
-	    if (stat.type === 'inbound-rtp') {
-               ploss = ploss + stat.packetsLost;
-		const p = stat.packetsReceived;		
-		if (stat.kind === 'audio') {
-		   apkts = apkts + p;
+		if (typeof ssrc.audioLevel !== 'undefined')
+		    aulevel = ((ssrc.audioLevel * 512.0) | 0);
+
+		if (pc.conv_type != CONV_TYPE_ONEONONE) {
+		    const uinfo = uinfo_from_ssrca(pc, ssrc.source.toString());
+		    if (uinfo) {
+			uinfo.audio_level = aulevel;
+			ssrca = uinfo.ssrca;
+		    }
 		}
-		else if (stat.kind === 'video') {
-                    let user_info: UserInfo | null = null
-                    if(!!stat.trackIdentifier) {
-                        user_info = uinfo_from_video_track_id(pc, stat.trackIdentifier)
-                    }
-                    if(user_info !== null) {
-                        const frame_height = !!stat.frameHeight ? stat?.frameHeight : 0;
-                        const frame_width = !!stat.frameWidth ? stat?.frameWidth : 0;
-                        if(user_info.frame_width !== frame_width || user_info.frame_height !== frame_height) {
-                            user_info.frame_width = frame_width;
-                            user_info.frame_height = frame_height;
-                            pc_log(LOG_LEVEL_INFO, `pc_user_resolution: label=${user_info.label} ${user_info.userid.substring(0,8)}/${user_info.clientid.substring(0,4)} resolution:${user_info.frame_width}x${user_info.frame_height}`);
-                        }
-                    }
-		   vpkts = vpkts + p;
-		}		
-	    }
-	    else if (stat.type === 'outbound-rtp') {
-		const p = stat.packetsSent;		
-		if (stat.kind === 'audio') {
-		    pc.stats.sent_apkts = p;
+
+		em_module.ccall(
+		    "pc_set_audio_level", null, ["number", "number", "number"], [pc.self, ssrca, aulevel]
+		);
+	    });
+
+	    const csrcs = rx.getContributingSources();
+	    csrcs.forEach(csrc => {
+		const uinfo = uinfo_from_ssrca(pc, csrc.source.toString());
+		if (uinfo) {
+		    uinfo.audio_level = 0;
+		    if (typeof csrc.audioLevel !== 'undefined')
+			uinfo.audio_level = ((csrc.audioLevel * 512.0) | 0);
+
+		    em_module.ccall("pc_set_audio_level", null,
+				    ["number", "number", "number"],
+				    [pc.self, uinfo.ssrca, uinfo.audio_level]);
 		}
-		else if (stat.kind === 'video') {
-		    pc.stats.sent_vpkts = p;
-		}		
-	    }	    
-	    else if (stat.type === 'candidate-pair') {
-		rtt = stat.currentRoundTripTime * 1000;
-	    }
-	    else if (stat.type === 'media-source') {
-	    	 if (stat.kind === 'audio')
-	            self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
-	    }
-	});
-	pc.stats.recv_apkts = apkts;
-	pc.stats.recv_vpkts = vpkts;
-	pc.stats.ploss = ploss - pc.stats.lastploss;
-	pc.stats.lastploss = ploss;
-                }
+	    });
+	}
+    });
 
-            } else if (stat.type === 'outbound-rtp') {
-                const p = stat.packetsSent;
-                if (stat.kind === 'audio') {
-                    pc.stats.sent_apkts = p;
-                } else if (stat.kind === 'video') {
-                    pc.stats.sent_vpkts = p;
-                }
+    let self_audio_level = 0;
+    let apkts = 0;
+    let vpkts = 0;
+    let ploss = 0;
 
-            } else if (stat.type === 'candidate-pair') {
-                rtt = stat.currentRoundTripTime * 1000;
+    rtc.getStats()
+	.then((stats) => {
+            let rtt = 0;
 
-            } else if (stat.type === 'media-source') {
-                if (stat.kind === 'audio')
-                    self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
-            }
-        });
-        pc.stats.recv_apkts = max_apkts;
-        pc.stats.recv_vpkts = max_vpkts;
+            stats.forEach(stat => {
+		if (stat.type === 'inbound-rtp') {
+		    ploss = ploss + stat.packetsLost;
+		    const p = stat.packetsReceived;
+		    if (stat.kind === 'audio') {
+			apkts = apkts + p;
+		    }
+		    else if (stat.kind === 'video') {
+			let user_info: UserInfo | null = null
+			if(!!stat.trackIdentifier) {
+                            user_info = uinfo_from_video_track_id(pc, stat.trackIdentifier)
+			}
+			if(user_info !== null) {
+                            const frame_height = !!stat.frameHeight ? stat?.frameHeight : 0;
+                            const frame_width = !!stat.frameWidth ? stat?.frameWidth : 0;
+                            if(user_info.frame_width !== frame_width || user_info.frame_height !== frame_height) {
+				user_info.frame_width = frame_width;
+				user_info.frame_height = frame_height;
+				pc_log(LOG_LEVEL_INFO, `pc_user_resolution: label=${user_info.label} ${user_info.userid.substring(0,8)}/${user_info.clientid.substring(0,4)} resolution:${user_info.frame_width}x${user_info.frame_height}`);
+                            }
+			}
+			vpkts = vpkts + p;
+		    }
+		}
+		else if (stat.type === 'outbound-rtp') {
+		    const p = stat.packetsSent;
+		    if (stat.kind === 'audio') {
+			pc.stats.sent_apkts = p;
+		    }
+		    else if (stat.kind === 'video') {
+			pc.stats.sent_vpkts = p;
+		    }
+		}
+		else if (stat.type === 'candidate-pair') {
+		    rtt = stat.currentRoundTripTime * 1000;
+		}
+		else if (stat.type === 'media-source') {
+		    if (stat.kind === 'audio')
+			self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
+		}
+	    });
+	    pc.stats.recv_apkts = apkts;
+	    pc.stats.recv_vpkts = vpkts;
+	    pc.stats.ploss = ploss - pc.stats.lastploss;
+	    pc.stats.lastploss = ploss;
 
-        em_module.ccall(
-            "pc_set_stats", null,
-            ["number", "number", "number", "number", "number", "number", "number", "number"],
-            [
-                pc.self, self_audio_level,
-                pc.stats.recv_apkts,
-                pc.stats.recv_vpkts,
-                pc.stats.sent_apkts,
-                pc.stats.sent_vpkts,
-                pc.stats.ploss,
-                rtt
-            ]
-        );
-    }).catch((err) => pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: failed hnd=${hnd} err=${err}`, err));
+	    em_module.ccall(
+		"pc_set_stats", null,
+		["number", "number", "number", "number", "number", "number", "number", "number"],
+		[
+		    pc.self, self_audio_level,
+		    pc.stats.recv_apkts,
+		    pc.stats.recv_vpkts,
+		    pc.stats.sent_apkts,
+		    pc.stats.sent_vpkts,
+		    pc.stats.ploss,
+		    rtt
+		]
+	    );
+	}).catch((err) => pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: failed hnd=${hnd} err=${err}`, err));
 }
 
 export default {
