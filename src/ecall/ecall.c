@@ -941,6 +941,10 @@ int ecall_dce_sendmsg(struct ecall *ecall, struct econn_message *msg)
 	return err;
 }
 
+int ecall_set_background(struct ecall *ecall, bool background)
+{
+	return 0;
+}
 
 static int _icall_dce_send(struct icall *icall, struct mbuf *mb)
 {
@@ -966,6 +970,16 @@ static int _icall_debug(struct re_printf *pf, const struct icall *icall)
 static int _icall_stats(struct re_printf *pf, const struct icall *icall)
 {
 	return ecall_stats(pf, (const struct ecall*)icall);
+}
+
+static int _icall_set_background(struct icall *icall, bool background)
+{
+	return ecall_set_background((struct ecall *)icall, background);
+}
+
+static int _icall_activate(struct icall *icall, bool active)
+{
+	return ecall_activate((struct ecall *)icall, active);
 }
 
 
@@ -1073,7 +1087,9 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 			    NULL, // _icall_request_video_streams
 			    NULL, // _icall_set_media_key
 			    _icall_debug,
-			    _icall_stats);
+			    _icall_stats,
+			    _icall_set_background,
+			    _icall_activate);
 
 	list_append(ecalls, &ecall->le, ecall);
 	list_append(&g_ecalls, &ecall->ecall_le, ecall);
@@ -1587,6 +1603,11 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 
 	tmr_cancel(&ecall->dc_tmr);
 
+	if (ecall->oldflow) {
+		IFLOW_CALL(ecall->oldflow, close);
+		ecall->oldflow = NULL;
+	}
+	
 	econn_set_datachan_established(ecall->econn);
 
 	if (ecall->delayed_restart) {
@@ -1642,6 +1663,16 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		      0,
 		      0,
 		      ecall->icall.arg);
+
+	if (ecall->update_glare) {
+		info("ecall(%p): handle delayed glare %s->%s\n",
+		     ecall,
+		     icall_vstate_name(ecall->vstate),
+		     icall_vstate_name(ecall->glare_vstate));
+		ecall->update_glare = false;
+		err = ecall_set_video_send_state(ecall, ecall->glare_vstate);
+	}
+
 	return;
 
  error:
@@ -1902,10 +1933,12 @@ static void rtp_start_handler(struct iflow *iflow,
 			ecall->call_setup_time = now - ecall->ts_started;
 		}
 
+#if 0
 		if (ecall->oldflow) {
 			IFLOW_CALL(ecall->oldflow, close);
 			ecall->oldflow = NULL;
 		}
+#endif
 	}
 }
 
@@ -2575,7 +2608,6 @@ struct econn *ecall_get_econn(const struct ecall *ecall)
 int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 {
 	int err = 0;
-
 	if (!ecall)
 		return EINVAL;
 
@@ -2592,6 +2624,15 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 
 		return 0;
 	}
+
+	enum econn_state conn_current_state = econn_current_state(ecall->econn);
+	if (ecall->conv_type == ICALL_CONV_TYPE_ONEONONE && (ecall->update || conn_current_state == ECONN_UPDATE_RECV)) {
+		info("ecall(%p): set_video_send_state: postpone video update state %s, because of glare\n", ecall, icall_vstate_name(ecall->vstate));
+		ecall->update_glare = true;
+		ecall->glare_vstate = vstate;
+		return 0;
+	}
+
 
 	const char *vstate_string;
 	const char *sstate_string;
@@ -2654,7 +2695,7 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 		case ECONN_DATACHAN_ESTABLISHED:
 			ecall_restart(ecall, ICALL_CALL_TYPE_VIDEO, false);
 			goto out;
-			
+
 		default:
 			break;
 		}
@@ -2729,7 +2770,7 @@ int ecall_media_start(struct ecall *ecall)
 	if (err) {
 		warning("ecall: mediaflow start media failed (%m)\n", err);
 		econn_set_error(ecall->econn, err);
-		goto out;
+		goto out;w
 	}
 */	info("ecall(%p): media started on flow:%p\n", ecall, ecall->flow);
 
@@ -3147,6 +3188,21 @@ int ecall_remove(struct ecall *ecall)
 	return 0;
 }
 
+int ecall_activate(struct ecall *ecall, bool active)
+{
+	info("ecall(%p): activate: active=%d\n", ecall, active);
+
+	if (!active)
+		return EINVAL;
+
+	if (ECONN_DATACHAN_ESTABLISHED == econn_current_state(ecall->econn)) {
+		info("ecall(%p): activate: triggering restart due to activation\n",
+		     ecall);
+		ecall_restart(ecall, ecall->call_type, true);
+	}
+
+	return 0;
+}
 
 static void quality_handler(void *arg)
 {

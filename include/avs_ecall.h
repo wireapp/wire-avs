@@ -72,6 +72,9 @@ int ecall_stats(struct re_printf *pf, const struct ecall *ecall);
 int ecall_mfdebug(struct re_printf *pf, const struct ecall *ecall);
 int ecall_stats_struct(const struct ecall *ecall,
 		       struct iflow_stats *stats);
+int ecall_activate(struct ecall *ecall, bool active);
+
+int ecall_set_background(struct ecall *ecall, bool background);
 
 //struct mediaflow *ecall_mediaflow(const struct ecall *ecall);
 struct econn *ecall_get_econn(const struct ecall *ecall);
@@ -159,8 +162,6 @@ int ecall_sync_decoders(struct ecall *ecall);
 int ecall_set_keystore(struct ecall *ecall,
 		       struct keystore *keystore);
 
-
-void ecall_activate(void);
 
 void propsync_get_states(struct econn_props *props,
 			 bool *vstate_present, 

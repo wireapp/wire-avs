@@ -90,11 +90,15 @@ void ccall_set_clients(struct icall* icall,
 		       struct list *clientl,
 		       uint32_t epoch);
 
+int  ccall_set_background(struct icall *icall, bool background);
+
 int  ccall_stats(struct re_printf *pf, const struct icall *icall);
 int  ccall_stats_struct(const struct ccall *ccall,
 		        struct iflow_stats *stats);
 
 int  ccall_debug(struct re_printf *pf, const struct icall* icall);
+
+int  ccall_activate(struct icall *icall, bool active);
 
 const char *ccall_state_name(enum ccall_state state);
 

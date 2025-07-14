@@ -76,6 +76,7 @@ struct icall_client {
 	char *clientid;
 	bool in_subconv;
 	int quality;
+	enum icall_vstate vstate;
 };
 
 struct icall_metrics {
@@ -147,6 +148,9 @@ typedef int  (icall_set_media_key)(struct icall *icall,
 
 typedef int  (icall_debug)(struct re_printf *pf, const struct icall* icall);
 typedef int  (icall_stats)(struct re_printf *pf, const struct icall* icall);
+typedef int  (icall_set_background)(struct icall *icall, bool background);
+
+typedef int  (icall_activate)(struct icall *icall, bool active);
 
 /* Callbacks from icall */
 typedef int  (icall_sft_h)(struct icall *icall,
@@ -226,6 +230,8 @@ typedef void (icall_audio_level_h)(struct icall *icall, struct list *levell, voi
 
 typedef void (icall_req_new_epoch_h)(struct icall *icall, void *arg);
 
+
+
 struct icall {
 	icall_add_turnserver		*add_turnserver;
 	icall_add_sft			*add_sft;
@@ -248,7 +254,8 @@ struct icall {
 	icall_set_media_key		*set_media_key;
 	icall_debug			*debug;
 	icall_stats			*stats;
-
+	icall_set_background            *set_background;
+	icall_activate                  *activate;
 	icall_send_h			*sendh;
 	icall_sft_h			*sfth;
 	icall_start_h			*starth;
@@ -300,7 +307,9 @@ void icall_set_functions(struct icall *icall,
 			 icall_request_video_streams	*request_video_streams,
 			 icall_set_media_key		*set_media_key,
 			 icall_debug			*debug,
-			 icall_stats			*stats);
+			 icall_stats			*stats,
+			 icall_set_background           *set_background,
+			 icall_activate                 *activate);
 
 void icall_set_callbacks(struct icall *icall,
 			 icall_send_h		*sendh,

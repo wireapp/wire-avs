@@ -74,10 +74,10 @@ extern "C" {
 
 #include "peerflow.h"
 
-#define TMR_STATS_INTERVAL      1000
-#define TMR_CBR_INTERVAL        2500
-#define TMR_RESTART_INTERVAL    2000
-#define TMR_GATHER_TIMEOUT      2000
+#define TMR_STATS_INTERVAL       1000
+#define TMR_CBR_INTERVAL         2500
+#define TMR_RESTART_INTERVAL    10000
+#define TMR_GATHER_TIMEOUT      10000
 
 #define DOUBLE_ENCRYPTION 1
 
@@ -87,8 +87,8 @@ extern "C" {
 
 #define RID_HI "h"
 #define RID_LO "l"
-#define VIDEO_BITRATE_HI (800 * 1024)
-#define VIDEO_BITRATE_LO (240 * 1024)
+#define VIDEO_BITRATE_HI (1000 * 1024)
+#define VIDEO_BITRATE_LO (250 * 1024)
 
 static const char trials_str[] =
 #if 1
@@ -1711,7 +1711,7 @@ public:
 					enc->scalability_mode = SCALABILITY_MODE;
 					if (enc->rid == RID_LO) {
 						enc->max_bitrate_bps = VIDEO_BITRATE_LO;
-						enc->scale_resolution_down_by = 4;
+						enc->scale_resolution_down_by = 2;
 						enc->active = true;
 					}
 					else if (enc->rid == RID_HI) {

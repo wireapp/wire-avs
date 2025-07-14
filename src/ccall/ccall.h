@@ -47,6 +47,8 @@
 #define CCALL_RESOLUTION_LOW  1
 /* high quality resolution */
 #define CCALL_RESOLUTION_HIGH 2
+/* feature toggle for request video optimization */
+#define USE_VIDEO_REQUEST_LIMITER   0
 
 
 struct sftconfig {

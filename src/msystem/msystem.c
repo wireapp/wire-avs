@@ -50,6 +50,7 @@ struct msystem {
 	char project[256];
 
 	struct list mutel;
+	struct list activatel;
 
 	struct msystem_proxy *proxy;
 };
@@ -135,6 +136,7 @@ static void msystem_destructor(void *data)
 	msys->proxy = mem_deref(msys->proxy);
 
 	list_flush(&msys->mutel);
+	list_flush(&msys->activatel);
 	
 	iflow_destroy();
 
@@ -276,6 +278,46 @@ void msystem_unregister_listener(void *arg)
 	}
 }
 
+static void ae_destructor(void *arg)
+{
+	struct activate_elem *ae;
+
+	(void)ae;
+}
+
+void *msystem_add_activate_handler(msystem_activate_h *activateh, void *arg)
+{
+	struct activate_elem *ae;
+
+	if (!activateh)
+		return NULL;
+
+	ae = mem_zalloc(sizeof(*ae), ae_destructor);
+	if (!ae)
+		return NULL;
+
+	ae->activateh = activateh;
+	ae->arg = arg;
+	list_append(&g_msys->activatel, &ae->le, ae);
+
+	return (void *)ae;
+}
+
+void msystem_activate(bool active)
+{
+	struct le *le;
+
+	LIST_FOREACH(&g_msys->activatel, le) {
+		struct activate_elem *ae = le->data;
+
+		if (!ae)
+			continue;
+
+		if (ae->activateh) {
+			ae->activateh(active, ae->arg);
+		}
+	}
+}
 
 void msystem_set_tid(struct msystem *msys, pthread_t tid)
 {
