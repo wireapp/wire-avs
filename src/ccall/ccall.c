@@ -472,6 +472,10 @@ static void ccall_reconnect(struct ccall *ccall,
 		return;
 	}
 
+	if (ccall->state == CCALL_STATE_CONNSENT) {
+	        return;
+	}
+
 	keystore_get_decrypt_states(ccall->keystore,
 				    &decrypt_attempted,
 				    &decrypt_successful);
