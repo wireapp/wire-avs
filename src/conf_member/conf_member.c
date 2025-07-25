@@ -129,6 +129,7 @@ struct conf_member *conf_member_find_by_label(struct list *membl,
 		cm = (struct conf_member *)le->data;
 
 		found = streq(cm->label, label);
+		found = found && cm->active;
 	}
 
 	return found ? cm : NULL;
@@ -145,6 +146,7 @@ static struct conf_member *find_ssrc(struct list *membl,
 		cm = (struct conf_member *)le->data;
 
 		found = audio ? ssrc == cm->ssrca : ssrc == cm->ssrcv;
+		found = found && cm->active;
 	}
 
 	return found ? cm : NULL;

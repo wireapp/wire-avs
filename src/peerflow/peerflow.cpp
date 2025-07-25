@@ -2651,6 +2651,7 @@ static void pf_tool_handler(const char *tool, void *arg)
 		if (major == 4 && minor == 1) {
 			pf->sdp_needs_munging = true;
 		}
+
 		info("peerflow(%p): set_sft_options: ver: %d.%d"
 		     " selective_audio: %s selective_video: %s"
 		     " sdp_needs_munging: %s\n",
@@ -2706,6 +2707,7 @@ int peerflow_handle_offer(struct iflow *iflow,
 		     "%s\n",
 		     pf, sdp_str);
 	}
+
 
 	webrtc::SdpParseError parse_err;
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
@@ -2899,7 +2901,7 @@ int peerflow_add_decoders_for_user(struct iflow *iflow,
 	     anon_client(clientid_anon, clientid),
 	     ssrca, ssrcv);
 	lock_write_get(pf->cml.lock);
-	memb = conf_member_find_by_userclient(&pf->cml.list, userid, clientid);
+	memb = conf_member_find_active_by_userclient(&pf->cml.list, userid, clientid);
 	/* Only allow the addition if the ssrcs don't match */
 	if (memb && memb->ssrca == ssrca && memb->ssrcv == ssrcv)
 		return 0;
@@ -2941,7 +2943,7 @@ int peerflow_remove_decoders_for_user(struct iflow *iflow,
 	     anon_client(clientid_anon, clientid));
 
 	lock_write_get(pf->cml.lock);
-	memb = conf_member_find_by_userclient(&pf->cml.list, userid, clientid);
+	memb = conf_member_find_active_by_userclient(&pf->cml.list, userid, clientid);
 	if (memb)
 		memb->active = false;
 	lock_rel(pf->cml.lock);
@@ -3234,7 +3236,8 @@ int peerflow_inc_frame_count(struct peerflow* pf,
 	else
 		cm->audio_frames += frames;
 
-	debug("FRAME: %s.%s a: %u v: %u\n",
+	debug("FRAME(%p): %s.%s a: %u v: %u\n",
+	      pf,
 	      anon_id(userid_anon, cm->userid),
 	      anon_client(clientid_anon, cm->clientid),
 	      cm->audio_frames,
