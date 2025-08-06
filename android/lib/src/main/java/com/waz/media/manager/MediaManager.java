@@ -19,8 +19,8 @@ package com.waz.media.manager;
 
 import android.content.Context;
 import android.media.AudioManager;
-//import android.media.AudioAttributes;
-//import android.media.AudioFocusRequest;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 
 import android.media.AudioManager.OnAudioFocusChangeListener;
 
@@ -87,7 +87,7 @@ public class MediaManager implements OnAudioFocusChangeListener {
     private String convId = null;
     private IntensityLevel _intensity = IntensityLevel.FULL;
     private Configuration config;
-    //private AudioFocusRequest focusRequest = null;
+    private AudioFocusRequest focusRequest = null;
 
     public long mmPointer;
 	    
@@ -356,11 +356,10 @@ public class MediaManager implements OnAudioFocusChangeListener {
     }
 
     private void requestAudioFocus() {
-	    audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
-	    audioManager.requestAudioFocus(this, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN);
+	//audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+	//audioManager.requestAudioFocus(this, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN);
 	    
 	    /* Focus is handled differently from ANDROID-8 (aka Android-Oreo aka SDK 26) */
-	    /*
 	    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) {
 		    audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
 		    audioManager.requestAudioFocus(this, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN);
@@ -380,7 +379,6 @@ public class MediaManager implements OnAudioFocusChangeListener {
 		    int res = this.audioManager.requestAudioFocus(this.focusRequest);
 		    DoLog("focusRequest=" + res);
 	    }
-	    */
     }
 
     public void onEnterCall(){

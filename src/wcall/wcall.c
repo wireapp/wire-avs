@@ -545,12 +545,14 @@ static void icall_start_handler(struct icall *icall,
 
 	wcall->disable_audio = !should_ring;
 	if (inst->mm && should_ring) {
+#if (!defined ANDROID)
 		enum mediamgr_state state;
 
 		state = video ?	MEDIAMGR_STATE_INCOMING_VIDEO_CALL
 			      : MEDIAMGR_STATE_INCOMING_AUDIO_CALL;
 
 		mediamgr_set_call_state(inst->mm, state);
+#endif
 	}
 
 	if (inst->processing_notifications && inst->incomingh) {
@@ -2875,6 +2877,17 @@ int wcall_i_answer(struct wcall *wcall,
 			   set_video_send_state,
 			   ICALL_VIDEO_STATE_STOPPED);
 	}
+
+#if (defined ANDROID)
+	if (wcall->inst && wcall->inst->mm) {
+	        enum mediamgr_state state;
+
+		state = wcall->video.video_call ? MEDIAMGR_STATE_INCOMING_VIDEO_CALL
+		                                : MEDIAMGR_STATE_INCOMING_AUDIO_CALL;
+
+		mediamgr_set_call_state(wcall->inst->mm, state);
+	}
+#endif
 	
 	err = ICALL_CALLE(wcall->icall, answer,
 			  call_type, cbr);
