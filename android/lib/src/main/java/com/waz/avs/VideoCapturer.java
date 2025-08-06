@@ -97,6 +97,7 @@ public class VideoCapturer implements ImageAnalysis.Analyzer {
 	private Context context;
 	private Executor executor;
 	private PreviewView previewView;
+        private ImageAnalysis imageAnalysis;
 	private VideoCapturerCallback capturerCallback = null;
 	private boolean started = false;
 	private SurfaceHolder surface = null;
@@ -155,10 +156,10 @@ public class VideoCapturer implements ImageAnalysis.Analyzer {
 			.setTargetResolution(new Size(this.w, this.h))
 			.build();
 
-		ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
-			.setTargetResolution(new Size(this.w, this.h))
-			.setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-			.build();
+		this.imageAnalysis = new ImageAnalysis.Builder()
+		        .setTargetResolution(new Size(this.w, this.h))
+		        .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+		        .build();
 		
 		preview.setSurfaceProvider(this.previewView.getSurfaceProvider());		
 
@@ -287,6 +288,9 @@ public class VideoCapturer implements ImageAnalysis.Analyzer {
 
 		this.ui_rotation = degrees;
 		Log.d(TAG, "setUIRotation: uirot: " + degrees);
+		if (this.imageAnalysis != null) {
+		    this.imageAnalysis.setTargetRotation(rotation);
+		}
 	}
 
 	private static native void handleCameraFrame(int w, int h,
