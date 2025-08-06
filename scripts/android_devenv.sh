@@ -17,9 +17,9 @@ MACHINE=$(uname -m)
 
 TOOLS_VER=11076708_latest
 BUILDTOOLS_VER=34.0.0
-# Use NDK r22b for building with M102 webrtc
-ANDROID_NDK_VER=27.2.12479018
-ANDROID_SDK_VER=android-27
+# Use NDK r28c for building with 16KB page-size support
+ANDROID_NDK_VER=28.2.13676358
+ANDROID_SDK_VER=android-33
 
 if [[ "$PLATFORM" == "darwin" ]]; then
 	ANDROID_SDK_PLAT=mac
