@@ -34,6 +34,7 @@
 #endif
 
 #define CCALL_CBR_ALWAYS_ON 1
+#define RESOLUTION_DEGRADE 0
 
 #define SFT_STATUS_NETWORK_ERROR 1000
 
@@ -1118,6 +1119,7 @@ static void ecall_quality_handler(struct icall *icall,
 		downloss = 10;
 	}
 
+#if RESOLUTION_DEGRADE
 	if (dec_res) {
 		struct le *le;
 		struct list clil = LIST_INIT;
@@ -1146,6 +1148,9 @@ static void ecall_quality_handler(struct icall *icall,
 		}
 		list_flush(&clil);
 	}
+#else
+	(void)dec_res;
+#endif
 
 	ICALL_CALL_CB(ccall->icall, qualityh,
 		      &ccall->icall, 
