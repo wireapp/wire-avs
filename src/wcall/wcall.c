@@ -2855,8 +2855,8 @@ int wcall_i_answer(struct wcall *wcall,
 	call_type = (call_type == WCALL_CALL_TYPE_FORCED_AUDIO) ?
 		    WCALL_CALL_TYPE_NORMAL : call_type;
 
-	info(APITAG "wcall(%p): answer calltype=%s\n",
-	     wcall, wcall_call_type_name(call_type));
+	info(APITAG "wcall(%p): answer calltype=%s state=%s\n",
+	     wcall, wcall_call_type_name(call_type), wcall_state_name(wcall->state));
 
 	if (wcall->disable_audio)
 		wcall->disable_audio = false;
@@ -2865,6 +2865,13 @@ int wcall_i_answer(struct wcall *wcall,
 		warning("wcall(%p): answer: no call object found\n", wcall);
 		return ENOTSUP;
 	}
+
+	/* Allow multiple answers on same wcall */
+	if (wcall->state == WCALL_STATE_ANSWERED
+	 || wcall->state == WCALL_STATE_MEDIA_ESTAB) {
+	        return 0;
+	}
+
 	set_state(wcall, WCALL_STATE_ANSWERED);
 
 	if (call_type == WCALL_CALL_TYPE_VIDEO) {
