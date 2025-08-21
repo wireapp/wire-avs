@@ -1838,11 +1838,16 @@ static void data_channel_handler(struct iflow *iflow,
 	char clientid_anon[ANON_CLIENT_LEN];
 	char dest_userid_anon[ANON_ID_LEN];
 	char dest_clientid_anon[ANON_CLIENT_LEN];
+	bool oldflow = false;
 	int err;
 
 	assert(ECALL_MAGIC == ecall->magic);
 
-	if (iflow != ecall->flow) {
+	if (iflow == ecall->oldflow) {
+		info("ecall(%p): %s on oldflow\n", ecall, __FUNCTION__);
+		oldflow = true;
+	}
+	else if (iflow != ecall->flow) {
 		info("ecall(%p): ignoring %s on wrong flow\n", ecall, __FUNCTION__);
 		return;
 	}
@@ -1858,6 +1863,13 @@ static void data_channel_handler(struct iflow *iflow,
 	if (ECONN_TRANSP_DIRECT != econn_transp_resolve(msg->msg_type)) {
 		warning("ecall: dc_recv: wrong transport for type %s\n",
 			econn_msg_name(msg->msg_type));
+	}
+
+	/* Handle only HANGUP message on oldflow */
+	if (oldflow && msg->msg_type != ECONN_HANGUP) {
+	        info("ecall(%p): %s: ignoring %s message on oldflow\n",
+	             ecall, __FUNCTION__, econn_msg_name(msg->msg_type));
+		goto out;
 	}
 
 	if (msg->msg_type != ECONN_PING) {
@@ -1883,6 +1895,7 @@ static void data_channel_handler(struct iflow *iflow,
 				   econn_clientid_remote(ecall->econn), msg);
 	}
 
+ out:
 	mem_deref(msg);
 }
 
