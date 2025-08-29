@@ -265,6 +265,7 @@ static void gather_timeout_handler(void *arg)
 		flow->iflow.arg);
 }
 
+#if 0
 static void disconnect_timeout_handler(void *arg)
 {
 	struct jsflow *flow = arg;
@@ -274,6 +275,7 @@ static void disconnect_timeout_handler(void *arg)
 	IFLOW_CALL_CB(flow->iflow, restarth,
 		false, flow->iflow.arg);
 }
+#endif
 
 static void stats_timeout_handler(void *arg)
 {
