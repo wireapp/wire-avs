@@ -1230,40 +1230,11 @@ public:
 
 		info("pf(%p): ice connection state: %s\n",
 		     pf_, ice_connection_state_name(state));
-		
-		switch (state) {
-		case webrtc::PeerConnectionInterface::IceConnectionState::kIceConnectionDisconnected:
-			warning("pf(%p): ice connection: %s\n",
-			     pf_, ice_connection_state_name(state));
-
-			SendMQMessage(MQ_PC_RESTART_DELAY);
-			break;
-
-		case webrtc::PeerConnectionInterface::IceConnectionState::kIceConnectionFailed:
-			warning("pf(%p): ice connection: %s\n",
-			     pf_, ice_connection_state_name(state));
-
-			SendMQMessage(MQ_PC_RESTART_NOW);
-			break;
-
-		case webrtc::PeerConnectionInterface::IceConnectionState::kIceConnectionConnected:
-		case webrtc::PeerConnectionInterface::IceConnectionState::kIceConnectionClosed:
-			SendMQMessage(MQ_PC_RESTART_CANCEL);
-			break;
-			
-		default:
-			info("pf(%p): ice connection: %s\n",
-			     pf_, ice_connection_state_name(state));
-			break;
-		}
-			
 	}
 
 	// Called any time the PeerConnectionState changes.
 	virtual void OnConnectionChange (
 	      webrtc::PeerConnectionInterface::PeerConnectionState state) {
-
-		struct mq_data *md;
 		
 		info("pf(%p): connection change: %s\n",
 		     pf_, connection_state_name(state));
@@ -1273,18 +1244,12 @@ public:
 
 		switch (state) {
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:
+			SendMQMessage(MQ_PC_ESTAB);
+			break;
 
-			md = (struct mq_data *)mem_zalloc(sizeof(*md),
-							  md_destructor);
-			if (!md) {
-				warning("pf(%p): could not alloc md\n", pf_);
-				return;
-			}
-			md->pf = pf_;
-			md->id = MQ_PC_ESTAB;
-
-			push_mq(md);
-			//mqueue_push(g_pf.mq, md->id, md);
+		case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
+		        warning("pf(%p): connection failed, restarting...\n", pf_);
+			SendMQMessage(MQ_PC_RESTART_NOW);
 			break;
 			
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:

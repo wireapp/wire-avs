@@ -1616,13 +1616,6 @@ void pc_connection_handler(int self, const char *state)
 				true, true, flow->iflow.arg);
 		}
 	}
-	else if (streq(state, "disconnected")) {
-		info("flow(%p): connection_handler: disconnected, "
-		     "starting disconnect timer\n", flow);
-
-		tmr_start(&flow->tmr_disconnect, DISCONNECT_TIMEOUT,
-			  disconnect_timeout_handler, flow);
-	}
 	else if (streq(state, "failed")) {
 		if (tmr_isrunning(&flow->tmr_disconnect))
 			tmr_cancel(&flow->tmr_disconnect);
