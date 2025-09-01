@@ -1693,7 +1693,8 @@ public:
 			rtc::scoped_refptr<webrtc::RtpSenderInterface> sender = txrx->sender();
 			webrtc::RtpParameters params = sender->GetParameters();
 
-			if (txrx->media_type() != cricket::MEDIA_TYPE_VIDEO)
+			if (txrx->media_type() != cricket::MEDIA_TYPE_VIDEO
+			    || (mid != "video" && mid != "1"))
 				continue;
 
 			if (pf_->call_type == ICALL_CALL_TYPE_VIDEO ||
