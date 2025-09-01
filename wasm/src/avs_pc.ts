@@ -1027,7 +1027,7 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
             if (track.kind === 'video' && pc.conv_type !== CONV_TYPE_ONEONONE) {
                 const transceivers = rtc.getTransceivers();
                 for (const trans of transceivers) {
-                    if ((trans.mid === 'video' || trans.mid === '1') && !!trans.sender)  {
+                    if (trans.mid === 'video' || trans.mid === '1')  {
                         pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
                         const {params, layerFound} = getEncodingParameter(trans.sender, pc.vstate === PC_VIDEO_STATE_SCREENSHARE)
 
