@@ -1,0 +1,28 @@
+Changes introduced in AVS 10.2
+==============================
+
+Chagned the API for:
+  - wcall_recv_msg
+  - wcall_start
+
+Both of these now contain a boolean meeting parameter that should be set depending
+on if the conversation is a Wire meeting or not.
+The wcall_start meeting parameter is not strictly needed, but has been added for any
+future possibilities to improve the Wire meeting experience.
+
+int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
+		    uint32_t curr_time, /* timestamp in seconds */
+		    uint32_t msg_time,  /* timestamp in seconds */
+		    const char *convid,
+		    const char *userid,
+		    const char *clientid,
+		    int conv_type,
+		    int meeting) <-- new parameter
+
+
+int wcall_start(WUSER_HANDLE wuser, const char *convid,
+		int call_type, /*WCALL_CALL_TYPE...*/
+		int conv_type, /*WCALL_CONV_TYPE...*/
+		int audio_cbr, /*bool*/
+                int meeting /*bool*/) <-- new parameter
+		

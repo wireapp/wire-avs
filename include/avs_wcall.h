@@ -347,7 +347,8 @@ int wcall_set_background(WUSER_HANDLE wuser, int background);
 int wcall_start(WUSER_HANDLE wuser, const char *convid,
 		int call_type, /*WCALL_CALL_TYPE...*/
 		int conv_type, /*WCALL_CONV_TYPE...*/
-		int audio_cbr /*bool*/);
+		int audio_cbr, /*bool*/
+                int meeting /*bool*/);
 
 /* Returns 0 if successfull
  * Set call_type from defines above.
@@ -379,7 +380,8 @@ int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
 		    const char *convid,
 		    const char *userid,
 		    const char *clientid,
-		    int conv_type);
+		    int conv_type,
+		    int meeting);
 
 /* End the call in the conversation associated to
  * the conversation id in the convid parameter.

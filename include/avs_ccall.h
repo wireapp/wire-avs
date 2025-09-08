@@ -37,7 +37,8 @@ int ccall_alloc(struct ccall **ccallp,
 		const char *convid,
 		const char *userid_self,
 		const char *clientid,
-		bool is_mls_call);
+		bool is_mls_call,
+		bool meeting);
 
 struct icall *ccall_get_icall(struct ccall* ccall);
 

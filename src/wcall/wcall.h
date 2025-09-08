@@ -14,7 +14,8 @@ struct wcall_marshal *wcall_get_marshal(struct calling_instance *inst);
 
 struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid);
 int  wcall_add(struct calling_instance *inst,
-	       struct wcall **wcallp, const char *convid, int conv_type);
+	       struct wcall **wcallp, const char *convid,
+	       int conv_type, bool meeting);
 void wcall_mcat_changed(struct calling_instance *inst,
 			enum mediamgr_state state);
 void wcall_audio_route_changed(struct calling_instance *inst,
@@ -37,7 +38,8 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 		      const char *convid,
 		      const char *userid,
 		      const char *clientid,
-		      int conv_type);
+		      int conv_type,
+		      bool meeting);
 void wcall_i_config_update(struct calling_instance *inst,
 			   int err, const char *json_str);
 void wcall_i_resp(struct calling_instance *inst,
@@ -48,7 +50,8 @@ void wcall_i_sft_resp(struct calling_instance *inst,
 		      void *arg);
 int  wcall_i_start(struct wcall *wcall,
 		   int is_video_call, int group,
-		   int audio_cbr);
+		   int audio_cbr,
+		   bool meeting);
 int wcall_i_answer(struct wcall *wcall,
 		   int call_type, int audio_cbr);
 int  wcall_i_reject(struct wcall *wcall);

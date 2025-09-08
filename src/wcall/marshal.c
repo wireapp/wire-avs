@@ -69,6 +69,7 @@ struct mq_data {
 			int call_type;
 			int conv_type;
 			bool audio_cbr;
+		        bool meeting;
 		} start;
 
 		struct {
@@ -101,6 +102,7 @@ struct mq_data {
 			char *userid;
 			char *clientid;
 			int conv_type;
+		        bool meeting;
 		} recv_msg;
 
 
@@ -278,7 +280,8 @@ static void mqueue_handler(int id, void *data, void *arg)
 				 md->convid,
 				 md->u.recv_msg.userid,
 				 md->u.recv_msg.clientid,
-				 md->u.recv_msg.conv_type);
+				 md->u.recv_msg.conv_type,
+				 md->u.recv_msg.meeting);
 		break;
 
 	case WCALL_MEV_CONFIG_UPDATE:
@@ -311,14 +314,16 @@ static void mqueue_handler(int id, void *data, void *arg)
 			err = wcall_add(md->inst,
 					&wcall,
 					md->convid,
-					md->u.start.conv_type);
+					md->u.start.conv_type,
+					md->u.start.meeting);
 			if (err || !wcall)
 				goto out;
 		}
 		err = wcall_i_start(wcall,
 				    md->u.start.call_type,
 				    md->u.start.conv_type,
-				    md->u.start.audio_cbr);
+				    md->u.start.audio_cbr,
+				    md->u.start.meeting);
 		if (err) {
 			warning("wcall: wcall_start failed (%m)\n", err);
 			wcall_i_end(wcall);
@@ -538,7 +543,8 @@ int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
 		    const char *convid,
 		    const char *userid,
 		    const char *clientid,
-		    int conv_type)
+		    int conv_type,
+		    int meeting)
 {
 	struct calling_instance *inst;
 	struct econn_message *msg = NULL;
@@ -575,6 +581,7 @@ int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
 	md->u.recv_msg.curr_time = curr_time;
 	md->u.recv_msg.msg_time = msg_time;
 	md->u.recv_msg.conv_type = conv_type;
+	md->u.recv_msg.meeting = meeting == 1;
 	err = str_dup(&md->u.recv_msg.userid, userid);
 	err |= str_dup(&md->u.recv_msg.clientid, clientid);
 
@@ -704,7 +711,8 @@ int wcall_start(WUSER_HANDLE wuser,
 		const char *convid,
 		int call_type,
 		int conv_type,
-		int audio_cbr /*bool */)
+		int audio_cbr /*bool */,
+		int meeting /*bool */)
 {
 	struct calling_instance *inst;
 	struct mq_data *md = NULL;
@@ -729,6 +737,7 @@ int wcall_start(WUSER_HANDLE wuser,
 	md->u.start.call_type = call_type;
 	md->u.start.conv_type = conv_type;
 	md->u.start.audio_cbr = (bool)audio_cbr;
+	md->u.start.meeting = meeting == 1;
 
 	err = md_enqueue(md);
 	if (err)

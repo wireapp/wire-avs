@@ -108,6 +108,7 @@ struct ccall {
 	struct keystore *keystore;
 
 	enum icall_call_type call_type;
+        bool meeting;
 	enum icall_vstate vstate;
 
 	bool someone_joined;
