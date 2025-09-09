@@ -3208,11 +3208,13 @@ int ecall_activate(struct ecall *ecall, bool active)
 	if (!active)
 		return EINVAL;
 
+#if 0
 	if (ECONN_DATACHAN_ESTABLISHED == econn_current_state(ecall->econn)) {
 		info("ecall(%p): activate: triggering restart due to activation\n",
 		     ecall);
 		ecall_restart(ecall, ecall->call_type, true);
 	}
+#endif
 
 	return 0;
 }
