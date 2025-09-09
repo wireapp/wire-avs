@@ -350,7 +350,8 @@ struct ccall_wrapper *init_ccall(const char *name,
 			  convid,
 			  name,
 			  name,
-			  mls_call);
+			  mls_call,
+			  false);
 	if (err)
 		goto out;
 

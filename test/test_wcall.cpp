@@ -259,7 +259,8 @@ static void receive_message(struct client *cli, const char *convid,
 				       send_time,
 				       convid,
 				       userid_self,
-				       clientid_self);
+				       clientid_self,
+				       false);
 		}
 		else {
 			warning("client not found\n");
@@ -279,7 +280,8 @@ static void receive_message(struct client *cli, const char *convid,
 				       send_time,
 				       convid,
 				       userid_self,
-				       clientid_self);
+				       clientid_self,
+				       false);
 		}
 	}
 }
@@ -483,7 +485,7 @@ static void close_handler(int reason, const char *convid, uint32_t msg_time,
 
 		info("test: Nervous client joining..\n");
 
-		err = wcall_start(cli->wuser, convid, WCALL_CALL_TYPE_NORMAL, conv_type, 0);
+		err = wcall_start(cli->wuser, convid, WCALL_CALL_TYPE_NORMAL, conv_type, 0, 0);
 		ASSERT_EQ(0, err);
 
 		return;
@@ -571,7 +573,7 @@ static void ready_handler(int version, void *arg)
 			struct client *cli0 = (struct client *)le->data;
 
 			err = wcall_start(cli0->wuser, convid, WCALL_CALL_TYPE_NORMAL,
-				conv_type, 0);
+					  conv_type, 0, 0);
 			ASSERT_EQ(0, err);
 		}
 		break;
@@ -579,7 +581,7 @@ static void ready_handler(int version, void *arg)
 	case TESTCASE_CALL_ANSWER:
 		/* Start a Group-call from the first client */
 		cli = (struct client *)list_ledata(list_head(cli->le.list));
-		err = wcall_start(cli->wuser, convid, WCALL_CALL_TYPE_NORMAL, conv_type, 0);
+		err = wcall_start(cli->wuser, convid, WCALL_CALL_TYPE_NORMAL, conv_type, 0, 0);
 		ASSERT_EQ(0, err);
 
 		break;
@@ -587,7 +589,7 @@ static void ready_handler(int version, void *arg)
 	case TESTCASE_NERVOUS_CLIENT:
 		/* Start a Group-call from the first client */
 		cli = (struct client *)list_ledata(list_head(cli->le.list));
-		err = wcall_start(cli->wuser, convid, WCALL_CALL_TYPE_NORMAL, conv_type, 0);
+		err = wcall_start(cli->wuser, convid, WCALL_CALL_TYPE_NORMAL, conv_type, 0, 0);
 		ASSERT_EQ(0, err);
 		break;
 	}
