@@ -1722,7 +1722,8 @@ static void icall_req_new_epoch_handler(struct icall *icall, void *arg)
 int wcall_add(struct calling_instance *inst,
 	      struct wcall **wcallp,
 	      const char *convid,
-	      int conv_type)
+	      int conv_type,
+	      bool meeting)
 {	
 	struct wcall *wcall;
 	struct zapi_ice_server *turnv = NULL;
@@ -1859,11 +1860,12 @@ int wcall_add(struct calling_instance *inst,
 	case WCALL_CONV_TYPE_CONFERENCE_MLS: {
 		struct ccall* ccall;
 		err = ccall_alloc(&ccall,
-				   &inst->conf_config,
-				   convid,
-				   inst->userid,
-				   inst->clientid,
-				   conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS);
+				  &inst->conf_config,
+				  convid,
+				  inst->userid,
+				  inst->clientid,
+				  conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS,
+				  meeting);
 
 		if (err) {
 			warning("wcall(%p): add: could not alloc ccall: %m\n",
@@ -2779,12 +2781,15 @@ void wcall_destroy(WUSER_HANDLE wuser)
 AVS_EXPORT
 int wcall_i_start(struct wcall *wcall,
 		  int call_type, int conv_type,
-		  int audio_cbr)
+		  int audio_cbr,
+		  bool meeting)
 {
 	int err = 0;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
 	bool cbr = audio_cbr != 0;
 	char convid_anon[ANON_ID_LEN];
+
+	(void)meeting; /* reserved for future use */
 
 	call_type = (call_type == WCALL_CALL_TYPE_FORCED_AUDIO) ?
 		    WCALL_CALL_TYPE_NORMAL : call_type;
@@ -3031,7 +3036,8 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 		      const char *convid,
 		      const char *userid,
 		      const char *clientid,
-		      int conv_type)
+		      int conv_type,
+		      bool meeting)
 {
 	struct wcall *wcall;
 	int err = 0;
@@ -3088,28 +3094,33 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 		if (msg->msg_type == ECONN_GROUP_START
 		    && econn_message_isrequest(msg)) {
 			err = wcall_add(inst, &wcall, convid,
-					WCALL_CONV_TYPE_GROUP);
+					WCALL_CONV_TYPE_GROUP,
+					false);
 		}
 		else if (msg->msg_type == ECONN_GROUP_CHECK
 		    && !econn_message_isrequest(msg)) {
 			err = wcall_add(inst, &wcall, convid,
-					WCALL_CONV_TYPE_GROUP);
+					WCALL_CONV_TYPE_GROUP,
+					false);
 		}
 		else if (msg->msg_type == ECONN_CONF_START
 		    && econn_message_isrequest(msg)) {
 			err = wcall_add(inst, &wcall, convid,
 					conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
-					WCALL_CONV_TYPE_CONFERENCE);
+					WCALL_CONV_TYPE_CONFERENCE,
+					meeting);
 		}
 		else if (msg->msg_type == ECONN_CONF_CHECK
 		    && !econn_message_isrequest(msg)) {
 			err = wcall_add(inst, &wcall, convid,
 					conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
-					WCALL_CONV_TYPE_CONFERENCE);
+					WCALL_CONV_TYPE_CONFERENCE,
+					meeting);
 		}
 		else if (econn_is_creator(inst->userid, userid, msg)) {
 			err = wcall_add(inst, &wcall, convid,
-					WCALL_CONV_TYPE_ONEONONE);
+					WCALL_CONV_TYPE_ONEONONE,
+					false);
 
 			if (err) {
 				warning("wcall(%p): recv_msg: wcall_add "

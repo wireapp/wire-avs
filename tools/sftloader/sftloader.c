@@ -19,7 +19,7 @@ struct sftloader {
 	
 	char *convid;
 	char *sft_url;
-	char *start_url;
+	char *sfts_all;
 	bool is_federating;
 	uint32_t ncalls;
 	uint32_t nusers;
@@ -68,9 +68,11 @@ void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps);
 void test_capturer_stop(void);
 
 static struct sftloader *sftloader = NULL;
+#if 0
 const static char fake_userid[] = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const static char fake_clientid[] = "aaaaaaaaaaaaaaaa";
 const static char fake_secret[] = "ZG9udGxvb2tkb250bG9vaw==";
+#endif
 
 static void ctx_destructor(void *arg)
 {
@@ -122,7 +124,8 @@ static int send_handler(void *ctx, const char *convid,
 	struct le *le;
 	
 	
-	re_printf("su: %p send_handler: %s / %s\n", su, userid_self, clientid_self);
+	re_printf("su: %p send_handler: %s / %s\n"
+		  "JSON=%s\n", su, userid_self, clientid_self, data);
 
 	LIST_FOREACH(&sftloader->userl, le) {
 		struct sft_user *uu = le->data;
@@ -135,7 +138,8 @@ static int send_handler(void *ctx, const char *convid,
 			       0, 0,
 			       convid,
 			       userid_self, clientid_self,
-			       WCALL_CONV_TYPE_CONFERENCE_MLS);
+			       WCALL_CONV_TYPE_CONFERENCE_MLS,
+			       0);
 	}
 	
 	return 0;
@@ -226,7 +230,7 @@ static void sft_resp_handler(int err, const struct http_msg *msg,
 	}
 
 	if (buf) {
-		//re_printf("sft_resp: msg %s\n", buf);
+		re_printf("sft_resp: msg %s\n", buf);
 		if (buf[0] == '<') {
 			uint8_t *c = (uint8_t*)strstr((char*)buf, "<title>");
 			int errcode = 0;
@@ -311,8 +315,10 @@ static void end_timeout(void *arg);
 static void answer_timeout(void *arg)
 {
 	struct sft_user *su = arg;
-
-	wcall_answer(su->wuser, su->convid, WCALL_CALL_TYPE_NORMAL, true);
+	int call_type = sftloader->use_video ? WCALL_CALL_TYPE_VIDEO
+	                                     : WCALL_CALL_TYPE_NORMAL;
+	
+	wcall_answer(su->wuser, su->convid, call_type, true);
 	tmr_start(&su->tmr.duration, sftloader->duration, end_timeout, su);	
 }
 
@@ -458,24 +464,37 @@ static void cfg_timeout(void *arg)
 	}
 	json_object_array_add(jsfts, jsft);
 
-	jurls = json_object_new_array();
-	jsft = jzon_alloc_object();
-	jurl = json_object_new_string(url);
-	if (!jurls || !jsft || !jurl) {
-		err = ENOMEM;
-		goto out;
+	{
+	  char *sfts_all;
+	  char *at;
+	  char *surl;
+
+	  if (sftloader->sfts_all) {	  
+	    str_dup(&sfts_all, sftloader->sfts_all);
+	  }
+	  else {
+	    sfts_all = url;
+	  }
+
+	  surl = strtok_r(sfts_all, ",", &at);
+	  while(surl) {
+	    jurls = json_object_new_array();
+	    jsft = jzon_alloc_object();
+	    jurl = json_object_new_string(surl);
+	    if (!jurls || !jsft || !jurl) {
+	      mem_deref(sfts_all);
+	      err = ENOMEM;
+	      goto out;
+	    }
+	    json_object_array_add(jurls, jurl);
+	    json_object_object_add(jsft, "urls", jurls);	  
+	    json_object_array_add(jsfts_all, jsft);
+
+	    surl = strtok_r(NULL, ",", &at);
+	  }
+	  if (sfts_all != url)
+	    mem_deref(sfts_all);
 	}
-	json_object_array_add(jurls, jurl);
-	json_object_object_add(jsft, "urls", jurls);
-	if (user) {
-		juser = json_object_new_string(user);
-		json_object_object_add(jsft, "username", juser);
-	}
-	if (cred) {
-		jcred = json_object_new_string(cred);
-		json_object_object_add(jsft, "credential", jcred);
-	}
-	json_object_array_add(jsfts_all, jsft);
 	
 	mem_deref(url);
 
@@ -507,6 +526,7 @@ static int cfg_handler(WUSER_HANDLE wuser, void *arg)
 	return 0;
 }
 
+#if 0
 static void create_confstart(char *buf, size_t *blen)
 {
 	memset(buf, 0, *blen);
@@ -531,6 +551,7 @@ static void create_confstart(char *buf, size_t *blen)
 	*blen = strlen(buf);
 	re_printf("confstart=%s\n", buf);
 }
+#endif
 
 static void req_clients_handler(WUSER_HANDLE wuser,
 				const char *convid, void *arg)
@@ -760,7 +781,7 @@ static int create_user(uint32_t uidno, uint32_t cidno)
 	return 0;
 }
 
-static void call_timeout(void *arg);
+//static void call_timeout(void *arg);
 
 
 static void end_timeout(void *arg)
@@ -772,6 +793,8 @@ static void end_timeout(void *arg)
 	wcall_end(su->wuser, su->convid);
 }
 
+
+#if 0
 static void call_timeout(void *arg)
 {
 	char cs_buf[2048];
@@ -799,15 +822,30 @@ static void call_timeout(void *arg)
 
 	//tmr_start(&su->tmr_duration, sftloader->duration, end_timeout, su);
 }
+#endif
+
+static void start_call(struct sft_user *su)
+{
+	int call_type = sftloader->use_video ? WCALL_CALL_TYPE_VIDEO
+	                                     : WCALL_CALL_TYPE_NORMAL;
+
+        wcall_start(su->wuser, sftloader->convid, call_type,
+		    WCALL_CONV_TYPE_CONFERENCE_MLS, 1, 0);
+}
 
 static void start_timeout(void *arg)
 {
 	struct le *le = sftloader->userl.head;
 	struct sft_user *su = le ? le->data : NULL;
 
+
+	if (su)
+	  start_call(su);
+#if 0
 	if (su) {
 	    tmr_start(&su->tmr.t, 500, call_timeout, su);
 	}
+#endif
 }
 
 static const char *level_prefix(enum log_level level)
@@ -895,7 +933,7 @@ static void sl_destructor(void *arg)
 
 	mem_deref(sl->convid);
 	mem_deref(sl->sft_url);
-	mem_deref(sl->start_url);
+	mem_deref(sl->sfts_all);
 	mem_deref(sl->dnsc);
 	
 }
@@ -946,7 +984,7 @@ int main(int argc, char **argv)
 			break;
 
 		case 'S':
-			str_dup(&sftloader->start_url, optarg);
+		        str_dup(&sftloader->sfts_all, optarg);
 			break;
 
 		case 't':
@@ -985,7 +1023,7 @@ int main(int argc, char **argv)
 		create_user(i, sftloader->clientno);
 	}
 	tmr_init(&sftloader->tmr);
-	tmr_start(&sftloader->tmr, 1, start_timeout, NULL);
+	tmr_start(&sftloader->tmr, 500, start_timeout, NULL);
 	
 	re_main(signal_handler);
 

@@ -1029,7 +1029,7 @@ void calling3_recv_msg(const char *convid,
 	int conv_type = engine_conv2type(conv);
 	err = wcall_recv_msg(calling3.wuser, (uint8_t *)data, len,
 		       now.sec, timestamp->sec,
-		       convid, from_userid, from_clientid, conv_type);
+			     convid, from_userid, from_clientid, conv_type, false);
 
 	if (err == WCALL_ERROR_UNKNOWN_PROTOCOL) {
 		warning("calling3: recv_msg: unknown protocol, please update your client!\n");
@@ -1266,7 +1266,8 @@ int calling3_start(struct engine_conv *conv)
 
 	ret = wcall_start(calling3.wuser, conv->id,
 			  call_type, conv_type,
-			  zcall_audio_cbr);
+			  zcall_audio_cbr,
+			  false);
 	if (ret < 0) {
 		warning("start: wcall_start failed\n");
 		goto out;

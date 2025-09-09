@@ -2553,7 +2553,8 @@ int ccall_alloc(struct ccall **ccallp,
 		const char *convid,
 		const char *userid_self,
 		const char *clientid,
-		bool is_mls_call)
+		bool is_mls_call,
+		bool meeting)
 {
 	char convid_anon[ANON_ID_LEN];
 	char userid_anon[ANON_ID_LEN];
@@ -2616,6 +2617,7 @@ int ccall_alloc(struct ccall **ccallp,
 	ccall->state = CCALL_STATE_IDLE;
 	ccall->stop_ringing_reason = CCALL_STOP_RINGING_NONE;
 	ccall->is_mls_call = is_mls_call;
+	ccall->meeting = meeting;
 	ccall->metrics.conv_type = is_mls_call ? ICALL_CONV_TYPE_CONFERENCE_MLS : ICALL_CONV_TYPE_CONFERENCE;
 
 	tmr_init(&ccall->tmr_connect);
@@ -3407,6 +3409,9 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 				should_ring = false;
 			}
 
+			if (ccall->meeting) {
+			         should_ring = false;
+			}
 			ccall->is_ringing = should_ring;
 			set_state(ccall, CCALL_STATE_INCOMING);
 
