@@ -347,7 +347,7 @@ int wcall_set_background(WUSER_HANDLE wuser, int background);
 int wcall_start(WUSER_HANDLE wuser, const char *convid,
 		int call_type, /*WCALL_CALL_TYPE...*/
 		int conv_type, /*WCALL_CONV_TYPE...*/
-		int audio_cbr, /*bool*/
+		int audio_cbr /*bool*/,
                 int meeting /*bool*/);
 
 /* Returns 0 if successfull
