@@ -1686,7 +1686,10 @@ public:
 			return;
 
 		auto trxs = pf_->peerConn->GetTransceivers();
-		info("pf(%p): %d trxs\n", pf_, (int)trxs.size());
+		bool is_old_api = std::any_of(trxs.begin(), trxs.end(),[](const auto& t) { return t->mid() == "video"; });
+
+		info("pf(%p): %d trxs, oldApi: %d\n", pf_, (int)trxs.size(), is_old_api);
+
 		for(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> txrx: trxs) {
 			std::string mid = txrx->mid().value_or("-");
 
@@ -1694,7 +1697,7 @@ public:
 			webrtc::RtpParameters params = sender->GetParameters();
 
 			if (txrx->media_type() != cricket::MEDIA_TYPE_VIDEO
-			    || (mid != "video" && mid != "1"))
+			    || (mid != "video" && (mid != "1" && !is_old_api)))
 				continue;
 
 			if (pf_->call_type == ICALL_CALL_TYPE_VIDEO ||
