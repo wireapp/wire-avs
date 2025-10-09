@@ -183,6 +183,8 @@ typedef void (wcall_req_new_epoch_h)(WUSER_HANDLE wuser,
 #define WCALL_REASON_EVERYONE_LEFT     13
 #define WCALL_REASON_AUTH_FAILED       14
 #define WCALL_REASON_AUTH_FAILED_START 15
+#define WCALL_REASON_DURATION          16
+
 
 const char *wcall_reason_name(int reason);
 
@@ -443,6 +445,8 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 
 void wcall_set_req_new_epoch_handler(WUSER_HANDLE wuser,
 				     wcall_req_new_epoch_h *req_new_epochh);
+
+void wcall_set_duration(WUSER_HANDLE wuser, const char *convid, int duration);
 
 int wcall_get_mute(WUSER_HANDLE wuser);
 void wcall_set_mute(WUSER_HANDLE wuser, int muted);

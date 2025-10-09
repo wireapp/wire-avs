@@ -611,7 +611,8 @@ int egcall_alloc(struct egcall **egcallp,
 			    egcall_debug,
 			    egcall_stats,
 			    NULL, // egcall_set_background
-			    NULL);
+			    NULL, // egcall_activate
+			    NULL);// egcall_set_duration
 out:
 	if (err == 0) {
 		*egcallp = egcall;

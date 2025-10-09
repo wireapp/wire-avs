@@ -1089,7 +1089,8 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 			    _icall_debug,
 			    _icall_stats,
 			    _icall_set_background,
-			    _icall_activate);
+			    _icall_activate,
+			    NULL);
 
 	list_append(ecalls, &ecall->le, ecall);
 	list_append(&g_ecalls, &ecall->ecall_le, ecall);

@@ -90,5 +90,7 @@ int wcall_i_set_epoch_info(struct wcall *wcall,
 void wcall_i_process_notifications(struct calling_instance *inst,
 				   bool processing);
 
+void wcall_i_set_duration(struct wcall *wcall, int duration);
+
 void wcall_marshal_destroy(struct calling_instance *inst);
 

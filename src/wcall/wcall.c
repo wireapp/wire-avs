@@ -1231,6 +1231,10 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 		wreason = WCALL_REASON_AUTH_FAILED_START;
 		break;
 
+	case ICALL_REASON_DURATION:
+	        wreason = WCALL_REASON_DURATION;
+	        break;
+
 	default:
 		wreason = WCALL_REASON_NORMAL;
 		break;
@@ -3348,6 +3352,17 @@ void wcall_set_data_chan_estab_handler(WUSER_HANDLE wuser,
 }
 
 
+AVS_EXPORT
+void wcall_i_set_duration(struct wcall *wcall, int duration)
+{
+	if (wcall && wcall->icall) {
+		ICALL_CALL(wcall->icall,
+			   set_duration,
+			   duration);
+	}
+}
+
+
 #if 0 /* XXX Disabled for release-3.5 (enable again for proper integration with clients) */
 static bool call_restart_handler(struct le *le, void *arg)
 {
@@ -3762,6 +3777,7 @@ const char *wcall_reason_name(int reason)
 	case WCALL_REASON_EVERYONE_LEFT:      return "EveryoneLeft";
 	case WCALL_REASON_AUTH_FAILED:        return "AuthFailed";
 	case WCALL_REASON_AUTH_FAILED_START:  return "AuthFailedStart";
+	case WCALL_REASON_DURATION:           return "Duration";
 
 	default: return "???";
 	}
