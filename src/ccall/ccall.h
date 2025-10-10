@@ -154,6 +154,5 @@ struct ccall {
 	        int start_duration;
 
 	        struct tmr tmr_duration;
-	        struct tmr tmr_term;
 	} meeting;
 };

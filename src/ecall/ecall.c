@@ -758,10 +758,10 @@ static int _icall_add_turnserver(struct icall *icall, struct zapi_ice_server *sr
 
 
 static int _icall_start(struct icall *icall, enum icall_call_type call_type,
-			bool audio_cbr)
+			bool audio_cbr, bool meeting)
 {
 	return ecall_start((struct ecall*)icall, call_type,
-			   audio_cbr);
+			   audio_cbr, meeting);
 }
 
 
@@ -911,6 +911,9 @@ int ecall_dce_send(struct ecall *ecall, struct mbuf *mb)
 
 	err = IFLOW_CALLE(ecall->flow, dce_send,
 		mbuf_buf(mb), mbuf_get_left(mb));
+
+	if (ENOENT == err) {
+	}
 
 	return err;
 }
@@ -2178,10 +2181,12 @@ static void update_mute_props(struct ecall *ecall)
 }
 
 int ecall_start(struct ecall *ecall, enum icall_call_type call_type,
-		bool audio_cbr)
+		bool audio_cbr, bool meeting)
 {
 	int err;
 
+	(void)meeting;
+	
 	info("ecall(%p): start\n", ecall);
 
 	if (!ecall)

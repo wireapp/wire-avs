@@ -113,7 +113,8 @@ typedef int  (icall_add_turnserver)(struct icall *icall,
 typedef int  (icall_add_sft)(struct icall *icall,
 			     const char *sft_url);
 typedef int  (icall_start)(struct icall *icall,
-			   enum icall_call_type call_type, bool audio_cbr);
+			   enum icall_call_type call_type, bool audio_cbr,
+			   bool meeting);
 typedef int  (icall_answer)(struct icall *icall,
 			    enum icall_call_type call_type, bool audio_cbr);
 typedef void (icall_end)(struct icall *icall);

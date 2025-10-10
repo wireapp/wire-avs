@@ -264,6 +264,7 @@ out:
 	return md;
 }
 
+
 static void mqueue_handler(int id, void *data, void *arg)
 {
 	struct mq_data *md = data;
@@ -323,6 +324,14 @@ static void mqueue_handler(int id, void *data, void *arg)
 					md->u.start.meeting);
 			if (err || !wcall)
 				goto out;
+		}
+		{
+		       struct duration_entry *dent;
+		       dent = wcall_duration_lookup(md->inst, md->convid);
+		       if (dent) {
+			       wcall_i_set_duration(wcall, dent->duration);
+			       mem_deref(dent);
+		       }
 		}
 		err = wcall_i_start(wcall,
 				    md->u.start.call_type,
@@ -423,11 +432,12 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case WCALL_MEV_SET_DURATION:
-		if (!wcall) {
-			err = ENOENT;
-			goto out;
+	        if (wcall) {
+	    	        wcall_i_set_duration(wcall, md->u.set_duration.duration);
+	        }
+		else {
+		        wcall_duration_add(md->inst, md->convid, md->u.set_duration.duration);
 		}	  
-	        wcall_i_set_duration(wcall, md->u.set_duration.duration);
 		break;
 
 	case WCALL_MEV_REQ_VSTREAMS:

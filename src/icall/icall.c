@@ -73,6 +73,7 @@ void icall_set_functions(struct icall *icall,
 	icall->stats			= stats;
 	icall->set_background           = set_background;
 	icall->activate                 = activate;
+	icall->set_duration             = set_duration;
 }
 
 

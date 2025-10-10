@@ -38,7 +38,7 @@ int ecall_add_turnserver(struct ecall *ecall,
 			 struct zapi_ice_server *srv);
 int  ecall_start(struct ecall *ecall,
 		 enum icall_call_type call_type,
-		 bool audio_cbr);
+		 bool audio_cbr, bool meeting);
 int  ecall_answer(struct ecall *ecall,
 		  enum icall_call_type call_type,
 		  bool audio_cbr);

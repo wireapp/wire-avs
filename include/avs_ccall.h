@@ -50,7 +50,7 @@ int  ccall_add_sft(struct icall *icall, const char *sft_url);
 
 int  ccall_start(struct icall *icall,
 		 enum icall_call_type call_type,
-		 bool audio_cbr);
+		 bool audio_cbr, bool meeting);
 
 int  ccall_answer(struct icall *icall,
 		  enum icall_call_type call_type,

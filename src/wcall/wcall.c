@@ -163,12 +163,14 @@ struct calling_instance {
 
 	bool processing_notifications;
 	struct list pending_eventl;
+        struct list durationl;
 };
 
 struct wcall {
 	struct calling_instance *inst;
 	char *convid;
 	int conv_type;
+        int duration;
 
 	struct icall *icall;
 
@@ -1103,6 +1105,9 @@ static int err2reason(int err)
 	case EEVERYONELEFT:
 		return WCALL_REASON_EVERYONE_LEFT;
 
+	case EDURATION:
+	        return WCALL_REASON_DURATION;
+		
 	default:
 		/* TODO: please convert new errors */
 		warning("wcall: default reason (%d) (%m)\n", err, err);
@@ -2793,8 +2798,6 @@ int wcall_i_start(struct wcall *wcall,
 	bool cbr = audio_cbr != 0;
 	char convid_anon[ANON_ID_LEN];
 
-	(void)meeting; /* reserved for future use */
-
 	call_type = (call_type == WCALL_CALL_TYPE_FORCED_AUDIO) ?
 		    WCALL_CALL_TYPE_NORMAL : call_type;
 
@@ -2831,8 +2834,15 @@ int wcall_i_start(struct wcall *wcall,
 				   ICALL_VIDEO_STATE_STOPPED);
 		}
 
+		if (wcall->duration) {
+		        ICALL_CALL(wcall->icall,
+				   set_duration,
+				   wcall->duration);
+
+		}
+
 		err = ICALL_CALLE(wcall->icall, start,
-			call_type, cbr);
+				  call_type, cbr, meeting);
 		if (err)
 			goto out;
 	}
@@ -3355,7 +3365,15 @@ void wcall_set_data_chan_estab_handler(WUSER_HANDLE wuser,
 AVS_EXPORT
 void wcall_i_set_duration(struct wcall *wcall, int duration)
 {
-	if (wcall && wcall->icall) {
+        info("wcall(%p): set_duration: icall: %p\n", wcall, wcall->icall);
+
+	if (!wcall) {
+	        return;
+	}
+
+	wcall->duration = duration;
+	
+	if (wcall->icall) {
 		ICALL_CALL(wcall->icall,
 			   set_duration,
 			   duration);
@@ -4360,3 +4378,51 @@ int wcall_set_background(WUSER_HANDLE wuser, int background)
 
 	return 0;
 }
+
+
+static void duration_destructor(void *arg)
+{
+        struct duration_entry *dent = arg;
+
+	mem_deref(dent->convid);
+
+	list_unlink(&dent->le);
+}
+
+int wcall_duration_add(struct calling_instance *inst,
+		       const char *convid,
+		       int duration)
+{
+        struct duration_entry *dent;
+
+	dent = mem_zalloc(sizeof(*dent), duration_destructor);
+	if (!dent)
+	        return ENOMEM;
+
+	str_dup(&dent->convid, convid);
+	dent->duration = duration;
+
+	list_append(&inst->durationl, &dent->le, dent);
+
+	return 0;
+}
+
+struct duration_entry *wcall_duration_lookup(struct calling_instance *inst,
+					     const char *convid)
+{
+       bool found = false;
+       struct duration_entry *dent;
+       struct le *le;
+  
+       if (!inst)
+	       return NULL;
+
+       le = inst->durationl.head;
+       while(le && !found) {
+	       dent = le->data;
+	       found = streq(dent->convid, convid);
+       }
+
+       return found ? dent : NULL;
+}
+
