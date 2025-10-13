@@ -993,6 +993,18 @@ static void ecall_aulevel_handler(struct icall *icall, struct list *levell, void
 		      icall, levell, ccall->icall.arg);
 }
 
+static void durterm_timeout_handler(void *arg)
+{
+        struct ccall *ccall = arg;
+
+	info("ccall(%p): duration terminate\n", ccall);
+
+	set_state(ccall, CCALL_STATE_IDLE);
+	ICALL_CALL_CB(ccall->icall, closeh,
+		      &ccall->icall, ccall->error, &ccall->metrics,
+		      ECONN_MESSAGE_TIME_UNKNOWN,
+		      NULL, NULL, ccall->icall.arg);
+}
 
 static void ecall_close_handler(struct icall *icall,
 				int err,
@@ -1059,6 +1071,11 @@ static void ecall_close_handler(struct icall *icall,
 				       false, NULL, false);
 		}
 		break;
+
+	case EDURATION:
+	        if (!should_end) {
+		}
+		break;
 	}
 
 	if (metrics) {
@@ -1080,7 +1097,11 @@ static void ecall_close_handler(struct icall *icall,
 		}
 	}
 	else {
-	        if (ccall->error != EDURATION) {
+	        if (ccall->error == EDURATION) {
+		        tmr_start(&ccall->meeting.tmr_term, CCALL_DURATION_TERM_TIMEOUT,
+				  durterm_timeout_handler, ccall);
+		}
+		else {
 		        set_state(ccall, CCALL_STATE_INCOMING);
 
 			ICALL_CALL_CB(ccall->icall, leaveh,
@@ -4064,15 +4085,11 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 	case CCALL_STATE_CONNECTING:
 	case CCALL_STATE_CONNECTED:
 	case CCALL_STATE_ACTIVE:
-		if (err != EDURATION ) {
-		        set_state(ccall, CCALL_STATE_TERMINATING);
-		}
-		else {
-		        set_state(ccall, CCALL_STATE_IDLE);
-		        ICALL_CALL_CB(ccall->icall, closeh,
-				      &ccall->icall, err,
-				      &ccall->metrics, ECONN_MESSAGE_TIME_UNKNOWN,
-				      NULL, NULL, ccall->icall.arg);
+	        set_state(ccall, CCALL_STATE_TERMINATING);
+		if (err == EDURATION ) {
+		        ICALL_CALL_CB(ccall->icall, leaveh,
+				      &ccall->icall, ICALL_REASON_DURATION,
+				      ECONN_MESSAGE_TIME_UNKNOWN, ccall->icall.arg);
 		}
 		break;
 	}
