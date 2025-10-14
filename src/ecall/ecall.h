@@ -114,7 +114,7 @@ struct ecall {
 	struct le ecall_le;
 	enum icall_call_type call_type;
 	enum icall_vstate vstate;
-    enum icall_vstate glare_vstate;
+        enum icall_vstate glare_vstate;
 	struct ecall_conf conf;
 	struct msystem *msys;
 	struct econn *econn;
@@ -154,7 +154,7 @@ struct ecall {
 	bool answered;
 	bool established;
 	bool update;
-    bool update_glare;
+        bool update_glare;
 	bool delayed_restart;
 	int32_t call_setup_time;
 	int32_t call_estab_time;
@@ -210,12 +210,14 @@ struct ecall {
 	bool should_reject;
 	ecall_ping_h *pingh;
 
-	struct{
+	struct {
 		struct icall_metrics m;
 		uint32_t video_local;
 		uint32_t video_remote;
 		bool inc_reconnects;
 	} metrics;
+
+        struct list dce_pendingl;
 };
 
 

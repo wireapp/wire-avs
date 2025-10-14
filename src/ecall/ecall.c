@@ -63,6 +63,11 @@ static const struct ecall_conf default_conf = {
 	},
 };
 
+struct dce_pending_entry {
+        struct mbuf *mb;
+        struct le le;
+};
+
 
 static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 		      enum icall_call_type call_type,
@@ -645,6 +650,8 @@ static void ecall_destructor(void *data)
 	
 	list_flush(&ecall->tracel);
 
+	list_flush(&ecall->dce_pendingl);
+
 	/* last thing to do */
 	ecall->magic = 0;
 }
@@ -902,6 +909,13 @@ static int _icall_msg_recv(struct icall *icall,
 }
 
 
+static void dpe_destructor(void *arg)
+{
+       struct dce_pending_entry *dpe = arg;
+
+       mem_deref(dpe->mb);
+}
+
 int ecall_dce_send(struct ecall *ecall, struct mbuf *mb)
 {
 	int err;
@@ -911,6 +925,27 @@ int ecall_dce_send(struct ecall *ecall, struct mbuf *mb)
 
 	err = IFLOW_CALLE(ecall->flow, dce_send,
 		mbuf_buf(mb), mbuf_get_left(mb));
+
+	if (ENOENT == err) {
+	        struct dce_pending_entry *dpe;
+
+		dpe = mem_zalloc(sizeof(*dpe), dpe_destructor);
+		if (!dpe) {
+		        err = ENOMEM; 
+		}
+		else {
+		        dpe->mb = mbuf_alloc(mb->size);
+			if (!dpe->mb) {
+			        err = ENOMEM;
+			}
+			else {
+			        mbuf_write_mem(dpe->mb, mbuf_buf(mb), mbuf_get_left(mb));
+
+				list_append(&ecall->dce_pendingl, &dpe->le, dpe);
+				err = 0;
+			}
+		}
+	}
 
 	return err;
 }
@@ -1637,6 +1672,16 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 				" failed (%m)\n", err);
 			goto error;
 		}
+	}
+
+	while(ecall->dce_pendingl.head) {
+	        struct le *le = ecall->dce_pendingl.head;
+		struct dce_pending_entry *dpe = le->data;
+
+		err = ecall_dce_send(ecall, dpe->mb);
+
+		list_unlink(&dpe->le);
+		mem_deref(dpe);
 	}
 
 	ecall->update = false;
