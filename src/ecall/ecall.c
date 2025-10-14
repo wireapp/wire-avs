@@ -650,6 +650,8 @@ static void ecall_destructor(void *data)
 	
 	list_flush(&ecall->tracel);
 
+	list_flush(&ecall->dce_pendingl);
+
 	/* last thing to do */
 	ecall->magic = 0;
 }
@@ -912,7 +914,6 @@ static void dpe_destructor(void *arg)
         struct dce_pending_entry *dpe = arg;
 
 	mem_deref(dpe->mb);
-	list_unlink(&dpe->le);
 }
 
 int ecall_dce_send(struct ecall *ecall, struct mbuf *mb)
@@ -929,11 +930,22 @@ int ecall_dce_send(struct ecall *ecall, struct mbuf *mb)
 	        struct dce_pending_entry *dpe;
 
 		dpe = mem_zalloc(sizeof(*dpe), dpe_destructor);
-		dpe->mb = mb;
+		if (!dpe) {
+		        err = ENOMEM; 
+		}
+		else {
+		        dpe->mb = mbuf_alloc(mb->size);
+			if (!dpe->mb) {
+			        err = ENOMEM;
+			}
+			else {
+			        mbuf_write_mem(dpe->mb, mbuf_buf(mb), mbuf_get_left(mb));
 
-		list_append(&ecall->dce_pendingl, &dpe->le, dpe);
+				list_append(&ecall->dce_pendingl, &dpe->le, dpe);
+				err = 0;
+			}
+		}
 
-		return 0;
 	}
 
 	return err;
@@ -1668,9 +1680,8 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		struct dce_pending_entry *dpe = le->data;
 
 		err = ecall_dce_send(ecall, dpe->mb);
-		if (0 == err) {
-	                dpe->mb = NULL;
-		}
+
+		list_unlink(&dpe->le);
 		mem_deref(dpe); /* This unlinks the dpe from the list */
 	}
 
