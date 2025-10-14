@@ -63,6 +63,11 @@ static const struct ecall_conf default_conf = {
 	},
 };
 
+struct dce_pending_entry {
+        struct mbuf *mb;
+        struct le le;
+};
+
 
 static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 		      enum icall_call_type call_type,
@@ -902,6 +907,14 @@ static int _icall_msg_recv(struct icall *icall,
 }
 
 
+static void dpe_destructor(void *arg)
+{
+        struct dce_pending_entry *dpe = arg;
+
+	mem_deref(dpe->mb);
+	list_unlink(&dpe->le);
+}
+
 int ecall_dce_send(struct ecall *ecall, struct mbuf *mb)
 {
 	int err;
@@ -911,6 +924,17 @@ int ecall_dce_send(struct ecall *ecall, struct mbuf *mb)
 
 	err = IFLOW_CALLE(ecall->flow, dce_send,
 		mbuf_buf(mb), mbuf_get_left(mb));
+
+	if (ENOENT == err) {
+	        struct dce_pending_entry *dpe;
+
+		dpe = mem_zalloc(sizeof(*dpe), dpe_destructor);
+		dpe->mb = mb;
+
+		list_append(&ecall->dce_pendingl, &dpe->le, dpe);
+
+		return 0;
+	}
 
 	return err;
 }
@@ -1637,6 +1661,17 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 				" failed (%m)\n", err);
 			goto error;
 		}
+	}
+
+	while(ecall->dce_pendingl.head) {
+	        struct le *le = ecall->dce_pendingl.head;
+		struct dce_pending_entry *dpe = le->data;
+
+		err = ecall_dce_send(ecall, dpe->mb);
+		if (0 == err) {
+	                dpe->mb = NULL;
+		}
+		mem_deref(dpe); /* This unlinks the dpe from the list */
 	}
 
 	ecall->update = false;
