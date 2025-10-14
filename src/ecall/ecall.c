@@ -911,9 +911,9 @@ static int _icall_msg_recv(struct icall *icall,
 
 static void dpe_destructor(void *arg)
 {
-        struct dce_pending_entry *dpe = arg;
+       struct dce_pending_entry *dpe = arg;
 
-	mem_deref(dpe->mb);
+       mem_deref(dpe->mb);
 }
 
 int ecall_dce_send(struct ecall *ecall, struct mbuf *mb)
@@ -945,7 +945,6 @@ int ecall_dce_send(struct ecall *ecall, struct mbuf *mb)
 				err = 0;
 			}
 		}
-
 	}
 
 	return err;
@@ -1682,7 +1681,7 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		err = ecall_dce_send(ecall, dpe->mb);
 
 		list_unlink(&dpe->le);
-		mem_deref(dpe); /* This unlinks the dpe from the list */
+		mem_deref(dpe);
 	}
 
 	ecall->update = false;
