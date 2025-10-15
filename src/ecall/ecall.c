@@ -940,7 +940,11 @@ int ecall_dce_send(struct ecall *ecall, struct mbuf *mb)
 			}
 			else {
 			        mbuf_write_mem(dpe->mb, mbuf_buf(mb), mbuf_get_left(mb));
+				mb->pos = 0;
 
+				info("ecall(%p): dce_send adding pending write of: %zubytes\n",
+				     ecall, mbuf_get_left(mb));
+				
 				list_append(&ecall->dce_pendingl, &dpe->le, dpe);
 				err = 0;
 			}
@@ -1678,6 +1682,9 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 	        struct le *le = ecall->dce_pendingl.head;
 		struct dce_pending_entry *dpe = le->data;
 
+		info("ecall(%p): dce_estab: sending pending dce message: %zubytes\n",
+		     ecall, mbuf_get_left(dpe->mb));
+		
 		err = ecall_dce_send(ecall, dpe->mb);
 
 		list_unlink(&dpe->le);
