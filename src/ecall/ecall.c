@@ -940,10 +940,10 @@ int ecall_dce_send(struct ecall *ecall, struct mbuf *mb)
 			}
 			else {
 			        mbuf_write_mem(dpe->mb, mbuf_buf(mb), mbuf_get_left(mb));
-				mb->pos = 0;
+				dpe->mb->pos = 0;
 
 				info("ecall(%p): dce_send adding pending write of: %zubytes\n",
-				     ecall, mbuf_get_left(mb));
+				     ecall, mbuf_get_left(dpe->mb));
 				
 				list_append(&ecall->dce_pendingl, &dpe->le, dpe);
 				err = 0;
