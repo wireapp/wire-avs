@@ -1883,10 +1883,18 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		ccall->someone_joined = true;
 	}
 	else {
-		tmr_start(&ccall->tmr_alone,
-			  ccall->someone_joined ? CCALL_EVERYONE_LEFT_TIMEOUT :
-						  CCALL_NOONE_JOINED_TIMEOUT,
-			  ccall_alone_timeout, ccall);
+	        if (ccall->someone_joined) {
+	                tmr_start(&ccall->tmr_alone,
+				  CCALL_EVERYONE_LEFT_TIMEOUT,
+				  ccall_alone_timeout,
+				  ccall);
+		}
+		else if (!ccall->meeting.is_set) {
+	                tmr_start(&ccall->tmr_alone,
+				  CCALL_NOONE_JOINED_TIMEOUT,
+				  ccall_alone_timeout,
+				  ccall);
+		}
 	}
 
 	if (ccall->meeting.duration && first_confpart) {
