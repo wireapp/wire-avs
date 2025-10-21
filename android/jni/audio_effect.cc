@@ -30,6 +30,8 @@
 /* JNI interface */
 #include "com_waz_audioeffect_AudioEffect.h"
 
+extern int *pcm_generate_amplitude(const char *path, int max_val,
+				   int max_sz, size_t *namps);
 
 //#ifdef ANDROID
 //#define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "AudioEffect C++", __VA_ARGS__))
@@ -192,3 +194,28 @@ JNIEXPORT jint JNICALL Java_com_waz_audioeffect_AudioEffect_applyEffectPCM(JNIEn
     
     return ret;
 }
+
+
+JNIEXPORT jintArray JNICALL Java_com_waz_audioeffect_AudioEffect_amplitudeGenerateSamples(JNIEnv* env, jobject self, jstring jpath, jint max_val, jint max_sz)
+{
+    const char *path = env->GetStringUTFChars(jpath, 0);
+    jintArray jamps;
+
+    if (path) {
+      size_t namps;
+      int *amps;
+
+      amps = pcm_generate_amplitude(path, max_val, max_sz, &namps);
+      if (amps) {
+	jamps = env->NewIntArray(namps);      
+	if (jamps) {
+	  env->SetIntArrayRegion(jamps, 0, namps, amps);
+	}
+	mem_deref(amps);
+      }
+      env->ReleaseStringUTFChars(jpath, path);
+    }
+    
+    return jamps;
+}
+
