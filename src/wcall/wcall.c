@@ -4379,6 +4379,11 @@ int wcall_set_background(WUSER_HANDLE wuser, int background)
 	return 0;
 }
 
+void wcall_set_config_version(int sft_version, int turn_version)
+{
+        msystem_set_config_version(sft_version, turn_version);
+}
+
 
 static void duration_destructor(void *arg)
 {

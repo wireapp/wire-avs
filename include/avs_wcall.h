@@ -590,6 +590,8 @@ int wcall_setup_ex(int flags);
 void wcall_set_mode(int mode);
 int  wcall_get_mode(void);
 
+void wcall_set_config_version(int sft_version, int turn_version);
+  
 #ifdef __cplusplus
 }
 #endif
