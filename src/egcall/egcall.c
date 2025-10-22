@@ -48,6 +48,7 @@ struct egcall {
 	const struct ecall_conf *conf;
 	enum icall_call_type call_type;
 	bool should_reject;
+        bool meeting;
 
 	struct dict *roster;
 	struct {
@@ -611,7 +612,8 @@ int egcall_alloc(struct egcall **egcallp,
 			    egcall_debug,
 			    egcall_stats,
 			    NULL, // egcall_set_background
-			    NULL);
+			    NULL, // egcall_activate
+			    NULL);// egcall_set_duration
 out:
 	if (err == 0) {
 		*egcallp = egcall;
@@ -650,7 +652,7 @@ int egcall_add_turnserver(struct icall *icall,
 
 
 int egcall_start(struct icall *icall, enum icall_call_type call_type,
-		 bool audio_cbr)
+		 bool audio_cbr, bool meeting)
 {
 	struct egcall *egcall = (struct egcall*)icall;
 	int err = 0;
@@ -661,6 +663,7 @@ int egcall_start(struct icall *icall, enum icall_call_type call_type,
 
 	egcall->call_type = call_type;
 	egcall->audio_cbr = audio_cbr;
+	egcall->meeting = meeting;
 
 	info("egcall(%p): egcall_start state=%s\n", egcall, egcall_state_name(egcall->state));
 	if (egcall->state != EGCALL_STATE_IDLE &&
@@ -1362,7 +1365,7 @@ static void recv_start(struct egcall *egcall,
 			}
 		}
 
-		err = ecall_start(ecall, egcall->call_type, egcall->audio_cbr);
+		err = ecall_start(ecall, egcall->call_type, egcall->audio_cbr, egcall->meeting);
 		if (EALREADY == err) {
 			err = 0;
 		}

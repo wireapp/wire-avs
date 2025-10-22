@@ -163,12 +163,14 @@ struct calling_instance {
 
 	bool processing_notifications;
 	struct list pending_eventl;
+        struct list durationl;
 };
 
 struct wcall {
 	struct calling_instance *inst;
 	char *convid;
 	int conv_type;
+        int duration;
 
 	struct icall *icall;
 
@@ -1103,6 +1105,9 @@ static int err2reason(int err)
 	case EEVERYONELEFT:
 		return WCALL_REASON_EVERYONE_LEFT;
 
+	case EDURATION:
+	        return WCALL_REASON_DURATION;
+		
 	default:
 		/* TODO: please convert new errors */
 		warning("wcall: default reason (%d) (%m)\n", err, err);
@@ -1230,6 +1235,10 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 	case ICALL_REASON_AUTH_FAILED_START:
 		wreason = WCALL_REASON_AUTH_FAILED_START;
 		break;
+
+	case ICALL_REASON_DURATION:
+	        wreason = WCALL_REASON_DURATION;
+	        break;
 
 	default:
 		wreason = WCALL_REASON_NORMAL;
@@ -2789,8 +2798,6 @@ int wcall_i_start(struct wcall *wcall,
 	bool cbr = audio_cbr != 0;
 	char convid_anon[ANON_ID_LEN];
 
-	(void)meeting; /* reserved for future use */
-
 	call_type = (call_type == WCALL_CALL_TYPE_FORCED_AUDIO) ?
 		    WCALL_CALL_TYPE_NORMAL : call_type;
 
@@ -2827,8 +2834,15 @@ int wcall_i_start(struct wcall *wcall,
 				   ICALL_VIDEO_STATE_STOPPED);
 		}
 
+		if (wcall->duration) {
+		        ICALL_CALL(wcall->icall,
+				   set_duration,
+				   wcall->duration);
+
+		}
+
 		err = ICALL_CALLE(wcall->icall, start,
-			call_type, cbr);
+				  call_type, cbr, meeting);
 		if (err)
 			goto out;
 	}
@@ -3348,6 +3362,25 @@ void wcall_set_data_chan_estab_handler(WUSER_HANDLE wuser,
 }
 
 
+AVS_EXPORT
+void wcall_i_set_duration(struct wcall *wcall, int duration)
+{
+        info("wcall(%p): set_duration: icall: %p\n", wcall, wcall->icall);
+
+	if (!wcall) {
+	        return;
+	}
+
+	wcall->duration = duration;
+	
+	if (wcall->icall) {
+		ICALL_CALL(wcall->icall,
+			   set_duration,
+			   duration);
+	}
+}
+
+
 #if 0 /* XXX Disabled for release-3.5 (enable again for proper integration with clients) */
 static bool call_restart_handler(struct le *le, void *arg)
 {
@@ -3762,6 +3795,7 @@ const char *wcall_reason_name(int reason)
 	case WCALL_REASON_EVERYONE_LEFT:      return "EveryoneLeft";
 	case WCALL_REASON_AUTH_FAILED:        return "AuthFailed";
 	case WCALL_REASON_AUTH_FAILED_START:  return "AuthFailedStart";
+	case WCALL_REASON_DURATION:           return "Duration";
 
 	default: return "???";
 	}
@@ -4344,3 +4378,56 @@ int wcall_set_background(WUSER_HANDLE wuser, int background)
 
 	return 0;
 }
+
+void wcall_set_config_version(int sft_version, int turn_version)
+{
+        msystem_set_config_version(sft_version, turn_version);
+}
+
+
+static void duration_destructor(void *arg)
+{
+        struct duration_entry *dent = arg;
+
+	mem_deref(dent->convid);
+
+	list_unlink(&dent->le);
+}
+
+int wcall_duration_add(struct calling_instance *inst,
+		       const char *convid,
+		       int duration)
+{
+        struct duration_entry *dent;
+
+	dent = mem_zalloc(sizeof(*dent), duration_destructor);
+	if (!dent)
+	        return ENOMEM;
+
+	str_dup(&dent->convid, convid);
+	dent->duration = duration;
+
+	list_append(&inst->durationl, &dent->le, dent);
+
+	return 0;
+}
+
+struct duration_entry *wcall_duration_lookup(struct calling_instance *inst,
+					     const char *convid)
+{
+       bool found = false;
+       struct duration_entry *dent;
+       struct le *le;
+  
+       if (!inst)
+	       return NULL;
+
+       le = inst->durationl.head;
+       while(le && !found) {
+	       dent = le->data;
+	       found = streq(dent->convid, convid);
+       }
+
+       return found ? dent : NULL;
+}
+

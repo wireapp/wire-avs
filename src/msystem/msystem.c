@@ -53,6 +53,11 @@ struct msystem {
 	struct list activatel;
 
 	struct msystem_proxy *proxy;
+
+        struct {
+	        int sft;
+	        int turn;
+	} config_version;
 };
 
 
@@ -645,3 +650,20 @@ struct msystem_proxy *msystem_get_proxy(void)
 	return g_msys ? g_msys->proxy : NULL;
 }
 
+void msystem_set_config_version(int sft_version, int turn_version)
+{
+        if (g_msys) {
+	        g_msys->config_version.sft = sft_version;
+		g_msys->config_version.turn = turn_version;
+	}
+}
+
+int msystem_get_sft_config_version(void)
+{
+        return g_msys ? g_msys->config_version.sft : 0;
+}
+
+int msystem_get_turn_config_version(void)
+{
+        return g_msys ? g_msys->config_version.turn : 0;
+}

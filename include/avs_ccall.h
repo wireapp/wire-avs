@@ -50,7 +50,7 @@ int  ccall_add_sft(struct icall *icall, const char *sft_url);
 
 int  ccall_start(struct icall *icall,
 		 enum icall_call_type call_type,
-		 bool audio_cbr);
+		 bool audio_cbr, bool meeting);
 
 int  ccall_answer(struct icall *icall,
 		  enum icall_call_type call_type,
@@ -100,6 +100,8 @@ int  ccall_stats_struct(const struct ccall *ccall,
 int  ccall_debug(struct re_printf *pf, const struct icall* icall);
 
 int  ccall_activate(struct icall *icall, bool active);
+void ccall_set_duration(struct icall *icall, int duration);
+
 
 const char *ccall_state_name(enum ccall_state state);
 

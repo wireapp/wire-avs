@@ -1016,6 +1016,9 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
     }
 
     const videoSenderUpdates: Promise<void>[] = []
+    // We have to check old API, because in old API the transceiver with mid==1 is a receiver and in the new API it is
+    // a sender. We have to avoid adding tracks if transceiver is receiver.
+    const isOldAPI = rtc.getTransceivers().some(t => t.mid === "video");
     tracks.forEach(track => {
         if (track.kind === 'video') {
             pc.sending_video = true;
@@ -1027,7 +1030,7 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
             if (track.kind === 'video' && pc.conv_type !== CONV_TYPE_ONEONONE) {
                 const transceivers = rtc.getTransceivers();
                 for (const trans of transceivers) {
-                    if (trans.mid === 'video' || trans.mid === '1')  {
+                    if ((trans.mid === 'video' && isOldAPI) || (trans.mid === '1' && !isOldAPI))  {
                         pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
                         const {params, layerFound} = getEncodingParameter(trans.sender, pc.vstate === PC_VIDEO_STATE_SCREENSHARE)
 

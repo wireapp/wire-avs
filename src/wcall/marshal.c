@@ -55,6 +55,7 @@ enum mq_event {
 	WCALL_MEV_REQ_VSTREAMS,
 	WCALL_MEV_SET_EPOCH_INFO,
 	WCALL_MEV_PROCESS_NOTIFICATIONS,
+	WCALL_MEV_SET_DURATION,
 };
 
 
@@ -159,6 +160,10 @@ struct mq_data {
 		struct {
 			bool processing;
 		} process_notifications;
+
+	        struct {
+		        int duration;
+	        } set_duration;
 	} u;
 };
 
@@ -259,6 +264,7 @@ out:
 	return md;
 }
 
+
 static void mqueue_handler(int id, void *data, void *arg)
 {
 	struct mq_data *md = data;
@@ -318,6 +324,14 @@ static void mqueue_handler(int id, void *data, void *arg)
 					md->u.start.meeting);
 			if (err || !wcall)
 				goto out;
+		}
+		{
+		       struct duration_entry *dent;
+		       dent = wcall_duration_lookup(md->inst, md->convid);
+		       if (dent) {
+			       wcall_i_set_duration(wcall, dent->duration);
+			       mem_deref(dent);
+		       }
 		}
 		err = wcall_i_start(wcall,
 				    md->u.start.call_type,
@@ -415,6 +429,15 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 	case WCALL_MEV_SET_MUTE:
 		wcall_i_set_mute(md->u.set_mute.muted);
+		break;
+
+	case WCALL_MEV_SET_DURATION:
+	        if (wcall) {
+	    	        wcall_i_set_duration(wcall, md->u.set_duration.duration);
+	        }
+		else {
+		        wcall_duration_add(md->inst, md->convid, md->u.set_duration.duration);
+		}	  
 		break;
 
 	case WCALL_MEV_REQ_VSTREAMS:
@@ -1230,6 +1253,39 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 
 	return err;
 }
+
+AVS_EXPORT
+void wcall_set_duration(WUSER_HANDLE wuser, const char *convid, int duration)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: set_duration: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return;
+	}
+	if (!convid) {
+		warning("wcall: set_duration: no convid set\n");
+		return;
+	}
+
+	md = md_new(inst, convid, WCALL_MEV_SET_DURATION);
+	if (!md)
+		return;
+
+	md->u.set_duration.duration = duration;
+
+	info("wcall_set_duration: inst=%p duration=%d\n", inst, duration);
+
+	err = md_enqueue(md);
+	if (err)
+		mem_deref(md);
+}
+
 
 
 AVS_EXPORT

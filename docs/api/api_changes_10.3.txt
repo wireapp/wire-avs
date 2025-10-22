@@ -1,0 +1,21 @@
+Changes introduced in AVS 10.3
+==============================
+
+Added API calls:
+  - wcall_set_duration
+  - wcall_set_config_version
+
+The wcall_set_duration API is used to set the max duration of a conference call.
+If the call is not terminated withing the time period (from the very start of the call)
+the call will be force terminated after the duration has elapsed.
+The duration parameter is expressend in seconds(s).
+
+void wcall_set_duration(WUSER_HANDLE wuser, const char *convid, int duration);
+
+The wcall_set_config_version API is used to set the version of the SFT and/or the TURN
+server to use for processing. This is usefull in order to get test clients to connect
+to different versions of the said servers depending on feature flags or other business logic.
+
+void wcall_set_config_version(int sft_version, int turn_version);
+
+		

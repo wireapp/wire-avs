@@ -32,10 +32,12 @@
 #define CCALL_QUALITY_MEDIUM_MISSING   (       1)
 #define CCALL_QUALITY_POOR_MISSING     ( CCALL_MAX_MISSING_PINGS - 1 )
 #define CCALL_NOONE_JOINED_TIMEOUT     (  300000)
-#define CCALL_EVERYONE_LEFT_TIMEOUT    (   30000)
+#define CCALL_EVERYONE_LEFT_TIMEOUT    (   90000)
 #define CCALL_ROTATE_MLS_TIMEOUT       (    5000)
 #define CCALL_MLS_KEY_AGE              (   60000)
 #define CCALL_REQ_NEW_EPOCH_TIMEOUT    (82800000)
+#define CCALL_DURATION_TERM_TIMEOUT    (   60000)
+
 
 #define CCALL_SECRET_LEN               (      16)
 #define CCALL_MAX_RECONNECT_ATTEMPTS   (       2)
@@ -108,7 +110,6 @@ struct ccall {
 	struct keystore *keystore;
 
 	enum icall_call_type call_type;
-        bool meeting;
 	enum icall_vstate vstate;
 
 	bool someone_joined;
@@ -146,4 +147,13 @@ struct ccall {
 	bool inc_reconnects;
 
 	struct list videol;
+
+        struct {
+	        bool is_set;
+	        int duration;
+	        int start_duration;
+
+	        struct tmr tmr_duration;
+	        struct tmr tmr_term;
+	} meeting;
 };
