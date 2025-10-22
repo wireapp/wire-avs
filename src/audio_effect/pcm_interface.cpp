@@ -37,6 +37,9 @@ extern "C" {
 
 #define FS_PROC 32000
 
+#define abs(a) ((a) < 0) ? (-a) : (a)
+
+
 static int get_number_of_frames(const char* pcmIn, int frame_length)
 {
     FILE *in_file;
@@ -280,3 +283,105 @@ int apply_effect_to_pcm(const char* pcmIn,
     return 0;
 }
 
+
+
+#define abs(a) ((a) < 0) ? (-a) : (a)
+
+int *pcm_generate_amplitude(const char *path, int max_val,
+			    int max_sz, size_t *namps)
+{
+    long nsamps;
+    long fsiz;
+    FILE *fp;
+    int err;
+    size_t count;
+    int16_t *samps;
+    int *amps = NULL;
+    int sec_sz = 0;
+    int i;
+    int a;
+    int d;
+    int m;
+
+    fp = fopen(path, "rb");
+    if (!fp)
+        return NULL;
+
+    err = fseek(fp, 0, SEEK_END);
+    fsiz = ftell(fp);
+    if (0 == fsiz) {
+        warning("amplitude: cannot determine file size\n");
+	goto out;
+    }  
+  
+    nsamps = fsiz / sizeof(int16_t);
+    if (nsamps == 0) {    
+        warning("amplitude: 0 samples\n");
+	goto out;
+    }
+    samps = (int16_t *)mem_alloc(nsamps * sizeof(int16_t), NULL);
+    if (!samps) {
+        warning("amplitude: cannot allocate samples buffer\n");
+	err = ENOMEM;
+	goto out;
+    }
+
+    rewind(fp);
+    count = fread(samps, sizeof(int16_t), nsamps, fp);
+    if (count != nsamps) {
+        warning("amplitude: read missmatch: %zu/%zu\n",
+		count, nsamps);
+	err = EPROTO;
+	goto out;
+    }
+    if (nsamps < max_sz) {
+        max_sz = nsamps;
+    }
+    sec_sz = nsamps / max_sz;
+
+    amps = (int *)mem_zalloc(sizeof(*amps) * max_sz, NULL);
+    if (!amps) {
+        warning("amplitude: cannot allocate amplitudes\n");
+        err = ENOMEM;
+	goto out;
+    }
+
+    i = 0;
+    a = 0;
+    m = 0;
+    while(i < nsamps && a < max_sz) {
+        int avg = 0;
+	int s = 0;
+
+	for(s = 0; s < sec_sz && i < nsamps; ++s) {
+	  int g = (int)samps[i];
+	  avg += abs(g);
+	  ++i;
+	}
+	avg = avg / s;
+	m = avg > m ? avg : m;
+	amps[a++] = avg;
+    }
+
+    /* Equalize -> Scale down amplitudes to max value */
+    d = m / (max_val - 1);
+    for(i = 0; i < a; ++i) {
+        int s = amps[i] / d;
+
+	amps[i] = s + 1;
+    }
+    
+ out:
+    if (err) {
+        amps = (int *)mem_deref(amps);
+    }
+    else {
+        if (namps) {
+	    *namps = max_sz;
+	}
+    }
+    mem_deref(samps);
+    fclose(fp);
+
+    return amps;
+}
