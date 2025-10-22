@@ -348,6 +348,7 @@ int *pcm_generate_amplitude(const char *path, int max_val,
 
     i = 0;
     a = 0;
+    m = 0;
     while(i < nsamps && a < max_sz) {
         int avg = 0;
 	int s = 0;
@@ -358,23 +359,16 @@ int *pcm_generate_amplitude(const char *path, int max_val,
 	  ++i;
 	}
 	avg = avg / s;
+	m = avg > m ? avg : m;
 	amps[a++] = avg;
     }
 
-    /* Find max amplitude */
-    m = 0;
-    for(i = 0; i < a; ++i) {
-        int s = amps[i];
-
-	m = s > m ? s : m;
-    }
-    
     /* Equalize -> Scale down amplitudes to max value */
     d = m / (max_val - 1);
     for(i = 0; i < a; ++i) {
         int s = amps[i] / d;
 
-	amps[i] = s;
+	amps[i] = s + 1;
     }
     
  out:
