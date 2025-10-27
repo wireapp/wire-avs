@@ -10,7 +10,7 @@ mavenPublishing {
     pomFromGradleProperties()
     signAllPublications()
 }
-
+version = "10.1.1000"
 afterEvaluate {
     publishing {
         publications {

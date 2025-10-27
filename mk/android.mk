@@ -92,7 +92,7 @@ $(AND_JAR): android_classes
 	@unzip -o contrib/webrtc/$(WEBRTC_VER)/java/base.jar -d $(AND_CLS_TARGET)
 	@unzip -o contrib/webrtc/$(WEBRTC_VER)/java/audiodev.jar -d $(AND_CLS_TARGET)
 	@rm -rf $(AND_CLS_TARGET)/META-INF
-	cp -R android/lib/build/intermediates/javac/debug/classes/* $(AND_CLS_TARGET)
+	cp -R android/lib/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/* $(AND_CLS_TARGET)
 	@echo "  ZIP  $(AVS_OS)-$(AVS_ARCH) $@"
 	@mkdir -p $(dir $@)
 	@( cd $(AND_CLS_TARGET) && zip -r $@ * )

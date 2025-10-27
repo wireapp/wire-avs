@@ -320,9 +320,10 @@ LFLAGS += \
 # To make things easier, we define the relevant variables for every OS and
 # ARCH.
 #
-TOOLCHAIN_BASE_PATH := $(PWD)/devtools/ndk/$(ANDROID_NDK_VER)
+# TOOLCHAIN_BASE_PATH := $(PWD)/devtools/ndk/$(ANDROID_NDK_VER)
+TOOLCHAIN_BASE_PATH := $(ANDROID_NDK_ROOT)
 ifeq ($(HOST_OS),osx)
-TOOLCHAIN_SUFFIX := darwin-$(HOST_ARCH)
+TOOLCHAIN_SUFFIX := darwin-x86_64
 else
 TOOLCHAIN_SUFFIX := $(HOST_OS)-$(HOST_ARCH)
 endif
@@ -550,6 +551,7 @@ CPPFLAGS += \
 	 -arch $(AVS_ARCH) \
 	 -isysroot $(SDK_PATH) \
 	 -DCARBON_DEPRECATED=YES -DWEBRTC_POSIX -DWEBRTC_MAC -DWEBRTC_IOS \
+	 -Wno-vla-cxx-extension -Wno-strict-prototypes \
 	 -DZETA_IOS_STEREO_PLAYOUT -DHAVE_GAI_STRERROR=1 \
 	 -DUSE_APPLE_COMMONCRYPTO \
 	 -DIPHONE -pipe -no-cpp-precomp
@@ -685,6 +687,8 @@ CPPFLAGS += \
          -arch $(AVS_ARCH) \
          -isysroot $(SDK_PATH) \
          -DWEBRTC_POSIX -DWEBRTC_MAC -DZETA_USING_AU_HAL -DHAVE_GAI_STRERROR=1 \
+         -Wno-vla-cxx-extension \
+         -Wno-strict-prototypes \
 	 -pipe -no-cpp-precomp \
 	 -mmacosx-version-min=10.9
 LFLAGS   += \
