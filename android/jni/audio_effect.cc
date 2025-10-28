@@ -201,20 +201,22 @@ JNIEXPORT jintArray JNICALL Java_com_waz_audioeffect_AudioEffect_amplitudeGenera
     const char *path = env->GetStringUTFChars(jpath, 0);
     jintArray jamps;
 
-    if (path) {
-      size_t namps;
-      int *amps;
-
-      amps = pcm_generate_amplitude(path, max_val, max_sz, &namps);
-      if (amps) {
-	jamps = env->NewIntArray(namps);      
-	if (jamps) {
-	  env->SetIntArrayRegion(jamps, 0, namps, amps);
-	}
-	mem_deref(amps);
-      }
-      env->ReleaseStringUTFChars(jpath, path);
+    if (!path) {
+      return NULL;
     }
+
+    size_t namps;
+    int *amps;
+
+    amps = pcm_generate_amplitude(path, max_val, max_sz, &namps);
+    if (amps) {
+      jamps = env->NewIntArray(namps);      
+      if (jamps) {
+	env->SetIntArrayRegion(jamps, 0, namps, amps);
+      }
+      mem_deref(amps);
+    }
+    env->ReleaseStringUTFChars(jpath, path);
     
     return jamps;
 }

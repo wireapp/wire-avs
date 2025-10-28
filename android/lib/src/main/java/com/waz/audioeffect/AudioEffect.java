@@ -175,7 +175,7 @@ public class AudioEffect {
       }
       catch (Exception e) {
 	  Log.e(TAG, "amplitudeGenerate failed: " + e);
-	  ret = -1;
+	  return null;
       }
       finally {
 	  if (pcm_file != null)

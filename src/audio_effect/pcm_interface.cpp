@@ -316,21 +316,21 @@ int *pcm_generate_amplitude(const char *path, int max_val,
   
     nsamps = fsiz / sizeof(int16_t);
     if (nsamps == 0) {    
-        warning("amplitude: 0 samples\n");
+      //warning("amplitude: 0 samples\n");
 	goto out;
     }
     samps = (int16_t *)mem_alloc(nsamps * sizeof(int16_t), NULL);
     if (!samps) {
-        warning("amplitude: cannot allocate samples buffer\n");
+      //warning("amplitude: cannot allocate samples buffer\n");
 	err = ENOMEM;
 	goto out;
     }
 
     rewind(fp);
-    count = fread(samps, sizeof(int16_t), nsamps, fp);
+    count = fread(samps, sizeof(*samps), nsamps, fp);
     if (count != nsamps) {
-        warning("amplitude: read missmatch: %zu/%zu\n",
-		count, nsamps);
+      //warning("amplitude: read missmatch: %zu/%zu\n",
+      //	count, nsamps);
 	err = EPROTO;
 	goto out;
     }
@@ -341,7 +341,7 @@ int *pcm_generate_amplitude(const char *path, int max_val,
 
     amps = (int *)mem_zalloc(sizeof(*amps) * max_sz, NULL);
     if (!amps) {
-        warning("amplitude: cannot allocate amplitudes\n");
+      //warning("amplitude: cannot allocate amplitudes\n");
         err = ENOMEM;
 	goto out;
     }
