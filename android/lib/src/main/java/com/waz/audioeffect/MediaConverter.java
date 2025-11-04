@@ -121,9 +121,10 @@ class MediaConverter {
 					long sampleTime = 0;
 					int result;
 					int chunkSize = 0;
+					long sampleSize = extractor.getSampleSize();
 
-					while(chunkSize < (BUFFER_INPUT_SIZE - BUFFER_OVERFLOW) && !inputDone) {
-					    ByteBuffer tempBuffer = ByteBuffer.allocate(1024);
+					while(chunkSize < (BUFFER_INPUT_SIZE - sampleSize) && !inputDone) {
+					    ByteBuffer tempBuffer = ByteBuffer.allocate((int)sampleSize);
 					    result = extractor.readSampleData(tempBuffer, 0);
 					    if (result < 0) {
 						inputDone = true;
