@@ -133,8 +133,11 @@ class MediaConverter {
 						sampleTime += extractor.getSampleTime();
 						inputBuffer.put(tempBuffer);
 						chunkSize += result;
-						//decoder.queueInputBuffer(idx, 0, result, sampleTime, 0);
 						extractor.advance();
+						sampleSize = extractor.getSampleSize();
+						if (sampleSize < 0) {
+						    inputDone = true;
+						}
 					    }
 					}
 					if (chunkSize > 0) {
