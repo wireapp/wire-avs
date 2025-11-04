@@ -940,8 +940,8 @@ static void ecall_media_estab_handler(struct icall *icall, const char *userid,
 		icall, userid, clientid, update, ccall->icall.arg);
 
 	if (ccall->is_mls_call) {
-		ICALL_CALL_CB(ccall->icall, req_clientsh,
-		      &ccall->icall, ccall->icall.arg);
+	        ICALL_CALL_CB(ccall->icall, req_new_epochh,
+			      &ccall->icall, ccall->icall.arg);
 	}
 
 	if (CCALL_STATE_CONNSENT != ccall->state) {
