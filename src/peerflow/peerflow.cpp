@@ -77,7 +77,7 @@ extern "C" {
 #define TMR_STATS_INTERVAL       1000
 #define TMR_CBR_INTERVAL         2500
 #define TMR_RESTART_INTERVAL    10000
-#define TMR_GATHER_TIMEOUT      10000
+#define TMR_GATHER_TIMEOUT       2000
 #define TMR_NOCAND_TIMEOUT       1500
 
 #define DOUBLE_ENCRYPTION 1
@@ -1356,8 +1356,14 @@ public:
 				tmr_start(&pf_->tmr_gather, TMR_GATHER_TIMEOUT,
 					  gather_timeout_handler, pf_);
 			}
+		}
 #if 0
+		if (!pf_->gathered && cand.type() == webrtc::IceCandidateType::kRelay) {
+			info("pf(%p): first RELAY candidate\n", pf_);
 			pf_->gathered = true;
+
+			const webrtc::SessionDescriptionInterface *isdp;
+
 			isdp = pf_->peerConn->local_description();
 			if (isdp)
 				invoke_gather(pf_, isdp);
@@ -1366,8 +1372,8 @@ public:
 					"no local SDP\n", pf_);
 				return;
 			}
-#endif
 		}
+#endif
 	}
 
 	// Ice candidates have been removed.
@@ -1982,6 +1988,13 @@ static int create_pf(struct peerflow *pf)
 		webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
 	pf->config->sdp_semantics =
 		webrtc::SdpSemantics::kUnifiedPlan;
+
+	// Option to disable link-local networks for quicker gathering
+	//pf->config->disable_link_local_networks = true;
+
+	// If on wifi, skip gathering on cellular data interfaces
+	pf->config->candidate_network_policy =
+	        webrtc::PeerConnectionInterface::kCandidateNetworkPolicyLowCost;
 
 #if DOUBLE_ENCRYPTION
 	if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
