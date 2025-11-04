@@ -364,11 +364,11 @@ int *pcm_generate_amplitude(const char *path, int max_val,
     }
 
     /* Equalize -> Scale down amplitudes to max value */
-    d = m / (max_val - 1);
+    d = m / max_val;
     for(i = 0; i < a; ++i) {
         int s = amps[i] / d;
 
-	amps[i] = s + 1;
+	amps[i] = s;
     }
     
  out:
