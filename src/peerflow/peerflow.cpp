@@ -1993,8 +1993,8 @@ static int create_pf(struct peerflow *pf)
 	//pf->config->disable_link_local_networks = true;
 
 	// If on wifi, skip gathering on cellular data interfaces
-	pf->config->candidate_network_policy =
-	        webrtc::PeerConnectionInterface::kCandidateNetworkPolicyLowCost;
+	//pf->config->candidate_network_policy =
+	//        webrtc::PeerConnectionInterface::kCandidateNetworkPolicyLowCost;
 
 #if DOUBLE_ENCRYPTION
 	if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
