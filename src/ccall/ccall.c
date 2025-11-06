@@ -336,6 +336,11 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 			  ccall_decrypt_check_timeout, ccall);
 		tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
 			  ccall_keepalive_timeout, ccall);
+		if (ccall->reconnect_attempts > 0 && userlist_is_keygenerator_me(ccall->userl)) {
+		        tmr_cancel(&ccall->tmr_send_check);
+		        tmr_start(&ccall->tmr_send_check, 0,
+				  ccall_send_check_timeout, ccall);
+		}
 		break;
 
 	case CCALL_STATE_TERMINATING:
