@@ -582,8 +582,8 @@ void msystem_set_muted(bool muted)
 			info("msys(%p): muted_state=%d->%d\n", g_msys, mute_state, muted);
 			if (muted != mute_state) {
 				iflow_set_mute(muted);
-				call_muteh(muted);
 			}
+			call_muteh(iflow_get_mute());
 		}
 	}
 }
