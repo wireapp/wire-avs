@@ -83,6 +83,15 @@ JNIEXPORT jint JNICALL Java_com_waz_audioeffect_AudioEffect_applyEffectWav
 JNIEXPORT jint JNICALL Java_com_waz_audioeffect_AudioEffect_applyEffectPCM
   (JNIEnv *, jobject, jstring, jstring, jint, jint, jboolean);
 
+
+/*
+ * Class:     com_waz_audioeffect_AudioEffect
+ * Method:    amplitudeGenerateSamples
+ * Signature: (Ljava/lang/String;II)[I
+ */
+JNIEXPORT jintArray JNICALL Java_com_waz_audioeffect_AudioEffect_amplitudeGenerateSamples
+  (JNIEnv *, jobject, jstring, jint, jint);
+
 #ifdef __cplusplus
 }
 #endif
