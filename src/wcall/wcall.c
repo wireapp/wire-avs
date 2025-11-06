@@ -1699,7 +1699,7 @@ static void icall_req_new_epoch_handler(struct icall *icall, void *arg)
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
 	uint64_t now;
 
-	info("XXXX wcall: req_new_epochh\n");
+	info("wcall(%p): req_new_epochh\n", wcall);
 	if (!WCALL_VALID(wcall)) {
 		warning("wcall(%p): icall_req_new_epoch_handler wcall not valid\n",
 			wcall);
@@ -1709,12 +1709,11 @@ static void icall_req_new_epoch_handler(struct icall *icall, void *arg)
 	if (!inst->req_new_epochh)
 		return;
 
-	info(APITAG "wcall(%p): calling req_new_epochh:%p \n",
+	info(APITAG "wcall(%p): calling req_new_epochh:%p\n",
 	     wcall, inst->req_new_epochh);
 	now = tmr_jiffies();
 	inst->req_new_epochh(inst2wuser(inst), wcall->convid, inst->arg);
-
-		info(APITAG "wcall(%p): req_new_epochh took %llu ms\n",
+	info(APITAG "wcall(%p): req_new_epochh took %llu ms\n",
 	     wcall, tmr_jiffies() - now);
 }
 

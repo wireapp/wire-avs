@@ -135,11 +135,61 @@ public class AudioEffect {
 
 	  return ret;
   }
- 
+
+  public int[] amplitudeGenerate(String path, int max_value, int max_size) {
+      MediaFormat media_format = null;
+      File pcm_file = null;
+      Context ctx = null;
+      int[] amps = null;
+      int ret = -1;
+
+      if (this.context == null) {
+	  ctx = AVSystem.context;
+      }
+      else {
+	  ctx = this.context;
+      }
+
+      if (ctx == null) {
+	  Log.e(TAG, "amplitudeGenerate: no context for temporary file");
+	  return null;
+      }
+
+      Log.d(TAG, "amplitudeGenerate: in=" + path + " max_value=" + max_value
+	    + " max_size=" + max_size);
+
+      try {
+	  pcm_file = File.createTempFile("raw", ".pcm", context.getCacheDir());
+
+	  MediaConverter converter = new MediaConverter(path, null);
+
+	  Log.d(TAG, "amplitude decode: " + path + " -> " + pcm_file.getAbsolutePath());
+
+	  ret = converter.decode(pcm_file.getAbsolutePath());
+	  if (ret != 0) {
+	      Log.w(TAG, "amplitude decode failed");
+	      return null;
+	  }
+
+	  amps = amplitudeGenerateSamples(pcm_file.getAbsolutePath(), max_value, max_size);
+      }
+      catch (Exception e) {
+	  Log.e(TAG, "amplitudeGenerate failed: " + e);
+	  return null;
+      }
+      finally {
+	  if (pcm_file != null)
+	      pcm_file.delete();
+      }
+
+      return amps;
+  }
+    
   public native int applyEffectWav (String file_name_in, String file_name_out, int effect_type, boolean reduce_noise);
     
   public native int applyEffectPCM (String file_name_in, String file_name_out, int fs_hz, int effect_type, boolean reduce_noise);
 
+  public native int[] amplitudeGenerateSamples(String path, int max_value, int max_size);
     
   public void destroy ( ) {
   }

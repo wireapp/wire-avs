@@ -21,7 +21,10 @@ import com.waz.avs.AVSystem;
 class MediaConverter {
 	private static String TAG = "MediaConverter";
 	private static final int QUEUE_TIMEOUT = 10000;
-	
+
+        private int BUFFER_INPUT_SIZE = 524288; // 524288 Bytes = 0.5 MB
+        private int BUFFER_OVERFLOW = 5000;
+    
 	private	MediaFormat mediaFormat = null;
 	private String inPath;
 	private String outPath;
@@ -100,33 +103,51 @@ class MediaConverter {
 			decoder = MediaCodec.createDecoderByType(mimeType);
 
 			boolean eos = false;
+			boolean inputDone = false;
 			boolean finished = false;
 
 			mediaFormat.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT);
+			mediaFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, BUFFER_INPUT_SIZE); 
 			decoder.configure(mediaFormat, null, null, 0);
 			decoder.start();
 			while(!finished) {
 				if (!eos) {
-					int idx = decoder.dequeueInputBuffer(QUEUE_TIMEOUT);
-					if (idx >= 0) {
-						ByteBuffer inputBuffer = decoder.getInputBuffer(idx);
-						if (inputBuffer == null)
-							continue;
+				    int idx = decoder.dequeueInputBuffer(QUEUE_TIMEOUT);
+				    if (idx >= 0) {
+					ByteBuffer inputBuffer = decoder.getInputBuffer(idx);
+					if (inputBuffer == null)
+					    continue;
 
-						long sampleTime = 0;
-						int result;
+					long sampleTime = 0;
+					int result;
+					int chunkSize = 0;
+					long sampleSize = extractor.getSampleSize();
 
-						result = extractor.readSampleData(inputBuffer, 0);
-						if (result < 0) {
-							decoder.queueInputBuffer(idx, 0, 0, -1, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-							eos = true;
+					while(chunkSize < (BUFFER_INPUT_SIZE - sampleSize) && !inputDone) {
+					    ByteBuffer tempBuffer = ByteBuffer.allocate((int)sampleSize);
+					    result = extractor.readSampleData(tempBuffer, 0);
+					    if (result < 0) {
+						inputDone = true;
+					    }
+					    else {
+						sampleTime += extractor.getSampleTime();
+						inputBuffer.put(tempBuffer);
+						chunkSize += result;
+						extractor.advance();
+						sampleSize = extractor.getSampleSize();
+						if (sampleSize < 0) {
+						    inputDone = true;
 						}
-						else {
-							sampleTime = extractor.getSampleTime();
-							decoder.queueInputBuffer(idx, 0, result, sampleTime, 0);
-							extractor.advance();
-						}
+					    }
 					}
+					if (chunkSize > 0) {
+					    decoder.queueInputBuffer(idx, 0, chunkSize, sampleTime, 0);
+					}
+					else if (inputDone) {
+					    decoder.queueInputBuffer(idx, 0, 0, -1, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+					    eos = true;
+					}
+				    }
 				}
 
 				MediaCodec.BufferInfo bufInfo = new MediaCodec.BufferInfo();
