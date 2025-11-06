@@ -42,6 +42,7 @@ static void ccall_connect_timeout(void *arg);
 static void ccall_stop_ringing_timeout(void *arg);
 static void ccall_ongoing_call_timeout(void *arg);
 static void ccall_sync_vstate_timeout(void *arg);
+static void ccall_send_check_timeout(void *arg);
 static void ccall_decrypt_check_timeout(void *arg);
 static void ccall_keepalive_timeout(void *arg);
 static void ccall_end_with_err(struct ccall *ccall, int err);
