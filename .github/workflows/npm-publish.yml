@@ -55,6 +55,7 @@ jobs:
           fi
           echo "Using package file: $FILE"
           echo "tgz_file=$FILE" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -65,7 +66,24 @@ jobs:
       - name: Update npm to the required OIDC version
         run: npm install -g npm@latest
 
+      - name: Determine npm tag for publish
+        id: tag
+        run: |
+          VERSION=${{ steps.pkg.outputs.version }}
+          NAME="@wireapp/avs"
+          echo "Checking current latest version on npm..."
+          LATEST=$(npm view "$NAME" version || echo "0.0.0")
+          echo "Latest published version: $LATEST"
+          # compare versions
+          if [ "$(printf '%s\n%s' "$VERSION" "$LATEST" | sort -V | tail -n1)" = "$VERSION" ]; then
+            TAG="latest"
+          else
+            TAG="$VERSION"
+          fi
+          echo "Using npm tag: $TAG"
+          echo "npm_tag=$TAG" >> $GITHUB_OUTPUT  
+
       - name: Publish with provenance (OIDC)
         run: |
-          echo "Publishing ${{ steps.pkg.outputs.tgz_file }} to npm..."
-          npm publish "${{ steps.pkg.outputs.tgz_file }}" --provenance --access public
+          echo "Publishing ${{ steps.pkg.outputs.tgz_file }} to npm with tag ${{ steps.tag.outputs.npm_tag }}..."
+          npm publish "${{ steps.pkg.outputs.tgz_file }}" --tag "${{ steps.tag.outputs.npm_tag }}" --provenance --access public
