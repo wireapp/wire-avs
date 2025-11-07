@@ -16,7 +16,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-          # --- Schritt 1: Warten, bis das .tgz-Asset verfügbar ist ---
       - name: Wait for .tgz release asset uploaded by Jenkins
         run: |
           echo "⏳ Waiting for .tgz asset to appear in release..."
