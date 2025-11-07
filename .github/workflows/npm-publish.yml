@@ -16,6 +16,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Wait for .tgz release asset uploaded by Jenkins
+        run: |
+          echo "Waiting for .tgz asset to appear in release..."
+          for i in {1..20}; do
+            assets=$(gh release view "${{ github.event.release.tag_name }}" --json assets --jq '.assets[].name' || true)
+            echo "Assets found: $assets"
+            if echo "$assets" | grep -E '\.tgz$' >/dev/null; then
+              echo "Found .tgz asset."
+              break
+            fi
+            echo "Attempt $i/20: not found yet, waiting 10s..."
+            sleep 10
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download release asset (.tgz)
         uses: robinraju/release-downloader@v1.11
         with:
