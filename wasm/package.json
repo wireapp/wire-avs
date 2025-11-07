@@ -17,6 +17,11 @@
   "license": "GPL-3.0",
   "main": "dist/avs_wcall.js",
   "name": "@wireapp/avs",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
   "scripts": {
     "prepack": "prettier -w src/avs_wcall.ts && tsc && cp src/*.js src/*.d.ts dist/",
     "test": "karma start"
