@@ -309,32 +309,6 @@ pipeline {
 //                }
 //            }
 //        }
-        stage('Publish to npm') {
-            when {
-                anyOf {
-                    expression { return "${branchName}".contains('release') }
-                }
-            }
-            agent {
-                label 'macos'
-            }
-            environment {
-                PATH = "/opt/homebrew/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${env.PATH}"
-            }
-            steps {
-                // NOTE: the script upload-wasm.sh supports non-release branches, but in the past
-                //       it still was only invoked on release branches
-                nodejs("18.12.1") {
-                    withCredentials([ string( credentialsId: 'npmtoken', variable: 'accessToken' ) ]) {
-                        sh """
-                            # NOTE: upload-wasm.sh assumes a certain current working directory
-                            NPM_TOKEN=${accessToken} \
-                            ${env.WORKSPACE}/scripts/upload-wasm.sh avs-release-${release_version}
-                        """
-                    }
-                }
-            }
-        }
     }
 
     post {

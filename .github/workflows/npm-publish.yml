@@ -1,0 +1,71 @@
+name: Publish npm package via OIDC
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write  # Required for npm OIDC provenance
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Wait for .tgz release asset uploaded by Jenkins
+        run: |
+          echo "Waiting for .tgz asset to appear in release..."
+          for i in {1..30}; do
+            assets=$(gh release view "${{ github.event.release.tag_name }}" --json assets --jq '.assets[].name' || true)
+            echo "Assets found: $assets"
+            if echo "$assets" | grep -E '\.tgz$' >/dev/null; then
+              echo "Found .tgz asset."
+              break
+            fi
+            echo "Attempt $i/30: not found yet, waiting 10s..."
+            sleep 10
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download release asset (.tgz)
+        uses: robinraju/release-downloader@v1.11
+        with:
+          repository: ${{ github.repository }}
+          tag: ${{ github.event.release.tag_name }}
+          fileName: "*.tgz"
+          out-file-path: ./dist
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine package file name from tag
+        id: pkg
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" # strip leading "v" if present
+          FILE="./dist/wireapp-avs-${VERSION}.tgz"
+          echo "Checking for package file: $FILE"
+          if [ ! -f "$FILE" ]; then
+            echo "ERROR: Expected file $FILE not found!"
+            echo "Available files:"
+            ls -lh ./dist
+            exit 1
+          fi
+          echo "Using package file: $FILE"
+          echo "tgz_file=$FILE" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org/"
+
+      - name: Update npm to the required OIDC version
+        run: npm install -g npm@latest
+
+      - name: Publish with provenance (OIDC)
+        run: |
+          echo "Publishing ${{ steps.pkg.outputs.tgz_file }} to npm..."
+          npm publish "${{ steps.pkg.outputs.tgz_file }}" --provenance --access public
