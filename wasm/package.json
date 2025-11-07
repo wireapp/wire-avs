@@ -17,6 +17,7 @@
   "license": "GPL-3.0",
   "main": "dist/avs_wcall.js",
   "name": "@wireapp/avs",
+  "repository": "https://github.com/wireapp/wire-avs",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/",
