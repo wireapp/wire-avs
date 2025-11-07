@@ -17,6 +17,7 @@
   "license": "GPL-3.0",
   "main": "dist/avs_wcall.js",
   "name": "@wireapp/avs",
+  "repository": "https://github.com/wireapp/wire-web-packages/tree/main/packages/core",
   "scripts": {
     "prepack": "prettier -w src/avs_wcall.ts && tsc && cp src/*.js src/*.d.ts dist/",
     "test": "karma start"
