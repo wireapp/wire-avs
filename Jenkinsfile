@@ -73,7 +73,7 @@ pipeline {
                         sh 'make dist_clean'
                         sh 'make zcall sectest AVS_VERSION=' + version
                         script {
-                            def exitStatus = sh returnStatus: true, script: './sectest https://sft.calling-staging.zinfra.io:443 > ./build/artifacts/avs-' + version + '-sectest.log'
+                            def exitStatus = sh returnStatus: true, script: './sectest https://sft.calling-staging-v01.zinfra.io:443 > ./build/artifacts/avs-' + version + '-sectest.log'
                             if (exitStatus != 0) {
                                 sh 'cat ./build/artifacts/avs-' + version + '-sectest.log'
                                 error('sectest failed')
@@ -306,29 +306,6 @@ pipeline {
 //                }
 //            }
 //        }
-        stage('Publish to npm') {
-            when {
-                anyOf {
-                    expression { return "${branchName}".contains('release') }
-                }
-            }
-            agent {
-                label 'built-in'
-            }
-            steps {
-                // NOTE: the script upload-wasm.sh supports non-release branches, but in the past
-                //       it still was only invoked on release branches
-                nodejs("18.12.1") {
-                    withCredentials([ string( credentialsId: 'npmtoken', variable: 'accessToken' ) ]) {
-                        sh """
-                            # NOTE: upload-wasm.sh assumes a certain current working directory
-                            NPM_TOKEN=${accessToken} \
-                            ${env.WORKSPACE}/scripts/upload-wasm.sh avs-release-${release_version}
-                        """
-                    }
-                }
-            }
-        }
     }
 
     post {
