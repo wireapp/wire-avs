@@ -78,7 +78,8 @@ jobs:
           if [ "$(printf '%s\n%s' "$VERSION" "$LATEST" | sort -V | tail -n1)" = "$VERSION" ]; then
             TAG="latest"
           else
-            TAG="$VERSION"
+            BASE_TAG=$(echo "$VERSION" | awk -F. '{print $1"."$2}')
+            TAG="release-$BASE_TAG"
           fi
           echo "Using npm tag: $TAG"
           echo "npm_tag=$TAG" >> $GITHUB_OUTPUT  
