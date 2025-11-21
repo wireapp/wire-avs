@@ -25,15 +25,6 @@ export type VideoStreamHandler = (
   streams: readonly MediaStream[] | null
 ) => void;
 
-/**
- * Handler for muted speaker detection.
- *
- * SECURITY: This provides LOCAL ONLY data that must NEVER be transmitted
- * over the network. Used for local UI feedback only.
- *
- * @param convid - Conversation ID
- * @param audioLevel - Raw audio level while muted (0-255)
- */
 export type MutedSpeakerHandler = (
   convid: string,
   audioLevel: number
