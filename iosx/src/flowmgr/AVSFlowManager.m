@@ -311,11 +311,31 @@ static int req_handler(struct rr_resp *ctx,
 }
 
 
+static void muted_speaker_handler(const char *convid, int audio_level, void *arg)
+{
+    if (!arg || !convid)
+        return;
+
+    debug("AVSFlowManager::muted_speaker_handler: convid=%s level=%d\n",
+          convid, audio_level);
+
+    AVSFlowManager *fm = (__bridge AVSFlowManager *)arg;
+    if (!fm)
+        return;
+
+    if ([fm.delegate respondsToSelector:@selector(mutedSpeakerDetectedInConversation:audioLevel:)]) {
+        dispatch_async(DISPATCH_Q, ^{
+            [fm.delegate mutedSpeakerDetectedInConversation:avsString(convid)
+                                                audioLevel:(NSInteger)audio_level];
+        });
+    }
+}
+
 #if 0 // Enable when networkQuality is enabled
 static void netq_handler(int err, const char *convid, float q, void *arg)
 {
     debug("AVSFlowManager::netq_handler: err=%d q=%f\n", err, q);
-    
+
     AVSFlowManager *fm = (__bridge AVSFlowManager *)arg;
 
     if ( [fm.delegate respondsToSelector:@selector(networkQuality:conversation:)] ) {
@@ -451,6 +471,9 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 	wcall_set_video_handlers(render_frame_h,
 				 video_size_h,
 				 (__bridge void *)(self));
+
+	wcall_set_muted_speaker_handler(muted_speaker_handler,
+				       (__bridge void *)(self));
 
 	FLOWMGR_MARSHAL_VOID(fmw.tid, flowmgr_set_audio_state_handler, fm,
 			     audio_state_change_h,

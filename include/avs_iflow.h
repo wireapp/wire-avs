@@ -26,6 +26,11 @@ struct avs_vidframe;
 struct iflow_stats {
 	uint8_t audio_level;
 	uint8_t audio_level_smooth;
+	/* audio_level_local is local only - must not be transmitted.
+	 * Used for muted speaker detection. Contains raw audio level even when
+	 * muted, while audio_level is zeroed for network transmission. */
+	uint8_t audio_level_local;
+	bool is_muted;
 	uint32_t apkts_recv;
 	uint32_t apkts_sent;
 	uint32_t vpkts_recv;

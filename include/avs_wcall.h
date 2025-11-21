@@ -161,6 +161,11 @@ typedef void (wcall_data_chan_estab_h)(const char *convid,
 /* Mute handler */
 typedef void (wcall_mute_h)(int muted, void *arg);
 
+/* Muted speaker detection */
+typedef void (wcall_muted_speaker_h)(const char *convid,
+				     int audio_level,
+				     void *arg);
+
 /* Request new epoch handler */
 typedef void (wcall_req_new_epoch_h)(WUSER_HANDLE wuser,
 				     const char *convid,
@@ -447,7 +452,10 @@ void wcall_set_req_new_epoch_handler(WUSER_HANDLE wuser,
 int wcall_get_mute(WUSER_HANDLE wuser);
 void wcall_set_mute(WUSER_HANDLE wuser, int muted);
 void wcall_set_mute_handler(WUSER_HANDLE wuser, wcall_mute_h *muteh, void *arg);
-	
+void wcall_set_muted_speaker_handler(wcall_muted_speaker_h *muted_spkrh,
+				     void *arg);
+void wcall_notify_muted_speaker(const char *convid, int audio_level);
+
 struct re_printf;
 int  wcall_debug(struct re_printf *pf, WUSER_HANDLE wuser);
 int  wcall_stats(struct re_printf *pf, WUSER_HANDLE wuser);

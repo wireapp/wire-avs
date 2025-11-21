@@ -143,7 +143,9 @@ def convert_fn(fn):
 		   'wcall_stats',
 		   'wcall_dce_send',
 		   'wcall_set_media_laddr',
-		   'wcall_run']
+		   'wcall_run',
+		   'wcall_set_muted_speaker_handler',
+		   'wcall_notify_muted_speaker']
 
 	m = re.search('(\w+)\s+(\w+)\((.*)\);', fn)
 	if m:

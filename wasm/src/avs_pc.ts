@@ -25,6 +25,20 @@ export type VideoStreamHandler = (
   streams: readonly MediaStream[] | null
 ) => void;
 
+/**
+ * Handler for muted speaker detection.
+ *
+ * SECURITY: This provides LOCAL ONLY data that must NEVER be transmitted
+ * over the network. Used for local UI feedback only.
+ *
+ * @param convid - Conversation ID
+ * @param audioLevel - Raw audio level while muted (0-255)
+ */
+export type MutedSpeakerHandler = (
+  convid: string,
+  audioLevel: number
+) => void;
+
 type RelayCand = {
     hasRelay: boolean
 };
@@ -88,6 +102,11 @@ let logFn: WcallLogHandler | null = null;
 let userMediaHandler: UserMediaHandler | null = null;
 let audioStreamHandler: AudioStreamHandler | null = null;
 let videoStreamHandler: VideoStreamHandler | null = null;
+let mutedSpeakerHandler: MutedSpeakerHandler | null = null;
+let mutedSpeakerLastNotify: number = 0;
+const MUTED_SPEAKER_NOTIFY_INTERVAL_MS = 500;
+// Matches AUDIO_LEVEL_FLOOR in peerflow.cpp - threshold for voice activity detection
+const AUDIO_LEVEL_FLOOR = 2;
 let insertableLegacy: boolean = false;
 let insertableStreams: boolean = false;
 
@@ -2516,6 +2535,10 @@ function pc_SetVideoStreamHandler(vsh: VideoStreamHandler) {
   videoStreamHandler = vsh;
 }
 
+function pc_SetMutedSpeakerHandler(msh: MutedSpeakerHandler) {
+  mutedSpeakerHandler = msh;
+}
+
 function pc_ReplaceTrack(convid: string, newTrack: MediaStreamTrack) {
   const pcs = connectionsStore.getPeerConnectionByConvid(convid);
   if (pcs.length === 0) return;
@@ -2664,6 +2687,14 @@ function pc_GetLocalStats(hnd: number) {
 		    rtt
 		]
 	    );
+
+	    if (pc.muted && self_audio_level > AUDIO_LEVEL_FLOOR && mutedSpeakerHandler) {
+		const now = Date.now();
+		if (now - mutedSpeakerLastNotify >= MUTED_SPEAKER_NOTIFY_INTERVAL_MS) {
+		    mutedSpeakerLastNotify = now;
+		    mutedSpeakerHandler(pc.convid, self_audio_level);
+		}
+	    }
 	}).catch((err) => pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: failed hnd=${hnd} err=${err}`, err));
 }
 
@@ -2672,6 +2703,7 @@ export default {
   setUserMediaHandler: pc_SetUserMediaHandler,
   setAudioStreamHandler: pc_SetAudioStreamHandler,
   setVideoStreamHandler: pc_SetVideoStreamHandler,
+  setMutedSpeakerHandler: pc_SetMutedSpeakerHandler,
   isConferenceCallingSupported: pc_IsConferenceCallingSupported,
   replaceTrack: pc_ReplaceTrack,
   getStats: pc_GetStats

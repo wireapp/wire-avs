@@ -36,6 +36,7 @@ public interface FlowManagerListener {
     
   /* Audio callback(s) */
   public void changeAudioState(int state);
+  public void mutedSpeakerDetected(String convId, int audioLevel);
 
   /* Camera callback(s) */
   public void cameraFailed();

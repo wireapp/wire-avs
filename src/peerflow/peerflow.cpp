@@ -23,6 +23,7 @@ extern "C" {
 
 #include <re.h>
 #include <avs.h>
+#include <avs_wcall.h>
 #include <avs_version.h>
 #include <avs_audio_io.h>
 #include <avs_audio_level.h>
@@ -3282,18 +3283,27 @@ void peerflow_set_stats(struct peerflow* pf,
 		return;
 	}
 
+	pf->stats.audio_level_local = (uint8_t)audio_level;
+	pf->stats.is_muted = g_pf.audio.muted;
+
+	/* Transmitted audio level is always 0 when muted */
 	pf->stats.audio_level = g_pf.audio.muted ? 0 : audio_level;
 	if (g_pf.audio.muted) {
 		if (pf->stats.audio_level_smooth > 0)
 			pf->stats.audio_level_smooth--;
 		else
 			pf->stats.audio_level_smooth = 0;
+
+		/* Muted speaker detection: notify when muted but speaking */
+		if (audio_level > AUDIO_LEVEL_FLOOR && pf->convid) {
+			wcall_notify_muted_speaker(pf->convid, audio_level);
+		}
 	}
 	else if (audio_level > AUDIO_LEVEL_FLOOR)
 		pf->stats.audio_level_smooth = AUDIO_LEVEL_CEIL;
 	else if (pf->stats.audio_level_smooth > 0)
 		pf->stats.audio_level_smooth--;
-	
+
 	pf->stats.apkts_recv = apkts_recv;
 	pf->stats.vpkts_recv = vpkts_recv;
 	pf->stats.apkts_sent = apkts_sent;

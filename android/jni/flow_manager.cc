@@ -80,6 +80,8 @@ static struct {
 	jmethodID csmid;
 	jmethodID acsmid;
 	jmethodID vszmid;
+	/* mutedSpeakerDetected */
+	jmethodID msmid; 
 	
 	struct {
 		struct {
@@ -113,6 +115,7 @@ static struct {
 	.csmid = NULL,
 	.acsmid = NULL,
 	.vszmid = NULL,
+	.msmid = NULL,
 
 	.video = {
 		.mid = {
@@ -538,7 +541,11 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 	java.acsmid = env->GetMethodID(cls,
 				       "changeAudioState",
 				       "(I)V");
-    
+
+	java.msmid = env->GetMethodID(cls,
+				      "mutedSpeakerDetected",
+				      "(Ljava/lang/String;I)V");
+
 	java.avs_flags = avs_flags;
 
 	err = lock_alloc(&java.video.lock);
@@ -722,6 +729,39 @@ static void netq_handler(int nqerr, const char *convid, float q, void *arg)
 	jni_detach(&je);
 }
 
+static void muted_speaker_handler(const char *convid, int audio_level, void *arg)
+{
+	struct jfm *jfm = (struct jfm *)arg;
+	struct jni_env je;
+	int err;
+
+	debug("muted_speaker_handler: convid=%s level=%d\n", convid, audio_level);
+
+	err = jni_attach(&je);
+	if (err) {
+		warning("muted_speaker_handler: cannot attach JNI: %m\n", err);
+		goto out;
+	}
+
+	if (java.msmid && jfm && jfm->self && convid) {
+		jstring jconvid;
+
+		jconvid = je.env->NewStringUTF(convid);
+		if (jconvid) {
+			je.env->CallVoidMethod(jfm->self, java.msmid,
+					       jconvid, (jint)audio_level);
+			je.env->DeleteLocalRef(jconvid);
+		}
+		else {
+			warning("muted_speaker_handler: NewStringUTF failed\n");
+		}
+		jni_re_enter();
+	}
+
+ out:
+	jni_detach(&je);
+}
+
 static void vm_play_status_handler(bool is_playing, unsigned int cur_time_ms, unsigned int file_length_ms, void *arg)
 {
     struct jfm *jfm = (struct jfm *)arg;
@@ -867,6 +907,8 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_attach
 	wcall_set_video_handlers(render_frame_handler,
 				 video_size_handler,
 				 jfm);
+
+	wcall_set_muted_speaker_handler(muted_speaker_handler, jfm);
 
 	FLOWMGR_MARSHAL_VOID(java.tid, flowmgr_set_audio_state_handler,
 			     jfm->fm, audio_state_handler, jfm);

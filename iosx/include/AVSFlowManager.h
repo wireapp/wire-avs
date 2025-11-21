@@ -138,6 +138,9 @@ AVS_EXPORT @interface AVSAudioStateChangeInfo : NSObject
 
 - (void)conferenceParticipantsDidChange:(NSArray *)participants
                          inConversation:(NSString *)convId;
+
+- (void)mutedSpeakerDetectedInConversation:(NSString *)convId
+                               audioLevel:(NSInteger)audioLevel;
 @end
 
 struct flowmgr;

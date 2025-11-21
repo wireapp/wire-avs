@@ -62,6 +62,11 @@ static struct {
 		wcall_mute_h *h;
 		void *arg;
 	} mute;
+	struct {
+		wcall_muted_speaker_h *h;
+		void *arg;
+		uint64_t last_notify_ts;
+	} muted_speaker;
 	int mode;
 } calling = {
 	.initialized = false,
@@ -140,7 +145,7 @@ struct calling_instance {
 		wcall_mute_h *h;
 		void *arg;
 	} mute;
-	
+
 	void *arg;
 
 	struct tmr tmr_roam;
@@ -4275,6 +4280,53 @@ void wcall_set_mute_handler(WUSER_HANDLE wuser, wcall_mute_h *muteh, void *arg)
 
 	inst->mute.h = muteh;
 	inst->mute.arg = arg;
+}
+
+AVS_EXPORT
+void wcall_set_muted_speaker_handler(wcall_muted_speaker_h *muted_spkrh,
+				     void *arg)
+{
+	info(APITAG "wcall: set_muted_speaker_handler %p\n", muted_spkrh);
+
+	calling.muted_speaker.h = muted_spkrh;
+	calling.muted_speaker.arg = arg;
+}
+
+/* This is a shot in the dark */
+#define MUTED_SPEAKER_NOTIFY_INTERVAL_MS 500
+
+void wcall_notify_muted_speaker(const char *convid, int audio_level)
+{
+	wcall_muted_speaker_h *handler = NULL;
+	void *handler_arg = NULL;
+	uint64_t now;
+
+	if (!convid)
+		return;
+
+	now = tmr_jiffies();
+
+	lock_write_get(calling.lock);
+	if (calling.muted_speaker.h) {
+		/* Rate limit to avoid callback spam */
+		if (now - calling.muted_speaker.last_notify_ts < MUTED_SPEAKER_NOTIFY_INTERVAL_MS) {
+			lock_rel(calling.lock);
+			return;
+		}
+
+		calling.muted_speaker.last_notify_ts = now;
+
+		handler = calling.muted_speaker.h;
+		handler_arg = calling.muted_speaker.arg;
+	}
+	lock_rel(calling.lock);
+
+	/* Fire callback outside of lock to prevent deadlocks */
+	if (handler) {
+		info(APITAG "wcall: muted_speaker detected convid=%s level=%d\n",
+		     convid, audio_level);
+		handler(convid, audio_level, handler_arg);
+	}
 }
 
 AVS_EXPORT

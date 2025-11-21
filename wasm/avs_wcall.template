@@ -5,7 +5,7 @@
  */
 
 import avs_core = require('./avs_core');
-import avs_pc, {UserMediaHandler, AudioStreamHandler, VideoStreamHandler} from './avs_pc';
+import avs_pc, {UserMediaHandler, AudioStreamHandler, VideoStreamHandler, MutedSpeakerHandler} from './avs_pc';
 
 
 %CONSTANTS%
@@ -47,6 +47,10 @@ export class Wcall {
     avs_pc.setVideoStreamHandler(videoStreamHandler);
   }
 
+  setMutedSpeakerHandler(mutedSpeakerHandler: MutedSpeakerHandler): void {
+    avs_pc.setMutedSpeakerHandler(mutedSpeakerHandler);
+  }
+
   isConferenceCallingSupported() : boolean {
     return avs_pc.isConferenceCallingSupported();
   }
@@ -80,4 +84,6 @@ export const getAvsInstance = function(): Promise<Wcall> {
     });
   });
 };
+
+export {MutedSpeakerHandler} from './avs_pc';
 
