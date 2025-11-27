@@ -258,6 +258,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 	switch (ccall->state) {
 	case CCALL_STATE_IDLE:
 		ccall->sft_url = mem_deref(ccall->sft_url);
+		ccall->sft_timestamp = 0;
 		userlist_reset_keygenerator(ccall->userl);
 		ccall->received_confpart = false;
 		keystore_reset(ccall->keystore);
