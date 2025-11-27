@@ -214,11 +214,12 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 			goto out;
 
 		info("frame_dec(%p): decrypt: first frame received "
-		     "type: %s uid: %s fid: %u csrc: %u\n",
+		     "type: %s uid: %s fid: %u kid: %llu csrc: %u\n",
 		     dec,
 		     frame_type_name(dec->mtype),
 		     dec->userid_hash,
 		     fid32,
+		     kid,
 		     csrc);
 		dec->frame_dec = false;
 		keystore_set_decrypt_attempted(dec->keystore);
@@ -276,7 +277,7 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 	}
 	
 	if (!EVP_DecryptFinal_ex(dec->ctx, dst + dec_len, &blk_len)) {
-		warning("frame_dec(%p): decrypt: final failed\n", dec);
+	        warning("frame_dec(%p): decrypt: final failed key-id=%llu\n", dec, kid);
 		err = EIO;
 		goto out;
 	}
