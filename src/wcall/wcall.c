@@ -4324,6 +4324,7 @@ int wcall_run(void)
 
 #endif
 
+AVS_EXPORT
 int wcall_set_background(WUSER_HANDLE wuser, int background)
 {
 	struct calling_instance *inst = wuser2inst(wuser);
