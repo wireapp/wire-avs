@@ -194,6 +194,7 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 		else
 			goto out;
 	}
+#if 0
 	else if (streq(name, "candidate")) {
 
 		err = str_dup(&cval, value);
@@ -240,6 +241,7 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 			sdp_safe_media_set_lattr(sdpm, false, name, value);
 		}
 	}
+#endif
 	else if (csdp->munge && streq(name, "ssrc-group")) {
 		uint32_t s1;
 		uint32_t s2;
@@ -249,7 +251,8 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 			sdp_safe_media_set_lattr(sdpm, false, name, value);
 		}
 		else {
-			info("sdp_dup: dropping invalid ssrc-group: %s\n", value);
+			info("sdp_dup: dropping invalid ssrc-group: %s\n",
+			     value);
 		}
 	}
 	else {
