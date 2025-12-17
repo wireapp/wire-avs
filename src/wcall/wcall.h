@@ -9,6 +9,11 @@ struct str_le {
 
 struct calling_instance *wuser2inst(WUSER_HANDLE wuser);
 
+bool wcall_is_ready(struct calling_instance *inst,
+		    int conv_type);
+
+void wcall_invoke_ready(struct calling_instance *inst);
+
 int wcall_marshal_alloc(struct wcall_marshal **wmp); 
 struct wcall_marshal *wcall_get_marshal(struct calling_instance *inst);
 
@@ -88,4 +93,3 @@ void wcall_i_process_notifications(struct calling_instance *inst,
 				   bool processing);
 
 void wcall_marshal_destroy(struct calling_instance *inst);
-
