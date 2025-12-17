@@ -2235,6 +2235,7 @@ AVS_EXPORT
 int wcall_init(int env)
 {
 	int err = 0;
+
 	info(APITAG "wcall: init: initialized=%d env=%d\n", calling.initialized, env);
 
 #if ENABLE_PEERFLOW
@@ -2345,6 +2346,8 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 
 		info(APITAG "wcall(%p): calling readyh: %p took: %llums\n",
 		     inst, inst->readyh, tmr_jiffies() - now);
+
+		wcall_invoke_ready(inst);
 	}
 }
 
@@ -4332,4 +4335,19 @@ int wcall_set_background(WUSER_HANDLE wuser, int background)
 	}
 
 	return 0;
+}
+
+bool wcall_is_ready(struct calling_instance *inst,
+		    int conv_type)
+{
+        if (!inst)
+	        return false;
+
+	switch (conv_type) {
+	case WCALL_CONV_TYPE_ONEONONE:
+	       return inst->call_config != NULL;
+
+	default:
+	       return true;
+	}
 }
