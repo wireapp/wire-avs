@@ -43,7 +43,7 @@
 #include "ecall.h"
 
 
-#define SDP_MAX_LEN 16384
+#define SDP_MAX_LEN 32768 /* 32KBytes */
 #define ECALL_MAGIC 0xeca1100f
 
 #define TIMEOUT_DC_CLOSE     10000
