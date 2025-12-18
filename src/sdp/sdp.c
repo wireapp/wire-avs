@@ -25,7 +25,7 @@
 const char *VIDEO_CODEC = "vp8";
 const char *VIDEO_CODEC_FMTP = NULL;
 
-
+#define USE_HOST_LIMIT 0
 #define MAX_NET_ID 5
 
 enum {
@@ -159,6 +159,7 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 {
 	struct conv_sdp *csdp = (struct conv_sdp *)arg;
 	struct sdp_media *sdpm = csdp->sdpm;
+#if USE_HOST_LIMIT
 	char *cval = NULL, *tok = NULL, *ctok = NULL;
 	enum cand_state state = CAND_STATE_NORMAL;
 	uint32_t idx = 0;
@@ -167,6 +168,7 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 	int32_t network_id = 0;
 	struct pl a, b, c, d;
 	int err = 0;
+#endif
 
 	if (!name || ! value || !csdp)
 		return false;
@@ -194,6 +196,7 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 		else
 			goto out;
 	}
+#if USE_HOST_LIMIT
 	else if (streq(name, "candidate")) {
 
 		err = str_dup(&cval, value);
@@ -240,6 +243,7 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 			sdp_safe_media_set_lattr(sdpm, false, name, value);
 		}
 	}
+#endif
 	else if (csdp->munge && streq(name, "ssrc-group")) {
 		uint32_t s1;
 		uint32_t s2;
@@ -249,7 +253,8 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 			sdp_safe_media_set_lattr(sdpm, false, name, value);
 		}
 		else {
-			info("sdp_dup: dropping invalid ssrc-group: %s\n", value);
+			info("sdp_dup: dropping invalid ssrc-group: %s\n",
+			     value);
 		}
 	}
 	else {
@@ -257,7 +262,9 @@ static bool media_rattr_handler(const char *name, const char *value, void *arg)
 	}
 
 out:
+#if USE_HOST_LIMIT
 	mem_deref(cval);
+#endif
 	return false;
 }
 
