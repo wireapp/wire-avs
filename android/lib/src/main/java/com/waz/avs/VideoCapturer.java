@@ -33,61 +33,34 @@ package com.waz.avs;
 
 
 import android.content.Context;
-import android.content.ContextWrapper;
-import android.graphics.ImageFormat;
-import android.graphics.Rect;
-import android.graphics.SurfaceTexture;
+import android.util.Log;
+import android.util.Rational;
+import android.util.Size;
+import android.view.Surface;
+import android.view.SurfaceHolder;
 
 import androidx.annotation.NonNull;
-//import androidx.appcompat.app.AppCompatActivity;
-import androidx.camera.core.AspectRatio;
 import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
-import androidx.camera.core.ImageProxy;
 import androidx.camera.core.ImageInfo;
+import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
-import androidx.camera.view.PreviewView;
 import androidx.camera.core.ResolutionInfo;
-import androidx.camera.core.SurfaceRequest;
-import androidx.camera.core.UseCase;
 import androidx.camera.core.UseCaseGroup;
 import androidx.camera.core.ViewPort;
-import androidx.camera.core.ViewPort.Builder;
+import androidx.camera.core.impl.ImageOutputConfig.RotationValue;
 import androidx.camera.lifecycle.ProcessCameraProvider;
-import androidx.camera.camera2.interop.Camera2Interop;
-import androidx.core.util.Consumer;
-//import androidx.core.app.ActivityCompat;
+import androidx.camera.view.PreviewView;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.ViewTreeLifecycleOwner;
 
-import android.media.Image;
-
-import android.util.Log;
-import android.util.Range;
-import android.util.Rational;
-import android.util.Size;
-
-import android.hardware.camera2.CaptureRequest;
-
-import android.view.Gravity;
-import android.view.Surface;
-import android.view.SurfaceView;
-import android.view.SurfaceHolder;
-import android.view.SurfaceHolder.Callback;
-
 import com.google.common.util.concurrent.ListenableFuture;
-
 import com.waz.call.FlowManager;
 
-import java.io.IOException;
-
 import java.nio.ByteBuffer;
-
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.Executor;
-import java.util.List;
 
 
 public class VideoCapturer implements ImageAnalysis.Analyzer {
@@ -164,7 +137,7 @@ public class VideoCapturer implements ImageAnalysis.Analyzer {
 		preview.setSurfaceProvider(this.previewView.getSurfaceProvider());		
 
 		imageAnalysis.setAnalyzer(this.executor, this);
-		imageAnalysis.setTargetRotation(0);
+		imageAnalysis.setTargetRotation(this.ui_rotation);
 
 		ViewPort viewPort = new ViewPort.Builder(new Rational(16, 9), 0)
 			.setScaleType(ViewPort.FIT)
@@ -267,29 +240,17 @@ public class VideoCapturer implements ImageAnalysis.Analyzer {
 		return this.ui_rotation;
 	}
 
-	public void setUIRotation(int rotation) {
-		int degrees = 0;
-
-		switch (rotation) {
-		case Surface.ROTATION_90:
-			degrees = 90;
-			break;
-		case Surface.ROTATION_180:
-			degrees = 180;
-			break;
-		case Surface.ROTATION_270:
-			degrees = 270;
-			break;
-		case Surface.ROTATION_0:
-		default:
-			degrees = 0;
-			break;
-		}
-
-		this.ui_rotation = degrees;
-		Log.d(TAG, "setUIRotation: uirot: " + degrees);
+	/**
+	 * Sets the rotation of the UI, so that video frames being sent can be rotated accordingly.
+	 * @param rotation Rotation of the UI, expressed as one of
+	 *                 {@link Surface#ROTATION_0}, {@link Surface#ROTATION_90},
+	 *                 {@link Surface#ROTATION_180}, or {@link Surface#ROTATION_270}.
+	 */
+	public void setUIRotation(@RotationValue int rotation) {
+		this.ui_rotation = rotation;
+		Log.d(TAG, "setUIRotation: uirot: " + rotation);
 		if (this.imageAnalysis != null) {
-		    this.imageAnalysis.setTargetRotation(rotation);
+			this.imageAnalysis.setTargetRotation(rotation);
 		}
 	}
 

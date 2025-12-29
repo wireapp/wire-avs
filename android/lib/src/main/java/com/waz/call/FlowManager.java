@@ -18,48 +18,23 @@
 package com.waz.call;
 
 
-import android.app.Activity;
 import android.content.Context;
-import android.content.Intent;
-import android.view.View;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Log;
 import android.view.Surface;
-import java.io.File;
+import android.view.View;
+
+import androidx.camera.core.impl.ImageOutputConfig.RotationValue;
+import androidx.camera.view.PreviewView;
 
 import com.waz.avs.AVSystem;
 import com.waz.avs.VideoCapturer;
 import com.waz.avs.VideoCapturerCallback;
 import com.waz.avs.VideoCapturerInfo;
-import com.waz.call.FlowSource;
-import com.waz.call.RequestHandler;
-
-import com.waz.call.FlowManagerListener;
-
-import com.waz.media.manager.MediaManager;
-import com.waz.media.manager.MediaManagerListener;
-
-import com.waz.media.manager.router.AudioRouter;
-
 import com.waz.log.LogHandler;
-
-import java.util.Set;
-import java.util.Map;
+import com.waz.media.manager.MediaManager;
 
 import java.util.HashSet;
-import java.util.HashMap;
-
 import java.util.Iterator;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
-import org.json.JSONException;
-
-
-import android.view.SurfaceView;
-
-import androidx.camera.view.PreviewView;
 
 
 public class FlowManager
@@ -378,7 +353,13 @@ public class FlowManager
   }
   public native void setVideoSendStateNative(String convId, int state);
 
-  public void setUIRotation(int rotation) {
+  /**
+   * Sets the rotation of the UI, so that video frames being sent can be rotated accordingly.
+   * @param rotation Rotation of the UI, expressed as one of
+   *                 {@link Surface#ROTATION_0}, {@link Surface#ROTATION_90},
+   *                 {@link Surface#ROTATION_180}, or {@link Surface#ROTATION_270}.
+   */
+  public void setUIRotation(@RotationValue int rotation) {
      this.ui_rotation = rotation;
      if (this.videoCapturer != null) {
          this.videoCapturer.setUIRotation(rotation);
