@@ -79,7 +79,7 @@ public class VideoCapturer implements ImageAnalysis.Analyzer {
 	private int h;
 	private int fps;
 	private boolean destroying = false;
-	private int ui_rotation = 0;
+	private int ui_rotation = Surface.ROTATION_0;
 	private Camera camera;
 	private CameraSelector cameraSelector = null;
 	ProcessCameraProvider cameraProvider = null;
