@@ -444,11 +444,11 @@ public class FlowManager
 						       CAPTURE_FPS);
 		this.videoCapturer.setCallback(this);
 
+        if (this.videoCapturer != null)
+            this.videoCapturer.setUIRotation(this.ui_rotation);
+
 		if (this.previewView != null)
 			this.videoCapturer.startCapture(this.previewView);
-		
-		if (this.videoCapturer != null)
-			this.videoCapturer.setUIRotation(this.ui_rotation);
 
 		Log.d(TAG, "createCapturer: created=" + this.videoCapturer);
 		
