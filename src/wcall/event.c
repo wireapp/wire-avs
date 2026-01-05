@@ -205,6 +205,7 @@ WUSER_HANDLE wcall_event_create(const char *userid,
 	return inst->wuser;
 }
 
+AVS_EXPORT
 void wcall_event_start(WUSER_HANDLE wuser)
 {
 	struct call_event_instance *inst;
@@ -218,6 +219,7 @@ void wcall_event_start(WUSER_HANDLE wuser)
 	inst->processing = true;
 }
 
+AVS_EXPORT
 int  wcall_event_process(WUSER_HANDLE wuser, 
 			 const uint8_t *buf,
 			 size_t len,
@@ -330,6 +332,7 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 	return 0;
 }
 
+AVS_EXPORT
 void wcall_event_end(WUSER_HANDLE wuser)
 {
 	struct call_event_instance *inst;
