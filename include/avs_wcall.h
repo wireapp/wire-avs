@@ -577,6 +577,24 @@ void wcall_poll(void);
 int wcall_setup(void);
 int wcall_setup_ex(int flags);
 
+WUSER_HANDLE wcall_event_create(const char *userid,
+				const char *clientid,
+				wcall_incoming_h *incomingh,
+				wcall_missed_h *missedh,
+				wcall_close_h *closeh,
+				void *arg);
+void wcall_event_start(WUSER_HANDLE wuser);
+int  wcall_event_process(WUSER_HANDLE wuser, 
+			 const uint8_t *buf, size_t len,
+			 uint32_t curr_time, /* timestamp in seconds */
+			 uint32_t msg_time,  /* timestamp in seconds */
+			 const char *convid,
+			 const char *userid,
+			 const char *clientid,
+			 int conv_type);
+void wcall_event_end(WUSER_HANDLE wuser);
+				
+				
 
 #define WCALL_MODE_MARSHAL 0
 #define WCALL_MODE_DIRECT  1
