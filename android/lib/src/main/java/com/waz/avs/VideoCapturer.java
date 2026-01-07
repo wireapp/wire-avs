@@ -156,7 +156,7 @@ public class VideoCapturer implements ImageAnalysis.Analyzer {
 		Log.i(TAG, "bindPreview: camera=" + this.camera + " facing: " + this.cameraSelector);
 
 		Log.i(TAG, "bindPreview: viewPort: " + this.previewView.getWidth() + "x" + this.previewView.getHeight() +
-		      " rot=" + preview.getTargetRotation());
+		      " preview_rot=" + preview.getTargetRotation() + " output_rot=" + imageAnalysis.getTargetRotation());
 		
 		ResolutionInfo resInfo = preview.getResolutionInfo();
 		if (resInfo == null) {
