@@ -73,10 +73,13 @@ $ sudo apt-get install \
   protobuf-c-compiler \
   yasm \
   zlib1g-dev \
-  zip
-
-$ curl -sSf https://static.rust-lang.org/rustup.sh | sh -s -- --channel=nightly
+  zip \
+  libglib2.0-dev \
+  cargo
 ```
+Which should be working for
+- Ubuntu 24.04.2 wire LTS amd64 (Cubic 2025-02-23 17:20)
+- Ubuntu 24.04.3 LTS
 
 
 For **Windows**, you will have to start by adding your system to the build
