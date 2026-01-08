@@ -48,6 +48,8 @@ struct call_event_instance {
 	void *arg;
 	
 	struct list eventl;
+
+	struct le le;
 };
 
 struct call_event {
