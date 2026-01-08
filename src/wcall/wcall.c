@@ -3370,9 +3370,7 @@ static void tmr_roaming_handler(void *arg)
 	struct calling_instance *inst = arg;
 
 	/* Go through all the calls, and restart flows on them */
-	//lock_write_get(inst->lock);
 	list_apply(&inst->wcalls, true, call_restart_handler, inst);
-	//lock_rel(inst->lock);
 }
 
 
