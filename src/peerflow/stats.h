@@ -154,9 +154,65 @@ public:
 
 		for (iceIt = iceStats.begin(); iceIt != iceStats.end(); iceIt++) {
 			const webrtc::RTCIceCandidatePairStats* s = *iceIt;
+#ir 0
+			struct mbuf *mb = mbuf_alloc(1024);
+#else
+			struct mbuf *mb = NULL;
+#endif
 			std::string state = *s->state;
 			if (state == "succeeded") {
 				rtt = *s->current_round_trip_time * 1000.0f;
+			}
+			if (mb) {
+				mbuf_printf(mb, "IceCandidaptePair<%s>:\n", s->id().c_str());
+
+				if (s->local_candidate_id.has_value()
+				    && s->remote_candidate_id.has_value()) {
+					std::string lid = *s->local_candidate_id;
+					std::string rid = *s->remote_candidate_id;
+
+					std::vector<const webrtc::RTCLocalIceCandidateStats*> lcandStats =
+						report->GetStatsOfType<webrtc::RTCLocalIceCandidateStats>();
+					std::vector<const webrtc::RTCLocalIceCandidateStats*>::iterator lcandIt;
+					bool found = false;
+					for (lcandIt = lcandStats.begin(); lcandIt != lcandStats.end() && !found; lcandIt++) {
+						const webrtc::RTCLocalIceCandidateStats* c = *lcandIt;
+
+						if (c->id() == lid) {
+							mbuf_printf(mb, "\tLocal-candidate<%s>:\n", c->id().c_str());
+							for (const auto& attribute : c->Attributes()) {
+								mbuf_printf(mb, "\t\t%s = %s\n", attribute.name(), attribute.ToString().c_str());
+							}
+							found = true;
+						}
+					}
+					std::vector<const webrtc::RTCRemoteIceCandidateStats*> rcandStats =
+						report->GetStatsOfType<webrtc::RTCRemoteIceCandidateStats>();
+					std::vector<const webrtc::RTCRemoteIceCandidateStats*>::iterator rcandIt;
+					found = false;
+					for (rcandIt = rcandStats.begin(); rcandIt != rcandStats.end() && !found; rcandIt++) {
+						const webrtc::RTCRemoteIceCandidateStats* c = *rcandIt;
+
+						if (c->id() == rid) {
+							mbuf_printf(mb, "\tRemote-candidate<%s>:\n", c->id().c_str());
+							for (const auto& attribute : c->Attributes()) {
+								mbuf_printf(mb, "\t\t%s = %s\n", attribute.name(), attribute.ToString().c_str());
+							}
+							found = true;
+						}
+					}
+				}
+				for (const auto& attribute : s->Attributes()) {
+					mbuf_printf(mb, "\t%s = %s\n", attribute.name(), attribute.ToString().c_str());
+				}
+				char *logstr = NULL;
+
+				mb->pos = 0;
+				mbuf_strdup(mb, &logstr, mb->end);
+				info("%s\n", logstr);
+
+				mem_deref(mb);
+				mem_deref(logstr);
 			}
 		}
 

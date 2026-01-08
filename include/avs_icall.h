@@ -151,6 +151,7 @@ typedef int  (icall_stats)(struct re_printf *pf, const struct icall* icall);
 typedef int  (icall_set_background)(struct icall *icall, bool background);
 
 typedef int  (icall_activate)(struct icall *icall, bool active);
+typedef int  (icall_restart)(struct icall *icall);
 
 /* Callbacks from icall */
 typedef int  (icall_sft_h)(struct icall *icall,
@@ -223,7 +224,6 @@ typedef void (icall_quality_h)(struct icall *icall,
 			       void *arg);
 typedef void (icall_norelay_h)(struct icall *icall, bool local, void *arg);
 
-
 typedef void (icall_req_clients_h)(struct icall *icall, void *arg);
 
 typedef void (icall_audio_level_h)(struct icall *icall, struct list *levell, void *arg);
@@ -256,6 +256,7 @@ struct icall {
 	icall_stats			*stats;
 	icall_set_background            *set_background;
 	icall_activate                  *activate;
+	icall_restart                   *restart;
 	icall_send_h			*sendh;
 	icall_sft_h			*sfth;
 	icall_start_h			*starth;
@@ -309,7 +310,8 @@ void icall_set_functions(struct icall *icall,
 			 icall_debug			*debug,
 			 icall_stats			*stats,
 			 icall_set_background           *set_background,
-			 icall_activate                 *activate);
+			 icall_activate                 *activate,
+			 icall_restart                  *restart);
 
 void icall_set_callbacks(struct icall *icall,
 			 icall_send_h		*sendh,
