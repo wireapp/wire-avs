@@ -85,7 +85,6 @@ struct log_entry {
 	struct le le;
 };
 
-#define WU_MAGIC 0x57550000 /* WU */
 
 struct calling_instance {
 	struct wcall_marshal *marshal;
@@ -256,17 +255,15 @@ static WUSER_HANDLE inst2wuser(struct calling_instance *inst)
 	return found ? ci->wuser : (WUSER_HANDLE)0;
 }
 
-static WUSER_HANDLE create_wuser(struct calling_instance *inst)
+WUSER_HANDLE wcall_create_wuser(uint32_t *idx)
 {
 	WUSER_HANDLE wuser = WUSER_INVALID_HANDLE;
+	uint32_t wi = *idx;
 
-	if (inst) {
-		wuser = WU_MAGIC + calling.wuser_index;
-		calling.wuser_index++;
-		calling.wuser_index &= 0xFFFF; /* wrap */
-
-		inst->wuser = wuser;
-	}
+	wuser = WU_MAGIC + wi;
+	wi++;
+	wi &= 0xFFFF; /* wrap */
+	*idx = wi;
 
 	return wuser;
 }
@@ -2599,10 +2596,10 @@ WUSER_HANDLE wcall_create_ex(const char *userid,
 			     wcall_video_state_change_h *vstateh,
 			     void *arg)
 {
-	WUSER_HANDLE wuser = WUSER_INVALID_HANDLE;			
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
 	struct calling_instance *inst = NULL;
+	WUSER_HANDLE wuser = WUSER_INVALID_HANDLE;
 	int err;
 
 	if (!str_isset(userid) || !str_isset(clientid))
@@ -2618,7 +2615,7 @@ WUSER_HANDLE wcall_create_ex(const char *userid,
 		goto out;
 	}
 
-	wuser = create_wuser(inst);
+	inst->wuser = wcall_create_wuser(&calling.wuser_index);
 
 	err = wcall_marshal_alloc(&inst->marshal);
 	if (err) {
