@@ -130,21 +130,21 @@ static void queue_event(struct call_event_instance *inst,
 	list_append(&inst->eventl, &ev->le, ev);
 }
 
-static bool queue_find(struct call_event_instance *inst,
-		       const char *convid,
-		       const char *userid,
-		       const char *clientid,
-		       enum call_event_state state)
+static struct call_event *queue_find(struct call_event_instance *inst,
+				     const char *convid,
+				     const char *userid,
+				     const char *clientid,
+				     enum call_event_state state)
 {
 	bool found = false;
+	struct call_event *ev;
 	struct le *le;
 
 	if (!inst)
 		return false;
 
 	for (le = inst->eventl.head; le != NULL && !found; le = le->next) {
-		struct call_event *ev = le->data;
-
+		ev = le->data;
 		found = streq(ev->convid, convid)
 			&& streq(ev->userid, userid)
 			&& streq(ev->clientid, clientid)
@@ -154,7 +154,7 @@ static bool queue_find(struct call_event_instance *inst,
 			le = le->next;
 	}
 
-	return found;
+	return found ? ev : NULL;
 }
 
 
@@ -202,6 +202,8 @@ WUSER_HANDLE wcall_event_create(const char *userid,
 	inst->closeh = closeh;
 	inst->arg = arg;
 
+	list_append(&calling_event.instances, &inst->le, inst);
+
 	return inst->wuser;
 }
 
@@ -232,6 +234,7 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 {
 	struct call_event_instance *inst;
 	struct econn_message *msg;
+	struct call_event *ev;
 	int err = 0;
 
 	if (!buf || len == 0 || !convid || !userid || !clientid)
@@ -276,31 +279,30 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 				    WCALL_REASON_NORMAL);
 		}
 		else {
-			queue_event(inst, convid,
-				    userid, clientid,
-				    msg->time,
-				    conv_type,
-				    CALL_EVENT_STATE_CLOSED,
-				    WCALL_REASON_ANSWERED_ELSEWHERE);
+			if (streq(inst->userid, userid)
+			 && streq(inst->clientid, clientid)) {
+				queue_event(inst, convid,
+					    userid, clientid,
+					    msg->time,
+					    conv_type,
+					    CALL_EVENT_STATE_CLOSED,
+					    WCALL_REASON_ANSWERED_ELSEWHERE);
+			}
 		}
 		break;
 
 	case ECONN_CONF_END:
 		if (econn_message_isrequest(msg)) {
+			ev = queue_find(inst, convid,
+					userid, clientid,
+					CALL_EVENT_STATE_INCOMING);
+
 			/* do we have a pending inconing? if we do,
 			 * queue missed, otherwise queue closeh
 			 */
-			
-			if (queue_find(inst, convid,
-				       userid, clientid,
-				       CALL_EVENT_STATE_INCOMING)) {
-				queue_event(inst,
-					    convid,
-					    userid, clientid,
-					    msg->time,
-					    conv_type,
-					    CALL_EVENT_STATE_MISSED,
-					    WCALL_REASON_NORMAL);
+			if (ev) {
+				ev->state = CALL_EVENT_STATE_MISSED;
+				ev->reason = WCALL_REASON_NORMAL;
 			}
 			else {
 				queue_event(inst,
@@ -315,13 +317,16 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 		break;
 
 	case ECONN_REJECT:
-		queue_event(inst,
-			    convid,
-			    userid, clientid,
-			    msg->time,
-			    conv_type,
-			    CALL_EVENT_STATE_CLOSED,
-			    WCALL_REASON_REJECTED);
+		if (streq(inst->userid, userid)
+		 && streq(inst->clientid, clientid)) {
+			queue_event(inst,
+				    convid,
+				    userid, clientid,
+				    msg->time,
+				    conv_type,
+				    CALL_EVENT_STATE_CLOSED,
+				    WCALL_REASON_REJECTED);
+		}
 		break;
 
 	default:
