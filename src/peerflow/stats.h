@@ -154,7 +154,7 @@ public:
 
 		for (iceIt = iceStats.begin(); iceIt != iceStats.end(); iceIt++) {
 			const webrtc::RTCIceCandidatePairStats* s = *iceIt;
-#ir 0
+#if 0
 			struct mbuf *mb = mbuf_alloc(1024);
 #else
 			struct mbuf *mb = NULL;
