@@ -2656,7 +2656,8 @@ int ccall_alloc(struct ccall **ccallp,
 			    ccall_debug,
 			    ccall_stats,
 			    ccall_set_background,
-			    ccall_activate);
+			    ccall_activate,
+			    ccall_restart);
 out:
 	if (err == 0) {
 		*ccallp = ccall;
@@ -3933,6 +3934,18 @@ int ccall_activate(struct icall *icall, bool active)
 	info("ccall(%p): activate: active=%d\n", ccall, active);
 	if (ccall->ecall) {
 		ecall_activate(ccall->ecall, active);
+	}
+
+	return 0;
+}
+
+int ccall_restart(struct icall *icall)
+{
+	struct ccall *ccall = (struct ccall *)icall;
+
+	info("ccall(%p): restart\n", ccall);
+	if (ccall->ecall) {
+		ecall_restart(ccall->ecall, ccall->call_type, false);
 	}
 
 	return 0;

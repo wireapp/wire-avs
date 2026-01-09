@@ -1021,6 +1021,20 @@ static int _icall_activate(struct icall *icall, bool active)
 	return ecall_activate((struct ecall *)icall, active);
 }
 
+static int _icall_restart(struct icall *icall)
+{
+#if 1
+	(void)icall;
+
+	return 0;
+#else
+	struct ecall *ecall = (struct ecall *)icall;
+
+	return ecall_restart((struct ecall *)icall, ecall->call_type, true);
+#endif
+}
+
+
 
 int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		enum icall_conv_type conv_type,
@@ -1128,7 +1142,8 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 			    _icall_debug,
 			    _icall_stats,
 			    _icall_set_background,
-			    _icall_activate);
+			    _icall_activate,
+			    _icall_restart);
 
 	list_append(ecalls, &ecall->le, ecall);
 	list_append(&g_ecalls, &ecall->ecall_le, ecall);
