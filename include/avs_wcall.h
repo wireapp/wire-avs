@@ -412,7 +412,7 @@ void wcall_set_video_handlers(wcall_render_frame_h *render_frame_h,
 			      wcall_video_size_h *size_h,
 			      void *arg);
 
-void wcall_network_changed(WUSER_HANDLE wuser);
+void wcall_network_changed(void);
 
 void wcall_set_group_changed_handler(WUSER_HANDLE wuser,
 				     wcall_group_changed_h *chgh,

@@ -3339,10 +3339,10 @@ void wcall_set_data_chan_estab_handler(WUSER_HANDLE wuser,
 }
 
 
-#if 0 /* XXX Disabled for release-3.5 (enable again for proper integration with clients) */
 static bool call_restart_handler(struct le *le, void *arg)
 {
 	struct wcall *wcall = list_ledata(le);
+	int err = 0;
 	
 	(void)arg;
 
@@ -3353,42 +3353,37 @@ static bool call_restart_handler(struct le *le, void *arg)
 		info("wcall(%p): restarting call: %p in conv: %s\n",
 		     wcall, wcall->icall, wcall->convid);
 
-		ecall_restart(wcall->icall);
+		err = ICALL_CALLE(wcall->icall, restart);
+		if (err) {
+			info("wcall(%p): restarting call: %p in conv: %s failed: %m\n",
+			     wcall, wcall->icall, wcall->convid, err);
+		}
 	}
 
 	
 	return false;
 }
-#endif
 
 
-#if 0 /* XXX Disabled for release-3.5 (enable again for proper integration with clients) */
 static void tmr_roaming_handler(void *arg)
 {
-	struct sa laddr;
-	char ifname[64] = "";
-	(void)arg;
-
-	sa_init(&laddr, AF_INET);
-
-	(void)net_rt_default_get(AF_INET, ifname, sizeof(ifname));
-	(void)net_default_source_addr_get(AF_INET, &laddr);
-
-	info("wcall: network_changed: %s|%j\n", ifname, &laddr);
+	struct calling_instance *inst = arg;
 
 	/* Go through all the calls, and restart flows on them */
-	lock_write_get(inst->lock);
-	list_apply(&inst->wcalls, true, call_restart_handler, NULL);
-	lock_rel(inst->lock);
+	list_apply(&inst->wcalls, true, call_restart_handler, inst);
 }
-#endif
 
 
 void wcall_i_network_changed(void)
 {
-	/* Reset the previous timer */
-	//tmr_start(&inst->tmr_roam, 500, tmr_roaming_handler, NULL);
-	info(APITAG "wcall: network_changed\n");
+	struct le *le;
+
+	LIST_FOREACH(&calling.instances, le) {
+		struct calling_instance *inst = le->data;
+
+		info(APITAG "wcall(%p): network_changed\n", inst);
+		tmr_start(&inst->tmr_roam, 500, tmr_roaming_handler, inst);
+	}
 }
 
 
@@ -4349,5 +4344,17 @@ bool wcall_is_ready(struct calling_instance *inst,
 
 	default:
 	       return true;
+	}
+}
+
+struct calling_instance *wcall_get_instance(void)
+{
+	struct le *le = calling.instances.head;
+
+	if (le) {
+		return (struct calling_instance *)le->data;
+	}
+	else {
+		return NULL;
 	}
 }

@@ -93,3 +93,4 @@ void wcall_i_process_notifications(struct calling_instance *inst,
 				   bool processing);
 
 void wcall_marshal_destroy(struct calling_instance *inst);
+struct calling_instance *wcall_get_instance(void);
