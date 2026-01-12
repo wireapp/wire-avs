@@ -627,6 +627,7 @@ CFLAGS += \
 
 CPPFLAGS += \
          -DWEBRTC_POSIX -DWEBRTC_LINUX -DHAVE_GAI_STRERROR=1 \
+         -Wno-vla-cxx-extension \
 	 -fPIC -fvisibility=default
 
 CXXFLAGS += \
