@@ -988,16 +988,14 @@ void wcall_audio_route_changed(	struct calling_instance *inst,
 
 
 AVS_EXPORT
-void wcall_network_changed(WUSER_HANDLE wuser)
+void wcall_network_changed(void)
 {
-	struct calling_instance *inst;
 	struct mq_data *md = NULL;
+	struct calling_instance *inst = wcall_get_instance();
 	int err = 0;
 
-	inst = wuser2inst(wuser);
 	if (!inst) {
-		warning("wcall: network_changed: invalid handle: 0x%08X\n",
-			wuser);
+		warning("wcall: network_changed: no calling instances available\n");
 		return;
 	}
 	

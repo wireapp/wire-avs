@@ -80,13 +80,11 @@ static struct call_event_instance *wuser2evinst(WUSER_HANDLE wuser)
 	if ((wuser & WU_MAGIC) != WU_MAGIC)
 		return NULL;
 	
-	//lock_write_get(calling.lock);
 	for (le = calling_event.instances.head; le && !found; le = le->next) {
 		inst = le->data;
 
 		found = inst->wuser == wuser;
 	}
-	//lock_rel(calling.lock);
 
 	return found ? inst : NULL;
 

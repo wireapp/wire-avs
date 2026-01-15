@@ -611,6 +611,7 @@ int egcall_alloc(struct egcall **egcallp,
 			    egcall_debug,
 			    egcall_stats,
 			    NULL, // egcall_set_background
+			    NULL,
 			    NULL);
 out:
 	if (err == 0) {

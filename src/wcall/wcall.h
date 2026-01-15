@@ -95,5 +95,5 @@ void wcall_i_process_notifications(struct calling_instance *inst,
 				   bool processing);
 
 void wcall_marshal_destroy(struct calling_instance *inst);
-
 WUSER_HANDLE wcall_create_wuser(uint32_t *idx);
+struct calling_instance *wcall_get_instance(void);

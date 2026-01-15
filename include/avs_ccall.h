@@ -99,6 +99,7 @@ int  ccall_stats_struct(const struct ccall *ccall,
 int  ccall_debug(struct re_printf *pf, const struct icall* icall);
 
 int  ccall_activate(struct icall *icall, bool active);
+int  ccall_restart(struct icall *icall);
 
 const char *ccall_state_name(enum ccall_state state);
 

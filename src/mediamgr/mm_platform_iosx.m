@@ -833,7 +833,6 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 			object:nil
 			 queue:[NSOperationQueue mainQueue]
 		    usingBlock: ^(NSNotification *notification) {
-			
 			info("mm_platform_ios: didBecomeActive\n");
 			msystem_activate(true);
 
