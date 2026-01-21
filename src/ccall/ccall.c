@@ -374,7 +374,7 @@ static void ccall_send_check_timeout(void *arg)
 		info("ccall(%p): send_check state=%s\n", ccall, ccall_state_name(ccall->state));
 
 		ccall_send_msg(ccall, ECONN_CONF_CHECK,
-			       true, NULL, false);
+			       true, NULL, true);
 		if (err != 0) {
 			warning("ccall(%p): send_check failed to send msg err=%d\n",
 				ccall, err);
