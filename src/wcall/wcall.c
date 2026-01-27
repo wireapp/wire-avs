@@ -49,6 +49,7 @@
 
 static struct {
 	bool initialized;
+	bool needs_setup;
 	int env;
 	int flags;
 	struct list instances;
@@ -65,6 +66,7 @@ static struct {
 	int mode;
 } calling = {
 	.initialized = false,
+	.needs_setup = true,
 	.instances = LIST_INIT,
 	.logl = LIST_INIT,
 	.lock = NULL,
@@ -2220,6 +2222,7 @@ int wcall_setup_ex(int flags)
 		return err;
 	}
 
+	calling.needs_setup = false;
 
 	return err;
 }
@@ -3975,7 +3978,9 @@ void wcall_thread_main(int *err, int *initialized)
 	*err = 0;
 	*initialized = 0;
 
-	wcall_setup();
+	if (calling.needs_setup) {
+		wcall_setup();
+	}
 	e = wcall_init(WCALL_ENV_DEFAULT);
 	if (e) {
 		error("wcall_main: failed to init wcall\n");
@@ -4319,6 +4324,8 @@ int wcall_set_background(WUSER_HANDLE wuser, int background)
 
 	if (!inst)
 		return EINVAL;
+
+	info(APITAG "wcall(%p): set_background: %d\n", inst, background);
 
 	LIST_FOREACH(&inst->wcalls, le) {
 		struct wcall *wcall = le->data;

@@ -982,6 +982,8 @@ int ecall_dce_sendmsg(struct ecall *ecall, struct econn_message *msg)
 
 int ecall_set_background(struct ecall *ecall, bool background)
 {
+	info("ecall(%p): set_background: %d\n", ecall, background);
+
 	return 0;
 }
 
@@ -1023,7 +1025,7 @@ static int _icall_activate(struct icall *icall, bool active)
 
 static int _icall_restart(struct icall *icall)
 {
-#if 1
+#if 0
 	(void)icall;
 
 	return 0;
@@ -3165,6 +3167,8 @@ int ecall_restart(struct ecall *ecall,
 	switch (state) {
 	case ECONN_ANSWERED:
 	case ECONN_DATACHAN_ESTABLISHED:
+	case ECONN_UPDATE_SENT:
+	case ECONN_UPDATE_RECV:
 		break;
 
 	default:

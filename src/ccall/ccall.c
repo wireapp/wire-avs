@@ -3825,6 +3825,8 @@ int ccall_set_background(struct icall *icall, bool background)
 	if (!ccall)
 		return EINVAL;
 
+	info("ccall(%p): set_background: %d\n", ccall, background);
+
 	/* If we are in incoming call state, and there is an ongoing timer,
 	 * we should stop it, until the app comes back to foreground
 	 */
