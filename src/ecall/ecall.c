@@ -3192,6 +3192,7 @@ int ecall_restart(struct ecall *ecall,
 
 	ecall->call_type = call_type;
 	ecall->update = true;
+	ecall->audio.estab = false;
 	tmr_cancel(&ecall->dc_tmr);
 	ecall->conf_part = mem_deref(ecall->conf_part);
 	muted = msystem_get_muted();

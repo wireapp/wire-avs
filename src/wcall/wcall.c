@@ -802,7 +802,7 @@ static void call_group_change_json(struct calling_instance *inst,
 	char *mjson = NULL;
 	char *anon_json = NULL;
 	int err;
-	
+
 	err = members_json(wcall, &mjson, &anon_json);
 	if (err) {
 		warning("wcall(%p): members_json failed: %m\n",
@@ -1625,6 +1625,14 @@ static void icall_quality_handler(struct icall *icall,
 			    inst->quality.arg);
 	info(APITAG "wcall(%p): netqh:%p (quality=%d) took %llu ms\n",
 	     wcall, inst->quality.netqh, quality, tmr_jiffies() - now);
+
+	if (WCALL_QUALITY_RECONNECTING == quality) {
+		if (wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE
+		    && wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE_MLS
+		    && inst->group.json.chgh) {
+			call_group_change_json(inst, wcall);
+		}
+	}
 }
 
 
