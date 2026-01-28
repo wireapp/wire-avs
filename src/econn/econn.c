@@ -27,8 +27,6 @@
 #include "avs_econn.h"
 #include "econn.h"
 
-#define ECONN_TIMEOUT_UPDATE 15000
-
 /* prototypes */
 
 
@@ -878,11 +876,8 @@ int econn_update_req(struct econn *conn, const char *sdp,
 
 	case ECONN_ANSWERED:
 	case ECONN_DATACHAN_ESTABLISHED:
-		break;
-
 	case ECONN_UPDATE_SENT:
 	case ECONN_UPDATE_RECV:
-		tmo = ECONN_TIMEOUT_UPDATE;
 		break;
 
 	default:
