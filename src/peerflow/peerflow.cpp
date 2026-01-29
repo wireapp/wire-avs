@@ -961,7 +961,7 @@ class DataChanObserver : public webrtc::DataChannelObserver {
 		dc_ = dc;
 	}
 	
-	// The data channel state have changed.
+	// The data channel sdtate have changed.
 	virtual void OnStateChange() {
 
 		webrtc::DataChannelInterface::DataState state;
@@ -3279,6 +3279,8 @@ void peerflow_set_stats(struct peerflow* pf,
 			float downloss,
 			float rtt)
 {
+	uint32_t total_pkts;
+	
 	if (!pf) {
 		return;
 	}
@@ -3298,9 +3300,14 @@ void peerflow_set_stats(struct peerflow* pf,
 	pf->stats.apkts_recv = apkts_recv;
 	pf->stats.vpkts_recv = vpkts_recv;
 	pf->stats.apkts_sent = apkts_sent;
-	pf->stats.vpkts_sent = vpkts_sent;
-	pf->stats.dloss = (downloss / (float)(apkts_recv + vpkts_recv)) * 100;
+	pf->stats.vpkts_sent = vpkts_sent;	
 	pf->stats.rtt = rtt;
+
+	total_pkts = apkts_recv + vpkts_recv;
+	if (total_pkts)
+		pf->stats.dloss = (downloss / (float)total_pkts) * 100;
+	else
+		pf->stats.dloss = 0;	
 }
 
 int peerflow_get_stats(struct iflow *flow,
