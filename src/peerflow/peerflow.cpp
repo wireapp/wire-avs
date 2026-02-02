@@ -961,7 +961,7 @@ class DataChanObserver : public webrtc::DataChannelObserver {
 		dc_ = dc;
 	}
 	
-	// The data channel state have changed.
+	// The data channel sdtate have changed.
 	virtual void OnStateChange() {
 
 		webrtc::DataChannelInterface::DataState state;
@@ -1716,6 +1716,7 @@ public:
 #endif
 				webrtc::RtpParameters params = sender->GetParameters();
 
+#if 0
 				for(int i = 0; i < params.encodings.size(); ++i) {
 					webrtc::RtpEncodingParameters *enc = &params.encodings[i];
 
@@ -1732,6 +1733,7 @@ public:
 						enc->active = true;
 					}
 				}
+#endif
 
 				params.degradation_preference = webrtc::DegradationPreference::MAINTAIN_RESOLUTION;
 				sender->SetParameters(params);
@@ -3277,6 +3279,8 @@ void peerflow_set_stats(struct peerflow* pf,
 			float downloss,
 			float rtt)
 {
+	uint32_t total_pkts;
+	
 	if (!pf) {
 		return;
 	}
@@ -3296,9 +3300,14 @@ void peerflow_set_stats(struct peerflow* pf,
 	pf->stats.apkts_recv = apkts_recv;
 	pf->stats.vpkts_recv = vpkts_recv;
 	pf->stats.apkts_sent = apkts_sent;
-	pf->stats.vpkts_sent = vpkts_sent;
-	pf->stats.dloss = downloss;
+	pf->stats.vpkts_sent = vpkts_sent;	
 	pf->stats.rtt = rtt;
+
+	total_pkts = apkts_recv + vpkts_recv;
+	if (total_pkts)
+		pf->stats.dloss = (downloss / (float)total_pkts) * 100;
+	else
+		pf->stats.dloss = 0;	
 }
 
 int peerflow_get_stats(struct iflow *flow,

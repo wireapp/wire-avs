@@ -49,6 +49,7 @@
 
 static struct {
 	bool initialized;
+	bool needs_setup;
 	int env;
 	int flags;
 	struct list instances;
@@ -65,6 +66,7 @@ static struct {
 	int mode;
 } calling = {
 	.initialized = false,
+	.needs_setup = true,
 	.instances = LIST_INIT,
 	.logl = LIST_INIT,
 	.lock = NULL,
@@ -797,7 +799,7 @@ static void call_group_change_json(struct calling_instance *inst,
 	char *mjson = NULL;
 	char *anon_json = NULL;
 	int err;
-	
+
 	err = members_json(wcall, &mjson, &anon_json);
 	if (err) {
 		warning("wcall(%p): members_json failed: %m\n",
@@ -1620,6 +1622,14 @@ static void icall_quality_handler(struct icall *icall,
 			    inst->quality.arg);
 	info(APITAG "wcall(%p): netqh:%p (quality=%d) took %llu ms\n",
 	     wcall, inst->quality.netqh, quality, tmr_jiffies() - now);
+
+	if (WCALL_QUALITY_RECONNECTING == quality) {
+		if (wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE
+		    && wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE_MLS
+		    && inst->group.json.chgh) {
+			call_group_change_json(inst, wcall);
+		}
+	}
 }
 
 
@@ -2217,6 +2227,7 @@ int wcall_setup_ex(int flags)
 		return err;
 	}
 
+	calling.needs_setup = false;
 
 	return err;
 }
@@ -3972,7 +3983,9 @@ void wcall_thread_main(int *err, int *initialized)
 	*err = 0;
 	*initialized = 0;
 
-	wcall_setup();
+	if (calling.needs_setup) {
+		wcall_setup();
+	}
 	e = wcall_init(WCALL_ENV_DEFAULT);
 	if (e) {
 		error("wcall_main: failed to init wcall\n");
@@ -4316,6 +4329,8 @@ int wcall_set_background(WUSER_HANDLE wuser, int background)
 
 	if (!inst)
 		return EINVAL;
+
+	info(APITAG "wcall(%p): set_background: %d\n", inst, background);
 
 	LIST_FOREACH(&inst->wcalls, le) {
 		struct wcall *wcall = le->data;

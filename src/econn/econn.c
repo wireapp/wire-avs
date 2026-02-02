@@ -27,7 +27,6 @@
 #include "avs_econn.h"
 #include "econn.h"
 
-
 /* prototypes */
 
 
@@ -868,6 +867,7 @@ int econn_update_req(struct econn *conn, const char *sdp,
 		     const struct econn_props *props)
 {
 	int err = 0;
+	uint64_t tmo = conn->conf.timeout_setup;
 
 	if (!conn)
 		return EINVAL;
@@ -876,6 +876,8 @@ int econn_update_req(struct econn *conn, const char *sdp,
 
 	case ECONN_ANSWERED:
 	case ECONN_DATACHAN_ESTABLISHED:
+	case ECONN_UPDATE_SENT:
+	case ECONN_UPDATE_RECV:
 		break;
 
 	default:
@@ -894,13 +896,12 @@ int econn_update_req(struct econn *conn, const char *sdp,
 		return err;
 	}
 
-	if (!conn->conf.timeout_setup) {
+	if (!tmo) {
 		warning("econn(%p): start: illegal timer value 0\n", conn);
 		return EPROTO;
 	}
 
-	tmr_start(&conn->tmr_local, conn->conf.timeout_setup,
-		  tmr_local_handler, conn);
+	tmr_start(&conn->tmr_local, tmo, tmr_local_handler, conn);
 
 	return err;
 }

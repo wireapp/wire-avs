@@ -142,9 +142,12 @@ public:
 		}
 		float downloss = 0.0f;
 
+		downloss = packetsLost;
+#if 0
 		downloss = packetsLost - lost_;
 		lost_ = packetsLost;
 		lost_ += packetsLost;
+#endif
 
 		std::vector<const webrtc::RTCIceCandidatePairStats*> iceStats =
 			report->GetStatsOfType<webrtc::RTCIceCandidatePairStats>();
