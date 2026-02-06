@@ -560,6 +560,10 @@ static void icall_start_handler(struct icall *icall,
 	if (inst->processing_notifications && inst->incomingh) {
 		struct incoming_event *ie;
 
+		ie = find_pending_event(&inst->pending_eventl, userid_sender);
+		if (ie) {
+			list_unlink(&ie->le);
+		}
 		ie = mem_zalloc(sizeof(*ie), ie_destructor);
 		if (ie) {
 			str_dup(&ie->convid, wcall->convid);
