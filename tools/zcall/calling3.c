@@ -1378,6 +1378,7 @@ static void register_dummy_sounds(void)
 	}
 }
 
+/* WPB-XXX Maybe we can use this in json parsing and displayin formatted info
 static const char *quality2name(int quality)
 {
 	switch (quality) {
@@ -1397,22 +1398,18 @@ static const char *quality2name(int quality)
 		return "???";
 	}
 }
+*/
 
 static void wcall_quality_handler(const char *convid,
 				  const char *userid,
 				  const char *clientid,
-				  int quality, /*  WCALL_QUALITY_ */
-				  int rtt, /* round trip time in ms */
-				  int uploss, /* upstream pkt loss % */
-				  int downloss, /* dnstream pkt loss */
+				  const char *quality_info,
 				  void *arg)
 {
 	(void)arg;
 
-	info("call_quality: convid=%s userid=%s quality=%s "
-	     "rtt=%d up=%d dn=%d\n",
-	     convid, userid, quality2name(quality),
-	     rtt, uploss, downloss);
+	info("call_quality: convid=%s userid=%s quality=%s\n",
+	     convid, userid, quality_info);
 }
 
 

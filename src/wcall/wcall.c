@@ -1615,13 +1615,14 @@ static void icall_quality_handler(struct icall *icall,
 	     anon_client(clientid_anon, clientid),
 	     rtt, uploss, downloss, quality);
 	now = tmr_jiffies();
+
+	// WPB-XXX convert quality metrics into json string
+	const char* quality_info = "{}";
+
 	inst->quality.netqh(wcall->convid,
 			    userid,
 			    clientid,
-			    quality,
-			    rtt,
-			    uploss,
-			    downloss,
+			    quality_info,
 			    inst->quality.arg);
 	info(APITAG "wcall(%p): netqh:%p (quality=%d) took %llu ms\n",
 	     wcall, inst->quality.netqh, quality, tmr_jiffies() - now);
