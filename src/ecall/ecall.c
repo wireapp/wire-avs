@@ -43,7 +43,7 @@
 #include "ecall.h"
 
 
-#define SDP_MAX_LEN 24576 // max 24 KiB
+#define SDP_MAX_LEN 32768 /* 32KBytes */
 #define ECALL_MAGIC 0xeca1100f
 
 #define TIMEOUT_DC_CLOSE     10000
@@ -982,6 +982,8 @@ int ecall_dce_sendmsg(struct ecall *ecall, struct econn_message *msg)
 
 int ecall_set_background(struct ecall *ecall, bool background)
 {
+	info("ecall(%p): set_background: %d\n", ecall, background);
+
 	return 0;
 }
 
@@ -1020,6 +1022,20 @@ static int _icall_activate(struct icall *icall, bool active)
 {
 	return ecall_activate((struct ecall *)icall, active);
 }
+
+static int _icall_restart(struct icall *icall)
+{
+#if 0
+	(void)icall;
+
+	return 0;
+#else
+	struct ecall *ecall = (struct ecall *)icall;
+
+	return ecall_restart((struct ecall *)icall, ecall->call_type, true);
+#endif
+}
+
 
 
 int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
@@ -1128,7 +1144,8 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 			    _icall_debug,
 			    _icall_stats,
 			    _icall_set_background,
-			    _icall_activate);
+			    _icall_activate,
+			    _icall_restart);
 
 	list_append(ecalls, &ecall->le, ecall);
 	list_append(&g_ecalls, &ecall->ecall_le, ecall);
@@ -3150,6 +3167,8 @@ int ecall_restart(struct ecall *ecall,
 	switch (state) {
 	case ECONN_ANSWERED:
 	case ECONN_DATACHAN_ESTABLISHED:
+	case ECONN_UPDATE_SENT:
+	case ECONN_UPDATE_RECV:
 		break;
 
 	default:
@@ -3173,6 +3192,7 @@ int ecall_restart(struct ecall *ecall,
 
 	ecall->call_type = call_type;
 	ecall->update = true;
+	ecall->audio.estab = false;
 	tmr_cancel(&ecall->dc_tmr);
 	ecall->conf_part = mem_deref(ecall->conf_part);
 	muted = msystem_get_muted();

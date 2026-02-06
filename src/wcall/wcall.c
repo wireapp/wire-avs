@@ -49,6 +49,7 @@
 
 static struct {
 	bool initialized;
+	bool needs_setup;
 	int env;
 	int flags;
 	struct list instances;
@@ -65,6 +66,7 @@ static struct {
 	int mode;
 } calling = {
 	.initialized = false,
+	.needs_setup = true,
 	.instances = LIST_INIT,
 	.logl = LIST_INIT,
 	.lock = NULL,
@@ -558,6 +560,10 @@ static void icall_start_handler(struct icall *icall,
 	if (inst->processing_notifications && inst->incomingh) {
 		struct incoming_event *ie;
 
+		ie = find_pending_event(&inst->pending_eventl, userid_sender);
+		if (ie) {
+			list_unlink(&ie->le);
+		}
 		ie = mem_zalloc(sizeof(*ie), ie_destructor);
 		if (ie) {
 			str_dup(&ie->convid, wcall->convid);
@@ -800,7 +806,7 @@ static void call_group_change_json(struct calling_instance *inst,
 	char *mjson = NULL;
 	char *anon_json = NULL;
 	int err;
-	
+
 	err = members_json(wcall, &mjson, &anon_json);
 	if (err) {
 		warning("wcall(%p): members_json failed: %m\n",
@@ -1623,6 +1629,14 @@ static void icall_quality_handler(struct icall *icall,
 			    inst->quality.arg);
 	info(APITAG "wcall(%p): netqh:%p (quality=%d) took %llu ms\n",
 	     wcall, inst->quality.netqh, quality, tmr_jiffies() - now);
+
+	if (WCALL_QUALITY_RECONNECTING == quality) {
+		if (wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE
+		    && wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE_MLS
+		    && inst->group.json.chgh) {
+			call_group_change_json(inst, wcall);
+		}
+	}
 }
 
 
@@ -2222,6 +2236,7 @@ int wcall_setup_ex(int flags)
 		return err;
 	}
 
+	calling.needs_setup = false;
 
 	return err;
 }
@@ -2237,6 +2252,7 @@ AVS_EXPORT
 int wcall_init(int env)
 {
 	int err = 0;
+
 	info(APITAG "wcall: init: initialized=%d env=%d\n", calling.initialized, env);
 
 #if ENABLE_PEERFLOW
@@ -2347,6 +2363,8 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 
 		info(APITAG "wcall(%p): calling readyh: %p took: %llums\n",
 		     inst, inst->readyh, tmr_jiffies() - now);
+
+		wcall_invoke_ready(inst);
 	}
 }
 
@@ -3347,10 +3365,10 @@ void wcall_set_data_chan_estab_handler(WUSER_HANDLE wuser,
 }
 
 
-#if 0 /* XXX Disabled for release-3.5 (enable again for proper integration with clients) */
 static bool call_restart_handler(struct le *le, void *arg)
 {
 	struct wcall *wcall = list_ledata(le);
+	int err = 0;
 	
 	(void)arg;
 
@@ -3361,42 +3379,37 @@ static bool call_restart_handler(struct le *le, void *arg)
 		info("wcall(%p): restarting call: %p in conv: %s\n",
 		     wcall, wcall->icall, wcall->convid);
 
-		ecall_restart(wcall->icall);
+		err = ICALL_CALLE(wcall->icall, restart);
+		if (err) {
+			info("wcall(%p): restarting call: %p in conv: %s failed: %m\n",
+			     wcall, wcall->icall, wcall->convid, err);
+		}
 	}
 
 	
 	return false;
 }
-#endif
 
 
-#if 0 /* XXX Disabled for release-3.5 (enable again for proper integration with clients) */
 static void tmr_roaming_handler(void *arg)
 {
-	struct sa laddr;
-	char ifname[64] = "";
-	(void)arg;
-
-	sa_init(&laddr, AF_INET);
-
-	(void)net_rt_default_get(AF_INET, ifname, sizeof(ifname));
-	(void)net_default_source_addr_get(AF_INET, &laddr);
-
-	info("wcall: network_changed: %s|%j\n", ifname, &laddr);
+	struct calling_instance *inst = arg;
 
 	/* Go through all the calls, and restart flows on them */
-	lock_write_get(inst->lock);
-	list_apply(&inst->wcalls, true, call_restart_handler, NULL);
-	lock_rel(inst->lock);
+	list_apply(&inst->wcalls, true, call_restart_handler, inst);
 }
-#endif
 
 
 void wcall_i_network_changed(void)
 {
-	/* Reset the previous timer */
-	//tmr_start(&inst->tmr_roam, 500, tmr_roaming_handler, NULL);
-	info(APITAG "wcall: network_changed\n");
+	struct le *le;
+
+	LIST_FOREACH(&calling.instances, le) {
+		struct calling_instance *inst = le->data;
+
+		info(APITAG "wcall(%p): network_changed\n", inst);
+		tmr_start(&inst->tmr_roam, 500, tmr_roaming_handler, inst);
+	}
 }
 
 
@@ -3988,7 +4001,9 @@ void wcall_thread_main(int *err, int *initialized)
 	*err = 0;
 	*initialized = 0;
 
-	wcall_setup();
+	if (calling.needs_setup) {
+		wcall_setup();
+	}
 	e = wcall_init(WCALL_ENV_DEFAULT);
 	if (e) {
 		error("wcall_main: failed to init wcall\n");
@@ -4333,6 +4348,8 @@ int wcall_set_background(WUSER_HANDLE wuser, int background)
 	if (!inst)
 		return EINVAL;
 
+	info(APITAG "wcall(%p): set_background: %d\n", inst, background);
+
 	LIST_FOREACH(&inst->wcalls, le) {
 		struct wcall *wcall = le->data;
 
@@ -4343,4 +4360,31 @@ int wcall_set_background(WUSER_HANDLE wuser, int background)
 	}
 
 	return 0;
+}
+
+bool wcall_is_ready(struct calling_instance *inst,
+		    int conv_type)
+{
+        if (!inst)
+	        return false;
+
+	switch (conv_type) {
+	case WCALL_CONV_TYPE_ONEONONE:
+	       return inst->call_config != NULL;
+
+	default:
+	       return true;
+	}
+}
+
+struct calling_instance *wcall_get_instance(void)
+{
+	struct le *le = calling.instances.head;
+
+	if (le) {
+		return (struct calling_instance *)le->data;
+	}
+	else {
+		return NULL;
+	}
 }
