@@ -700,18 +700,15 @@ out:
 static void quality_handler(const char *convid,
 			    const char *userid,
 			    const char *clientid,
-			    int quality, /*  WCALL_QUALITY_ */
-			    int rtt, /* round trip time in ms */
-			    int uploss, /* upstream pkt loss % */
-			    int downloss, /* dnstream pkt loss % */
+			    const char *quality_info,
 			    void *arg)
 {
 	struct sft_user *su = arg;
 
 	(void)su;
 	
-	re_printf("quality_handler: %s[%s.%s] q=%d rtt=%d uloss=%d dloss=%d\n",
-		  convid, su->userid, su->clientid, quality, rtt, uploss, downloss);
+	re_printf("quality_handler: %s[%s.%s] quality info: %s\n",
+		  convid, su->userid, su->clientid, quality_info);
 }
 
 

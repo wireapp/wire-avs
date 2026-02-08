@@ -1617,13 +1617,40 @@ static void icall_quality_handler(struct icall *icall,
 	now = tmr_jiffies();
 
 	// WPB-XXX convert quality metrics into json string
-	const char* quality_info = "{}";
+	char *quality_info = NULL;
+	struct json_object *jobj = json_object_new_object();
+
+	json_object_object_add(jobj, "quality",
+				json_object_new_int(quality));
+	json_object_object_add(jobj, "rtt",
+				json_object_new_int(rtt));
+	json_object_object_add(jobj, "uploss",
+				json_object_new_int(uploss));
+	json_object_object_add(jobj, "downloss",
+				json_object_new_int(downloss));
+
+	// WPB-XXX newly added metrics
+	json_object_object_add(jobj, "jitter",
+				json_object_new_int(0));
+	json_object_object_add(jobj, "connectivity",
+				json_object_new_string(""));
+	json_object_object_add(jobj, "peer",
+				json_object_new_string(""));
+
+	if (jzon_encode(&quality_info, jobj)) {
+		warning("wcall(%p): can not generate quality information\n", wcall);
+		quality_info = "{}";
+	}
 
 	inst->quality.netqh(wcall->convid,
 			    userid,
 			    clientid,
 			    quality_info,
 			    inst->quality.arg);
+
+	mem_deref(jobj);
+	mem_deref(quality_info);
+
 	info(APITAG "wcall(%p): netqh:%p (quality=%d) took %llu ms\n",
 	     wcall, inst->quality.netqh, quality, tmr_jiffies() - now);
 
@@ -3955,6 +3982,10 @@ int wcall_set_network_quality_handler(WUSER_HANDLE wuser,
 	info(APITAG "wcall: set_quality_handler fn=%p int=%d inst=%p\n",
 		netqh, interval, inst);
 
+	// WPB-XXX Do we need to remove netqh if interval is zero?
+	// Check interval being zero is good enough to stop calling cbs
+	//
+	// inst->quality.netqh = (interval <= 0) ? netqh : NULL;
 	inst->quality.netqh = netqh;
 	inst->quality.interval = (uint64_t)interval * 1000;
 	inst->quality.arg = arg;
