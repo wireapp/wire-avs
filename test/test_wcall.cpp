@@ -624,6 +624,8 @@ static int config_req_handler(WUSER_HANDLE wuser, void *arg)
 	if (err)
 		return err;
 
+	std::cout << "WPB-XXX: Server configuration: " << json << std::endl;
+
 	wcall_config_update(wuser, 0, json);
 
 	mem_deref(json);
@@ -733,7 +735,7 @@ TEST_F(Wcall, group_call_start_all)
 
 	this->testcase = TESTCASE_START_ALL;
 
-#if 0
+#if 1
 	log_set_min_level(LOG_LEVEL_INFO);
 	log_enable_stderr(true);
 #endif
