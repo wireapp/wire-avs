@@ -259,7 +259,9 @@ static void receive_message(struct client *cli, const char *convid,
 				       send_time,
 				       convid,
 				       userid_self,
-				       clientid_self);
+				       clientid_self,
+					   WCALL_CONV_TYPE_CONFERENCE_MLS
+					);
 		}
 		else {
 			warning("client not found\n");
@@ -279,7 +281,8 @@ static void receive_message(struct client *cli, const char *convid,
 				       send_time,
 				       convid,
 				       userid_self,
-				       clientid_self);
+				       clientid_self,
+					   WCALL_CONV_TYPE_CONFERENCE_MLS);
 		}
 	}
 }
@@ -323,6 +326,7 @@ static int send_handler(void *ctx, const char *convid,
 			const char *userid_self, const char *clientid_self,
 			const char *userid_dest, const char *clientid_dest,
 			const uint8_t *data, size_t len, int transient,
+		    int my_clients_only,
 			void *arg)
 {
 	struct client *cli = (struct client *)arg;
@@ -378,8 +382,8 @@ static void answer_timer(void *arg)
 
 
 static void incoming_handler(const char *convid, uint32_t msg_time,
-			     const char *userid, int video_call /*bool*/,
-			     int should_ring /*bool*/,
+			     const char *userid, const char *clientid, int video_call /*bool*/,
+			     int should_ring /*bool*/, int conv_type, /*WCALL_CONV_TYPE...*/
 			     void *arg)
 {
 	struct client *cli = (struct client *)arg;
@@ -434,7 +438,7 @@ static void client_on_established(struct client *cli, const char *convid)
 
 /* called when audio is established */
 static void estab_handler(const char *convid,
-			  const char *userid, void *arg)
+			  const char *userid, const char *clientid, void *arg)
 {
 	struct client *cli = (struct client *)arg;
 
@@ -455,7 +459,7 @@ static void estab_handler(const char *convid,
 
 
 static void close_handler(int reason, const char *convid, uint32_t msg_time,
-			  const char *userid, void *arg)
+			  const char *userid, const char *clientid, void *arg)
 {
 	struct client *cli = (struct client *)arg;
 	int err;
@@ -502,7 +506,7 @@ static void close_handler(int reason, const char *convid, uint32_t msg_time,
 
 
 static void datachan_estab_handler(const char *convid,
-				   const char *userid, void *arg)
+				   const char *userid, const char *clientid, void *arg)
 {
 	struct client *cli = (struct client *)arg;
 
@@ -701,10 +705,10 @@ TEST(wcall, create_multiple)
 	ASSERT_EQ(0, err);
 
 	WUSER_HANDLE wuser1 = wcall_create("abc", "123", NULL, NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL);
+		NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
 	WUSER_HANDLE wuser2 = wcall_create("abd", "234", NULL, NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL);
+		NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
 
 	wcall_destroy(wuser1);
