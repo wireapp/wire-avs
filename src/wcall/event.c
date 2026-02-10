@@ -145,11 +145,11 @@ static struct call_event *queue_find(struct call_event_instance *inst,
 
 	for (le = inst->eventl.head; le != NULL && !found; le = le->next) {
 		ev = le->data;
-		found = streq(ev->convid, convid)
-			&& streq(ev->userid, userid)
-			&& streq(ev->clientid, clientid)
-			&& (ev->state == state);
-
+		found = ev->state == state && streq(ev->convid, convid);
+		if (userid)
+			found = found && streq(ev->userid, userid);
+		if (clientid)
+			found = found && streq(ev->clientid, clientid);
 		if (!found)
 			le = le->next;
 	}
@@ -294,7 +294,7 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 	case ECONN_CONF_END:
 		if (econn_message_isrequest(msg)) {
 			ev = queue_find(inst, convid,
-					userid, clientid,
+					NULL, NULL,
 					CALL_EVENT_STATE_INCOMING);
 
 			/* do we have a pending inconing? if we do,
