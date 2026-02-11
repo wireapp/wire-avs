@@ -21,6 +21,7 @@
 #include <avs.h>
 #include <avs_wcall.h>
 #include <gtest/gtest.h>
+//#include <gmock/gmock.h>
 #include <unordered_map>
 #include "ztest.h"
 #include "fakes.hpp"
@@ -109,37 +110,34 @@ static int send_handler(void *ctx, const char *convid,
 		  userid_self, clientid_self,
 		  userid_dest, clientid_dest);
 
-    std::cout << transient << " " << my_clients_only << std::endl;
-
     /* Reply with success */
 	wcall_resp(cli->wuser, 200, "", ctx);
 
     const uint32_t curr_time = time(0);
     if (NULL != userid_dest && NULL != clientid_dest) {
-        std::cout << "----------- Implement Me (send_handler)" << std::endl;
+		warning("[ %s.%s ] {%s} WPB-XXX Implement Me \n",
+            cli->userId.c_str(), cli->clientId.c_str(), convid);
     } else {
         if (cli->call->callee.userId != userid_self) {
-                    std::cout << "----------- Send to callee" << std::endl;
             // send message to callee
-    			wcall_recv_msg(cli->call->callee.wuser, data, len,
-				       curr_time,
-				       curr_time,
-				       convid,
-				       userid_self,
-				       clientid_self,
-					   WCALL_CONV_TYPE_CONFERENCE_MLS);
-        } 
+			wcall_recv_msg(cli->call->callee.wuser, data, len,
+				curr_time,
+				curr_time,
+				convid,
+				userid_self,
+				clientid_self,
+				WCALL_CONV_TYPE_CONFERENCE_MLS);
+        }
         if (cli->call->caller.userId != userid_self) {
-                                std::cout << "----------- Send to caller" << std::endl;
             // send message to callee
-    			wcall_recv_msg(cli->call->caller.wuser, data, len,
-				       curr_time,
-				       curr_time,
-				       convid,
-				       userid_self,
-				       clientid_self,
-					   WCALL_CONV_TYPE_CONFERENCE_MLS);
-        } 
+			wcall_recv_msg(cli->call->caller.wuser, data, len,
+				curr_time,
+				curr_time,
+				convid,
+				userid_self,
+				clientid_self,
+				WCALL_CONV_TYPE_CONFERENCE_MLS);
+        }
     }
     return 0;
 }
@@ -182,7 +180,40 @@ static void close_handler(int reason, const char *convid, uint32_t msg_time,
 		wcall_reason_name(reason));
 }
 
-std::unordered_map<std::string, int> qualityTriggers;
+/*
+class MockHandlers  {
+ public:
+    MOCK_METHOD(void, WcallQualityHandler, (const char *convid,
+				  const char *userid,
+				  const char *clientid,
+				  const char *quality_info,
+				  void *arg));
+};
+
+static struct QualityHandler {
+    static MockHandlers *mock;
+
+    static void wcall_quality_handler(const char *convid,
+				  const char *userid,
+				  const char *clientid,
+				  const char *quality_info,
+				  void *arg)
+    {
+        auto cli = (Client *)arg;
+        info("[ %s.%s ] {%s} WPB-XXX call_quality report: %s\n",
+            userid, clientid, convid, quality_info);
+
+        const auto numberOfRecords = cli->noOfQualityReports++;
+        info("[ %s.%s ] {%s} WPB-XXX call_quality report through argument: %d\n",
+            userid, clientid, convid, numberOfRecords);
+    }
+};
+
+*/
+
+struct tmr reactivateTimer;
+
+static void reactivate_fnc(void *arg);
 
 static void wcall_quality_handler(const char *convid,
 				  const char *userid,
@@ -194,51 +225,53 @@ static void wcall_quality_handler(const char *convid,
 	info("[ %s.%s ] {%s} WPB-XXX call_quality report: %s\n",
 	     userid, clientid, convid, quality_info);
 
-    if (NULL != cli) {
     const auto numberOfRecords = cli->noOfQualityReports++;
-    info("[ %s.%s ] {%s} WPB-XXX call_quality report: %d\n",
+    info("[ %s.%s ] {%s} WPB-XXX call_quality report through argument: %d\n",
 	     userid, clientid, convid, numberOfRecords);
-    } else {
-    const auto numberOfRecords = ++qualityTriggers[userid];
-        info("[ %s.%s ] {%s} WPB-XXX call_quality report: %d\n",
-            	     userid, clientid, convid, numberOfRecords);
+
+    // stop sending with
+    if (numberOfRecords == 2) {
+        info("[ %s.%s ] {%s} ----- WPB-XXX setting quality report interval to 4: %d\n",
+	     userid, clientid, convid, 2);
+wcall_set_network_quality_handler(cli->wuser,
+                        wcall_quality_handler,
+                        5,
+                        arg);
+    } else if (numberOfRecords == 10) {
+         info("\n\n[ %s.%s ] {%s} ------ WPB-XXX disabling quality interval: %d\n",
+	     userid, clientid, convid, 2);
+wcall_set_network_quality_handler(cli->wuser,
+                        NULL,
+                        5,
+                        arg);
+        uint32_t reactivateDelay = 10;            
+        tmr_start(&reactivateTimer, reactivateDelay, reactivate_fnc, arg);
+
+    // set a timer here to reestablish again
     }
-
-
 }
 
-/* TODO: add turns url */
-static const char *json_config_fmt =
-" {"
-"  \"ice_servers\" : ["
-"    {"
-"    \"urls\"       : [\"turns:%J?transport=tcp\"],"
-"    \"username\"   : \"user\","
-"    \"credential\" : \"secret\""
-"    }"
-"  ],"
-"  \"ttl\":3600"
-"  }"
-	;
+static void reactivate_fnc(void *arg)
+{
+	auto cli = (Client *)arg;
 
+    info("\n\n[ %s.%s ] -------------------- WPB-XXX Timer reactivate : %d\n",
+	     cli->userId.c_str(), cli->clientId.c_str(), 2);
+wcall_set_network_quality_handler(cli->wuser,
+                        wcall_quality_handler,
+                        3,
+                        arg);
+}
 
 static int config_req_handler(WUSER_HANDLE wuser, void *arg)
 {
 	auto *cli = (Client *)arg;
-	//char *json;
-	int err;
-
-	//err = re_sdprintf(&json, json_config_fmt, cli->turnServer->addr_tls);
-	//if (err)
-	//	return err;
 
     char emptyCfg[] = "{}";
     info("WPB-XXX config request handler: userid=%s config=%s\n",
 	     cli->userId.c_str(), emptyCfg);
 
 	wcall_config_update(wuser, 0, emptyCfg);
-
-	//mem_deref(json);
 
 	return 0;
 }
@@ -333,9 +366,7 @@ TEST(networkQuality, getHandlerTriggered)
     wcall_set_network_quality_handler(call.caller.wuser,
                         wcall_quality_handler,
                         1,
-                        NULL);
-
-
+                        &call.caller);
 
     err = re_main_wait(60000);
 	ASSERT_EQ(0, err);
