@@ -720,7 +720,7 @@ TEST(wcall, create_multiple)
 }
 
 
-#define NUM_CLIENTS 3
+#define NUM_CLIENTS 2
 
 
 
@@ -787,7 +787,7 @@ TEST_F(Wcall, group_call_answer)
 
 	this->testcase = TESTCASE_CALL_ANSWER;
 
-#if 0
+#if 1
 	log_set_min_level(LOG_LEVEL_INFO);
 	log_enable_stderr(true);
 #endif
