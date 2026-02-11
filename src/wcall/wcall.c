@@ -3970,6 +3970,7 @@ int wcall_set_network_quality_handler(WUSER_HANDLE wuser,
 				      void *arg)
 {
 	struct calling_instance *inst;
+	struct le* le;
 
 	inst = wuser2inst(wuser);
 	if (!inst) {
@@ -3989,6 +3990,18 @@ int wcall_set_network_quality_handler(WUSER_HANDLE wuser,
 	inst->quality.netqh = netqh;
 	inst->quality.interval = (uint64_t)interval * 1000;
 	inst->quality.arg = arg;
+
+	LIST_FOREACH(&inst->wcalls, le) {
+		struct wcall *wcall = le->data;
+
+		if (!wcall)
+			continue;
+
+		
+
+	ICALL_CALLE(wcall->icall, set_quality_interval,
+		inst->quality.interval);
+	}
 
 	return 0;
 }

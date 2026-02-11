@@ -241,10 +241,10 @@ wcall_set_network_quality_handler(cli->wuser,
          info("\n\n[ %s.%s ] {%s} ------ WPB-XXX disabling quality interval: %d\n",
 	     userid, clientid, convid, 2);
 wcall_set_network_quality_handler(cli->wuser,
-                        NULL,
-                        5,
+                        wcall_quality_handler,
+                        0,
                         arg);
-        uint32_t reactivateDelay = 10;            
+        uint32_t reactivateDelay = 10000;            
         tmr_start(&reactivateTimer, reactivateDelay, reactivate_fnc, arg);
 
     // set a timer here to reestablish again
