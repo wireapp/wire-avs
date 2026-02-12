@@ -21,10 +21,11 @@
 #include <avs.h>
 #include <avs_wcall.h>
 #include <gtest/gtest.h>
-//#include <gmock/gmock.h>
+#include <gmock/gmock.h>
 #include <unordered_map>
 #include "ztest.h"
 #include "fakes.hpp"
+
 
 struct SimpleCall;
 
@@ -180,20 +181,19 @@ static void close_handler(int reason, const char *convid, uint32_t msg_time,
 		wcall_reason_name(reason));
 }
 
-/*
 class MockHandlers  {
  public:
-    MOCK_METHOD(void, WcallQualityHandler, (const char *convid,
-				  const char *userid,
-				  const char *clientid,
-				  const char *quality_info,
-				  void *arg));
+    MOCK_METHOD5(WcallQualityHandler, void(const char *,
+				  const char *,
+				  const char *,
+				  const char *,
+				  void *));
 };
 
-static struct QualityHandler {
-    static MockHandlers *mock;
+struct QualityHandler {
+    static MockHandlers* mock;
 
-    static void wcall_quality_handler(const char *convid,
+    static void WcallQualityHandler(const char *convid,
 				  const char *userid,
 				  const char *clientid,
 				  const char *quality_info,
@@ -206,10 +206,13 @@ static struct QualityHandler {
         const auto numberOfRecords = cli->noOfQualityReports++;
         info("[ %s.%s ] {%s} WPB-XXX call_quality report through argument: %d\n",
             userid, clientid, convid, numberOfRecords);
+		
+			return mock->WcallQualityHandler(convid, userid, clientid, quality_info, arg);
     }
 };
 
-*/
+MockHandlers mocks;
+MockHandlers* QualityHandler::mock = &mocks;
 
 struct tmr reactivateTimer;
 
@@ -364,7 +367,7 @@ TEST(networkQuality, getHandlerTriggered)
     ASSERT_NE(WUSER_INVALID_HANDLE, call.caller.wuser);
 
     wcall_set_network_quality_handler(call.caller.wuser,
-                        wcall_quality_handler,
+                        QualityHandler::WcallQualityHandler,
                         1,
                         &call.caller);
 

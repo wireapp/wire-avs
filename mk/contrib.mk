@@ -233,7 +233,37 @@ $(CONTRIB_GTEST_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_GTEST_FILES)
 		$(AR) -rv $(BUILD_TARGET)/lib/libgtest.a gtest-all.o
 	@cp -R $(CONTRIB_GTEST_BUILD_PATH)/include $(BUILD_TARGET)
 
-contrib_gtest: $(CONTRIB_GTEST_TARGET)
+#--- gmock ---
+
+CONTRIB_GMOCK_PATH := $(CONTRIB_BASE)/googletest/googlemock/
+CONTRIB_GMOCK_BUILD_PATH := $(BUILD_TARGET)/contrib/googletest/googlemock/
+CONTRIB_GMOCK_TARGET := $(BUILD_TARGET)/lib/libgmock.a
+CONTRIB_GMOCK_FILES := $(shell git ls-files $(CONTRIB_GMOCK_PATH))
+
+CONTRIB_GMOCK_CXXFLAGS_OS_android := -DGMOCK_HAS_RTTI=0
+CONTRIB_GMOCK_CXXFLAGS_OS := $(CONTRIB_GMOCK_CXXFLAGS_OS_$(AVS_OS))
+
+CONTRIB_GMOCK_LIBS := -lgmock
+CONTRIB_GMOCK_LIB_FILES := $(CONTRIB_GMOCK_TARGET)
+
+
+$(CONTRIB_GMOCK_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_GMOCK_FILES)
+	@mkdir -p $(CONTRIB_GMOCK_BUILD_PATH)
+	@rsync -aq $(CONTRIB_GMOCK_PATH)/ $(CONTRIB_GMOCK_BUILD_PATH)/
+	rm -f $(CONTRIB_GMOCK_BUILD_PATH)/gtest-all.o
+	cd $(CONTRIB_GMOCK_BUILD_PATH) && \
+		$(CXX) \
+		-isystem include \
+		-I. \
+		$(CPPFLAGS) $(CXXFLAGS) $(CONTRIB_GMOCK_CXXFLAGS_OS) \
+		-pthread \
+		-c src/gmock-all.cc
+	@mkdir -p $(BUILD_TARGET)/lib
+	cd $(CONTRIB_GMOCK_BUILD_PATH) && \
+		$(AR) -rv $(BUILD_TARGET)/lib/libgmock.a gmock-all.o
+	@cp -R $(CONTRIB_GMOCK_BUILD_PATH)/include $(BUILD_TARGET)
+
+contrib_gtest: $(CONTRIB_GTEST_TARGET) $(CONTRIB_GMOCK_TARGET)
 
 
 
