@@ -2113,7 +2113,6 @@ void wcall_i_mcat_changed(struct calling_instance *inst,
 	}
 	lock_rel(inst->lock);
 	
-
 	LIST_FOREACH(&wcalls, le) {
 		struct wcall *wcall = we->wcall;
 
