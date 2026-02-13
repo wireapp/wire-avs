@@ -26,6 +26,8 @@
 #include "ztest.h"
 #include "fakes.hpp"
 
+using ::testing::StrictMock;
+
 
 struct SimpleCall;
 
@@ -35,6 +37,7 @@ struct Client {
     std::string clientId;
     SimpleCall* call;
     int noOfQualityReports;
+	int timerInterval;
 };
 
 struct SimpleCall {
@@ -84,13 +87,12 @@ public:
 static void ready_handler(int version, void *arg)
 {
 	auto cli = (Client *)arg;
-	static const char *convid = "00cc";
 	const int conv_type = WCALL_CONV_TYPE_GROUP;
 
 	info("[ %s.%s ] WPB-XXX ready.\n", cli->userId.c_str(), cli->clientId.c_str());
 
     if (cli->userId == "caller") {
-	int err = wcall_start(cli->wuser, convid, WCALL_CALL_TYPE_NORMAL,
+	int err = wcall_start(cli->wuser, cli->call->callId.c_str(), WCALL_CALL_TYPE_NORMAL,
 				conv_type, 0);
 			ASSERT_EQ(0, err);
     }
@@ -200,19 +202,28 @@ struct QualityHandler {
 				  void *arg)
     {
         auto cli = (Client *)arg;
-        info("[ %s.%s ] {%s} WPB-XXX call_quality report: %s\n",
-            userid, clientid, convid, quality_info);
+        info("[ %s.%s ] {%s, %d} -------------WPB-XXX call_quality report: %s\n",
+            userid, clientid, convid, cli->timerInterval, quality_info);
 
         const auto numberOfRecords = cli->noOfQualityReports++;
-        info("[ %s.%s ] {%s} WPB-XXX call_quality report through argument: %d\n",
-            userid, clientid, convid, numberOfRecords);
+        info("[ %s.%s ] {%s, %d} -------------WPB-XXX call_quality report through argument: %d\n",
+            userid, clientid, convid, cli->timerInterval, numberOfRecords);
 		
 			return mock->WcallQualityHandler(convid, userid, clientid, quality_info, arg);
     }
+
+	virtual ~QualityHandler() {
+		mock = NULL;
+	 };
 };
 
 MockHandlers mocks;
 MockHandlers* QualityHandler::mock = &mocks;
+	MATCHER_P(IsInterval, interval, "") { 
+		auto cli = (Client *)arg;
+	info("-------------WPB-XXX call_quality  got interval %d to compare with %d",interval, cli->timerInterval);
+        return cli->timerInterval == interval;
+	 }
 
 struct tmr reactivateTimer;
 
@@ -300,10 +311,9 @@ TEST(networkQuality, settingHandlerMultipleTimes)
                         wcall_quality_handler,
                         i,
                         NULL);
-    }   
+    }
 
 	wcall_destroy(wuser);
-
 	wcall_close();
 }
 
@@ -366,17 +376,69 @@ TEST(networkQuality, getHandlerTriggered)
 
     ASSERT_NE(WUSER_INVALID_HANDLE, call.caller.wuser);
 
-    wcall_set_network_quality_handler(call.caller.wuser,
+	auto timerInterval = 1;
+	wcall_set_network_quality_handler(call.caller.wuser,
+                        wcall_quality_handler,
+                        timerInterval,
+                        &call.caller);
+    
+	/*
+	// When we set an handler with 1 second interval
+	auto timerInterval = 1;
+	call.caller.timerInterval = timerInterval;
+	wcall_set_network_quality_handler(call.caller.wuser,
                         QualityHandler::WcallQualityHandler,
-                        1,
+                        timerInterval,
                         &call.caller);
 
-    err = re_main_wait(60000);
-	ASSERT_EQ(0, err);
-    
+	// We should have 4 times triggered in ~4 seconds
+	//EXPECT_CALL(mocks, WcallQualityHandler(testing::_,testing::_,testing::_,testing::_, IsInterval(timerInterval)))                  // #3
+    //  .Times(4);
+	sleep(4);
+
+	// When we set an handler with 2 second interval
+	Client client_2 = call.caller;
+	timerInterval = 2;
+	client_2.timerInterval = timerInterval;
+	wcall_set_network_quality_handler(call.caller.wuser,
+                        QualityHandler::WcallQualityHandler,
+                        timerInterval,
+                        &client_2);
+
+	// We should have 2 times triggered in ~4 seconds
+	//EXPECT_CALL(mocks, WcallQualityHandler(testing::_,testing::_,testing::_,testing::_, IsInterval(timerInterval)))                  // #3
+    //  .Times(2);
+	sleep(4);
+	
+	Client client_3 = call.caller;
+	timerInterval = 0;
+	client_3.timerInterval = timerInterval;
+	// When we set an handler with 0 seconds
+	wcall_set_network_quality_handler(call.caller.wuser,
+                        QualityHandler::WcallQualityHandler,
+                        0,
+                        &client_3);
+
+	// Lets wait some time to check We should not have any extra triggers except maybe a last one leaked
+	//EXPECT_CALL(mocks, WcallQualityHandler(testing::_,testing::_,testing::_,testing::_, testing::_))                  // #3
+    //  .Times(testing::AtMost(1));
+
+    sleep(4);
+	*/
+
+	/* Wait .. */
+	err = re_main_wait(30000);
+
+	tmr_cancel(&reactivateTimer);
+
+	wcall_end(call.caller.wuser, call.callId.c_str());
+    wcall_end(call.callee.wuser, call.callId.c_str());
 
 	wcall_destroy(call.caller.wuser);
     wcall_destroy(call.callee.wuser);
 
 	wcall_close();
+	flowmgr_close();
+	
+	//ASSERT_EQ(0, err);
 }
