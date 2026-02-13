@@ -205,7 +205,7 @@ struct QualityHandler {
         info("[ %s.%s ] {%s, %d} -------------WPB-XXX call_quality report through argument: %d\n",
             userid, clientid, convid, cli->timerInterval, numberOfRecords);
 		
-			return mock->WcallQualityHandler(cli->timerInterval);;
+			return mock->WcallQualityHandler(cli->timerInterval);
     }
 
 	virtual ~QualityHandler() {
@@ -213,29 +213,19 @@ struct QualityHandler {
 	 };
 };
 
-MockHandlers mocks;
-MockHandlers* QualityHandler::mock = &mocks;
+
+
+/*
 	MATCHER_P(IsInterval, interval, "") { 
 		auto cli = (Client *)arg;
 	info("-------------WPB-XXX call_quality  got interval %d to compare with %d",interval, cli->timerInterval);
         return cli->timerInterval == interval;
 	 }
+*/
 
 struct tmr reactivateTimer;
 
 static void reactivate_fnc(void *arg);
-
-static void set_quality_interval(void *arg)
-{
-	auto cli = (Client *)arg;
-
-    info("\n\n[ %s.%s ] -------------------- WPB-XXX Setting quality interval : %d\n",
-	     cli->userId.c_str(), cli->clientId.c_str(), cli->timerInterval);
-			wcall_set_network_quality_handler(cli->wuser,
-            QualityHandler::WcallQualityHandler,
-            cli->timerInterval,
-            arg);
-}
 
 static void wcall_quality_handler(const char *convid,
 				  const char *userid,
@@ -325,8 +315,41 @@ TEST(networkQuality, settingHandlerMultipleTimes)
 	wcall_close();
 }
 
+static void set_quality_interval(void *arg)
+{
+	auto cli = (Client *)arg;
+
+    info("\n\n[ %s.%s ] -------------------- WPB-XXX Setting quality interval : %d\n",
+	     cli->userId.c_str(), cli->clientId.c_str(), cli->timerInterval);
+wcall_set_network_quality_handler(cli->wuser,
+                        QualityHandler::WcallQualityHandler,
+                        cli->timerInterval,
+                        arg);
+}
+
+static void cleanObjects(void *arg)
+{
+	auto cli = (SimpleCall *)arg;
+
+
+	wcall_end(cli->caller.wuser, cli->callId.c_str());
+    wcall_end(cli->callee.wuser, cli->callId.c_str());
+
+	wcall_destroy(cli->caller.wuser);
+    wcall_destroy(cli->callee.wuser);
+
+	wcall_close();
+	flowmgr_close();
+
+	re_cancel();
+}
+
+	MockHandlers mocks;
+    MockHandlers* QualityHandler::mock = &mocks;
 TEST(networkQuality, getHandlerTriggered)
 {
+
+
 	int err;
 
     		/* This is needed for multiple-calls test */
@@ -383,9 +406,16 @@ TEST(networkQuality, getHandlerTriggered)
                                         &call.caller);
 
     ASSERT_NE(WUSER_INVALID_HANDLE, call.caller.wuser);
+
+	auto timerInterval = 1;
+	/*
+	wcall_set_network_quality_handler(call.caller.wuser,
+                        wcall_quality_handler,
+                        timerInterval,
+                        &call.caller);
+    */
 	
 	// When we set an handler with 1 second interval
-	auto timerInterval = 1;
 	call.caller.timerInterval = timerInterval;
 	wcall_set_network_quality_handler(call.caller.wuser,
                         QualityHandler::WcallQualityHandler,
@@ -393,7 +423,6 @@ TEST(networkQuality, getHandlerTriggered)
                         &call.caller);
 
 	testing::InSequence s;
-
 	// We should have 4 times triggered in ~4 seconds
 	EXPECT_CALL(mocks, WcallQualityHandler(1)).Times(4);
 
@@ -403,35 +432,30 @@ TEST(networkQuality, getHandlerTriggered)
 	Client callerWith2secInterval = call.caller;
 	callerWith2secInterval.timerInterval = timerInterval;
     tmr_start(&timer4Sec, delay4Sec, set_quality_interval, &callerWith2secInterval);
-	
-	// We should have 2 times triggered in the following ~4 seconds
+
 	EXPECT_CALL(mocks, WcallQualityHandler(2)).Times(2);
 
-	timerInterval = 0;	
+	timerInterval = 0;
 	struct tmr timer8Sec;
-	uint32_t delay8Sec = 9000; 
+	uint32_t delay8Sec = 10000; 
 	Client callerWith0secInterval = call.caller;
 	callerWith0secInterval.timerInterval = timerInterval;
+
     tmr_start(&timer8Sec, delay8Sec, set_quality_interval, &callerWith0secInterval);
 
-	// When we set an handler with 0 seconds
 	EXPECT_CALL(mocks, WcallQualityHandler(testing::_)).Times(testing::AtMost(6));
 
+    struct tmr testTimer;
+	uint32_t testTime = 20000; 
+    tmr_start(&testTimer, testTime, cleanObjects, &call);
 
 
 	/* Wait .. */
 	err = re_main_wait(30000);
 
+	tmr_cancel(&timer8Sec);
+	tmr_cancel(&timer8Sec);
 	tmr_cancel(&reactivateTimer);
-
-	wcall_end(call.caller.wuser, call.callId.c_str());
-    wcall_end(call.callee.wuser, call.callId.c_str());
-
-	wcall_destroy(call.caller.wuser);
-    wcall_destroy(call.callee.wuser);
-
-	wcall_close();
-	flowmgr_close();
 	
 	//ASSERT_EQ(0, err);
 }
