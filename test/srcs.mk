@@ -37,6 +37,7 @@ TEST_SRCS	+= test_userlist.cpp
 #TEST_SRCS	+= test_wcall.cpp
 TEST_SRCS	+= test_zapi.cpp
 TEST_SRCS	+= test_ztime.cpp
+TEST_SRCS   += test_network_quality_handler.cpp
 
 # Conditional tests
 ifeq ($(AVS_OS),android)

@@ -3967,7 +3967,7 @@ int wcall_set_network_quality_handler(WUSER_HANDLE wuser,
 		struct wcall *wcall = le->data;
 
 		if (!wcall)
-			continue;	
+			continue;
 
 		ICALL_CALLE(wcall->icall, set_quality_interval
 			, inst->quality.interval);
