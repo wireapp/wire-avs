@@ -16,10 +16,11 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "../src/peerflow/stats_util.h"
+#include "stats_util.h"
 #include <gtest/gtest.h>
 
 using namespace webrtc;
+using std::string;
 
 
 TEST(stats, null_report)
@@ -37,14 +38,14 @@ TEST(stats, empty_report)
 }
 
 
-class Stats : public ::testing::Test {
+class Base {
 
 public:
-	virtual void SetUp() override
+	virtual void SetUp(const string& protocol, const string& candidate_type)
 	{
         auto local_candidate = new RTCLocalIceCandidateStats("someLocalCandidateId", Timestamp::Zero());
-        local_candidate->protocol = "udp";
-        local_candidate->candidate_type = "host";
+        local_candidate->protocol = protocol;
+        local_candidate->candidate_type = candidate_type;
 
         auto candidate_pair = new RTCIceCandidatePairStats(candidate_pair_id, Timestamp::Zero());
         candidate_pair->local_candidate_id = local_candidate->id();
@@ -56,15 +57,20 @@ public:
         report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
 	}
 
-	virtual void TearDown() override
-	{
-	}
-
 protected:
     rtc::scoped_refptr<RTCStatsReport> report;
-    std::string expected_connection = std::string("udp");
     std::string candidate_pair_id = "someCandidatePairId";
+};
 
+class Stats :   public Base,
+                public ::testing::Test {
+public:
+	virtual void SetUp() override
+	{
+        Base::SetUp("udp", "host");
+    }
+protected:
+    std::string expected_connection = std::string("udp");
 };
 
 TEST_F(Stats, report_without_transport)
@@ -83,7 +89,38 @@ TEST_F(Stats, report_with_transport)
     ASSERT_EQ(connection, expected_connection);
 }
 
+class StatsParam : public Base,
+    public ::testing::TestWithParam<std::tuple<std::string, std::string, std::string>> {
+public:
+	virtual void SetUp() override
+	{
+        Base::SetUp(std::get<0>(GetParam()), std::get<1>(GetParam()));
 
+        auto transport = new RTCTransportStats("someTransportId", Timestamp::Zero());
+        transport->selected_candidate_pair_id = candidate_pair_id;
+        report->AddStats(std::unique_ptr<RTCStats>(transport));
+    }
+};
+
+INSTANTIATE_TEST_CASE_P(StatsParameter,
+                         StatsParam,
+                         ::testing::Values(
+                            // udp suite
+                            std::tuple{"udp", "host", "udp"},
+                            std::tuple{"udp", "srflx", "udp"},
+                            std::tuple{"udp", "prflx", "udp"},
+                            std::tuple{"udp", "relay", "Relay/udp"},
+                            // tcp suite
+                            std::tuple{"tcp", "host", "tcp"},
+                            std::tuple{"tcp", "srflx", "tcp"},
+                            std::tuple{"tcp", "prflx", "tcp"},
+                            std::tuple{"tcp", "relay", "Relay/tcp"}
+                        ));
+
+TEST_P(StatsParam, ptotocol_type_tests) {
+    const auto connection = wire::getConnection(report);
+    ASSERT_EQ(connection, std::get<2>(GetParam()));
+}
 
 
 
