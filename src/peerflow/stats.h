@@ -23,6 +23,7 @@
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtcstats_objects.h"
 
+#include "stats_util.h"
 #include "re.h"
 #include "peerflow.h"
 
@@ -98,7 +99,7 @@ public:
 			return;
 
 		lock_write_get(lock_);	       		
-		//info("peerflow(%p): OnStatsDelivered err=%d len=%d stats=%s\n", pf_, err, (int)str_len(tmp), stats);
+		info("peerflow(%p): WPB-23494 OnStatsDelivered err=%d len=%d stats=%s\n", pf_, err, (int)str_len(tmp), stats);
 		mem_deref(current_stats_);
 		current_stats_ = tmp;
 		lock_rel(lock_);
@@ -233,7 +234,11 @@ public:
 			audio_level = (int)(*asrc_stats->audio_level * 255.0);
 		}
 
-		//info("stats: pf(%p) audio_level: %d pl: %.02f rtt: %.02f\n", pf_, audio_level, downloss, rtt);
+		const auto connection = getConnection(report);
+
+		info("WPB-23494 stats: pf(%p) connection: %s", pf_, connection.c_str());
+
+		info("WPB-23494 stats: pf(%p) audio_level: %d pl: %.02f rtt: %.02f\n", pf_, audio_level, downloss, rtt);
 		lock_write_get(lock_);
 		if (active_) {
 			peerflow_set_stats(pf_,
