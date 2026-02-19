@@ -235,8 +235,8 @@ public:
 		}
 
 		const auto connection = getConnection(report);
-
-		info("WPB-23494 stats: pf(%p) connection: %s", pf_, connection.c_str());
+		const auto jitter = getJitter(report);
+		info("WPB-23494 stats: pf(%p) connection: %s jitter: {%f, %f}", pf_, connection.c_str(), jitter.first, jitter.second);
 
 		info("WPB-23494 stats: pf(%p) audio_level: %d pl: %.02f rtt: %.02f\n", pf_, audio_level, downloss, rtt);
 		lock_write_get(lock_);
