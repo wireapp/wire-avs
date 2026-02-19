@@ -4,6 +4,7 @@
 
 TEST_MK := test/srcs.mk
 TEST_BIN := ztest
+TEST_SLOW_BIN := ztest-slow
 
 include $(TEST_MK)
 
@@ -15,6 +16,12 @@ TEST_C_OBJS := $(patsubst %.c,$(TEST_OBJ_PATH)/%.o,\
 TEST_CC_OBJS := $(patsubst %.cpp,$(TEST_OBJ_PATH)/%.o,\
 			$(filter %.cpp,$(TEST_SRCS)))
 TEST_OBJS := $(TEST_C_OBJS) $(TEST_CC_OBJS)
+
+TEST_SLOW_C_OBJS := $(patsubst %.c,$(TEST_OBJ_PATH)/%.o,\
+			$(filter %.c,$(TEST_SLOW_SRCS)))
+TEST_SLOW_CC_OBJS := $(patsubst %.cpp,$(TEST_OBJ_PATH)/%.o,\
+			$(filter %.cpp,$(TEST_SLOW_SRCS)))
+TEST_SLOW_OBJS := $(TEST_SLOW_C_OBJS) $(TEST_SLOW_CC_OBJS)
 
 TEST_DEPS += $(CONTRIB_GTEST_TARGET) $(AVS_DEPS) $(MENG_DEPS)
 TEST_LIBS += $(CONTRIB_GTEST_LIBS) $(AVS_LIBS) $(MENG_LIBS)
@@ -34,11 +41,14 @@ ifeq ($(AVS_OS),android)
 endif
 
 -include $(TEST_OBJS:.o=.d)
+-include $(TEST_SLOW_OBJS:.o=.d)
 
 $(TEST_OBJS): $(TOOLCHAIN_MASTER) $(TEST_DEPS)
+$(TEST_SLOW_OBJS): $(TOOLCHAIN_MASTER) $(TEST_DEPS)
 
 ifeq ($(SKIP_MK_DEPS),)
 $(TEST_OBJS): $(TEST_MKS)
+$(TEST_SLOW_OBJS): $(TEST_MKS)
 endif
 
 $(TEST_C_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.c
@@ -57,17 +67,38 @@ $(TEST_CC_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.cpp
 		$(TEST_CPPFLAGS) $(TEST_CXXFLAGS) \
 		-c $< -o $@ $(DFLAGS)
 
+$(TEST_SLOW_C_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.c
+	@echo "  CC   $(AVS_OS)-$(AVS_ARCH) test/$*.c"
+	@mkdir -p $(dir $@)
+	@$(CC)  $(CPPFLAGS) $(CFLAGS) \
+		$(AVS_CPPFLAGS) $(AVS_CFLAGS) \
+		$(TEST_CPPFLAGS) $(TEST_CFLAGS) \
+		-c $< -o $@ $(DFLAGS)
+
+$(TEST_SLOW_CC_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.cpp
+	@echo "  CXX  $(AVS_OS)-$(AVS_ARCH) test/$*.cpp"
+	@mkdir -p $(dir $@)
+	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) \
+		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) \
+		$(TEST_CPPFLAGS) $(TEST_CXXFLAGS) \
+		-c $< -o $@ $(DFLAGS)
+
 $(BUILD_BIN)/$(TEST_BIN)$(BIN_SUFFIX): $(TEST_OBJS) $(AVS_STATIC) $(MENG_STATIC)
 	@echo "  LD      $@"
 	@mkdir -p $(BUILD_BIN)
 	@$(CXX) $(LFLAGS) $(TEST_LFLAGS) \
 		$^ $(TEST_LIBS) $(LIBS) -o $@
 
+$(BUILD_BIN)/$(TEST_SLOW_BIN)$(BIN_SUFFIX): $(TEST_SLOW_OBJS) $(AVS_STATIC) $(MENG_STATIC)
+	@echo "  LD      $@"
+	@mkdir -p $(BUILD_BIN)
+	@$(CXX) $(LFLAGS) $(TEST_LFLAGS) \
+		$^ $(TEST_LIBS) $(LIBS) -o $@
 
 #--- Phony Targets ---
 
 .PHONY: test test_clean
-test: $(BUILD_BIN)/$(TEST_BIN)$(BIN_SUFFIX)
+test: $(BUILD_BIN)/$(TEST_BIN)$(BIN_SUFFIX) $(BUILD_BIN)/$(TEST_SLOW_BIN)$(BIN_SUFFIX)
 test_clean:
-	@rm -f $(BUILD_BIN)/$(TEST_BIN)$(BIN_SUFFIX)
+	@rm -f $(BUILD_BIN)/$(TEST_BIN)$(BIN_SUFFIX) $(BUILD_BIN)/$(TEST_SLOW_BIN)$(BIN_SUFFIX)
 
