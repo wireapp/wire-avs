@@ -45,12 +45,11 @@ namespace wire {
 			}
 		}
 
-
 		const auto local_candidate_stats = report->GetStatsOfType<webrtc::RTCLocalIceCandidateStats>();
 
 		std::string connection;
 		// Now get the first protocol and transport assuming all will be same
-		// WPB-23494 Is this assumption correct? what to do else
+		// WPB-23494 Is this assumption correct? what to do else?
 		if (!local_candidate_ids.empty()) {
 			for (const auto& lc : local_candidate_stats) {
 				if (lc->protocol && lc->candidate_type) {
@@ -65,6 +64,34 @@ namespace wire {
 
         return connection;
     }
+
+	// WPB-23494: We iterate over the same RTCInboundRtpStreamStats container
+	// in stats.h for received packets and packet loss calculation
+	// Consider joining these two for a single iteration over verctor
+	std::pair<double, double> getJitter(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+        if (!report) {
+            return {0.0, 0.0};
+        }
+		double audio_jitter = 0;
+		double video_jitter = 0;
+		const auto inbound_rtp_stats = report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>();
+
+		for (const auto& rs : inbound_rtp_stats) {
+			// process non zero audio and video jitters
+			if (rs->kind && rs->jitter && *(rs->jitter)) {
+				// WPB-23494: Taking maximum of jitters
+				// or taking average on nonzero values?
+				if (*(rs->kind) == "audio") {
+					audio_jitter = std::max(audio_jitter, *(rs->jitter));
+				}
+				else if (*(rs->kind) == "video") {
+					video_jitter = std::max(video_jitter, *(rs->jitter));
+				}
+			}
+		}
+
+		return {audio_jitter, video_jitter};
+	}
 }
 
 #endif

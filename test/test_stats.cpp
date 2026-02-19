@@ -123,5 +123,88 @@ TEST_P(StatsParam, ptotocol_type_tests) {
 }
 
 
+TEST(stats_jitter, null_report)
+{
+    rtc::scoped_refptr<const RTCStatsReport> report;
+    const auto jitter = wire::getJitter(report);
+    ASSERT_EQ(jitter, std::make_pair(0.0, 0.0));
+}
+
+TEST(stats_jitter, empty_report)
+{
+    auto report = RTCStatsReport::Create(Timestamp::Zero());
+    const auto jitter = wire::getJitter(report);
+    ASSERT_EQ(jitter, std::make_pair(0.0, 0.0));
+}
+
+TEST(stats_jitter, audio_report)
+{
+    auto irrelevant_rtp = new RTCInboundRtpStreamStats("irrelevantRtpId", Timestamp::Zero());
+    irrelevant_rtp->kind = "irrelevant";
+    irrelevant_rtp->jitter = 0.5;
+
+    auto audio_rtp = new RTCInboundRtpStreamStats("someRtpId", Timestamp::Zero());
+    audio_rtp->kind = "audio";
+    audio_rtp->jitter = 0.1;
+
+    auto another_audio_rtp = new RTCInboundRtpStreamStats("anotherRtpId", Timestamp::Zero());
+    another_audio_rtp->kind = "audio";
+    another_audio_rtp->jitter = 0.2;
+
+    auto report = RTCStatsReport::Create(Timestamp::Zero());
+    report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
+    report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
+    report->AddStats(std::unique_ptr<RTCStats>(another_audio_rtp));
+
+    const auto jitter = wire::getJitter(report);
+    ASSERT_EQ(jitter, std::make_pair(0.2, 0.0));
+}
+
+TEST(stats_jitter, video_report)
+{
+    auto irrelevant_rtp = new RTCInboundRtpStreamStats("irrelevantRtpId", Timestamp::Zero());
+    irrelevant_rtp->kind = "irrelevant";
+    irrelevant_rtp->jitter = 0.5;
+
+    auto video_rtp = new RTCInboundRtpStreamStats("someRtpId", Timestamp::Zero());
+    video_rtp->kind = "video";
+    video_rtp->jitter = 0.1;
+
+    auto another_video_rtp = new RTCInboundRtpStreamStats("anotherRtpId", Timestamp::Zero());
+    another_video_rtp->kind = "video";
+    another_video_rtp->jitter = 0.2;
+
+    auto report = RTCStatsReport::Create(Timestamp::Zero());
+    report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
+    report->AddStats(std::unique_ptr<RTCStats>(video_rtp));
+    report->AddStats(std::unique_ptr<RTCStats>(another_video_rtp));
+
+    const auto jitter = wire::getJitter(report);
+    ASSERT_EQ(jitter, std::make_pair(0.0, 0.2));
+}
+
+TEST(stats_jitter, audio_and_video_report)
+{
+    auto irrelevant_rtp = new RTCInboundRtpStreamStats("irrelevantRtpId", Timestamp::Zero());
+    irrelevant_rtp->kind = "irrelevant";
+    irrelevant_rtp->jitter = 0.5;
+
+    auto audio_rtp = new RTCInboundRtpStreamStats("someAudioRtpId", Timestamp::Zero());
+    audio_rtp->kind = "audio";
+    audio_rtp->jitter = 0.1;
+
+    auto video_rtp = new RTCInboundRtpStreamStats("someVideoRtpId", Timestamp::Zero());
+    video_rtp->kind = "video";
+    video_rtp->jitter = 0.2;
+
+    auto report = RTCStatsReport::Create(Timestamp::Zero());
+    report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
+    report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
+    report->AddStats(std::unique_ptr<RTCStats>(video_rtp));
+
+    const auto jitter = wire::getJitter(report);
+    ASSERT_EQ(jitter, std::make_pair(0.1, 0.2));
+}
+
 
 
