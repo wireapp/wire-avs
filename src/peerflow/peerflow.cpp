@@ -2926,8 +2926,10 @@ int peerflow_add_decoders_for_user(struct iflow *iflow,
 	lock_write_get(pf->cml.lock);
 	memb = conf_member_find_active_by_userclient(&pf->cml.list, userid, clientid);
 	/* Only allow the addition if the ssrcs don't match */
-	if (memb && memb->ssrca == ssrca && memb->ssrcv == ssrcv)
-		return 0;
+	if (memb && memb->ssrca == ssrca && memb->ssrcv == ssrcv) {
+		err = 0;
+		goto out;
+	}
 
 	if (memb)
 		memb->active = false;

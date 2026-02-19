@@ -380,13 +380,13 @@
 		// Wait until any pending GPU work is done
 		//_block dispatch_semaphore_t blockSem = _gpuSemaphore;		
 		//dispatch_semaphore_wait(blockSem, DISPATCH_TIME_FOREVER);
+		[_lock lock];
 		if ([self setupTexturesForFrame:frame]) {
-			[_lock lock];
 			_newFrame++;
-			[_lock unlock];
 		} else {
 			//dispatch_semaphore_signal(blockSem);
 		}
+		[_lock unlock];
 	}
 
 	return NO;
