@@ -1,4 +1,6 @@
 #include "avsstats.h"
+#include <re.h>
+#include <avs.h>
 
 namespace wire {
     void AvsStats::ReadFromRTCReport(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) 
@@ -7,14 +9,115 @@ namespace wire {
             return;
         }
 
-        // get individual RTCReport types that will be used in statistics gathering
-        // and be shared 
-        const auto transport_stats = report->GetStatsOfType<webrtc::RTCTransportStats>();
-        const auto candidate_pair_stats = report->GetStatsOfType<webrtc::RTCIceCandidatePairStats>();
-        const auto inbound_rtp_stats = report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>();
+		const auto inbound_rtp_stats = report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>();
+		const auto outbound_rtp_stats = report->GetStatsOfType<webrtc::RTCOutboundRtpStreamStats>();
+		readPacketStats(inbound_rtp_stats, outbound_rtp_stats);
 
+        const auto candidate_pair_stats = report->GetStatsOfType<webrtc::RTCIceCandidatePairStats>();
+        readRtt(report, candidate_pair_stats);
+
+        const auto audio_stats = report->GetStatsOfType<webrtc::RTCAudioSourceStats>();
+        readAudioLevel(audio_stats);
+
+        const auto transport_stats = report->GetStatsOfType<webrtc::RTCTransportStats>();
         readConnection(report, transport_stats, candidate_pair_stats);
+
         readJitter(inbound_rtp_stats);
+    }
+
+    void AvsStats::readPacketStats(const std::vector<const webrtc::RTCInboundRtpStreamStats*>& inbound_rtp_stats, 
+                            		const std::vector<const webrtc::RTCOutboundRtpStreamStats*>& outbound_rtp_stats) {
+
+		packets_lost = 0;
+		packets_received = {0.0, 0.0};
+		packets_sent = {0.0, 0.0};
+
+		for (const auto& rs: inbound_rtp_stats) {
+			if (rs->kind && rs->packets_received) {
+                if (*(rs->kind) == "audio") {
+                    packets_received.first += *(rs->packets_received);
+                }
+                else if (*(rs->kind) == "video") {
+                   packets_received.second += *(rs->packets_received);
+                }
+            }
+			if (rs->packets_lost) {
+				packets_lost += *(rs->packets_lost);
+			}
+		}
+
+		for (const auto& rs: outbound_rtp_stats) {
+			if (rs->kind && rs->packets_sent) {
+                if (*(rs->kind) == "audio") {
+                    packets_sent.first += *(rs->packets_sent);
+                }
+                else if (*(rs->kind) == "video") {
+                   packets_sent.second += *(rs->packets_sent);
+                }
+            }
+		}
+	}
+
+	void AvsStats::readAudioLevel(const std::vector<const webrtc::RTCAudioSourceStats*>& audio_stats) {
+		audio_level = 0;
+		for (const auto& as: audio_stats) {
+			if (as->audio_level) {
+				audio_level = (int)(*(as->audio_level) * 255.0);
+				break;
+            }
+		}
+	}
+
+    void AvsStats::readRtt(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report,
+                            const std::vector<const webrtc::RTCIceCandidatePairStats*>& candidate_pair_stats) {
+        rtt = 0.0;
+        for (const auto& cps: candidate_pair_stats) {
+#if 0
+			struct mbuf *mb = mbuf_alloc(1024);
+#else
+			struct mbuf *mb = NULL;
+#endif
+			if (cps->state && *(cps->state) == "succeeded") {
+                rtt = *(cps->current_round_trip_time) * 1000.0f;
+            }
+			if (mb) {
+				mbuf_printf(mb, "IceCandidaptePair<%s>:\n", cps->id().c_str());
+
+				if (cps->local_candidate_id) {
+                    const auto lid = *cps->local_candidate_id;
+                    const auto lc = report->GetAs<webrtc::RTCLocalIceCandidateStats>(lid);
+                    if (lc) {
+						mbuf_printf(mb, "\tLocal-candidate<%s>:\n", lc->id().c_str());
+						for (const auto& attribute : lc->Attributes()) {
+							mbuf_printf(mb, "\t\t%s = %s\n", attribute.name(), attribute.ToString().c_str());
+						}
+                    }
+                }
+
+				if (cps->remote_candidate_id) {
+                    const auto rid = *cps->remote_candidate_id;
+                    const auto rc = report->GetAs<webrtc::RTCLocalIceCandidateStats>(rid);
+                    if (rc) {
+						mbuf_printf(mb, "\tRemote-candidate<%s>:\n", rc->id().c_str());
+						for (const auto& attribute : rc->Attributes()) {
+							mbuf_printf(mb, "\t\t%s = %s\n", attribute.name(), attribute.ToString().c_str());
+						}
+                    }
+                }
+
+				for (const auto& attribute : cps->Attributes()) {
+					mbuf_printf(mb, "\t%s = %s\n", attribute.name(), attribute.ToString().c_str());
+				}
+				char *logstr = NULL;
+
+				mb->pos = 0;
+				mbuf_strdup(mb, &logstr, mb->end);
+				info("%s\n", logstr);
+
+				mem_deref(mb);
+				mem_deref(logstr);
+			}
+		}
     }
 
     void AvsStats::readConnection(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report,
@@ -55,8 +158,8 @@ namespace wire {
         // Is this assumption correct? what to do else?
         for (const auto& id : local_candidate_ids) {
             const auto lc = report->GetAs<webrtc::RTCLocalIceCandidateStats>(id);
-            if (lc->protocol && lc->candidate_type) {
-                if (*lc->candidate_type == "relay") {
+            if (lc && lc->protocol && lc->candidate_type) {
+                if (*(lc->candidate_type) == "relay") {
                     connection = "Relay/";
                 }
                 connection.append(*(lc->protocol));
