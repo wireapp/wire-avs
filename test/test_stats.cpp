@@ -16,7 +16,7 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "stats_util.h"
+#include "avsstats.h"
 #include <gtest/gtest.h>
 
 using namespace webrtc;
@@ -26,15 +26,19 @@ using std::string;
 TEST(stats, null_report)
 {
     rtc::scoped_refptr<const RTCStatsReport> report;
-    const auto connection = wire::getConnection(report);
-    ASSERT_EQ(connection, std::string());
+    wire::AvsStats stats;
+    stats.ReadFromRTCReport(report);
+    ASSERT_EQ(stats.connection, std::string());
+    ASSERT_EQ(stats.jitter, std::make_pair(0.0, 0.0));
 }
 
 TEST(stats, empty_report)
 {
     auto report = RTCStatsReport::Create(Timestamp::Zero());
-    const auto connection = wire::getConnection(report);
-    ASSERT_EQ(connection, std::string());
+    wire::AvsStats stats;
+    stats.ReadFromRTCReport(report);
+    ASSERT_EQ(stats.connection, std::string());
+    ASSERT_EQ(stats.jitter, std::make_pair(0.0, 0.0));
 }
 
 
@@ -75,8 +79,9 @@ protected:
 
 TEST_F(Stats, report_without_transport)
 {
-    const auto connection = wire::getConnection(report);
-    ASSERT_EQ(connection, expected_connection);
+    wire::AvsStats stats;
+    stats.ReadFromRTCReport(report);
+    ASSERT_EQ(stats.connection, expected_connection);
 }
 
 TEST_F(Stats, report_with_transport)
@@ -85,8 +90,9 @@ TEST_F(Stats, report_with_transport)
     transport->selected_candidate_pair_id = candidate_pair_id;
     report->AddStats(std::unique_ptr<RTCStats>(transport));
 
-    const auto connection = wire::getConnection(report);
-    ASSERT_EQ(connection, expected_connection);
+    wire::AvsStats stats;
+    stats.ReadFromRTCReport(report);
+    ASSERT_EQ(stats.connection, expected_connection);
 }
 
 class StatsParam : public Base,
@@ -118,24 +124,11 @@ INSTANTIATE_TEST_CASE_P(StatsParameter,
                         ));
 
 TEST_P(StatsParam, ptotocol_type_tests) {
-    const auto connection = wire::getConnection(report);
-    ASSERT_EQ(connection, std::get<2>(GetParam()));
+    wire::AvsStats stats;
+    stats.ReadFromRTCReport(report);
+    ASSERT_EQ(stats.connection, std::get<2>(GetParam()));
 }
 
-
-TEST(stats_jitter, null_report)
-{
-    rtc::scoped_refptr<const RTCStatsReport> report;
-    const auto jitter = wire::getJitter(report);
-    ASSERT_EQ(jitter, std::make_pair(0.0, 0.0));
-}
-
-TEST(stats_jitter, empty_report)
-{
-    auto report = RTCStatsReport::Create(Timestamp::Zero());
-    const auto jitter = wire::getJitter(report);
-    ASSERT_EQ(jitter, std::make_pair(0.0, 0.0));
-}
 
 TEST(stats_jitter, audio_report)
 {
@@ -156,8 +149,9 @@ TEST(stats_jitter, audio_report)
     report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
     report->AddStats(std::unique_ptr<RTCStats>(another_audio_rtp));
 
-    const auto jitter = wire::getJitter(report);
-    ASSERT_EQ(jitter, std::make_pair(0.2, 0.0));
+    wire::AvsStats stats;
+    stats.ReadFromRTCReport(report);
+    ASSERT_EQ(stats.jitter, std::make_pair(0.2, 0.0));
 }
 
 TEST(stats_jitter, video_report)
@@ -179,8 +173,9 @@ TEST(stats_jitter, video_report)
     report->AddStats(std::unique_ptr<RTCStats>(video_rtp));
     report->AddStats(std::unique_ptr<RTCStats>(another_video_rtp));
 
-    const auto jitter = wire::getJitter(report);
-    ASSERT_EQ(jitter, std::make_pair(0.0, 0.2));
+    wire::AvsStats stats;
+    stats.ReadFromRTCReport(report);
+    ASSERT_EQ(stats.jitter, std::make_pair(0.0, 0.2));
 }
 
 TEST(stats_jitter, audio_and_video_report)
@@ -202,8 +197,9 @@ TEST(stats_jitter, audio_and_video_report)
     report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
     report->AddStats(std::unique_ptr<RTCStats>(video_rtp));
 
-    const auto jitter = wire::getJitter(report);
-    ASSERT_EQ(jitter, std::make_pair(0.1, 0.2));
+    wire::AvsStats stats;
+    stats.ReadFromRTCReport(report);
+    ASSERT_EQ(stats.jitter, std::make_pair(0.1, 0.2));
 }
 
 

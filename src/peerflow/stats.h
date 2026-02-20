@@ -23,7 +23,7 @@
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtcstats_objects.h"
 
-#include "stats_util.h"
+#include "avsstats.h"
 #include "re.h"
 #include "peerflow.h"
 
@@ -234,9 +234,10 @@ public:
 			audio_level = (int)(*asrc_stats->audio_level * 255.0);
 		}
 
-		const auto connection = getConnection(report);
-		const auto jitter = getJitter(report);
-		info("WPB-23494 stats: pf(%p) connection: %s jitter: {%f, %f}", pf_, connection.c_str(), jitter.first, jitter.second);
+		AvsStats avs_stats;
+		avs_stats.ReadFromRTCReport(report);
+
+		info("WPB-23494 stats: pf(%p) connection: %s jitter: {%f, %f}", pf_, avs_stats.connection.c_str(), avs_stats.jitter.first, avs_stats.jitter.second);
 
 		info("WPB-23494 stats: pf(%p) audio_level: %d pl: %.02f rtt: %.02f\n", pf_, audio_level, downloss, rtt);
 		lock_write_get(lock_);
