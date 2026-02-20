@@ -8,8 +8,8 @@ namespace wire {
 	struct AvsStats {
 		std::string connection;
 		std::pair<double, double> jitter;
-		std::pair<uint64_t, uint64_t> packets_sent;
-		std::pair<uint64_t, uint64_t> packets_received;
+		std::pair<uint32_t, uint32_t> packets_sent;
+		std::pair<uint32_t, uint32_t> packets_received;
 		uint64_t packets_lost;
 		int audio_level;
 		float rtt;
