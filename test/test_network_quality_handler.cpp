@@ -204,10 +204,7 @@ static void close_handler(int reason, const char *convid, uint32_t msg_time,
 static void wcall_quality_handler(const char *convid,
 				  const char *userid,
 				  const char *clientid,
-				  int quality, /*  WCALL_QUALITY_ */
-				  int rtt, /* round trip time in ms */
-				  int uploss, /* upstream pkt loss % */
-				  int downloss, /* dnstream pkt loss */
+				  const char* quality_info,
 				  void *arg)
 {
     auto cli = (Client *)arg;

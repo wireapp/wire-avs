@@ -1402,18 +1402,27 @@ static const char *quality2name(int quality)
 static void wcall_quality_handler(const char *convid,
 				  const char *userid,
 				  const char *clientid,
-				  int quality, /*  WCALL_QUALITY_ */
-				  int rtt, /* round trip time in ms */
-				  int uploss, /* upstream pkt loss % */
-				  int downloss, /* dnstream pkt loss */
+				  const char *quality_info,
 				  void *arg)
 {
 	(void)arg;
 
-	info("call_quality: convid=%s userid=%s quality=%s "
+	info("call_quality: convid=%s userid=%s quality info=%s "
 	     "rtt=%d up=%d dn=%d\n",
-	     convid, userid, quality2name(quality),
-	     rtt, uploss, downloss);
+	     convid, userid, quality_info);
+
+	struct json_object *jobj;
+	int err = jzon_decode(&jobj, quality_info, strlen(quality_info));
+	if (err) {
+		warning("unable to decode quality info");
+		return;
+	}
+
+	int quality;
+	jzon_int(&quality, jobj, "quality");
+	info("quality: %s\n", quality2name(quality));
+
+	mem_deref(jobj);
 }
 
 
