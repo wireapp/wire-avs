@@ -64,6 +64,8 @@ pipeline {
                         sh 'make test AVS_VERSION=' + version
                         // run tests
                         sh './ztest'
+                        // run slow tests
+                        sh './ztest-slow'
 
                         // cleanup old artifacts
                         sh 'rm -rf ./build/artifacts'
@@ -131,6 +133,8 @@ pipeline {
                         sh 'make test AVS_VERSION=' + version
                         // run tests
                         sh './ztest'
+                        // run slow tests
+                        sh './ztest-slow'
 
                         // build
                         sh 'make dist_clean'
