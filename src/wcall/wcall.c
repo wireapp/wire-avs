@@ -1584,6 +1584,7 @@ static void icall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
 				  int rtt, int uploss, int downloss,
+				  int jitter, const char *connectivity, const char *peer,
 				  void *arg)
 {
 	struct wcall *wcall = arg;
@@ -1634,9 +1635,9 @@ static void icall_quality_handler(struct icall *icall,
 	json_object_object_add(jobj, "jitter",
 				json_object_new_int(0));
 	json_object_object_add(jobj, "connectivity",
-				json_object_new_string(""));
+				json_object_new_string(connectivity));
 	json_object_object_add(jobj, "peer",
-				json_object_new_string(""));
+				json_object_new_string(peer));
 
 	if (jzon_encode(&quality_info, jobj)) {
 		warning("wcall(%p): can not generate quality information\n", wcall);

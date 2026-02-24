@@ -1731,6 +1731,9 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		      0,
 		      0,
 		      0,
+		      0,
+		      "",
+		      "User",
 		      ecall->icall.arg);
 
 	if (ecall->update_glare) {
@@ -3216,6 +3219,9 @@ int ecall_restart(struct ecall *ecall,
 			      0,
 			      ICALL_RECONNECTING,
 			      ICALL_RECONNECTING,
+			      0,
+			      "",
+			      "User",
 			      ecall->icall.arg);
 	}
 
@@ -3291,6 +3297,39 @@ int ecall_activate(struct ecall *ecall, bool active)
 	return 0;
 }
 
+static const char* PEER_USER = "User";
+static const char* PEER_SERVER = "Server";
+
+static const char *peer(enum icall_conv_type call_type)
+{
+	switch (call_type) {
+	case ICALL_CONV_TYPE_ONEONONE:
+	case ICALL_CONV_TYPE_GROUP:
+		return PEER_USER;
+	case ICALL_CONV_TYPE_CONFERENCE:
+	case ICALL_CONV_TYPE_CONFERENCE_MLS:
+		return PEER_SERVER;
+	default:
+		return "";
+	}
+}
+
+static const char *connection(enum connection_type connection_type)
+{
+	switch (connection_type) {
+	case CONNECTION_UDP:
+		return CONNECTION_UDP_STR;
+	case CONNECTION_UDP_RELAY:
+		return CONNECTION_UDP_RELAY_STR;
+	case CONNECTION_TCP:
+		return CONNECTION_TCP_STR;
+	case CONNECTION_TCP_RELAY:
+		return CONNECTION_TCP_RELAY_STR;
+	default:
+		return CONNECTION_UNKNOWN_STR;
+	}
+}
+
 static void quality_handler(void *arg)
 {
 	struct ecall *ecall = arg;
@@ -3320,6 +3359,9 @@ static void quality_handler(void *arg)
 			      (int)stats.rtt,
 			      (int)stats.dloss,
 			      (int)stats.dloss,
+			      (int)stats.jitter,
+			      connection(stats.connection),
+			      peer(ecall->conv_type),
 			      ecall->icall.arg);
 
 		ecall->metrics.m.packetloss_last = dloss;

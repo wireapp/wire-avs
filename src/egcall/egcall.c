@@ -1035,6 +1035,7 @@ static void noconn_handler(void *arg)
 		      egcall->userid_self,
 		      egcall->clientid_self,
 		      0, ICALL_NETWORK_PROBLEM, ICALL_NETWORK_PROBLEM,
+		      0, "", "User",
 		      egcall->icall.arg);
 }
 
@@ -1164,13 +1165,16 @@ static void ecall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
 				  int rtt, int uploss, int downloss,
+				  int jitter, const char *connectivity, const char *peer,
 				  void *arg)
 {
 	struct egcall *egcall = arg;
 
 	ICALL_CALL_CB(egcall->icall, qualityh,
 		icall, userid, clientid,
-		rtt, uploss, downloss, egcall->icall.arg);
+		rtt, uploss, downloss,
+		jitter, connectivity, peer,
+		egcall->icall.arg);
 }
 
 

@@ -3280,7 +3280,9 @@ void peerflow_set_stats(struct peerflow* pf,
 			uint32_t apkts_sent,
 			uint32_t vpkts_sent,
 			float downloss,
-			float rtt)
+			float rtt,
+			float jitter,
+			enum connection_type connection)
 {
 	uint32_t total_pkts;
 	
@@ -3305,6 +3307,9 @@ void peerflow_set_stats(struct peerflow* pf,
 	pf->stats.apkts_sent = apkts_sent;
 	pf->stats.vpkts_sent = vpkts_sent;	
 	pf->stats.rtt = rtt;
+	pf->stats.jitter = jitter;
+	pf->stats.connection = connection;
+
 
 	total_pkts = apkts_recv + vpkts_recv;
 	if (total_pkts)

@@ -243,7 +243,9 @@ public:
 					   apkts_sent,
 					   vpkts_sent,
 					   downloss,
-					   rtt);
+					   rtt,
+					   0.0,
+					   CONNECTION_UNKNOWN);
 		}
 		lock_rel(lock_);
 	}
