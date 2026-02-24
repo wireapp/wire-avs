@@ -221,6 +221,7 @@ typedef void (icall_quality_h)(struct icall *icall,
 			       const char *userid,
 			       const char *clientid,
 			       int rtt, int uploss, int downloss,
+			       int jitter, const char *connectivity, const char *peer,
 			       void *arg);
 typedef void (icall_norelay_h)(struct icall *icall, bool local, void *arg);
 

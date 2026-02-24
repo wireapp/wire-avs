@@ -23,17 +23,6 @@
 struct iflow;
 struct avs_vidframe;
 
-struct iflow_stats {
-	uint8_t audio_level;
-	uint8_t audio_level_smooth;
-	uint32_t apkts_recv;
-	uint32_t apkts_sent;
-	uint32_t vpkts_recv;
-	uint32_t vpkts_sent;
-	float dloss;
-	float rtt;
-};
-
 enum protocol_type {
 	PROTOCOL_UNKNOWN   = 0,
 	PROTOCOL_UDP       = 1,
@@ -46,6 +35,34 @@ enum candidate_type {
 	CANDIDATE_SRFLX     = 2,
 	CANDIDATE_PRFLX     = 3,
 	CANDIDATE_RELAY     = 4,
+};
+
+static const char* UNKNOWN_STR = "Unknown";
+static const char* UDP_HOST_STR = "UDP/Host";
+static const char* TCP_HOST_STR = "TCP/Host";
+static const char* UDP_SRFLX_STR = "UDP/Srflx";
+static const char* TCP_SRFLX_STR = "TCP/Srflx";
+static const char* UDP_PRFLX_STR = "UDP/Prflx";
+static const char* TCP_PRFLX_STR = "TCP/Prflx";
+static const char* UDP_RELAY_STR = "UDP/Relay";
+static const char* TCP_RELAY_STR = "TCP/Relay";
+
+
+struct iflow;
+struct avs_vidframe;
+
+struct iflow_stats {
+	uint8_t audio_level;
+	uint8_t audio_level_smooth;
+	uint32_t apkts_recv;
+	uint32_t apkts_sent;
+	uint32_t vpkts_recv;
+	uint32_t vpkts_sent;
+	float dloss;
+	float rtt;
+	float jitter;
+	enum protocol_type protocol;
+	enum candidate_type candidate;
 };
 
 /* Calls into iflow */

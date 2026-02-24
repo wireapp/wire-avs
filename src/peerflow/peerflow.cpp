@@ -3308,6 +3308,9 @@ void peerflow_set_stats(struct peerflow* pf,
 	pf->stats.apkts_sent = apkts_sent;
 	pf->stats.vpkts_sent = vpkts_sent;	
 	pf->stats.rtt = rtt;
+	pf->stats.jitter = jitter;
+	pf->stats.protocol = protocol;
+	pf->stats.candidate = candidate;
 
 	total_pkts = apkts_recv + vpkts_recv;
 	if (total_pkts)

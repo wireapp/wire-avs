@@ -532,6 +532,9 @@ static void ccall_reconnect(struct ccall *ccall,
 			      0,
 			      ICALL_RECONNECTING,
 			      ICALL_RECONNECTING,
+			      0,
+			      "",
+			      "Server",
 			      ccall->icall.arg);
 	}
 }
@@ -1096,6 +1099,7 @@ static void ecall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
 				  int rtt, int uploss, int downloss,
+				  int jitter, const char *connectivity, const char *peer,
 				  void *arg)
 {
 	struct ccall *ccall = arg;
@@ -1166,6 +1170,9 @@ static void ecall_quality_handler(struct icall *icall,
 		      rtt,
 		      uploss,
 		      downloss,
+		      jitter,
+		      connectivity,
+		      peer,
 		      ccall->icall.arg);
 }
 
