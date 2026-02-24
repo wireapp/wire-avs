@@ -87,7 +87,7 @@ static void ready_handler(int version, void *arg)
 	if (cli->call->caller.state == Ready && cli->call->callee.state == Ready) {
 		info("[ %s.%s ] Ready, all participants are ready\n", cli->userId.c_str(), cli->clientId.c_str());
 		int err = wcall_start(cli->wuser, cli->call->callId.c_str(), WCALL_CALL_TYPE_NORMAL,
-				conv_type, 0);
+				conv_type, 0, 0);
 		ASSERT_EQ(0, err);
     }
 
@@ -125,7 +125,8 @@ static int send_handler(void *ctx, const char *convid,
 				convid,
 				userid_self,
 				clientid_self,
-				WCALL_CONV_TYPE_CONFERENCE_MLS);
+				WCALL_CONV_TYPE_CONFERENCE_MLS,
+				false);
         }
         if (cli->call->caller.userId != userid_self) {
             // send message to callee
@@ -135,7 +136,8 @@ static int send_handler(void *ctx, const char *convid,
 				convid,
 				userid_self,
 				clientid_self,
-				WCALL_CONV_TYPE_CONFERENCE_MLS);
+				WCALL_CONV_TYPE_CONFERENCE_MLS,
+				false);
         }
     }
     return 0;
