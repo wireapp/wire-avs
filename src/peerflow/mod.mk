@@ -8,6 +8,7 @@ AVS_SRCS += \
 	peerflow/cbr_detector_remote.cpp \
 	peerflow/frame_decryptor_wrapper.cpp \
 	peerflow/frame_encryptor_wrapper.cpp \
+	peerflow/avsstats.cpp \
 	peerflow/peerflow.cpp \
 	peerflow/video_renderer.cpp
 

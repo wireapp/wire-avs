@@ -59,12 +59,15 @@ $(TEST_C_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.c
 		$(TEST_CPPFLAGS) $(TEST_CFLAGS) \
 		-c $< -o $@ $(DFLAGS)
 
+EXT_CPPFLAGS_FOR_STATS_HDR := -I"./src/peerflow"
+
 $(TEST_CC_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.cpp
 	@echo "  CXX  $(AVS_OS)-$(AVS_ARCH) test/$*.cpp"
 	@mkdir -p $(dir $@)
 	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) \
 		$(TEST_CPPFLAGS) $(TEST_CXXFLAGS) \
+		$(EXT_CPPFLAGS_FOR_STATS_HDR) \
 		-c $< -o $@ $(DFLAGS)
 
 $(TEST_SLOW_C_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.c

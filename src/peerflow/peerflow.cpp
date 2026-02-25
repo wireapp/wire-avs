@@ -62,13 +62,13 @@ extern "C" {
 #include "sdk/android/native_api/audio_device_module/audio_device_android.h"
 #endif
 
+#include "avsstats.h"
 #include "capture_source.h"
 #include "cbr_detector_local.h"
 #include "cbr_detector_remote.h"
 #include "frame_encryptor_wrapper.h"
 #include "frame_decryptor_wrapper.h"
 #include "video_renderer.h"
-#include "stats.h"
 
 #include <avs_peerflow.h>
 

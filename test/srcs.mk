@@ -37,6 +37,7 @@ TEST_SRCS	+= test_userlist.cpp
 #TEST_SRCS	+= test_wcall.cpp
 TEST_SRCS	+= test_zapi.cpp
 TEST_SRCS	+= test_ztime.cpp
+TEST_SRCS	+= test_stats.cpp
 
 
 TEST_SLOW_SRCS	+= main.cpp
