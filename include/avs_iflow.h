@@ -23,6 +23,14 @@
 struct iflow;
 struct avs_vidframe;
 
+enum connection_type {
+	CONNECTION_UDP       = 0,
+	CONNECTION_UDP_RELAY = 1,
+	CONNECTION_TCP       = 2,
+	CONNECTION_TCP_RELAY = 3,
+	CONNECTION_UNKNOWN   = 255,
+};
+
 struct iflow_stats {
 	uint8_t audio_level;
 	uint8_t audio_level_smooth;
@@ -32,6 +40,8 @@ struct iflow_stats {
 	uint32_t vpkts_sent;
 	float dloss;
 	float rtt;
+	float jitter;
+	enum connection_type connection;
 };
 
 /* Calls into iflow */

@@ -94,7 +94,9 @@ void peerflow_set_stats(struct peerflow* pf,
 			uint32_t apkts_sent,
 			uint32_t vpkts_sent,
 			float downloss,
-			float rtt);
+			float rtt,
+			float jitter,
+			enum connection_type connection_type);
 
 #ifdef __cplusplus
 }
