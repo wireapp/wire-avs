@@ -37,20 +37,6 @@ enum candidate_type {
 	CANDIDATE_RELAY     = 4,
 };
 
-static const char* UNKNOWN_STR = "Unknown";
-static const char* UDP_HOST_STR = "UDP/Host";
-static const char* TCP_HOST_STR = "TCP/Host";
-static const char* UDP_SRFLX_STR = "UDP/Srflx";
-static const char* TCP_SRFLX_STR = "TCP/Srflx";
-static const char* UDP_PRFLX_STR = "UDP/Prflx";
-static const char* TCP_PRFLX_STR = "TCP/Prflx";
-static const char* UDP_RELAY_STR = "UDP/Relay";
-static const char* TCP_RELAY_STR = "TCP/Relay";
-
-
-struct iflow;
-struct avs_vidframe;
-
 struct iflow_stats {
 	uint8_t audio_level;
 	uint8_t audio_level_smooth;

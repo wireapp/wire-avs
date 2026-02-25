@@ -3314,6 +3314,16 @@ static const char *peer(enum icall_conv_type call_type)
 	}
 }
 
+static const char* UNKNOWN_STR = "Unknown";
+static const char* UDP_HOST_STR = "UDP/Host";
+static const char* TCP_HOST_STR = "TCP/Host";
+static const char* UDP_SRFLX_STR = "UDP/Srflx";
+static const char* TCP_SRFLX_STR = "TCP/Srflx";
+static const char* UDP_PRFLX_STR = "UDP/Prflx";
+static const char* TCP_PRFLX_STR = "TCP/Prflx";
+static const char* UDP_RELAY_STR = "UDP/Relay";
+static const char* TCP_RELAY_STR = "TCP/Relay";
+
 static const char *connection(enum protocol_type protocol, enum candidate_type candidate)
 {
 	switch (protocol) {

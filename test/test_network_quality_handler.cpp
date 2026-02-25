@@ -209,8 +209,8 @@ static void wcall_quality_handler(const char *convid,
 {
     auto cli = (Client *)arg;
 
-    info("[ %s.%s ] {%s with interval %d} Call_quality report\n",
-	     userid, clientid, convid, cli->timerInterval);
+    info("[ %s.%s ] {%s with interval %d} Call_quality report: %s\n",
+	     userid, clientid, convid, cli->timerInterval, quality_info);
 
     cli->qualityCallbacks[cli->timerInterval]++;
 }
