@@ -31,15 +31,6 @@ enum connection_type {
 	CONNECTION_UNKNOWN   = 255,
 };
 
-static const char* CONNECTION_UDP_STR = "UDP";
-static const char* CONNECTION_UDP_RELAY_STR = "UDP/Relay";
-static const char* CONNECTION_TCP_STR = "TCP";
-static const char* CONNECTION_TCP_RELAY_STR = "TCP/Relay";
-static const char* CONNECTION_UNKNOWN_STR = "Unknown";
-
-struct iflow;
-struct avs_vidframe;
-
 struct iflow_stats {
 	uint8_t audio_level;
 	uint8_t audio_level_smooth;

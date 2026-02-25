@@ -3314,6 +3314,12 @@ static const char *peer(enum icall_conv_type call_type)
 	}
 }
 
+static const char* CONNECTION_UDP_STR = "UDP";
+static const char* CONNECTION_UDP_RELAY_STR = "UDP/Relay";
+static const char* CONNECTION_TCP_STR = "TCP";
+static const char* CONNECTION_TCP_RELAY_STR = "TCP/Relay";
+static const char* CONNECTION_UNKNOWN_STR = "Unknown";
+
 static const char *connection(enum connection_type connection_type)
 {
 	switch (connection_type) {
