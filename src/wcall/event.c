@@ -25,6 +25,10 @@
 #include <avs_wcall.h>
 #include "wcall.h"
 
+#ifdef __APPLE__
+#       include <TargetConditionals.h>
+#endif
+
 #define EVENT_AGE_VALID 60 /* max event age in seconds */
 
 enum call_event_state {
@@ -178,6 +182,10 @@ WUSER_HANDLE wcall_event_create(const char *userid,
 	bool found = false;
 	struct le *le = calling_event.instances.head;
 	struct call_event_instance *inst = NULL;
+
+	if (!userid || !clientid) {
+		return WUSER_INVALID_HANDLE;
+	}
 
 	while(le && !found) {
 		inst = le->data;
