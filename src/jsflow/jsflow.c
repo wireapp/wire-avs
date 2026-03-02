@@ -1636,7 +1636,9 @@ void pc_set_stats(int self,
 		  int apkts_sent,
 		  int vpkts_sent,
 		  int downloss,
-		  int rtt);
+		  int rtt,
+		  int jitter,
+		  int connection);
 
 EMSCRIPTEN_KEEPALIVE
 void pc_set_stats(int self,
@@ -1646,7 +1648,9 @@ void pc_set_stats(int self,
 		  int apkts_sent,
 		  int vpkts_sent,
 		  int downloss,
-		  int rtt)
+		  int rtt,
+		  int jitter,
+		  int connection)
 {
 	struct jsflow *flow = self2pc(self);
 
@@ -1655,8 +1659,8 @@ void pc_set_stats(int self,
 		return;
 	}
 
-	info("pc_set_stats: level: %d ar: %d vr: %d as: %d vs: %d rtt=%d dloss=%d\n",
-	     audio_level, apkts_recv, vpkts_recv, apkts_sent, vpkts_sent, rtt, downloss);
+	info("pc_set_stats: level: %d ar: %d vr: %d as: %d vs: %d rtt=%d dloss=%d jitter=%d connection=%d\n",
+	     audio_level, apkts_recv, vpkts_recv, apkts_sent, vpkts_sent, rtt, downloss, jitter, connection);
 
 
 	flow->stats.audio_level = g_jf.muted ? 0 : audio_level;
@@ -1677,9 +1681,10 @@ void pc_set_stats(int self,
 	flow->stats.apkts_sent = apkts_sent;
 	flow->stats.vpkts_sent = vpkts_sent;
 	flow->stats.dloss = (float)downloss;
-	flow->stats.rtt = (float)rtt;	
+	flow->stats.rtt = (float)rtt;
+	flow->stats.jitter = (float)jitter;
+	flow->stats.connection = (enum connection_type)(connection);
 }
-
 
 
 void pc_set_audio_level(int self,
