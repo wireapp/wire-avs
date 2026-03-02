@@ -39,6 +39,8 @@ type LocalStats = {
     sent_apkts: number;
     sent_vpkts: number;
     rtt: number;
+    jitter: number;
+    connection: number;
 };
 
 type UserInfo = {
@@ -841,6 +843,12 @@ const CONV_TYPE_ONEONONE           = 0;
 const CONV_TYPE_GROUP              = 1;
 const CONV_TYPE_CONFERENCE         = 2;
 
+const CONNECTION_TYPE_UNKNOWN      = 0;
+const CONNECTION_TYPE_UDP          = 1;
+const CONNECTION_TYPE_UDP_RELAY    = 2;
+const CONNECTION_TYPE_TCP          = 3;
+const CONNECTION_TYPE_TCP_RELAY    = 4;
+
 const connectionsStore = (() => {
   const peerConnections: (PeerConnection | null)[] = [null];
   const dataChannels: (RTCDataChannel | null)[] = [null];
@@ -1427,7 +1435,9 @@ function pc_New(self: number, convidPtr: number,
       recv_vpkts: 0,
       sent_apkts: 0,
       sent_vpkts: 0,
-      rtt: 0
+      rtt: 0,
+      jitter: 0,
+      connection: 0,
     },
     streams: {},
     gatherTimer: null
@@ -2604,6 +2614,10 @@ function pc_GetLocalStats(hnd: number) {
     rtc.getStats()
 	.then((stats) => {
             let rtt = 0;
+            let local_candidate_id : any;
+            let audio_jitter = 0.0;
+            let video_jitter = 0.0;
+            let connection = CONNECTION_TYPE_UNKNOWN;
 
             stats.forEach(stat => {
 		if (stat.type === 'inbound-rtp') {
@@ -2611,6 +2625,7 @@ function pc_GetLocalStats(hnd: number) {
 		    const p = stat.packetsReceived;
 		    if (stat.kind === 'audio') {
 			apkts = apkts + p;
+			audio_jitter = stat.jitter && stat.jitter > audio_jitter ? stat.jitter : audio_jitter;
 		    }
 		    else if (stat.kind === 'video') {
 			let user_info: UserInfo | null = null
@@ -2627,6 +2642,7 @@ function pc_GetLocalStats(hnd: number) {
                             }
 			}
 			vpkts = vpkts + p;
+			video_jitter = stat.jitter && stat.jitter > video_jitter ? stat.jitter : video_jitter;
 		    }
 		}
 		else if (stat.type === 'outbound-rtp') {
@@ -2639,21 +2655,49 @@ function pc_GetLocalStats(hnd: number) {
 		    }
 		}
 		else if (stat.type === 'candidate-pair') {
-		    rtt = stat.currentRoundTripTime * 1000;
+			if (stat.nominated === true && stat.state === "succeeded") {
+				rtt = stat.currentRoundTripTime * 1000;
+				local_candidate_id = stat.localCandidateId
+			}
 		}
 		else if (stat.type === 'media-source') {
 		    if (stat.kind === 'audio')
 			self_audio_level = stat.audioLevel ? ((stat.audioLevel * 512.0) | 0) : 0;
 		}
 	    });
+
+		if (local_candidate_id) {
+			stats.forEach(stat => {
+				if (stat.type === 'local-candidate' && stat.id === local_candidate_id) {
+					if (stat.protocol === "udp") {
+						if (stat.candidateType === "relay") {
+							connection = CONNECTION_TYPE_UDP_RELAY;
+						} else {
+							connection = CONNECTION_TYPE_UDP;
+						}
+					} else if (stat.protocol === "tcp") {
+						if (stat.candidateType === "relay") {
+							connection = CONNECTION_TYPE_TCP_RELAY;
+						} else {
+							connection = CONNECTION_TYPE_TCP;
+						}
+					}
+				}
+			});
+		}
+
 	    pc.stats.recv_apkts = apkts;
 	    pc.stats.recv_vpkts = vpkts;
 	    pc.stats.ploss = ploss - pc.stats.lastploss;
 	    pc.stats.lastploss = ploss;
 
+        pc.stats.rtt = rtt;
+	    pc.stats.jitter = 1000 * Math.max(audio_jitter, video_jitter);
+	    pc.stats.connection = connection; 
+
 	    em_module.ccall(
 		"pc_set_stats", null,
-		["number", "number", "number", "number", "number", "number", "number", "number"],
+		["number", "number", "number", "number", "number", "number", "number", "number", "number", "number"],
 		[
 		    pc.self, self_audio_level,
 		    pc.stats.recv_apkts,
@@ -2661,7 +2705,9 @@ function pc_GetLocalStats(hnd: number) {
 		    pc.stats.sent_apkts,
 		    pc.stats.sent_vpkts,
 		    pc.stats.ploss,
-		    rtt
+			pc.stats.rtt,
+		    pc.stats.jitter,
+		    pc.stats.connection,
 		]
 	    );
 	}).catch((err) => pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: failed hnd=${hnd} err=${err}`, err));
