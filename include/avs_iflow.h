@@ -34,6 +34,20 @@ struct iflow_stats {
 	float rtt;
 };
 
+enum protocol_type {
+	PROTOCOL_UNKNOWN   = 0,
+	PROTOCOL_UDP       = 1,
+	PROTOCOL_TCP       = 2,
+};
+
+enum candidate_type {
+	CANDIDATE_UNKNOWN   = 0,
+	CANDIDATE_HOST      = 1,
+	CANDIDATE_SRFLX     = 2,
+	CANDIDATE_PRFLX     = 3,
+	CANDIDATE_RELAY     = 4,
+};
+
 /* Calls into iflow */
 typedef int  (iflow_set_video_state)(struct iflow *flow, enum icall_vstate vstate);
 

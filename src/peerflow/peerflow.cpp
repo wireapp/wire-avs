@@ -3280,7 +3280,10 @@ void peerflow_set_stats(struct peerflow* pf,
 			uint32_t apkts_sent,
 			uint32_t vpkts_sent,
 			float downloss,
-			float rtt)
+			float rtt,
+			float jitter,
+			protocol_type protocol,
+			candidate_type candidate)
 {
 	uint32_t total_pkts;
 	

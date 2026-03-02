@@ -22,14 +22,23 @@
 using namespace webrtc;
 using std::string;
 
+namespace wire {
+	bool operator==(const Jitter& lhs, const Jitter& rhs) {
+		return lhs.audio == rhs.audio && lhs.video == rhs.video;
+	}
+	bool operator==(const Packets& lhs, const Packets& rhs) {
+		return lhs.audio == rhs.audio && lhs.video == rhs.video;
+	}
+}
 
 TEST(stats, null_report)
 {
 	rtc::scoped_refptr<const RTCStatsReport> report;
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
-	ASSERT_EQ(stats.connection, std::string());
-	ASSERT_EQ(stats.jitter, std::make_pair(0.0, 0.0));
+	ASSERT_EQ(stats.protocol, PROTOCOL_UNKNOWN);
+	ASSERT_EQ(stats.candidate, CANDIDATE_UNKNOWN);
+	ASSERT_EQ(stats.jitter, wire::Jitter());
 }
 
 TEST(stats, empty_report)
@@ -37,8 +46,9 @@ TEST(stats, empty_report)
 	auto report = RTCStatsReport::Create(Timestamp::Zero());
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
-	ASSERT_EQ(stats.connection, std::string());
-	ASSERT_EQ(stats.jitter, std::make_pair(0.0, 0.0));
+	ASSERT_EQ(stats.protocol, PROTOCOL_UNKNOWN);
+	ASSERT_EQ(stats.candidate, CANDIDATE_UNKNOWN);
+	ASSERT_EQ(stats.jitter, wire::Jitter());
 }
 
 
@@ -74,14 +84,16 @@ public:
 		Base::SetUp("udp", "host");
 	}
 protected:
-	std::string expected_connection = std::string("udp");
+	protocol_type expected_protocol = PROTOCOL_UDP;
+	candidate_type expected_candidate = CANDIDATE_HOST;
 };
 
 TEST_F(Stats, report_without_transport)
 {
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
-	ASSERT_EQ(stats.connection, expected_connection);
+	ASSERT_EQ(stats.protocol, expected_protocol);
+	ASSERT_EQ(stats.candidate, expected_candidate);
 }
 
 TEST_F(Stats, report_with_transport)
@@ -92,11 +104,12 @@ TEST_F(Stats, report_with_transport)
 
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
-	ASSERT_EQ(stats.connection, expected_connection);
+	ASSERT_EQ(stats.protocol, expected_protocol);
+	ASSERT_EQ(stats.candidate, expected_candidate);
 }
 
 class StatsParam : public Base,
-	public ::testing::TestWithParam<std::tuple<std::string, std::string, std::string>> {
+	public ::testing::TestWithParam<std::tuple<std::string, std::string, protocol_type, candidate_type>> {
 public:
 	virtual void SetUp() override
 	{
@@ -112,21 +125,22 @@ INSTANTIATE_TEST_CASE_P(StatsParameter,
 						 StatsParam,
 						 ::testing::Values(
 							// udp suite
-							std::tuple{"udp", "host", "udp"},
-							std::tuple{"udp", "srflx", "udp"},
-							std::tuple{"udp", "prflx", "udp"},
-							std::tuple{"udp", "relay", "Relay/udp"},
+							std::tuple{"udp", "host", PROTOCOL_UDP, CANDIDATE_HOST},
+							std::tuple{"udp", "srflx", PROTOCOL_UDP, CANDIDATE_SRFLX},
+							std::tuple{"udp", "prflx", PROTOCOL_UDP, CANDIDATE_PRFLX},
+							std::tuple{"udp", "relay", PROTOCOL_UDP, CANDIDATE_RELAY},
 							// tcp suite
-							std::tuple{"tcp", "host", "tcp"},
-							std::tuple{"tcp", "srflx", "tcp"},
-							std::tuple{"tcp", "prflx", "tcp"},
-							std::tuple{"tcp", "relay", "Relay/tcp"}
+							std::tuple{"tcp", "host", PROTOCOL_TCP, CANDIDATE_HOST},
+							std::tuple{"tcp", "srflx", PROTOCOL_TCP, CANDIDATE_SRFLX},
+							std::tuple{"tcp", "prflx", PROTOCOL_TCP, CANDIDATE_PRFLX},
+							std::tuple{"tcp", "relay", PROTOCOL_TCP, CANDIDATE_RELAY}
 						));
 
 TEST_P(StatsParam, ptotocol_type_tests) {
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
-	ASSERT_EQ(stats.connection, std::get<2>(GetParam()));
+	ASSERT_EQ(stats.protocol, std::get<2>(GetParam()));
+	ASSERT_EQ(stats.candidate, std::get<3>(GetParam()));
 }
 
 
@@ -151,7 +165,7 @@ TEST(stats_jitter, audio_report)
 
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
-	ASSERT_EQ(stats.jitter, std::make_pair(0.2, 0.0));
+	ASSERT_EQ(stats.jitter, wire::Jitter(0.2, 0.0));
 }
 
 TEST(stats_jitter, video_report)
@@ -175,7 +189,7 @@ TEST(stats_jitter, video_report)
 
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
-	ASSERT_EQ(stats.jitter, std::make_pair(0.0, 0.2));
+	ASSERT_EQ(stats.jitter, wire::Jitter(0.0, 0.2));
 }
 
 TEST(stats_jitter, audio_and_video_report)
@@ -199,7 +213,7 @@ TEST(stats_jitter, audio_and_video_report)
 
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
-	ASSERT_EQ(stats.jitter, std::make_pair(0.1, 0.2));
+	ASSERT_EQ(stats.jitter, wire::Jitter(0.1, 0.2));
 }
 
 TEST(stats_audio, null_audio_level)
@@ -287,11 +301,10 @@ TEST(stats_packets, irrelevant_packet_stats)
 	another_irrelevant_rtp->packets_sent = 10000;
 	report->AddStats(std::unique_ptr<RTCStats>(another_irrelevant_rtp));
 
-	const auto expected_packets = std::pair<uint32_t, uint32_t>{0, 0};
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
-	ASSERT_EQ(stats.packets_received, expected_packets);
-	ASSERT_EQ(stats.packets_sent, expected_packets);
+	ASSERT_EQ(stats.packets_received, wire::Packets());
+	ASSERT_EQ(stats.packets_sent, wire::Packets());
 	ASSERT_EQ(stats.packets_lost, 0);
 }
 
@@ -338,14 +351,10 @@ TEST(stats_packets, some_packet_stats)
 
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
-	// inbound audio
-	ASSERT_EQ(stats.packets_received.first, 10 + 20);
-	// inbound video
-	ASSERT_EQ(stats.packets_received.second, 1 + 2);
-	// outbound audio
-	ASSERT_EQ(stats.packets_sent.first, 5);
-	// outbound video
-	ASSERT_EQ(stats.packets_sent.second, 4);
+	// inbound
+	ASSERT_EQ(stats.packets_received, wire::Packets(10 + 20, 1 + 2));
+	// outbound
+	ASSERT_EQ(stats.packets_sent, wire::Packets(5, 4));
 	// packets lost
 	ASSERT_EQ(stats.packets_lost, 1 + 2 + 3);
 }

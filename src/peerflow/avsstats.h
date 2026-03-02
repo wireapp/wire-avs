@@ -8,17 +8,32 @@
 #include <avs.h>
 
 namespace wire {
+	struct Jitter {
+		double audio;
+		double video;
+		Jitter(double audio = 0, double video = 0): audio(audio), video(video) {}
+	};
+	struct Packets {
+		uint32_t audio;
+		uint32_t video;
+		Packets(uint32_t audio = 0, uint32_t video = 0): audio(audio), video(video) {}
+	};
 	struct AvsStats {
-		std::string connection;
-		std::pair<double, double> jitter;
-		std::pair<uint32_t, uint32_t> packets_sent;
-		std::pair<uint32_t, uint32_t> packets_received;
+
+		Jitter jitter;
+		protocol_type protocol;
+		candidate_type candidate;
+		Packets packets_sent;
+		Packets packets_received;
 		uint64_t packets_lost;
 		int audio_level;
 		float rtt;
 
-		void ReadFromRTCReport(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
+		AvsStats(): protocol(PROTOCOL_UNKNOWN), candidate(CANDIDATE_UNKNOWN) {}
 
+		void ReadFromRTCReport(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
+		protocol_type readProtocol(const std::optional<std::string>& protocol_opt);
+		candidate_type readCandidate(const std::optional<std::string>& candidate_opt);
 	private:
 		void readPacketStats(const std::vector<const webrtc::RTCInboundRtpStreamStats*>& inbound_rtp_stats, 
 							const std::vector<const webrtc::RTCOutboundRtpStreamStats*>& outbound_rtp_stats);

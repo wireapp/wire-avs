@@ -31,15 +31,15 @@ namespace wire {
 						const std::vector<const webrtc::RTCOutboundRtpStreamStats*>& outbound_rtp_stats) {
 
 		packets_lost = 0;
-		packets_received = {0.0, 0.0};
-		packets_sent = {0.0, 0.0};
+		packets_received = Packets();
+		packets_sent = Packets();
 
 		for (const auto& rs: inbound_rtp_stats) {
 			if (rs->kind && rs->packets_received) {
 				if (*(rs->kind) == "audio") {
-					packets_received.first += *(rs->packets_received);
+					packets_received.audio += *(rs->packets_received);
 				} else if (*(rs->kind) == "video") {
-					packets_received.second += *(rs->packets_received);
+					packets_received.video += *(rs->packets_received);
 				}
 			}
 			if (rs->packets_lost) {
@@ -50,9 +50,9 @@ namespace wire {
 		for (const auto& rs: outbound_rtp_stats) {
 			if (rs->kind && rs->packets_sent) {
 				if (*(rs->kind) == "audio") {
-					packets_sent.first += *(rs->packets_sent);
+					packets_sent.audio += *(rs->packets_sent);
 				} else if (*(rs->kind) == "video") {
-					packets_sent.second += *(rs->packets_sent);
+					packets_sent.video += *(rs->packets_sent);
 				}
 			}
 		}
@@ -77,7 +77,7 @@ namespace wire {
 #else
 			struct mbuf *mb = NULL;
 #endif
-			if (cps->state && *(cps->state) == "succeeded") {
+			if (cps->state && *(cps->state) == "succeeded" && cps->current_round_trip_time) {
 				rtt = *(cps->current_round_trip_time) * 1000.0f;
 			}
 
@@ -161,27 +161,52 @@ namespace wire {
 		// Is this assumption correct? what to do else?
 		for (const auto& id : local_candidate_ids) {
 			const auto lc = report->GetAs<webrtc::RTCLocalIceCandidateStats>(id);
-			if (lc && lc->protocol && lc->candidate_type) {
-				if (*(lc->candidate_type) == "relay") {
-					connection = "Relay/";
-				}
-				connection.append(*(lc->protocol));
+			if (lc) {
+				protocol = readProtocol(lc->protocol);
+				candidate = readCandidate(lc->candidate_type);
 				break;
 			}
 		}
 	}
 
+	protocol_type AvsStats::readProtocol(const std::optional<std::string>& protocol_opt) {
+		static const std::unordered_map<std::string, protocol_type> protocol_map = {
+			{"udp", PROTOCOL_UDP}, {"tcp", PROTOCOL_TCP}};
+		if (protocol_opt) {
+			const auto it = protocol_map.find(*protocol_opt);
+			if (it != protocol_map.end()) {
+				return it->second;
+			}
+		}
+		return PROTOCOL_UNKNOWN;
+	}
+
+	candidate_type AvsStats::readCandidate(const std::optional<std::string>& candidate_opt) {
+		static const std::unordered_map<std::string, candidate_type> candidate_map = {
+			{"host", CANDIDATE_HOST},
+			{"srflx", CANDIDATE_SRFLX},
+			{"prflx", CANDIDATE_PRFLX},
+			{"relay", CANDIDATE_RELAY}};
+		if (candidate_opt) {
+			const auto it = candidate_map.find(*candidate_opt);
+			if (it != candidate_map.end()) {
+				return it->second;
+			}
+		}
+		return CANDIDATE_UNKNOWN;
+	}
+
 	void AvsStats::readJitter(const std::vector<const webrtc::RTCInboundRtpStreamStats*>& inbound_rtp_stats) {
-		jitter = {0.0, 0.0};
+		jitter = Jitter();
 		for (const auto& rs : inbound_rtp_stats) {
 			// process non zero audio and video jitters
 			if (rs->kind && rs->jitter && *(rs->jitter)) {
 				// Use maximum of jitters
 				// ToDiscuss: Shall we use mean of nonzero instead? 
 				if (*(rs->kind) == "audio") {
-					jitter.first = std::max(jitter.first, *(rs->jitter));
+					jitter.audio = std::max(jitter.audio, *(rs->jitter));
 				} else if (*(rs->kind) == "video") {
-					jitter.second = std::max(jitter.second, *(rs->jitter));
+					jitter.video = std::max(jitter.video, *(rs->jitter));
 				}
 			}
 		}
@@ -210,7 +235,7 @@ namespace wire {
 		if (err)
 			return;
 
-		lock_write_get(lock_);	       		
+		lock_write_get(lock_);
 		// info("peerflow(%p): OnStatsDelivered err=%d len=%d stats=%s\n", pf_, err, (int)str_len(tmp), stats);
 		mem_deref(current_stats_);
 		current_stats_ = tmp;
@@ -226,20 +251,24 @@ namespace wire {
 		lost_ = avs.stats.packets_lost;
 #endif
 
-		info("stats: pf(%p) audio_level: %d pl: %.02f rtt: %.02f connection: %s, jitter: {%f, %f}\n", 
+		info("stats: pf(%p) audio_level: %d pl: %.02f rtt: %.02f, connection: {%d, %d}, jitter: {%f, %f}\n", 
 			pf_, avs_stats.audio_level, downloss, avs_stats.rtt, 
-			avs_stats.connection.c_str(), avs_stats.jitter.first, avs_stats.jitter.second);
+			avs_stats.protocol, avs_stats.candidate, 
+			avs_stats.jitter.audio, avs_stats.jitter.video);
 
 		lock_write_get(lock_);
 		if (active_) {
 			peerflow_set_stats(pf_,
 					   avs_stats.audio_level,
-					   avs_stats.packets_received.first,
-					   avs_stats.packets_received.second,
-					   avs_stats.packets_sent.first,
-					   avs_stats.packets_sent.second,
+					   avs_stats.packets_received.audio,
+					   avs_stats.packets_received.video,
+					   avs_stats.packets_sent.audio,
+					   avs_stats.packets_sent.video,
 					   downloss,
-					   avs_stats.rtt);
+					   avs_stats.rtt,
+					   1000 * std::max(avs_stats.jitter.audio, avs_stats.jitter.video), // jitter in ms
+					   avs_stats.protocol,
+					   avs_stats.candidate);
 		}
 		lock_rel(lock_);
 	}
