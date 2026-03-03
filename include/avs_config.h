@@ -52,6 +52,7 @@ int  config_alloc(struct config **cfgp,
 		  config_req_h *reqh, config_update_h *updh, void *arg);
 int  config_update(struct config *cfg, int err,
 		   const char *conf_json, size_t len);
+bool config_needs_update(struct config *cfg);
 int  config_start(struct config *cfg);
 void config_stop(struct config *cfg);
 int  config_request(struct config *cfg);

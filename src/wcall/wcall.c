@@ -165,6 +165,7 @@ struct calling_instance {
 
 	bool processing_notifications;
 	struct list pending_eventl;
+	struct list config_updatel;
 };
 
 struct wcall {
@@ -208,6 +209,19 @@ struct incoming_event {
 	int should_ring;
 	int conv_type;
 	void *arg;
+
+	struct le le;
+};
+
+struct config_update_entry {
+	struct calling_instance *inst;
+	struct econn_message *msg;
+	uint32_t curr_time;
+	uint32_t msg_time;
+	char *convid;
+	char *userid;
+	char *clientid;
+	int conv_type;
 
 	struct le le;
 };
@@ -439,6 +453,18 @@ struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid)
 	lock_rel(inst->lock);
 	
 	return found ? wcall : NULL;
+}
+
+static void cuent_destructor(void *arg)
+{
+	struct config_update_entry *cuent = arg;
+
+	mem_deref(cuent->msg);
+	mem_deref(cuent->userid);
+	mem_deref(cuent->clientid);
+	mem_deref(cuent->convid);
+
+	list_unlink(&cuent->le);
 }
 
 static void ie_destructor(void *arg)
@@ -2335,10 +2361,62 @@ static int config_req_handler(void *arg)
 }
 
 
+static int add_wcall(struct wcall **wcall,
+		     struct calling_instance *inst,
+		     struct econn_message *msg,
+		     const char *convid,
+		     const char *userid,
+		     int conv_type)
+{
+	int err = 0;
+	
+	if (msg->msg_type == ECONN_GROUP_START
+	    && econn_message_isrequest(msg)) {
+		err = wcall_add(inst, wcall, convid,
+				WCALL_CONV_TYPE_GROUP);
+	}
+	else if (msg->msg_type == ECONN_GROUP_CHECK
+		 && !econn_message_isrequest(msg)) {
+		err = wcall_add(inst, wcall, convid,
+				WCALL_CONV_TYPE_GROUP);
+	}
+	else if (msg->msg_type == ECONN_CONF_START
+		 && econn_message_isrequest(msg)) {
+		err = wcall_add(inst, wcall, convid,
+				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
+				WCALL_CONV_TYPE_CONFERENCE);
+	}
+	else if (msg->msg_type == ECONN_CONF_CHECK
+		 && !econn_message_isrequest(msg)) {
+		err = wcall_add(inst, wcall, convid,
+				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
+				WCALL_CONV_TYPE_CONFERENCE);
+	}
+	else if (econn_is_creator(inst->userid, userid, msg)) {
+		err = wcall_add(inst, wcall, convid,
+				WCALL_CONV_TYPE_ONEONONE);
+		if (err) {
+			warning("wcall(%p): wcall_add failed: %m\n", inst, err);
+		}
+	}
+	else {
+		err = EPROTO;
+	}
+
+	if (err) {
+		warning("wcall(%p): could not add call: %m\n", inst, err);
+	}
+
+	return err;
+}
+
+
 static void config_update_handler(struct call_config *cfg, void *arg)
 {
 	struct calling_instance *inst = arg;
-	bool first = false;	
+	bool first = false;
+	struct le *le;
+	int err = 0;
 	
 	if (cfg == NULL)
 		return;
@@ -2363,6 +2441,38 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		     inst, inst->readyh, tmr_jiffies() - now);
 
 		wcall_invoke_ready(inst);
+	}
+
+	le = inst->config_updatel.head;
+	while(le) {
+		struct config_update_entry *cuent = le->data;
+		struct wcall *wcall = NULL;
+
+		le = le->next;
+
+		err = add_wcall(&wcall,
+				cuent->inst,
+				cuent->msg,
+				cuent->convid,
+				cuent->userid,
+				cuent->conv_type);
+		if (err) {
+			warning("wcall(%p): config_update failed to add wcall: %m\n", inst, err);
+		}
+		else {
+			err = ICALL_CALLE(wcall->icall, msg_recv,
+					  cuent->curr_time,
+					  cuent->msg_time,
+					  cuent->userid,
+					  cuent->clientid,
+					  cuent->msg);
+			if (err) {
+				warning("wcall(%p): config_update: recv_msg returned error: "
+					"%m\n", wcall, err);
+			}
+		}
+
+		mem_deref(cuent);
 	}
 }
 
@@ -3040,7 +3150,6 @@ void wcall_i_sft_resp(struct calling_instance *inst,
 	mem_deref(ctx);
 }
 
-
 void wcall_i_recv_msg(struct calling_instance *inst,
 		      struct econn_message *msg,
 		      uint32_t curr_time,
@@ -3101,49 +3210,36 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 		return;
 	}
 	
-	if (!wcall) {
-		if (msg->msg_type == ECONN_GROUP_START
-		    && econn_message_isrequest(msg)) {
-			err = wcall_add(inst, &wcall, convid,
-					WCALL_CONV_TYPE_GROUP);
-		}
-		else if (msg->msg_type == ECONN_GROUP_CHECK
-		    && !econn_message_isrequest(msg)) {
-			err = wcall_add(inst, &wcall, convid,
-					WCALL_CONV_TYPE_GROUP);
-		}
-		else if (msg->msg_type == ECONN_CONF_START
-		    && econn_message_isrequest(msg)) {
-			err = wcall_add(inst, &wcall, convid,
-					conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
-					WCALL_CONV_TYPE_CONFERENCE);
-		}
-		else if (msg->msg_type == ECONN_CONF_CHECK
-		    && !econn_message_isrequest(msg)) {
-			err = wcall_add(inst, &wcall, convid,
-					conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
-					WCALL_CONV_TYPE_CONFERENCE);
-		}
-		else if (econn_is_creator(inst->userid, userid, msg)) {
-			err = wcall_add(inst, &wcall, convid,
-					WCALL_CONV_TYPE_ONEONONE);
+	if (!wcall) {		
+		if (config_needs_update(inst->cfg)) {
+			struct config_update_entry *cuent;
 
-			if (err) {
-				warning("wcall(%p): recv_msg: wcall_add "
-					"failed: %m\n", wcall, err);
+			cuent = mem_zalloc(sizeof(*cuent), cuent_destructor);
+			if (!cuent) {
+				err = ENOMEM;
 				goto out;
 			}
+
+			cuent->inst = inst;
+			cuent->msg = mem_ref(msg);
+			cuent->msg_time = msg_time;
+			cuent->curr_time = curr_time;
+			str_dup(&cuent->convid, convid);
+			str_dup(&cuent->userid, userid);
+			str_dup(&cuent->clientid, clientid);
+			cuent->conv_type = conv_type;
+
+			list_append(&inst->config_updatel, &cuent->le, cuent);
+			err = 0;
+			goto out;
 		}
-		else {
-			err = EPROTO;
-		}
+
+		err = add_wcall(&wcall, inst, msg, convid, userid, conv_type);
 		if (err) {
-			warning("wcall(%p): recv_msg: could not add call: "
-				"%m\n", wcall, err);
+			warning("wcall(%p): failed to add wcall: %m\n", inst, err);
 			goto out;
 		}
 	}
-
 
 	err = ICALL_CALLE(wcall->icall, msg_recv,
 			  curr_time, msg_time, userid, clientid, msg);
