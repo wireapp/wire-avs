@@ -24,6 +24,7 @@
 #include "avs_zapi.h"
 #include "avs_icall.h"
 #include "avs_keystore.h"
+#include "avs_stats.h"
 #include "avs_iflow.h"
 #include "avs_peerflow.h"
 #include "avs_uuid.h"
@@ -1732,8 +1733,10 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		      0,
 		      0,
 		      0,
-		      "",
-		      "User",
+		      0,
+		      PROTOCOL_UNKNOWN,
+		      CANDIDATE_UNKNOWN,
+		      ICALL_CONV_TYPE_ONEONONE,
 		      ecall->icall.arg);
 
 	if (ecall->update_glare) {
@@ -3220,8 +3223,10 @@ int ecall_restart(struct ecall *ecall,
 			      ICALL_RECONNECTING,
 			      ICALL_RECONNECTING,
 			      0,
-			      "",
-			      "User",
+			      0,
+			      PROTOCOL_UNKNOWN,
+			      CANDIDATE_UNKNOWN,
+			      ICALL_CONV_TYPE_ONEONONE,
 			      ecall->icall.arg);
 	}
 
@@ -3297,67 +3302,6 @@ int ecall_activate(struct ecall *ecall, bool active)
 	return 0;
 }
 
-static const char* PEER_USER = "User";
-static const char* PEER_SERVER = "Server";
-
-static const char *peer(enum icall_conv_type call_type)
-{
-	switch (call_type) {
-	case ICALL_CONV_TYPE_ONEONONE:
-	case ICALL_CONV_TYPE_GROUP:
-		return PEER_USER;
-	case ICALL_CONV_TYPE_CONFERENCE:
-	case ICALL_CONV_TYPE_CONFERENCE_MLS:
-		return PEER_SERVER;
-	default:
-		return "";
-	}
-}
-
-static const char* UNKNOWN_STR = "Unknown";
-static const char* UDP_HOST_STR = "UDP/Host";
-static const char* TCP_HOST_STR = "TCP/Host";
-static const char* UDP_SRFLX_STR = "UDP/Srflx";
-static const char* TCP_SRFLX_STR = "TCP/Srflx";
-static const char* UDP_PRFLX_STR = "UDP/Prflx";
-static const char* TCP_PRFLX_STR = "TCP/Prflx";
-static const char* UDP_RELAY_STR = "UDP/Relay";
-static const char* TCP_RELAY_STR = "TCP/Relay";
-
-static const char *connection(enum protocol_type protocol, enum candidate_type candidate)
-{
-	switch (protocol) {
-	case PROTOCOL_UDP:
-		switch (candidate) {
-			case CANDIDATE_HOST:
-				return UDP_HOST_STR;
-			case CANDIDATE_SRFLX:
-				return UDP_SRFLX_STR;
-			case CANDIDATE_PRFLX:
-				return UDP_PRFLX_STR;
-			case CANDIDATE_RELAY:
-				return UDP_RELAY_STR;
-			default:
-				return UNKNOWN_STR;
-		}
-	case PROTOCOL_TCP:
-		switch (candidate) {
-			case CANDIDATE_HOST:
-				return TCP_HOST_STR;
-			case CANDIDATE_SRFLX:
-				return TCP_SRFLX_STR;
-			case CANDIDATE_PRFLX:
-				return TCP_PRFLX_STR;
-			case CANDIDATE_RELAY:
-				return TCP_RELAY_STR;
-			default:
-				return UNKNOWN_STR;
-		}
-	default:
-		return UNKNOWN_STR;
-	}
-}
-
 static void quality_handler(void *arg)
 {
 	struct ecall *ecall = arg;
@@ -3378,22 +3322,22 @@ static void quality_handler(void *arg)
 			  &stats);
 
 	if (!err) {
-		uint32_t dloss = (uint32_t)stats.dloss;
 		uint32_t rtt = (uint32_t)stats.rtt;
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall, 
 			      ecall->userid_peer,
 			      ecall->clientid_peer,
 			      (int)stats.rtt,
-			      (int)stats.dloss,
-			      (int)stats.dloss,
-			      (int)stats.jitter,
-			      connection(stats.protocol, stats.candidate),
-			      peer(ecall->conv_type),
+			      (int)stats.loss_down,
+			      (int)stats.loss_down,
+			      (int)stats.jitter_up,
+			      (int)stats.jitter_down,
+			      stats.protocol, stats.candidate,
+			      ecall->conv_type,
 			      ecall->icall.arg);
 
-		ecall->metrics.m.packetloss_last = dloss;
-		ecall->metrics.m.packetloss_max = MAX(ecall->metrics.m.packetloss_max, dloss);
+		ecall->metrics.m.packetloss_last = stats.loss_down;
+		ecall->metrics.m.packetloss_max = MAX(ecall->metrics.m.packetloss_max, stats.loss_down);
 		ecall->metrics.m.rtt_last = rtt;
 		ecall->metrics.m.rtt_max = MAX(ecall->metrics.m.rtt_max, rtt);
 	}

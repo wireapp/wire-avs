@@ -8,42 +8,36 @@
 #include <avs.h>
 
 namespace wire {
-	struct Jitter {
-		double audio;
-		double video;
-		Jitter(double audio = 0, double video = 0): audio(audio), video(video) {}
+	struct Jitter : stats_jitter {
+		Jitter(float audio = 0, float video = 0): stats_jitter({audio, video}) {}
 	};
-	struct Packets {
-		uint32_t audio;
-		uint32_t video;
-		Packets(uint32_t audio = 0, uint32_t video = 0): audio(audio), video(video) {}
+	struct Packets :stats_packet_counts {
+		Packets(uint32_t audio = 0, uint32_t video = 0): stats_packet_counts({audio, video}) {}
 	};
 	struct AvsStats {
 
-		Jitter jitter;
-		protocol_type protocol;
-		candidate_type candidate;
+		Jitter jitter_down;
+		Jitter jitter_up;
+		stats_protocol protocol;
+		stats_candidate candidate;
 		Packets packets_sent;
 		Packets packets_received;
-		uint64_t packets_lost;
+		uint64_t packets_lost_up;
+		uint64_t packets_lost_down;
 		int audio_level;
 		float rtt;
 
 		AvsStats(): protocol(PROTOCOL_UNKNOWN), candidate(CANDIDATE_UNKNOWN) {}
 
 		void ReadFromRTCReport(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
-		protocol_type readProtocol(const std::optional<std::string>& protocol_opt);
-		candidate_type readCandidate(const std::optional<std::string>& candidate_opt);
+		stats_protocol readProtocol(const std::optional<std::string>& protocol_opt);
+		stats_candidate readCandidate(const std::optional<std::string>& candidate_opt);
 	private:
-		void readPacketStats(const std::vector<const webrtc::RTCInboundRtpStreamStats*>& inbound_rtp_stats, 
-							const std::vector<const webrtc::RTCOutboundRtpStreamStats*>& outbound_rtp_stats);
-		void readRtt(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report,
-					const std::vector<const webrtc::RTCIceCandidatePairStats*>& candidate_pair_stats);
-		void readAudioLevel(const std::vector<const webrtc::RTCAudioSourceStats*>& audio_stats);
-		void readConnection(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report,
-							const std::vector<const webrtc::RTCTransportStats*>& transport_stats, 
-							const std::vector<const webrtc::RTCIceCandidatePairStats*>& candidate_pair_stats);
-		void readJitter(const std::vector<const webrtc::RTCInboundRtpStreamStats*>& inbound_rtp_stats);
+		void readPacketStats(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
+		void readRtt(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
+		void readAudioLevel(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
+		void readConnection(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
+		void readJitter(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
 	};
 
 	class CallStatsCallback : public webrtc::RTCStatsCollectorCallback {
@@ -64,7 +58,7 @@ namespace wire {
 
 	class NetStatsCallback : public webrtc::RTCStatsCollectorCallback {
 	public:
-		NetStatsCallback(struct peerflow* pf): pf_(pf), lost_(0), current_stats_(NULL),	active_(true) {
+		NetStatsCallback(struct peerflow* pf): pf_(pf), packets_lost_up(0), packets_lost_down(0), current_stats_(NULL),	active_(true) {
 			lock_alloc(&lock_);
 		}
 		virtual ~NetStatsCallback();
@@ -81,7 +75,8 @@ namespace wire {
 
 	private:
 		struct peerflow* pf_;
-		uint32_t lost_;
+		uint32_t packets_lost_up;
+		uint32_t packets_lost_down;
 		bool active_;
 		struct lock *lock_;
 		char *current_stats_;	

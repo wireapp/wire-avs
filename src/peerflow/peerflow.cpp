@@ -3279,11 +3279,13 @@ void peerflow_set_stats(struct peerflow* pf,
 			uint32_t vpkts_recv,
 			uint32_t apkts_sent,
 			uint32_t vpkts_sent,
-			float downloss,
+			float loss_up,
+			float loss_down,
 			float rtt,
-			float jitter,
-			protocol_type protocol,
-			candidate_type candidate)
+			float jitter_up,
+			float jitter_down,
+			stats_protocol protocol,
+			stats_candidate candidate)
 {
 	uint32_t total_pkts;
 	
@@ -3308,15 +3310,22 @@ void peerflow_set_stats(struct peerflow* pf,
 	pf->stats.apkts_sent = apkts_sent;
 	pf->stats.vpkts_sent = vpkts_sent;	
 	pf->stats.rtt = rtt;
-	pf->stats.jitter = jitter;
+	pf->stats.jitter_up = jitter_up;
+	pf->stats.jitter_down = jitter_down;
 	pf->stats.protocol = protocol;
 	pf->stats.candidate = candidate;
 
 	total_pkts = apkts_recv + vpkts_recv;
 	if (total_pkts)
-		pf->stats.dloss = (downloss / (float)total_pkts) * 100;
+		pf->stats.loss_down = (loss_down / (float)total_pkts) * 100;
 	else
-		pf->stats.dloss = 0;	
+		pf->stats.loss_down = 0;
+
+	total_pkts = apkts_sent + vpkts_sent;
+	if (total_pkts)
+		pf->stats.loss_up = (loss_up / (float)total_pkts) * 100;
+	else
+		pf->stats.loss_up = 0;	
 }
 
 int peerflow_get_stats(struct iflow *flow,

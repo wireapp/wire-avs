@@ -16,6 +16,10 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define ICALL_REASON_NORMAL             0
 #define ICALL_REASON_ERROR              1
 #define ICALL_REASON_TIMEOUT            2
@@ -37,6 +41,9 @@ struct icall;
 struct econn_message;
 struct wcall_members;
 struct econn_message;
+
+enum stats_protocol;
+enum stats_candidate;
 
 
 enum icall_call_type {
@@ -220,8 +227,10 @@ typedef void (icall_muted_changed_h)(struct icall *icall, const char *userid,
 typedef void (icall_quality_h)(struct icall *icall,
 			       const char *userid,
 			       const char *clientid,
-			       int rtt, int uploss, int downloss,
-			       int jitter, const char *connectivity, const char *peer,
+			       int rtt, int loss_up, int loss_down,
+			       int jitter_upstream, int jitter_down,
+				   enum stats_protocol protocol, enum stats_candidate candidate,
+				   enum icall_conv_type peer,
 			       void *arg);
 typedef void (icall_norelay_h)(struct icall *icall, bool local, void *arg);
 
@@ -342,3 +351,6 @@ const char *icall_vstate_name(enum icall_vstate state);
 char *icall_metrics2json(const struct icall_metrics *metrics,
 			 const char *reason);
 
+#ifdef __cplusplus
+}
+#endif

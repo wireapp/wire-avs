@@ -23,19 +23,8 @@
 struct iflow;
 struct avs_vidframe;
 
-enum protocol_type {
-	PROTOCOL_UNKNOWN   = 0,
-	PROTOCOL_UDP       = 1,
-	PROTOCOL_TCP       = 2,
-};
-
-enum candidate_type {
-	CANDIDATE_UNKNOWN   = 0,
-	CANDIDATE_HOST      = 1,
-	CANDIDATE_SRFLX     = 2,
-	CANDIDATE_PRFLX     = 3,
-	CANDIDATE_RELAY     = 4,
-};
+enum stats_protocol;
+enum stats_candidate;
 
 struct iflow_stats {
 	uint8_t audio_level;
@@ -44,11 +33,13 @@ struct iflow_stats {
 	uint32_t apkts_sent;
 	uint32_t vpkts_recv;
 	uint32_t vpkts_sent;
-	float dloss;
+	float loss_up;
+	float loss_down;
 	float rtt;
-	float jitter;
-	enum protocol_type protocol;
-	enum candidate_type candidate;
+	float jitter_up;
+	float jitter_down;
+	enum stats_protocol protocol;
+	enum stats_candidate candidate;
 };
 
 /* Calls into iflow */

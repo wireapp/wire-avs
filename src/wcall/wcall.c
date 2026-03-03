@@ -1579,12 +1579,60 @@ static void destructor(void *arg)
 	info("wcall(%p): dtor -- done\n", wcall);
 }
 
+static const char* PEER_USER_STR = "User";
+static const char* PEER_SERVER_STR = "Server";
+static const char* PEER_UNKNOWN_STR = "Unknown";
+
+static const char* peer_to_str(enum icall_conv_type call_type)
+{
+	switch (call_type) {
+	case ICALL_CONV_TYPE_ONEONONE:
+	case ICALL_CONV_TYPE_GROUP:
+		return PEER_USER_STR;
+	case ICALL_CONV_TYPE_CONFERENCE:
+	case ICALL_CONV_TYPE_CONFERENCE_MLS:
+		return PEER_SERVER_STR;
+	default:
+		// This may happen with introducing new ICALL_CONV_TYPE
+		return PEER_UNKNOWN_STR;
+	}
+}
+
+static const char* protocol_to_str(enum stats_protocol protocol)
+{
+	switch (protocol) {
+	case PROTOCOL_UDP:
+		return PROTOCOL_UDP_STR;
+	case PROTOCOL_TCP:
+		return PROTOCOL_TCP_STR;
+	default:
+		return PROTOCOL_UNKNOWN_STR;
+	}
+}
+
+static const char* candidate_to_str(enum stats_candidate candidate)
+{
+	switch (candidate) {
+	case CANDIDATE_HOST:
+		return CANDIDATE_HOST_STR;
+	case CANDIDATE_SRFLX:
+		return CANDIDATE_SRFLX_STR;
+	case CANDIDATE_PRFLX:
+		return CANDIDATE_PRFLX_STR;
+	case CANDIDATE_RELAY:
+		return CANDIDATE_RELAY_STR;
+	default:
+		return CANDIDATE_UNKNOWN_STR;
+	}
+}
 
 static void icall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
-				  int rtt, int uploss, int downloss,
-				  int jitter, const char *connectivity, const char *peer,
+				  int rtt, int loss_up, int loss_down,
+				  int jitter_up, int jitter_down, 
+				  enum stats_protocol protocol, enum stats_candidate candidate,
+				  enum icall_conv_type peer,
 				  void *arg)
 {
 	struct wcall *wcall = arg;
@@ -1603,22 +1651,22 @@ static void icall_quality_handler(struct icall *icall,
 	if (!inst->quality.netqh)
 		return;
 
-	if (uploss == ICALL_NETWORK_PROBLEM
-	    && downloss == ICALL_NETWORK_PROBLEM)
+	if (loss_up == ICALL_NETWORK_PROBLEM
+	    && loss_down == ICALL_NETWORK_PROBLEM)
 		quality = WCALL_QUALITY_NETWORK_PROBLEM;
-	else if (uploss == ICALL_RECONNECTING
-	    && downloss == ICALL_RECONNECTING)
+	else if (loss_up == ICALL_RECONNECTING
+	    && loss_down == ICALL_RECONNECTING)
 		quality = WCALL_QUALITY_RECONNECTING;
-	else if (rtt > 800 || uploss > 20 || downloss > 20)
+	else if (rtt > 800 || loss_up > 20 || loss_down > 20)
 		quality = WCALL_QUALITY_POOR;
-	else if (rtt > 400 || uploss > 5 || downloss > 5)
+	else if (rtt > 400 || loss_up > 5 || loss_down > 5)
 		quality = WCALL_QUALITY_MEDIUM;
 
-	info(APITAG "wcall(%p): calling netqh:%p %s.%s rtt=%d up=%d dn=%d q=%d\n",
+	info(APITAG "wcall(%p): calling netqh:%p %s.%s rtt=%d loss up=%d loss down=%d jitter up=%d jitter down=%dq=%d\n",
 	     wcall, inst->quality.netqh,
 	     anon_id(userid_anon, userid),
 	     anon_client(clientid_anon, clientid),
-	     rtt, uploss, downloss, quality);
+	     rtt, loss_up, loss_down, jitter_up, jitter_down, quality);
 	now = tmr_jiffies();
 
 	char *quality_info = NULL;
@@ -1628,16 +1676,30 @@ static void icall_quality_handler(struct icall *icall,
 				json_object_new_int(quality));
 	json_object_object_add(jobj, "rtt",
 				json_object_new_int(rtt));
-	json_object_object_add(jobj, "uploss",
-				json_object_new_int(uploss));
-	json_object_object_add(jobj, "downloss",
-				json_object_new_int(downloss));
-	json_object_object_add(jobj, "jitter",
-				json_object_new_int(0));
-	json_object_object_add(jobj, "connectivity",
-				json_object_new_string(connectivity));
+
+	struct json_object *loss_jobj = json_object_new_object();
+	json_object_object_add(loss_jobj, "up",
+				json_object_new_int(loss_up));
+	json_object_object_add(loss_jobj, "down",
+				json_object_new_int(loss_down));
+	json_object_object_add(jobj, "loss", loss_jobj);
+
+	struct json_object *jitter_jobj = json_object_new_object();
+	json_object_object_add(jitter_jobj, "up",
+				json_object_new_int(jitter_up));
+	json_object_object_add(jitter_jobj, "down",
+				json_object_new_int(jitter_down));
+	json_object_object_add(jobj, "jitter", jitter_jobj);
+
+	struct json_object *connection_jobj = json_object_new_object();
+	json_object_object_add(jitter_jobj, "protocol",
+				json_object_new_string(protocol_to_str(protocol)));
+	json_object_object_add(jitter_jobj, "candidate",
+				json_object_new_string(candidate_to_str(candidate)));
+	json_object_object_add(jobj, "connection", connection_jobj);
+
 	json_object_object_add(jobj, "peer",
-				json_object_new_string(peer));
+				json_object_new_string(peer_to_str(peer)));
 
 	if (jzon_encode(&quality_info, jobj)) {
 		warning("wcall(%p): can not generate quality information\n", wcall);

@@ -11,28 +11,17 @@ namespace wire {
 			return;
 		}
 
-		const auto inbound_rtp_stats = report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>();
-		const auto outbound_rtp_stats = report->GetStatsOfType<webrtc::RTCOutboundRtpStreamStats>();
-		readPacketStats(inbound_rtp_stats, outbound_rtp_stats);
-
-		const auto candidate_pair_stats = report->GetStatsOfType<webrtc::RTCIceCandidatePairStats>();
-		readRtt(report, candidate_pair_stats);
-
-		const auto audio_stats = report->GetStatsOfType<webrtc::RTCAudioSourceStats>();
-		readAudioLevel(audio_stats);
-
-		const auto transport_stats = report->GetStatsOfType<webrtc::RTCTransportStats>();
-		readConnection(report, transport_stats, candidate_pair_stats);
-
-		readJitter(inbound_rtp_stats);
+		readPacketStats(report);
+		readRtt(report);
+		readAudioLevel(report);
+		readConnection(report);
+		readJitter(report);
 	}
 
-	void AvsStats::readPacketStats(const std::vector<const webrtc::RTCInboundRtpStreamStats*>& inbound_rtp_stats, 
-						const std::vector<const webrtc::RTCOutboundRtpStreamStats*>& outbound_rtp_stats) {
-
-		packets_lost = 0;
+	void AvsStats::readPacketStats(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+		packets_lost_down = 0;
 		packets_received = Packets();
-		packets_sent = Packets();
+		const auto inbound_rtp_stats = report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>();
 
 		for (const auto& rs: inbound_rtp_stats) {
 			if (rs->kind && rs->packets_received) {
@@ -43,9 +32,12 @@ namespace wire {
 				}
 			}
 			if (rs->packets_lost) {
-				packets_lost += *(rs->packets_lost);
+				packets_lost_down += *(rs->packets_lost);
 			}
 		}
+
+		packets_sent = Packets();
+		const auto outbound_rtp_stats = report->GetStatsOfType<webrtc::RTCOutboundRtpStreamStats>();
 
 		for (const auto& rs: outbound_rtp_stats) {
 			if (rs->kind && rs->packets_sent) {
@@ -56,10 +48,21 @@ namespace wire {
 				}
 			}
 		}
+
+		packets_lost_up = 0;
+		const auto remote_inbound_rtp_stats = report->GetStatsOfType<webrtc::RTCRemoteInboundRtpStreamStats>();
+
+		for (const auto& rs: remote_inbound_rtp_stats) {
+			if (rs->packets_lost) {
+				packets_lost_up += *(rs->packets_lost);
+			}
+		}
 	}
 
-	void AvsStats::readAudioLevel(const std::vector<const webrtc::RTCAudioSourceStats*>& audio_stats) {
+	void AvsStats::readAudioLevel(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
 		audio_level = 0;
+		const auto audio_stats = report->GetStatsOfType<webrtc::RTCAudioSourceStats>();
+
 		for (const auto& as: audio_stats) {
 			if (as->audio_level) {
 				audio_level = (int)(*(as->audio_level) * 255.0);
@@ -68,17 +71,20 @@ namespace wire {
 		}
 	}
 
-	void AvsStats::readRtt(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report,
-						const std::vector<const webrtc::RTCIceCandidatePairStats*>& candidate_pair_stats) {
+	void AvsStats::readRtt(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
 		rtt = 0.0;
+		const auto candidate_pair_stats = report->GetStatsOfType<webrtc::RTCIceCandidatePairStats>();
+
 		for (const auto& cps: candidate_pair_stats) {
 #if 0
 			struct mbuf *mb = mbuf_alloc(1024);
 #else
 			struct mbuf *mb = NULL;
 #endif
-			if (cps->state && *(cps->state) == "succeeded" && cps->current_round_trip_time) {
-				rtt = *(cps->current_round_trip_time) * 1000.0f;
+			if (cps->state && *(cps->state) == "succeeded" && 
+					cps->nominated && *(cps->nominated) &&
+					cps->current_round_trip_time) {
+				rtt = std::max(rtt, (float)(*cps->current_round_trip_time));
 			}
 
 			if (NULL == mb) {
@@ -123,14 +129,15 @@ namespace wire {
 		}
 	}
 
-	void AvsStats::readConnection(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report,
-						const std::vector<const webrtc::RTCTransportStats*>& transport_stats, 
-						const std::vector<const webrtc::RTCIceCandidatePairStats*>& candidate_pair_stats) {
+	void AvsStats::readConnection(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
 
 		// First check if implementation supports / have RTCTransportStats
 		// transport stats will contain selectedCandidatePairId which will make
 		// finding used candidate easier / robust
 		std::vector<std::string> local_candidate_ids;
+		const auto transport_stats = report->GetStatsOfType<webrtc::RTCTransportStats>();
+		const auto candidate_pair_stats = report->GetStatsOfType<webrtc::RTCIceCandidatePairStats>();
+
 		for (const auto& ts : transport_stats) {
 			if (ts->selected_candidate_pair_id) {
 				for (const auto& cps : candidate_pair_stats) {
@@ -169,8 +176,8 @@ namespace wire {
 		}
 	}
 
-	protocol_type AvsStats::readProtocol(const std::optional<std::string>& protocol_opt) {
-		static const std::unordered_map<std::string, protocol_type> protocol_map = {
+	stats_protocol AvsStats::readProtocol(const std::optional<std::string>& protocol_opt) {
+		static const std::unordered_map<std::string, stats_protocol> protocol_map = {
 			{"udp", PROTOCOL_UDP}, {"tcp", PROTOCOL_TCP}};
 		if (protocol_opt) {
 			const auto it = protocol_map.find(*protocol_opt);
@@ -181,8 +188,8 @@ namespace wire {
 		return PROTOCOL_UNKNOWN;
 	}
 
-	candidate_type AvsStats::readCandidate(const std::optional<std::string>& candidate_opt) {
-		static const std::unordered_map<std::string, candidate_type> candidate_map = {
+	stats_candidate AvsStats::readCandidate(const std::optional<std::string>& candidate_opt) {
+		static const std::unordered_map<std::string, stats_candidate> candidate_map = {
 			{"host", CANDIDATE_HOST},
 			{"srflx", CANDIDATE_SRFLX},
 			{"prflx", CANDIDATE_PRFLX},
@@ -196,17 +203,33 @@ namespace wire {
 		return CANDIDATE_UNKNOWN;
 	}
 
-	void AvsStats::readJitter(const std::vector<const webrtc::RTCInboundRtpStreamStats*>& inbound_rtp_stats) {
-		jitter = Jitter();
+	void AvsStats::readJitter(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+		jitter_up = Jitter();
+		const auto inbound_rtp_stats = report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>();
+
 		for (const auto& rs : inbound_rtp_stats) {
 			// process non zero audio and video jitters
 			if (rs->kind && rs->jitter && *(rs->jitter)) {
 				// Use maximum of jitters
-				// ToDiscuss: Shall we use mean of nonzero instead? 
 				if (*(rs->kind) == "audio") {
-					jitter.audio = std::max(jitter.audio, *(rs->jitter));
+					jitter_up.audio = std::max(jitter_up.audio, (float)(*rs->jitter));
 				} else if (*(rs->kind) == "video") {
-					jitter.video = std::max(jitter.video, *(rs->jitter));
+					jitter_up.video = std::max(jitter_up.video, (float)(*rs->jitter));
+				}
+			}
+		}
+
+		jitter_down = Jitter();
+		const auto remote_inbound_rtp_stats = report->GetStatsOfType<webrtc::RTCRemoteInboundRtpStreamStats>();
+
+		for (const auto& rs : remote_inbound_rtp_stats) {
+			// process non zero audio and video jitters
+			if (rs->kind && rs->jitter && *(rs->jitter)) {
+				// Use maximum of jitters
+				if (*(rs->kind) == "audio") {
+					jitter_down.audio = std::max(jitter_down.audio, (float)(*rs->jitter));
+				} else if (*(rs->kind) == "video") {
+					jitter_down.video = std::max(jitter_down.video, (float)(*rs->jitter));
 				}
 			}
 		}
@@ -244,31 +267,38 @@ namespace wire {
 		AvsStats avs_stats;
 		avs_stats.ReadFromRTCReport(report);
 
-		float downloss = 0.0f;
-		downloss = avs_stats.packets_lost;
+		float loss_down = 0.0f;
+		loss_down = avs_stats.packets_lost_down;
+		float loss_up = 0.0f;
+		loss_up = avs_stats.packets_lost_up;
 #if 0
-		downloss = avs.stats.packets_lost - lost_;
-		lost_ = avs.stats.packets_lost;
+		loss_down = avs.stats.packets_lost_down - packets_lost_down;
+		packets_lost_down = avs.stats.packets_lost_down;
+		loss_up = avs.stats.packets_lost_up - packets_lost_up;
+		packets_lost_up = avs.stats.packets_lost_up;
 #endif
 
-		info("stats: pf(%p) audio_level: %d pl: %.02f rtt: %.02f, connection: {%d, %d}, jitter: {%f, %f}\n", 
-			pf_, avs_stats.audio_level, downloss, avs_stats.rtt, 
+		info("stats: pf(%p) audio_level: %d downstream loss: %.02f upstream loss: %.02f rtt: %.02f, connection: {%d, %d}, upstream jitter: {%f, %f}, downstream jitter: {%f, %f}, \n", 
+			pf_, avs_stats.audio_level, loss_down, loss_up, avs_stats.rtt, 
 			avs_stats.protocol, avs_stats.candidate, 
-			avs_stats.jitter.audio, avs_stats.jitter.video);
+			avs_stats.jitter_up.audio, avs_stats.jitter_up.video,
+			avs_stats.jitter_down.audio, avs_stats.jitter_down.video);
 
 		lock_write_get(lock_);
 		if (active_) {
 			peerflow_set_stats(pf_,
-					   avs_stats.audio_level,
-					   avs_stats.packets_received.audio,
-					   avs_stats.packets_received.video,
-					   avs_stats.packets_sent.audio,
-					   avs_stats.packets_sent.video,
-					   downloss,
-					   avs_stats.rtt,
-					   1000 * std::max(avs_stats.jitter.audio, avs_stats.jitter.video), // jitter in ms
-					   avs_stats.protocol,
-					   avs_stats.candidate);
+						avs_stats.audio_level,
+						avs_stats.packets_received.audio,
+						avs_stats.packets_received.video,
+						avs_stats.packets_sent.audio,
+						avs_stats.packets_sent.video,
+						loss_up, // upstream packet loss
+						loss_down, // downstream packet loss
+						1000.0 * avs_stats.rtt, // rtt in ms
+						1000.0 * std::max(avs_stats.jitter_up.audio, avs_stats.jitter_up.video), // upstream jitter in ms
+						1000.0 * std::max(avs_stats.jitter_down.audio, avs_stats.jitter_down.video), // downstream jitter in ms
+						avs_stats.protocol,
+						avs_stats.candidate);
 		}
 		lock_rel(lock_);
 	}

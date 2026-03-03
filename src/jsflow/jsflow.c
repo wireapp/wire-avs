@@ -1327,13 +1327,14 @@ const char *jsflow_get_stats(struct jsflow *flow)
 }
 */
 
+// WPB-23494 Probably this function is not used anymore
 void jsflow_set_stats(struct jsflow* flow, float downloss, float rtt)
 {
 	if (!flow) {
 		return;
 	}
 
-	flow->stats.dloss = downloss;
+	flow->stats.loss_down = downloss;
 	flow->stats.rtt = rtt;
 }
 
@@ -1676,7 +1677,10 @@ void pc_set_stats(int self,
 	flow->stats.vpkts_recv = vpkts_recv;
 	flow->stats.apkts_sent = apkts_sent;
 	flow->stats.vpkts_sent = vpkts_sent;
-	flow->stats.dloss = (float)downloss;
+	flow->stats.loss_up = 0.0;
+	flow->stats.loss_down = (float)downloss;
+	flow->stats.jitter_up = 0.0;
+	flow->stats.jitter_down = 0.0;
 	flow->stats.rtt = (float)rtt;	
 }
 
