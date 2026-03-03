@@ -1630,7 +1630,7 @@ static void icall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
 				  int rtt, int loss_up, int loss_down,
-				  int jitter_up, int jitter_down, 
+				  int jitter_up, int jitter_down,
 				  enum stats_protocol protocol, enum stats_candidate candidate,
 				  enum icall_conv_type peer,
 				  void *arg)

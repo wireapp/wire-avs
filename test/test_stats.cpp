@@ -145,23 +145,60 @@ TEST_P(StatsParam, ptotocol_type_tests) {
 	ASSERT_EQ(stats.candidate, std::get<3>(GetParam()));
 }
 
+class StatsJitter: public ::testing::Test {
+public:
+	virtual void SetUp() override
+	{
+		irrelevant_rtp = new RTCInboundRtpStreamStats("irrelevantRtpId", Timestamp::Zero());
+		irrelevant_rtp->kind = "irrelevant";
+		irrelevant_rtp->jitter = 1000.0;
 
-TEST(stats_jitter, audio_report)
+		audio_rtp = new RTCInboundRtpStreamStats("someAudioRtpId", Timestamp::Zero());
+		audio_rtp->kind = "audio";
+		audio_rtp->jitter = 0.1;
+
+		another_audio_rtp = new RTCInboundRtpStreamStats("anotherRtpId", Timestamp::Zero());
+		another_audio_rtp->kind = "audio";
+		another_audio_rtp->jitter = 0.2;
+
+		video_rtp = new RTCInboundRtpStreamStats("someVideoRtpId", Timestamp::Zero());
+		video_rtp->kind = "video";
+		video_rtp->jitter = 0.2;
+
+		another_video_rtp = new RTCInboundRtpStreamStats("anotherVideoRtpId", Timestamp::Zero());
+		another_video_rtp->kind = "video";
+		another_video_rtp->jitter = 0.15;
+
+		remote_irrelevant_rtp = new RTCRemoteInboundRtpStreamStats("irrelevantRemoteRtpId", Timestamp::Zero());
+		remote_irrelevant_rtp->kind = "irrelevant";
+		remote_irrelevant_rtp->jitter = 1000.0;
+
+		remote_audio_rtp = new RTCRemoteInboundRtpStreamStats("someRemoteAudioRtpId", Timestamp::Zero());
+		remote_audio_rtp->kind = "audio";
+		remote_audio_rtp->jitter = 0.3;
+
+		remote_video_rtp = new RTCRemoteInboundRtpStreamStats("someRemoteVideoRtpId", Timestamp::Zero());
+		remote_video_rtp->kind = "video";
+		remote_video_rtp->jitter = 0.4;
+
+		report = RTCStatsReport::Create(Timestamp::Zero());
+		report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
+		report->AddStats(std::unique_ptr<RTCStats>(remote_irrelevant_rtp));
+	}
+protected:
+    rtc::scoped_refptr<RTCStatsReport> report;
+	RTCInboundRtpStreamStats* irrelevant_rtp;
+	RTCInboundRtpStreamStats* audio_rtp;
+	RTCInboundRtpStreamStats* another_audio_rtp;
+	RTCInboundRtpStreamStats* video_rtp;
+	RTCInboundRtpStreamStats* another_video_rtp;
+	RTCRemoteInboundRtpStreamStats* remote_irrelevant_rtp;
+	RTCRemoteInboundRtpStreamStats* remote_audio_rtp;
+	RTCRemoteInboundRtpStreamStats* remote_video_rtp;
+};
+
+TEST_F(StatsJitter, audio_report)
 {
-	auto irrelevant_rtp = new RTCInboundRtpStreamStats("irrelevantRtpId", Timestamp::Zero());
-	irrelevant_rtp->kind = "irrelevant";
-	irrelevant_rtp->jitter = 0.5;
-
-	auto audio_rtp = new RTCInboundRtpStreamStats("someRtpId", Timestamp::Zero());
-	audio_rtp->kind = "audio";
-	audio_rtp->jitter = 0.1;
-
-	auto another_audio_rtp = new RTCInboundRtpStreamStats("anotherRtpId", Timestamp::Zero());
-	another_audio_rtp->kind = "audio";
-	another_audio_rtp->jitter = 0.2;
-
-	auto report = RTCStatsReport::Create(Timestamp::Zero());
-	report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
 	report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
 	report->AddStats(std::unique_ptr<RTCStats>(another_audio_rtp));
 
@@ -171,22 +208,8 @@ TEST(stats_jitter, audio_report)
 	ASSERT_EQ(stats.jitter_down, wire::Jitter());
 }
 
-TEST(stats_jitter, video_report)
+TEST_F(StatsJitter, video_report)
 {
-	auto irrelevant_rtp = new RTCInboundRtpStreamStats("irrelevantRtpId", Timestamp::Zero());
-	irrelevant_rtp->kind = "irrelevant";
-	irrelevant_rtp->jitter = 0.5;
-
-	auto video_rtp = new RTCInboundRtpStreamStats("someRtpId", Timestamp::Zero());
-	video_rtp->kind = "video";
-	video_rtp->jitter = 0.1;
-
-	auto another_video_rtp = new RTCInboundRtpStreamStats("anotherRtpId", Timestamp::Zero());
-	another_video_rtp->kind = "video";
-	another_video_rtp->jitter = 0.2;
-
-	auto report = RTCStatsReport::Create(Timestamp::Zero());
-	report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
 	report->AddStats(std::unique_ptr<RTCStats>(video_rtp));
 	report->AddStats(std::unique_ptr<RTCStats>(another_video_rtp));
 
@@ -196,22 +219,8 @@ TEST(stats_jitter, video_report)
 	ASSERT_EQ(stats.jitter_down, wire::Jitter());
 }
 
-TEST(stats_jitter, audio_and_video_report)
+TEST_F(StatsJitter, audio_and_video_report)
 {
-	auto irrelevant_rtp = new RTCInboundRtpStreamStats("irrelevantRtpId", Timestamp::Zero());
-	irrelevant_rtp->kind = "irrelevant";
-	irrelevant_rtp->jitter = 0.5;
-
-	auto audio_rtp = new RTCInboundRtpStreamStats("someAudioRtpId", Timestamp::Zero());
-	audio_rtp->kind = "audio";
-	audio_rtp->jitter = 0.1;
-
-	auto video_rtp = new RTCInboundRtpStreamStats("someVideoRtpId", Timestamp::Zero());
-	video_rtp->kind = "video";
-	video_rtp->jitter = 0.2;
-
-	auto report = RTCStatsReport::Create(Timestamp::Zero());
-	report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
 	report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
 	report->AddStats(std::unique_ptr<RTCStats>(video_rtp));
 
@@ -221,38 +230,10 @@ TEST(stats_jitter, audio_and_video_report)
 	ASSERT_EQ(stats.jitter_down, wire::Jitter());
 }
 
-TEST(stats_jitter, both_directions_audio_and_video_report)
+TEST_F(StatsJitter, both_directions_audio_and_video_report)
 {
-	auto irrelevant_rtp = new RTCInboundRtpStreamStats("irrelevantRtpId", Timestamp::Zero());
-	irrelevant_rtp->kind = "irrelevant";
-	irrelevant_rtp->jitter = 1000.0;
-
-	auto audio_rtp = new RTCInboundRtpStreamStats("someAudioRtpId", Timestamp::Zero());
-	audio_rtp->kind = "audio";
-	audio_rtp->jitter = 0.1;
-
-	auto video_rtp = new RTCInboundRtpStreamStats("someVideoRtpId", Timestamp::Zero());
-	video_rtp->kind = "video";
-	video_rtp->jitter = 0.2;
-
-	auto report = RTCStatsReport::Create(Timestamp::Zero());
-	report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
 	report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
 	report->AddStats(std::unique_ptr<RTCStats>(video_rtp));
-
-	auto remote_irrelevant_rtp = new RTCRemoteInboundRtpStreamStats("irrelevantRemoteRtpId", Timestamp::Zero());
-	remote_irrelevant_rtp->kind = "irrelevant";
-	remote_irrelevant_rtp->jitter = 1000.0;
-
-	auto remote_audio_rtp = new RTCRemoteInboundRtpStreamStats("someRemoteAudioRtpId", Timestamp::Zero());
-	remote_audio_rtp->kind = "audio";
-	remote_audio_rtp->jitter = 0.3;
-
-	auto remote_video_rtp = new RTCRemoteInboundRtpStreamStats("someRemoteVideoRtpId", Timestamp::Zero());
-	remote_video_rtp->kind = "video";
-	remote_video_rtp->jitter = 0.4;
-
-	report->AddStats(std::unique_ptr<RTCStats>(remote_irrelevant_rtp));
 	report->AddStats(std::unique_ptr<RTCStats>(remote_audio_rtp));
 	report->AddStats(std::unique_ptr<RTCStats>(remote_video_rtp));
 
@@ -288,65 +269,58 @@ TEST(stats_audio, audio_level)
 	ASSERT_EQ(stats.audio_level, expected_audio_level);
 }
 
-TEST(stats_rtt, without_candidates)
+class StatsRtt: public ::testing::Test {
+public:
+	virtual void SetUp() override
+	{
+		candidate_pair = new RTCIceCandidatePairStats("candidatePair", Timestamp::Zero());
+		candidate_pair->current_round_trip_time = 0.01;
+
+		auto empty_candidate_pair = new RTCIceCandidatePairStats("emptyCandidatePair", Timestamp::Zero());
+
+		report = RTCStatsReport::Create(Timestamp::Zero());
+		report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
+		report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
+	}
+protected:
+    rtc::scoped_refptr<RTCStatsReport> report;
+	RTCIceCandidatePairStats* candidate_pair;
+	const float zero_rtt = 0.0;
+};
+
+TEST_F(StatsRtt, without_candidates)
 {
-	const auto expected_rtt = 0;
-	auto report = RTCStatsReport::Create(Timestamp::Zero());
+	wire::AvsStats stats;
+	stats.ReadFromRTCReport(report);
+	ASSERT_FLOAT_EQ(stats.rtt, zero_rtt);
+}
+
+TEST_F(StatsRtt, unsucceeded_candidates)
+{
+	candidate_pair->state = "unsucceeded";
 
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
-	ASSERT_FLOAT_EQ(stats.rtt, expected_rtt);
+	ASSERT_FLOAT_EQ(stats.rtt, zero_rtt);
 }
 
-TEST(stats_rtt, unsucceeded_candidates)
+TEST_F(StatsRtt, unnominated_candidates)
 {
-	const auto expected_rtt = 0;
-
-	auto unsuccedded_candidate_pair = new RTCIceCandidatePairStats("unsucceededCandidatePair", Timestamp::Zero());
-	unsuccedded_candidate_pair->state = "unsucceeded";
-	unsuccedded_candidate_pair->current_round_trip_time = 0.01;
-
-	auto empty_candidate_pair = new RTCIceCandidatePairStats("emptyCandidatePair", Timestamp::Zero());
-
-	auto report = RTCStatsReport::Create(Timestamp::Zero());
-	report->AddStats(std::unique_ptr<RTCStats>(unsuccedded_candidate_pair));
-	report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
+	candidate_pair->state = "succeeded";
+	candidate_pair->nominated = false;
 
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
-	ASSERT_FLOAT_EQ(stats.rtt, expected_rtt);
+	ASSERT_FLOAT_EQ(stats.rtt, zero_rtt);
 }
 
-TEST(stats_rtt, unnominated_candidates)
-{
-	const auto expected_rtt = 0;
-
-	auto unsuccedded_candidate_pair = new RTCIceCandidatePairStats("unsucceededCandidatePair", Timestamp::Zero());
-	unsuccedded_candidate_pair->state = "succeeded";
-	unsuccedded_candidate_pair->current_round_trip_time = 0.01;
-
-	auto empty_candidate_pair = new RTCIceCandidatePairStats("emptyCandidatePair", Timestamp::Zero());
-
-	auto report = RTCStatsReport::Create(Timestamp::Zero());
-	report->AddStats(std::unique_ptr<RTCStats>(unsuccedded_candidate_pair));
-	report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
-
-	wire::AvsStats stats;
-	stats.ReadFromRTCReport(report);
-	ASSERT_FLOAT_EQ(stats.rtt, expected_rtt);
-}
-
-TEST(stats_rtt, some_rtt_values)
+TEST_F(StatsRtt, some_rtt_values)
 {
 	const auto expected_rtt = 0.01;
 
-	auto candidate_pair = new RTCIceCandidatePairStats("someCandidatePairId", Timestamp::Zero());
 	candidate_pair->state = "succeeded";
 	candidate_pair->nominated = true;
 	candidate_pair->current_round_trip_time = expected_rtt;
-
-	auto report = RTCStatsReport::Create(Timestamp::Zero());
-	report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
 
 	wire::AvsStats stats;
 	stats.ReadFromRTCReport(report);
