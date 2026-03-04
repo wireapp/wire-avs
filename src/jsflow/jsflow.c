@@ -435,6 +435,7 @@ static void destructor(void *arg)
 	mem_deref(flow->clientid_self);
 
 	mem_deref(flow->cm);
+	mem_deref(flow->stats;
 
 	// Close?
 }

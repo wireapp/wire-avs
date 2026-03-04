@@ -2186,6 +2186,7 @@ static void pf_destructor(void *arg)
 	mem_deref(pf->clientid_self);
 	mem_deref(pf->clientid_remote);
 	mem_deref(pf->cm);
+	mem_deref(pf->stats);
 
 	list_flush(&pf->cml.list);
 	mem_deref(pf->cml.lock);
