@@ -532,6 +532,11 @@ static void ccall_reconnect(struct ccall *ccall,
 			      0,
 			      ICALL_RECONNECTING,
 			      ICALL_RECONNECTING,
+			      0,
+			      0,
+			      PROTOCOL_UNKNOWN,
+			      CANDIDATE_UNKNOWN,
+			      ICALL_CONV_TYPE_CONFERENCE,
 			      ccall->icall.arg);
 	}
 }
@@ -1095,7 +1100,10 @@ static void ecall_close_handler(struct icall *icall,
 static void ecall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
-				  int rtt, int uploss, int downloss,
+				  int rtt, int loss_up, int loss_down,
+				  int jitter_up, int jitter_down,
+				  enum stats_protocol protocol, enum stats_candidate candidate,
+				  enum icall_conv_type peer,
 				  void *arg)
 {
 	struct ccall *ccall = arg;
@@ -1110,20 +1118,21 @@ static void ecall_quality_handler(struct icall *icall,
 
 	tdiff = tmr_jiffies() - ccall->last_ping;
 
-	info("ccall(%p): ecall_quality_handler rtt=%d up=%d dn=%d "
-	     "ping=%u pdiff=%llu\n",
-	     ccall, rtt, uploss, downloss, ccall->expected_ping, tdiff);
+	info("ccall(%p): ecall_quality_handler rtt=%d loss up=%d loss down=%d "
+	     "jitter up=%d jitter down=%d ping=%u pdiff=%llu\n",
+	     ccall, rtt, loss_up, loss_down, jitter_up, jitter_down, ccall->expected_ping, tdiff);
 
-	if (downloss > 20) {
+	// WPB-23494: Do we need to reiterate on the following calculation
+	if (loss_down > 20) {
 		dec_res = true;
 	}
 	if (ccall->expected_ping >= CCALL_QUALITY_POOR_MISSING) {
 		dec_res = true;
-		downloss = 30;
+		loss_down = 30;
 	}
 	else if (ccall->expected_ping > CCALL_QUALITY_MEDIUM_MISSING) {
 		dec_res = true;
-		downloss = 10;
+		loss_down = 10;
 	}
 
 #if RESOLUTION_DEGRADE
@@ -1164,8 +1173,13 @@ static void ecall_quality_handler(struct icall *icall,
 		      userid,
 		      clientid,
 		      rtt,
-		      uploss,
-		      downloss,
+		      loss_up,
+		      loss_down,
+		      jitter_up,
+		      jitter_down,
+		      protocol,
+			  candidate,
+		      peer,
 		      ccall->icall.arg);
 }
 

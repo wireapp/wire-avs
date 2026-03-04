@@ -51,6 +51,7 @@ extern "C" {
 #include "avs_frame_encryptor.h"	
 #include "avs_frame_decryptor.h"	
 #include "avs_zapi.h"
+#include "avs_stats.h"
 #include "avs_icall.h"	
 #include "avs_iflow.h"	
 #include "avs_peerflow.h"	

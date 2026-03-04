@@ -93,8 +93,13 @@ void peerflow_set_stats(struct peerflow* pf,
 			uint32_t vpkts_recv,
 			uint32_t apkts_sent,
 			uint32_t vpkts_sent,
-			float downloss,
-			float rtt);
+			float loss_up,
+			float loss_down,
+			float rtt,
+			float jitter_up,
+			float jitter_down,
+			enum stats_protocol protocol,
+			enum stats_candidate candidate);
 
 #ifdef __cplusplus
 }

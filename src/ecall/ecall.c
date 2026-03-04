@@ -24,6 +24,7 @@
 #include "avs_zapi.h"
 #include "avs_icall.h"
 #include "avs_keystore.h"
+#include "avs_stats.h"
 #include "avs_iflow.h"
 #include "avs_peerflow.h"
 #include "avs_uuid.h"
@@ -1731,6 +1732,11 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		      0,
 		      0,
 		      0,
+		      0,
+		      0,
+		      PROTOCOL_UNKNOWN,
+		      CANDIDATE_UNKNOWN,
+		      ICALL_CONV_TYPE_ONEONONE,
 		      ecall->icall.arg);
 
 	if (ecall->update_glare) {
@@ -3216,6 +3222,11 @@ int ecall_restart(struct ecall *ecall,
 			      0,
 			      ICALL_RECONNECTING,
 			      ICALL_RECONNECTING,
+			      0,
+			      0,
+			      PROTOCOL_UNKNOWN,
+			      CANDIDATE_UNKNOWN,
+			      ICALL_CONV_TYPE_ONEONONE,
 			      ecall->icall.arg);
 	}
 
@@ -3311,19 +3322,22 @@ static void quality_handler(void *arg)
 			  &stats);
 
 	if (!err) {
-		uint32_t dloss = (uint32_t)stats.dloss;
 		uint32_t rtt = (uint32_t)stats.rtt;
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall, 
 			      ecall->userid_peer,
 			      ecall->clientid_peer,
 			      (int)stats.rtt,
-			      (int)stats.dloss,
-			      (int)stats.dloss,
+			      (int)stats.loss_down,
+			      (int)stats.loss_down,
+			      (int)stats.jitter_up,
+			      (int)stats.jitter_down,
+			      stats.protocol, stats.candidate,
+			      ecall->conv_type,
 			      ecall->icall.arg);
 
-		ecall->metrics.m.packetloss_last = dloss;
-		ecall->metrics.m.packetloss_max = MAX(ecall->metrics.m.packetloss_max, dloss);
+		ecall->metrics.m.packetloss_last = stats.loss_down;
+		ecall->metrics.m.packetloss_max = MAX(ecall->metrics.m.packetloss_max, stats.loss_down);
 		ecall->metrics.m.rtt_last = rtt;
 		ecall->metrics.m.rtt_max = MAX(ecall->metrics.m.rtt_max, rtt);
 	}

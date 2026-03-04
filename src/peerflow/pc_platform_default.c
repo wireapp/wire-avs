@@ -21,6 +21,7 @@
 #include <avs_base.h>
 #include <avs_icall.h>
 #include <avs_keystore.h>
+#include <avs_stats.h>
 #include <avs_iflow.h>
 #include <avs_peerflow.h>
 #include "peerflow.h"

@@ -23,6 +23,9 @@
 struct iflow;
 struct avs_vidframe;
 
+enum stats_protocol;
+enum stats_candidate;
+
 struct iflow_stats {
 	uint8_t audio_level;
 	uint8_t audio_level_smooth;
@@ -30,8 +33,13 @@ struct iflow_stats {
 	uint32_t apkts_sent;
 	uint32_t vpkts_recv;
 	uint32_t vpkts_sent;
-	float dloss;
+	float loss_up;
+	float loss_down;
 	float rtt;
+	float jitter_up;
+	float jitter_down;
+	enum stats_protocol protocol;
+	enum stats_candidate candidate;
 };
 
 /* Calls into iflow */
