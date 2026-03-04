@@ -20,39 +20,54 @@
 extern "C" {
 #endif
 
-enum stats_protocol {
-	PROTOCOL_UNKNOWN   = 0,
-	PROTOCOL_UDP       = 1,
-	PROTOCOL_TCP       = 2,
+struct avs_stats;
+	
+enum stats_proto {
+	STATS_PROTO_UNKNOWN   = 0,
+	STATS_PROTO_UDP       = 1,
+	STATS_PROTO_TCP       = 2,
 };
 
-enum stats_candidate {
-	CANDIDATE_UNKNOWN   = 0,
-	CANDIDATE_HOST      = 1,
-	CANDIDATE_SRFLX     = 2,
-	CANDIDATE_PRFLX     = 3,
-	CANDIDATE_RELAY     = 4,
+enum stats_cand {
+	STATS_CAND_UNKNOWN   = 0,
+	STATS_CAND_HOST      = 1,
+	STATS_CAND_SRFLX     = 2,
+	STATS_CAND_PRFLX     = 3,
+	STATS_CAND_RELAY     = 4,
 };
 
-static const char* PROTOCOL_UDP_STR = "UDP";
-static const char* PROTOCOL_TCP_STR = "TCP";
-static const char* PROTOCOL_UNKNOWN_STR = "Unknown";
-
-static const char* CANDIDATE_HOST_STR = "Host";
-static const char* CANDIDATE_SRFLX_STR = "Srflx";
-static const char* CANDIDATE_PRFLX_STR = "Prflx";
-static const char* CANDIDATE_RELAY_STR = "Relay";
-static const char* CANDIDATE_UNKNOWN_STR = "Unknown";
-
+	
 struct stats_jitter {
-	float audio;
-	float video;
-};
-struct stats_packet_counts {
-	uint32_t audio;
-	uint32_t video;
+	float audio_rx;
+	float audio_tx;
+	float video_rx;
+	float video_tx;
 };
 
+struct stats_packet_counts {
+	uint32_t audio_rx;
+	uint32_t audiotx;
+	uint32_t video_rx;
+	uint32_t video_tx;
+	uint32_t lost_rx;
+	uint32_t lost_tx;
+};
+
+struct stats_report {
+	enum stats_protocol proto;
+	enum stats_candidate cand;
+	struct stats_jitter jitter;
+	struct stats_packet_counts packets;
+	int audio_level;
+	float rtt;
+};
+
+int stats_alloc(struct avs_stats **statsp, void *arg);
+int stats_update(struct avs_stats *stats, const char *report_json);
+int stats_get_report(struct avs_stats *stats, struct stats_report *report);
+char *stats_proto_name(enum stats_proto proto);	
+char *stats_cand_name(enum stats_cand cand);	
+	
 #ifdef __cplusplus
 }
 #endif
