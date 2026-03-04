@@ -24,6 +24,7 @@
 #include "avs_zapi.h"
 #include "avs_icall.h"
 #include "avs_keystore.h"
+#include "avs_stats.h"
 #include "avs_iflow.h"
 #include "avs_peerflow.h"
 #include "avs_uuid.h"
@@ -3010,36 +3011,34 @@ int ecall_mfdebug(struct re_printf *pf, const struct ecall *ecall)
 
 	
 int ecall_stats_struct(const struct ecall *ecall,
-		       struct iflow_stats *stats)
+		       struct stats_report *stats)
 {
 
 	if (!ecall || !stats)
 		return EINVAL;
 
-	IFLOW_CALL(ecall->flow, get_stats,
-		stats);
+	IFLOW_CALL(ecall->flow, get_stats, stats);
 
 	return 0;
 }
 
 int ecall_stats(struct re_printf *pf, const struct ecall *ecall)
 {
-	struct iflow_stats stats;
+	struct stats_report stats;
 	struct json_object *jfstats = NULL;
 	int err = 0;
 
-	memset(&stats, 0, sizeof(stats));
 
-	IFLOW_CALL(ecall->flow, get_stats,
-		&stats);
+	IFLOW_CALL(ecall->flow, get_stats, &stats);
 
+	
 	jfstats = jzon_alloc_object();
 	jzon_add_str(jfstats, "remoteUserId", "%s", ecall->userid_peer);
 	jzon_add_str(jfstats, "remoteClientId", "%s", ecall->clientid_peer);
-	jzon_add_int(jfstats, "audioPacketsReceived", stats.apkts_recv);
-	jzon_add_int(jfstats, "audioPacketsSent", stats.apkts_sent);
-	jzon_add_int(jfstats, "videoPacketsReceived", stats.vpkts_recv);
-	jzon_add_int(jfstats, "videoPacketsSent", stats.vpkts_sent);
+	jzon_add_int(jfstats, "audioPacketsReceived", stats.packets.audio_rx);
+	jzon_add_int(jfstats, "audioPacketsSent", stats.packets.audio_tx);
+	jzon_add_int(jfstats, "videoPacketsReceived", stats.packets.video_rx);
+	jzon_add_int(jfstats, "videoPacketsSent", stats.packets.video_tx);
 	
 	jzon_print(pf, jfstats);
 
@@ -3294,10 +3293,8 @@ int ecall_activate(struct ecall *ecall, bool active)
 static void quality_handler(void *arg)
 {
 	struct ecall *ecall = arg;
-	struct iflow_stats stats;
+	struct stats_report stats;
 	int err = 0;
-
-	memset(&stats, 0, sizeof(stats));
 
 	tmr_start(&ecall->quality.tmr, ecall->quality.interval,
 		  quality_handler, arg);
@@ -3307,19 +3304,18 @@ static void quality_handler(void *arg)
 
 	if (ecall->update)
 		return;
-	err = IFLOW_CALLE(ecall->flow, get_stats,
-			  &stats);
+	err = IFLOW_CALLE(ecall->flow, get_stats, &stats);
 
 	if (!err) {
-		uint32_t dloss = (uint32_t)stats.dloss;
+		uint32_t dloss = (uint32_t)stats.packets.lost_rx;
 		uint32_t rtt = (uint32_t)stats.rtt;
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall, 
 			      ecall->userid_peer,
 			      ecall->clientid_peer,
 			      (int)stats.rtt,
-			      (int)stats.dloss,
-			      (int)stats.dloss,
+			      (int)stats.packets.lost_tx,
+			      (int)stats.packets.lost_rx,
 			      ecall->icall.arg);
 
 		ecall->metrics.m.packetloss_last = dloss;

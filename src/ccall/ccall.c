@@ -3803,7 +3803,7 @@ out:
 }
 
 int  ccall_stats_struct(const struct ccall *ccall,
-		        struct iflow_stats *stats)
+		        struct stats_report *stats)
 {
 	if (!ccall || !ccall->ecall)
 		return EINVAL;

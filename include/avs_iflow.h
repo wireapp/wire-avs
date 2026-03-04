@@ -23,16 +23,6 @@
 struct iflow;
 struct avs_vidframe;
 
-struct iflow_stats {
-	uint8_t audio_level;
-	uint8_t audio_level_smooth;
-	uint32_t apkts_recv;
-	uint32_t apkts_sent;
-	uint32_t vpkts_recv;
-	uint32_t vpkts_sent;
-	float dloss;
-	float rtt;
-};
 
 /* Calls into iflow */
 typedef int  (iflow_set_video_state)(struct iflow *flow, enum icall_vstate vstate);
@@ -85,7 +75,7 @@ typedef int (iflow_dce_send)(struct iflow *flow,
 			     size_t len);
 
 typedef int  (iflow_get_stats)(struct iflow *flow,
-			       struct iflow_stats *stats);
+			       struct stats_report *stats);
 
 typedef int  (iflow_get_audio_level)(struct iflow *flow,
 				     struct list *levell);
