@@ -80,6 +80,14 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 	return err;
 }
 
+int stats_get_report(struct avs_stats *stats, struct stats_report *report)
+{
+	if (!stats || !report)
+		return EINVAL;
+
+	*report = stats->report;
+}
+
 
 char *stats_proto_name(enum stats_proto proto)
 {

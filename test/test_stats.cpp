@@ -16,7 +16,7 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "avsstats.h"
+#include "avs_stats.h"
 #include <gtest/gtest.h>
 
 using namespace webrtc;
@@ -34,12 +34,20 @@ namespace wire {
 TEST(stats, null_report)
 {
 	rtc::scoped_refptr<const RTCStatsReport> report;
-	wire::AvsStats stats;
-	stats.ReadFromRTCReport(report);
-	ASSERT_EQ(stats.protocol, PROTOCOL_UNKNOWN);
-	ASSERT_EQ(stats.candidate, CANDIDATE_UNKNOWN);
-	ASSERT_EQ(stats.jitter_up, wire::Jitter());
-	ASSERT_EQ(stats.jitter_down, wire::Jitter());
+	struct avs_stats *stats;
+	struct stats_report sr;
+
+	stats_alloc(&stats, NULL);
+	stats_update(stats, report.ToJson().c_str());
+	stats_get_report(stats, &sr);
+	mem_deref(stats);
+		     	
+	ASSERT_EQ(sr.proto, PROTOCOL_UNKNOWN);
+	ASSERT_EQ(sr.cand, CANDIDATE_UNKNOWN);
+	ASSERT_EQ(sr.jitter.audio_rx, 0.0f);
+	ASSERT_EQ(sr.jitter.audio_tx, 0.0f);
+	ASSERT_EQ(sr.jitter.video_rx, 0.0f);
+	ASSERT_EQ(sr.jitter.video_tx, 0.0f);
 }
 
 TEST(stats, empty_report)

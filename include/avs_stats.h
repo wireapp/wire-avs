@@ -46,7 +46,7 @@ struct stats_jitter {
 
 struct stats_packet_counts {
 	uint32_t audio_rx;
-	uint32_t audiotx;
+	uint32_t audio_tx;
 	uint32_t video_rx;
 	uint32_t video_tx;
 	uint32_t lost_rx;
