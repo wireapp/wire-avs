@@ -72,6 +72,7 @@ extern "C" {
 #include "avs_rest.h"
 #include "avs_flowmgr.h"
 #include "avs_config.h"
+#include "avs_stats.h"
 #include "avs_engine.h"
 #include "avs_netprobe.h"
 #include "avs_network.h"

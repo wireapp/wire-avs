@@ -62,7 +62,6 @@ extern "C" {
 #include "sdk/android/native_api/audio_device_module/audio_device_android.h"
 #endif
 
-#include "avsstats.h"
 #include "capture_source.h"
 #include "cbr_detector_local.h"
 #include "cbr_detector_remote.h"
@@ -71,6 +70,7 @@ extern "C" {
 #include "video_renderer.h"
 
 #include <avs_peerflow.h>
+#include <avs_stats.h>
 
 #include "peerflow.h"
 
@@ -204,7 +204,7 @@ struct peerflow {
 
 	} dc;
 
-	struct iflow_stats stats;
+	struct avs_stats *stats;
 
 	/* conf members */
 	struct {
@@ -2440,6 +2440,11 @@ int peerflow_alloc(struct iflow		**flowp,
 	list_append(&g_pf.pfl, &pf->le, pf);
 	lock_rel(g_pf.lock);
 
+	err = stats_alloc(&pf->stats, pf);
+	if (err) {
+		err = ENOMEM;
+		goto out;
+	}
 	pf->netStatsCb = new wire::NetStatsCallback(pf);
 
 	tmr_start(&pf->tmr_stats, TMR_STATS_INTERVAL, timer_stats, pf);
@@ -3329,14 +3334,15 @@ void peerflow_set_stats(struct peerflow* pf,
 }
 
 int peerflow_get_stats(struct iflow *flow,
-		       struct iflow_stats *stats)
+		       struct stats_report *stats)
 {
 	struct peerflow *pf = (struct peerflow*)flow;
 	if (!pf || !stats) {
 		return EINVAL;
 	}
 
-	*stats = pf->stats;
+	stats_get_report(pf->stats, stats);
+
 	return 0;
 }
 

@@ -1,86 +1,113 @@
-#ifndef AVSSTATS_H
-#define AVSSTATS_H
+
+/*
+* Wire
+* Copyright (C) 2016 Wire Swiss GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#ifndef STATS_H
+#define STATS_H
 
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtcstats_objects.h"
 
-#include <re.h>
-#include <avs.h>
+#include "re.h"
+#include "peerflow.h"
+3include "avs_stats.h"
 
 namespace wire {
-	struct Jitter : stats_jitter {
-		Jitter(float audio = 0, float video = 0): stats_jitter({audio, video}) {}
-	};
-	struct Packets :stats_packet_counts {
-		Packets(uint32_t audio = 0, uint32_t video = 0): stats_packet_counts({audio, video}) {}
-	};
-	struct AvsStats {
 
-		Jitter jitter_down;
-		Jitter jitter_up;
-		stats_protocol protocol;
-		stats_candidate candidate;
-		Packets packets_sent;
-		Packets packets_received;
-		uint64_t packets_lost_up;
-		uint64_t packets_lost_down;
-		int audio_level;
-		float rtt;
+class CallStatsCallback : public webrtc::RTCStatsCollectorCallback
+{
+public:
+	CallStatsCallback(struct peerflow *pf) :
+		pf_(pf)
+	{
+	}
 
-		AvsStats(): protocol(PROTOCOL_UNKNOWN), candidate(CANDIDATE_UNKNOWN) {}
+	virtual ~CallStatsCallback()
+	{
+	}
 
-		void ReadFromRTCReport(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
-		stats_protocol readProtocol(const std::optional<std::string>& protocol_opt);
-		stats_candidate readCandidate(const std::optional<std::string>& candidate_opt);
-	private:
-		void readPacketStats(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
-		void readRtt(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
-		void readAudioLevel(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
-		void readConnection(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
-		void readJitter(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
-	};
+	void OnStatsDelivered(
+		const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
+	{
+		info("peerflow(%p): stats: %s\n", pf_, report->ToJson().c_str());
+	}
 
-	class CallStatsCallback : public webrtc::RTCStatsCollectorCallback {
-	public:
-		CallStatsCallback(struct peerflow *pf): pf_(pf) {}
-		virtual ~CallStatsCallback() {}
-		void OnStatsDelivered(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
-			info("peerflow(%p): stats: %s\n", pf_, report->ToJson().c_str());
+	void AddRef() const {
+	}
+
+	virtual rtc::RefCountReleaseStatus Release() const {
+		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+	}
+
+private:
+	struct peerflow *pf_;
+};
+
+class NetStatsCallback : public webrtc::RTCStatsCollectorCallback
+{
+public:
+	NetStatsCallback(struct peerflow* pf, struct avs_stats *stats) :
+		pf_(pf),
+		stats_(stats)
+	{
+		lock_alloc(&lock_);
+	}
+
+	virtual ~NetStatsCallback()
+	{
+		setActive(false);
+		mem_deref(lock_);
+	}
+
+	void setActive(bool active)
+	{
+		lock_write_get(lock_);
+		active_ = active;
+		lock_rel(lock_);
+	}
+
+	void OnStatsDelivered(
+		const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
+	{
+		std::string sstat = report->ToJson();
+		const char *report_json = sstat.c_str();
+		if (active_) {
+			stats_update(stats_, report_json);
 		}
-		void AddRef() const {}
-		virtual rtc::RefCountReleaseStatus Release() const {
-			return rtc::RefCountReleaseStatus::kDroppedLastRef;
-		}
+		lock_rel(lock_);
+	}
 
-	private:
-		struct peerflow *pf_;
-	};
+	void AddRef() const {
+	}
 
-	class NetStatsCallback : public webrtc::RTCStatsCollectorCallback {
-	public:
-		NetStatsCallback(struct peerflow* pf): pf_(pf), packets_lost_up(0), packets_lost_down(0), current_stats_(NULL),	active_(true) {
-			lock_alloc(&lock_);
-		}
-		virtual ~NetStatsCallback();
+	virtual rtc::RefCountReleaseStatus Release() const {
+		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+	}
+	
 
-		// webrtc::RTCStatsCollectorCallback
-		void OnStatsDelivered(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
-		void AddRef() const {}
-		virtual rtc::RefCountReleaseStatus Release() const {
-			return rtc::RefCountReleaseStatus::kDroppedLastRef;
-		}
+private:
+	struct peerflow* pf_;
+	struct avs_stats *stats_;
+	bool active_;
+	struct lock *lock_;
+};
 
-		void setActive(bool active);
-		int currentStats(char **stats);
-
-	private:
-		struct peerflow* pf_;
-		uint32_t packets_lost_up;
-		uint32_t packets_lost_down;
-		bool active_;
-		struct lock *lock_;
-		char *current_stats_;	
-	};
 }
 
 #endif
+

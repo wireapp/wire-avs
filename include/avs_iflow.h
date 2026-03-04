@@ -93,7 +93,7 @@ typedef int (iflow_dce_send)(struct iflow *flow,
 			     size_t len);
 
 typedef int  (iflow_get_stats)(struct iflow *flow,
-			       struct iflow_stats *stats);
+			       struct stats_report *stats);
 
 typedef int  (iflow_get_audio_level)(struct iflow *flow,
 				     struct list *levell);

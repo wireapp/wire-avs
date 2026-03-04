@@ -211,7 +211,7 @@ struct jsflow {
 		uint32_t ssrc;
 	} video;
 
-	struct iflow_stats stats;
+	struct avs_stats *stats;
 
 	struct list cml; /* conf members */
 	char *remote_userid;
@@ -581,6 +581,7 @@ int jsflow_alloc(struct iflow		**flowp,
 		 void			*extarg)
 {
 	struct jsflow *flow;
+	int err = 0;
 
 	info("jsflow_alloc: initialized=%d call_type=%d vstate=%s\n",
 	     g_jf.initialized, call_type, icall_vstate_name(vstate));
@@ -596,6 +597,11 @@ int jsflow_alloc(struct iflow		**flowp,
 	flow = mem_zalloc(sizeof(*flow), destructor);
 	if (!flow)
 		return ENOMEM;
+
+	err = stats_alloc(&flow->stats, jsflow);
+	if (err) {
+		goto out;
+	}
 
 	iflow_set_functions(&flow->iflow,
 			    jsflow_set_video_state,
@@ -632,7 +638,7 @@ int jsflow_alloc(struct iflow		**flowp,
 	flow->vstate = vstate;
 	flow->handle = PC_INVALID_HANDLE;
 	flow->conv_type = conv_type;
-	flow->call_type = call_type;
+	flow->call_type = call_type;	
 
 	list_append(&g_jf.pcl, &flow->le, flow);
 
@@ -641,9 +647,14 @@ int jsflow_alloc(struct iflow		**flowp,
 	tmr_init(&flow->tmr_stats);
 	tmr_init(&flow->tmr_cbr);
 
-	*flowp = (struct iflow *)flow;
-
-	return 0;
+ out:
+	if (err) {
+		mem_deref(flow);
+	}
+	else {
+		*flowp = (struct iflow *)flow;
+	}
+	return err;
 }
 
 
@@ -1339,14 +1350,15 @@ void jsflow_set_stats(struct jsflow* flow, float downloss, float rtt)
 }
 
 int jsflow_get_stats(struct iflow *flow,
-		     struct iflow_stats *stats)
+		     struct stats_report *stats)
 {
 	struct jsflow *jsflow = (struct jsflow*)flow;
 	if (!jsflow || !stats) {
 		return EINVAL;
 	}
 
-	*stats = jsflow->stats;
+	stats_get_report(jsflow->stats, stats);
+
 	return 0;
 }
 
@@ -1631,23 +1643,11 @@ void pc_connection_handler(int self, const char *state)
 }
 
 void pc_set_stats(int self,
-		  int audio_level,
-		  int apkts_recv,
-		  int vpkts_recv,
-		  int apkts_sent,
-		  int vpkts_sent,
-		  int downloss,
-		  int rtt);
+		  const char *report_json)
 
 EMSCRIPTEN_KEEPALIVE
-void pc_set_stats(int self,
-		  int audio_level,
-		  int apkts_recv,
-		  int vpkts_recv,
-		  int apkts_sent,
-		  int vpkts_sent,
-		  int downloss,
-		  int rtt)
+void pc_set_stats(int self, 
+		  const char *report_json)
 {
 	struct jsflow *flow = self2pc(self);
 
@@ -1656,9 +1656,11 @@ void pc_set_stats(int self,
 		return;
 	}
 
+	stats_update(flow->stats, report_json);
+	
+#if 0
 	info("pc_set_stats: level: %d ar: %d vr: %d as: %d vs: %d rtt=%d dloss=%d\n",
 	     audio_level, apkts_recv, vpkts_recv, apkts_sent, vpkts_sent, rtt, downloss);
-
 
 	flow->stats.audio_level = g_jf.muted ? 0 : audio_level;
 	
@@ -1681,7 +1683,8 @@ void pc_set_stats(int self,
 	flow->stats.loss_down = (float)downloss;
 	flow->stats.jitter_up = 0.0;
 	flow->stats.jitter_down = 0.0;
-	flow->stats.rtt = (float)rtt;	
+	flow->stats.rtt = (float)rtt;
+#endif
 }
 
 
