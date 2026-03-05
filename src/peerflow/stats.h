@@ -72,7 +72,6 @@ public:
 	{
 		setActive(false);
 		mem_deref(lock_);
-		mem_deref(current_stats_);		
 	}
 
 	void setActive(bool active)
@@ -108,7 +107,6 @@ private:
 	struct avs_stats *stats_;
 	bool active_;
 	struct lock *lock_;
-	char *current_stats_;	
 };
 
 }

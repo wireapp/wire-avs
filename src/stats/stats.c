@@ -2,12 +2,12 @@
 #include <re.h>
 #include "avs_stats.h"
 
+
 struct avs_stats {
 	struct stats_report report;
 
 	void *arg;
 };
-
 
 static int read_packet_stats(struct avs_stats *stats, const char *report)
 {
@@ -38,7 +38,7 @@ static int read_jitter(struct avs_stats *stats, const char *report)
 	// Parse report for jitter
 	return 0;
 }
-	
+
 
 static void destructor(void *arg)
 {
@@ -46,7 +46,6 @@ static void destructor(void *arg)
 
 	(void)stats;
 }
-
 
 int stats_alloc(struct avs_stats **statsp, void *arg)
 {
@@ -89,7 +88,6 @@ int stats_get_report(struct avs_stats *stats, struct stats_report *report)
 
 	return 0;
 }
-
 
 char *stats_proto_name(enum stats_proto proto)
 {

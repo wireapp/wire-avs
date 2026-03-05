@@ -435,7 +435,7 @@ static void destructor(void *arg)
 	mem_deref(flow->clientid_self);
 
 	mem_deref(flow->cm);
-	mem_deref(flow->stats;
+	mem_deref(flow->stats);
 
 	// Close?
 }
@@ -599,7 +599,7 @@ int jsflow_alloc(struct iflow		**flowp,
 	if (!flow)
 		return ENOMEM;
 
-	err = stats_alloc(&flow->stats, jsflow);
+	err = stats_alloc(&flow->stats, flow);
 	if (err) {
 		goto out;
 	}
@@ -1358,17 +1358,20 @@ int jsflow_get_aulevel(struct iflow *iflow,
 	struct jsflow *jf = (struct jsflow *)iflow;
 	struct audio_level *aulevel;
 	struct le *le;
+	struct stats_report stats;
 	int err;
 
 	if (!levell)
 		return EINVAL;	
 
-	if (jf->stats.audio_level_smooth > 0
-	    || jf->stats.audio_level > AUDIO_LEVEL_FLOOR) {
+	stats_get_report(jf->stats, &stats);
+
+	if (stats.audio_level_smooth > 0
+	    || stats.audio_level > AUDIO_LEVEL_FLOOR) {
 		err = audio_level_alloc(&aulevel, levell, true,
 					jf->userid_self, jf->clientid_self,
-					jf->stats.audio_level,
-					jf->stats.audio_level_smooth);
+					stats.audio_level,
+					stats.audio_level_smooth);
 		if (err)
 			goto out;
 	}

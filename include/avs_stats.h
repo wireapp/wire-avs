@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 struct avs_stats;
-	
+
 enum stats_proto {
 	STATS_PROTO_UNKNOWN   = 0,
 	STATS_PROTO_UDP       = 1,
@@ -36,7 +36,6 @@ enum stats_cand {
 	STATS_CAND_RELAY     = 4,
 };
 
-	
 struct stats_jitter {
 	float audio_rx;
 	float audio_tx;
