@@ -2,6 +2,34 @@
 #include <re.h>
 #include "avs.h"
 
+#include "stats.h"
+
+enum stats_type parse_type(const char *type) {
+	if (streq(type, "inbound-rtp")) {
+		return STATS_TYPE_INBOUND_RTP;
+	}
+	else if (streq(type, "outbound-rtp")) {
+		return STATS_TYPE_OUTBOUND_RTP;
+	}
+	else if (streq(type, "remote-inbound-rtp")) {
+		return STATS_TYPE_REMOTE_INBOUND_RTP;
+	}
+	else { 
+		return STATS_TYPE_UNKNOWN;
+	}
+}
+
+enum stats_kind parse_kind(const char *kind) {
+	if (streq(kind, "audio")) {
+		return STATS_KIND_AUDIO;
+	}
+	else if (streq(kind, "video")) {
+		return STATS_KIND_VIDEO;
+	}
+	else { 
+		return STATS_KIND_UNKNOWN;
+	}
+}
 
 struct avs_stats {
 	struct stats_report report;
@@ -11,9 +39,8 @@ struct avs_stats {
 
 static int read_packet_stats(struct avs_stats *stats, const char *report)
 {
-	// reset packet statistics
-	struct stats_packet_counts zero_stats = {};
-	stats->report.packets = zero_stats;
+	const char* type_str = NULL;
+	const char* kind_str = NULL;
 
 	struct json_object *jobj;
 	int err = jzon_decode(&jobj, report, strlen(report));
@@ -26,6 +53,7 @@ static int read_packet_stats(struct avs_stats *stats, const char *report)
 
 	// we expect json array as root
 	if (!jzon_is_array(jobj)) {
+		mem_deref(jobj);
 		return EINVAL;
 	}
 
@@ -41,74 +69,60 @@ static int read_packet_stats(struct avs_stats *stats, const char *report)
 		}
 
 		// jzon_dump(jitem);
-		const char* type = jzon_str(jitem, "type");
 
-		bool is_inbound_rtp = (0 == strcmp(type, "inbound-rtp"));
-		bool is_outbound_rtp = (0 == strcmp(type, "outbound-rtp"));
-		bool is_remote_inbound_rtp = (0 == strcmp(type, "remote-inbound-rtp"));
+		type_str = jzon_str(jitem, "type");
+		enum stats_type type = parse_type(type_str);
 
-		if (!(is_inbound_rtp || is_outbound_rtp || is_remote_inbound_rtp)) {
+		if (!(type == STATS_TYPE_INBOUND_RTP || 
+				type == STATS_TYPE_OUTBOUND_RTP || 
+				type ==STATS_TYPE_REMOTE_INBOUND_RTP)) {
 			// not interested with other types here
 			continue;
 		}
 
-		const char* kind = jzon_str(jitem, "kind");
-		bool is_audio = (0 == strcmp(kind, "audio"));
-		bool is_video = (0 == strcmp(kind, "video"));
+		kind_str = jzon_str(jitem, "kind");
+		enum stats_kind kind = parse_kind(kind_str);
 
-		if (!(is_audio || is_video)) {
+		if (!(kind == STATS_KIND_AUDIO || kind == STATS_KIND_VIDEO)) {
 			// not interested with other kinds here
 			continue;
 		}
 
-		if (is_inbound_rtp) {
+		if (type == STATS_TYPE_INBOUND_RTP) {
 			int packets_received = 0;
 			jzon_int(&packets_received, jitem, "packetsReceived");
 			int packets_lost = 0;
 			jzon_int(&packets_lost, jitem, "packetsLost");
 
-			if (is_audio) {
+			if (kind == STATS_KIND_AUDIO) {
 				stats->report.packets.audio_rx += packets_received;
-			} else if (is_video) {
+			}
+			else if (kind == STATS_KIND_VIDEO) {
 				stats->report.packets.video_rx += packets_received;
-			} else  {
-				// we should not end here
-				continue;
 			}
 
 			stats->report.packets.lost_rx += packets_lost;
-		} else if (is_outbound_rtp) {
+		}
+		else if (type == STATS_TYPE_OUTBOUND_RTP) {
 			int packets_sent = 0;
 			jzon_int(&packets_sent, jitem, "packetsSent");
 
-			if (is_audio) {
+			if (kind == STATS_KIND_AUDIO) {
 				stats->report.packets.audio_tx += packets_sent;
-			} else if (is_video) {
-				stats->report.packets.video_tx += packets_sent;
-			} else  {
-				// we should not end here
-				continue;
 			}
-
-		} else if (is_remote_inbound_rtp) {
+			else if (kind == STATS_KIND_VIDEO) {
+				stats->report.packets.video_tx += packets_sent;
+			}
+		}
+		else if (type == STATS_TYPE_REMOTE_INBOUND_RTP) {
 			int packets_lost = 0;
 			jzon_int(&packets_lost, jitem, "packetsLost");
 
-			if (is_audio || is_video) {
-				stats->report.packets.lost_tx += packets_lost;
-			} else  {
-				// we should not end here
-				continue;
-			}
-
-		} else {
-			// we should not end here
-			continue;
+			stats->report.packets.lost_tx += packets_lost;
 		}
 
 		mem_deref(jitem);
 	}
-
 
 	mem_deref(jobj);
 	return 0;
@@ -168,6 +182,8 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 	
 	if (!stats || !report_json)
 		return EINVAL;
+
+	memset(&stats->report, 0, sizeof(stats->report));
 
 	err |= read_packet_stats(stats, report_json);
 	err |= read_rtt(stats, report_json);
