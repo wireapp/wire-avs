@@ -15,6 +15,8 @@
 * You should have received a copy of the GNU General Public License
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
+#ifndef AVS_STATS_H
+#define AVS_STATS_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -70,4 +72,6 @@ char *stats_cand_name(enum stats_cand cand);
 	
 #ifdef __cplusplus
 }
+#endif
+
 #endif
