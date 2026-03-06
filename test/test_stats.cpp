@@ -214,6 +214,7 @@ TEST_F(StatsBase, audio_level)
 {
 	const auto expected_audio_level = 25; // 0.1 * 255
 	auto audio_source = new RTCAudioSourceStats("someAudioSource", Timestamp::Zero());
+	audio_source->kind = "audio";
 	audio_source->audio_level= 0.1;
 	report->AddStats(std::unique_ptr<RTCStats>(audio_source));
 
@@ -329,7 +330,6 @@ public:
 	virtual void TearDown() override {
 		Base::TearDown();
 	}
-
 };
 
 TEST_F(StatsJitter, audio_and_video)
@@ -339,8 +339,8 @@ TEST_F(StatsJitter, audio_and_video)
 
 	stats_jitter expected_jitter;
 	expected_jitter.audio_rx = 0.2; // max of [0.1, 0.2]
-	expected_jitter.audio_tx = 0.25; // max of [0.25, 0.15]
-	expected_jitter.video_rx = 0.3;
+	expected_jitter.audio_tx = 0.3;
+	expected_jitter.video_rx = 0.25; // max of [0.25, 0.15]
 	expected_jitter.video_tx = 0.4;
 
 	EXPECT_EQ(sr.jitter, expected_jitter);
@@ -360,6 +360,11 @@ public:
 		report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
 		report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
 	}
+
+	virtual void TearDown() override {
+		Base::TearDown();
+	}
+
 protected:
 	RTCIceCandidatePairStats* candidate_pair;
 	const float zero_rtt = 0.0;
