@@ -525,13 +525,18 @@ static void ccall_reconnect(struct ccall *ccall,
 	}
 
 	if (notify) {
+
+		struct stats_report stats = {
+			.packets.lost.rx = ICALL_RECONNECTING,
+			.packets.lost.tx = ICALL_RECONNECTING,
+		};
+
 		ICALL_CALL_CB(ccall->icall, qualityh,
 			      &ccall->icall, 
 			      "SFT",
 			      "SFT",
-			      0,
-			      ICALL_RECONNECTING,
-			      ICALL_RECONNECTING,
+			      stats,
+			      ICALL_CONV_TYPE_CONFERENCE,
 			      ccall->icall.arg);
 	}
 }
@@ -1095,7 +1100,8 @@ static void ecall_close_handler(struct icall *icall,
 static void ecall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
-				  int rtt, int uploss, int downloss,
+				  struct stats_report stats,
+				  enum icall_conv_type peer,
 				  void *arg)
 {
 	struct ccall *ccall = arg;
@@ -1112,18 +1118,19 @@ static void ecall_quality_handler(struct icall *icall,
 
 	info("ccall(%p): ecall_quality_handler rtt=%d up=%d dn=%d "
 	     "ping=%u pdiff=%llu\n",
-	     ccall, rtt, uploss, downloss, ccall->expected_ping, tdiff);
+	     ccall, stats.rtt, stats.packets.lost.tx,
+	     stats.packets.lost.rx, ccall->expected_ping, tdiff);
 
-	if (downloss > 20) {
+	if (stats.packets.lost.rx > 20) {
 		dec_res = true;
 	}
 	if (ccall->expected_ping >= CCALL_QUALITY_POOR_MISSING) {
 		dec_res = true;
-		downloss = 30;
+		stats.packets.lost.rx = 30;
 	}
 	else if (ccall->expected_ping > CCALL_QUALITY_MEDIUM_MISSING) {
 		dec_res = true;
-		downloss = 10;
+		stats.packets.lost.rx = 10;
 	}
 
 #if RESOLUTION_DEGRADE
@@ -1163,9 +1170,8 @@ static void ecall_quality_handler(struct icall *icall,
 		      &ccall->icall, 
 		      userid,
 		      clientid,
-		      rtt,
-		      uploss,
-		      downloss,
+		      stats,
+		      peer,
 		      ccall->icall.arg);
 }
 

@@ -47,6 +47,25 @@
 
 #define WCALL_VALID(_wcall) ((_wcall) && (_wcall)->inst && wcall_valid(_wcall))
 
+static const char* PEER_USER_STR = "User";
+static const char* PEER_SERVER_STR = "Server";
+static const char* PEER_UNKNOWN_STR = "Unknown";
+
+static const char* peer_to_str(enum icall_conv_type call_type)
+{
+	switch (call_type) {
+	case ICALL_CONV_TYPE_ONEONONE:
+	case ICALL_CONV_TYPE_GROUP:
+		return PEER_USER_STR;
+	case ICALL_CONV_TYPE_CONFERENCE:
+	case ICALL_CONV_TYPE_CONFERENCE_MLS:
+		return PEER_SERVER_STR;
+	default:
+		// This may happen with introducing new ICALL_CONV_TYPE
+		return PEER_UNKNOWN_STR;
+	}
+}
+
 static struct {
 	bool initialized;
 	bool needs_setup;
@@ -1579,11 +1598,11 @@ static void destructor(void *arg)
 	info("wcall(%p): dtor -- done\n", wcall);
 }
 
-
 static void icall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
-				  int rtt, int uploss, int downloss,
+				  struct stats_report stats,
+				  enum icall_conv_type peer,
 				  void *arg)
 {
 	struct wcall *wcall = arg;
@@ -1602,31 +1621,81 @@ static void icall_quality_handler(struct icall *icall,
 	if (!inst->quality.netqh)
 		return;
 
-	if (uploss == ICALL_NETWORK_PROBLEM
-	    && downloss == ICALL_NETWORK_PROBLEM)
+	if (stats.packets.lost.tx == ICALL_NETWORK_PROBLEM
+	    && stats.packets.lost.rx == ICALL_NETWORK_PROBLEM)
 		quality = WCALL_QUALITY_NETWORK_PROBLEM;
-	else if (uploss == ICALL_RECONNECTING
-	    && downloss == ICALL_RECONNECTING)
+	else if (stats.packets.lost.tx == ICALL_RECONNECTING
+	    && stats.packets.lost.rx == ICALL_RECONNECTING)
 		quality = WCALL_QUALITY_RECONNECTING;
-	else if (rtt > 800 || uploss > 20 || downloss > 20)
+	else if (stats.rtt > 800 || stats.packets.lost.tx > 20 || stats.packets.lost.rx > 20)
 		quality = WCALL_QUALITY_POOR;
-	else if (rtt > 400 || uploss > 5 || downloss > 5)
+	else if (stats.rtt > 400 || stats.packets.lost.tx > 5 || stats.packets.lost.rx > 5)
 		quality = WCALL_QUALITY_MEDIUM;
 
-	info(APITAG "wcall(%p): calling netqh:%p %s.%s rtt=%d up=%d dn=%d q=%d\n",
-	     wcall, inst->quality.netqh,
-	     anon_id(userid_anon, userid),
-	     anon_client(clientid_anon, clientid),
-	     rtt, uploss, downloss, quality);
 	now = tmr_jiffies();
+
+	char *quality_info = NULL;
+	struct json_object *jobj = json_object_new_object();
+
+	json_object_object_add(jobj, "quality",
+				json_object_new_int(quality));
+	json_object_object_add(jobj, "rtt",
+				json_object_new_int(stats.rtt));
+
+	struct json_object *loss_jobj = json_object_new_object();
+	json_object_object_add(loss_jobj, "tx",
+				json_object_new_int(stats.packets.lost.tx));
+	json_object_object_add(loss_jobj, "rx",
+				json_object_new_int(stats.packets.lost.rx));
+	json_object_object_add(jobj, "loss", loss_jobj);
+
+	struct json_object *audio_jitter_jobj = json_object_new_object();
+	json_object_object_add(audio_jitter_jobj, "tx",
+				json_object_new_int(stats.jitter.audio.tx));
+	json_object_object_add(audio_jitter_jobj, "rx",
+				json_object_new_int(stats.jitter.audio.rx));
+
+	struct json_object *video_jitter_jobj = json_object_new_object();
+	json_object_object_add(video_jitter_jobj, "tx",
+				json_object_new_int(stats.jitter.video.tx));
+	json_object_object_add(video_jitter_jobj, "rx",
+				json_object_new_int(stats.jitter.video.rx));
+
+	struct json_object *jitter_jobj = json_object_new_object();
+	json_object_object_add(jitter_jobj, "audio", audio_jitter_jobj);
+	json_object_object_add(jitter_jobj, "video", video_jitter_jobj);
+	json_object_object_add(jobj, "jitter", jitter_jobj);
+
+	struct json_object *connection_jobj = json_object_new_object();
+	json_object_object_add(jitter_jobj, "protocol",
+				json_object_new_string(stats_proto_name(stats.proto)));
+	json_object_object_add(jitter_jobj, "candidate",
+				json_object_new_string(stats_cand_name(stats.cand)));
+	json_object_object_add(jobj, "connection", connection_jobj);
+
+	json_object_object_add(jobj, "peer",
+				json_object_new_string(peer_to_str(peer)));
+
+	if (jzon_encode(&quality_info, jobj)) {
+		warning("wcall(%p): can not generate quality information\n", wcall);
+		quality_info = "{}";
+	}
+
+	info(APITAG "wcall(%p): calling netqh:%p %s.%s quality: %s\n",
+				  wcall, inst->quality.netqh,
+				  anon_id(userid_anon, userid),
+				  anon_client(clientid_anon, clientid),
+				  quality_info);
+
 	inst->quality.netqh(wcall->convid,
 			    userid,
 			    clientid,
-			    quality,
-			    rtt,
-			    uploss,
-			    downloss,
+			    quality_info,
 			    inst->quality.arg);
+
+	mem_deref(jobj);
+	mem_deref(quality_info);
+
 	info(APITAG "wcall(%p): netqh:%p (quality=%d) took %llu ms\n",
 	     wcall, inst->quality.netqh, quality, tmr_jiffies() - now);
 

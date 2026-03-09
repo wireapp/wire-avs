@@ -1725,13 +1725,14 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		&ecall->icall, ecall->userid_peer, ecall->clientid_peer,
 		ecall->update, ecall->icall.arg);
 
+	struct stats_report stats = { 0 };
+
 	ICALL_CALL_CB(ecall->icall, qualityh,
 		      &ecall->icall, 
 		      ecall->userid_peer,
 		      ecall->clientid_peer,
-		      0,
-		      0,
-		      0,
+		      stats,
+		      ICALL_CONV_TYPE_ONEONONE,
 		      ecall->icall.arg);
 
 	if (ecall->update_glare) {
@@ -3205,6 +3206,11 @@ int ecall_restart(struct ecall *ecall,
 		goto out;
 	}
 
+	struct stats_report stats = {
+		.packets.lost.rx = ICALL_RECONNECTING,
+		.packets.lost.tx = ICALL_RECONNECTING,
+	};
+
 	if (notify) {
 		ecall->metrics.m.reconnects_attempted++;
 		ecall->metrics.inc_reconnects = true;
@@ -3212,9 +3218,8 @@ int ecall_restart(struct ecall *ecall,
 			      &ecall->icall, 
 			      ecall->userid_peer,
 			      ecall->clientid_peer,
-			      0,
-			      ICALL_RECONNECTING,
-			      ICALL_RECONNECTING,
+			      stats,
+			      ICALL_CONV_TYPE_ONEONONE,
 			      ecall->icall.arg);
 	}
 
@@ -3310,12 +3315,11 @@ static void quality_handler(void *arg)
 		uint32_t dloss = (uint32_t)stats.packets.lost.rx;
 		uint32_t rtt = (uint32_t)stats.rtt;
 		ICALL_CALL_CB(ecall->icall, qualityh,
-			      &ecall->icall, 
+			      &ecall->icall,
 			      ecall->userid_peer,
 			      ecall->clientid_peer,
-			      (int)stats.rtt,
-			      (int)stats.packets.lost.tx,
-			      (int)stats.packets.lost.rx,
+			      stats,
+			      ecall->conv_type,
 			      ecall->icall.arg);
 
 		ecall->metrics.m.packetloss_last = dloss;
