@@ -3035,10 +3035,10 @@ int ecall_stats(struct re_printf *pf, const struct ecall *ecall)
 	jfstats = jzon_alloc_object();
 	jzon_add_str(jfstats, "remoteUserId", "%s", ecall->userid_peer);
 	jzon_add_str(jfstats, "remoteClientId", "%s", ecall->clientid_peer);
-	jzon_add_int(jfstats, "audioPacketsReceived", stats.packets.audio_rx);
-	jzon_add_int(jfstats, "audioPacketsSent", stats.packets.audio_tx);
-	jzon_add_int(jfstats, "videoPacketsReceived", stats.packets.video_rx);
-	jzon_add_int(jfstats, "videoPacketsSent", stats.packets.video_tx);
+	jzon_add_int(jfstats, "audioPacketsReceived", stats.packets.audio.rx);
+	jzon_add_int(jfstats, "audioPacketsSent", stats.packets.audio.tx);
+	jzon_add_int(jfstats, "videoPacketsReceived", stats.packets.video.rx);
+	jzon_add_int(jfstats, "videoPacketsSent", stats.packets.video.tx);
 	
 	jzon_print(pf, jfstats);
 
@@ -3307,15 +3307,15 @@ static void quality_handler(void *arg)
 	err = IFLOW_CALLE(ecall->flow, get_stats, &stats);
 
 	if (!err) {
-		uint32_t dloss = (uint32_t)stats.packets.lost_rx;
+		uint32_t dloss = (uint32_t)stats.packets.lost.rx;
 		uint32_t rtt = (uint32_t)stats.rtt;
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall, 
 			      ecall->userid_peer,
 			      ecall->clientid_peer,
 			      (int)stats.rtt,
-			      (int)stats.packets.lost_tx,
-			      (int)stats.packets.lost_rx,
+			      (int)stats.packets.lost.tx,
+			      (int)stats.packets.lost.rx,
 			      ecall->icall.arg);
 
 		ecall->metrics.m.packetloss_last = dloss;

@@ -38,20 +38,21 @@ enum stats_cand {
 	STATS_CAND_RELAY     = 4,
 };
 
+struct stats_rx_tx {
+	uint32_t rx;
+	uint32_t tx;
+};
+
+// jitter in ms
 struct stats_jitter {
-	float audio_rx;
-	float audio_tx;
-	float video_rx;
-	float video_tx;
+	struct stats_rx_tx audio;
+	struct stats_rx_tx video;
 };
 
 struct stats_packet_counts {
-	uint32_t audio_rx;
-	uint32_t audio_tx;
-	uint32_t video_rx;
-	uint32_t video_tx;
-	uint32_t lost_rx;
-	uint32_t lost_tx;
+	struct stats_rx_tx audio;
+	struct stats_rx_tx video;
+	struct stats_rx_tx lost;
 };
 
 struct stats_report {

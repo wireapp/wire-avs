@@ -207,25 +207,25 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 		struct stats_inbound_rtp* data = (struct stats_inbound_rtp*)le->data;
 
 		if (data->kind == STATS_KIND_AUDIO) {
-			stats->report.packets.audio_rx += data->packets_received;
-			stats->report.jitter.audio_rx = fmax(stats->report.jitter.audio_rx, data->jitter);
+			stats->report.packets.audio.rx += data->packets_received;
+			stats->report.jitter.audio.rx = max(stats->report.jitter.audio.rx, (1000 * data->jitter));
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
-			stats->report.packets.video_rx += data->packets_received;
-			stats->report.jitter.video_rx = fmax(stats->report.jitter.video_rx, data->jitter);
+			stats->report.packets.video.rx += data->packets_received;
+			stats->report.jitter.video.rx = max(stats->report.jitter.video.rx, (1000 * data->jitter));
 		}
 
-		stats->report.packets.lost_rx += data->packets_lost;
+		stats->report.packets.lost.rx += data->packets_lost;
 	}
 
 	LIST_FOREACH(&stats_obj->outbound_rtp, le) {
 		struct stats_outbound_rtp* data = (struct stats_outbound_rtp*)le->data;
 
 		if (data->kind == STATS_KIND_AUDIO) {
-			stats->report.packets.audio_tx += data->packets_sent;
+			stats->report.packets.audio.tx += data->packets_sent;
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
-			stats->report.packets.video_tx += data->packets_sent;
+			stats->report.packets.video.tx += data->packets_sent;
 		}
 	}
 
@@ -233,13 +233,13 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 		struct stats_remote_inbound_rtp* data = (struct stats_remote_inbound_rtp*)le->data;
 
 		if (data->kind == STATS_KIND_AUDIO) {
-			stats->report.jitter.audio_tx = fmax(stats->report.jitter.audio_tx, data->jitter);
+			stats->report.jitter.audio.tx = max(stats->report.jitter.audio.tx, (1000 * data->jitter));
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
-			stats->report.jitter.video_tx = fmax(stats->report.jitter.video_tx, data->jitter);
+			stats->report.jitter.video.tx = max(stats->report.jitter.video.tx, (1000 * data->jitter));
 		}
 
-		stats->report.packets.lost_tx += data->packets_lost;
+		stats->report.packets.lost.tx += data->packets_lost;
 	}
 
 	return 0;
@@ -330,129 +330,103 @@ int stats_alloc(struct avs_stats **statsp, void *arg)
 
 static struct stats_inbound_rtp* parse_inbound_rtp(struct json_object *jitem)
 {
-	const char* kind_str = NULL;
-
-	kind_str = jzon_str(jitem, "kind");
-	enum stats_kind kind = stats_parse_kind(kind_str);
-	int packets_received = 0;
-	jzon_int(&packets_received, jitem, "packetsReceived");
-	int packets_lost = 0;
-	jzon_int(&packets_lost, jitem, "packetsLost");
-	double jitter = 0.0;
-	jzon_double(&jitter, jitem, "jitter");
-	
 	struct stats_inbound_rtp* data;
 	data = mem_zalloc(sizeof(*data), NULL);
+	memset(data, 0, sizeof(*data));
 
-	data->kind = kind;
-	data->packets_received = packets_received;
-	data->packets_lost = packets_lost;
-	data->jitter = jitter;
+	const char* kind_str = NULL;
+	kind_str = jzon_str(jitem, "kind");
+	data->kind = stats_parse_kind(kind_str);
+
+	jzon_int(&data->packets_received, jitem, "packetsReceived");
+	jzon_int(&data->packets_lost, jitem, "packetsLost");
+	jzon_double(&data->jitter, jitem, "jitter");
 
 	return data;
 }
 
 static struct stats_outbound_rtp* parse_outbound_rtp(struct json_object *jitem)
 {
-	const char* kind_str = NULL;
-
-	kind_str = jzon_str(jitem, "kind");
-	enum stats_kind kind = stats_parse_kind(kind_str);
-	int packets_sent = 0;
-	jzon_int(&packets_sent, jitem, "packetsSent");
-
 	struct stats_outbound_rtp* data;
 	data = mem_zalloc(sizeof(*data), NULL);
+	memset(data, 0, sizeof(*data));
 
-	data->kind = kind;
-	data-> packets_sent = packets_sent;
+	const char* kind_str = NULL;
+	kind_str = jzon_str(jitem, "kind");
+	data->kind = stats_parse_kind(kind_str);
+
+	jzon_int(&data->packets_sent, jitem, "packetsSent");
 
 	return data;
 }
 
 static struct stats_remote_inbound_rtp* parse_remote_inbound_rtp(struct json_object *jitem)
 {
-	const char* kind_str = NULL;
-
-	kind_str = jzon_str(jitem, "kind");
-	enum stats_kind kind = stats_parse_kind(kind_str);
-	int packets_lost = 0;
-	jzon_int(&packets_lost, jitem, "packetsLost");
-	double jitter = 0.0;
-	jzon_double(&jitter, jitem, "jitter");
-
 	struct stats_remote_inbound_rtp* data;
 	data = mem_zalloc(sizeof(*data), NULL);
+	memset(data, 0, sizeof(*data));
 
-	data->kind = kind;
-	data->packets_lost = packets_lost;
-	data->jitter = jitter;
+	const char* kind_str = NULL;
+	kind_str = jzon_str(jitem, "kind");
+	data->kind = stats_parse_kind(kind_str);
+
+	jzon_int(&data->packets_lost, jitem, "packetsLost");
+	jzon_double(&data->jitter, jitem, "jitter");
 
 	return data;
 }
 
-static struct stats_audio_source *parse_audio_source(struct json_object *jitem) {
-
-	double level = 0.0;
-	if (jzon_double(&level, jitem, "audioLevel")) {
-		return NULL;
-	}
-	
+static struct stats_audio_source *parse_audio_source(struct json_object *jitem)
+{
 	struct stats_audio_source *data;
 	data = mem_zalloc(sizeof(*data), NULL);
-	data->level = level;
+	memset(data, 0, sizeof(*data));
+
+	jzon_double(&data->level, jitem, "audioLevel");
 
 	return data;
 }
 
-static struct stats_candidate_pair *stats_parse_candidate_pair(struct json_object *jitem)
+static struct stats_candidate_pair *parse_candidate_pair(struct json_object *jitem)
 {
 	const char *state_str = NULL;
 	const char *local_candidate_id_str = NULL;
 
-	state_str = jzon_str(jitem, "state");
-	enum stats_state state = stats_parse_state(state_str);
-	bool nominated = false;
-	jzon_bool(&nominated, jitem, "nominated");
-	double rtt = 0.0;
-	jzon_double(&rtt, jitem, "currentRoundTripTime");
-
 	struct stats_candidate_pair *data;
 	data = mem_zalloc(sizeof(*data), candidate_pair_destructor);
+	memset(data, 0, sizeof(*data));
+
+	state_str = jzon_str(jitem, "state");
+	data->state = stats_parse_state(state_str);
+	jzon_bool(&data->nominated, jitem, "nominated");
+	jzon_double(&data->current_rtt, jitem, "currentRoundTripTime");
 
 	local_candidate_id_str = jzon_str(jitem, "localCandidateId");
 	if (local_candidate_id_str) {
-			str_dup(&data->local_candidate_id, local_candidate_id_str);
+		str_dup(&data->local_candidate_id, local_candidate_id_str);
 	}
-
-	data->state = state;
-	data->nominated = nominated;
-	data->current_rtt = rtt;
 
 	return data;
 }
 
 static struct stats_local_candidate *parse_local_candidate(struct json_object *jitem)
 {
+	struct stats_local_candidate *data;
+	data = mem_zalloc(sizeof(*data),local_candidate_destructor);
+
 	const char* id_str = NULL;
 	const char* proto_str = NULL;
 	const char* cand_str = NULL;
 
 	proto_str = jzon_str(jitem, "protocol");
-	enum stats_proto proto = stats_parse_poto(proto_str);
+	data->proto = stats_parse_poto(proto_str);
 	cand_str = jzon_str(jitem, "candidateType");
-	enum stats_cand cand = stats_parse_cand(cand_str);
-
-	struct stats_local_candidate *data;
-	data = mem_zalloc(sizeof(*data),local_candidate_destructor);
+	data->cand = stats_parse_cand(cand_str);
 
 	id_str = jzon_str(jitem, "id");
 	if (id_str) {
 		str_dup(&data->id, id_str);
 	}
-
-	data->proto = proto;
-	data->cand = cand;
 
 	return data;
 }
@@ -460,23 +434,24 @@ static struct stats_local_candidate *parse_local_candidate(struct json_object *j
 static int parse_json(const char *report, struct stats_obj* stats_obj) {
 	const char* type_str = NULL;
 	const char* kind_str = NULL;
+	int err = 0;
 
 	if (!report || !stats_obj) {
 		return EINVAL;
 	}
 
 	struct json_object *jobj;
-	int err = jzon_decode(&jobj, report, strlen(report));
+	err = jzon_decode(&jobj, report, strlen(report));
 	if (err) {
-		return EINVAL;
+		return EPROTO;
 	}
 
 	// jzon_dump(jobj);
 
 	// we expect json array as root
 	if (!jzon_is_array(jobj)) {
-		mem_deref(jobj);
-		return EINVAL;
+		err = EINVAL;
+		goto out;
 	}
 
 	int items = json_object_array_length(jobj);
@@ -500,22 +475,28 @@ static int parse_json(const char *report, struct stats_obj* stats_obj) {
 				irp = parse_inbound_rtp(jitem);
 				if (irp) {
 					list_append(&stats_obj->inbound_rtp, &irp->le, irp);
-				}}
+				}
+			}
 				break;
+
 			case STATS_TYPE_OUTBOUND_RTP: {
 				struct stats_outbound_rtp* orp = NULL;
 				orp = parse_outbound_rtp(jitem);
 				if (orp) {
 					list_append(&stats_obj->outbound_rtp, &orp->le, orp);
-				}}
+				}
+			}
 				break;
+
 			case STATS_TYPE_REMOTE_INBOUND_RTP: {
 				struct stats_remote_inbound_rtp* rirp = NULL;
 				rirp = parse_remote_inbound_rtp(jitem);
 				if (rirp) {
 					list_append(&stats_obj->remote_inbound_rtp, &rirp->le, rirp);
-				}}
+				}
+			}
 				break;
+
 			case STATS_TYPE_MEDIA_SOURCE: {
 				kind_str = NULL;
 				kind_str = jzon_str(jitem, "kind");
@@ -526,24 +507,29 @@ static int parse_json(const char *report, struct stats_obj* stats_obj) {
 					asp = parse_audio_source(jitem);
 					if (asp) {
 						list_append(&stats_obj->audio_source, &asp->le, asp);
-					}}
-					continue;
+					}
 				}
+			}
 				break;
+
 			case STATS_TYPE_CANDIDATE_PAIR: {
 				struct stats_candidate_pair* cp = NULL;
-				cp = stats_parse_candidate_pair(jitem);
+				cp = parse_candidate_pair(jitem);
 				if (cp) {
 					list_append(&stats_obj->candidate_pair, &cp->le, cp);
-				}}
+				}
+			}
 				break;
+
 			case STATS_TYPE_LOCAL_CANDIDATE: {
 				struct stats_local_candidate* lc = NULL;
 				lc = parse_local_candidate(jitem);
 				if (lc) {
 					list_append(&stats_obj->local_candidate, &lc->le, lc);
-				}}
+				}
+			}
 				break;
+
 			default:
 				break;
 		}
@@ -551,8 +537,10 @@ static int parse_json(const char *report, struct stats_obj* stats_obj) {
 		mem_deref(jitem);
 	}
 
+out:
 	mem_deref(jobj);
-	return 0;
+
+	return err;
 }
 
 int stats_update(struct avs_stats *stats, const char *report_json)
