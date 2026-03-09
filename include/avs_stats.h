@@ -62,7 +62,7 @@ struct stats_report {
 	struct stats_packet_counts packets;
 	int audio_level;
 	int audio_level_smooth;
-	float rtt;
+	int rtt;
 };
 
 int stats_alloc(struct avs_stats **statsp, void *arg);

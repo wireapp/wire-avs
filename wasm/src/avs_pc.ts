@@ -2597,13 +2597,22 @@ function pc_GetLocalStats(hnd: number) {
     });
 
     rtc.getStats()
+    // let report_json = JSON.stringify(stats);  !This does not work
 	.then((stats) => {
-            let report_json = JSON.stringify(stats);
+      let report = '[';
+      stats.forEach(stat => {
+        report += JSON.stringify(stat);
+        report += ',';
+      })
+      report = report.replace(/,$/, '')
+      report += ']'
+      console.log(" WPP-2394 report ", report);
+
 	    em_module.ccall(
 		"pc_set_stats", null,
 		["number", "string"],
 		[
-		    pc.self, report_json
+		    pc.self, report
 		]
 	    );
 	}).catch((err) => pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: failed hnd=${hnd} err=${err}`, err));

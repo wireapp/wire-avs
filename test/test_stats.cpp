@@ -22,6 +22,7 @@
 #include "api/stats/rtcstats_objects.h"
 
 #include <gtest/gtest.h>
+#include <fstream>
 
 using namespace webrtc;
 
@@ -365,7 +366,7 @@ public:
 
 protected:
 	RTCIceCandidatePairStats* candidate_pair;
-	const float zero_rtt = 0.0;
+	const int zero_rtt = 0;
 };
 
 TEST_F(StatsRtt, without_candidates)
@@ -373,7 +374,7 @@ TEST_F(StatsRtt, without_candidates)
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	EXPECT_FLOAT_EQ(sr.rtt, zero_rtt);
+	EXPECT_EQ(sr.rtt, zero_rtt);
 }
 
 TEST_F(StatsRtt, unsucceeded_candidates)
@@ -383,7 +384,7 @@ TEST_F(StatsRtt, unsucceeded_candidates)
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	EXPECT_FLOAT_EQ(sr.rtt, zero_rtt);
+	EXPECT_EQ(sr.rtt, zero_rtt);
 }
 
 TEST_F(StatsRtt, unnominated_candidates)
@@ -394,26 +395,45 @@ TEST_F(StatsRtt, unnominated_candidates)
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	EXPECT_FLOAT_EQ(sr.rtt, zero_rtt);
+	EXPECT_EQ(sr.rtt, zero_rtt);
 }
 
 TEST_F(StatsRtt, some_rtt_values)
 {
-	const auto expected_rtt = 0.01;
+	const auto expected_rtt = 10;
 
 	candidate_pair->state = "succeeded";
 	candidate_pair->nominated = true;
-	candidate_pair->current_round_trip_time = expected_rtt;
+	candidate_pair->current_round_trip_time = 0.01;
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	EXPECT_FLOAT_EQ(sr.rtt, expected_rtt);
+	EXPECT_EQ(sr.rtt, expected_rtt);
 }
+
+TEST_F(StatsRtt, some_rtt_values_with_transport)
+{
+	const auto expected_rtt = 10;
+
+	candidate_pair->state = "succeeded";
+	candidate_pair->nominated = true;
+	candidate_pair->current_round_trip_time = 0.01;
+
+	auto transport = new RTCTransportStats("someTransportId", Timestamp::Zero());
+	transport->selected_candidate_pair_id = candidate_pair->id();
+	report->AddStats(std::unique_ptr<RTCStats>(transport));
+
+	stats_update(stats, report->ToJson().c_str());
+	stats_get_report(stats, &sr);
+
+	EXPECT_EQ(sr.rtt, expected_rtt);
+}
+
 
 // ----------------------------------------- Sample Json from Web ----------------------------------
 
-TEST(StatsSamples, sample_web)
+TEST(StatsSamples, single_item_from_web)
 {
 	std::string sample_json = "[";
 	sample_json.append("{\"id\":\"OTaudio1A3928733473\",\"timestamp\":1772636175216.103,"
@@ -439,5 +459,3 @@ TEST(StatsSamples, sample_web)
 	expected_report.packets.audio.tx = 16;
 	EXPECT_EQ(sr,expected_report);
 }
-
-// ToDo: Get a full sample from web and use as a test case

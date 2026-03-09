@@ -47,6 +47,7 @@
 
 #define WCALL_VALID(_wcall) ((_wcall) && (_wcall)->inst && wcall_valid(_wcall))
 
+// Do we have a better place to move the following helpers?
 static const char* PEER_USER_STR = "User";
 static const char* PEER_SERVER_STR = "Server";
 static const char* PEER_UNKNOWN_STR = "Unknown";

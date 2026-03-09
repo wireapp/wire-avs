@@ -52,6 +52,7 @@ enum stats_type {
 	STATS_TYPE_MEDIA_SOURCE,
 	STATS_TYPE_CANDIDATE_PAIR,
 	STATS_TYPE_LOCAL_CANDIDATE,
+	STATS_TYPE_TRANSPORT,
 };
 
 static enum stats_type stats_parse_type(const char *type)
@@ -77,6 +78,9 @@ static enum stats_type stats_parse_type(const char *type)
 	}
 	else if (streq(type, "local-candidate")) {
 		return STATS_TYPE_LOCAL_CANDIDATE;
+	}
+	else if (streq(type, "transport")) {
+		return STATS_TYPE_TRANSPORT;
 	}
 	else { 
 		return STATS_TYPE_UNKNOWN;
@@ -155,13 +159,15 @@ struct stats_candidate_pair {
 	enum stats_state state;
 	bool nominated;
 	double current_rtt;
-	char* local_candidate_id;
+	char *id;
+	char *local_candidate_id;
 	struct le le;
 };
 
 static void candidate_pair_destructor(void *arg)
 {
 	struct stats_candidate_pair *item = arg;
+	mem_deref(item->id);
 	mem_deref(item->local_candidate_id);
 }
 
@@ -178,6 +184,17 @@ static void local_candidate_destructor(void *arg)
 	mem_deref(item->id);
 }
 
+struct stats_transport {
+	char *selected_pair_id;
+	struct le le;
+};
+
+static void transport_destructor(void *arg)
+{
+	struct stats_transport *item = arg;
+	mem_deref(item->selected_pair_id);
+}
+
 struct stats_obj {
 	struct list audio_source;
 	struct list inbound_rtp;
@@ -185,6 +202,7 @@ struct stats_obj {
 	struct list remote_inbound_rtp;
 	struct list candidate_pair;
 	struct list local_candidate;
+	struct list transport;
 };
 
 struct avs_stats {
@@ -208,11 +226,11 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 
 		if (data->kind == STATS_KIND_AUDIO) {
 			stats->report.packets.audio.rx += data->packets_received;
-			stats->report.jitter.audio.rx = max(stats->report.jitter.audio.rx, (1000 * data->jitter));
+			stats->report.jitter.audio.rx = max(stats->report.jitter.audio.rx, (1000.0 * data->jitter));
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
 			stats->report.packets.video.rx += data->packets_received;
-			stats->report.jitter.video.rx = max(stats->report.jitter.video.rx, (1000 * data->jitter));
+			stats->report.jitter.video.rx = max(stats->report.jitter.video.rx, (1000.0 * data->jitter));
 		}
 
 		stats->report.packets.lost.rx += data->packets_lost;
@@ -249,19 +267,39 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 {
 	struct le *le = NULL;
 	const char* connected_local_candidate_id = NULL;
+	const char* selected_pair_id = NULL;
 
 	if (!stats || !stats_obj) {
 		return EINVAL;
 	}
 
+	// First check if there is a "transport" report that should have selected pair
+	le = list_head(&stats_obj->transport);
+	if (le) {
+		struct stats_transport *head = (struct stats_transport*)le->data;
+		selected_pair_id = head->selected_pair_id;
+		printf("selected pair %s\n", selected_pair_id);
+	}
+
+	// When we have a "transport" report search selected pair, else
+	// search a connected pair (which is succeeded and nominated)
 	LIST_FOREACH(&stats_obj->candidate_pair, le) {
 		struct stats_candidate_pair* data = (struct stats_candidate_pair*)le->data;
 
-		if (data->nominated && (data->state == STATS_STATE_SUCCEEDED)) {
-			stats->report.rtt = fmax(stats->report.rtt, data->current_rtt);
-
-			if (data->local_candidate_id) {
+		if (selected_pair_id) {
+			if (data->id && streq(selected_pair_id, data->id)) {
+				stats->report.rtt = max(stats->report.rtt, (1000 * data->current_rtt));
 				connected_local_candidate_id = data->local_candidate_id;
+				break;
+			}
+		}
+		else {
+			// we will try to find connected pair without "transport" info
+			if (data->nominated && (data->state == STATS_STATE_SUCCEEDED)) {
+				stats->report.rtt = max(stats->report.rtt, (1000 * data->current_rtt));
+				if (data->local_candidate_id) {
+					connected_local_candidate_id = data->local_candidate_id;
+				}
 			}
 		}
 	}
@@ -330,11 +368,12 @@ int stats_alloc(struct avs_stats **statsp, void *arg)
 
 static struct stats_inbound_rtp* parse_inbound_rtp(struct json_object *jitem)
 {
+	const char* kind_str = NULL;
+
 	struct stats_inbound_rtp* data;
 	data = mem_zalloc(sizeof(*data), NULL);
 	memset(data, 0, sizeof(*data));
 
-	const char* kind_str = NULL;
 	kind_str = jzon_str(jitem, "kind");
 	data->kind = stats_parse_kind(kind_str);
 
@@ -347,11 +386,12 @@ static struct stats_inbound_rtp* parse_inbound_rtp(struct json_object *jitem)
 
 static struct stats_outbound_rtp* parse_outbound_rtp(struct json_object *jitem)
 {
+	const char* kind_str = NULL;
+
 	struct stats_outbound_rtp* data;
 	data = mem_zalloc(sizeof(*data), NULL);
 	memset(data, 0, sizeof(*data));
 
-	const char* kind_str = NULL;
 	kind_str = jzon_str(jitem, "kind");
 	data->kind = stats_parse_kind(kind_str);
 
@@ -362,11 +402,12 @@ static struct stats_outbound_rtp* parse_outbound_rtp(struct json_object *jitem)
 
 static struct stats_remote_inbound_rtp* parse_remote_inbound_rtp(struct json_object *jitem)
 {
+	const char* kind_str = NULL;
+
 	struct stats_remote_inbound_rtp* data;
 	data = mem_zalloc(sizeof(*data), NULL);
 	memset(data, 0, sizeof(*data));
 
-	const char* kind_str = NULL;
 	kind_str = jzon_str(jitem, "kind");
 	data->kind = stats_parse_kind(kind_str);
 
@@ -390,6 +431,7 @@ static struct stats_audio_source *parse_audio_source(struct json_object *jitem)
 static struct stats_candidate_pair *parse_candidate_pair(struct json_object *jitem)
 {
 	const char *state_str = NULL;
+	const char *id_str = NULL;
 	const char *local_candidate_id_str = NULL;
 
 	struct stats_candidate_pair *data;
@@ -401,6 +443,11 @@ static struct stats_candidate_pair *parse_candidate_pair(struct json_object *jit
 	jzon_bool(&data->nominated, jitem, "nominated");
 	jzon_double(&data->current_rtt, jitem, "currentRoundTripTime");
 
+	id_str = jzon_str(jitem, "id");
+	if (id_str) {
+		str_dup(&data->id, id_str);
+	}
+
 	local_candidate_id_str = jzon_str(jitem, "localCandidateId");
 	if (local_candidate_id_str) {
 		str_dup(&data->local_candidate_id, local_candidate_id_str);
@@ -411,12 +458,12 @@ static struct stats_candidate_pair *parse_candidate_pair(struct json_object *jit
 
 static struct stats_local_candidate *parse_local_candidate(struct json_object *jitem)
 {
-	struct stats_local_candidate *data;
-	data = mem_zalloc(sizeof(*data),local_candidate_destructor);
-
 	const char* id_str = NULL;
 	const char* proto_str = NULL;
 	const char* cand_str = NULL;
+
+	struct stats_local_candidate *data;
+	data = mem_zalloc(sizeof(*data),local_candidate_destructor);
 
 	proto_str = jzon_str(jitem, "protocol");
 	data->proto = stats_parse_poto(proto_str);
@@ -426,6 +473,21 @@ static struct stats_local_candidate *parse_local_candidate(struct json_object *j
 	id_str = jzon_str(jitem, "id");
 	if (id_str) {
 		str_dup(&data->id, id_str);
+	}
+
+	return data;
+}
+
+static struct stats_transport *parse_transport(struct json_object *jitem)
+{
+	const char *id_str = NULL;
+
+	struct stats_transport *data;
+	data = mem_zalloc(sizeof(*data),transport_destructor);
+
+	id_str = jzon_str(jitem, "selectedCandidatePairId");
+	if (id_str) {
+		str_dup(&data->selected_pair_id, id_str);
 	}
 
 	return data;
@@ -530,6 +592,15 @@ static int parse_json(const char *report, struct stats_obj* stats_obj) {
 			}
 				break;
 
+			case STATS_TYPE_TRANSPORT: {
+				struct stats_transport* tr = NULL;
+				tr = parse_transport(jitem);
+				if (tr) {
+					list_append(&stats_obj->transport, &tr->le, tr);
+				}
+			}
+				break;
+
 			default:
 				break;
 		}
@@ -558,6 +629,7 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 							.remote_inbound_rtp = LIST_INIT,
 							.candidate_pair = LIST_INIT,
 							.local_candidate = LIST_INIT,
+							.transport = LIST_INIT,
 						};
 
 	err |= parse_json(report_json, &stats_obj);
@@ -572,6 +644,7 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 	list_flush(&stats_obj.remote_inbound_rtp);
 	list_flush(&stats_obj.candidate_pair);
 	list_flush(&stats_obj.local_candidate);
+	list_flush(&stats_obj.transport);
 
 	return err;
 }
