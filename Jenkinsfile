@@ -96,6 +96,9 @@ pipeline {
                     agent {
                         label 'macos'
                     }
+                    environment {
+                        PATH = "/opt/homebrew/bin:/usr/local/bin:${env.PATH}"
+                    }
                     steps {
                         script {
                             def vcs = checkout([
