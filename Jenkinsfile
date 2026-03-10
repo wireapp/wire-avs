@@ -97,7 +97,7 @@ pipeline {
                         label 'macos'
                     }
                     environment {
-                        PATH = "/opt/homebrew/bin:/usr/local/bin:${env.PATH}"
+                        PATH = "/opt/homebrew/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${env.PATH}"
                     }
                     steps {
                         script {
