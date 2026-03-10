@@ -169,10 +169,10 @@ TEST_F(StatsBase, some_packet_stats)
 	another_video_rtp->packets_received = 19;
 	report->AddStats(std::unique_ptr<RTCStats>(another_video_rtp));
 
-	// an outgoing audio stream with 25 packets
+	// an outgoing audio stream with 26 packets
 	auto outbound_audio_rtp = new RTCOutboundRtpStreamStats("someOutboundAudioRtpId", Timestamp::Zero());
 	outbound_audio_rtp->kind = "audio";
-	outbound_audio_rtp->packets_sent = 25;
+	outbound_audio_rtp->packets_sent = 26;
 	report->AddStats(std::unique_ptr<RTCStats>(outbound_audio_rtp));
 
 	// an outgoing video stream with 24 packets
@@ -198,11 +198,11 @@ TEST_F(StatsBase, some_packet_stats)
 
 	stats_packet_counts expected_packets;
 	expected_packets.audio.rx = 10 + 20;
-	expected_packets.audio.tx = 25;
+	expected_packets.audio.tx = 26;
 	expected_packets.video.rx = 9 + 19;
 	expected_packets.video.tx = 24;
-	expected_packets.lost.rx = 1 + 2 + 3 + 0;
-	expected_packets.lost.tx = 7 + 8;
+	expected_packets.lost.rx = 10; // (1+2+3+0) / (10+20+9+19) * 100 = 10.3;
+	expected_packets.lost.tx = 30; // (7+8) / (26*24) * 100 = 30.0;
 
 	EXPECT_EQ(sr.packets, expected_packets);
 }

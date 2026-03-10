@@ -47,23 +47,18 @@
 
 #define WCALL_VALID(_wcall) ((_wcall) && (_wcall)->inst && wcall_valid(_wcall))
 
-// Do we have a better place to move the following helpers?
-static const char* PEER_USER_STR = "User";
-static const char* PEER_SERVER_STR = "Server";
-static const char* PEER_UNKNOWN_STR = "Unknown";
-
 static const char* peer_to_str(enum icall_conv_type call_type)
 {
 	switch (call_type) {
 	case ICALL_CONV_TYPE_ONEONONE:
 	case ICALL_CONV_TYPE_GROUP:
-		return PEER_USER_STR;
+		return "User";
 	case ICALL_CONV_TYPE_CONFERENCE:
 	case ICALL_CONV_TYPE_CONFERENCE_MLS:
-		return PEER_SERVER_STR;
+		return "Server";
 	default:
 		// This may happen with introducing new ICALL_CONV_TYPE
-		return PEER_UNKNOWN_STR;
+		return "Unknown";
 	}
 }
 

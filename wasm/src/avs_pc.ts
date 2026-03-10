@@ -2597,16 +2597,36 @@ function pc_GetLocalStats(hnd: number) {
     });
 
     rtc.getStats()
-    // let report_json = JSON.stringify(stats);  !This does not work
-	.then((stats) => {
-      let report = '[';
-      stats.forEach(stat => {
+      .then((stats) => {
+        // !This does not work --> let report_json = JSON.stringify(stats);
+        // We need to create json from individual items
+        let report = '[';
+        stats.forEach(stat => {
+
+        // Following information is not handled in avs atm.
+        if ((stat.type === 'inbound-rtp') && (stat.kind === 'video')) {
+          let user_info: UserInfo | null = null
+          if(!!stat.trackIdentifier) {
+            user_info = uinfo_from_video_track_id(pc, stat.trackIdentifier)
+          }
+          if(user_info !== null) {
+            const frame_height = !!stat.frameHeight ? stat?.frameHeight : 0;
+            const frame_width = !!stat.frameWidth ? stat?.frameWidth : 0;
+            if(user_info.frame_width !== frame_width || user_info.frame_height !== frame_height) {
+              user_info.frame_width = frame_width;
+              user_info.frame_height = frame_height;
+              pc_log(LOG_LEVEL_INFO, `pc_user_resolution: label=${user_info.label} ${user_info.userid.substring(0,8)}/${user_info.clientid.substring(0,4)} resolution:${user_info.frame_width}x${user_info.frame_height}`);
+            }
+          }
+        }
+
         report += JSON.stringify(stat);
         report += ',';
       })
+      // remove tailing ',' if any
       report = report.replace(/,$/, '')
       report += ']'
-      console.log(" WPP-2394 report ", report);
+      // console.log("webrtc stats json", report);
 
 	    em_module.ccall(
 		"pc_set_stats", null,
