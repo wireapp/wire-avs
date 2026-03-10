@@ -322,6 +322,7 @@ RUN apt-get install -qqy --no-install-recommends \
 Upload to sonatype
 ------------------
 
+
 To manually upload to sonatype create a local.properties with the following values:
 
 ```
