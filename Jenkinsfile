@@ -94,7 +94,10 @@ pipeline {
                 }
                 stage('macOS') {
                     agent {
-                        label 'built-in'
+                        label 'macos'
+                    }
+                    environment {
+                        PATH = "/opt/homebrew/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${env.PATH}"
                     }
                     steps {
                         script {
@@ -227,7 +230,7 @@ pipeline {
                 axes {
                     axis {
                         name 'AGENT'
-                        values 'built-in', 'linuxbuild'
+                        values 'macos', 'linuxbuild'
                     }
                 }
                 agent {
@@ -322,7 +325,7 @@ pipeline {
         }
 
         success {
-            node( 'built-in' ) {
+            node( 'macos' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
                     wireSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:**\n${changelog}\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
@@ -330,7 +333,7 @@ pipeline {
         }
 
         failure {
-            node( 'built-in' ) {
+            node( 'macos' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
                     wireSend secret: "$jenkinsbot_secret", message: "❌ ${JOB_NAME} #${BUILD_ID} failed\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
