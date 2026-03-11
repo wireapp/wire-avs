@@ -37,6 +37,7 @@ struct icall;
 struct econn_message;
 struct wcall_members;
 struct econn_message;
+struct stats_report;
 
 
 enum icall_call_type {
@@ -220,7 +221,8 @@ typedef void (icall_muted_changed_h)(struct icall *icall, const char *userid,
 typedef void (icall_quality_h)(struct icall *icall,
 			       const char *userid,
 			       const char *clientid,
-			       int rtt, int uploss, int downloss,
+			       struct stats_report stats,
+			       enum icall_conv_type peer,
 			       void *arg);
 typedef void (icall_norelay_h)(struct icall *icall, bool local, void *arg);
 

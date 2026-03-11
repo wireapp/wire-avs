@@ -95,7 +95,7 @@ int  ccall_set_background(struct icall *icall, bool background);
 
 int  ccall_stats(struct re_printf *pf, const struct icall *icall);
 int  ccall_stats_struct(const struct ccall *ccall,
-		        struct iflow_stats *stats);
+		        struct stats_report *stats);
 
 int  ccall_debug(struct re_printf *pf, const struct icall* icall);
 

@@ -204,7 +204,7 @@ struct peerflow {
 
 	} dc;
 
-	struct iflow_stats stats;
+	struct avs_stats *stats;
 
 	/* conf members */
 	struct {
@@ -2186,6 +2186,7 @@ static void pf_destructor(void *arg)
 	mem_deref(pf->clientid_self);
 	mem_deref(pf->clientid_remote);
 	mem_deref(pf->cm);
+	mem_deref(pf->stats);
 
 	list_flush(&pf->cml.list);
 	mem_deref(pf->cml.lock);
@@ -2280,17 +2281,20 @@ static int peerflow_get_aulevel(struct iflow *iflow,
 	struct peerflow *pf = (struct peerflow *)iflow;
 	struct audio_level *aulevel;
 	struct le *le;
+	struct stats_report stats;
 	int err = 0;
 
 	if (!levell)
-		return EINVAL;	
+		return EINVAL;
 
-	if (pf->stats.audio_level > AUDIO_LEVEL_FLOOR ||
-	    pf->stats.audio_level_smooth > 0) {
+	stats_get_report(pf->stats, &stats);
+
+	if (stats.audio_level > AUDIO_LEVEL_FLOOR ||
+	    stats.audio_level_smooth > 0) {
 		err = audio_level_alloc(&aulevel, levell, true,
 					pf->userid_self, pf->clientid_self,
-					pf->stats.audio_level,
-					pf->stats.audio_level_smooth);
+					stats.audio_level,
+					stats.audio_level_smooth);
 	}
 	if (err)
 		goto out;
@@ -2404,6 +2408,10 @@ int peerflow_alloc(struct iflow		**flowp,
 			    peerflow_update_ssrc,
 			    peerflow_debug);
 
+	err = stats_alloc(&pf->stats, pf);
+	if (err) {
+		goto out;
+	}
 	str_dup(&pf->convid, convid);
 	str_dup(&pf->userid_self, userid_self);
 	str_dup(&pf->clientid_self, clientid_self);
@@ -2440,7 +2448,7 @@ int peerflow_alloc(struct iflow		**flowp,
 	list_append(&g_pf.pfl, &pf->le, pf);
 	lock_rel(g_pf.lock);
 
-	pf->netStatsCb = new wire::NetStatsCallback(pf);
+	pf->netStatsCb = new wire::NetStatsCallback(pf, pf->stats);
 
 	tmr_start(&pf->tmr_stats, TMR_STATS_INTERVAL, timer_stats, pf);
  out:
@@ -3272,57 +3280,19 @@ out:
 	return err;
 }
 
-
-void peerflow_set_stats(struct peerflow* pf,
-			int audio_level,
-			uint32_t apkts_recv,
-			uint32_t vpkts_recv,
-			uint32_t apkts_sent,
-			uint32_t vpkts_sent,
-			float downloss,
-			float rtt)
-{
-	uint32_t total_pkts;
-	
-	if (!pf) {
-		return;
-	}
-
-	pf->stats.audio_level = g_pf.audio.muted ? 0 : audio_level;
-	if (g_pf.audio.muted) {
-		if (pf->stats.audio_level_smooth > 0)
-			pf->stats.audio_level_smooth--;
-		else
-			pf->stats.audio_level_smooth = 0;
-	}
-	else if (audio_level > AUDIO_LEVEL_FLOOR)
-		pf->stats.audio_level_smooth = AUDIO_LEVEL_CEIL;
-	else if (pf->stats.audio_level_smooth > 0)
-		pf->stats.audio_level_smooth--;
-	
-	pf->stats.apkts_recv = apkts_recv;
-	pf->stats.vpkts_recv = vpkts_recv;
-	pf->stats.apkts_sent = apkts_sent;
-	pf->stats.vpkts_sent = vpkts_sent;	
-	pf->stats.rtt = rtt;
-
-	total_pkts = apkts_recv + vpkts_recv;
-	if (total_pkts)
-		pf->stats.dloss = (downloss / (float)total_pkts) * 100;
-	else
-		pf->stats.dloss = 0;	
-}
-
 int peerflow_get_stats(struct iflow *flow,
-		       struct iflow_stats *stats)
+		       struct stats_report *stats)
 {
 	struct peerflow *pf = (struct peerflow*)flow;
+	int err = 0;
+	
 	if (!pf || !stats) {
 		return EINVAL;
 	}
 
-	*stats = pf->stats;
-	return 0;
+	err = stats_get_report(pf->stats, stats);
+	
+	return err;
 }
 
 int peerflow_debug(struct re_printf *pf, const struct iflow *flow)
