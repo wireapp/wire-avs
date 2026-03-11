@@ -207,6 +207,39 @@ TEST_F(StatsBase, some_packet_stats)
 	EXPECT_EQ(sr.packets, expected_packets);
 }
 
+TEST_F(StatsBase, audio_should_be_cumulative)
+{
+	// An incoming audio streams with 20 packets and 2 packet loss
+	auto audio_rtp = new RTCInboundRtpStreamStats("someRtpId", Timestamp::Zero());
+	audio_rtp->kind = "audio";
+	audio_rtp->packets_received = 20;
+	audio_rtp->packets_lost = 2;
+	report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
+
+	stats_update(stats, report->ToJson().c_str());
+	stats_get_report(stats, &sr);
+
+	// 20 packets 10% loss
+	EXPECT_EQ(sr.packets.audio.rx, 20);
+	EXPECT_EQ(sr.packets.lost.rx, 10);
+
+
+	// An incoming audio streams with double packets and half packet loss
+	auto new_audio_rtp = new RTCInboundRtpStreamStats("someRtpId", Timestamp::Seconds(10));
+	new_audio_rtp->kind = "audio";
+	new_audio_rtp->packets_received = 20 + 20;
+	new_audio_rtp->packets_lost = 2 + 1;
+	auto new_report = RTCStatsReport::Create(Timestamp::Seconds(10));
+	new_report->AddStats(std::unique_ptr<RTCStats>(new_audio_rtp));
+
+	stats_update(stats, new_report->ToJson().c_str());
+	stats_get_report(stats, &sr);
+
+	// 40 packets 5% loss
+	EXPECT_EQ(sr.packets.audio.rx, 40);
+	EXPECT_EQ(sr.packets.lost.rx, 5);
+}
+
 // ---------------------------------------- Test Audio Level ------------------------------------
 
 TEST_F(StatsBase, audio_level)

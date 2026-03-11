@@ -229,46 +229,40 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 
 	/*
 	  Calculation of packet and loss statistics
-	  1. save old stats into report
-	      stats->last_packets -->  stats->report.packets
-	  2. read new stast from json
-	      0                   -->  stats->last
-	      webrtc json -->  stats->last_packets + stats->report.jitter
-	  3. update report with the interval difference
-	      stats->report = stats->last_packets - stats->report.packets
-	  4. convert loss into percentage
-	      calcualte percentage for stats->report.packets.loss
+	  1. read json stats into report
+	      webrtc json -> stats.report
+	  2. calculate interval percentage for packet loss into tmp variables
+	      loss_tx = calculate_loss_percentage(...)
+	      loss_rx = calculate_loss_percentage(...)
+	  3. save current packet cumulatives into last
+	  4. update report.packet.lost with percentage loss
+	      report-packets-loss = { loss_tx, loss_rx}
 	*/
 
-	// 1. save old stats into report
-	stats->report.packets = stats->last_packets;
-
-	// 2. read new stast from json
-	memset(&stats->last_packets, 0, sizeof(stats->last_packets));
-
+	// 1. read json stats into report
 	LIST_FOREACH(&stats_obj->inbound_rtp, le) {
 		struct stats_inbound_rtp* data = (struct stats_inbound_rtp*)le->data;
 
 		if (data->kind == STATS_KIND_AUDIO) {
-			stats->last_packets.audio.rx += data->packets_received;
+			stats->report.packets.audio.rx += data->packets_received;
 			stats->report.jitter.audio.rx = max(stats->report.jitter.audio.rx, (1000.0 * data->jitter));
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
-			stats->last_packets.video.rx += data->packets_received;
+			stats->report.packets.video.rx += data->packets_received;
 			stats->report.jitter.video.rx = max(stats->report.jitter.video.rx, (1000.0 * data->jitter));
 		}
 
-		stats->last_packets.lost.rx += data->packets_lost;
+		stats->report.packets.lost.rx += data->packets_lost;
 	}
 
 	LIST_FOREACH(&stats_obj->outbound_rtp, le) {
 		struct stats_outbound_rtp* data = (struct stats_outbound_rtp*)le->data;
 
 		if (data->kind == STATS_KIND_AUDIO) {
-			stats->last_packets.audio.tx += data->packets_sent;
+			stats->report.packets.audio.tx += data->packets_sent;
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
-			stats->last_packets.video.tx += data->packets_sent;
+			stats->report.packets.video.tx += data->packets_sent;
 		}
 	}
 
@@ -282,25 +276,26 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 			stats->report.jitter.video.tx = max(stats->report.jitter.video.tx, (1000 * data->jitter));
 		}
 
-		stats->last_packets.lost.tx += data->packets_lost;
+		stats->report.packets.lost.tx += data->packets_lost;
 	}
 
-	// 3. update report with the interval difference 
-	stats->report.packets.audio.tx = stats->last_packets.audio.tx - stats->report.packets.audio.tx;
-	stats->report.packets.audio.rx = stats->last_packets.audio.rx - stats->report.packets.audio.rx;
-	stats->report.packets.video.tx = stats->last_packets.video.tx - stats->report.packets.video.tx;
-	stats->report.packets.video.rx = stats->last_packets.video.rx - stats->report.packets.video.rx;
-	stats->report.packets.lost.tx = stats->last_packets.lost.tx - stats->report.packets.lost.tx;
-	stats->report.packets.lost.rx = stats->last_packets.lost.rx - stats->report.packets.lost.rx;
+	// 2. calculate interval percentage for packet loss into tmp variables
+	uint32_t loss_tx = calculate_loss_percentage(
+		(stats->report.packets.audio.tx - stats->last_packets.audio.tx +
+		stats->report.packets.video.tx - stats->last_packets.video.tx),
+		stats->report.packets.lost.tx - stats->last_packets.lost.tx);
 
-	// 4. convert loss into percentage
-	stats->report.packets.lost.tx = calculate_loss_percentage(
-		stats->report.packets.audio.tx + stats->report.packets.video.tx,
-		stats->report.packets.lost.tx);
+	uint32_t loss_rx = calculate_loss_percentage(
+		(stats->report.packets.audio.rx - stats->last_packets.audio.rx +
+		stats->report.packets.video.rx - stats->last_packets.video.rx),
+		stats->report.packets.lost.rx - stats->last_packets.lost.rx);
 
-	stats->report.packets.lost.rx = calculate_loss_percentage(
-		stats->report.packets.audio.rx + stats->report.packets.video.rx,
-		stats->report.packets.lost.rx);
+	// 3. save current packet cumulatives into last
+	stats->last_packets = stats->report.packets;
+
+	// 4. update report.packet.lost with calculated percentages
+	stats->report.packets.lost.tx = loss_tx;
+	stats->report.packets.lost.rx = loss_rx;
 
 	return 0;
 }
