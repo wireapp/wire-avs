@@ -320,7 +320,6 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 	if (le) {
 		struct stats_transport *head = (struct stats_transport*)le->data;
 		selected_pair_id = head->selected_pair_id;
-		printf("selected pair %s\n", selected_pair_id);
 	}
 
 	// When we have a "transport" report search selected pair, else
