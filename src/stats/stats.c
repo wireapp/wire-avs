@@ -222,6 +222,10 @@ static uint32_t calculate_loss_percentage(uint32_t packets, uint32_t lost) {
 static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_obj* stats_obj)
 {
 	struct le *le = NULL;
+	double audio_jitter = 0;
+	int aj_count = 0;
+	double video_jitter = 0;
+	int vj_count = 0;
 
 	if (!stats || !stats_obj) {
 		return EINVAL;
@@ -231,6 +235,8 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 	  Calculation of packet and loss statistics
 	  1. read json stats into report
 	      webrtc json -> stats.report
+	    1.1 rx jitter calculation is done wrt mean of incoming rtps
+	        that have nonzero received packets.
 	  2. calculate interval percentage for packet loss into tmp variables
 	      loss_tx = calculate_loss_percentage(...)
 	      loss_rx = calculate_loss_percentage(...)
@@ -245,11 +251,17 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 
 		if (data->kind == STATS_KIND_AUDIO) {
 			stats->report.packets.audio.rx += data->packets_received;
-			stats->report.jitter.audio.rx = max(stats->report.jitter.audio.rx, (1000.0 * data->jitter));
+			if (data->packets_received) {
+				audio_jitter += data->jitter;
+				aj_count ++;
+			}
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
 			stats->report.packets.video.rx += data->packets_received;
-			stats->report.jitter.video.rx = max(stats->report.jitter.video.rx, (1000.0 * data->jitter));
+			if (data->packets_received) {
+				video_jitter += data->jitter;
+				vj_count ++;
+			}
 		}
 
 		stats->report.packets.lost.rx += data->packets_lost;
@@ -278,6 +290,10 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 
 		stats->report.packets.lost.tx += data->packets_lost;
 	}
+
+	// 1.1 calcualete rx jitter in ms with taking mean
+	stats->report.jitter.audio.rx = aj_count ? 1000 * (audio_jitter / aj_count) : 0;
+	stats->report.jitter.video.rx = vj_count ? 1000 * (video_jitter / vj_count) : 0;
 
 	// 2. calculate interval percentage for packet loss into tmp variables
 	uint32_t loss_tx = calculate_loss_percentage(
