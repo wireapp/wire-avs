@@ -253,14 +253,14 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 			stats->report.packets.audio.rx += data->packets_received;
 			if (data->packets_received) {
 				audio_jitter += data->jitter;
-				aj_count ++;
+				aj_count++;
 			}
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
 			stats->report.packets.video.rx += data->packets_received;
 			if (data->packets_received) {
 				video_jitter += data->jitter;
-				vj_count ++;
+				vj_count++;
 			}
 		}
 

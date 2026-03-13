@@ -169,7 +169,7 @@ int jzon_double(double *dst, struct json_object *obj, const char *key)
 		break;
 
 	case json_type_int:
-		*dst = json_object_get_int(value);
+		*dst = (double)(json_object_get_int(value));
 		break;
 
 	default:
