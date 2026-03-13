@@ -153,6 +153,9 @@ TEST(jzon, createf_succeeds)
 	ASSERT_EQ(intv, 42);
 	ASSERT_EQ(0, jzon_double(&doublev, jout, "double"));
 	ASSERT_EQ(doublev, 42.);
+	// Reading an integer as double should also be ok
+	ASSERT_EQ(0, jzon_double(&doublev, jout, "int"));
+	ASSERT_EQ(doublev, 42.);
 
 	ASSERT_EQ(0, jzon_bool(&bval, jout, "bool0"));
 	ASSERT_FALSE(bval);

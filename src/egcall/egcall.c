@@ -1029,10 +1029,7 @@ static void noconn_handler(void *arg)
 {
 	struct egcall *egcall = arg;
 
-	struct stats_report stats = {
-		.packets.lost.rx = ICALL_NETWORK_PROBLEM,
-		.packets.lost.tx = ICALL_NETWORK_PROBLEM,
-	};
+	struct stats_report stats = { 0 };
 
 	ICALL_CALL_CB(egcall->icall, qualityh,
 		      &egcall->icall,
