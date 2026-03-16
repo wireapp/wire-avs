@@ -320,32 +320,37 @@ public:
 
 		const auto irrelevant_rtp = new RTCInboundRtpStreamStats("irrelevantRtpId", Timestamp::Zero());
 		irrelevant_rtp->kind = "irrelevant";
-		irrelevant_rtp->jitter = 1.0;
+		irrelevant_rtp->jitter = 1;
+		irrelevant_rtp->packets_received = 1;
 		report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
 
 		const auto audio_rtp = new RTCInboundRtpStreamStats("someAudioRtpId", Timestamp::Zero());
 		audio_rtp->kind = "audio";
 		audio_rtp->jitter = 0.01;
+		audio_rtp->packets_received = 1;
 		report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
 
 		const auto another_audio_rtp = new RTCInboundRtpStreamStats("anotherRtpId", Timestamp::Zero());
 		another_audio_rtp->kind = "audio";
 		another_audio_rtp->jitter = 0.02;
+		another_audio_rtp->packets_received = 1;
 		report->AddStats(std::unique_ptr<RTCStats>(another_audio_rtp));
 
 		const auto video_rtp = new RTCInboundRtpStreamStats("someVideoRtpId", Timestamp::Zero());
 		video_rtp->kind = "video";
 		video_rtp->jitter = 0.025;
+		video_rtp->packets_received = 1;
 		report->AddStats(std::unique_ptr<RTCStats>(video_rtp));
 
 		const auto another_video_rtp = new RTCInboundRtpStreamStats("anotherVideoRtpId", Timestamp::Zero());
 		another_video_rtp->kind = "video";
 		another_video_rtp->jitter = 0.015;
+		another_video_rtp->packets_received = 1;
 		report->AddStats(std::unique_ptr<RTCStats>(another_video_rtp));
 
 		const auto remote_irrelevant_rtp = new RTCRemoteInboundRtpStreamStats("irrelevantRemoteRtpId", Timestamp::Zero());
 		remote_irrelevant_rtp->kind = "irrelevant";
-		remote_irrelevant_rtp->jitter = 1.0;
+		remote_irrelevant_rtp->jitter = 1;
 		report->AddStats(std::unique_ptr<RTCStats>(remote_irrelevant_rtp));
 
 		const auto remote_audio_rtp = new RTCRemoteInboundRtpStreamStats("someRemoteAudioRtpId", Timestamp::Zero());
@@ -370,12 +375,36 @@ TEST_F(StatsJitter, audio_and_video)
 	stats_get_report(stats, &sr);
 
 	stats_jitter expected_jitter;
-	expected_jitter.audio.rx = 20; // max of [0.01, 0.02] * 1000
+	expected_jitter.audio.rx = 15; // mean of [0.01, 0.02] * 1000
 	expected_jitter.audio.tx = 30;
-	expected_jitter.video.rx = 25; // max of [0.025, 0.015] * 1000
+	expected_jitter.video.rx = 20; // mean of [0.025, 0.015] * 1000
 	expected_jitter.video.tx = 40;
 
 	EXPECT_EQ(sr.jitter, expected_jitter);
+}
+
+TEST_F(StatsJitter, zero_packet_rtp)
+{
+	const auto inbound_rtp = new RTCInboundRtpStreamStats("inboundRtpId", Timestamp::Zero());
+	inbound_rtp->kind = "audio";
+	inbound_rtp->jitter = 0.05;
+	inbound_rtp->packets_received = 1;
+	auto report = RTCStatsReport::Create(Timestamp::Zero());
+	report->AddStats(std::unique_ptr<RTCStats>(inbound_rtp));
+
+	const auto zero_packets_inbound_rtp = new RTCInboundRtpStreamStats("zeroInboundRtpId", Timestamp::Zero());
+	zero_packets_inbound_rtp->kind = "audio";
+	zero_packets_inbound_rtp->jitter = 0;
+	report->AddStats(std::unique_ptr<RTCStats>(zero_packets_inbound_rtp));
+
+	stats_update(stats, report->ToJson().c_str());
+	stats_get_report(stats, &sr);
+
+	stats_jitter expected_jitter;
+
+	const auto expected_audio_jitter = 50;
+
+	EXPECT_EQ(sr.jitter.audio.rx, expected_audio_jitter);
 }
 
 // ------------------------------------- RTT Tests --------------------------------------

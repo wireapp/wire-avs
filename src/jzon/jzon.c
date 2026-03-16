@@ -162,10 +162,21 @@ int jzon_double(double *dst, struct json_object *obj, const char *key)
 	if (!json_object_object_get_ex(obj, key, &value))
 		return ENOENT;
 	type = json_object_get_type(value);
-	if (type != json_type_double && type != json_type_int)
+
+	switch (type) {
+	case json_type_double:
+		*dst = json_object_get_double(value);
+		break;
+
+	case json_type_int:
+		*dst = (double)(json_object_get_int(value));
+		break;
+
+	default:
 		return EPROTO;
 
-	*dst = json_object_get_double(value);
+	}
+
 	return 0;
 }
 
