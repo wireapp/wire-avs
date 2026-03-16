@@ -2253,7 +2253,6 @@ int wcall_init(int env)
 #if ENABLE_PEERFLOW
 	/* Ensure that Android linker pulls in all wcall symbols */
 	wcall_get_members(WUSER_INVALID_HANDLE, NULL);
-
 	(void)wcall_event_create(NULL, NULL, NULL, NULL, NULL, NULL);
 
 	peerflow_set_funcs();	
@@ -2737,6 +2736,7 @@ out:
 		wuser = WUSER_INVALID_HANDLE;
 	}
 
+	
 	info(APITAG "wcall: create return inst=%p hnd=0x%08X\n",
 	     inst, wuser);
 	
@@ -3039,10 +3039,6 @@ void wcall_i_sft_resp(struct calling_instance *inst,
 }
 
 
-int add_wcall()
-{
-}
-
 void wcall_i_recv_msg(struct calling_instance *inst,
 		      struct econn_message *msg,
 		      uint32_t curr_time,
@@ -3104,20 +3100,48 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 	}
 	
 	if (!wcall) {
-		if (config_needs_update(inst->cfg)) {
-			list_append(&inst->config_updatel, &cup->le, cup);
-			err = 0;
-			goto out;
+		if (msg->msg_type == ECONN_GROUP_START
+		    && econn_message_isrequest(msg)) {
+			err = wcall_add(inst, &wcall, convid,
+					WCALL_CONV_TYPE_GROUP);
 		}
-		else {
-			err = add_wcall(&wcall, inst, convid, conv_type, msg);
+		else if (msg->msg_type == ECONN_GROUP_CHECK
+		    && !econn_message_isrequest(msg)) {
+			err = wcall_add(inst, &wcall, convid,
+					WCALL_CONV_TYPE_GROUP);
+		}
+		else if (msg->msg_type == ECONN_CONF_START
+		    && econn_message_isrequest(msg)) {
+			err = wcall_add(inst, &wcall, convid,
+					conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
+					WCALL_CONV_TYPE_CONFERENCE);
+		}
+		else if (msg->msg_type == ECONN_CONF_CHECK
+		    && !econn_message_isrequest(msg)) {
+			err = wcall_add(inst, &wcall, convid,
+					conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
+					WCALL_CONV_TYPE_CONFERENCE);
+		}
+		else if (econn_is_creator(inst->userid, userid, msg)) {
+			err = wcall_add(inst, &wcall, convid,
+					WCALL_CONV_TYPE_ONEONONE);
+
 			if (err) {
-				warning("wcall: failed to add wcall to instance: %p\n", inst);
-				err = ENOSYS;
+				warning("wcall(%p): recv_msg: wcall_add "
+					"failed: %m\n", wcall, err);
 				goto out;
 			}
 		}
+		else {
+			err = EPROTO;
+		}
+		if (err) {
+			warning("wcall(%p): recv_msg: could not add call: "
+				"%m\n", wcall, err);
+			goto out;
+		}
 	}
+
 
 	err = ICALL_CALLE(wcall->icall, msg_recv,
 			  curr_time, msg_time, userid, clientid, msg);
