@@ -728,22 +728,6 @@ void mm_android_jni_on_media_category_changed(enum mediamgr_state state, void *a
     jni_detach(&jni_env);
 }
 
-static void audio_focus(void)
-{
-    struct jni_env jni_env;
-    
-    debug("mm_platform_android: audio_focus\n");
-    
-    if(jni_attach(&jni_env)) {
-	    error("mm_platform_android: audio_focus attach failed\n");
-	    return;
-    }
-    (*jni_env.env)->CallVoidMethod(jni_env.env, java.mm,
-				   java.mmOnAudioFocus);
-    
-    jni_detach(&jni_env);
-}
-
 static void enter_call(void)
 {
     struct jni_env jni_env;
@@ -767,11 +751,6 @@ static void enter_call(void)
 
 void mm_platform_incoming(void)
 {
-	audio_focus();
-
-	if (mm_platform_get_route() == MEDIAMGR_AUPLAY_EARPIECE)
-		mm_platform_enable_speaker_internal(false);
-
 	mediamgr_sys_incoming(java.mediamgr);
 }
 

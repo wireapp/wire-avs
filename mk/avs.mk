@@ -77,6 +77,7 @@ AVS_MODULES += rest
 AVS_MODULES += sdp
 AVS_MODULES += sem
 AVS_MODULES += serial
+AVS_MODULES += stats
 AVS_MODULES += string
 AVS_MODULES += trace
 AVS_MODULES += uuid

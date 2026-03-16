@@ -95,13 +95,13 @@ int  ccall_set_background(struct icall *icall, bool background);
 
 int  ccall_stats(struct re_printf *pf, const struct icall *icall);
 int  ccall_stats_struct(const struct ccall *ccall,
-		        struct iflow_stats *stats);
+		        struct stats_report *stats);
 
 int  ccall_debug(struct re_printf *pf, const struct icall* icall);
 
 int  ccall_activate(struct icall *icall, bool active);
 void ccall_set_duration(struct icall *icall, int duration);
-
+int  ccall_restart(struct icall *icall);
 
 const char *ccall_state_name(enum ccall_state state);
 

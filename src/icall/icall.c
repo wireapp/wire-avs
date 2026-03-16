@@ -44,7 +44,8 @@ void icall_set_functions(struct icall *icall,
 			 icall_stats			*stats,
 			 icall_set_background           *set_background,
 			 icall_activate                 *activate,
-			 icall_set_duration             *set_duration)
+			 icall_set_duration             *set_duration,
+			 icall_restart                  *restart)
 {
 	if (!icall) {
 		warning("icall_set_functions called on NULL icall\n");
@@ -74,6 +75,7 @@ void icall_set_functions(struct icall *icall,
 	icall->set_background           = set_background;
 	icall->activate                 = activate;
 	icall->set_duration             = set_duration;
+	icall->restart                  = restart;
 }
 
 

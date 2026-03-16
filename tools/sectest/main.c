@@ -242,9 +242,9 @@ static bool test_authorisation(void)
 	*/
 	run_main_loop();
 
-	CHECK_GTZ(alice->stats.apkts_recv);
-	CHECK_GTZ(bob->stats.apkts_recv);
-	CHECK_EQZ(eve->stats.apkts_recv);
+	CHECK_GTZ(alice->stats.packets.audio.rx);
+	CHECK_GTZ(bob->stats.packets.audio.rx);
+	CHECK_EQZ(eve->stats.packets.audio.rx);
 out:
 	alice  = (struct ccall_wrapper*)mem_deref(alice);
 	bob  = (struct ccall_wrapper*)mem_deref(bob);

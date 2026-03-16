@@ -104,9 +104,9 @@ void wcall_i_process_notifications(struct calling_instance *inst,
 void wcall_i_set_duration(struct wcall *wcall, int duration);
 
 void wcall_marshal_destroy(struct calling_instance *inst);
-
 int wcall_duration_add(struct calling_instance *inst,
 		       const char *convid,
 		       int duration);
 struct duration_entry *wcall_duration_lookup(struct calling_instance *inst,
 					     const char *convid);
+struct calling_instance *wcall_get_instance(void);

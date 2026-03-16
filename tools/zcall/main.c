@@ -261,7 +261,7 @@ static void event_estab_handler(bool estab, void *arg)
 	output("Websocket event channel established.\n");
 	if (zcall_pending_nw_change) {
 
-		wcall_network_changed(calling3_get_wuser());
+		wcall_network_changed();
 
 		zcall_pending_nw_change = false;
 	}

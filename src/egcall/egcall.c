@@ -613,7 +613,8 @@ int egcall_alloc(struct egcall **egcallp,
 			    egcall_stats,
 			    NULL, // egcall_set_background
 			    NULL, // egcall_activate
-			    NULL);// egcall_set_duration
+			    NULL, // egcall_set_duration
+			    NULL);
 out:
 	if (err == 0) {
 		*egcallp = egcall;
@@ -1027,16 +1028,21 @@ static bool roster_conn_handler(char *key, void *val, void *arg)
 	return ri->audio_state == ICALL_AUDIO_STATE_ESTABLISHED;
 }
 
-
 static void noconn_handler(void *arg)
 {
 	struct egcall *egcall = arg;
+
+	struct stats_report stats = {
+		.packets.lost.rx = ICALL_NETWORK_PROBLEM,
+		.packets.lost.tx = ICALL_NETWORK_PROBLEM,
+	};
 
 	ICALL_CALL_CB(egcall->icall, qualityh,
 		      &egcall->icall,
 		      egcall->userid_self,
 		      egcall->clientid_self,
-		      0, ICALL_NETWORK_PROBLEM, ICALL_NETWORK_PROBLEM,
+			  stats,
+		      ICALL_CONV_TYPE_GROUP,
 		      egcall->icall.arg);
 }
 
@@ -1165,14 +1171,15 @@ out:
 static void ecall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
-				  int rtt, int uploss, int downloss,
+				  struct stats_report stats,
+				  enum icall_conv_type peer,
 				  void *arg)
 {
 	struct egcall *egcall = arg;
 
 	ICALL_CALL_CB(egcall->icall, qualityh,
 		icall, userid, clientid,
-		rtt, uploss, downloss, egcall->icall.arg);
+		stats, peer, egcall->icall.arg);
 }
 
 

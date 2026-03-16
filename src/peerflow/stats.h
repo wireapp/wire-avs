@@ -60,10 +60,9 @@ private:
 class NetStatsCallback : public webrtc::RTCStatsCollectorCallback
 {
 public:
-	NetStatsCallback(struct peerflow* pf) :
+	NetStatsCallback(struct peerflow* pf, struct avs_stats *stats) :
 		pf_(pf),
-		lost_(0),
-		current_stats_(NULL),		
+		stats_(stats),
 		active_(true)
 	{
 		lock_alloc(&lock_);
@@ -73,7 +72,6 @@ public:
 	{
 		setActive(false);
 		mem_deref(lock_);
-		mem_deref(current_stats_);		
 	}
 
 	void setActive(bool active)
@@ -86,123 +84,14 @@ public:
 	void OnStatsDelivered(
 		const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
 	{
-		std::string sstat = report->ToJson();
-		const char *stats = sstat.c_str();
-		char *tmp = NULL;
-		uint32_t apkts_recv = 0, vpkts_recv = 0;
-		uint32_t apkts_sent = 0, vpkts_sent = 0;
-		int err;
+		std::string rstr = report->ToJson();
+		const char *report_json = rstr.c_str();
 
-		err = str_dup(&tmp, stats);
-		if (err)
-			return;
-
-		lock_write_get(lock_);	       		
-		//info("peerflow(%p): OnStatsDelivered err=%d len=%d stats=%s\n", pf_, err, (int)str_len(tmp), stats);
-		mem_deref(current_stats_);
-		current_stats_ = tmp;
-		lock_rel(lock_);
-
-		std::vector<const webrtc::RTCInboundRtpStreamStats*> streamStats =
-			report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>();
-		std::vector<const webrtc::RTCInboundRtpStreamStats*>::iterator it;
-		uint32_t packetsLost = 0;
-
-		for (it = streamStats.begin(); it != streamStats.end(); it++) {
-			const webrtc::RTCInboundRtpStreamStats* s = *it;
-
-			if (s->kind) {
-				if (s->kind == "video") {
-					vpkts_recv += *s->packets_received;
-				}
-				else if (s->kind == "audio") {
-					apkts_recv += *s->packets_received;
-				}
-			}
-			if (s->packets_lost) {
-				packetsLost += *s->packets_lost;
-			}
-		}
-
-		std::vector<const webrtc::RTCOutboundRtpStreamStats*> ostreamStats =
-			report->GetStatsOfType<webrtc::RTCOutboundRtpStreamStats>();
-		std::vector<const webrtc::RTCOutboundRtpStreamStats*>::iterator oit;
-
-		for (oit = ostreamStats.begin(); oit != ostreamStats.end(); oit++) {
-			const webrtc::RTCOutboundRtpStreamStats* s = *oit;
-
-			if (s->kind) {
-				if (s->kind == "video") {
-					vpkts_sent += *s->packets_sent;
-				}
-				else if (s->kind == "audio") {
-					apkts_sent += *s->packets_sent;
-				}
-			}
-		}
-		float downloss = 0.0f;
-
-		downloss = packetsLost - lost_;
-		lost_ = packetsLost;
-		lost_ += packetsLost;
-
-		std::vector<const webrtc::RTCIceCandidatePairStats*> iceStats =
-			report->GetStatsOfType<webrtc::RTCIceCandidatePairStats>();
-		std::vector<const webrtc::RTCIceCandidatePairStats*>::iterator iceIt;
-
-		float rtt = 0.0f;
-
-		for (iceIt = iceStats.begin(); iceIt != iceStats.end(); iceIt++) {
-			const webrtc::RTCIceCandidatePairStats* s = *iceIt;
-			std::string state = *s->state;
-			if (state == "succeeded") {
-				rtt = *s->current_round_trip_time * 1000.0f;
-			}
-		}
-
-		int audio_level = 0;
-		bool found = false;
-		const webrtc::RTCAudioSourceStats *asrc_stats = NULL;
-		for(webrtc::RTCStatsReport::ConstIterator cit = report->begin(); cit != report->end() && !found; cit++) {
-			if (streq(cit->type(), "media-source")) {
-				found = true;
-				const webrtc::RTCStats& cstats = *cit;
-				asrc_stats = (const webrtc::RTCAudioSourceStats *)&cstats;
-			}
-		}
-		if (asrc_stats) {
-			audio_level = (int)(*asrc_stats->audio_level * 255.0);
-		}
-
-		//info("stats: pf(%p) audio_level: %d pl: %.02f rtt: %.02f\n", pf_, audio_level, downloss, rtt);
-		lock_write_get(lock_);
+		lock_write_get(lock_);		
 		if (active_) {
-			peerflow_set_stats(pf_,
-					   audio_level,
-					   apkts_recv,
-					   vpkts_recv,
-					   apkts_sent,
-					   vpkts_sent,
-					   downloss,
-					   rtt);
+			stats_update(stats_, report_json);
 		}
 		lock_rel(lock_);
-	}
-
-	int currentStats(char **stats)
-	{
-		int err;
-		
-		lock_write_get(lock_);
-
-		if (current_stats_)
-			err = str_dup(stats, current_stats_);
-		else
-			err = ENOENT;
-
-		lock_rel(lock_);
-		
-		return err;
 	}
 
 	void AddRef() const {
@@ -215,10 +104,9 @@ public:
 
 private:
 	struct peerflow* pf_;
-	uint32_t lost_;
+	struct avs_stats *stats_;
 	bool active_;
 	struct lock *lock_;
-	char *current_stats_;	
 };
 
 }

@@ -105,10 +105,7 @@ typedef void (wcall_missed_h)(const char *convid, uint32_t msg_time,
 typedef void (wcall_network_quality_h)(const char *convid,
 				       const char *userid,
 				       const char *clientid,
-				       int quality, /*  WCALL_QUALITY_ */
-				       int rtt, /* round trip time in ms */
-				       int uploss, /* upstream pkt loss % */
-				       int downloss, /* dnstream pkt loss % */
+				       const char* quality_info,
 				       void *arg); 
 
 
@@ -416,7 +413,7 @@ void wcall_set_video_handlers(wcall_render_frame_h *render_frame_h,
 			      wcall_video_size_h *size_h,
 			      void *arg);
 
-void wcall_network_changed(WUSER_HANDLE wuser);
+void wcall_network_changed(void);
 
 void wcall_set_group_changed_handler(WUSER_HANDLE wuser,
 				     wcall_group_changed_h *chgh,

@@ -47,8 +47,24 @@
 
 #define WCALL_VALID(_wcall) ((_wcall) && (_wcall)->inst && wcall_valid(_wcall))
 
+static const char* peer_to_str(enum icall_conv_type call_type)
+{
+	switch (call_type) {
+	case ICALL_CONV_TYPE_ONEONONE:
+	case ICALL_CONV_TYPE_GROUP:
+		return "User";
+	case ICALL_CONV_TYPE_CONFERENCE:
+	case ICALL_CONV_TYPE_CONFERENCE_MLS:
+		return "Server";
+	default:
+		// This may happen with introducing new ICALL_CONV_TYPE
+		return "Unknown";
+	}
+}
+
 static struct {
 	bool initialized;
+	bool needs_setup;
 	int env;
 	int flags;
 	struct list instances;
@@ -65,6 +81,7 @@ static struct {
 	int mode;
 } calling = {
 	.initialized = false,
+	.needs_setup = true,
 	.instances = LIST_INIT,
 	.logl = LIST_INIT,
 	.lock = NULL,
@@ -560,6 +577,10 @@ static void icall_start_handler(struct icall *icall,
 	if (inst->processing_notifications && inst->incomingh) {
 		struct incoming_event *ie;
 
+		ie = find_pending_event(&inst->pending_eventl, userid_sender);
+		if (ie) {
+			list_unlink(&ie->le);
+		}
 		ie = mem_zalloc(sizeof(*ie), ie_destructor);
 		if (ie) {
 			str_dup(&ie->convid, wcall->convid);
@@ -802,7 +823,7 @@ static void call_group_change_json(struct calling_instance *inst,
 	char *mjson = NULL;
 	char *anon_json = NULL;
 	int err;
-	
+
 	err = members_json(wcall, &mjson, &anon_json);
 	if (err) {
 		warning("wcall(%p): members_json failed: %m\n",
@@ -1582,11 +1603,11 @@ static void destructor(void *arg)
 	info("wcall(%p): dtor -- done\n", wcall);
 }
 
-
 static void icall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
-				  int rtt, int uploss, int downloss,
+				  struct stats_report stats,
+				  enum icall_conv_type peer,
 				  void *arg)
 {
 	struct wcall *wcall = arg;
@@ -1605,33 +1626,91 @@ static void icall_quality_handler(struct icall *icall,
 	if (!inst->quality.netqh)
 		return;
 
-	if (uploss == ICALL_NETWORK_PROBLEM
-	    && downloss == ICALL_NETWORK_PROBLEM)
+	if (stats.packets.lost.tx == ICALL_NETWORK_PROBLEM
+	    && stats.packets.lost.rx == ICALL_NETWORK_PROBLEM)
 		quality = WCALL_QUALITY_NETWORK_PROBLEM;
-	else if (uploss == ICALL_RECONNECTING
-	    && downloss == ICALL_RECONNECTING)
+	else if (stats.packets.lost.tx == ICALL_RECONNECTING
+	    && stats.packets.lost.rx == ICALL_RECONNECTING)
 		quality = WCALL_QUALITY_RECONNECTING;
-	else if (rtt > 800 || uploss > 20 || downloss > 20)
+	else if (stats.rtt > 800 || stats.packets.lost.tx > 20 || stats.packets.lost.rx > 20)
 		quality = WCALL_QUALITY_POOR;
-	else if (rtt > 400 || uploss > 5 || downloss > 5)
+	else if (stats.rtt > 400 || stats.packets.lost.tx > 5 || stats.packets.lost.rx > 5)
 		quality = WCALL_QUALITY_MEDIUM;
 
-	info(APITAG "wcall(%p): calling netqh:%p %s.%s rtt=%d up=%d dn=%d q=%d\n",
-	     wcall, inst->quality.netqh,
-	     anon_id(userid_anon, userid),
-	     anon_client(clientid_anon, clientid),
-	     rtt, uploss, downloss, quality);
 	now = tmr_jiffies();
+
+	char *quality_info = NULL;
+	struct json_object *jobj = json_object_new_object();
+
+	json_object_object_add(jobj, "quality",
+				json_object_new_int(quality));
+	json_object_object_add(jobj, "rtt",
+				json_object_new_int(stats.rtt));
+
+	struct json_object *loss_jobj = json_object_new_object();
+	json_object_object_add(loss_jobj, "tx",
+				json_object_new_int(stats.packets.lost.tx));
+	json_object_object_add(loss_jobj, "rx",
+				json_object_new_int(stats.packets.lost.rx));
+	json_object_object_add(jobj, "loss", loss_jobj);
+
+	struct json_object *audio_jitter_jobj = json_object_new_object();
+	json_object_object_add(audio_jitter_jobj, "tx",
+				json_object_new_int(stats.jitter.audio.tx));
+	json_object_object_add(audio_jitter_jobj, "rx",
+				json_object_new_int(stats.jitter.audio.rx));
+
+	struct json_object *video_jitter_jobj = json_object_new_object();
+	json_object_object_add(video_jitter_jobj, "tx",
+				json_object_new_int(stats.jitter.video.tx));
+	json_object_object_add(video_jitter_jobj, "rx",
+				json_object_new_int(stats.jitter.video.rx));
+
+	struct json_object *jitter_jobj = json_object_new_object();
+	json_object_object_add(jitter_jobj, "audio", audio_jitter_jobj);
+	json_object_object_add(jitter_jobj, "video", video_jitter_jobj);
+	json_object_object_add(jobj, "jitter", jitter_jobj);
+
+	struct json_object *connection_jobj = json_object_new_object();
+	json_object_object_add(jitter_jobj, "protocol",
+				json_object_new_string(stats_proto_name(stats.proto)));
+	json_object_object_add(jitter_jobj, "candidate",
+				json_object_new_string(stats_cand_name(stats.cand)));
+	json_object_object_add(jobj, "connection", connection_jobj);
+
+	json_object_object_add(jobj, "peer",
+				json_object_new_string(peer_to_str(peer)));
+
+	if (jzon_encode(&quality_info, jobj)) {
+		warning("wcall(%p): can not generate quality information\n", wcall);
+		quality_info = "{}";
+	}
+
+	info(APITAG "wcall(%p): calling netqh:%p %s.%s quality: %s\n",
+				  wcall, inst->quality.netqh,
+				  anon_id(userid_anon, userid),
+				  anon_client(clientid_anon, clientid),
+				  quality_info);
+
 	inst->quality.netqh(wcall->convid,
 			    userid,
 			    clientid,
-			    quality,
-			    rtt,
-			    uploss,
-			    downloss,
+			    quality_info,
 			    inst->quality.arg);
+
+	mem_deref(jobj);
+	mem_deref(quality_info);
+
 	info(APITAG "wcall(%p): netqh:%p (quality=%d) took %llu ms\n",
 	     wcall, inst->quality.netqh, quality, tmr_jiffies() - now);
+
+	if (WCALL_QUALITY_RECONNECTING == quality) {
+		if (wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE
+		    && wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE_MLS
+		    && inst->group.json.chgh) {
+			call_group_change_json(inst, wcall);
+		}
+	}
 }
 
 
@@ -2108,7 +2187,6 @@ void wcall_i_mcat_changed(struct calling_instance *inst,
 	}
 	lock_rel(inst->lock);
 	
-
 	LIST_FOREACH(&wcalls, le) {
 		struct wcall *wcall = we->wcall;
 
@@ -2231,6 +2309,7 @@ int wcall_setup_ex(int flags)
 		return err;
 	}
 
+	calling.needs_setup = false;
 
 	return err;
 }
@@ -3383,10 +3462,10 @@ void wcall_i_set_duration(struct wcall *wcall, int duration)
 }
 
 
-#if 0 /* XXX Disabled for release-3.5 (enable again for proper integration with clients) */
 static bool call_restart_handler(struct le *le, void *arg)
 {
 	struct wcall *wcall = list_ledata(le);
+	int err = 0;
 	
 	(void)arg;
 
@@ -3397,42 +3476,37 @@ static bool call_restart_handler(struct le *le, void *arg)
 		info("wcall(%p): restarting call: %p in conv: %s\n",
 		     wcall, wcall->icall, wcall->convid);
 
-		ecall_restart(wcall->icall);
+		err = ICALL_CALLE(wcall->icall, restart);
+		if (err) {
+			info("wcall(%p): restarting call: %p in conv: %s failed: %m\n",
+			     wcall, wcall->icall, wcall->convid, err);
+		}
 	}
 
 	
 	return false;
 }
-#endif
 
 
-#if 0 /* XXX Disabled for release-3.5 (enable again for proper integration with clients) */
 static void tmr_roaming_handler(void *arg)
 {
-	struct sa laddr;
-	char ifname[64] = "";
-	(void)arg;
-
-	sa_init(&laddr, AF_INET);
-
-	(void)net_rt_default_get(AF_INET, ifname, sizeof(ifname));
-	(void)net_default_source_addr_get(AF_INET, &laddr);
-
-	info("wcall: network_changed: %s|%j\n", ifname, &laddr);
+	struct calling_instance *inst = arg;
 
 	/* Go through all the calls, and restart flows on them */
-	lock_write_get(inst->lock);
-	list_apply(&inst->wcalls, true, call_restart_handler, NULL);
-	lock_rel(inst->lock);
+	list_apply(&inst->wcalls, true, call_restart_handler, inst);
 }
-#endif
 
 
 void wcall_i_network_changed(void)
 {
-	/* Reset the previous timer */
-	//tmr_start(&inst->tmr_roam, 500, tmr_roaming_handler, NULL);
-	info(APITAG "wcall: network_changed\n");
+	struct le *le;
+
+	LIST_FOREACH(&calling.instances, le) {
+		struct calling_instance *inst = le->data;
+
+		info(APITAG "wcall(%p): network_changed\n", inst);
+		tmr_start(&inst->tmr_roam, 500, tmr_roaming_handler, inst);
+	}
 }
 
 
@@ -3997,6 +4071,17 @@ int wcall_set_network_quality_handler(WUSER_HANDLE wuser,
 	inst->quality.interval = (uint64_t)interval * 1000;
 	inst->quality.arg = arg;
 
+	struct le* le;
+	LIST_FOREACH(&inst->wcalls, le) {
+		struct wcall *wcall = le->data;
+
+		if (!wcall)
+			continue;
+
+		ICALL_CALLE(wcall->icall, set_quality_interval
+			, inst->quality.interval);
+	}
+
 	return 0;
 }
 
@@ -4025,7 +4110,9 @@ void wcall_thread_main(int *err, int *initialized)
 	*err = 0;
 	*initialized = 0;
 
-	wcall_setup();
+	if (calling.needs_setup) {
+		wcall_setup();
+	}
 	e = wcall_init(WCALL_ENV_DEFAULT);
 	if (e) {
 		error("wcall_main: failed to init wcall\n");
@@ -4370,6 +4457,8 @@ int wcall_set_background(WUSER_HANDLE wuser, int background)
 	if (!inst)
 		return EINVAL;
 
+	info(APITAG "wcall(%p): set_background: %d\n", inst, background);
+
 	LIST_FOREACH(&inst->wcalls, le) {
 		struct wcall *wcall = le->data;
 
@@ -4440,5 +4529,17 @@ bool wcall_is_ready(struct calling_instance *inst,
 
 	default:
 	       return true;
+	}
+}
+
+struct calling_instance *wcall_get_instance(void)
+{
+	struct le *le = calling.instances.head;
+
+	if (le) {
+		return (struct calling_instance *)le->data;
+	}
+	else {
+		return NULL;
 	}
 }

@@ -20,6 +20,7 @@
 #include <re.h>
 #include "avs_log.h"
 #include "avs_msystem.h"
+#include "avs_stats.h"
 #include "avs_zapi.h"
 #include "avs_base.h"
 #include "avs_keystore.h"

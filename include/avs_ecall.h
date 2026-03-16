@@ -18,7 +18,6 @@
 
 
 struct ecall;
-struct iflow_stats;
 
 struct ecall_conf {
 	struct econn_conf econf;
@@ -71,7 +70,7 @@ int ecall_debug(struct re_printf *pf, const struct ecall *ecall);
 int ecall_stats(struct re_printf *pf, const struct ecall *ecall);
 int ecall_mfdebug(struct re_printf *pf, const struct ecall *ecall);
 int ecall_stats_struct(const struct ecall *ecall,
-		       struct iflow_stats *stats);
+		       struct stats_report *stats);
 int ecall_activate(struct ecall *ecall, bool active);
 
 int ecall_set_background(struct ecall *ecall, bool background);

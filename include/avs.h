@@ -42,6 +42,7 @@ extern "C" {
 #include "avs_conf_pos.h"
 #include "avs_conf_member.h"
 #include "avs_dict.h"
+#include "avs_stats.h"
 #include "avs_jzon.h"
 #include "avs_kase.h"
 #include "avs_log.h"

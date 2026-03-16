@@ -14,5 +14,5 @@ RUN chown -R 1015:1015 /build/avs
 
 ENV PATH="/build/avs/.cargo/bin:${PATH}"
 
-CMD make DIST=1 && build/linux-x86_64/bin/ztest && cp -R build/* /out/
+CMD make DIST=1 && build/linux-x86_64/bin/ztest && build/linux-x86_64/bin/ztest-slow && cp -R build/* /out/
 
