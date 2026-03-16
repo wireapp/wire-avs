@@ -295,7 +295,7 @@ int *pcm_generate_amplitude(const char *path, int max_val,
     FILE *fp;
     int err;
     size_t count;
-    int16_t *samps;
+    int16_t *samps = NULL;
     int *amps = NULL;
     int sec_sz = 0;
     int i;
@@ -311,12 +311,14 @@ int *pcm_generate_amplitude(const char *path, int max_val,
     fsiz = ftell(fp);
     if (0 == fsiz) {
         warning("amplitude: cannot determine file size\n");
+	err = ENOENT;
 	goto out;
     }  
   
     nsamps = fsiz / sizeof(int16_t);
-    if (nsamps == 0) {    
-      //warning("amplitude: 0 samples\n");
+    if (nsamps == 0) {
+        //warning("amplitude: 0 samples\n");
+        err = ENOENT;
 	goto out;
     }
     samps = (int16_t *)mem_alloc(nsamps * sizeof(int16_t), NULL);
@@ -329,8 +331,8 @@ int *pcm_generate_amplitude(const char *path, int max_val,
     rewind(fp);
     count = fread(samps, sizeof(*samps), nsamps, fp);
     if (count != nsamps) {
-      //warning("amplitude: read missmatch: %zu/%zu\n",
-      //	count, nsamps);
+        //warning("amplitude: read missmatch: %zu/%zu\n",
+        //	count, nsamps);
 	err = EPROTO;
 	goto out;
     }
@@ -381,7 +383,8 @@ int *pcm_generate_amplitude(const char *path, int max_val,
 	}
     }
     mem_deref(samps);
-    fclose(fp);
+    if (fp)
+      fclose(fp);
 
     return amps;
 }

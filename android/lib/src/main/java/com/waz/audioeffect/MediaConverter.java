@@ -23,7 +23,6 @@ class MediaConverter {
 	private static final int QUEUE_TIMEOUT = 10000;
 
         private int BUFFER_INPUT_SIZE = 524288; // 524288 Bytes = 0.5 MB
-        private int BUFFER_OVERFLOW = 5000;
     
 	private	MediaFormat mediaFormat = null;
 	private String inPath;
@@ -45,152 +44,177 @@ class MediaConverter {
 		MediaExtractor extractor = new MediaExtractor();
 		MediaCodec decoder = null;
 		FileChannel fc = null;
-		int ret = -1;		
+		int ret = -1;
+		boolean isBuffered = false;
 	
 		try {
-			fc = new FileOutputStream(pcmPath).getChannel();
+		    fc = new FileOutputStream(pcmPath).getChannel();
 			
-			extractor.setDataSource(inPath);
+		    extractor.setDataSource(inPath);
 
-			// select the first audio track in the file
-			int numTracks = extractor.getTrackCount();
-			boolean found = false;
-			String mimeType = null;
-			int i = 0;
+		    // select the first audio track in the file
+		    int numTracks = extractor.getTrackCount();
+		    boolean found = false;
+		    String mimeType = null;
+		    int i = 0;
 
-			while (i < numTracks && !found) {
-				mediaFormat = extractor.getTrackFormat(i);
-				try {
-					mimeType = mediaFormat.getString(MediaFormat.KEY_MIME);
-					if (mimeType.startsWith("audio/")) {
-						found = true;
-					}
-					else {
-						i++;
-					}
+		    while (i < numTracks && !found) {
+			mediaFormat = extractor.getTrackFormat(i);
+			try {
+			    mimeType = mediaFormat.getString(MediaFormat.KEY_MIME);
+			    if (mimeType.startsWith("audio/")) {
+				found = true;
+				isBuffered =
+				    mimeType.contains("m4a")
+				||  mimeType.contains("mpeg");
+				Log.d(TAG, "decode: mime-type=" + mimeType + " isBuffered=" + isBuffered);
+			    }
+			    else {
+				i++;
+			    }
+			}
+			catch (Exception e) {
+			    Log.w(TAG, "decode: no mime type");
+			}
+		    }
+		
+		    if (!found) {
+			Log.e(TAG, "decode: no audio track");
+			return -1;
+		    }
+
+		    try {
+			bitRate = mediaFormat.getInteger(MediaFormat.KEY_BIT_RATE);
+		    }
+		    catch(Exception e) {
+			Log.w(TAG, "decode: bitrate key exception: " + e);
+		    }
+		    try {
+			sampleRate = mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+		    }
+		    catch(Exception e) {
+			Log.w(TAG, "decode: samplerate key exception: " + e);
+		    }
+		    try {
+			channelCount = mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+		    }
+		    catch(Exception e) {
+			Log.w(TAG, "decode: channel count exception: " + e);
+		    }
+
+		    //Log.i(TAG, "decode: mime:" + mimeType + " bitRate=" + bitRate + " on track=" + i);
+			
+		    extractor.selectTrack(i);		
+		    decoder = MediaCodec.createDecoderByType(mimeType);
+
+		    boolean eos = false;
+		    boolean inputDone = false;
+		    boolean finished = false;
+
+		    mediaFormat.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT);
+		    mediaFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, BUFFER_INPUT_SIZE); 
+		    decoder.configure(mediaFormat, null, null, 0);
+		    decoder.start();
+
+		    while(!finished) {
+			if (!eos) {
+			    int idx = decoder.dequeueInputBuffer(QUEUE_TIMEOUT);
+			    //Log.i(TAG, "decode: idx=" + idx);
+			    if (idx >= 0) {
+				ByteBuffer inputBuffer = decoder.getInputBuffer(idx);
+				if (inputBuffer == null) {
+				    Log.i(TAG, "decode: no inputBuffer");
+				    continue;
 				}
-				catch (Exception e) {
-					Log.w(TAG, "decode: no mime type");
-				}
-			}
 
-			
-			if (!found) {
-				Log.e(TAG, "decode: no audio track");
-				return -1;
-			}
+				long sampleTime = 0;
+				int result;
+				int chunkSize = 0;
+				long sampleSize = extractor.getSampleSize();
 
-			try {
-				bitRate = mediaFormat.getInteger(MediaFormat.KEY_BIT_RATE);
-			}
-			catch(Exception e) {
-				Log.w(TAG, "decode: bitrate key exception: " + e);
-			}
-			try {
-				sampleRate = mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
-			}
-			catch(Exception e) {
-				Log.w(TAG, "decode: samplerate key exception: " + e);
-			}
-			try {
-				channelCount = mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
-			}
-			catch(Exception e) {
-				Log.w(TAG, "decode: channel count exception: " + e);
-			}
-			
-			extractor.selectTrack(i);		
-			decoder = MediaCodec.createDecoderByType(mimeType);
+				inputDone = sampleSize <= 0;
+				//Log.i(TAG, "decode: sampleSize=" + sampleSize + " isBuffered=" + isBuffered);
 
-			boolean eos = false;
-			boolean inputDone = false;
-			boolean finished = false;
-
-			mediaFormat.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT);
-			mediaFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, BUFFER_INPUT_SIZE); 
-			decoder.configure(mediaFormat, null, null, 0);
-			decoder.start();
-			while(!finished) {
-				if (!eos) {
-				    int idx = decoder.dequeueInputBuffer(QUEUE_TIMEOUT);
-				    if (idx >= 0) {
-					ByteBuffer inputBuffer = decoder.getInputBuffer(idx);
-					if (inputBuffer == null)
-					    continue;
-
-					long sampleTime = 0;
-					int result;
-					int chunkSize = 0;
-					long sampleSize = extractor.getSampleSize();
-
-					while(chunkSize < (BUFFER_INPUT_SIZE - sampleSize) && !inputDone) {
-					    ByteBuffer tempBuffer = ByteBuffer.allocate((int)sampleSize);
-					    result = extractor.readSampleData(tempBuffer, 0);
-					    if (result < 0) {
-						inputDone = true;
-					    }
-					    else {
-						sampleTime += extractor.getSampleTime();
-						inputBuffer.put(tempBuffer);
-						chunkSize += result;
-						extractor.advance();
-						sampleSize = extractor.getSampleSize();
-						if (sampleSize < 0) {
-						    inputDone = true;
-						}
-					    }
-					}
-					if (chunkSize > 0) {
-					    decoder.queueInputBuffer(idx, 0, chunkSize, sampleTime, 0);
-					}
-					else if (inputDone) {
-					    decoder.queueInputBuffer(idx, 0, 0, -1, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-					    eos = true;
-					}
+				while(chunkSize <= (BUFFER_INPUT_SIZE - sampleSize) && !inputDone) {
+				    ByteBuffer tempBuffer = ByteBuffer.allocate((int)sampleSize);
+				    result = extractor.readSampleData(tempBuffer, 0);
+				    //Log.i(TAG, "decode: result=" + result + " sampleSize=" + sampleSize);
+				    if (result < 0) {
+					inputDone = true;
+				    }
+				    else {
+					sampleTime += extractor.getSampleTime();
+					inputBuffer.put(tempBuffer);
+					chunkSize += result;
+					extractor.advance();
+					if (!isBuffered)
+					    break;
+					sampleSize = extractor.getSampleSize();
+					if (sampleSize <= 0)
+					    inputDone = true;
 				    }
 				}
 
-				MediaCodec.BufferInfo bufInfo = new MediaCodec.BufferInfo();
-
-				int idx = decoder.dequeueOutputBuffer(bufInfo, QUEUE_TIMEOUT);
-				if (idx >= 0) {
-					ByteBuffer outBuf = decoder.getOutputBuffer(idx);
-					if (outBuf != null) {
-						outBuf.rewind();
-
-						fc.write(outBuf);
-						decoder.releaseOutputBuffer(idx, false);
-
-						finished = (bufInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
-					}
+				//Log.i(TAG, "decode: chunkSize=" + chunkSize + " sampleTime=" + sampleTime + " inputDone=" + inputDone);
+				if (chunkSize > 0) {
+				    decoder.queueInputBuffer(idx, 0, chunkSize, sampleTime, 0);
 				}
+				else if (inputDone) {
+				    Log.i(TAG, "decode: done");
+
+				    decoder.queueInputBuffer(idx, 0, 0, -1, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+				    eos = true;
+				}
+			    }
 			}
 
-			ret = 0;
+			MediaCodec.BufferInfo bufInfo = new MediaCodec.BufferInfo();
+
+			int idx = decoder.dequeueOutputBuffer(bufInfo, QUEUE_TIMEOUT);
+			//Log.i(TAG, "decode: output idx=" + idx);
+			if (idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+			    MediaFormat mf = decoder.getOutputFormat();
+			    String mt = mf.getString(MediaFormat.KEY_MIME);
+			    Log.i(TAG, "decode: output format=" + mt);
+			}
+			if (idx >= 0) {
+			    ByteBuffer outBuf = decoder.getOutputBuffer(idx);
+			    if (outBuf != null) {
+				outBuf.rewind();
+				//Log.i(TAG, "decode: output: outBuf len=" + outBuf.remaining());
+				fc.write(outBuf);
+				decoder.releaseOutputBuffer(idx, false);
+				
+				finished = (bufInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+				//Log.i(TAG, "decode: output: outBuf finished=" + finished);
+			    }
+			}
+		    }
+
+		    ret = 0;
 		}
 		catch (Exception e) {
-			Log.e(TAG, "decode: failed with exception: " + e);
+		    Log.e(TAG, "decode: failed with exception: " + e);
 
-			mediaFormat = null;
-			ret = -1;
+		    mediaFormat = null;
+		    ret = -1;
 		}
 		finally {
-			if (decoder != null) {
-				decoder.stop();
-				decoder.release();
+		    if (decoder != null) {
+			decoder.stop();
+			decoder.release();
+		    }
+		    if (extractor != null) {
+			extractor.release();
+		    }
+		    if (fc != null) {
+			try {
+			    fc.close();
 			}
-			if (extractor != null) {
-				extractor.release();
-			}
-			if (fc != null) {
-				try {
-					fc.close();
-				}
-				catch(Exception e) {
-				}
-					
+			catch(Exception e) {
 			}
 			
+		    }
 		}
 
 		return ret;

@@ -199,7 +199,7 @@ JNIEXPORT jint JNICALL Java_com_waz_audioeffect_AudioEffect_applyEffectPCM(JNIEn
 JNIEXPORT jintArray JNICALL Java_com_waz_audioeffect_AudioEffect_amplitudeGenerateSamples(JNIEnv* env, jobject self, jstring jpath, jint max_val, jint max_sz)
 {
     const char *path = env->GetStringUTFChars(jpath, 0);
-    jintArray jamps;
+    jintArray jamps = NULL;
 
     if (!path) {
       return NULL;

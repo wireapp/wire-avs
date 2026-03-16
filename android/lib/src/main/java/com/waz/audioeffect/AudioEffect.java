@@ -170,8 +170,9 @@ public class AudioEffect {
 	      Log.w(TAG, "amplitude decode failed");
 	      return null;
 	  }
-
+	  Log.d(TAG, "amplitude generate samples");
 	  amps = amplitudeGenerateSamples(pcm_file.getAbsolutePath(), max_value, max_size);
+	  Log.d(TAG, "amplitude generate samples done");
       }
       catch (Exception e) {
 	  Log.e(TAG, "amplitudeGenerate failed: " + e);
@@ -182,6 +183,7 @@ public class AudioEffect {
 	      pcm_file.delete();
       }
 
+      Log.d(TAG, "amplitude done");
       return amps;
   }
     

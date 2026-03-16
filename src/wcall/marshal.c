@@ -64,6 +64,7 @@ struct mq_data {
 	struct calling_instance *inst;
 	char *convid;
 	struct le le; /* member of marshaling list */
+	struct le ready_le; /* member of pending ready list */
 	
 	union {
 		struct {
@@ -166,6 +167,8 @@ struct mq_data {
 	        } set_duration;
 	} u;
 };
+
+static struct list g_ready_pendingl = LIST_INIT;
 
 static void md_destructor(void *arg)
 {
@@ -311,6 +314,14 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case WCALL_MEV_START:
+	        if (!wcall_is_ready(md->inst, md->u.start.conv_type)) {
+		        warning("wcall(%p): AVS not ready queueing start\n",
+				md->inst);
+		        list_append(&g_ready_pendingl,
+				    &md->ready_le,
+				    mem_ref(md));
+			break;
+		}
 		if (!wcall) {
 			if (!md->convid) {
 				err = ENOENT;
@@ -345,6 +356,14 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case WCALL_MEV_ANSWER:
+	        if (!wcall_is_ready(md->inst, md->u.start.conv_type)) {
+		        warning("wcall(%p): AVS not ready queueing answer\n",
+				md->inst);
+		        list_append(&g_ready_pendingl,
+				    &md->ready_le,
+				    mem_ref(md));
+			break;
+		}
 		if (!wcall) {
 			err = ENOENT;
 			goto out;
@@ -477,6 +496,26 @@ out:
 		warning("wcall: mqueue_handler error (%m)\n", err);
 
 	mem_deref(md);
+}
+
+void wcall_invoke_ready(struct calling_instance *inst)
+{
+        struct le *le = g_ready_pendingl.head;
+
+	info("wcall(%p): AVS is ready with %d pending events\n",
+	     inst, list_count(&g_ready_pendingl));
+
+	while(le) {
+	        struct mq_data *md = le->data;
+
+		le = le->next;
+		info("wcall_invoke_ready(%p): for inst=%p\n",
+		     inst, md->inst);
+		if (md && md->inst == inst) {
+		       list_unlink(&md->ready_le);
+		       mqueue_handler(md->event, md, NULL);
+		}
+	}
 }
 
 
