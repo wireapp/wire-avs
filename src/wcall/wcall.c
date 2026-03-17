@@ -222,6 +222,7 @@ struct config_update_entry {
 	char *userid;
 	char *clientid;
 	int conv_type;
+	bool meeting;
 
 	struct le le;
 };
@@ -2367,35 +2368,41 @@ static int add_wcall(struct wcall **wcall,
 		     struct econn_message *msg,
 		     const char *convid,
 		     const char *userid,
-		     int conv_type)
+		     int conv_type,
+		     bool meeting)
 {
 	int err = 0;
 	
 	if (msg->msg_type == ECONN_GROUP_START
 	    && econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
-				WCALL_CONV_TYPE_GROUP);
+				WCALL_CONV_TYPE_GROUP,
+				meeting);
 	}
 	else if (msg->msg_type == ECONN_GROUP_CHECK
 		 && !econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
-				WCALL_CONV_TYPE_GROUP);
+				WCALL_CONV_TYPE_GROUP,
+				meeting);
 	}
 	else if (msg->msg_type == ECONN_CONF_START
 		 && econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
-				WCALL_CONV_TYPE_CONFERENCE);
+				WCALL_CONV_TYPE_CONFERENCE,
+				meeting);
 	}
 	else if (msg->msg_type == ECONN_CONF_CHECK
 		 && !econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
-				WCALL_CONV_TYPE_CONFERENCE);
+				WCALL_CONV_TYPE_CONFERENCE,
+				meeting);
 	}
 	else if (econn_is_creator(inst->userid, userid, msg)) {
 		err = wcall_add(inst, wcall, convid,
-				WCALL_CONV_TYPE_ONEONONE);
+				WCALL_CONV_TYPE_ONEONONE,
+				meeting);
 		if (err) {
 			warning("wcall(%p): wcall_add failed: %m\n", inst, err);
 		}
@@ -2456,7 +2463,8 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 				cuent->msg,
 				cuent->convid,
 				cuent->userid,
-				cuent->conv_type);
+				cuent->conv_type,
+				cuent->meeting);
 		if (err) {
 			warning("wcall(%p): config_update failed to add wcall: %m\n", inst, err);
 		}
@@ -3233,13 +3241,14 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 			str_dup(&cuent->userid, userid);
 			str_dup(&cuent->clientid, clientid);
 			cuent->conv_type = conv_type;
+			cuent->meeting = meeting;
 
 			list_append(&inst->config_updatel, &cuent->le, cuent);
 			err = 0;
 			goto out;
 		}
 
-		err = add_wcall(&wcall, inst, msg, convid, userid, conv_type);
+		err = add_wcall(&wcall, inst, msg, convid, userid, conv_type, meeting);
 		if (err) {
 			warning("wcall(%p): failed to add wcall: %m\n", inst, err);
 			goto out;
