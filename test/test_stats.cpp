@@ -253,24 +253,24 @@ TEST_F(StatsBase, audio_should_be_cumulative)
 
 TEST_F(StatsBase, packet_loss_per_sec_web)
 {
-	const auto report = "[{ \"type\":\"inbound-rtp\","
-						 "\"timestamp\":1773656401000.000,"
-						 "\"kind\":\"audio\","
-						 "\"packetsLost\":20,"
-						 "\"packetsReceived\":200 }]";
+	const auto a_report = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656401000.000,
+						 "kind":"audio",
+						 "packetsLost":20,
+						 "packetsReceived":200 }])";
 
-	stats_update(stats, report);
+	stats_update(stats, a_report);
 	stats_get_report(stats, &sr);
 
 	// since this is initial packet per sec loss will be zero
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 0);
 	EXPECT_EQ(sr.packets_per_sec.lost.rx, 0);
 
-	const auto new_report = "[{ \"type\":\"inbound-rtp\","
-							 "\"timestamp\":1773656411000.000,"
-							 "\"kind\":\"audio\","
-							 "\"packetsLost\":30,"
-							 "\"packetsReceived\":400 }]";
+	const auto new_report = R"([{ "type":"inbound-rtp",
+							 "timestamp":1773656411000.000,
+							 "kind":"audio",
+							 "packetsLost":30,
+							 "packetsReceived":400 }])";
 
 	stats_update(stats, new_report);
 	stats_get_report(stats, &sr);

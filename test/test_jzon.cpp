@@ -122,7 +122,7 @@ TEST(jzon, valid_objects)
 
 TEST(jzon, timestamp)
 {
-	struct json_object *jobj = NULL;
+	struct json_object *jobj = nullptr;
 	int err;
 
 	static const char json_str[] =
