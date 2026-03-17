@@ -116,7 +116,7 @@ int jzon_int(int *dst, struct json_object *obj, const char *key)
 	if (json_object_get_type(value) != json_type_int)
 		return EPROTO;
 
-	*dst = json_object_get_int(value);
+	*dst = (int)json_object_get_int(value);
 	return 0;
 }
 

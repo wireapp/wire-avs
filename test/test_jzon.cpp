@@ -120,6 +120,30 @@ TEST(jzon, valid_objects)
 	mem_deref(jobj);
 }
 
+TEST(jzon, timestamp)
+{
+	struct json_object *jobj = NULL;
+	int err;
+
+	static const char json_str[] =
+		"{\r\n"
+		"  \"timestamp_native\":1771376014893170,\r\n"
+		"  \"timestamp_web\":1772636175216.103\r\n"
+		"}\r\n";
+
+	err = jzon_decode(&jobj, json_str, strlen(json_str));
+	ASSERT_EQ(0, err);
+
+	double doublev;
+	ASSERT_EQ(0, jzon_double(&doublev, jobj, "timestamp_native"));
+	ASSERT_EQ(doublev, 1771376014893170);
+
+	ASSERT_EQ(0, jzon_double(&doublev, jobj, "timestamp_web"));
+	ASSERT_EQ(doublev, 1772636175216.103);
+
+	mem_deref(jobj);
+}
+
 
 TEST(jzon, createf_succeeds)
 {
