@@ -231,7 +231,10 @@ const char *ccall_state_name(enum ccall_state state)
 		case CCALL_STATE_WAITCONFIG_OUTGOING:
 			return "CCALL_STATE_WAITCONFIG_OUTGOING";
 
-		default:
+	        case CCALL_STATE_WAITNETWORK:
+			return "CCALL_STATE_WAITNETWORK";
+
+	        default:
 			return "???";
 	}
 }
@@ -353,6 +356,9 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		break;
 
 	case CCALL_STATE_NONE:
+		break;
+
+	default:
 		break;
 	}
 
@@ -3465,6 +3471,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 	case CCALL_STATE_CONNECTED:
 	case CCALL_STATE_WAITCONFIG:
 	case CCALL_STATE_WAITCONFIG_OUTGOING:
+	case CCALL_STATE_WAITNETWORK:
 		if (ts_cmp > 0) {
 			/* If remote call is earlier, drop connection and
 			   reconnect to the earlier call */
@@ -3698,6 +3705,9 @@ int  ccall_sft_msg_recv(struct icall* icall,
 	}
 
 	if (!msg) {
+		if (ccall->state == CCALL_STATE_CONNSENT)
+			set_state(ccall, CCALL_STATE_WAITNETWORK);
+
 		warning("ccall(%p): sft_msg_recv err=%d(%m)\n", ccall, status, status);
 		return 0;
 	}
@@ -4017,6 +4027,7 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 	case CCALL_STATE_INCOMING:
 	case CCALL_STATE_WAITCONFIG:
 	case CCALL_STATE_WAITCONFIG_OUTGOING:
+	case CCALL_STATE_WAITNETWORK:
 		set_state(ccall, CCALL_STATE_IDLE);
 		ICALL_CALL_CB(ccall->icall, leaveh,
 			      &ccall->icall, reason,
