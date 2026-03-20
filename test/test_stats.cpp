@@ -251,27 +251,80 @@ TEST_F(StatsBase, audio_should_be_cumulative)
 	EXPECT_EQ(sr.packets_per_sec.lost.rx, 1);
 }
 
-TEST_F(StatsBase, packet_loss_per_sec_web)
-{
-	const auto a_report = R"([{ "type":"inbound-rtp",
-						 "timestamp":1773656401000.000,
+
+//------------------------ Timestamp Format Tests  -----------------------------------
+
+class TsFormat : public Base,
+					public ::testing::TestWithParam<std::tuple<const char*, const char*, std::string>> {
+
+public:
+	virtual void SetUp() override {
+		Base::SetUp();
+	}
+
+	virtual void TearDown() override {
+		Base::TearDown();
+	}
+};
+
+// Native provides timestamp in microseconds	"timestamp": 1773656401000007
+const auto first_report_native = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656401000007,
 						 "kind":"audio",
 						 "packetsLost":20,
 						 "packetsReceived":200 }])";
 
-	stats_update(stats, a_report);
+const auto next_report_native = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656411000008,
+						 "kind":"audio",
+						 "packetsLost":30,
+						 "packetsReceived":400 }])";
+
+// Chrome provides timestamp in milliseconds	"timestamp": 1773656401000.007
+const auto first_report_chrome = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656401000.007,
+						 "kind":"audio",
+						 "packetsLost":20,
+						 "packetsReceived":200 }])";
+
+const auto next_report_chrome = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656411000.008,
+						 "kind":"audio",
+						 "packetsLost":30,
+						 "packetsReceived":400 }])";
+
+// Firefox provides timestamp in milliseconds	"timestamp": 1773656401000
+const auto first_report_firefox = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656401000,
+						 "kind":"audio",
+						 "packetsLost":20,
+						 "packetsReceived":200 }])";
+
+const auto next_report_firefox = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656411000,
+						 "kind":"audio",
+						 "packetsLost":30,
+						 "packetsReceived":400 }])";
+
+INSTANTIATE_TEST_CASE_P(Stats,
+						 TsFormat,
+						 ::testing::Values(
+							std::tuple{first_report_native, next_report_native, "native"},
+							std::tuple{first_report_chrome, next_report_chrome, "chrome"},
+							std::tuple{first_report_firefox, next_report_firefox, "firefox"}),
+						 [](const testing::TestParamInfo<TsFormat::ParamType>& info) {
+							return std::get<2>(info.param);});
+
+TEST_P(TsFormat, packets_per_sec) {
+	const auto first_report = std::get<0>(GetParam());
+	stats_update(stats, first_report);
 	stats_get_report(stats, &sr);
 
 	// since this is initial packet per sec loss will be zero
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 0);
 	EXPECT_EQ(sr.packets_per_sec.lost.rx, 0);
 
-	const auto new_report = R"([{ "type":"inbound-rtp",
-							 "timestamp":1773656411000.000,
-							 "kind":"audio",
-							 "packetsLost":30,
-							 "packetsReceived":400 }])";
-
+	const auto new_report = std::get<1>(GetParam());
 	stats_update(stats, new_report);
 	stats_get_report(stats, &sr);
 
@@ -279,6 +332,7 @@ TEST_F(StatsBase, packet_loss_per_sec_web)
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 20);
 	EXPECT_EQ(sr.packets_per_sec.lost.rx, 1);
 }
+
 
 // ---------------------------------------- Test Audio Level ------------------------------------
 

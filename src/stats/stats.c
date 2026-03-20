@@ -4,7 +4,8 @@
 
 #include <math.h>
 
-const double SEP9TH_2001_IN_MICROSECONDS = 1000000000000000;
+// A reference timestamp (9.9.2001) in microseconds
+const double REF_TS_US = 1000000000000000;
 
 static enum stats_proto stats_parse_poto(const char *type)
 {
@@ -213,7 +214,7 @@ struct stats_obj {
 struct avs_stats {
 	struct stats_report report;
 	struct stats_packet_counts last_packets;
-	double last_timestamp_in_ms;
+	uint64_t last_timestamp_in_ms;
 
 	void *arg;
 };
@@ -225,19 +226,18 @@ static uint32_t calculate_loss_percentage(uint32_t packets, uint32_t lost) {
 		return 0;
 }
 
-// Two known timestamp formats
-// Native provides timestamp in microseconds
-// "timestamp": 1771376014893170
-// Web provides timestamp in milliseconds
-// "timestamp": 1772181428273.284
-static double noralize_timestamp_to_ms(double timestamp) {
+// Three known timestamp formats
+// Native provides timestamp in microseconds	"timestamp": 1771376014893170
+// Chrome provides timestamp in milliseconds	"timestamp": 1772181428273.284
+// Firefox provides timestamp in mlliseconds	"timestamp": 1772181428273
+static uint64_t normalize_timestamp_to_ms(double timestamp) {
 	// try to detect if timestamp is in microseconds with
 	// comparing to an anchor point
-	if (timestamp > SEP9TH_2001_IN_MICROSECONDS) {
-		return timestamp / 1000;
+	if (timestamp > REF_TS_US) {
+		return (uint64_t)(timestamp / 1000);
 	}
 
-	return timestamp;
+	return (uint64_t)timestamp;
 }
 
 static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_obj* stats_obj)
@@ -340,9 +340,9 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 		( diff.audio.rx + diff.video.rx ), diff.lost.rx);
 
 	// 2.1 calculate time normized packet stats if time difference make sense
-	timestamp = noralize_timestamp_to_ms(timestamp);
+	uint64_t timestamp_in_ms = normalize_timestamp_to_ms(timestamp);
 
-	double time_difference_in_ms = timestamp - stats->last_timestamp_in_ms;
+	uint64_t time_difference_in_ms = timestamp_in_ms - stats->last_timestamp_in_ms;
 
 	if (time_difference_in_ms != timestamp && time_difference_in_ms != 0) {
 		stats->report.packets_per_sec.audio.tx = 1000 * diff.audio.tx / time_difference_in_ms;
@@ -355,7 +355,7 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 
 	// 3. save current packet cumulatives into last
 	stats->last_packets = stats->report.packets;
-	stats->last_timestamp_in_ms = timestamp;
+	stats->last_timestamp_in_ms = timestamp_in_ms;
 
 	// 4. update report.packet.lost with calculated percentages
 	stats->report.packets.lost.tx = loss_tx;
