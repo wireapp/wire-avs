@@ -57,11 +57,11 @@ const auto zero_report = stats_report {};
 
 class Sanity : public ::testing::TestWithParam<std::tuple<std::string, std::string>> {
 public:
-	virtual void SetUp() override {
+	void SetUp() override {
 		stats_alloc(&stats, NULL);
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		mem_deref(stats);
 	}
 
@@ -258,11 +258,11 @@ class TsFormat : public Base,
 					public ::testing::TestWithParam<std::tuple<const char*, const char*, std::string>> {
 
 public:
-	virtual void SetUp() override {
+	void SetUp() override {
 		Base::SetUp();
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		Base::TearDown();
 	}
 };
@@ -357,11 +357,11 @@ class Connection : public Base,
 					public ::testing::TestWithParam<std::tuple<std::string, std::string, stats_proto, stats_cand>> {
 
 public:
-	virtual void SetUp() override {
+	void SetUp() override {
 		Base::SetUp();
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		Base::TearDown();
 	}
 };
@@ -408,7 +408,7 @@ TEST_P(Connection, ptotocol_type) {
 class StatsJitter: public Base,
 					public ::testing::Test {
 public:
-	virtual void SetUp() override
+	void SetUp() override
 	{
 		Base::SetUp();
 
@@ -458,7 +458,7 @@ public:
 		report->AddStats(std::unique_ptr<RTCStats>(remote_video_rtp));
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		Base::TearDown();
 	}
 };
@@ -505,7 +505,7 @@ TEST_F(StatsJitter, zero_packet_rtp)
 class StatsRtt: public Base,
 				public ::testing::Test {
 public:
-	virtual void SetUp() override
+	void SetUp() override
 	{
 		Base::SetUp();
 
@@ -516,7 +516,7 @@ public:
 		report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		Base::TearDown();
 	}
 
