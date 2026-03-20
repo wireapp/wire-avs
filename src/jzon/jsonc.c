@@ -399,7 +399,7 @@ enum odict_type json_object_get_type(struct json_object *obj)
 }
 
 
-int32_t json_object_get_int(struct json_object *obj)
+int64_t json_object_get_int(struct json_object *obj)
 {
 	if (!obj)
 		return 0;
@@ -409,7 +409,7 @@ int32_t json_object_get_int(struct json_object *obj)
 		return 0;
 	}
 
-	return (int32_t)obj->entry.u.integer;
+	return obj->entry.u.integer;
 }
 
 

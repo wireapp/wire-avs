@@ -47,7 +47,8 @@ bool operator==(const stats_report& lhs, const stats_report& rhs) {
 			lhs.audio_level_smooth == rhs.audio_level_smooth &&
 			lhs.rtt == rhs.rtt &&
 			lhs.jitter == rhs.jitter &&
-			lhs.packets == rhs.packets;
+			lhs.packets == rhs.packets &&
+			lhs.packets_per_sec == rhs.packets_per_sec;
 }
 
 const auto zero_report = stats_report {};
@@ -56,11 +57,11 @@ const auto zero_report = stats_report {};
 
 class Sanity : public ::testing::TestWithParam<std::tuple<std::string, std::string>> {
 public:
-	virtual void SetUp() override {
+	void SetUp() override {
 		stats_alloc(&stats, NULL);
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		mem_deref(stats);
 	}
 
@@ -209,36 +210,129 @@ TEST_F(StatsBase, some_packet_stats)
 
 TEST_F(StatsBase, audio_should_be_cumulative)
 {
-	// An incoming audio streams with 20 packets and 2 packet loss
-	auto audio_rtp = new RTCInboundRtpStreamStats("someRtpId", Timestamp::Zero());
+	int64_t time_in_sec = 1773656401; // Mar 16 2026 10:20:01
+	const auto stat_time = Timestamp::Seconds(time_in_sec);
+	// An incoming audio streams with 200 packets and 20 packet loss
+	auto audio_rtp = new RTCInboundRtpStreamStats("someRtpId", stat_time);
 	audio_rtp->kind = "audio";
-	audio_rtp->packets_received = 20;
-	audio_rtp->packets_lost = 2;
+	audio_rtp->packets_received = 200;
+	audio_rtp->packets_lost = 20;
 	report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	// 20 packets 10% loss
-	EXPECT_EQ(sr.packets.audio.rx, 20);
+	// 200 packets 10% loss
+	EXPECT_EQ(sr.packets.audio.rx, 200);
 	EXPECT_EQ(sr.packets.lost.rx, 10);
 
+	// since this is initial packet per sec loss will be zero
+	EXPECT_EQ(sr.packets_per_sec.audio.rx, 0);
+	EXPECT_EQ(sr.packets_per_sec.lost.rx, 0);
 
 	// An incoming audio streams with double packets and half packet loss
-	auto new_audio_rtp = new RTCInboundRtpStreamStats("someRtpId", Timestamp::Seconds(10));
+	const auto new_stat_time = Timestamp::Seconds(time_in_sec + 10);
+	auto new_audio_rtp = new RTCInboundRtpStreamStats("someRtpId", new_stat_time);
 	new_audio_rtp->kind = "audio";
-	new_audio_rtp->packets_received = 20 + 20;
-	new_audio_rtp->packets_lost = 2 + 1;
-	auto new_report = RTCStatsReport::Create(Timestamp::Seconds(10));
+	new_audio_rtp->packets_received = 200 + 200;
+	new_audio_rtp->packets_lost = 20 + 10;
+	auto new_report = RTCStatsReport::Create(new_stat_time);
 	new_report->AddStats(std::unique_ptr<RTCStats>(new_audio_rtp));
 
 	stats_update(stats, new_report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
 	// 40 packets 5% loss
-	EXPECT_EQ(sr.packets.audio.rx, 40);
+	EXPECT_EQ(sr.packets.audio.rx, 400);
 	EXPECT_EQ(sr.packets.lost.rx, 5);
+
+	// 20 packets per sec, 1 loss per sec
+	EXPECT_EQ(sr.packets_per_sec.audio.rx, 20);
+	EXPECT_EQ(sr.packets_per_sec.lost.rx, 1);
 }
+
+
+//------------------------ Timestamp Format Tests  -----------------------------------
+
+class TsFormat : public Base,
+					public ::testing::TestWithParam<std::tuple<const char*, const char*, std::string>> {
+
+public:
+	void SetUp() override {
+		Base::SetUp();
+	}
+
+	void TearDown() override {
+		Base::TearDown();
+	}
+};
+
+// Native provides timestamp in microseconds	"timestamp": 1773656401000007
+const auto first_report_native = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656401000007,
+						 "kind":"audio",
+						 "packetsLost":20,
+						 "packetsReceived":200 }])";
+
+const auto next_report_native = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656411000008,
+						 "kind":"audio",
+						 "packetsLost":30,
+						 "packetsReceived":400 }])";
+
+// Chrome provides timestamp in milliseconds	"timestamp": 1773656401000.007
+const auto first_report_chrome = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656401000.007,
+						 "kind":"audio",
+						 "packetsLost":20,
+						 "packetsReceived":200 }])";
+
+const auto next_report_chrome = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656411000.008,
+						 "kind":"audio",
+						 "packetsLost":30,
+						 "packetsReceived":400 }])";
+
+// Firefox provides timestamp in milliseconds	"timestamp": 1773656401000
+const auto first_report_firefox = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656401000,
+						 "kind":"audio",
+						 "packetsLost":20,
+						 "packetsReceived":200 }])";
+
+const auto next_report_firefox = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656411000,
+						 "kind":"audio",
+						 "packetsLost":30,
+						 "packetsReceived":400 }])";
+
+INSTANTIATE_TEST_CASE_P(Stats,
+						 TsFormat,
+						 ::testing::Values(
+							std::tuple{first_report_native, next_report_native, "native"},
+							std::tuple{first_report_chrome, next_report_chrome, "chrome"},
+							std::tuple{first_report_firefox, next_report_firefox, "firefox"}),
+						 [](const testing::TestParamInfo<TsFormat::ParamType>& info) {
+							return std::get<2>(info.param);});
+
+TEST_P(TsFormat, packets_per_sec) {
+	const auto first_report = std::get<0>(GetParam());
+	stats_update(stats, first_report);
+	stats_get_report(stats, &sr);
+
+	// since this is initial packet per sec loss will be zero
+	EXPECT_EQ(sr.packets_per_sec.audio.rx, 0);
+	EXPECT_EQ(sr.packets_per_sec.lost.rx, 0);
+
+	const auto new_report = std::get<1>(GetParam());
+	stats_update(stats, new_report);
+	stats_get_report(stats, &sr);
+
+	// 20 packets per sec, 1 loss per sec
+	EXPECT_EQ(sr.packets_per_sec.audio.rx, 20);
+	EXPECT_EQ(sr.packets_per_sec.lost.rx, 1);
+}
+
 
 // ---------------------------------------- Test Audio Level ------------------------------------
 
@@ -263,11 +357,11 @@ class Connection : public Base,
 					public ::testing::TestWithParam<std::tuple<std::string, std::string, stats_proto, stats_cand>> {
 
 public:
-	virtual void SetUp() override {
+	void SetUp() override {
 		Base::SetUp();
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		Base::TearDown();
 	}
 };
@@ -314,7 +408,7 @@ TEST_P(Connection, ptotocol_type) {
 class StatsJitter: public Base,
 					public ::testing::Test {
 public:
-	virtual void SetUp() override
+	void SetUp() override
 	{
 		Base::SetUp();
 
@@ -364,7 +458,7 @@ public:
 		report->AddStats(std::unique_ptr<RTCStats>(remote_video_rtp));
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		Base::TearDown();
 	}
 };
@@ -411,7 +505,7 @@ TEST_F(StatsJitter, zero_packet_rtp)
 class StatsRtt: public Base,
 				public ::testing::Test {
 public:
-	virtual void SetUp() override
+	void SetUp() override
 	{
 		Base::SetUp();
 
@@ -422,7 +516,7 @@ public:
 		report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		Base::TearDown();
 	}
 

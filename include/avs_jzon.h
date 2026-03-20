@@ -96,6 +96,6 @@ struct json_object *json_object_array_get_idx(struct json_object *obj,
 bool json_object_object_get_ex(struct json_object *obj, const char *key,
 			       struct json_object **value);
 const char * json_object_get_string(struct json_object *obj);
-int32_t      json_object_get_int(struct json_object *obj);
+int64_t      json_object_get_int(struct json_object *obj);
 double       json_object_get_double(struct json_object *obj);
 bool         json_object_get_boolean(struct json_object *obj);

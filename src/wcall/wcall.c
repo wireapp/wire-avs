@@ -1710,6 +1710,13 @@ static void icall_quality_handler(struct icall *icall,
 				  anon_client(clientid_anon, clientid),
 				  quality_info);
 
+	info(APITAG "wcall(%p): Packets per sec {audio: {tx: %d, rx: %d}, "
+				"video: {tx: %d, rx: %d}, lost: {tx: %d, rx: %d}}",
+				wcall,
+				stats.packets_per_sec.audio.tx, stats.packets_per_sec.audio.rx,
+				stats.packets_per_sec.video.tx, stats.packets_per_sec.video.rx,
+				stats.packets_per_sec.lost.tx, stats.packets_per_sec.lost.rx);
+
 	inst->quality.netqh(wcall->convid,
 			    userid,
 			    clientid,

@@ -4,6 +4,9 @@
 
 #include <math.h>
 
+// A reference timestamp (9.9.2001) in microseconds
+const double REF_TS_US = 1000000000000000;
+
 static enum stats_proto stats_parse_poto(const char *type)
 {
 	if (type == NULL) {
@@ -134,12 +137,14 @@ struct stats_inbound_rtp {
 	int packets_received;
 	int packets_lost;
 	double jitter;
+	double timestamp;
 	struct le le;
 };
 
 struct stats_outbound_rtp {
 	enum stats_kind kind;
 	int packets_sent;
+	double timestamp;
 	struct le le;
 };
 
@@ -147,6 +152,7 @@ struct stats_remote_inbound_rtp {
 	enum stats_kind kind;
 	int packets_lost;
 	double jitter;
+	double timestamp;
 	struct le le;
 };
 
@@ -208,6 +214,7 @@ struct stats_obj {
 struct avs_stats {
 	struct stats_report report;
 	struct stats_packet_counts last_packets;
+	uint64_t last_timestamp_in_ms;
 
 	void *arg;
 };
@@ -219,6 +226,20 @@ static uint32_t calculate_loss_percentage(uint32_t packets, uint32_t lost) {
 		return 0;
 }
 
+// Three known timestamp formats
+// Native provides timestamp in microseconds	"timestamp": 1771376014893170
+// Chrome provides timestamp in milliseconds	"timestamp": 1772181428273.284
+// Firefox provides timestamp in mlliseconds	"timestamp": 1772181428273
+static uint64_t normalize_timestamp_to_ms(double timestamp) {
+	// try to detect if timestamp is in microseconds with
+	// comparing to an anchor point
+	if (timestamp > REF_TS_US) {
+		return (uint64_t)(timestamp / 1000);
+	}
+
+	return (uint64_t)timestamp;
+}
+
 static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_obj* stats_obj)
 {
 	struct le *le = NULL;
@@ -226,6 +247,7 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 	int aj_count = 0;
 	double video_jitter = 0;
 	int vj_count = 0;
+	double timestamp = 0;
 
 	if (!stats || !stats_obj) {
 		return EINVAL;
@@ -251,6 +273,7 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 
 		if (data->kind == STATS_KIND_AUDIO) {
 			stats->report.packets.audio.rx += data->packets_received;
+			timestamp = max(timestamp, data->timestamp);
 			if (data->packets_received) {
 				audio_jitter += data->jitter;
 				aj_count++;
@@ -258,6 +281,7 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
 			stats->report.packets.video.rx += data->packets_received;
+			timestamp = max(timestamp, data->timestamp);
 			if (data->packets_received) {
 				video_jitter += data->jitter;
 				vj_count++;
@@ -272,9 +296,11 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 
 		if (data->kind == STATS_KIND_AUDIO) {
 			stats->report.packets.audio.tx += data->packets_sent;
+			timestamp = max(timestamp, data->timestamp);
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
 			stats->report.packets.video.tx += data->packets_sent;
+			timestamp = max(timestamp, data->timestamp);
 		}
 	}
 
@@ -283,9 +309,11 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 
 		if (data->kind == STATS_KIND_AUDIO) {
 			stats->report.jitter.audio.tx = max(stats->report.jitter.audio.tx, (1000 * data->jitter));
+			timestamp = max(timestamp, data->timestamp);
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
 			stats->report.jitter.video.tx = max(stats->report.jitter.video.tx, (1000 * data->jitter));
+			timestamp = max(timestamp, data->timestamp);
 		}
 
 		stats->report.packets.lost.tx += data->packets_lost;
@@ -296,18 +324,38 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 	stats->report.jitter.video.rx = vj_count ? 1000 * (video_jitter / vj_count) : 0;
 
 	// 2. calculate interval percentage for packet loss into tmp variables
+    struct stats_packet_counts diff = {
+		.audio.tx = stats->report.packets.audio.tx - stats->last_packets.audio.tx,
+		.audio.rx = stats->report.packets.audio.rx - stats->last_packets.audio.rx,
+		.video.tx = stats->report.packets.video.tx - stats->last_packets.video.tx,
+		.video.rx = stats->report.packets.video.rx - stats->last_packets.video.rx,
+		.lost.tx = stats->report.packets.lost.tx - stats->last_packets.lost.tx,
+		.lost.rx = stats->report.packets.lost.rx - stats->last_packets.lost.rx
+	};
+
 	uint32_t loss_tx = calculate_loss_percentage(
-		(stats->report.packets.audio.tx - stats->last_packets.audio.tx +
-		stats->report.packets.video.tx - stats->last_packets.video.tx),
-		stats->report.packets.lost.tx - stats->last_packets.lost.tx);
+		( diff.audio.tx + diff.video.tx ), diff.lost.tx);
 
 	uint32_t loss_rx = calculate_loss_percentage(
-		(stats->report.packets.audio.rx - stats->last_packets.audio.rx +
-		stats->report.packets.video.rx - stats->last_packets.video.rx),
-		stats->report.packets.lost.rx - stats->last_packets.lost.rx);
+		( diff.audio.rx + diff.video.rx ), diff.lost.rx);
+
+	// 2.1 calculate time normized packet stats if time difference make sense
+	uint64_t timestamp_in_ms = normalize_timestamp_to_ms(timestamp);
+
+	uint64_t time_difference_in_ms = timestamp_in_ms - stats->last_timestamp_in_ms;
+
+	if (time_difference_in_ms != timestamp && time_difference_in_ms != 0) {
+		stats->report.packets_per_sec.audio.tx = 1000 * diff.audio.tx / time_difference_in_ms;
+		stats->report.packets_per_sec.audio.rx = 1000 * diff.audio.rx / time_difference_in_ms;
+		stats->report.packets_per_sec.video.tx = 1000 * diff.video.tx / time_difference_in_ms;
+		stats->report.packets_per_sec.video.rx = 1000 * diff.video.rx / time_difference_in_ms;
+		stats->report.packets_per_sec.lost.tx = 1000 * diff.lost.tx / time_difference_in_ms;
+		stats->report.packets_per_sec.lost.rx = 1000 * diff.lost.rx / time_difference_in_ms;
+	}
 
 	// 3. save current packet cumulatives into last
 	stats->last_packets = stats->report.packets;
+	stats->last_timestamp_in_ms = timestamp_in_ms;
 
 	// 4. update report.packet.lost with calculated percentages
 	stats->report.packets.lost.tx = loss_tx;
@@ -355,8 +403,6 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 			}
 		}
 	}
-
-
 
 	if (!connected_local_candidate_id) {
 		// maybe ok that we dont have connection atm
@@ -414,6 +460,7 @@ int stats_alloc(struct avs_stats **statsp, void *arg)
 
 	memset(&stats->report, 0, sizeof(stats->report));
 	memset(&stats->last_packets, 0, sizeof(stats->last_packets));
+	stats->last_timestamp_in_ms = 0;
 
 	*statsp = stats;
 
@@ -435,6 +482,7 @@ static struct stats_inbound_rtp* parse_inbound_rtp(struct json_object *jitem)
 	jzon_int(&data->packets_received, jitem, "packetsReceived");
 	jzon_int(&data->packets_lost, jitem, "packetsLost");
 	jzon_double(&data->jitter, jitem, "jitter");
+	jzon_double(&data->timestamp, jitem, "timestamp");
 
 	return data;
 }
@@ -451,6 +499,7 @@ static struct stats_outbound_rtp* parse_outbound_rtp(struct json_object *jitem)
 	data->kind = stats_parse_kind(kind_str);
 
 	jzon_int(&data->packets_sent, jitem, "packetsSent");
+	jzon_double(&data->timestamp, jitem, "timestamp");
 
 	return data;
 }
@@ -468,6 +517,7 @@ static struct stats_remote_inbound_rtp* parse_remote_inbound_rtp(struct json_obj
 
 	jzon_int(&data->packets_lost, jitem, "packetsLost");
 	jzon_double(&data->jitter, jitem, "jitter");
+	jzon_double(&data->timestamp, jitem, "timestamp");
 
 	return data;
 }

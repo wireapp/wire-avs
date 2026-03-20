@@ -60,6 +60,7 @@ struct stats_report {
 	enum stats_cand cand;
 	struct stats_jitter jitter;
 	struct stats_packet_counts packets;
+	struct stats_packet_counts packets_per_sec;
 	int audio_level;
 	int audio_level_smooth;
 	int rtt;
