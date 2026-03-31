@@ -1,0 +1,6 @@
+language = C
+
+package = avs
+
+headers = "avs_wcall.h"
+staticLibraries = "libavscore.a"

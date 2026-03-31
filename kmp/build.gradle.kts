@@ -15,17 +15,18 @@ repositories {
     google()
 }
 
-// WPB-22449: ToDo: kmp complauns about src files that is why iosArm64Main and linuxX64Main 
+// WPB-22449: ToDo: kmp complains about src files that is why iosArm64Main and linuxX64Main 
 // are added. Base publish plugin may eliminate these dummy files
 kotlin {
+    val path = System.getProperty("user.dir")
+
     iosArm64() {
         compilations.getByName("main") {
             val avs by cinterops.creating {
-                // Path to the .def file
                 definitionFile.set(project.file("src/nativeInterop/cinterop/ios.def"))
 
-                // WPB-22449: ToDo: Fix paths
-                compilerOpts("-framework", "avs", "-F/Users/sifa/wire/wire-avs/build/dist/ios/avs.xcframework/ios-arm64")
+                val frameworkPath = file("$path/build/dist/ios/avs.xcframework/ios-arm64/").absolutePath
+                compilerOpts("-framework", "avs", "-F/${frameworkPath}")
             }
         }
    }
@@ -34,6 +35,11 @@ kotlin {
         compilations.getByName("main") {
             val avs by cinterops.creating {
                 definitionFile.set(project.file("src/nativeInterop/cinterop/linux.def"))
+
+                val includePath = file("$path/build/dist/linux/avscore/include/avs/").absolutePath
+                val libraryPath = file("$path/build/dist/linux/avscore/lib/").absolutePath
+                compilerOpts("-I$includePath")
+                extraOpts("-libraryPath", "$libraryPath")
             }
         }
     }

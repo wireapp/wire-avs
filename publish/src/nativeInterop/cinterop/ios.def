@@ -1,7 +1,0 @@
-language = Objective-C
-
-;headers and modules are not supported at the same time
-;headers = stddef.headers
-
-modules = avs
-package = avs

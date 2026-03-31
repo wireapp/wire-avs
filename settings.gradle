@@ -10,5 +10,5 @@
 rootProject.name = 'avs'
 
 include ':android:lib'
-include ':publish'
-
+include 'kmp'
+project(":kmp").name = "avs"

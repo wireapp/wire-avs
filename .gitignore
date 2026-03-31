@@ -58,5 +58,5 @@ devtools/
 # Ignore Gradle project-specific cache directory
 .gradle
 
-/publish/build
+/kmp/build
 
