@@ -1,12 +1,13 @@
-import com.vanniktech.maven.publish.SonatypeHost
+import com.vanniktech.maven.publish.JavaLibrary
 
 plugins {
     id "java-library"
-    id("com.vanniktech.maven.publish.base") version "0.29.0"
+    id("com.vanniktech.maven.publish.base") version "0.34.0"
+    id("org.jetbrains.kotlin.multiplatform") version "2.0.21" apply false
 }
 
 mavenPublishing {
-    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+    publishToMavenCentral()
     pomFromGradleProperties()
     signAllPublications()
 }

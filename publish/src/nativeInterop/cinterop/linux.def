@@ -1,0 +1,8 @@
+language = C
+
+package = avs-linux
+
+; WPB-22449: ToDo: Fix paths
+headers = "/home/sifa.ozen/wire/wire-avs/build/dist/linux/avscore/include/avs/avs_wcall.h"
+staticLibraries = libavscore.a
+libraryPaths = /home/sifa.ozen/wire/wire-avs/build/dist/linux/avscore/lib
