@@ -6,9 +6,8 @@ plugins {
     id("com.vanniktech.maven.publish.base") version "0.34.0"
 }
 
-group = "com.wire"
-// WPB-22449: ToDo: get version information from build
-version = "10.3.9.0-kmp"
+group = findProperty("GROUP") as String? ?: "com.wire"
+version = findProperty("VERSION_NAME") as String? ?: "0.0.1-kmp"
 
 repositories {
     mavenCentral()
