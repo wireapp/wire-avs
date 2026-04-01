@@ -14,8 +14,7 @@ repositories {
     google()
 }
 
-// WPB-22449: ToDo: kmp complains about src files that is why iosArm64Main and linuxX64Main 
-// are added. Base publish plugin may eliminate these dummy files
+// WPB-22449: ToDo: kmp complains about src files. As a workaround commonMain/empty.kt is added
 kotlin {
     val path = System.getProperty("user.dir")
 
@@ -25,6 +24,17 @@ kotlin {
                 definitionFile.set(project.file("src/nativeInterop/cinterop/ios.def"))
 
                 val frameworkPath = file("$path/build/dist/ios/avs.xcframework/ios-arm64/").absolutePath
+                compilerOpts("-framework", "avs", "-F/${frameworkPath}")
+            }
+        }
+   }
+
+    iosSimulatorArm64() {
+        compilations.getByName("main") {
+            val avs by cinterops.creating {
+                definitionFile.set(project.file("src/nativeInterop/cinterop/ios.def"))
+
+                val frameworkPath = file("$path/build/dist/ios/avs.xcframework/ios-arm64_x86_64-simulator/").absolutePath
                 compilerOpts("-framework", "avs", "-F/${frameworkPath}")
             }
         }
