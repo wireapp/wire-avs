@@ -6,6 +6,10 @@ plugins {
     id("org.jetbrains.kotlin.multiplatform") version "2.0.21" apply false
 }
 
+repositories {
+    mavenCentral()
+}
+
 mavenPublishing {
     publishToMavenCentral()
     pomFromGradleProperties()
