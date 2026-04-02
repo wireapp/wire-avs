@@ -2,3 +2,5 @@ language = Objective-C
 
 modules = avs
 package = avs
+
+staticLibraries = "avs"

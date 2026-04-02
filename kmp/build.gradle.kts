@@ -24,10 +24,12 @@ kotlin {
                 definitionFile.set(project.file("src/nativeInterop/cinterop/ios.def"))
 
                 val frameworkPath = file("$path/build/dist/ios/avs.xcframework/ios-arm64/").absolutePath
-                compilerOpts("-framework", "avs", "-F/${frameworkPath}")
+                val libraryPath = file("$path/build/dist/ios/avs.xcframework/ios-arm64/avs.framework").absolutePath
+                compilerOpts("-framework", "avs", "-F${frameworkPath}")
+                extraOpts("-libraryPath", "$libraryPath")
             }
         }
-   }
+    }
 
     iosSimulatorArm64() {
         compilations.getByName("main") {
@@ -35,20 +37,25 @@ kotlin {
                 definitionFile.set(project.file("src/nativeInterop/cinterop/ios.def"))
 
                 val frameworkPath = file("$path/build/dist/ios/avs.xcframework/ios-arm64_x86_64-simulator/").absolutePath
-                compilerOpts("-framework", "avs", "-F/${frameworkPath}")
+                val libraryPath = file("$path/build/dist/ios/avs.xcframework/ios-arm64_x86_64-simulator/avs.framework").absolutePath
+                compilerOpts("-framework", "avs", "-F${frameworkPath}")
+                extraOpts("-libraryPath", "$libraryPath")
             }
         }
-   }
+    }
 
-   linuxX64() {
-        compilations.getByName("main") {
-            val avs by cinterops.creating {
-                definitionFile.set(project.file("src/nativeInterop/cinterop/linux.def"))
+    // We dont have an easy linux avs build in mac, disable linux target in mac host
+    if (System.getProperty("os.name").contains("Linux")) {
+        linuxX64() {
+            compilations.getByName("main") {
+                val avs by cinterops.creating {
+                    definitionFile.set(project.file("src/nativeInterop/cinterop/linux.def"))
 
-                val includePath = file("$path/build/dist/linux/avscore/include/avs/").absolutePath
-                val libraryPath = file("$path/build/dist/linux/avscore/lib/").absolutePath
-                compilerOpts("-I$includePath")
-                extraOpts("-libraryPath", "$libraryPath")
+                    val includePath = file("$path/build/dist/linux/avscore/include/avs/").absolutePath
+                    val libraryPath = file("$path/build/dist/linux/avscore/lib/").absolutePath
+                    compilerOpts("-I$includePath")
+                    extraOpts("-libraryPath", "$libraryPath")
+                }
             }
         }
     }
