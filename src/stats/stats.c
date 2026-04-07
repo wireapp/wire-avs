@@ -153,6 +153,7 @@ struct stats_remote_inbound_rtp {
 	int packets_lost;
 	double jitter;
 	double timestamp;
+	double rtt;
 	struct le le;
 };
 
@@ -388,7 +389,7 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 
 		if (selected_pair_id) {
 			if (data->id && streq(selected_pair_id, data->id)) {
-				stats->report.rtt = max(stats->report.rtt, (1000 * data->current_rtt));
+				stats->report.rtt.tx = max(stats->report.rtt.tx, (1000 * data->current_rtt));
 				connected_local_candidate_id = data->local_candidate_id;
 				break;
 			}
@@ -396,7 +397,7 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 		else {
 			// we will try to find connected pair without "transport" info
 			if (data->nominated && (data->state == STATS_STATE_SUCCEEDED)) {
-				stats->report.rtt = max(stats->report.rtt, (1000 * data->current_rtt));
+				stats->report.rtt.tx = max(stats->report.rtt.tx, (1000 * data->current_rtt));
 				if (data->local_candidate_id) {
 					connected_local_candidate_id = data->local_candidate_id;
 				}
@@ -404,11 +405,25 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 		}
 	}
 
+	// Calculate mean rtt rx (perceived from peer) from remote inbound reports
+	double remote_inbound_rtt = 0;
+	int remote_inbound_rtt_count = 0;
+
+	LIST_FOREACH(&stats_obj->remote_inbound_rtp, le) {
+		struct stats_remote_inbound_rtp* data = (struct stats_remote_inbound_rtp*)le->data;
+
+		if (data->kind == STATS_KIND_AUDIO ||data->kind == STATS_KIND_VIDEO) {
+			remote_inbound_rtt += data->rtt;
+			remote_inbound_rtt_count++;
+		}
+	}
+
+	stats->report.rtt.rx = remote_inbound_rtt ? 1000 * (remote_inbound_rtt / remote_inbound_rtt_count) : 0;
+
 	if (!connected_local_candidate_id) {
 		// maybe ok that we dont have connection atm
 		return 0;
 	}
-
 	// use last connected local candidate id to get connection details
 	LIST_FOREACH(&stats_obj->local_candidate, le) {
 		struct stats_local_candidate* data = (struct stats_local_candidate*)le->data;
@@ -518,6 +533,7 @@ static struct stats_remote_inbound_rtp* parse_remote_inbound_rtp(struct json_obj
 	jzon_int(&data->packets_lost, jitem, "packetsLost");
 	jzon_double(&data->jitter, jitem, "jitter");
 	jzon_double(&data->timestamp, jitem, "timestamp");
+	jzon_double(&data->rtt, jitem, "roundTripTime");
 
 	return data;
 }

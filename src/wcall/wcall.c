@@ -1653,13 +1653,15 @@ const float RTT_WEIGHT = 0.3;
 
 static int normalize_quality(const struct stats_report* stats) {
 	// Stats are 3 step normalized wrt corresponding thresholds
-	const int rtt = normalize_to_levels(stats->rtt, RTT_LOW, RTT_HIGH);
+	const int rtt_tx = normalize_to_levels(stats->rtt.tx, RTT_LOW, RTT_HIGH);
+	const int rtt_rx = normalize_to_levels(stats->rtt.rx, RTT_LOW, RTT_HIGH);
 	const int jitter_tx = normalize_to_levels((stats->jitter.audio.tx + stats->jitter.video.tx) / 2, JITTER_LOW, JITTER_HIGH);
 	const int jitter_rx = normalize_to_levels((stats->jitter.audio.rx + stats->jitter.video.rx) / 2, JITTER_LOW, JITTER_HIGH);
 	const int packet_loss_tx = normalize_to_levels(stats->packets.lost.tx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
 	const int packet_loss_rx = normalize_to_levels(stats->packets.lost.rx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
 
 	// provide higher importance to upstream stats
+	float rtt = UPSTREAM_WEIGHT * rtt_tx + DOWNSTREM_WEIGHT * rtt_rx;
 	float jitter = UPSTREAM_WEIGHT * jitter_tx + DOWNSTREM_WEIGHT * jitter_rx;
 	float packet_loss = UPSTREAM_WEIGHT * packet_loss_tx + DOWNSTREM_WEIGHT * packet_loss_rx;
 
@@ -1717,7 +1719,7 @@ static void icall_quality_handler(struct icall *icall,
 	json_object_object_add(jobj, "quality",
 				json_object_new_int(quality));
 	json_object_object_add(jobj, "rtt",
-				json_object_new_int(stats.rtt));
+				json_object_new_int(stats.rtt.tx));
 
 	struct json_object *loss_jobj = json_object_new_object();
 	json_object_object_add(loss_jobj, "tx",
