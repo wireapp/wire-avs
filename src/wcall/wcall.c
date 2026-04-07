@@ -18,6 +18,7 @@
 
 #include <pthread.h>
 #include <unistd.h>
+#include <math.h>
 
 #include <re/re.h>
 #include <avs.h>
@@ -1621,6 +1622,51 @@ static void destructor(void *arg)
 	info("wcall(%p): dtor -- done\n", wcall);
 }
 
+static int normalize_to_levels(int num, int low_threshold, int high_threshold) {
+	if (num < low_threshold) {
+		return WCALL_QUALITY_NORMAL;
+	}
+	else if (num > high_threshold) {
+		return WCALL_QUALITY_POOR;
+	}
+	else {
+		return WCALL_QUALITY_MEDIUM;
+	}
+}
+
+// Quality level thresholds
+const int RTT_LOW = 50;
+const int RTT_HIGH = 150;
+const int JITTER_LOW = 10;
+const int JITTER_HIGH = 50;
+const int PACKET_LOSS_LOW = 5;
+const int PACKET_LOSS_HIGH = 10;
+
+// Stream direction weights
+const float UPSTREAM_WEIGHT = 0.7;
+const float DOWNSTREM_WEIGHT = 0.3;
+
+// Overall quality weights
+const float JITTER_WEIGHT = 0.35;
+const float PACKET_LOSS_WEIGHT = 0.35;
+const float RTT_WEIGHT = 0.3;
+
+static int normalize_quality(const struct stats_report* stats) {
+	// Stats are 3 step normalized wrt corresponding thresholds
+	const int rtt = normalize_to_levels(stats->rtt, RTT_LOW, RTT_HIGH);
+	const int jitter_tx = normalize_to_levels((stats->jitter.audio.tx + stats->jitter.video.tx) / 2, JITTER_LOW, JITTER_HIGH);
+	const int jitter_rx = normalize_to_levels((stats->jitter.audio.rx + stats->jitter.video.rx) / 2, JITTER_LOW, JITTER_HIGH);
+	const int packet_loss_tx = normalize_to_levels(stats->packets.lost.tx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
+	const int packet_loss_rx = normalize_to_levels(stats->packets.lost.rx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
+
+	// provide higher importance to upstream stats
+	float jitter = UPSTREAM_WEIGHT * jitter_tx + DOWNSTREM_WEIGHT * jitter_rx;
+	float packet_loss = UPSTREAM_WEIGHT * packet_loss_tx + DOWNSTREM_WEIGHT * packet_loss_rx;
+
+	// provide packet loss and jitter a bit more importance than latency
+	return round(JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss + RTT_WEIGHT * rtt);
+}
+
 static void icall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
@@ -1644,16 +1690,24 @@ static void icall_quality_handler(struct icall *icall,
 	if (!inst->quality.netqh)
 		return;
 
+	// ICALL_NETWORK_PROBLEM and ICALL_RECONNECTING states are
+	// propagated through packet loss stats.
+	// Reset them back if needed to stay inside [0.100] interval.
 	if (stats.packets.lost.tx == ICALL_NETWORK_PROBLEM
-	    && stats.packets.lost.rx == ICALL_NETWORK_PROBLEM)
+		&& stats.packets.lost.rx == ICALL_NETWORK_PROBLEM) {
+		stats.packets.lost.tx = 0;
+		stats.packets.lost.rx = 0;
 		quality = WCALL_QUALITY_NETWORK_PROBLEM;
+	}
 	else if (stats.packets.lost.tx == ICALL_RECONNECTING
-	    && stats.packets.lost.rx == ICALL_RECONNECTING)
+		&& stats.packets.lost.rx == ICALL_RECONNECTING) {
+		stats.packets.lost.tx = 0;
+		stats.packets.lost.rx = 0;
 		quality = WCALL_QUALITY_RECONNECTING;
-	else if (stats.rtt > 800 || stats.packets.lost.tx > 20 || stats.packets.lost.rx > 20)
-		quality = WCALL_QUALITY_POOR;
-	else if (stats.rtt > 400 || stats.packets.lost.tx > 5 || stats.packets.lost.rx > 5)
-		quality = WCALL_QUALITY_MEDIUM;
+	}
+	else {
+		quality = normalize_quality(&stats);
+	}
 
 	now = tmr_jiffies();
 

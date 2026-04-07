@@ -532,7 +532,10 @@ static void ccall_reconnect(struct ccall *ccall,
 
 	if (notify) {
 
-		struct stats_report stats = { 0 };
+		struct stats_report stats = {
+			.packets.lost.rx = ICALL_RECONNECTING,
+			.packets.lost.tx = ICALL_RECONNECTING,
+		};
 
 		ICALL_CALL_CB(ccall->icall, qualityh,
 			      &ccall->icall, 
