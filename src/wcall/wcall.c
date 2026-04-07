@@ -1624,13 +1624,13 @@ static void destructor(void *arg)
 
 static int normalize_to_levels(int num, int low_threshold, int high_threshold) {
 	if (num < low_threshold) {
-		return 1;
+		return WCALL_QUALITY_NORMAL;
 	}
 	else if (num > high_threshold) {
-		return 3;
+		return WCALL_QUALITY_POOR;
 	}
 	else {
-		return 2;
+		return WCALL_QUALITY_MEDIUM;
 	}
 }
 
@@ -1642,6 +1642,15 @@ const int JITTER_HIGH = 50;
 const int PACKET_LOSS_LOW = 5;
 const int PACKET_LOSS_HIGH = 10;
 
+// Stream direction weights
+const float UPSTREAM_WEIGHT = 0.7;
+const float DOWNSTREM_WEIGHT = 0.3;
+
+// Overall quality weights
+const float JITTER_WEIGHT = 0.35;
+const float PACKET_LOSS_WEIGHT = 0.35;
+const float RTT_WEIGHT = 0.3;
+
 static int normalize_quality(const struct stats_report* stats) {
 	// Stats are 3 step normalized wrt corresponding thresholds
 	const int rtt = normalize_to_levels(stats->rtt, RTT_LOW, RTT_HIGH);
@@ -1651,11 +1660,11 @@ static int normalize_quality(const struct stats_report* stats) {
 	const int packet_loss_rx = normalize_to_levels(stats->packets.lost.rx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
 
 	// provide higher importance to upstream stats
-	float jitter = 0.7 * jitter_tx + 0.3 * jitter_rx;
-	float packet_loss = 0.7 * packet_loss_tx + 0.3 * packet_loss_rx;
+	float jitter = UPSTREAM_WEIGHT * jitter_tx + DOWNSTREM_WEIGHT * jitter_rx;
+	float packet_loss = UPSTREAM_WEIGHT * packet_loss_tx + DOWNSTREM_WEIGHT * packet_loss_rx;
 
 	// provide packet loss and jitter a bit more importance than latency
-	return round(0.35 * jitter + 0.35 * packet_loss + 0.3 * rtt);
+	return round(JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss + RTT_WEIGHT * rtt);
 }
 
 static void icall_quality_handler(struct icall *icall,
