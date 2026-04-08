@@ -247,6 +247,7 @@ CONTRIB_WEBRTC_CFLAGS := -I$(CONTRIB_WEBRTC_ROOT)/$(WEBRTC_VER)/include \
 			 -I$(CONTRIB_WEBRTC_ROOT)/$(WEBRTC_VER)/include/third_party/libyuv/include
 
 CONTRIB_WEBRTC_LIBS := -L$(CONTRIB_WEBRTC_ROOT)/$(WEBRTC_VER)/lib/$(AVS_PAIR) -lwebrtc
+CONTRIB_WEBRTC_LIB_FILES = $(CONTRIB_WEBRTC_TARGET)
 
 
 CONTRIB_WEBRTC_ZIP_FILES := \
@@ -372,6 +373,7 @@ $(CONTRIB_LIBRE_TARGET): $(TOOLCHAIN_MASTER) \
 			 $(CONTRIB_WEBRTC_TARGET) \
 			 $(CONTRIB_OPENSSL_TARGET)
 	cd $(CONTRIB_LIBRE_PATH) && \
+		rm -rf build-$(AVS_OS)-$(AVS_ARCH) && \
 		rm -f libre.a && \
 		make libre.a $(JOBS) \
 		BUILD=build-$(AVS_OS)-$(AVS_ARCH) \
@@ -477,6 +479,7 @@ CONTRIB_LIBREW_LIB_FILES := \
 $(CONTRIB_LIBREW_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 			  $(CONTRIB_LIBREW_FILES)
 	@cd $(CONTRIB_LIBREW_PATH) && \
+		rm -rf build-$(AVS_OS)-$(AVS_ARCH) && \
 		rm -f librew.a && \
 		$(MAKE) install-static $(JOBS) \
 		BUILD=build-$(AVS_OS)-$(AVS_ARCH) \
@@ -670,5 +673,3 @@ contrib_clean:
 	@make -C contrib/rem distclean
 	@make -C contrib/rew distclean
 	@rm -f $(CONTRIB_PROTOBUF_TARGET)
-
-

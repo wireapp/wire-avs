@@ -57,6 +57,8 @@ devtools/
 
 # Ignore Gradle project-specific cache directory
 .gradle
+.kotlin/
+.idea/
+*.iml
 
 /kmp/build
-
