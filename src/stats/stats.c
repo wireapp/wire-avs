@@ -241,7 +241,7 @@ static uint64_t normalize_timestamp_to_ms(double timestamp) {
 	return (uint64_t)timestamp;
 }
 
-static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_obj* stats_obj)
+static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct stats_obj* stats_obj)
 {
 	struct le *le = NULL;
 	double audio_jitter = 0;
@@ -270,7 +270,7 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 
 	// 1. read json stats into report
 	LIST_FOREACH(&stats_obj->inbound_rtp, le) {
-		struct stats_inbound_rtp* data = (struct stats_inbound_rtp*)le->data;
+		const struct stats_inbound_rtp* data = (struct stats_inbound_rtp*)le->data;
 
 		if (data->kind == STATS_KIND_AUDIO) {
 			stats->report.packets.audio.rx += data->packets_received;
@@ -293,7 +293,7 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 	}
 
 	LIST_FOREACH(&stats_obj->outbound_rtp, le) {
-		struct stats_outbound_rtp* data = (struct stats_outbound_rtp*)le->data;
+		const struct stats_outbound_rtp* data = (struct stats_outbound_rtp*)le->data;
 
 		if (data->kind == STATS_KIND_AUDIO) {
 			stats->report.packets.audio.tx += data->packets_sent;
@@ -306,7 +306,7 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 	}
 
 	LIST_FOREACH(&stats_obj->remote_inbound_rtp, le) {
-		struct stats_remote_inbound_rtp* data = (struct stats_remote_inbound_rtp*)le->data;
+		const struct stats_remote_inbound_rtp* data = (struct stats_remote_inbound_rtp*)le->data;
 
 		if (data->kind == STATS_KIND_AUDIO) {
 			stats->report.jitter.audio.tx = max(stats->report.jitter.audio.tx, (1000 * data->jitter));
@@ -365,7 +365,32 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 	return 0;
 }
 
-static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* stats_obj)
+// Helper function to read percieved rtt
+static void read_rtt_rx(struct avs_stats *stats, const struct stats_obj* stats_obj)
+{
+	struct le *le = NULL;
+
+	if (!stats || !stats_obj) {
+		return;
+	}
+
+	// Calculate mean rtt from remote inbound reports
+	double remote_inbound_rtt = 0;
+	int remote_inbound_rtt_count = 0;
+
+	LIST_FOREACH(&stats_obj->remote_inbound_rtp, le) {
+		const struct stats_remote_inbound_rtp* data = (struct stats_remote_inbound_rtp*)le->data;
+
+		if (data->kind == STATS_KIND_AUDIO ||data->kind == STATS_KIND_VIDEO) {
+			remote_inbound_rtt += data->rtt;
+			remote_inbound_rtt_count++;
+		}
+	}
+
+	stats->report.rtt.rx = remote_inbound_rtt ? 1000 * (remote_inbound_rtt / remote_inbound_rtt_count) : 0;
+}
+
+static int read_rtt_and_connection(struct avs_stats *stats, const struct stats_obj* stats_obj)
 {
 	struct le *le = NULL;
 	const char* connected_local_candidate_id = NULL;
@@ -378,14 +403,14 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 	// First check if there is a "transport" report that should have selected pair
 	le = list_head(&stats_obj->transport);
 	if (le) {
-		struct stats_transport *head = (struct stats_transport*)le->data;
+		const struct stats_transport *head = (struct stats_transport*)le->data;
 		selected_pair_id = head->selected_pair_id;
 	}
 
 	// When we have a "transport" report search selected pair, else
 	// search a connected pair (which is succeeded and nominated)
 	LIST_FOREACH(&stats_obj->candidate_pair, le) {
-		struct stats_candidate_pair* data = (struct stats_candidate_pair*)le->data;
+		const struct stats_candidate_pair* data = (struct stats_candidate_pair*)le->data;
 
 		if (selected_pair_id) {
 			if (data->id && streq(selected_pair_id, data->id)) {
@@ -405,20 +430,8 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 		}
 	}
 
-	// Calculate mean rtt rx (perceived from peer) from remote inbound reports
-	double remote_inbound_rtt = 0;
-	int remote_inbound_rtt_count = 0;
-
-	LIST_FOREACH(&stats_obj->remote_inbound_rtp, le) {
-		struct stats_remote_inbound_rtp* data = (struct stats_remote_inbound_rtp*)le->data;
-
-		if (data->kind == STATS_KIND_AUDIO ||data->kind == STATS_KIND_VIDEO) {
-			remote_inbound_rtt += data->rtt;
-			remote_inbound_rtt_count++;
-		}
-	}
-
-	stats->report.rtt.rx = remote_inbound_rtt ? 1000 * (remote_inbound_rtt / remote_inbound_rtt_count) : 0;
+	// read rtt perceived from peer side
+	read_rtt_rx(stats, stats_obj);
 
 	if (!connected_local_candidate_id) {
 		// maybe ok that we dont have connection atm
@@ -426,7 +439,7 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 	}
 	// use last connected local candidate id to get connection details
 	LIST_FOREACH(&stats_obj->local_candidate, le) {
-		struct stats_local_candidate* data = (struct stats_local_candidate*)le->data;
+		const struct stats_local_candidate* data = (struct stats_local_candidate*)le->data;
 
 		if (data->id && streq(data->id, connected_local_candidate_id)) {
 			stats->report.proto = data->proto;
@@ -438,7 +451,7 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 	return 0;
 }
 
-static int read_audio_level(struct avs_stats *stats, struct stats_obj* stats_obj)
+static int read_audio_level(struct avs_stats *stats, const struct stats_obj* stats_obj)
 {
 	struct le *le = NULL;
 
@@ -447,7 +460,7 @@ static int read_audio_level(struct avs_stats *stats, struct stats_obj* stats_obj
 	}
 
 	LIST_FOREACH(&stats_obj->audio_source, le) {
-		struct stats_audio_source* asp = (struct stats_audio_source*)le->data;
+		const struct stats_audio_source* asp = (struct stats_audio_source*)le->data;
 		stats->report.audio_level = (int)(asp->level * 255.0);
 	}
 

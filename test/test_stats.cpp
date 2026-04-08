@@ -520,7 +520,7 @@ public:
 		Base::TearDown();
 	}
 
-protected:
+public:
 	RTCIceCandidatePairStats* candidate_pair;
 	const stats_rx_tx zero_rtt = {0, 0};
 };
@@ -591,7 +591,7 @@ public:
 		Base::TearDown();
 	}
 
-protected:
+public:
 	RTCIceCandidatePairStats* candidate_pair;
 	stats_rx_tx expected_rtt;
 };
