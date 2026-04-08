@@ -1644,12 +1644,12 @@ const int PACKET_LOSS_HIGH = 10;
 
 // Stream direction weights
 const float UPSTREAM_WEIGHT = 0.7;
-const float DOWNSTREM_WEIGHT = 0.3;
+const float DOWNSTREM_WEIGHT = (1.0 - UPSTREAM_WEIGHT);
 
 // Overall quality weights
 const float JITTER_WEIGHT = 0.35;
 const float PACKET_LOSS_WEIGHT = 0.35;
-const float RTT_WEIGHT = 0.3;
+const float RTT_WEIGHT = (1.0 - JITTER_WEIGHT - PACKET_LOSS_WEIGHT);
 
 static int normalize_quality(const struct stats_report* stats) {
 	// Stats are 3 step normalized wrt corresponding thresholds
