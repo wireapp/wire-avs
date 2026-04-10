@@ -8,7 +8,7 @@ plugins {
 }
 
 group = findProperty("GROUP") as String? ?: "com.wire"
-version = findProperty("VERSION_NAME") as String? ?: "0.0.1-kmp"
+version = findProperty("VERSION_NAME") as String? ?: "0.0.1"
 
 repositories {
     mavenCentral()
@@ -95,22 +95,6 @@ kotlin {
                 )
 
                 compilerOpts("-framework", "avs", "-F${frameworkPath}")
-            }
-        }
-    }
-
-    // We dont have an easy linux avs build in mac, disable linux target in mac host
-    if (System.getProperty("os.name").contains("Linux")) {
-        linuxX64() {
-            compilations.getByName("main") {
-                val avs by cinterops.creating {
-                    definitionFile.set(project.file("src/nativeInterop/cinterop/linux.def"))
-
-                    val includePath = file("$path/build/dist/linux/avscore/include/avs/").absolutePath
-                    val libraryPath = file("$path/build/dist/linux/avscore/lib/").absolutePath
-                    compilerOpts("-I$includePath")
-                    extraOpts("-libraryPath", "$libraryPath")
-                }
             }
         }
     }
