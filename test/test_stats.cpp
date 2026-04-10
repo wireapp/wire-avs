@@ -502,30 +502,30 @@ TEST_F(StatsJitter, zero_packet_rtp)
 }
 
 // ------------------------------------- RTT Tests --------------------------------------
-class StatsRtt: public Base,
+class StatsRttBase: public Base,
 				public ::testing::Test {
 public:
 	void SetUp() override
 	{
 		Base::SetUp();
 
+		auto empty_candidate_pair = new RTCIceCandidatePairStats("emptyCandidatePair", Timestamp::Zero());
+		report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
+
 		candidate_pair = new RTCIceCandidatePairStats("candidatePair", Timestamp::Zero());
 		candidate_pair->current_round_trip_time = 0.01;
-		auto empty_candidate_pair = new RTCIceCandidatePairStats("emptyCandidatePair", Timestamp::Zero());
-		report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
-		report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
 	}
 
 	void TearDown() override {
 		Base::TearDown();
 	}
 
-protected:
+public:
 	RTCIceCandidatePairStats* candidate_pair;
-	const int zero_rtt = 0;
+	const stats_rx_tx zero_rtt = {0, 0};
 };
 
-TEST_F(StatsRtt, without_candidates)
+TEST_F(StatsRttBase, without_candidates)
 {
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
@@ -533,9 +533,10 @@ TEST_F(StatsRtt, without_candidates)
 	EXPECT_EQ(sr.rtt, zero_rtt);
 }
 
-TEST_F(StatsRtt, unsucceeded_candidates)
+TEST_F(StatsRttBase, unsucceeded_candidates)
 {
 	candidate_pair->state = "unsucceeded";
+	report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
@@ -543,10 +544,11 @@ TEST_F(StatsRtt, unsucceeded_candidates)
 	EXPECT_EQ(sr.rtt, zero_rtt);
 }
 
-TEST_F(StatsRtt, unnominated_candidates)
+TEST_F(StatsRttBase, unnominated_candidates)
 {
 	candidate_pair->state = "succeeded";
 	candidate_pair->nominated = false;
+	report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
@@ -554,14 +556,49 @@ TEST_F(StatsRtt, unnominated_candidates)
 	EXPECT_EQ(sr.rtt, zero_rtt);
 }
 
+// ------------------------------------- RTT Tests --------------------------------------
+class StatsRtt: public StatsRttBase {
+public:
+	void SetUp() override
+	{
+		Base::SetUp();
+
+		candidate_pair = new RTCIceCandidatePairStats("candidatePair", Timestamp::Zero());
+
+		auto empty_candidate_pair = new RTCIceCandidatePairStats("emptyCandidatePair", Timestamp::Zero());
+		report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
+
+		candidate_pair->current_round_trip_time = 0.01;
+		candidate_pair->state = "succeeded";
+		candidate_pair->nominated = true;
+		report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
+
+		const auto remote_audio_rtp = new RTCRemoteInboundRtpStreamStats("someRemoteAudioRtpId", Timestamp::Zero());
+		remote_audio_rtp->kind = "audio";
+		remote_audio_rtp->round_trip_time = 0.06;
+		report->AddStats(std::unique_ptr<RTCStats>(remote_audio_rtp));
+
+		const auto remote_video_rtp = new RTCRemoteInboundRtpStreamStats("someRemoteVideoRtpId", Timestamp::Zero());
+		remote_video_rtp->kind = "video";
+		remote_video_rtp->round_trip_time = 0.04;
+		report->AddStats(std::unique_ptr<RTCStats>(remote_video_rtp));
+
+		expected_rtt.tx = 1000 * (*candidate_pair->current_round_trip_time);
+		expected_rtt.rx = 1000 * (*remote_audio_rtp->round_trip_time + *remote_video_rtp->round_trip_time) / 2;
+	}
+
+	void TearDown() override {
+		Base::TearDown();
+	}
+
+public:
+	RTCIceCandidatePairStats* candidate_pair;
+	stats_rx_tx expected_rtt;
+};
+
+
 TEST_F(StatsRtt, some_rtt_values)
 {
-	const auto expected_rtt = 10;
-
-	candidate_pair->state = "succeeded";
-	candidate_pair->nominated = true;
-	candidate_pair->current_round_trip_time = 0.01;
-
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
@@ -570,12 +607,6 @@ TEST_F(StatsRtt, some_rtt_values)
 
 TEST_F(StatsRtt, some_rtt_values_with_transport)
 {
-	const auto expected_rtt = 10;
-
-	candidate_pair->state = "succeeded";
-	candidate_pair->nominated = true;
-	candidate_pair->current_round_trip_time = 0.01;
-
 	auto transport = new RTCTransportStats("someTransportId", Timestamp::Zero());
 	transport->selected_candidate_pair_id = candidate_pair->id();
 	report->AddStats(std::unique_ptr<RTCStats>(transport));
