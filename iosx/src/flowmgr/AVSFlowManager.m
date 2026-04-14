@@ -27,6 +27,7 @@
 #import <Foundation/Foundation.h>
 
 #include <dispatch/dispatch.h>
+#include <os/log.h>
 
 #include <re/re.h>
 #include <avs.h>
@@ -194,6 +195,22 @@ static NSString *mime2uti(const char *ctype)
 	return uti;	
 }
 
+/* A hack version for direct ios logging,
+ * use this function to override the logging mechanism if
+ * you want to output logs directly to the console, for debugging purposes.
+ */
+void ios_log (const char *fmt, ...);
+void ios_log (const char *fmt, ...)
+{
+	char msg[1024];
+	va_list args;
+
+	va_start(args, fmt);
+	re_vsnprintf(msg, sizeof(msg), fmt, args);
+	os_log(OS_LOG_DEFAULT, "%{public}s", msg);
+	va_end(args);
+}
+
 
 static void log_handler(uint32_t lve, const char *msg, void *arg)
 {
@@ -225,7 +242,7 @@ static struct log log_def = {
 static void *avs_thread(void *arg)
 {
 	int err;
-    uint64_t* avs_flags = (uint64_t*)arg;
+	uint64_t* avs_flags = (uint64_t*)arg;
     
 	info("avs_thread: starting...\n");
 
