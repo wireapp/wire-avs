@@ -292,6 +292,11 @@ pipeline {
                 }
             }
         }
+
+        // WPB-22450 Push ios avs to Maven central
+        // ios build will require macos agent
+        // ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publisIos64ToMavenCentral
+
 //        stage('Publish to ios github repo') {
 //            when {
 //                anyOf {

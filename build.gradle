@@ -1,12 +1,20 @@
-import com.vanniktech.maven.publish.SonatypeHost
+import com.vanniktech.maven.publish.JavaLibrary
 
 plugins {
     id "java-library"
-    id("com.vanniktech.maven.publish.base") version "0.29.0"
+    id("com.vanniktech.maven.publish.base") version "0.34.0"
+    id("org.jetbrains.kotlin.multiplatform") version "2.2.21" apply false
+}
+
+group = findProperty("GROUP") ?: "com.wire"
+version = findProperty("VERSION_NAME") ?: "0.0.1-local"
+
+repositories {
+    mavenCentral()
 }
 
 mavenPublishing {
-    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+    publishToMavenCentral()
     pomFromGradleProperties()
     signAllPublications()
 }
