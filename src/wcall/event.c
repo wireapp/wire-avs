@@ -25,8 +25,26 @@
 #include <avs_wcall.h>
 #include "wcall.h"
 
+// Uncomment the line below to log directly to console,
+// Useful for NSE debugging.
+//#define NSE_DEBUG 1
+
 #ifdef __APPLE__
-#       include <TargetConditionals.h>
+#include <TargetConditionals.h>
+
+#ifdef NSE_DEBUG
+#undef debug
+#undef info
+#undef warning
+#undef error
+
+extern void ios_log (const char *fmt, ...);
+
+#define debug   ios_log
+#define info    ios_log
+#define warning ios_log
+#define error   ios_log
+#endif
 #endif
 
 #define EVENT_AGE_VALID 60 /* max event age in seconds */
@@ -182,10 +200,16 @@ WUSER_HANDLE wcall_event_create(const char *userid,
 	bool found = false;
 	struct le *le = calling_event.instances.head;
 	struct call_event_instance *inst = NULL;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 
 	if (!userid || !clientid) {
 		return WUSER_INVALID_HANDLE;
 	}
+
+	info("wcall: event create for %s.%s\n",
+	     anon_id(userid_anon, userid),
+	     anon_client(clientid_anon, clientid));
 
 	while(le && !found) {
 		inst = le->data;
@@ -220,9 +244,12 @@ void wcall_event_start(WUSER_HANDLE wuser)
 {
 	struct call_event_instance *inst;
 
+
 	inst = wuser2evinst(wuser);
+	info("event(%p): start for wuser=%p\n", inst, wuser);
+
 	if (!inst) {
-		error("event(%p): start: cannot find wuser\n", wuser);
+		error("event: start: cannot find wuser: %p\n", wuser);
 		return;
 	}
 
@@ -244,13 +271,20 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 	struct econn_message *msg;
 	struct call_event *ev;
 	int err = 0;
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
 
 	if (!buf || len == 0 || !convid || !userid || !clientid)
 		return EINVAL;
-	
+
 	inst = wuser2evinst(wuser);
+	info("event(%p): process for wuser=%p from=%s.%s\n",
+	     inst, wuser,
+	     anon_id(userid_anon, userid),
+	     anon_client(clientid_anon, clientid));
+
 	if (!inst) {
-		error("event(%p): process: cannot find wuser\n", wuser);
+		error("event: process: cannot find wuser=%p\n", wuser);
 		return ENOENT;
 	}
 
@@ -262,21 +296,24 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 	err = econn_message_decode(&msg, curr_time, msg_time,
 				   (const char *)buf, len);
 	if (err == EPROTONOSUPPORT) {
-		warning("wcall(%p): event_process: uknown message type, "
-			"ask user to update client\n", inst);
+		warning("event(%p): process: uknown message type\n", inst);
 		return WCALL_ERROR_UNKNOWN_PROTOCOL;
 	}
 	else if (err) {
-		warning("wcall(%p): event_process: failed to decode\n", inst);
+		warning("event(%p): process: failed to decode: %m\n", inst, err);
 		return err;
 	}
+
+	info("event(%p): msg=%H\n", inst, econn_message_brief, msg);
 
 	switch(msg->msg_type) {
 	case ECONN_SETUP:
 	case ECONN_GROUP_START:
 	case ECONN_CONF_START:
-		if (msg->age > EVENT_AGE_VALID)
+		if (msg->age > EVENT_AGE_VALID) {
+			warning("event(%p): message is too old. age=%d\n", inst, msg->age);
 			return ETIMEDOUT;
+		}
 		
 		if (econn_message_isrequest(msg)) {
 			queue_event(inst, convid,
@@ -305,7 +342,7 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 					NULL, NULL,
 					CALL_EVENT_STATE_INCOMING);
 
-			/* do we have a pending inconing? if we do,
+			/* do we have a pending incoming event? if we do,
 			 * queue missed, otherwise queue closeh
 			 */
 			if (ev) {
@@ -352,18 +389,23 @@ void wcall_event_end(WUSER_HANDLE wuser)
 	struct le *le = NULL;
 
 	inst = wuser2evinst(wuser);
+
+	info("event(%p): end wuser=%p\n", inst, wuser);
+
 	if (!inst) {
 		error("event(%p): end: cannot find wuser\n", wuser);
 		return;
 	}
 
 	if (!inst->processing) {
+		warning("event(%p): end: wuser=%p not processing\n", inst, wuser);
 		return;		
 	}
 
 	le = inst->eventl.head;
 	while(le) {
 		struct call_event *ev = le->data;
+		uint64_t now = tmr_jiffies();
 
 		le = le->next;
 
@@ -372,6 +414,7 @@ void wcall_event_end(WUSER_HANDLE wuser)
 		
 		switch (ev->state) {
 		case CALL_EVENT_STATE_INCOMING:
+			info("event(%p): end: wuser=%p calling incomingh=%p\n", inst, wuser, inst->incomingh);
 			if (inst->incomingh) {
 				inst->incomingh(ev->convid, ev->msg_time,
 						ev->userid, ev->clientid,
@@ -380,9 +423,14 @@ void wcall_event_end(WUSER_HANDLE wuser)
 						ev->conv_type,
 						inst->arg);
 			}
+			info("event(%p): end wuser=%p calling incomingh "
+			     "took: %lldms\n",
+			     inst, wuser, tmr_jiffies() - now);
 			break;
 
 		case CALL_EVENT_STATE_MISSED:
+			info("event(%p): end wuser=%p calling missedh=%p\n",
+			     inst, wuser, inst->missedh);
 			if (inst->missedh) {
 				inst->missedh(ev->convid,
 					      ev->msg_time,
@@ -391,9 +439,14 @@ void wcall_event_end(WUSER_HANDLE wuser)
 					      false, /* video-call */
 					      inst->arg);
 			}
+			info("event(%p): end: wuser=%p calling missedh "
+			     "took: %lldms\n",
+			     inst, wuser, tmr_jiffies() - now);
 			break;
 
 		case CALL_EVENT_STATE_CLOSED:
+			info("event(%p): end wuser=%p calling closeh=%p\n",
+			     inst, wuser, inst->closeh);
 			if (inst->closeh) {
 				inst->closeh(ev->reason,
 					     ev->convid,
@@ -402,6 +455,9 @@ void wcall_event_end(WUSER_HANDLE wuser)
 					     ev->clientid,
 					     inst->arg);
 			}
+			info("event(%p): end wuser=%p calling closeh "
+			     "took: %lldms\n",
+			     inst, wuser, tmr_jiffies() - now);
 			break;
 
 		default:
