@@ -18,6 +18,7 @@
 
 #include <pthread.h>
 #include <unistd.h>
+#include <math.h>
 
 #include <re/re.h>
 #include <avs.h>
@@ -181,6 +182,7 @@ struct calling_instance {
 	bool processing_notifications;
 	struct list pending_eventl;
         struct list durationl;
+	struct list config_updatel;
 };
 
 struct wcall {
@@ -225,6 +227,20 @@ struct incoming_event {
 	int should_ring;
 	int conv_type;
 	void *arg;
+
+	struct le le;
+};
+
+struct config_update_entry {
+	struct calling_instance *inst;
+	struct econn_message *msg;
+	uint32_t curr_time;
+	uint32_t msg_time;
+	char *convid;
+	char *userid;
+	char *clientid;
+	int conv_type;
+	bool meeting;
 
 	struct le le;
 };
@@ -456,6 +472,18 @@ struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid)
 	lock_rel(inst->lock);
 	
 	return found ? wcall : NULL;
+}
+
+static void cuent_destructor(void *arg)
+{
+	struct config_update_entry *cuent = arg;
+
+	mem_deref(cuent->msg);
+	mem_deref(cuent->userid);
+	mem_deref(cuent->clientid);
+	mem_deref(cuent->convid);
+
+	list_unlink(&cuent->le);
 }
 
 static void ie_destructor(void *arg)
@@ -1603,6 +1631,53 @@ static void destructor(void *arg)
 	info("wcall(%p): dtor -- done\n", wcall);
 }
 
+static int normalize_to_levels(int num, int low_threshold, int high_threshold) {
+	if (num < low_threshold) {
+		return WCALL_QUALITY_NORMAL;
+	}
+	else if (num > high_threshold) {
+		return WCALL_QUALITY_POOR;
+	}
+	else {
+		return WCALL_QUALITY_MEDIUM;
+	}
+}
+
+// Quality level thresholds
+const int RTT_LOW = 50;
+const int RTT_HIGH = 150;
+const int JITTER_LOW = 10;
+const int JITTER_HIGH = 50;
+const int PACKET_LOSS_LOW = 5;
+const int PACKET_LOSS_HIGH = 10;
+
+// Stream direction weights
+const float UPSTREAM_WEIGHT = 0.7;
+const float DOWNSTREM_WEIGHT = (1.0 - UPSTREAM_WEIGHT);
+
+// Overall quality weights
+const float JITTER_WEIGHT = 0.35;
+const float PACKET_LOSS_WEIGHT = 0.35;
+const float RTT_WEIGHT = (1.0 - JITTER_WEIGHT - PACKET_LOSS_WEIGHT);
+
+static int normalize_quality(const struct stats_report* stats) {
+	// Stats are 3 step normalized wrt corresponding thresholds
+	const int rtt_tx = normalize_to_levels(stats->rtt.tx, RTT_LOW, RTT_HIGH);
+	const int rtt_rx = normalize_to_levels(stats->rtt.rx, RTT_LOW, RTT_HIGH);
+	const int jitter_tx = normalize_to_levels((stats->jitter.audio.tx + stats->jitter.video.tx) / 2, JITTER_LOW, JITTER_HIGH);
+	const int jitter_rx = normalize_to_levels((stats->jitter.audio.rx + stats->jitter.video.rx) / 2, JITTER_LOW, JITTER_HIGH);
+	const int packet_loss_tx = normalize_to_levels(stats->packets.lost.tx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
+	const int packet_loss_rx = normalize_to_levels(stats->packets.lost.rx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
+
+	// provide higher importance to upstream stats
+	float rtt = UPSTREAM_WEIGHT * rtt_tx + DOWNSTREM_WEIGHT * rtt_rx;
+	float jitter = UPSTREAM_WEIGHT * jitter_tx + DOWNSTREM_WEIGHT * jitter_rx;
+	float packet_loss = UPSTREAM_WEIGHT * packet_loss_tx + DOWNSTREM_WEIGHT * packet_loss_rx;
+
+	// provide packet loss and jitter a bit more importance than latency
+	return round(JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss + RTT_WEIGHT * rtt);
+}
+
 static void icall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
@@ -1626,16 +1701,24 @@ static void icall_quality_handler(struct icall *icall,
 	if (!inst->quality.netqh)
 		return;
 
+	// ICALL_NETWORK_PROBLEM and ICALL_RECONNECTING states are
+	// propagated through packet loss stats.
+	// Reset them back if needed to stay inside [0.100] interval.
 	if (stats.packets.lost.tx == ICALL_NETWORK_PROBLEM
-	    && stats.packets.lost.rx == ICALL_NETWORK_PROBLEM)
+		&& stats.packets.lost.rx == ICALL_NETWORK_PROBLEM) {
+		stats.packets.lost.tx = 0;
+		stats.packets.lost.rx = 0;
 		quality = WCALL_QUALITY_NETWORK_PROBLEM;
+	}
 	else if (stats.packets.lost.tx == ICALL_RECONNECTING
-	    && stats.packets.lost.rx == ICALL_RECONNECTING)
+		&& stats.packets.lost.rx == ICALL_RECONNECTING) {
+		stats.packets.lost.tx = 0;
+		stats.packets.lost.rx = 0;
 		quality = WCALL_QUALITY_RECONNECTING;
-	else if (stats.rtt > 800 || stats.packets.lost.tx > 20 || stats.packets.lost.rx > 20)
-		quality = WCALL_QUALITY_POOR;
-	else if (stats.rtt > 400 || stats.packets.lost.tx > 5 || stats.packets.lost.rx > 5)
-		quality = WCALL_QUALITY_MEDIUM;
+	}
+	else {
+		quality = normalize_quality(&stats);
+	}
 
 	now = tmr_jiffies();
 
@@ -1645,7 +1728,7 @@ static void icall_quality_handler(struct icall *icall,
 	json_object_object_add(jobj, "quality",
 				json_object_new_int(quality));
 	json_object_object_add(jobj, "rtt",
-				json_object_new_int(stats.rtt));
+				json_object_new_int(stats.rtt.tx));
 
 	struct json_object *loss_jobj = json_object_new_object();
 	json_object_object_add(loss_jobj, "tx",
@@ -1691,6 +1774,13 @@ static void icall_quality_handler(struct icall *icall,
 				  anon_id(userid_anon, userid),
 				  anon_client(clientid_anon, clientid),
 				  quality_info);
+
+	info(APITAG "wcall(%p): Packets per sec {audio: {tx: %d, rx: %d}, "
+				"video: {tx: %d, rx: %d}, lost: {tx: %d, rx: %d}}",
+				wcall,
+				stats.packets_per_sec.audio.tx, stats.packets_per_sec.audio.rx,
+				stats.packets_per_sec.video.tx, stats.packets_per_sec.video.rx,
+				stats.packets_per_sec.lost.tx, stats.packets_per_sec.lost.rx);
 
 	inst->quality.netqh(wcall->convid,
 			    userid,
@@ -2410,10 +2500,68 @@ static int config_req_handler(void *arg)
 }
 
 
+static int add_wcall(struct wcall **wcall,
+		     struct calling_instance *inst,
+		     struct econn_message *msg,
+		     const char *convid,
+		     const char *userid,
+		     int conv_type,
+		     bool meeting)
+{
+	int err = 0;
+	
+	if (msg->msg_type == ECONN_GROUP_START
+	    && econn_message_isrequest(msg)) {
+		err = wcall_add(inst, wcall, convid,
+				WCALL_CONV_TYPE_GROUP,
+				meeting);
+	}
+	else if (msg->msg_type == ECONN_GROUP_CHECK
+		 && !econn_message_isrequest(msg)) {
+		err = wcall_add(inst, wcall, convid,
+				WCALL_CONV_TYPE_GROUP,
+				meeting);
+	}
+	else if (msg->msg_type == ECONN_CONF_START
+		 && econn_message_isrequest(msg)) {
+		err = wcall_add(inst, wcall, convid,
+				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
+				WCALL_CONV_TYPE_CONFERENCE,
+				meeting);
+	}
+	else if (msg->msg_type == ECONN_CONF_CHECK
+		 && !econn_message_isrequest(msg)) {
+		err = wcall_add(inst, wcall, convid,
+				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
+				WCALL_CONV_TYPE_CONFERENCE,
+				meeting);
+	}
+	else if (econn_is_creator(inst->userid, userid, msg)) {
+		err = wcall_add(inst, wcall, convid,
+				WCALL_CONV_TYPE_ONEONONE,
+				meeting);
+		if (err) {
+			warning("wcall(%p): wcall_add failed: %m\n", inst, err);
+		}
+	}
+	else {
+		err = EPROTO;
+	}
+
+	if (err) {
+		warning("wcall(%p): could not add call: %m\n", inst, err);
+	}
+
+	return err;
+}
+
+
 static void config_update_handler(struct call_config *cfg, void *arg)
 {
 	struct calling_instance *inst = arg;
-	bool first = false;	
+	bool first = false;
+	struct le *le;
+	int err = 0;
 	
 	if (cfg == NULL)
 		return;
@@ -2438,6 +2586,39 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		     inst, inst->readyh, tmr_jiffies() - now);
 
 		wcall_invoke_ready(inst);
+	}
+
+	le = inst->config_updatel.head;
+	while(le) {
+		struct config_update_entry *cuent = le->data;
+		struct wcall *wcall = NULL;
+
+		le = le->next;
+
+		err = add_wcall(&wcall,
+				cuent->inst,
+				cuent->msg,
+				cuent->convid,
+				cuent->userid,
+				cuent->conv_type,
+				cuent->meeting);
+		if (err) {
+			warning("wcall(%p): config_update failed to add wcall: %m\n", inst, err);
+		}
+		else {
+			err = ICALL_CALLE(wcall->icall, msg_recv,
+					  cuent->curr_time,
+					  cuent->msg_time,
+					  cuent->userid,
+					  cuent->clientid,
+					  cuent->msg);
+			if (err) {
+				warning("wcall(%p): config_update: recv_msg returned error: "
+					"%m\n", wcall, err);
+			}
+		}
+
+		mem_deref(cuent);
 	}
 }
 
@@ -3123,7 +3304,6 @@ void wcall_i_sft_resp(struct calling_instance *inst,
 	mem_deref(ctx);
 }
 
-
 void wcall_i_recv_msg(struct calling_instance *inst,
 		      struct econn_message *msg,
 		      uint32_t curr_time,
@@ -3185,54 +3365,37 @@ void wcall_i_recv_msg(struct calling_instance *inst,
 		return;
 	}
 	
-	if (!wcall) {
-		if (msg->msg_type == ECONN_GROUP_START
-		    && econn_message_isrequest(msg)) {
-			err = wcall_add(inst, &wcall, convid,
-					WCALL_CONV_TYPE_GROUP,
-					false);
-		}
-		else if (msg->msg_type == ECONN_GROUP_CHECK
-		    && !econn_message_isrequest(msg)) {
-			err = wcall_add(inst, &wcall, convid,
-					WCALL_CONV_TYPE_GROUP,
-					false);
-		}
-		else if (msg->msg_type == ECONN_CONF_START
-		    && econn_message_isrequest(msg)) {
-			err = wcall_add(inst, &wcall, convid,
-					conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
-					WCALL_CONV_TYPE_CONFERENCE,
-					meeting);
-		}
-		else if (msg->msg_type == ECONN_CONF_CHECK
-		    && !econn_message_isrequest(msg)) {
-			err = wcall_add(inst, &wcall, convid,
-					conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
-					WCALL_CONV_TYPE_CONFERENCE,
-					meeting);
-		}
-		else if (econn_is_creator(inst->userid, userid, msg)) {
-			err = wcall_add(inst, &wcall, convid,
-					WCALL_CONV_TYPE_ONEONONE,
-					false);
+	if (!wcall) {		
+		if (config_needs_update(inst->cfg)) {
+			struct config_update_entry *cuent;
 
-			if (err) {
-				warning("wcall(%p): recv_msg: wcall_add "
-					"failed: %m\n", wcall, err);
+			cuent = mem_zalloc(sizeof(*cuent), cuent_destructor);
+			if (!cuent) {
+				err = ENOMEM;
 				goto out;
 			}
+
+			cuent->inst = inst;
+			cuent->msg = mem_ref(msg);
+			cuent->msg_time = msg_time;
+			cuent->curr_time = curr_time;
+			str_dup(&cuent->convid, convid);
+			str_dup(&cuent->userid, userid);
+			str_dup(&cuent->clientid, clientid);
+			cuent->conv_type = conv_type;
+			cuent->meeting = meeting;
+
+			list_append(&inst->config_updatel, &cuent->le, cuent);
+			err = 0;
+			goto out;
 		}
-		else {
-			err = EPROTO;
-		}
+
+		err = add_wcall(&wcall, inst, msg, convid, userid, conv_type, meeting);
 		if (err) {
-			warning("wcall(%p): recv_msg: could not add call: "
-				"%m\n", wcall, err);
+			warning("wcall(%p): failed to add wcall: %m\n", inst, err);
 			goto out;
 		}
 	}
-
 
 	err = ICALL_CALLE(wcall->icall, msg_recv,
 			  curr_time, msg_time, userid, clientid, msg);

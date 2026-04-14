@@ -2713,11 +2713,17 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 	}
 
 	enum econn_state conn_current_state = econn_current_state(ecall->econn);
-	if (ecall->conv_type == ICALL_CONV_TYPE_ONEONONE && (ecall->update || conn_current_state == ECONN_UPDATE_RECV)) {
-		info("ecall(%p): set_video_send_state: postpone video update state %s, because of glare\n", ecall, icall_vstate_name(ecall->vstate));
-		ecall->update_glare = true;
-		ecall->glare_vstate = vstate;
-		return 0;
+	if (ecall->conv_type == ICALL_CONV_TYPE_ONEONONE) {
+		if (conn_current_state == ECONN_PENDING_OUTGOING ||
+		    conn_current_state == ECONN_PENDING_INCOMING ||
+		    conn_current_state == ECONN_UPDATE_RECV ||
+		    ecall->update) {
+			info("ecall(%p): set_video_send_state: postpone video update state %s, because of glare\n",
+			     ecall, icall_vstate_name(ecall->vstate));
+			ecall->update_glare = true;
+			ecall->glare_vstate = vstate;
+			return 0;
+		}
 	}
 
 
@@ -3316,7 +3322,7 @@ static void quality_handler(void *arg)
 
 	if (!err) {
 		uint32_t dloss = (uint32_t)stats.packets.lost.rx;
-		uint32_t rtt = (uint32_t)stats.rtt;
+		uint32_t rtt = stats.rtt.tx;
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall,
 			      ecall->userid_peer,

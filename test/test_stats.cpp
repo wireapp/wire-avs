@@ -47,7 +47,8 @@ bool operator==(const stats_report& lhs, const stats_report& rhs) {
 			lhs.audio_level_smooth == rhs.audio_level_smooth &&
 			lhs.rtt == rhs.rtt &&
 			lhs.jitter == rhs.jitter &&
-			lhs.packets == rhs.packets;
+			lhs.packets == rhs.packets &&
+			lhs.packets_per_sec == rhs.packets_per_sec;
 }
 
 const auto zero_report = stats_report {};
@@ -56,11 +57,11 @@ const auto zero_report = stats_report {};
 
 class Sanity : public ::testing::TestWithParam<std::tuple<std::string, std::string>> {
 public:
-	virtual void SetUp() override {
+	void SetUp() override {
 		stats_alloc(&stats, NULL);
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		mem_deref(stats);
 	}
 
@@ -209,36 +210,129 @@ TEST_F(StatsBase, some_packet_stats)
 
 TEST_F(StatsBase, audio_should_be_cumulative)
 {
-	// An incoming audio streams with 20 packets and 2 packet loss
-	auto audio_rtp = new RTCInboundRtpStreamStats("someRtpId", Timestamp::Zero());
+	int64_t time_in_sec = 1773656401; // Mar 16 2026 10:20:01
+	const auto stat_time = Timestamp::Seconds(time_in_sec);
+	// An incoming audio streams with 200 packets and 20 packet loss
+	auto audio_rtp = new RTCInboundRtpStreamStats("someRtpId", stat_time);
 	audio_rtp->kind = "audio";
-	audio_rtp->packets_received = 20;
-	audio_rtp->packets_lost = 2;
+	audio_rtp->packets_received = 200;
+	audio_rtp->packets_lost = 20;
 	report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	// 20 packets 10% loss
-	EXPECT_EQ(sr.packets.audio.rx, 20);
+	// 200 packets 10% loss
+	EXPECT_EQ(sr.packets.audio.rx, 200);
 	EXPECT_EQ(sr.packets.lost.rx, 10);
 
+	// since this is initial packet per sec loss will be zero
+	EXPECT_EQ(sr.packets_per_sec.audio.rx, 0);
+	EXPECT_EQ(sr.packets_per_sec.lost.rx, 0);
 
 	// An incoming audio streams with double packets and half packet loss
-	auto new_audio_rtp = new RTCInboundRtpStreamStats("someRtpId", Timestamp::Seconds(10));
+	const auto new_stat_time = Timestamp::Seconds(time_in_sec + 10);
+	auto new_audio_rtp = new RTCInboundRtpStreamStats("someRtpId", new_stat_time);
 	new_audio_rtp->kind = "audio";
-	new_audio_rtp->packets_received = 20 + 20;
-	new_audio_rtp->packets_lost = 2 + 1;
-	auto new_report = RTCStatsReport::Create(Timestamp::Seconds(10));
+	new_audio_rtp->packets_received = 200 + 200;
+	new_audio_rtp->packets_lost = 20 + 10;
+	auto new_report = RTCStatsReport::Create(new_stat_time);
 	new_report->AddStats(std::unique_ptr<RTCStats>(new_audio_rtp));
 
 	stats_update(stats, new_report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
 	// 40 packets 5% loss
-	EXPECT_EQ(sr.packets.audio.rx, 40);
+	EXPECT_EQ(sr.packets.audio.rx, 400);
 	EXPECT_EQ(sr.packets.lost.rx, 5);
+
+	// 20 packets per sec, 1 loss per sec
+	EXPECT_EQ(sr.packets_per_sec.audio.rx, 20);
+	EXPECT_EQ(sr.packets_per_sec.lost.rx, 1);
 }
+
+
+//------------------------ Timestamp Format Tests  -----------------------------------
+
+class TsFormat : public Base,
+					public ::testing::TestWithParam<std::tuple<const char*, const char*, std::string>> {
+
+public:
+	void SetUp() override {
+		Base::SetUp();
+	}
+
+	void TearDown() override {
+		Base::TearDown();
+	}
+};
+
+// Native provides timestamp in microseconds	"timestamp": 1773656401000007
+const auto first_report_native = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656401000007,
+						 "kind":"audio",
+						 "packetsLost":20,
+						 "packetsReceived":200 }])";
+
+const auto next_report_native = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656411000008,
+						 "kind":"audio",
+						 "packetsLost":30,
+						 "packetsReceived":400 }])";
+
+// Chrome provides timestamp in milliseconds	"timestamp": 1773656401000.007
+const auto first_report_chrome = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656401000.007,
+						 "kind":"audio",
+						 "packetsLost":20,
+						 "packetsReceived":200 }])";
+
+const auto next_report_chrome = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656411000.008,
+						 "kind":"audio",
+						 "packetsLost":30,
+						 "packetsReceived":400 }])";
+
+// Firefox provides timestamp in milliseconds	"timestamp": 1773656401000
+const auto first_report_firefox = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656401000,
+						 "kind":"audio",
+						 "packetsLost":20,
+						 "packetsReceived":200 }])";
+
+const auto next_report_firefox = R"([{ "type":"inbound-rtp",
+						 "timestamp":1773656411000,
+						 "kind":"audio",
+						 "packetsLost":30,
+						 "packetsReceived":400 }])";
+
+INSTANTIATE_TEST_CASE_P(Stats,
+						 TsFormat,
+						 ::testing::Values(
+							std::tuple{first_report_native, next_report_native, "native"},
+							std::tuple{first_report_chrome, next_report_chrome, "chrome"},
+							std::tuple{first_report_firefox, next_report_firefox, "firefox"}),
+						 [](const testing::TestParamInfo<TsFormat::ParamType>& info) {
+							return std::get<2>(info.param);});
+
+TEST_P(TsFormat, packets_per_sec) {
+	const auto first_report = std::get<0>(GetParam());
+	stats_update(stats, first_report);
+	stats_get_report(stats, &sr);
+
+	// since this is initial packet per sec loss will be zero
+	EXPECT_EQ(sr.packets_per_sec.audio.rx, 0);
+	EXPECT_EQ(sr.packets_per_sec.lost.rx, 0);
+
+	const auto new_report = std::get<1>(GetParam());
+	stats_update(stats, new_report);
+	stats_get_report(stats, &sr);
+
+	// 20 packets per sec, 1 loss per sec
+	EXPECT_EQ(sr.packets_per_sec.audio.rx, 20);
+	EXPECT_EQ(sr.packets_per_sec.lost.rx, 1);
+}
+
 
 // ---------------------------------------- Test Audio Level ------------------------------------
 
@@ -263,11 +357,11 @@ class Connection : public Base,
 					public ::testing::TestWithParam<std::tuple<std::string, std::string, stats_proto, stats_cand>> {
 
 public:
-	virtual void SetUp() override {
+	void SetUp() override {
 		Base::SetUp();
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		Base::TearDown();
 	}
 };
@@ -314,38 +408,43 @@ TEST_P(Connection, ptotocol_type) {
 class StatsJitter: public Base,
 					public ::testing::Test {
 public:
-	virtual void SetUp() override
+	void SetUp() override
 	{
 		Base::SetUp();
 
 		const auto irrelevant_rtp = new RTCInboundRtpStreamStats("irrelevantRtpId", Timestamp::Zero());
 		irrelevant_rtp->kind = "irrelevant";
-		irrelevant_rtp->jitter = 1.0;
+		irrelevant_rtp->jitter = 1;
+		irrelevant_rtp->packets_received = 1;
 		report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
 
 		const auto audio_rtp = new RTCInboundRtpStreamStats("someAudioRtpId", Timestamp::Zero());
 		audio_rtp->kind = "audio";
 		audio_rtp->jitter = 0.01;
+		audio_rtp->packets_received = 1;
 		report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
 
 		const auto another_audio_rtp = new RTCInboundRtpStreamStats("anotherRtpId", Timestamp::Zero());
 		another_audio_rtp->kind = "audio";
 		another_audio_rtp->jitter = 0.02;
+		another_audio_rtp->packets_received = 1;
 		report->AddStats(std::unique_ptr<RTCStats>(another_audio_rtp));
 
 		const auto video_rtp = new RTCInboundRtpStreamStats("someVideoRtpId", Timestamp::Zero());
 		video_rtp->kind = "video";
 		video_rtp->jitter = 0.025;
+		video_rtp->packets_received = 1;
 		report->AddStats(std::unique_ptr<RTCStats>(video_rtp));
 
 		const auto another_video_rtp = new RTCInboundRtpStreamStats("anotherVideoRtpId", Timestamp::Zero());
 		another_video_rtp->kind = "video";
 		another_video_rtp->jitter = 0.015;
+		another_video_rtp->packets_received = 1;
 		report->AddStats(std::unique_ptr<RTCStats>(another_video_rtp));
 
 		const auto remote_irrelevant_rtp = new RTCRemoteInboundRtpStreamStats("irrelevantRemoteRtpId", Timestamp::Zero());
 		remote_irrelevant_rtp->kind = "irrelevant";
-		remote_irrelevant_rtp->jitter = 1.0;
+		remote_irrelevant_rtp->jitter = 1;
 		report->AddStats(std::unique_ptr<RTCStats>(remote_irrelevant_rtp));
 
 		const auto remote_audio_rtp = new RTCRemoteInboundRtpStreamStats("someRemoteAudioRtpId", Timestamp::Zero());
@@ -359,7 +458,7 @@ public:
 		report->AddStats(std::unique_ptr<RTCStats>(remote_video_rtp));
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		Base::TearDown();
 	}
 };
@@ -370,75 +469,136 @@ TEST_F(StatsJitter, audio_and_video)
 	stats_get_report(stats, &sr);
 
 	stats_jitter expected_jitter;
-	expected_jitter.audio.rx = 20; // max of [0.01, 0.02] * 1000
+	expected_jitter.audio.rx = 15; // mean of [0.01, 0.02] * 1000
 	expected_jitter.audio.tx = 30;
-	expected_jitter.video.rx = 25; // max of [0.025, 0.015] * 1000
+	expected_jitter.video.rx = 20; // mean of [0.025, 0.015] * 1000
 	expected_jitter.video.tx = 40;
 
 	EXPECT_EQ(sr.jitter, expected_jitter);
 }
 
+TEST_F(StatsJitter, zero_packet_rtp)
+{
+	const auto inbound_rtp = new RTCInboundRtpStreamStats("inboundRtpId", Timestamp::Zero());
+	inbound_rtp->kind = "audio";
+	inbound_rtp->jitter = 0.05;
+	inbound_rtp->packets_received = 1;
+	auto report = RTCStatsReport::Create(Timestamp::Zero());
+	report->AddStats(std::unique_ptr<RTCStats>(inbound_rtp));
+
+	const auto zero_packets_inbound_rtp = new RTCInboundRtpStreamStats("zeroInboundRtpId", Timestamp::Zero());
+	zero_packets_inbound_rtp->kind = "audio";
+	zero_packets_inbound_rtp->jitter = 0;
+	report->AddStats(std::unique_ptr<RTCStats>(zero_packets_inbound_rtp));
+
+	stats_update(stats, report->ToJson().c_str());
+	stats_get_report(stats, &sr);
+
+	stats_jitter expected_jitter;
+
+	const auto expected_audio_jitter = 50;
+
+	EXPECT_EQ(sr.jitter.audio.rx, expected_audio_jitter);
+}
+
 // ------------------------------------- RTT Tests --------------------------------------
-class StatsRtt: public Base,
+class StatsRttBase: public Base,
 				public ::testing::Test {
 public:
-	virtual void SetUp() override
+	void SetUp() override
+	{
+		Base::SetUp();
+
+		auto empty_candidate_pair = new RTCIceCandidatePairStats("emptyCandidatePair", Timestamp::Zero());
+		report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
+
+		candidate_pair = new RTCIceCandidatePairStats("candidatePair", Timestamp::Zero());
+		candidate_pair->current_round_trip_time = 0.01;
+	}
+
+	void TearDown() override {
+		Base::TearDown();
+	}
+
+public:
+	RTCIceCandidatePairStats* candidate_pair;
+	const stats_rx_tx zero_rtt = {0, 0};
+};
+
+TEST_F(StatsRttBase, without_candidates)
+{
+	stats_update(stats, report->ToJson().c_str());
+	stats_get_report(stats, &sr);
+
+	EXPECT_EQ(sr.rtt, zero_rtt);
+}
+
+TEST_F(StatsRttBase, unsucceeded_candidates)
+{
+	candidate_pair->state = "unsucceeded";
+	report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
+
+	stats_update(stats, report->ToJson().c_str());
+	stats_get_report(stats, &sr);
+
+	EXPECT_EQ(sr.rtt, zero_rtt);
+}
+
+TEST_F(StatsRttBase, unnominated_candidates)
+{
+	candidate_pair->state = "succeeded";
+	candidate_pair->nominated = false;
+	report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
+
+	stats_update(stats, report->ToJson().c_str());
+	stats_get_report(stats, &sr);
+
+	EXPECT_EQ(sr.rtt, zero_rtt);
+}
+
+// ------------------------------------- RTT Tests --------------------------------------
+class StatsRtt: public StatsRttBase {
+public:
+	void SetUp() override
 	{
 		Base::SetUp();
 
 		candidate_pair = new RTCIceCandidatePairStats("candidatePair", Timestamp::Zero());
-		candidate_pair->current_round_trip_time = 0.01;
+
 		auto empty_candidate_pair = new RTCIceCandidatePairStats("emptyCandidatePair", Timestamp::Zero());
-		report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
 		report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
+
+		candidate_pair->current_round_trip_time = 0.01;
+		candidate_pair->state = "succeeded";
+		candidate_pair->nominated = true;
+		report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
+
+		const auto remote_audio_rtp = new RTCRemoteInboundRtpStreamStats("someRemoteAudioRtpId", Timestamp::Zero());
+		remote_audio_rtp->kind = "audio";
+		remote_audio_rtp->round_trip_time = 0.06;
+		report->AddStats(std::unique_ptr<RTCStats>(remote_audio_rtp));
+
+		const auto remote_video_rtp = new RTCRemoteInboundRtpStreamStats("someRemoteVideoRtpId", Timestamp::Zero());
+		remote_video_rtp->kind = "video";
+		remote_video_rtp->round_trip_time = 0.04;
+		report->AddStats(std::unique_ptr<RTCStats>(remote_video_rtp));
+
+		expected_rtt.tx = 1000 * (*candidate_pair->current_round_trip_time);
+		expected_rtt.rx = 1000 * (*remote_audio_rtp->round_trip_time + *remote_video_rtp->round_trip_time) / 2;
 	}
 
-	virtual void TearDown() override {
+	void TearDown() override {
 		Base::TearDown();
 	}
 
-protected:
+public:
 	RTCIceCandidatePairStats* candidate_pair;
-	const int zero_rtt = 0;
+	stats_rx_tx expected_rtt;
 };
 
-TEST_F(StatsRtt, without_candidates)
-{
-	stats_update(stats, report->ToJson().c_str());
-	stats_get_report(stats, &sr);
-
-	EXPECT_EQ(sr.rtt, zero_rtt);
-}
-
-TEST_F(StatsRtt, unsucceeded_candidates)
-{
-	candidate_pair->state = "unsucceeded";
-
-	stats_update(stats, report->ToJson().c_str());
-	stats_get_report(stats, &sr);
-
-	EXPECT_EQ(sr.rtt, zero_rtt);
-}
-
-TEST_F(StatsRtt, unnominated_candidates)
-{
-	candidate_pair->state = "succeeded";
-	candidate_pair->nominated = false;
-
-	stats_update(stats, report->ToJson().c_str());
-	stats_get_report(stats, &sr);
-
-	EXPECT_EQ(sr.rtt, zero_rtt);
-}
 
 TEST_F(StatsRtt, some_rtt_values)
 {
-	const auto expected_rtt = 10;
-
-	candidate_pair->state = "succeeded";
-	candidate_pair->nominated = true;
-	candidate_pair->current_round_trip_time = 0.01;
-
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
@@ -447,12 +607,6 @@ TEST_F(StatsRtt, some_rtt_values)
 
 TEST_F(StatsRtt, some_rtt_values_with_transport)
 {
-	const auto expected_rtt = 10;
-
-	candidate_pair->state = "succeeded";
-	candidate_pair->nominated = true;
-	candidate_pair->current_round_trip_time = 0.01;
-
 	auto transport = new RTCTransportStats("someTransportId", Timestamp::Zero());
 	transport->selected_candidate_pair_id = candidate_pair->id();
 	report->AddStats(std::unique_ptr<RTCStats>(transport));

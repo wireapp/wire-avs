@@ -4,6 +4,9 @@
 
 #include <math.h>
 
+// A reference timestamp (9.9.2001) in microseconds
+const double REF_TS_US = 1000000000000000;
+
 static enum stats_proto stats_parse_poto(const char *type)
 {
 	if (type == NULL) {
@@ -134,12 +137,14 @@ struct stats_inbound_rtp {
 	int packets_received;
 	int packets_lost;
 	double jitter;
+	double timestamp;
 	struct le le;
 };
 
 struct stats_outbound_rtp {
 	enum stats_kind kind;
 	int packets_sent;
+	double timestamp;
 	struct le le;
 };
 
@@ -147,6 +152,8 @@ struct stats_remote_inbound_rtp {
 	enum stats_kind kind;
 	int packets_lost;
 	double jitter;
+	double timestamp;
+	double rtt;
 	struct le le;
 };
 
@@ -208,6 +215,7 @@ struct stats_obj {
 struct avs_stats {
 	struct stats_report report;
 	struct stats_packet_counts last_packets;
+	uint64_t last_timestamp_in_ms;
 
 	void *arg;
 };
@@ -219,9 +227,28 @@ static uint32_t calculate_loss_percentage(uint32_t packets, uint32_t lost) {
 		return 0;
 }
 
-static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_obj* stats_obj)
+// Three known timestamp formats
+// Native provides timestamp in microseconds	"timestamp": 1771376014893170
+// Chrome provides timestamp in milliseconds	"timestamp": 1772181428273.284
+// Firefox provides timestamp in mlliseconds	"timestamp": 1772181428273
+static uint64_t normalize_timestamp_to_ms(double timestamp) {
+	// try to detect if timestamp is in microseconds with
+	// comparing to an anchor point
+	if (timestamp > REF_TS_US) {
+		return (uint64_t)(timestamp / 1000);
+	}
+
+	return (uint64_t)timestamp;
+}
+
+static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct stats_obj *stats_obj)
 {
 	struct le *le = NULL;
+	double audio_jitter = 0;
+	int aj_count = 0;
+	double video_jitter = 0;
+	int vj_count = 0;
+	double timestamp = 0;
 
 	if (!stats || !stats_obj) {
 		return EINVAL;
@@ -231,6 +258,8 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 	  Calculation of packet and loss statistics
 	  1. read json stats into report
 	      webrtc json -> stats.report
+	    1.1 rx jitter calculation is done wrt mean of incoming rtps
+	        that have nonzero received packets.
 	  2. calculate interval percentage for packet loss into tmp variables
 	      loss_tx = calculate_loss_percentage(...)
 	      loss_rx = calculate_loss_percentage(...)
@@ -241,57 +270,93 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 
 	// 1. read json stats into report
 	LIST_FOREACH(&stats_obj->inbound_rtp, le) {
-		struct stats_inbound_rtp* data = (struct stats_inbound_rtp*)le->data;
+		const struct stats_inbound_rtp *data = (struct stats_inbound_rtp *)le->data;
 
 		if (data->kind == STATS_KIND_AUDIO) {
 			stats->report.packets.audio.rx += data->packets_received;
-			stats->report.jitter.audio.rx = max(stats->report.jitter.audio.rx, (1000.0 * data->jitter));
+			timestamp = max(timestamp, data->timestamp);
+			if (data->packets_received) {
+				audio_jitter += data->jitter;
+				aj_count++;
+			}
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
 			stats->report.packets.video.rx += data->packets_received;
-			stats->report.jitter.video.rx = max(stats->report.jitter.video.rx, (1000.0 * data->jitter));
+			timestamp = max(timestamp, data->timestamp);
+			if (data->packets_received) {
+				video_jitter += data->jitter;
+				vj_count++;
+			}
 		}
 
 		stats->report.packets.lost.rx += data->packets_lost;
 	}
 
 	LIST_FOREACH(&stats_obj->outbound_rtp, le) {
-		struct stats_outbound_rtp* data = (struct stats_outbound_rtp*)le->data;
+		const struct stats_outbound_rtp *data = (struct stats_outbound_rtp *)le->data;
 
 		if (data->kind == STATS_KIND_AUDIO) {
 			stats->report.packets.audio.tx += data->packets_sent;
+			timestamp = max(timestamp, data->timestamp);
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
 			stats->report.packets.video.tx += data->packets_sent;
+			timestamp = max(timestamp, data->timestamp);
 		}
 	}
 
 	LIST_FOREACH(&stats_obj->remote_inbound_rtp, le) {
-		struct stats_remote_inbound_rtp* data = (struct stats_remote_inbound_rtp*)le->data;
+		const struct stats_remote_inbound_rtp *data = (struct stats_remote_inbound_rtp *)le->data;
 
 		if (data->kind == STATS_KIND_AUDIO) {
 			stats->report.jitter.audio.tx = max(stats->report.jitter.audio.tx, (1000 * data->jitter));
+			timestamp = max(timestamp, data->timestamp);
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
 			stats->report.jitter.video.tx = max(stats->report.jitter.video.tx, (1000 * data->jitter));
+			timestamp = max(timestamp, data->timestamp);
 		}
 
 		stats->report.packets.lost.tx += data->packets_lost;
 	}
 
+	// 1.1 calcualete rx jitter in ms with taking mean
+	stats->report.jitter.audio.rx = aj_count ? 1000 * (audio_jitter / aj_count) : 0;
+	stats->report.jitter.video.rx = vj_count ? 1000 * (video_jitter / vj_count) : 0;
+
 	// 2. calculate interval percentage for packet loss into tmp variables
+    struct stats_packet_counts diff = {
+		.audio.tx = stats->report.packets.audio.tx - stats->last_packets.audio.tx,
+		.audio.rx = stats->report.packets.audio.rx - stats->last_packets.audio.rx,
+		.video.tx = stats->report.packets.video.tx - stats->last_packets.video.tx,
+		.video.rx = stats->report.packets.video.rx - stats->last_packets.video.rx,
+		.lost.tx = stats->report.packets.lost.tx - stats->last_packets.lost.tx,
+		.lost.rx = stats->report.packets.lost.rx - stats->last_packets.lost.rx
+	};
+
 	uint32_t loss_tx = calculate_loss_percentage(
-		(stats->report.packets.audio.tx - stats->last_packets.audio.tx +
-		stats->report.packets.video.tx - stats->last_packets.video.tx),
-		stats->report.packets.lost.tx - stats->last_packets.lost.tx);
+		( diff.audio.tx + diff.video.tx ), diff.lost.tx);
 
 	uint32_t loss_rx = calculate_loss_percentage(
-		(stats->report.packets.audio.rx - stats->last_packets.audio.rx +
-		stats->report.packets.video.rx - stats->last_packets.video.rx),
-		stats->report.packets.lost.rx - stats->last_packets.lost.rx);
+		( diff.audio.rx + diff.video.rx ), diff.lost.rx);
+
+	// 2.1 calculate time normized packet stats if time difference make sense
+	uint64_t timestamp_in_ms = normalize_timestamp_to_ms(timestamp);
+
+	uint64_t time_difference_in_ms = timestamp_in_ms - stats->last_timestamp_in_ms;
+
+	if (time_difference_in_ms != timestamp && time_difference_in_ms != 0) {
+		stats->report.packets_per_sec.audio.tx = 1000 * diff.audio.tx / time_difference_in_ms;
+		stats->report.packets_per_sec.audio.rx = 1000 * diff.audio.rx / time_difference_in_ms;
+		stats->report.packets_per_sec.video.tx = 1000 * diff.video.tx / time_difference_in_ms;
+		stats->report.packets_per_sec.video.rx = 1000 * diff.video.rx / time_difference_in_ms;
+		stats->report.packets_per_sec.lost.tx = 1000 * diff.lost.tx / time_difference_in_ms;
+		stats->report.packets_per_sec.lost.rx = 1000 * diff.lost.rx / time_difference_in_ms;
+	}
 
 	// 3. save current packet cumulatives into last
 	stats->last_packets = stats->report.packets;
+	stats->last_timestamp_in_ms = timestamp_in_ms;
 
 	// 4. update report.packet.lost with calculated percentages
 	stats->report.packets.lost.tx = loss_tx;
@@ -300,11 +365,36 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, struct stats_ob
 	return 0;
 }
 
-static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* stats_obj)
+// Helper function to read percieved rtt
+static void read_rtt_rx(struct avs_stats *stats, const struct stats_obj *stats_obj)
 {
 	struct le *le = NULL;
-	const char* connected_local_candidate_id = NULL;
-	const char* selected_pair_id = NULL;
+
+	if (!stats || !stats_obj) {
+		return;
+	}
+
+	// Calculate mean rtt from remote inbound reports
+	double remote_inbound_rtt = 0;
+	int remote_inbound_rtt_count = 0;
+
+	LIST_FOREACH(&stats_obj->remote_inbound_rtp, le) {
+		const struct stats_remote_inbound_rtp *data = (struct stats_remote_inbound_rtp *)le->data;
+
+		if (data->kind == STATS_KIND_AUDIO || data->kind == STATS_KIND_VIDEO) {
+			remote_inbound_rtt += data->rtt;
+			remote_inbound_rtt_count++;
+		}
+	}
+
+	stats->report.rtt.rx = remote_inbound_rtt ? 1000 * (remote_inbound_rtt / remote_inbound_rtt_count) : 0;
+}
+
+static int read_rtt_and_connection(struct avs_stats *stats, const struct stats_obj *stats_obj)
+{
+	struct le *le = NULL;
+	const char *connected_local_candidate_id = NULL;
+	const char *selected_pair_id = NULL;
 
 	if (!stats || !stats_obj) {
 		return EINVAL;
@@ -313,18 +403,18 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 	// First check if there is a "transport" report that should have selected pair
 	le = list_head(&stats_obj->transport);
 	if (le) {
-		struct stats_transport *head = (struct stats_transport*)le->data;
+		const struct stats_transport *head = (struct stats_transport*)le->data;
 		selected_pair_id = head->selected_pair_id;
 	}
 
 	// When we have a "transport" report search selected pair, else
 	// search a connected pair (which is succeeded and nominated)
 	LIST_FOREACH(&stats_obj->candidate_pair, le) {
-		struct stats_candidate_pair* data = (struct stats_candidate_pair*)le->data;
+		const struct stats_candidate_pair *data = (struct stats_candidate_pair *)le->data;
 
 		if (selected_pair_id) {
 			if (data->id && streq(selected_pair_id, data->id)) {
-				stats->report.rtt = max(stats->report.rtt, (1000 * data->current_rtt));
+				stats->report.rtt.tx = max(stats->report.rtt.tx, (1000 * data->current_rtt));
 				connected_local_candidate_id = data->local_candidate_id;
 				break;
 			}
@@ -332,7 +422,7 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 		else {
 			// we will try to find connected pair without "transport" info
 			if (data->nominated && (data->state == STATS_STATE_SUCCEEDED)) {
-				stats->report.rtt = max(stats->report.rtt, (1000 * data->current_rtt));
+				stats->report.rtt.tx = max(stats->report.rtt.tx, (1000 * data->current_rtt));
 				if (data->local_candidate_id) {
 					connected_local_candidate_id = data->local_candidate_id;
 				}
@@ -340,16 +430,16 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 		}
 	}
 
-
+	// read rtt perceived from peer side
+	read_rtt_rx(stats, stats_obj);
 
 	if (!connected_local_candidate_id) {
 		// maybe ok that we dont have connection atm
 		return 0;
 	}
-
 	// use last connected local candidate id to get connection details
 	LIST_FOREACH(&stats_obj->local_candidate, le) {
-		struct stats_local_candidate* data = (struct stats_local_candidate*)le->data;
+		const struct stats_local_candidate *data = (struct stats_local_candidate *)le->data;
 
 		if (data->id && streq(data->id, connected_local_candidate_id)) {
 			stats->report.proto = data->proto;
@@ -361,7 +451,7 @@ static int read_rtt_and_connection(struct avs_stats *stats, struct stats_obj* st
 	return 0;
 }
 
-static int read_audio_level(struct avs_stats *stats, struct stats_obj* stats_obj)
+static int read_audio_level(struct avs_stats *stats, const struct stats_obj *stats_obj)
 {
 	struct le *le = NULL;
 
@@ -370,7 +460,7 @@ static int read_audio_level(struct avs_stats *stats, struct stats_obj* stats_obj
 	}
 
 	LIST_FOREACH(&stats_obj->audio_source, le) {
-		struct stats_audio_source* asp = (struct stats_audio_source*)le->data;
+		const struct stats_audio_source *asp = (struct stats_audio_source *)le->data;
 		stats->report.audio_level = (int)(asp->level * 255.0);
 	}
 
@@ -398,6 +488,7 @@ int stats_alloc(struct avs_stats **statsp, void *arg)
 
 	memset(&stats->report, 0, sizeof(stats->report));
 	memset(&stats->last_packets, 0, sizeof(stats->last_packets));
+	stats->last_timestamp_in_ms = 0;
 
 	*statsp = stats;
 
@@ -405,11 +496,11 @@ int stats_alloc(struct avs_stats **statsp, void *arg)
 }
 
 
-static struct stats_inbound_rtp* parse_inbound_rtp(struct json_object *jitem)
+static struct stats_inbound_rtp *parse_inbound_rtp(struct json_object *jitem)
 {
-	const char* kind_str = NULL;
+	const char *kind_str = NULL;
 
-	struct stats_inbound_rtp* data;
+	struct stats_inbound_rtp *data;
 	data = mem_zalloc(sizeof(*data), NULL);
 	memset(data, 0, sizeof(*data));
 
@@ -419,13 +510,14 @@ static struct stats_inbound_rtp* parse_inbound_rtp(struct json_object *jitem)
 	jzon_int(&data->packets_received, jitem, "packetsReceived");
 	jzon_int(&data->packets_lost, jitem, "packetsLost");
 	jzon_double(&data->jitter, jitem, "jitter");
+	jzon_double(&data->timestamp, jitem, "timestamp");
 
 	return data;
 }
 
-static struct stats_outbound_rtp* parse_outbound_rtp(struct json_object *jitem)
+static struct stats_outbound_rtp *parse_outbound_rtp(struct json_object *jitem)
 {
-	const char* kind_str = NULL;
+	const char *kind_str = NULL;
 
 	struct stats_outbound_rtp* data;
 	data = mem_zalloc(sizeof(*data), NULL);
@@ -435,15 +527,16 @@ static struct stats_outbound_rtp* parse_outbound_rtp(struct json_object *jitem)
 	data->kind = stats_parse_kind(kind_str);
 
 	jzon_int(&data->packets_sent, jitem, "packetsSent");
+	jzon_double(&data->timestamp, jitem, "timestamp");
 
 	return data;
 }
 
-static struct stats_remote_inbound_rtp* parse_remote_inbound_rtp(struct json_object *jitem)
+static struct stats_remote_inbound_rtp *parse_remote_inbound_rtp(struct json_object *jitem)
 {
-	const char* kind_str = NULL;
+	const char *kind_str = NULL;
 
-	struct stats_remote_inbound_rtp* data;
+	struct stats_remote_inbound_rtp *data;
 	data = mem_zalloc(sizeof(*data), NULL);
 	memset(data, 0, sizeof(*data));
 
@@ -452,6 +545,8 @@ static struct stats_remote_inbound_rtp* parse_remote_inbound_rtp(struct json_obj
 
 	jzon_int(&data->packets_lost, jitem, "packetsLost");
 	jzon_double(&data->jitter, jitem, "jitter");
+	jzon_double(&data->timestamp, jitem, "timestamp");
+	jzon_double(&data->rtt, jitem, "roundTripTime");
 
 	return data;
 }
@@ -497,9 +592,9 @@ static struct stats_candidate_pair *parse_candidate_pair(struct json_object *jit
 
 static struct stats_local_candidate *parse_local_candidate(struct json_object *jitem)
 {
-	const char* id_str = NULL;
-	const char* proto_str = NULL;
-	const char* cand_str = NULL;
+	const char *id_str = NULL;
+	const char *proto_str = NULL;
+	const char *cand_str = NULL;
 
 	struct stats_local_candidate *data;
 	data = mem_zalloc(sizeof(*data),local_candidate_destructor);
@@ -532,9 +627,9 @@ static struct stats_transport *parse_transport(struct json_object *jitem)
 	return data;
 }
 
-static int parse_json(const char *report, struct stats_obj* stats_obj) {
-	const char* type_str = NULL;
-	const char* kind_str = NULL;
+static int parse_json(const char *report, struct stats_obj *stats_obj) {
+	const char *type_str = NULL;
+	const char *kind_str = NULL;
 	int err = 0;
 
 	if (!report || !stats_obj) {
@@ -572,7 +667,7 @@ static int parse_json(const char *report, struct stats_obj* stats_obj) {
 
 		switch (type) {
 			case STATS_TYPE_INBOUND_RTP: {
-				struct stats_inbound_rtp* irp = NULL;
+				struct stats_inbound_rtp *irp = NULL;
 				irp = parse_inbound_rtp(jitem);
 				if (irp) {
 					list_append(&stats_obj->inbound_rtp, &irp->le, irp);
@@ -581,7 +676,7 @@ static int parse_json(const char *report, struct stats_obj* stats_obj) {
 				break;
 
 			case STATS_TYPE_OUTBOUND_RTP: {
-				struct stats_outbound_rtp* orp = NULL;
+				struct stats_outbound_rtp *orp = NULL;
 				orp = parse_outbound_rtp(jitem);
 				if (orp) {
 					list_append(&stats_obj->outbound_rtp, &orp->le, orp);
@@ -590,7 +685,7 @@ static int parse_json(const char *report, struct stats_obj* stats_obj) {
 				break;
 
 			case STATS_TYPE_REMOTE_INBOUND_RTP: {
-				struct stats_remote_inbound_rtp* rirp = NULL;
+				struct stats_remote_inbound_rtp *rirp = NULL;
 				rirp = parse_remote_inbound_rtp(jitem);
 				if (rirp) {
 					list_append(&stats_obj->remote_inbound_rtp, &rirp->le, rirp);
@@ -604,7 +699,7 @@ static int parse_json(const char *report, struct stats_obj* stats_obj) {
 				enum stats_kind kind = stats_parse_kind(kind_str);
 
 				if (kind == STATS_KIND_AUDIO) {
-					struct stats_audio_source* asp = NULL;
+					struct stats_audio_source *asp = NULL;
 					asp = parse_audio_source(jitem);
 					if (asp) {
 						list_append(&stats_obj->audio_source, &asp->le, asp);
@@ -614,7 +709,7 @@ static int parse_json(const char *report, struct stats_obj* stats_obj) {
 				break;
 
 			case STATS_TYPE_CANDIDATE_PAIR: {
-				struct stats_candidate_pair* cp = NULL;
+				struct stats_candidate_pair *cp = NULL;
 				cp = parse_candidate_pair(jitem);
 				if (cp) {
 					list_append(&stats_obj->candidate_pair, &cp->le, cp);
@@ -623,7 +718,7 @@ static int parse_json(const char *report, struct stats_obj* stats_obj) {
 				break;
 
 			case STATS_TYPE_LOCAL_CANDIDATE: {
-				struct stats_local_candidate* lc = NULL;
+				struct stats_local_candidate *lc = NULL;
 				lc = parse_local_candidate(jitem);
 				if (lc) {
 					list_append(&stats_obj->local_candidate, &lc->le, lc);
@@ -632,7 +727,7 @@ static int parse_json(const char *report, struct stats_obj* stats_obj) {
 				break;
 
 			case STATS_TYPE_TRANSPORT: {
-				struct stats_transport* tr = NULL;
+				struct stats_transport *tr = NULL;
 				tr = parse_transport(jitem);
 				if (tr) {
 					list_append(&stats_obj->transport, &tr->le, tr);

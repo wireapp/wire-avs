@@ -21,7 +21,7 @@
 extern "C" {
 #endif
 
-
+#include <stddef.h>
 #include <stdint.h>
 
 struct wcall;

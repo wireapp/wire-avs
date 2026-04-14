@@ -30,6 +30,8 @@ struct config {
 	void *arg;
 
 	struct tmr tmr;
+	uint64_t expires_ts;
+	bool is_updating;
 
 	struct call_config config;
 
@@ -45,8 +47,10 @@ static int do_request(struct config *cfg)
 
 	tmr_cancel(&cfg->tmr);
 
-	if (cfg->reqh)
+	if (cfg->reqh) {
+		cfg->is_updating = true;
 		err = cfg->reqh(cfg->arg);
+	}
 
 	return err;
 }
@@ -116,6 +120,8 @@ int config_update(struct config *cfg, int err,
 	if (!cfg || !conf_json)
 		return EINVAL;
 
+	cfg->is_updating = false;
+
 	if (err) {
 		warning("config: call_config response error (%m)\n", err);
 		tmr_start(&cfg->tmr, 60 * 1000, tmr_handler, cfg);
@@ -138,6 +144,8 @@ int config_update(struct config *cfg, int err,
 	/* apply lower and upper limits */
 	ttl = min(ttl, EXPIRY_MAX);
 	ttl = max(ttl, EXPIRY_MIN);
+
+	cfg->expires_ts = tmr_jiffies() + (ttl * 1000);
 
 	if (0 == jzon_array(&jices, jobj, "ice_servers")) {
 
@@ -421,4 +429,11 @@ int config_unregister_all_updates(struct config *cfg, void *arg)
 	}
 
 	return 0;
+}
+
+bool config_needs_update(struct config *cfg)
+{
+	uint64_t now = tmr_jiffies();
+	
+	return cfg->is_updating || (now >= cfg->expires_ts);
 }
