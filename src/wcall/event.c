@@ -47,6 +47,11 @@ extern void ios_log (const char *fmt, ...);
 #endif
 #endif
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
+
 #define EVENT_AGE_VALID 60 /* max event age in seconds */
 
 enum call_event_state {
