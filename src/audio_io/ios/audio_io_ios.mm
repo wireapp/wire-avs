@@ -362,7 +362,7 @@ int32_t audio_io_ios::StopRecordingInternal(void)
 			dispatch_sync(dispatch_get_main_queue(), ^{
 				OSStatus result = -1;	
 				if (nullptr != au_) {
-					if (is_au_started_.load() && nullptr != au_) {
+					if (is_au_started_.load()) {
 						result = AudioOutputUnitStop(au_);
 						if (0 != result) {
 							error("audio_io_ios: "
