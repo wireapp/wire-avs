@@ -260,6 +260,55 @@ out:
 	return md;
 }
 
+static char *mev_name(int id)
+{
+	switch(id) {
+	case WCALL_MEV_START:
+		return "START";
+	case WCALL_MEV_ANSWER:
+		return "ANSWER";
+	case WCALL_MEV_REJECT:
+		return "REJECT";
+	case WCALL_MEV_END:
+		return "END";
+	case WCALL_MEV_RESP:
+		return "RESP";
+	case WCALL_MEV_RECV_MSG:
+		return"RECV_MSG";
+	case WCALL_MEV_CONFIG_UPDATE:
+		return "CONFIG_UPDATE";
+	case WCALL_MEV_VIDEO_STATE_HANDLER:
+		return "CONFIG_UPDATE";		
+	case WCALL_MEV_VIDEO_SET_STATE:
+		return "VIDEO_SET_STATE";
+	case WCALL_MEV_MCAT_CHANGED:
+		return "MCAT_CHANGED";
+	case WCALL_MEV_AUDIO_ROUTE_CHANGED:
+		return "AUDIO_ROUTE_CHNAGED";
+	case WCALL_MEV_NETWORK_CHANGED:
+		return "NETWROK_CHNAGED";
+	case WCALL_MEV_INCOMING:
+		return "INCOMING";
+	case WCALL_MEV_SFT_RESP:
+		return "SFT_RESP";
+	case WCALL_MEV_SET_CLIENTS:
+		return "SET_CLIENTS";
+	case WCALL_MEV_DCE_SEND:
+		return "DCE_SEND";
+	case WCALL_MEV_DESTROY:
+		return "DESTROY";
+	case WCALL_MEV_SET_MUTE:
+		return "SET_MUTE";
+	case WCALL_MEV_REQ_VSTREAMS:
+		return "REQ_VSTREAMS";
+	case WCALL_MEV_SET_EPOCH_INFO:
+		return "SET_EPOCH_INFO";
+	case WCALL_MEV_PROCESS_NOTIFICATIONS:
+		return "PROCESS_NOTIFICATIONS";
+	default:
+		return "???";
+	}
+}
 
 static void mqueue_handler(int id, void *data, void *arg)
 {
@@ -466,7 +515,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 out:
 	if (err)
-		warning("wcall: mqueue_handler error (%m)\n", err);
+		warning("wcall: mqueue_handler error (%m) handling event: %s\n", err, mev_name(id));
 
 	mem_deref(md);
 }
