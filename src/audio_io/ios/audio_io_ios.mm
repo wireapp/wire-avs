@@ -193,11 +193,23 @@ int32_t audio_io_ios::StartPlayoutInternal(void)
 	play_out_pos_ = 0;
         
         if (!is_recording_.load()) {
-            OSStatus result = AudioOutputUnitStart(au_);
-            if (result != noErr) {
-                error("audio_io_ios: AudioOutputUnitStart failed:0x%08x\n", result);
-                return -1;
-            }
+		if (!is_au_started_.load()) {
+			dispatch_sync(dispatch_get_main_queue(), ^{
+				OSStatus result = -1;
+				if (nullptr != au_) {
+					result = AudioOutputUnitStart(au_);
+					if (result != noErr) {
+						error("audio_io_ios: AudioOutputUnitStart failed:0x%08x\n", result);
+						is_playing_.store(false);
+						is_au_started_.store(false);
+					}
+					else {
+						info("audio_io_ios: AudioOutputUnitStart success\n");
+						is_au_started_.store(true);
+					}
+				}
+			});
+		}
         }
         is_playing_.store(true);
 out:
@@ -278,11 +290,22 @@ int32_t audio_io_ios::StartRecordingInternal(void)
         }
         
         if (!is_playing_.load()) {
-		OSStatus result = AudioOutputUnitStart(au_);
-		if (result != noErr) {
-			error("audio_io_ios: AudioOutputUnitStart "
-			      "failed: %d \n", result);
-			return -1;
+		if (!is_au_started_.load()) {
+			dispatch_sync(dispatch_get_main_queue(), ^{
+				OSStatus result = -1;
+				if (nullptr != au_) {
+					result = AudioOutputUnitStart(au_);
+					if (result != noErr) {
+						error("audio_io_ios: AudioOutputUnitStart "
+						      "failed: %d \n", result);
+					}
+					else {
+						error("audio_io_ios: AudioOutputUnitStart in StartRecording\n",
+						      result);
+						is_au_started_.store(true);
+					}
+				}
+			});
 		}
         }
  out:
@@ -339,11 +362,14 @@ int32_t audio_io_ios::StopRecordingInternal(void)
 			dispatch_sync(dispatch_get_main_queue(), ^{
 				OSStatus result = -1;	
 				if (nullptr != au_) {
-					result = AudioOutputUnitStop(au_);
-					if (0 != result) {
-						error("audio_io_ios: "
-						      "AudioOutputUnitStop "
-						      "failed: %d ", result);
+					if (is_au_started_.load() && nullptr != au_) {
+						result = AudioOutputUnitStop(au_);
+						if (0 != result) {
+							error("audio_io_ios: "
+							      "AudioOutputUnitStop "
+							      "failed: %d ", result);
+						}
+						is_au_started_.store(false);
 					}
 				}
 			});
@@ -376,19 +402,18 @@ int32_t audio_io_ios::StopPlayoutInternal(void)
 
         if (!is_recording_.load()) {
 		// Both playout and recording has stopped, shutdown the device.
-		if (nullptr != au_) {
-			dispatch_sync(dispatch_get_main_queue(), ^{
-				OSStatus result = -1;
-				if (nullptr != au_) {
-					result = AudioOutputUnitStop(au_);
-					if (0 != result) {
-						error("audio_io_ios: "
-						      "AudioOutputUnitStop: %d\n",
-						      result);
-					}
+		dispatch_sync(dispatch_get_main_queue(), ^{
+			OSStatus result = -1;
+			if (is_au_started_.load() && nullptr != au_) {
+				result = AudioOutputUnitStop(au_);
+				if (0 != result) {
+					error("audio_io_ios: "
+					      "AudioOutputUnitStop: %d\n",
+					      result);
 				}
-			});
-		}
+				is_au_started_.store(false);
+			}
+		});
         }
 	
         is_playing_.store(false);
