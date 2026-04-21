@@ -56,6 +56,23 @@ fun generateIosDef(
     }
 }
 
+fun generateLinuxDef(
+    buildDir: File,
+    targetName: String,
+): File {
+    val generatedDir = File(buildDir, "generated/cinterop/$targetName").apply { mkdirs() }
+    return File(generatedDir, "linux.def").apply {
+        writeText(
+            """
+            language = C
+            package = avs
+            headers = avs_wcall.h
+            staticLibraries = libavscore.a
+            """.trimIndent()
+        )
+    }
+}
+
 // WPB-22449: ToDo: kmp complains about src files. As a workaround commonMain/empty.kt is added
 kotlin {
     val path = System.getProperty("user.dir")
@@ -95,6 +112,28 @@ kotlin {
                 )
 
                 compilerOpts("-framework", "avs", "-F${frameworkPath}")
+            }
+        }
+    }
+
+    // We dont have an easy linux avs build in mac, disable linux target in mac host
+    if (System.getProperty("os.name").contains("Linux")) {
+        linuxX64() {
+            compilations.getByName("main") {
+                val avs by cinterops.creating {
+
+                    definitionFile.set(
+                        generateLinuxDef(
+                            generatedBuildDir,
+                            "linuxX64",
+                        )
+                    )
+
+                    val includePath = file("$path/build/dist/linux/avscore/include/avs/").absolutePath
+                    val libraryPath = file("$path/build/dist/linux/avscore/lib/").absolutePath
+                    compilerOpts("-I$includePath")
+                    extraOpts("-libraryPath", "$libraryPath")
+                }
             }
         }
     }
@@ -139,3 +178,53 @@ mavenPublishing {
         }
     }
 }
+
+publishing {
+  publications {
+       create<MavenPublication>("android") {
+                artifact("../build/dist/android/avs.aar")
+                artifactId="avs-kmp-android"
+ //               pom {
+ //                   withXml {
+ //                       val dependenciesNode = asNode().appendNode("dependencies")
+ //                       findProject(":android:lib")?.configurations.implementation.allDependencies.each {
+ //                           val dependencyNode = dependenciesNode.appendNode("dependency")
+ //                           dependencyNode.appendNode("groupId", group)
+ //                           dependencyNode.appendNode("artifactId", name)
+ //                           dependencyNode.appendNode("version", version)
+ //                       }
+ //                   }
+ //               }
+       }
+   }
+}
+
+publishing {
+  publications.withType<MavenPublication> {
+    println("---------------------------------------name is ${name}")
+  }
+}
+
+/*
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                println("       hjhjhjhjhjhjh hjhjhjh hjhjhjhj")
+                artifact "build/dist/android/avs.aar"
+                pom {
+                    withXml {
+                        def dependenciesNode = asNode().appendNode('dependencies')
+                        findProject(':android:lib').configurations.implementation.allDependencies.each {
+                            def dependencyNode = dependenciesNode.appendNode('dependency')
+                            dependencyNode.appendNode('groupId', it.group)
+                            dependencyNode.appendNode('artifactId', it.name)
+                            dependencyNode.appendNode('version', it.version)
+                        }
+                    }
+                }
+            }
+        }
+    }
+*/
+
+

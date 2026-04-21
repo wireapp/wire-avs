@@ -23,6 +23,7 @@ afterEvaluate {
     publishing {
         publications {
             mavenJava(MavenPublication) {
+                println("                 !!!!!!!!!!!!!!klklllklkk")
                 artifact "build/dist/android/avs.aar"
                 pom {
                     withXml {
