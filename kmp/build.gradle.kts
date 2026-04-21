@@ -4,6 +4,7 @@ import java.io.File
 
 plugins {
     kotlin("multiplatform") version "2.2.21"
+    id("com.android.library") version "8.13.0"
     id("com.vanniktech.maven.publish.base") version "0.36.0"
 }
 
@@ -96,6 +97,60 @@ kotlin {
 
                 compilerOpts("-framework", "avs", "-F${frameworkPath}")
             }
+        }
+    }
+
+    androidTarget() {
+        publishLibraryVariants("release")
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
+
+    sourceSets {
+        val androidMain by getting {
+            dependencies {
+                // This dependency is exported to consumers, that is to say found on their compile classpath.
+                api("org.apache.commons:commons-math3:3.6.1")
+
+                // This dependency is used internally, and not exposed to consumers on their own compile classpath.
+                implementation("com.google.guava:guava:31.1-jre")
+
+                val camerax_version = "1.4.0-rc04"
+                implementation("androidx.camera:camera-core:${camerax_version}")
+                implementation("androidx.camera:camera-camera2:${camerax_version}")
+                implementation("androidx.camera:camera-lifecycle:${camerax_version}")
+                implementation("androidx.camera:camera-video:${camerax_version}")
+
+                api("androidx.camera:camera-view:${camerax_version}")
+                implementation("androidx.camera:camera-extensions:${camerax_version}")
+
+                val core_version = "1.10.1"
+                // Java language implementation
+                implementation("androidx.core:core:$core_version")
+            }
+        }
+    }
+}
+
+android {
+    namespace = "com.waz.avs"
+    compileSdk = 34
+
+    defaultConfig {
+        minSdk = 26
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        getByName("main") {
+            res.srcDirs("../build/dist/android/aar")
+            jniLibs.srcDirs("../build/dist/android/aar")
+            java.srcDirs("../android/lib/src/main/java")
         }
     }
 }

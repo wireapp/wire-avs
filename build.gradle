@@ -2,6 +2,7 @@ import com.vanniktech.maven.publish.JavaLibrary
 
 plugins {
     id "java-library"
+    id("com.android.library") version "8.13.0" apply false
     id("com.vanniktech.maven.publish.base") version "0.36.0"
     id("org.jetbrains.kotlin.multiplatform") version "2.2.21" apply false
 }
@@ -11,6 +12,7 @@ version = findProperty("VERSION_NAME") ?: "0.0.1-local"
 
 repositories {
     mavenCentral()
+    google()
 }
 
 mavenPublishing {
