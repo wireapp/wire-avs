@@ -514,8 +514,13 @@ static void mqueue_handler(int id, void *data, void *arg)
 	}
 
 out:
-	if (err)
-		warning("wcall: mqueue_handler error (%m) handling event: %s\n", err, mev_name(id));
+	if (err) {
+		char convid_anon[ANON_ID_LEN];
+
+		warning("wcall: mqueue_handler error (%m) handling event: %s convid=%s\n",
+			err, mev_name(id),
+			md->convid ? anon_id(convid_anon, md->convid) : "???");
+	}
 
 	mem_deref(md);
 }
