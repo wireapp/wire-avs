@@ -282,6 +282,7 @@ private:
 	pthread_t rec_tid_ = 0;
 	std::atomic<bool> is_recording_;
 	std::atomic<bool> is_playing_;
+	std::atomic<bool> is_au_started_;
 	volatile bool is_recording_initialized_;
 	volatile bool is_playing_initialized_;
 
