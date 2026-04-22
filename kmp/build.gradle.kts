@@ -4,7 +4,7 @@ import java.io.File
 
 plugins {
     kotlin("multiplatform") version "2.2.21"
-    id("com.vanniktech.maven.publish.base") version "0.34.0"
+    id("com.vanniktech.maven.publish.base") version "0.36.0"
 }
 
 group = findProperty("GROUP") as String? ?: "com.wire"
@@ -104,5 +104,38 @@ kotlin {
 tasks.withType<Sign>().configureEach {
     if (System.getenv("CI") == null) {
         enabled = false
+    }
+}
+
+mavenPublishing {
+    publishToMavenCentral(automaticRelease = true)
+    signAllPublications()
+    pom {
+        name.set(findProperty("POM_NAME") as String)
+        description.set(findProperty("POM_DESCRIPTION") as String)
+        url.set(findProperty("POM_URL") as String)
+
+        licenses {
+            license {
+                name.set(findProperty("POM_LICENCE_NAME") as String)
+                url.set(findProperty("POM_LICENCE_URL") as String)
+                distribution.set(findProperty("POM_LICENSE_DIST") as String)
+            }
+        }
+
+        scm {
+            url.set(findProperty("POM_SCM_URL") as String)
+            connection.set(findProperty("POM_SCM_CONNECTION") as String)
+            developerConnection.set(findProperty("POM_SCM_DEV_CONNECTION") as String)
+        }
+
+        developers {
+            developer {
+                name.set(findProperty("POM_DEVELOPER_NAME") as String)
+                email.set(findProperty("POM_DEVELOPER_EMAIL") as String)
+                organization.set(findProperty("POM_NAME") as String)
+                organizationUrl.set(findProperty("POM_URL") as String)
+            }
+        }
     }
 }
