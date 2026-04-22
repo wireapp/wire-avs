@@ -180,51 +180,32 @@ mavenPublishing {
 }
 
 publishing {
-  publications {
-       create<MavenPublication>("android") {
-                artifact("../build/dist/android/avs.aar")
-                artifactId="avs-kmp-android"
- //               pom {
- //                   withXml {
- //                       val dependenciesNode = asNode().appendNode("dependencies")
- //                       findProject(":android:lib")?.configurations.implementation.allDependencies.each {
- //                           val dependencyNode = dependenciesNode.appendNode("dependency")
- //                           dependencyNode.appendNode("groupId", group)
- //                           dependencyNode.appendNode("artifactId", name)
- //                           dependencyNode.appendNode("version", version)
- //                       }
- //                   }
- //               }
-       }
-   }
-}
-
-publishing {
-  publications.withType<MavenPublication> {
-    println("---------------------------------------name is ${name}")
-  }
-}
-
-/*
-    publishing {
-        publications {
-            mavenJava(MavenPublication) {
-                println("       hjhjhjhjhjhjh hjhjhjh hjhjhjhj")
-                artifact "build/dist/android/avs.aar"
-                pom {
-                    withXml {
-                        def dependenciesNode = asNode().appendNode('dependencies')
-                        findProject(':android:lib').configurations.implementation.allDependencies.each {
-                            def dependencyNode = dependenciesNode.appendNode('dependency')
-                            dependencyNode.appendNode('groupId', it.group)
-                            dependencyNode.appendNode('artifactId', it.name)
-                            dependencyNode.appendNode('version', it.version)
-                        }
+    publications {
+        create<MavenPublication>("android") {
+            artifact("../build/dist/android/avs.aar")
+            artifactId="${project.name}-android"
+            pom {
+                withXml {
+                    val dependenciesNode = asNode().appendNode("dependencies")
+                    val implementationDependencies = findProject(":android:lib")!!.configurations.getByName("implementation").allDependencies
+                    implementationDependencies.forEach {
+                        val dependencyNode = dependenciesNode.appendNode("dependency")
+                        dependencyNode.appendNode("groupId", it.group)
+                        dependencyNode.appendNode("artifactId", it.name)
+                        dependencyNode.appendNode("version", it.version)
                     }
                 }
             }
         }
     }
-*/
+}
+
+// WPB-24839 ToRemove Check what is available
+publishing {
+  publications.withType<MavenPublication> {
+    println("WPB-24839  publication with name ${name}")
+  }
+}
+
 
 
