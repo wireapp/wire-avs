@@ -73,6 +73,8 @@ fun generateLinuxDef(
     }
 }
 
+val isLinux = System.getProperty("os.name").contains("Linux")
+
 // WPB-22449: ToDo: kmp complains about src files. As a workaround commonMain/empty.kt is added
 kotlin {
     val path = System.getProperty("user.dir")
@@ -117,7 +119,7 @@ kotlin {
     }
 
     // We dont have an easy linux avs build in mac, disable linux target in mac host
-    if (System.getProperty("os.name").contains("Linux")) {
+    if (isLinux) {
         linuxX64() {
             compilations.getByName("main") {
                 val avs by cinterops.creating {
@@ -179,6 +181,7 @@ mavenPublishing {
     }
 }
 
+// WPB-24839 Publish existing avs.aar as avs-kmp-android
 publishing {
     publications {
         create<MavenPublication>("android") {
@@ -200,12 +203,16 @@ publishing {
     }
 }
 
-// WPB-24839 ToRemove Check what is available
-publishing {
-  publications.withType<MavenPublication> {
-    println("WPB-24839  publication with name ${name}")
-  }
-}
+// WPB-24839 CentralMaven require publication from a single place
+// Disable Umbrella kmp publication in linux jenkins host
+val avsKmp = "publishKotlinMultiplatformPublicationToMavenCentralRepository"
+tasks.withType<AbstractPublishToMaven>()
+    .matching { (it.name == avsKmp) }
+    .configureEach { 
+        if (isLinux) {
+           enabled = false
+        }
+    }
 
 
 
