@@ -4,6 +4,7 @@ import java.io.File
 
 plugins {
     kotlin("multiplatform") version "2.2.21"
+    id("com.android.kotlin.multiplatform.library") version "8.13.0"
     id("com.vanniktech.maven.publish.base") version "0.36.0"
 }
 
@@ -139,7 +140,76 @@ kotlin {
             }
         }
     }
+
+    androidLibrary() {
+        namespace = "com.waz.avs"
+        compileSdk = 34
+
+        withJava()
+        // Configure the JVM target for both Kotlin and Java sources
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+
+        // Opt-in to enable and configure host-side (unit) tests
+        withHostTest {
+            isIncludeAndroidResources = true
+        }
+/*
+        sourceSets.getByName("main").apply {
+            java.srcDir("../android/lib/src/main/java")
+        }
+*/
+        compilations.all {
+            if (name == "main") {
+                println("----------------------- ${name}")
+                println("it::class.simpleName")
+                println("it::class.qualifiedName")
+                // Configure the specific Android source set
+                // This avoid the deprecated 'sourceSets' property
+                // defaultSourceSet.kotlin.srcDir("../android/lib/src/main/java")
+            }
+        }
+    }
+
+    sourceSets {
+        val androidMain by getting {
+            //java.srcDir("../android/lib/src/main/java")
+            kotlin.srcDir("../android/lib/src/main/java")
+            dependencies {
+                // This dependency is exported to consumers, that is to say found on their compile classpath.
+                api("org.apache.commons:commons-math3:3.6.1")
+
+                // This dependency is used internally, and not exposed to consumers on their own compile classpath.
+                implementation("com.google.guava:guava:31.1-jre")
+
+                val camerax_version = "1.4.0-rc04"
+                implementation("androidx.camera:camera-core:${camerax_version}")
+                implementation("androidx.camera:camera-camera2:${camerax_version}")
+                implementation("androidx.camera:camera-lifecycle:${camerax_version}")
+                implementation("androidx.camera:camera-video:${camerax_version}")
+
+                api("androidx.camera:camera-view:${camerax_version}")
+                implementation("androidx.camera:camera-extensions:${camerax_version}")
+
+                val core_version = "1.10.1"
+                // Java language implementation
+                implementation("androidx.core:core:$core_version")
+            }
+        }
+        val androidHostTest by getting {
+            dependencies {
+                kotlin.srcDir("../android/lib/src/test/java")
+                // Use JUnit test framework.
+                implementation("junit:junit:4.13.2")
+            }
+        }
+    }
 }
+
+// android {
+//    sourceSets["main"].java.srcDir("../android/lib/src/main/javaa")
+// }
 
 // Allows skipping signing jars published to 'MavenLocal' repository
 tasks.withType<Sign>().configureEach {
@@ -184,9 +254,9 @@ mavenPublishing {
 // WPB-24839 Publish existing avs.aar as avs-kmp-android
 publishing {
     publications {
-        create<MavenPublication>("android") {
+        create<MavenPublication>("android-extra") {
             artifact("../build/dist/android/avs.aar")
-            artifactId="${project.name}-android"
+            artifactId="${project.name}-extra-android"
             pom {
                 withXml {
                     val dependenciesNode = asNode().appendNode("dependencies")
