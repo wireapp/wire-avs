@@ -4,7 +4,8 @@ import java.io.File
 
 plugins {
     kotlin("multiplatform") version "2.2.21"
-    id("com.android.kotlin.multiplatform.library") version "8.13.0"
+    //id("com.android.kotlin.multiplatform.library") version "8.13.0"
+    id("com.android.library") version "8.13.0"
     id("com.vanniktech.maven.publish.base") version "0.36.0"
 }
 
@@ -141,34 +142,11 @@ kotlin {
         }
     }
 
-    androidLibrary() {
-        namespace = "com.waz.avs"
-        compileSdk = 34
-
-        withJava()
+    androidTarget() {
+        publishLibraryVariants("release")
         // Configure the JVM target for both Kotlin and Java sources
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-        }
-
-        // Opt-in to enable and configure host-side (unit) tests
-        withHostTest {
-            isIncludeAndroidResources = true
-        }
-/*
-        sourceSets.getByName("main").apply {
-            java.srcDir("../android/lib/src/main/java")
-        }
-*/
-        compilations.all {
-            if (name == "main") {
-                println("----------------------- ${name}")
-                println("it::class.simpleName")
-                println("it::class.qualifiedName")
-                // Configure the specific Android source set
-                // This avoid the deprecated 'sourceSets' property
-                // defaultSourceSet.kotlin.srcDir("../android/lib/src/main/java")
-            }
         }
     }
 
@@ -197,19 +175,28 @@ kotlin {
                 implementation("androidx.core:core:$core_version")
             }
         }
-        val androidHostTest by getting {
-            dependencies {
-                kotlin.srcDir("../android/lib/src/test/java")
-                // Use JUnit test framework.
-                implementation("junit:junit:4.13.2")
-            }
-        }
     }
 }
 
-// android {
-//    sourceSets["main"].java.srcDir("../android/lib/src/main/javaa")
-// }
+android {
+    namespace = "com.waz.avs"
+    compileSdk = 34
+
+    defaultConfig {
+        minSdk = 26
+
+        ndk {
+            abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    sourceSets["release"].java.srcDir("../android/lib/src/main/java")
+}
 
 // Allows skipping signing jars published to 'MavenLocal' repository
 tasks.withType<Sign>().configureEach {
