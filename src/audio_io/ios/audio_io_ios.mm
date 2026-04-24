@@ -290,7 +290,7 @@ int32_t audio_io_ios::StartRecordingInternal(void)
 		if (nullptr != au_) {
 			result = AudioOutputUnitStart(au_);
 			if (noErr == result) {
-				error("audio_io_ios: AudioOutputUnitStart in StartRecording success\n");
+				info("audio_io_ios: AudioOutputUnitStart in StartRecording success\n");
 				is_au_started_.store(true);
 			}
 			else {
