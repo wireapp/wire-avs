@@ -153,8 +153,9 @@ kotlin {
     sourceSets {
         val androidMain by getting {
             //java.srcDir("../android/lib/src/main/java")
-            kotlin.srcDir("../android/lib/src/main/java")
+            //kotlin.srcDir("../android/lib/src/main/java")
             dependencies {
+
                 // This dependency is exported to consumers, that is to say found on their compile classpath.
                 api("org.apache.commons:commons-math3:3.6.1")
 
@@ -184,10 +185,6 @@ android {
 
     defaultConfig {
         minSdk = 26
-
-        ndk {
-            abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86_64")
-        }
     }
 
     compileOptions {
@@ -195,6 +192,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // how can we add so files here??
+
+    // this hopefully make java code compiled
     sourceSets["release"].java.srcDir("../android/lib/src/main/java")
 }
 
@@ -238,27 +238,6 @@ mavenPublishing {
     }
 }
 
-// WPB-24839 Publish existing avs.aar as avs-kmp-android
-publishing {
-    publications {
-        create<MavenPublication>("android-extra") {
-            artifact("../build/dist/android/avs.aar")
-            artifactId="${project.name}-extra-android"
-            pom {
-                withXml {
-                    val dependenciesNode = asNode().appendNode("dependencies")
-                    val implementationDependencies = findProject(":android:lib")!!.configurations.getByName("implementation").allDependencies
-                    implementationDependencies.forEach {
-                        val dependencyNode = dependenciesNode.appendNode("dependency")
-                        dependencyNode.appendNode("groupId", it.group)
-                        dependencyNode.appendNode("artifactId", it.name)
-                        dependencyNode.appendNode("version", it.version)
-                    }
-                }
-            }
-        }
-    }
-}
 
 // WPB-24839 CentralMaven require publication from a single place
 // Disable Umbrella kmp publication in linux jenkins host
