@@ -139,3 +139,16 @@ mavenPublishing {
         }
     }
 }
+
+val isLinux = System.getProperty("os.name").contains("Linux")
+
+// WPB-24839 CentralMaven require publication from a single place
+// Disable Umbrella kmp publication in linux jenkins host
+val avsKmp = "publishKotlinMultiplatformPublicationToMavenCentralRepository"
+tasks.withType<AbstractPublishToMaven>()
+    .matching { (it.name == avsKmp) }
+    .configureEach { 
+        if (isLinux) {
+           enabled = false
+        }
+    }
