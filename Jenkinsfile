@@ -284,7 +284,7 @@ pipeline {
                             sh(
                                 script: """
                                     touch local.properties
-                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishAndReleaseToMavenCentral
+                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :publishAndReleaseToMavenCentral
                                 """
                             )
                         }
@@ -293,9 +293,43 @@ pipeline {
             }
         }
 
-        // WPB-22450 Push ios avs to Maven central
-        // ios build will require macos agent
-        // ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publisIos64ToMavenCentral
+        // WPB-24450 Temporary dublication to make seperaton of classical android and new kmp publish.
+        // "Publish to sonatype" stage will be removed with introduction of android kmp
+        // where "Publish kmp to sonatype" will probably then use matrix.axes to minimize dublication
+        // between linux and macos tasks.
+        stage('Publish kmp to sonatype') {
+            when {
+                anyOf {
+                    expression { return "${branchName}".contains('release') }
+                }
+            }
+            agent {
+                label 'macos'
+            }
+            environment {
+                PATH = "/opt/homebrew/bin:/Applications/Xcode.app/Contents/Developer/usr/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${ env.PATH }"
+            }
+            steps {
+                script {
+                    echo '### Sign and upload to sonatype'
+                    withCredentials([
+                            usernamePassword( credentialsId: 'sonatype-central', usernameVariable: 'ORG_GRADLE_PROJECT_mavenCentralUsername', passwordVariable: 'ORG_GRADLE_PROJECT_mavenCentralPassword' ),
+                            string(credentialsId: 'sonatype-signing-key-password', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKeyPassword'),
+                            string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
+                        ]) {
+                        withMaven(maven: 'M3', jdk: 'JDK17') {
+                            sh(
+                                script: """
+                                    touch local.properties
+                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew avs:clean
+                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs:publishAndReleaseToMavenCentral --no-configuration-cache
+                                """
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
 //        stage('Publish to ios github repo') {
 //            when {
