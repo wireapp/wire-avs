@@ -142,11 +142,14 @@ kotlin {
         }
     }
 
-    androidTarget() {
-        publishLibraryVariants("release")
-        // Configure the JVM target for both Kotlin and Java sources
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    // We would like to have android build on linux ftm
+    if (isLinux) {
+        androidTarget() {
+            publishLibraryVariants("release")
+            // Configure the JVM target for both Kotlin and Java sources
+            compilerOptions {
+                jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            }
         }
     }
 
@@ -192,10 +195,37 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // how can we add so files here??
+    // getByName("main").jniLibs.srcDirs(buildDir.resolve("androidMain").resolve("main").resolve("jniLibs"))
+    sourceSets["release"].jniLibs.srcDirs("../build/dist/android/aar")
 
     // this hopefully make java code compiled
     sourceSets["release"].java.srcDir("../android/lib/src/main/java")
+}
+
+tasks.register<Copy>("copyAndExtractAar") {
+    // Define the source and destination paths
+    // layout.projectDirectory => kmp/
+    // val sourceAar = layout.projectDirectory.file("build/dist/avs.aar")
+    // val destinationDir = layout.projectDirectory.dir("kmp/build/android")
+    val sourceAar =  File(rootDir, "build/dist/android/avs.aar")
+    val destinationDir = File(rootDir, "kmp/build/android/aar/")
+
+    println("-----WPB-24839 copy and extract aar :  ${sourceAar}")
+    println("-----WPB-24839 copy and extract aar::  ${destinationDir}")
+
+    // Copy the .aar file itself to the destination
+    from(sourceAar)
+    
+    // Extract the contents of the .aar into the same destination
+    // zipTree treats the .aar (which is a ZIP archive) as a file tree
+    from(zipTree(sourceAar))
+    
+    into(destinationDir)
+
+    // wire-avs/kmp/build/android/aar/jni
+    // wire-avs/kmp/build/android/aar/res
+    // wire-avs/kmp/build/android/aar/AndroidManifest.xml
+    // wire-avs/kmp/build/android/aar/classes.jar
 }
 
 // Allows skipping signing jars published to 'MavenLocal' repository
