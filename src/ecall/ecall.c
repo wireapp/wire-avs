@@ -766,10 +766,10 @@ static int _icall_add_turnserver(struct icall *icall, struct zapi_ice_server *sr
 
 
 static int _icall_start(struct icall *icall, enum icall_call_type call_type,
-			bool audio_cbr)
+			bool audio_cbr, bool meeting)
 {
 	return ecall_start((struct ecall*)icall, call_type,
-			   audio_cbr);
+			   audio_cbr, meeting);
 }
 
 
@@ -1146,6 +1146,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 			    _icall_stats,
 			    _icall_set_background,
 			    _icall_activate,
+			    NULL,
 			    _icall_restart);
 
 	list_append(ecalls, &ecall->le, ecall);
@@ -2248,10 +2249,12 @@ static void update_mute_props(struct ecall *ecall)
 }
 
 int ecall_start(struct ecall *ecall, enum icall_call_type call_type,
-		bool audio_cbr)
+		bool audio_cbr, bool meeting)
 {
 	int err;
 
+	(void)meeting;
+	
 	info("ecall(%p): start\n", ecall);
 
 	if (!ecall)

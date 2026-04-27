@@ -60,7 +60,7 @@ int egcall_add_turnserver(struct icall *icall,
 
 int egcall_start(struct icall *icall,
 		 enum icall_call_type call_type,
-		 bool audio_cbr);
+		 bool audio_cbr, bool meeting);
 
 int egcall_answer(struct icall *icall,
 		  enum icall_call_type call_type,

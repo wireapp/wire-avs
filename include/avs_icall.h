@@ -32,6 +32,7 @@
 #define ICALL_REASON_EVERYONE_LEFT     13
 #define ICALL_REASON_AUTH_FAILED       14
 #define ICALL_REASON_AUTH_FAILED_START 15
+#define ICALL_REASON_DURATION          16
 
 struct icall;
 struct econn_message;
@@ -113,7 +114,8 @@ typedef int  (icall_add_turnserver)(struct icall *icall,
 typedef int  (icall_add_sft)(struct icall *icall,
 			     const char *sft_url);
 typedef int  (icall_start)(struct icall *icall,
-			   enum icall_call_type call_type, bool audio_cbr);
+			   enum icall_call_type call_type, bool audio_cbr,
+			   bool meeting);
 typedef int  (icall_answer)(struct icall *icall,
 			    enum icall_call_type call_type, bool audio_cbr);
 typedef void (icall_end)(struct icall *icall);
@@ -152,6 +154,7 @@ typedef int  (icall_stats)(struct re_printf *pf, const struct icall* icall);
 typedef int  (icall_set_background)(struct icall *icall, bool background);
 
 typedef int  (icall_activate)(struct icall *icall, bool active);
+typedef void (icall_set_duration)(struct icall *icall, int duration);
 typedef int  (icall_restart)(struct icall *icall);
 
 /* Callbacks from icall */
@@ -233,7 +236,6 @@ typedef void (icall_audio_level_h)(struct icall *icall, struct list *levell, voi
 typedef void (icall_req_new_epoch_h)(struct icall *icall, void *arg);
 
 
-
 struct icall {
 	icall_add_turnserver		*add_turnserver;
 	icall_add_sft			*add_sft;
@@ -258,6 +260,7 @@ struct icall {
 	icall_stats			*stats;
 	icall_set_background            *set_background;
 	icall_activate                  *activate;
+        icall_set_duration              *set_duration;
 	icall_restart                   *restart;
 	icall_send_h			*sendh;
 	icall_sft_h			*sfth;
@@ -313,6 +316,7 @@ void icall_set_functions(struct icall *icall,
 			 icall_stats			*stats,
 			 icall_set_background           *set_background,
 			 icall_activate                 *activate,
+			 icall_set_duration             *set_duration,
 			 icall_restart                  *restart);
 
 void icall_set_callbacks(struct icall *icall,

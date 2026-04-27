@@ -1037,6 +1037,7 @@ void econn_end(struct econn *conn)
 		break;
 
 	case ECONN_TERMINATING:
+	case ECONN_IDLE:
 		break;
 
 	default:

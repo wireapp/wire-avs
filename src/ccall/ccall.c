@@ -128,6 +128,8 @@ static void destructor(void *arg)
 	tmr_cancel(&ccall->tmr_keepalive);
 	tmr_cancel(&ccall->tmr_alone);
 
+	tmr_cancel(&ccall->meeting.tmr_duration);
+
 	mem_deref(ccall->sft_url);
 	mem_deref(ccall->primary_sft_url);
  	mem_deref(ccall->sft_tuple);
@@ -272,6 +274,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		tmr_cancel(&ccall->tmr_decrypt_check);
 		tmr_cancel(&ccall->tmr_keepalive);
 		tmr_cancel(&ccall->tmr_alone);
+		tmr_cancel(&ccall->meeting.tmr_duration);
 		break;
 
 	case CCALL_STATE_INCOMING:
@@ -353,6 +356,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		tmr_cancel(&ccall->tmr_connect);
 		tmr_cancel(&ccall->tmr_keepalive);
 		tmr_cancel(&ccall->tmr_alone);
+		tmr_cancel(&ccall->meeting.tmr_duration);
 		break;
 
 	case CCALL_STATE_NONE:
@@ -1007,6 +1011,18 @@ static void ecall_aulevel_handler(struct icall *icall, struct list *levell, void
 		      icall, levell, ccall->icall.arg);
 }
 
+static void durterm_timeout_handler(void *arg)
+{
+        struct ccall *ccall = arg;
+
+	info("ccall(%p): duration terminate\n", ccall);
+
+	set_state(ccall, CCALL_STATE_IDLE);
+	ICALL_CALL_CB(ccall->icall, closeh,
+		      &ccall->icall, ccall->error, &ccall->metrics,
+		      ECONN_MESSAGE_TIME_UNKNOWN,
+		      NULL, NULL, ccall->icall.arg);
+}
 
 static void ecall_close_handler(struct icall *icall,
 				int err,
@@ -1073,6 +1089,11 @@ static void ecall_close_handler(struct icall *icall,
 				       false, NULL, false);
 		}
 		break;
+
+	case EDURATION:
+	        if (!should_end) {
+		}
+		break;
 	}
 
 	if (metrics) {
@@ -1087,16 +1108,24 @@ static void ecall_close_handler(struct icall *icall,
 	if (should_end) {
 		set_state(ccall, CCALL_STATE_IDLE);
 
-		ICALL_CALL_CB(ccall->icall, closeh, 
-			&ccall->icall, ccall->error, &ccall->metrics, msg_time,
-			NULL, NULL, ccall->icall.arg);
+		if (ccall->error != EDURATION) {
+		        ICALL_CALL_CB(ccall->icall, closeh,
+				      &ccall->icall, ccall->error, &ccall->metrics, msg_time,
+				      NULL, NULL, ccall->icall.arg);
+		}
 	}
 	else {
-		set_state(ccall, CCALL_STATE_INCOMING);
+	        if (ccall->error == EDURATION) {
+		        tmr_start(&ccall->meeting.tmr_term, CCALL_DURATION_TERM_TIMEOUT,
+				  durterm_timeout_handler, ccall);
+		}
+		else {
+		        set_state(ccall, CCALL_STATE_INCOMING);
 
-		ICALL_CALL_CB(ccall->icall, leaveh, 
-			&ccall->icall, ICALL_REASON_STILL_ONGOING,
-			msg_time, ccall->icall.arg);
+			ICALL_CALL_CB(ccall->icall, leaveh,
+				      &ccall->icall, ICALL_REASON_STILL_ONGOING,
+				      msg_time, ccall->icall.arg);
+		}
 	}
 
 	ccall->error = 0;
@@ -1797,6 +1826,14 @@ static void ccall_update_active_counts(struct ccall *ccall)
 	}
 }
 
+static void duration_timeout_handler(void *arg)
+{
+        struct ccall *ccall = arg;
+
+	info("ccall(%p): duration expired\n");
+
+	ccall_end_with_err(ccall, EDURATION);
+}
 
 static void ecall_confpart_handler(struct ecall *ecall,
 				   const struct econn_message *msg,
@@ -1865,10 +1902,40 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		ccall->someone_joined = true;
 	}
 	else {
-		tmr_start(&ccall->tmr_alone,
-			  ccall->someone_joined ? CCALL_EVERYONE_LEFT_TIMEOUT :
-						  CCALL_NOONE_JOINED_TIMEOUT,
-			  ccall_alone_timeout, ccall);
+	        if (ccall->someone_joined) {
+	                tmr_start(&ccall->tmr_alone,
+				  CCALL_EVERYONE_LEFT_TIMEOUT,
+				  ccall_alone_timeout,
+				  ccall);
+		}
+		else if (!ccall->meeting.is_set) {
+	                tmr_start(&ccall->tmr_alone,
+				  CCALL_NOONE_JOINED_TIMEOUT,
+				  ccall_alone_timeout,
+				  ccall);
+		}
+	}
+
+	if (ccall->meeting.duration && first_confpart) {
+	       int duration;
+
+	       ccall->meeting.start_duration = (int)(timestamp - ccall->sft_timestamp);
+
+	       duration = ccall->meeting.duration - ccall->meeting.start_duration;
+
+	       info("ccall(%p): confpart: start=%d ts=%llu sft_ts=%llu meeting_duration=%d duration=%d\n",
+		    ccall, ccall->meeting.start_duration, timestamp, ccall->sft_timestamp,
+		    ccall->meeting.duration, duration);
+
+	       if (duration <= 0) {
+		       ccall_end_with_err(ccall, EDURATION);
+	       }
+	       else {
+		       tmr_start(&ccall->meeting.tmr_duration,
+				 duration,
+				 duration_timeout_handler,
+				 ccall);
+	       }
 	}
 
 	if (first_confpart && ccall->ecall) {
@@ -2636,7 +2703,7 @@ int ccall_alloc(struct ccall **ccallp,
 	ccall->state = CCALL_STATE_IDLE;
 	ccall->stop_ringing_reason = CCALL_STOP_RINGING_NONE;
 	ccall->is_mls_call = is_mls_call;
-	ccall->meeting = meeting;
+	ccall->meeting.is_set = meeting;
 	ccall->metrics.conv_type = is_mls_call ? ICALL_CONV_TYPE_CONFERENCE_MLS : ICALL_CONV_TYPE_CONFERENCE;
 
 	tmr_init(&ccall->tmr_connect);
@@ -2671,6 +2738,7 @@ int ccall_alloc(struct ccall **ccallp,
 			    ccall_stats,
 			    ccall_set_background,
 			    ccall_activate,
+			    ccall_set_duration,
 			    ccall_restart);
 out:
 	if (err == 0) {
@@ -3020,12 +3088,14 @@ static int  ccall_req_cfg_join(struct ccall *ccall,
 
 int  ccall_start(struct icall *icall,
 		 enum icall_call_type call_type,
-		 bool audio_cbr)
+		 bool audio_cbr,
+		 bool meeting)
 {
 	struct ccall *ccall = (struct ccall*)icall;
 	int err;
 
 	ccall->error = 0;
+	ccall->meeting.is_set = meeting;
 	switch (ccall->state) {
 	case CCALL_STATE_INCOMING:
 		warning("ccall(%p): call_start attempt to start call in "
@@ -3429,7 +3499,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 				should_ring = false;
 			}
 
-			if (ccall->meeting) {
+			if (ccall->meeting.is_set) {
 			         should_ring = false;
 			}
 			ccall->is_ringing = should_ring;
@@ -3955,12 +4025,23 @@ int ccall_activate(struct icall *icall, bool active)
 	struct ccall *ccall = (struct ccall *)icall;
 
 	info("ccall(%p): activate: active=%d\n", ccall, active);
+
 	if (ccall->ecall) {
-		ecall_activate(ccall->ecall, active);
+	       ecall_activate(ccall->ecall, active);
 	}
 
 	return 0;
 }
+
+void ccall_set_duration(struct icall *icall, int duration)
+{
+	struct ccall *ccall = (struct ccall *)icall;
+
+	info("ccall(%p): set_duration: duratione=%ds\n", ccall, duration);
+
+	ccall->meeting.duration = duration * 1000;
+}
+
 
 int ccall_restart(struct icall *icall)
 {
@@ -4014,6 +4095,10 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 		reason = ICALL_REASON_EVERYONE_LEFT;
 		break;
 
+	case EDURATION:
+	        reason = ICALL_REASON_DURATION;
+		break;
+
 	case EACCES:
 		reason = ICALL_REASON_AUTH_FAILED;
 		break;
@@ -4047,7 +4132,12 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 	case CCALL_STATE_CONNECTING:
 	case CCALL_STATE_CONNECTED:
 	case CCALL_STATE_ACTIVE:
-		set_state(ccall, CCALL_STATE_TERMINATING);
+	        set_state(ccall, CCALL_STATE_TERMINATING);
+		if (err == EDURATION ) {
+		        ICALL_CALL_CB(ccall->icall, leaveh,
+				      &ccall->icall, ICALL_REASON_DURATION,
+				      ECONN_MESSAGE_TIME_UNKNOWN, ccall->icall.arg);
+		}
 		break;
 	}
 
