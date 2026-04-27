@@ -1,4 +1,6 @@
 
+#define WU_MAGIC 0x57550000 /* WU */
+
 struct wcall_marshal;
 struct calling_instance;
 
@@ -109,4 +111,5 @@ int wcall_duration_add(struct calling_instance *inst,
 		       int duration);
 struct duration_entry *wcall_duration_lookup(struct calling_instance *inst,
 					     const char *convid);
+WUSER_HANDLE wcall_create_wuser(uint32_t *idx);
 struct calling_instance *wcall_get_instance(void);
