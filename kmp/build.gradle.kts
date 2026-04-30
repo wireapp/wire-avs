@@ -150,7 +150,31 @@ android {
         getByName("main") {
             res.srcDirs("../build/dist/android/aar")
             jniLibs.srcDirs("../build/dist/android/aar")
+            // Set source directory for avs and com.waz packages
             java.srcDirs("../android/lib/src/main/java")
+        }
+    }
+
+    libraryVariants.all {
+        val variantName = name
+        val capitalizedName = variantName.replaceFirstChar {
+            if (it.isLowerCase()) it.titlecase() else it.toString()
+        }
+
+        // Copy prebuild org.webrtc binaries into temporary build folder of compiled java
+        // Kmp android plugin will use this folder as a souce for packaging into class.jar
+        val copyPrebuildWebrtcBinaries = tasks.register<Copy>("copyPrebuildWebrtcBinariesFor$capitalizedName") {
+            val sourceJar =  File(rootDir, "build/dist/android/aar/classes.jar")
+            from(sourceJar)
+            from(zipTree(sourceJar).matching{
+                include("org/**")
+            })
+            into(layout.buildDirectory.dir("intermediates/javac/${variantName}/compile${capitalizedName}JavaWithJavac/classes"))
+        }
+
+        // Register new task as a dependency to kmp chain to be sure it is done before packaging
+        tasks.matching { it.name == "sync${capitalizedName}LibJars" }.configureEach {
+            dependsOn(copyPrebuildWebrtcBinaries)
         }
     }
 }
