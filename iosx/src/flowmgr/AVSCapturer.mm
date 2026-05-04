@@ -595,11 +595,18 @@ out:
 				break;
 
 			case UIInterfaceOrientationLandscapeLeft:
-				newori = AVSDeviceOrientationLandscapeLeft;
+				// UIInterfaceOrientation landscape left means the device has been rotated
+				// (from portrait) right, whereas AVSDeviceOrientation (aka UIDeviceOrientation) 
+				// landscape left means the devices was rotated left. So we must flip and assign
+				// landscape right to have the same semantics.
+				// See https://developer.apple.com/documentation/uikit/uiinterfaceorientation/landscapeleft
+				// See https://developer.apple.com/documentation/uikit/uideviceorientation/landscapeleft
+				newori = AVSDeviceOrientationLandscapeRight;
 				break;
 
 			case UIInterfaceOrientationLandscapeRight:
-				newori = AVSDeviceOrientationLandscapeRight;
+				// if UI is right, assign device left. See previous case for explanation.
+				newori = AVSDeviceOrientationLandscapeLeft;
 				break;
 
 			default:
