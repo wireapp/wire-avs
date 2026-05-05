@@ -3,8 +3,9 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import java.io.File
 
 plugins {
-    kotlin("multiplatform") version "2.2.21"
-    id("com.vanniktech.maven.publish.base") version "0.36.0"
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.maven.publish.base)
 }
 
 group = findProperty("GROUP") as String? ?: "com.wire"
@@ -96,6 +97,78 @@ kotlin {
 
                 compilerOpts("-framework", "avs", "-F${frameworkPath}")
             }
+        }
+    }
+
+    androidTarget() {
+        publishLibraryVariants("release")
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
+
+    sourceSets {
+        val androidMain by getting {
+            dependencies {
+                // Exported dependencies
+                api(libs.apache.commons.math3)
+                api(libs.camera.view)
+
+                // Internal dependencies
+                implementation(libs.google.guava)
+                implementation(libs.camera.core)
+                implementation(libs.camera.camera2)
+                implementation(libs.camera.lifecycle)
+                implementation(libs.camera.video)
+                implementation(libs.camera.extensions)
+                implementation(libs.android.core)
+            }
+        }
+    }
+}
+
+android {
+    namespace = "com.waz.avs"
+    compileSdk = 34
+
+    defaultConfig {
+        minSdk = 26
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        getByName("main") {
+            res.srcDirs("../build/dist/android/aar")
+            jniLibs.srcDirs("../build/dist/android/aar")
+            // Set source directory for avs and com.waz packages
+            java.srcDirs("../android/lib/src/main/java")
+        }
+    }
+
+    libraryVariants.all {
+        val variantName = name
+        val capitalizedName = variantName.replaceFirstChar {
+            if (it.isLowerCase()) it.titlecase() else it.toString()
+        }
+
+        // Copy prebuild org.webrtc binaries into temporary build folder of compiled java
+        // Kmp android plugin will use this folder as a source for packaging into class.jar
+        val copyPrebuildWebrtcBinaries = tasks.register<Copy>("copyPrebuildWebrtcBinariesFor$capitalizedName") {
+            val sourceJar =  File(rootDir, "build/dist/android/aar/classes.jar")
+            from(sourceJar)
+            from(zipTree(sourceJar).matching{
+                include("org/**")
+            })
+            into(layout.buildDirectory.dir("intermediates/javac/${variantName}/compile${capitalizedName}JavaWithJavac/classes"))
+        }
+
+        // Register new task as a dependency to kmp chain to be sure it is done before packaging
+        tasks.matching { it.name == "sync${capitalizedName}LibJars" }.configureEach {
+            dependsOn(copyPrebuildWebrtcBinaries)
         }
     }
 }

@@ -90,6 +90,10 @@ pipeline {
                         sh 'if [ -e ./build/dist/android/debug/ ]; then cd ./build/dist/android/debug; zip -9r ./../../../artifacts/avs.android.' + version + '.debug.zip *; cd -; fi'
 
                         archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
+
+                        // Stash the android aar directory recursively,
+                        // shared libraries will be used to generate android kmp in macos agent
+                        stash name: 'android-aar', includes: 'build/dist/android/aar/**'
                     }
                 }
                 stage('macOS') {
@@ -143,6 +147,7 @@ pipeline {
                         sh 'make dist_clean'
                         sh 'make zcall AVS_VERSION=' + version
                         sh '''#!/bin/bash
+                            . ./scripts/android_devenv.sh && echo "sdk.dir=${ANDROID_SDK_ROOT}\nndk.dir=${ANDROID_NDK_ROOT}" > local.properties
                             . ./scripts/wasm_devenv.sh && make dist_osx dist_ios dist_wasm AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
                         '''
 
@@ -293,10 +298,8 @@ pipeline {
             }
         }
 
-        // WPB-24450 Temporary dublication to make seperaton of classical android and new kmp publish.
-        // "Publish to sonatype" stage will be removed with introduction of android kmp
-        // where "Publish kmp to sonatype" will probably then use matrix.axes to minimize dublication
-        // between linux and macos tasks.
+        // WPB-24450 macos agent is handling kmp publish
+        // When migration is complate, 'Publish to sonatype' legacy android step can be removed.
         stage('Publish kmp to sonatype') {
             when {
                 anyOf {
@@ -310,6 +313,9 @@ pipeline {
                 PATH = "/opt/homebrew/bin:/Applications/Xcode.app/Contents/Developer/usr/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${ env.PATH }"
             }
             steps {
+                // Restore the android shared libraries generated in linux agent
+                unstash 'android-aar'
+
                 script {
                     echo '### Sign and upload to sonatype'
                     withCredentials([
@@ -320,7 +326,6 @@ pipeline {
                         withMaven(maven: 'M3', jdk: 'JDK17') {
                             sh(
                                 script: """
-                                    touch local.properties
                                     ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew avs:clean
                                     ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs:publishAndReleaseToMavenCentral --no-configuration-cache
                                 """
