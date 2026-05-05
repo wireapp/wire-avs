@@ -3,9 +3,9 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import java.io.File
 
 plugins {
-    kotlin("multiplatform") version "2.2.21"
-    id("com.android.library") version "8.13.0"
-    id("com.vanniktech.maven.publish.base") version "0.36.0"
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.maven.publish.base)
 }
 
 group = findProperty("GROUP") as String? ?: "com.wire"
@@ -110,24 +110,18 @@ kotlin {
     sourceSets {
         val androidMain by getting {
             dependencies {
-                // This dependency is exported to consumers, that is to say found on their compile classpath.
-                api("org.apache.commons:commons-math3:3.6.1")
+                // Exported dependencies
+                api(libs.apache.commons.math3)
+                api(libs.camera.view)
 
-                // This dependency is used internally, and not exposed to consumers on their own compile classpath.
-                implementation("com.google.guava:guava:31.1-jre")
-
-                val camerax_version = "1.4.0-rc04"
-                implementation("androidx.camera:camera-core:${camerax_version}")
-                implementation("androidx.camera:camera-camera2:${camerax_version}")
-                implementation("androidx.camera:camera-lifecycle:${camerax_version}")
-                implementation("androidx.camera:camera-video:${camerax_version}")
-
-                api("androidx.camera:camera-view:${camerax_version}")
-                implementation("androidx.camera:camera-extensions:${camerax_version}")
-
-                val core_version = "1.10.1"
-                // Java language implementation
-                implementation("androidx.core:core:$core_version")
+                // Internal dependencies
+                implementation(libs.google.guava)
+                implementation(libs.camera.core)
+                implementation(libs.camera.camera2)
+                implementation(libs.camera.lifecycle)
+                implementation(libs.camera.video)
+                implementation(libs.camera.extensions)
+                implementation(libs.android.core)
             }
         }
     }
@@ -162,7 +156,7 @@ android {
         }
 
         // Copy prebuild org.webrtc binaries into temporary build folder of compiled java
-        // Kmp android plugin will use this folder as a souce for packaging into class.jar
+        // Kmp android plugin will use this folder as a source for packaging into class.jar
         val copyPrebuildWebrtcBinaries = tasks.register<Copy>("copyPrebuildWebrtcBinariesFor$capitalizedName") {
             val sourceJar =  File(rootDir, "build/dist/android/aar/classes.jar")
             from(sourceJar)

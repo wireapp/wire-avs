@@ -1,10 +1,10 @@
 import com.vanniktech.maven.publish.JavaLibrary
 
 plugins {
-    id "java-library"
-    id("com.android.library") version "8.13.0" apply false
-    id("com.vanniktech.maven.publish.base") version "0.36.0"
-    id("org.jetbrains.kotlin.multiplatform") version "2.2.21" apply false
+    alias(libs.plugins.java.library)
+    alias(libs.plugins.maven.publish.base)
+    alias(libs.plugins.kotlin.multiplatform) apply false
+    alias(libs.plugins.android.library) apply false
 }
 
 group = findProperty("GROUP") ?: "com.wire"
