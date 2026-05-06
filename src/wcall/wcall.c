@@ -1779,6 +1779,13 @@ static void icall_quality_handler(struct icall *icall,
 				stats.packets_per_sec.video.tx, stats.packets_per_sec.video.rx,
 				stats.packets_per_sec.lost.tx, stats.packets_per_sec.lost.rx);
 
+	// Do not remove following log line
+	// WPB-25354: e2e tests depend on parsing the line in order to evaluate flow
+	info("ar: %d vr: %d as: %d vs: %d",
+				stats.packets.audio.rx, stats.packets.video.rx,
+				stats.packets.audio.tx, stats.packets.audio.tx);
+
+
 	inst->quality.netqh(wcall->convid,
 			    userid,
 			    clientid,
