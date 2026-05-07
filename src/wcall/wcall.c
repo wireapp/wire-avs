@@ -1773,7 +1773,7 @@ static void icall_quality_handler(struct icall *icall,
 				  quality_info);
 
 	info(APITAG "wcall(%p): Packets per sec {audio: {tx: %d, rx: %d}, "
-				"video: {tx: %d, rx: %d}, lost: {tx: %d, rx: %d}}",
+				"video: {tx: %d, rx: %d}, lost: {tx: %d, rx: %d}}\n",
 				wcall,
 				stats.packets_per_sec.audio.tx, stats.packets_per_sec.audio.rx,
 				stats.packets_per_sec.video.tx, stats.packets_per_sec.video.rx,
@@ -1781,9 +1781,11 @@ static void icall_quality_handler(struct icall *icall,
 
 	// Do not remove following log line
 	// WPB-25354: e2e tests depend on parsing the line in order to evaluate flow
-	info("ar: %d vr: %d as: %d vs: %d",
+	info("pc_set_stats: level: %d ar: %d vr: %d as: %d vs: %d rtt=%d dloss=%d\n",
+				stats.audio_level, 
 				stats.packets.audio.rx, stats.packets.video.rx,
-				stats.packets.audio.tx, stats.packets.audio.tx);
+				stats.packets.audio.tx, stats.packets.video.tx,
+				stats.rtt.rx, stats.packets.lost.rx);
 
 
 	inst->quality.netqh(wcall->convid,
