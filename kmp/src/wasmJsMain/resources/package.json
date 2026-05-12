@@ -1,0 +1,6 @@
+{
+  "name": "@wireapp/avs",
+  "version": "1.0.0",
+  "main": "avs.js",
+  "type": "module"
+}

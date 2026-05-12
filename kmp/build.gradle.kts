@@ -131,6 +131,12 @@ kotlin {
         }
     }
 
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs {
+        browser{}
+        binaries.library()
+    }
+
     sourceSets {
         val androidMain by getting {
             dependencies {
@@ -148,7 +154,27 @@ kotlin {
                 implementation(libs.android.core)
             }
         }
+
+        val wasmJsMain by getting {
+            dependencies { 
+                // Core Kotlin standard library dependencies for Wasm generation
+                implementation(kotlin("stdlib-wasm-js"))
+
+                // Provide a new package.json
+                // The one for npm (../build/dist/wasm/package.json) does not work here
+                api(npm("@wireapp/avs", project.file("src/wasmJsMain/resources")))
+            }
+
+            // Provide a resource directory for wasm resources
+            resources.srcDir("../build/dist/wasm/dist")
+        }
     }
+}
+
+// This is needed to add a custom package.json in wasmjs
+tasks.named<org.gradle.jvm.tasks.Jar>("wasmJsJar") {
+    // Instructs the JAR engine to bypass duplicate path safety blocks
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 // Get used devtools/ndk version, default to lask known working one if not found
