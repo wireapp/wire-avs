@@ -186,6 +186,7 @@ $(IOSX_FULL_SHARED): $(IOSX_LIB_OBJS) $(AVS_STATIC) $(MENG_STATIC)
 		-Xlinker -rpath -Xlinker @loader_path/Frameworks \
 		-Xlinker -no_implicit_dylibs \
 		-single_module \
+		-arch $(AVS_ARCH) \
 		$(SH_LFLAGS) $(LFLAGS) $(IOSX_LFLAGS) \
 		$^ $(SH_LIBS) $(LIBS) $(AVS_LIBS) $(MENG_LIBS) $(IOSX_LIBS) \
 		-o $(BUILD_LIB)/avs.framework/avs
@@ -194,6 +195,7 @@ $(IOSX_STUB_SHARED): $(IOSX_STUB_OBJS) $(AVS_STATIC) $(MENG_STATIC)
 	@echo "  LD      $@"
 	@mkdir -p $(dir $@)
 	$(LD)   $(SH_LFLAGS) $(LFLAGS) $(IOSX_LFLAGS) \
+		-arch $(AVS_ARCH) \
 		-ObjC \
 		$^ $(SH_LIBS) $(LIBS) $(AVS_LIBS) $(MENG_LIBS) $(IOSX_LIBS) \
 		-o $@
