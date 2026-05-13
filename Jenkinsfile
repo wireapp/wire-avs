@@ -148,13 +148,13 @@ pipeline {
                         sh 'make zcall AVS_VERSION=' + version
                         sh '''#!/bin/bash
                             . ./scripts/android_devenv.sh && echo "sdk.dir=${ANDROID_SDK_ROOT}\nndk.dir=${ANDROID_NDK_ROOT}" > local.properties
-                            . ./scripts/wasm_devenv.sh && make dist_osx dist_ios dist_wasm AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
+                            . ./scripts/wasm_devenv.sh && make dist_xc dist_wasm AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
                         '''
 
                         sh 'rm -rf ./build/artifacts'
                         sh 'mkdir -p ./build/artifacts'
                         sh 'cp ./build/dist/osx/avs.framework.zip ./build/artifacts/avs.framework.osx.' + version + '.zip'
-                        sh 'cp ./build/dist/ios/avs.xcframework.zip ./build/artifacts/avs.xcframework.zip'
+                        sh 'cp ./build/dist/xc/avs.xcframework.zip ./build/artifacts/avs.xcframework.zip'
                         sh 'zip -9j ./build/artifacts/zcall_osx_' + version + '.zip ./zcall'
                         sh 'mkdir -p ./osx'
                         sh 'cp ./build/dist/osx/avscore.tar.bz2 ./osx'
