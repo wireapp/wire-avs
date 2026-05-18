@@ -89,82 +89,38 @@ kotlin {
     val path = System.getProperty("user.dir")
     val generatedBuildDir = File(path, "build")
 
-    iosArm64() {
-        compilations.getByName("main") {
-            val avs by cinterops.creating {
-                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/ios-arm64/").absolutePath
-                val staticLibraryDir = file("$path/build/ios-arm64/lib").absolutePath
+    val appleTargets = listOf(
+        Triple("iosArm64", "ios-arm64", "ios-arm64"),
+        Triple("iosSimulatorArm64", "ios-arm64_x86_64-simulator", "iossim-arm64"),
+        Triple("macosX64", "macos-arm64_x86_64", "osx-x86_64"),
+        Triple("macosArm64", "macos-arm64_x86_64", "osx-arm64")
+    )
 
-                definitionFile.set(
-                    generateIosOsxDef(
-                        generatedBuildDir,
-                        "iosArm64",
-                        staticLibraryDir,
-                        iosLinkerOpts,
-                    )
-                )
-
-                compilerOpts("-framework", "avs", "-F${frameworkPath}")
-            }
+    appleTargets.forEach { (targetName, xcDir, libDir) ->
+        val target = when (targetName) {
+            "iosArm64" -> iosArm64()
+            "iosSimulatorArm64" -> iosSimulatorArm64()
+            "macosX64" -> macosX64()
+            "macosArm64" -> macosArm64()
+            else -> error("Unknown target")
         }
-    }
 
-    iosSimulatorArm64() {
-        compilations.getByName("main") {
-            val avs by cinterops.creating {
-                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/ios-arm64_x86_64-simulator/").absolutePath
-                val staticLibraryDir = file("$path/build/iossim-arm64/lib").absolutePath
-
-                definitionFile.set(
-                    generateIosOsxDef(
-                        generatedBuildDir,
-                        "iosSimulatorArm64",
-                        staticLibraryDir,
-                        iosLinkerOpts,
-                    )
-                )
-
-                compilerOpts("-framework", "avs", "-F${frameworkPath}")
-            }
-        }
-    }
-
-    macosX64() {
-        compilations.getByName("main") {
-            val avs by cinterops.creating {
-                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/macos-arm64_x86_64/").absolutePath
-                val staticLibraryDir = file("$path/build/osx-x86_64/lib").absolutePath
+        target.compilations.getByName("main") {
+            val avs by cinterops.creating() {
+                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/$xcDir/").absolutePath
+                val staticLibraryDir = file("$path/build/$libDir/lib").absolutePath
+                val linkerOpts = if (targetName.startsWith("ios")) iosLinkerOpts else osxLinkerOpts
 
                 definitionFile.set(
                     generateIosOsxDef(
                         generatedBuildDir,
-                        "macosX64",
+                        targetName,
                         staticLibraryDir,
-                        osxLinkerOpts,
+                        linkerOpts
                     )
                 )
 
-                compilerOpts("-framework", "avs", "-F${frameworkPath}")
-            }
-        }
-    }
-
-    macosArm64() {
-        compilations.getByName("main") {
-            val avs by cinterops.creating {
-                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/macos-arm64_x86_64/").absolutePath
-                val staticLibraryDir = file("$path/build/osx-arm64/lib").absolutePath
-
-                definitionFile.set(
-                    generateIosOsxDef(
-                        generatedBuildDir,
-                        "macosArm64",
-                        staticLibraryDir,
-                        osxLinkerOpts,
-                    )
-                )
-
-                compilerOpts("-framework", "avs", "-F${frameworkPath}")
+                compilerOpts("-framework", "avs", "-F$frameworkPath")
             }
         }
     }
