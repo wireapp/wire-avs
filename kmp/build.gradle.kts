@@ -132,7 +132,7 @@ kotlin {
     macosX64() {
         compilations.getByName("main") {
             val avs by cinterops.creating {
-                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/macos-arm64_x86_x64/").absolutePath
+                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/macos-arm64_x86_64/").absolutePath
                 val staticLibraryDir = file("$path/build/osx-x86_64/lib").absolutePath
 
                 definitionFile.set(
@@ -152,7 +152,7 @@ kotlin {
     macosArm64() {
         compilations.getByName("main") {
             val avs by cinterops.creating {
-                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/macos-arm64_x86_x64/").absolutePath
+                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/macos-arm64_x86_64/").absolutePath
                 val staticLibraryDir = file("$path/build/osx-arm64/lib").absolutePath
 
                 definitionFile.set(
