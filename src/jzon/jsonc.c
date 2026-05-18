@@ -187,8 +187,8 @@ static int add_entry(struct json_object *jobj, const char *key,
 		return EINVAL;
 
 	odict = jzon_odict(jobj);
-	if (!jobj)
-		return EINVAL;
+	if (!odict)
+		return ENOSYS;
 	e = &val->entry;
 
 	switch (e->type) {

@@ -1752,9 +1752,9 @@ static void icall_quality_handler(struct icall *icall,
 	json_object_object_add(jobj, "jitter", jitter_jobj);
 
 	struct json_object *connection_jobj = json_object_new_object();
-	json_object_object_add(jitter_jobj, "protocol",
+	json_object_object_add(connection_jobj, "protocol",
 				json_object_new_string(stats_proto_name(stats.proto)));
-	json_object_object_add(jitter_jobj, "candidate",
+	json_object_object_add(connection_jobj, "candidate",
 				json_object_new_string(stats_cand_name(stats.cand)));
 	json_object_object_add(jobj, "connection", connection_jobj);
 
