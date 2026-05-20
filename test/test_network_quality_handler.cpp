@@ -222,8 +222,9 @@ bool has_valid_generic_rxtx(json_object *jobj, const char *type) {
 	}
 
 	// we should have tx and rx fields
-	int tx, rx;
+	int tx;
 	const auto tx_err = jzon_int(&tx, type_jobj, "tx");
+	int rx;
 	const auto rx_err = jzon_int(&rx, type_jobj, "rx");
 
 	mem_deref(type_jobj);
@@ -276,7 +277,7 @@ bool has_valid_peer(json_object *jobj) {
 }
 
 // Expected quality json format
-// 	{
+//  {
 //    "quality":1,
 //    "rtt":0,
 //    "loss":{"tx":0,"rx":0},
