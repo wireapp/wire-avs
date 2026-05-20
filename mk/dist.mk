@@ -69,6 +69,7 @@ BUILD_DIST_AND := $(BUILD_DIST_BASE)/android
 BUILD_DIST_IOS := $(BUILD_DIST_BASE)/ios
 BUILD_DIST_IOSSIM := $(BUILD_DIST_BASE)/iossim
 BUILD_DIST_OSX := $(BUILD_DIST_BASE)/osx
+BUILD_DIST_XC := $(BUILD_DIST_BASE)/xc
 BUILD_DIST_LINUX := $(BUILD_DIST_BASE)/linux
 BUILD_DIST_WASM := $(BUILD_DIST_BASE)/wasm
 
@@ -330,10 +331,13 @@ dist_test: $(BUILD_DIST_IOS)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL)
 $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
 	@for arch in $(DIST_ARCH_osx) ; do \
 		$(MAKE) contrib AVS_OS=osx AVS_ARCH=$$arch && \
-		$(MAKE) iosx AVS_OS=osx AVS_ARCH=$$arch && \
-		mkdir -p $(dir $@) && \
-		cp $(BUILD_BASE)/osx-$$arch/lib/avs.framework/avs $@ ; \
+		$(MAKE) iosx AVS_OS=osx AVS_ARCH=$$arch ; \
 	done
+	@mkdir -p $(dir $@)
+
+	lipo -create -output $@ \
+		$(foreach arch,$(DIST_ARCH_osx),\
+		-arch $(arch) $(BUILD_BASE)/osx-$(arch)/lib/avs.framework/avs)
 
 
 # Package
@@ -354,13 +358,15 @@ $(BUILD_DIST_BASE)/%/$(BUILD_LIB_REL).framework.zip: \
 		zip --symlinks -r $@ Carthage )
 
 
-$(BUILD_DIST_IOS)/$(BUILD_LIB_REL).xcframework.zip:
+#--- xcframework ---
+$(BUILD_DIST_XC)/$(BUILD_LIB_REL).xcframework.zip:
+	@mkdir -p $(dir $@)
 	/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -create-xcframework \
-	$(foreach os,ios iossim,\
+	$(foreach os,ios iossim osx,\
                 -framework $(BUILD_DIST_BASE)/$(os)/Carthage/Build/iOS/avs.framework \
 		-debug-symbols $(BUILD_DIST_BASE)/$(os)/Carthage/Build/iOS/avs.framework.dSYM) \
-		-output $(BUILD_DIST_IOS)/avs.xcframework
-	@( cd $(BUILD_DIST_IOS) && \
+		-output $(BUILD_DIST_XC)/avs.xcframework
+	@( cd $(BUILD_DIST_XC) && \
 		zip --symlinks -r avs.xcframework.zip avs.xcframework )
 
 #--- iOSX Tarballs ---
@@ -463,8 +469,9 @@ $(DIST_WASM_TARGETS): $(DIST_WASM_JS_TARGET) $(DIST_WASM_PC_TARGET) $(DIST_WASM_
 
 .PHONY: dist_android dist_ios dist_osx dist_linux dist_wasm dist dist_host dist_clean
 dist_android: $(DIST_AND_TARGETS)
-dist_ios: $(DIST_IOS_TARGETS) $(DIST_IOSSIM_TARGETS) $(BUILD_DIST_IOS)/$(BUILD_LIB_REL).xcframework.zip
+dist_ios: $(DIST_IOS_TARGETS) $(DIST_IOSSIM_TARGETS)
 dist_osx: $(DIST_OSX_TARGETS)
+dist_xc: dist_ios dist_osx $(BUILD_DIST_XC)/$(BUILD_LIB_REL).xcframework.zip
 dist_linux: $(DIST_LINUX_TARGETS)
 dist_wasm: $(DIST_WASM_TARGETS)
 dist_clean:
@@ -474,6 +481,6 @@ ifeq ($(HOST_OS),linux)
 dist: dist_linux
 dist_host: dist_linux
 else
-dist: dist_android dist_ios dist_osx dist_wasm
+dist: dist_android dist_xc dist_wasm
 dist_host: dist_osx
 endif
