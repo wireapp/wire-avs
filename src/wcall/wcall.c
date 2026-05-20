@@ -600,29 +600,43 @@ static void icall_start_handler(struct icall *icall,
 	}
 
 	if (inst->processing_notifications && inst->incomingh) {
+		struct incoming_event *prev_ie;
 		struct incoming_event *ie;
 
-		ie = find_pending_event(&inst->pending_eventl, userid_sender);
-		if (ie) {
-			list_unlink(&ie->le);
+		prev_ie = find_pending_event(&inst->pending_eventl,
+					     userid_sender);
+		if (prev_ie) {
+			list_unlink(&prev_ie->le);
 		}
 		ie = mem_zalloc(sizeof(*ie), ie_destructor);
-		if (ie) {
-			str_dup(&ie->convid, wcall->convid);
-			ie->msg_time = msg_time;
-			str_dup(&ie->userid, userid_sender);
-			str_dup(&ie->clientid, clientid_sender);
-			ie->video_call = video;
-			ie->should_ring = should_ring;
-			ie->conv_type = conv_type;
-			ie->arg = inst;
+		if (!ie) {
+			warning("wcall(%p): incomingh: cannot allocate ie\n",
+				wcall);
+			return;
+		}
 
-			list_append(&inst->pending_eventl, &ie->le, ie);
+		str_dup(&ie->convid, wcall->convid);
+		ie->msg_time = msg_time;
+		str_dup(&ie->userid,
+			prev_ie ? prev_ie->userid : userid_sender);
+		str_dup(&ie->clientid,
+			prev_ie ? prev_ie->clientid : clientid_sender);
+		ie->video_call = prev_ie ? prev_ie->video_call : video;
+		ie->should_ring =
+			prev_ie ? prev_ie->should_ring : should_ring;
+		ie->conv_type =
+			prev_ie ? prev_ie->conv_type : conv_type;
+		ie->arg = inst;
+
+		list_append(&inst->pending_eventl, &ie->le, ie);
+
+		if (prev_ie) {
+			mem_deref(prev_ie);
 		}
 
 		return;
 	}
-	
+
 	if (inst->incomingh) {
 		if (inst->mm) {
 			mediamgr_invoke_incomingh(inst->mm,
