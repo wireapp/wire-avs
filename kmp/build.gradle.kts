@@ -65,7 +65,7 @@ kotlin {
     iosArm64() {
         compilations.getByName("main") {
             val avs by cinterops.creating {
-                val frameworkPath = file("$path/build/dist/ios/avs.xcframework/ios-arm64/").absolutePath
+                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/ios-arm64/").absolutePath
                 val staticLibraryDir = file("$path/build/ios-arm64/lib").absolutePath
 
                 definitionFile.set(
@@ -84,7 +84,7 @@ kotlin {
     iosSimulatorArm64() {
         compilations.getByName("main") {
             val avs by cinterops.creating {
-                val frameworkPath = file("$path/build/dist/ios/avs.xcframework/ios-arm64_x86_64-simulator/").absolutePath
+                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/ios-arm64_x86_64-simulator/").absolutePath
                 val staticLibraryDir = file("$path/build/iossim-arm64/lib").absolutePath
 
                 definitionFile.set(
