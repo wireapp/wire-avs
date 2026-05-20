@@ -603,16 +603,17 @@ static void icall_start_handler(struct icall *icall,
 		struct incoming_event *prev_ie;
 		struct incoming_event *ie;
 
-		prev_ie = find_pending_event(&inst->pending_eventl,
-					     userid_sender);
-		if (prev_ie) {
-			list_unlink(&prev_ie->le);
-		}
 		ie = mem_zalloc(sizeof(*ie), ie_destructor);
 		if (!ie) {
 			warning("wcall(%p): incomingh: cannot allocate ie\n",
 				wcall);
 			return;
+		}
+
+		prev_ie = find_pending_event(&inst->pending_eventl,
+					     userid_sender);
+		if (prev_ie) {
+			list_unlink(&prev_ie->le);
 		}
 
 		str_dup(&ie->convid, wcall->convid);
