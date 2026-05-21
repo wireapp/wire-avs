@@ -1077,8 +1077,6 @@ static void ecall_close_handler(struct icall *icall,
 	}
 
 	userlist_incall_clear(ccall->userl, false, false);
-	mem_deref(ecall);
-	ccall->ecall = NULL;
 
 	switch (ccall->error) {
 	case 0:
@@ -1127,6 +1125,9 @@ static void ecall_close_handler(struct icall *icall,
 				      msg_time, ccall->icall.arg);
 		}
 	}
+
+	mem_deref(ecall);
+	ccall->ecall = NULL;
 
 	ccall->error = 0;
 }
