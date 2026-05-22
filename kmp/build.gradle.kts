@@ -16,31 +16,58 @@ repositories {
     google()
 }
 
-fun generateIosDef(
+val iosLinkerOpts = listOf(
+    "-framework", "",
+    "-framework", "AudioToolbox",
+    "-framework", "CFNetwork",
+    "-framework", "CoreAudio",
+    "-framework", "CoreGraphics",
+    "-framework", "CoreMedia",
+    "-framework", "CoreVideo",
+    "-framework", "Metal",
+    "-framework", "MetalKit",
+    "-framework", "Network",
+    "-framework", "QuartzCore",
+    "-framework", "ReplayKit",
+    "-framework", "SystemConfiguration",
+    "-framework", "UIKit",
+    "-framework", "VideoToolbox",
+    "-framework", "MobileCoreServices",
+    "-lc++",
+    "-ObjC",
+).joinToString(" ")
+
+val osxLinkerOpts = listOf(
+    "-framework", "",
+    "-framework", "AudioToolbox",
+    "-framework", "CoreAudio",
+    "-framework", "CoreGraphics",
+    "-framework", "CoreMedia",
+    "-framework", "CoreVideo",
+    "-framework", "SystemConfiguration",
+    "-framework", "AppKit",
+    "-framework", "ApplicationServices",
+    "-framework", "AudioUnit",
+    "-framework", "Cocoa",
+    "-framework", "CoreFoundation",
+    "-framework", "Foundation",
+    "-framework", "IOKit",
+    "-framework", "OpenGL",
+    "-framework", "Security",
+    "-framework", "QTKit",
+    "-framework", "AVFoundation",
+    "-framework", "ScreenCaptureKit",
+    "-lc++",
+    "-ObjC",
+).joinToString(" ")
+
+
+fun generateIosOsxDef(
     buildDir: File,
     targetName: String,
     staticLibraryDir: String,
+    linkerOpts: String,
 ): File {
-    val iosLinkerOpts = listOf(
-        "-framework", "AVFoundation",
-        "-framework", "AudioToolbox",
-        "-framework", "CFNetwork",
-        "-framework", "CoreAudio",
-        "-framework", "CoreGraphics",
-        "-framework", "CoreMedia",
-        "-framework", "CoreVideo",
-        "-framework", "Metal",
-        "-framework", "MetalKit",
-        "-framework", "Network",
-        "-framework", "QuartzCore",
-        "-framework", "ReplayKit",
-        "-framework", "SystemConfiguration",
-        "-framework", "UIKit",
-        "-framework", "VideoToolbox",
-        "-framework", "MobileCoreServices",
-        "-lc++",
-        "-ObjC",
-    ).joinToString(" ")
 
     val generatedDir = File(buildDir, "generated/cinterop/$targetName").apply { mkdirs() }
     return File(generatedDir, "ios.def").apply {
@@ -51,7 +78,7 @@ fun generateIosDef(
             package = avs
             staticLibraries = libavsobjc.a
             libraryPaths = $staticLibraryDir
-            linkerOpts = $iosLinkerOpts
+            linkerOpts = $linkerOpts
             """.trimIndent()
         )
     }
@@ -62,40 +89,38 @@ kotlin {
     val path = System.getProperty("user.dir")
     val generatedBuildDir = File(path, "build")
 
-    iosArm64() {
-        compilations.getByName("main") {
-            val avs by cinterops.creating {
-                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/ios-arm64/").absolutePath
-                val staticLibraryDir = file("$path/build/ios-arm64/lib").absolutePath
+    val appleTargets = listOf(
+        Triple("iosArm64", "ios-arm64", "ios-arm64"),
+        Triple("iosSimulatorArm64", "ios-arm64_x86_64-simulator", "iossim-arm64"),
+        Triple("macosX64", "macos-arm64_x86_64", "osx-x86_64"),
+        Triple("macosArm64", "macos-arm64_x86_64", "osx-arm64")
+    )
 
-                definitionFile.set(
-                    generateIosDef(
-                        generatedBuildDir,
-                        "iosArm64",
-                        staticLibraryDir,
-                    )
-                )
-
-                compilerOpts("-framework", "avs", "-F${frameworkPath}")
-            }
+    appleTargets.forEach { (targetName, xcDir, libDir) ->
+        val target = when (targetName) {
+            "iosArm64" -> iosArm64()
+            "iosSimulatorArm64" -> iosSimulatorArm64()
+            "macosX64" -> macosX64()
+            "macosArm64" -> macosArm64()
+            else -> error("Unknown target")
         }
-    }
 
-    iosSimulatorArm64() {
-        compilations.getByName("main") {
-            val avs by cinterops.creating {
-                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/ios-arm64_x86_64-simulator/").absolutePath
-                val staticLibraryDir = file("$path/build/iossim-arm64/lib").absolutePath
+        target.compilations.getByName("main") {
+            val avs by cinterops.creating() {
+                val frameworkPath = file("$path/build/dist/xc/avs.xcframework/$xcDir/").absolutePath
+                val staticLibraryDir = file("$path/build/$libDir/lib").absolutePath
+                val linkerOpts = if (targetName.startsWith("ios")) iosLinkerOpts else osxLinkerOpts
 
                 definitionFile.set(
-                    generateIosDef(
+                    generateIosOsxDef(
                         generatedBuildDir,
-                        "iosSimulatorArm64",
+                        targetName,
                         staticLibraryDir,
+                        linkerOpts
                     )
                 )
 
-                compilerOpts("-framework", "avs", "-F${frameworkPath}")
+                compilerOpts("-framework", "avs", "-F$frameworkPath")
             }
         }
     }
