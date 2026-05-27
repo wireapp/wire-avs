@@ -17,7 +17,6 @@ repositories {
 }
 
 val iosLinkerOpts = listOf(
-    "-framework", "",
     "-framework", "AudioToolbox",
     "-framework", "CFNetwork",
     "-framework", "CoreAudio",
@@ -38,7 +37,6 @@ val iosLinkerOpts = listOf(
 ).joinToString(" ")
 
 val osxLinkerOpts = listOf(
-    "-framework", "",
     "-framework", "AudioToolbox",
     "-framework", "CoreAudio",
     "-framework", "CoreGraphics",
