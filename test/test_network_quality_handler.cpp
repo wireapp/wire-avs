@@ -201,6 +201,116 @@ static void close_handler(int reason, const char *convid, uint32_t msg_time,
     }
 }
 
+// {..., "quality":1, ...}
+bool has_valid_quality_indication(json_object *jobj) {
+	int quality_indication;
+	return !jzon_int(&quality_indication, jobj, "quality");
+}
+
+// {..., "rtt":0, ...}
+bool has_valid_rtt(json_object *jobj) {
+	int rtt;
+	return !jzon_int(&rtt, jobj, "rtt");
+}
+
+// {..., "<type>":{"tx":0,"rx":0}, ...}
+bool has_valid_generic_rxtx(json_object *jobj, const char *type) {
+	struct json_object *type_jobj;
+	// type should be a json object
+	if (jzon_object(&type_jobj, jobj, type)) {
+		return false;
+	}
+
+	// we should have tx and rx fields
+	int tx;
+	const auto tx_err = jzon_int(&tx, type_jobj, "tx");
+	int rx;
+	const auto rx_err = jzon_int(&rx, type_jobj, "rx");
+
+	mem_deref(type_jobj);
+
+	return !(tx_err || rx_err);
+}
+
+// {..., "loss":{"tx":0,"rx":0}, ...}
+bool has_valid_packet_loss(json_object *jobj) {
+	return has_valid_generic_rxtx(jobj, "loss");
+}
+
+// {..., "jitter":{"audio":{"tx":0,"rx":0},"video":{"tx":0,"rx":0}}, ...}
+bool has_valid_jitter(json_object *jobj) {
+	struct json_object *jitter_jobj;
+	// jitter should be a json object
+	if (jzon_object(&jitter_jobj, jobj, "jitter")) {
+		return false;
+	}
+
+	// we should have audio and video subfields
+	const auto has_audio = has_valid_generic_rxtx(jitter_jobj, "audio");
+	const auto has_video = has_valid_generic_rxtx(jitter_jobj, "video");
+
+	mem_deref(jitter_jobj);
+
+	return has_audio && has_video;
+}
+
+// {..., "connection":{"protocol":"UDP","candidate":"Host"}, ...}
+bool has_valid_connection(json_object *jobj) {
+	struct json_object *connection_jobj;
+	// connection should be a json object
+	if (jzon_object(&connection_jobj, jobj, "connection")) {
+		return false;
+	}
+
+	// we should have protocol and candidate fields
+	const auto protocol = jzon_str(connection_jobj, "protocol");
+	const auto candidate = jzon_str(connection_jobj, "candidate");
+
+	mem_deref(connection_jobj);
+
+	return protocol && candidate;
+}
+
+// {..., "peer":"User", ...}
+bool has_valid_peer(json_object *jobj) {
+	return jzon_str(jobj, "peer");
+}
+
+// Expected quality json format
+//  {
+//    "quality":1,
+//    "rtt":0,
+//    "loss":{"tx":0,"rx":0},
+//    "jitter":{
+//       "audio":{"tx":0,"rx":0},
+//       "video":{"tx":0,"rx":0}},
+//    "connection":{"protocol":"UDP","candidate":"Host"},
+//    "peer":"User"
+//  }
+bool is_valid_quality_json(const char *quality_info) {
+	struct json_object *jobj;
+	if(jzon_decode(&jobj, quality_info, strlen(quality_info))) {
+		return false;
+	}
+
+	// quality_info should be a json object
+	if(!jzon_is_object(jobj)) {
+		return false;
+	}
+
+	const auto is_valid = 
+		has_valid_quality_indication(jobj) &&
+		has_valid_rtt(jobj) &&
+		has_valid_packet_loss(jobj) &&
+		has_valid_jitter(jobj) &&
+		has_valid_connection(jobj) &&
+		has_valid_peer(jobj);
+
+	mem_deref(jobj);
+
+	return is_valid;
+}
+
 static void wcall_quality_handler(const char *convid,
 				  const char *userid,
 				  const char *clientid,
@@ -211,6 +321,8 @@ static void wcall_quality_handler(const char *convid,
 
     info("[ %s.%s ] {%s with interval %d} Call_quality report %s\n",
 	     userid, clientid, convid, cli->timerInterval, quality_info);
+
+	ASSERT_TRUE(is_valid_quality_json(quality_info));
 
     cli->qualityCallbacks[cli->timerInterval]++;
 }
