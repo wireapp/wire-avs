@@ -177,6 +177,55 @@ tasks.named<org.gradle.jvm.tasks.Jar>("wasmJsJar") {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
+// Define a helper task to get js filenames in ./build/dist/wasm/dist/ and
+// provide and aggregate avs.js
+val generateJsExports by tasks.registering {
+    group = "build"
+    description = "Generates a JS file exporting all JavaScript files from a specific directory."
+
+    val inputDir = file("../build/dist/wasm/dist/")
+    val outputFile = file("./src/wasmJsMain/resources/avs.js")
+
+    inputs.dir(inputDir).withPathSensitivity(PathSensitivity.RELATIVE)
+    outputs.file(outputFile)
+
+    doLast {
+        if (!inputDir.exists() || !inputDir.isDirectory) {
+            logger.warn("Input directory does not exist: ${inputDir.absolutePath}")
+            return@doLast
+        }
+
+        val exportLines = inputDir.listFiles { file -> file.isFile && file.extension == "js" }
+            ?.sortedBy { it.name }
+            ?.map { file -> "export * from './${file.name}';" }
+            ?: emptyList()
+
+        // Define the warning comment block about file being auto generated
+        val fileHeader = """
+            // ============================================================================
+            // WARNING: THIS FILE IS AUTO-GENERATED. DO NOT EDIT MANUALLY.
+            // Any manual modifications will be overwritten during the next Gradle build
+            // with task ./wire-avs/kmp/build.gradle.kts:generateJsExports
+            // ============================================================================
+            
+        """.trimIndent()
+
+        outputFile.parentFile.mkdirs()
+        
+        // Combine the header comment and the export lines
+        val finalContent = fileHeader + "\n" + exportLines.joinToString("\n") + "\n"
+        outputFile.writeText(finalContent)
+        
+        logger.lifecycle("Generated JS exports in ${outputFile.path}")
+    }
+}
+
+// Resources for the wasmJsMain compilation unit are processed with 
+// wasmJsProcessResources. Hooking the helper before this will ensure correct aggregation.
+tasks.named("wasmJsProcessResources") {
+    dependsOn(generateJsExports)
+}
+
 // Get used devtools/ndk version, default to lask known working one if not found
 val systemNdkVersion = System.getenv("ANDROID_NDK_VER") ?: "28.2.13676358"
 
