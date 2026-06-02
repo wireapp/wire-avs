@@ -79,7 +79,7 @@ int jsflow_dce_send(struct iflow *flow,
 
 void jsflow_set_stats(struct jsflow* flow, float downloss, float rtt);
 int jsflow_get_stats(struct iflow *flow,
-		     struct iflow_stats *stats);
+		     struct stats_report *stats);
 
 int jsflow_get_aulevel(struct iflow *iflow,
 		       struct list *levell);

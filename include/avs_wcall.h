@@ -21,7 +21,7 @@
 extern "C" {
 #endif
 
-
+#include <stddef.h>
 #include <stdint.h>
 
 struct wcall;
@@ -105,10 +105,7 @@ typedef void (wcall_missed_h)(const char *convid, uint32_t msg_time,
 typedef void (wcall_network_quality_h)(const char *convid,
 				       const char *userid,
 				       const char *clientid,
-				       int quality, /*  WCALL_QUALITY_ */
-				       int rtt, /* round trip time in ms */
-				       int uploss, /* upstream pkt loss % */
-				       int downloss, /* dnstream pkt loss % */
+				       const char *quality_info,
 				       void *arg); 
 
 
@@ -183,6 +180,8 @@ typedef void (wcall_req_new_epoch_h)(WUSER_HANDLE wuser,
 #define WCALL_REASON_EVERYONE_LEFT     13
 #define WCALL_REASON_AUTH_FAILED       14
 #define WCALL_REASON_AUTH_FAILED_START 15
+#define WCALL_REASON_DURATION          16
+
 
 const char *wcall_reason_name(int reason);
 
@@ -444,6 +443,8 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 void wcall_set_req_new_epoch_handler(WUSER_HANDLE wuser,
 				     wcall_req_new_epoch_h *req_new_epochh);
 
+void wcall_set_duration(WUSER_HANDLE wuser, const char *convid, int duration);
+
 int wcall_get_mute(WUSER_HANDLE wuser);
 void wcall_set_mute(WUSER_HANDLE wuser, int muted);
 void wcall_set_mute_handler(WUSER_HANDLE wuser, wcall_mute_h *muteh, void *arg);
@@ -579,6 +580,24 @@ void wcall_poll(void);
 int wcall_setup(void);
 int wcall_setup_ex(int flags);
 
+WUSER_HANDLE wcall_event_create(const char *userid,
+				const char *clientid,
+				wcall_incoming_h *incomingh,
+				wcall_missed_h *missedh,
+				wcall_close_h *closeh,
+				void *arg);
+void wcall_event_start(WUSER_HANDLE wuser);
+int  wcall_event_process(WUSER_HANDLE wuser, 
+			 const uint8_t *buf, size_t len,
+			 uint32_t curr_time, /* timestamp in seconds */
+			 uint32_t msg_time,  /* timestamp in seconds */
+			 const char *convid,
+			 const char *userid,
+			 const char *clientid,
+			 int conv_type);
+void wcall_event_end(WUSER_HANDLE wuser);
+				
+				
 
 #define WCALL_MODE_MARSHAL 0
 #define WCALL_MODE_DIRECT  1
@@ -586,6 +605,8 @@ int wcall_setup_ex(int flags);
 void wcall_set_mode(int mode);
 int  wcall_get_mode(void);
 
+void wcall_set_config_version(int sft_version, int turn_version);
+  
 #ifdef __cplusplus
 }
 #endif

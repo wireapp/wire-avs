@@ -102,6 +102,10 @@ void msystem_set_packet_size(int packet_size_ms);
 bool msystem_get_muted(void);
 void msystem_set_muted(bool muted);
 void msystem_activate(bool active);
+void msystem_set_config_version(int sft_version, int turn_version);
+int  msystem_get_sft_config_version(void);
+int  msystem_get_turn_config_version(void);
+
 
 
 #endif

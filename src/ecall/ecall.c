@@ -24,6 +24,7 @@
 #include "avs_zapi.h"
 #include "avs_icall.h"
 #include "avs_keystore.h"
+#include "avs_stats.h"
 #include "avs_iflow.h"
 #include "avs_peerflow.h"
 #include "avs_uuid.h"
@@ -765,10 +766,10 @@ static int _icall_add_turnserver(struct icall *icall, struct zapi_ice_server *sr
 
 
 static int _icall_start(struct icall *icall, enum icall_call_type call_type,
-			bool audio_cbr)
+			bool audio_cbr, bool meeting)
 {
 	return ecall_start((struct ecall*)icall, call_type,
-			   audio_cbr);
+			   audio_cbr, meeting);
 }
 
 
@@ -1145,6 +1146,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 			    _icall_stats,
 			    _icall_set_background,
 			    _icall_activate,
+			    NULL,
 			    _icall_restart);
 
 	list_append(ecalls, &ecall->le, ecall);
@@ -1724,13 +1726,14 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		&ecall->icall, ecall->userid_peer, ecall->clientid_peer,
 		ecall->update, ecall->icall.arg);
 
+	struct stats_report stats = { 0 };
+
 	ICALL_CALL_CB(ecall->icall, qualityh,
 		      &ecall->icall, 
 		      ecall->userid_peer,
 		      ecall->clientid_peer,
-		      0,
-		      0,
-		      0,
+		      stats,
+		      ICALL_CONV_TYPE_ONEONONE,
 		      ecall->icall.arg);
 
 	if (ecall->update_glare) {
@@ -2246,10 +2249,12 @@ static void update_mute_props(struct ecall *ecall)
 }
 
 int ecall_start(struct ecall *ecall, enum icall_call_type call_type,
-		bool audio_cbr)
+		bool audio_cbr, bool meeting)
 {
 	int err;
 
+	(void)meeting;
+	
 	info("ecall(%p): start\n", ecall);
 
 	if (!ecall)
@@ -2708,11 +2713,17 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 	}
 
 	enum econn_state conn_current_state = econn_current_state(ecall->econn);
-	if (ecall->conv_type == ICALL_CONV_TYPE_ONEONONE && (ecall->update || conn_current_state == ECONN_UPDATE_RECV)) {
-		info("ecall(%p): set_video_send_state: postpone video update state %s, because of glare\n", ecall, icall_vstate_name(ecall->vstate));
-		ecall->update_glare = true;
-		ecall->glare_vstate = vstate;
-		return 0;
+	if (ecall->conv_type == ICALL_CONV_TYPE_ONEONONE) {
+		if (conn_current_state == ECONN_PENDING_OUTGOING ||
+		    conn_current_state == ECONN_PENDING_INCOMING ||
+		    conn_current_state == ECONN_UPDATE_RECV ||
+		    ecall->update) {
+			info("ecall(%p): set_video_send_state: postpone video update state %s, because of glare\n",
+			     ecall, icall_vstate_name(ecall->vstate));
+			ecall->update_glare = true;
+			ecall->glare_vstate = vstate;
+			return 0;
+		}
 	}
 
 
@@ -3010,36 +3021,34 @@ int ecall_mfdebug(struct re_printf *pf, const struct ecall *ecall)
 
 	
 int ecall_stats_struct(const struct ecall *ecall,
-		       struct iflow_stats *stats)
+		       struct stats_report *stats)
 {
 
 	if (!ecall || !stats)
 		return EINVAL;
 
-	IFLOW_CALL(ecall->flow, get_stats,
-		stats);
+	IFLOW_CALL(ecall->flow, get_stats, stats);
 
 	return 0;
 }
 
 int ecall_stats(struct re_printf *pf, const struct ecall *ecall)
 {
-	struct iflow_stats stats;
+	struct stats_report stats;
 	struct json_object *jfstats = NULL;
 	int err = 0;
 
-	memset(&stats, 0, sizeof(stats));
 
-	IFLOW_CALL(ecall->flow, get_stats,
-		&stats);
+	IFLOW_CALL(ecall->flow, get_stats, &stats);
 
+	
 	jfstats = jzon_alloc_object();
 	jzon_add_str(jfstats, "remoteUserId", "%s", ecall->userid_peer);
 	jzon_add_str(jfstats, "remoteClientId", "%s", ecall->clientid_peer);
-	jzon_add_int(jfstats, "audioPacketsReceived", stats.apkts_recv);
-	jzon_add_int(jfstats, "audioPacketsSent", stats.apkts_sent);
-	jzon_add_int(jfstats, "videoPacketsReceived", stats.vpkts_recv);
-	jzon_add_int(jfstats, "videoPacketsSent", stats.vpkts_sent);
+	jzon_add_int(jfstats, "audioPacketsReceived", stats.packets.audio.rx);
+	jzon_add_int(jfstats, "audioPacketsSent", stats.packets.audio.tx);
+	jzon_add_int(jfstats, "videoPacketsReceived", stats.packets.video.rx);
+	jzon_add_int(jfstats, "videoPacketsSent", stats.packets.video.tx);
 	
 	jzon_print(pf, jfstats);
 
@@ -3206,6 +3215,11 @@ int ecall_restart(struct ecall *ecall,
 		goto out;
 	}
 
+	struct stats_report stats = {
+		.packets.lost.rx = ICALL_RECONNECTING,
+		.packets.lost.tx = ICALL_RECONNECTING,
+	};
+
 	if (notify) {
 		ecall->metrics.m.reconnects_attempted++;
 		ecall->metrics.inc_reconnects = true;
@@ -3213,9 +3227,8 @@ int ecall_restart(struct ecall *ecall,
 			      &ecall->icall, 
 			      ecall->userid_peer,
 			      ecall->clientid_peer,
-			      0,
-			      ICALL_RECONNECTING,
-			      ICALL_RECONNECTING,
+			      stats,
+			      ICALL_CONV_TYPE_ONEONONE,
 			      ecall->icall.arg);
 	}
 
@@ -3294,10 +3307,8 @@ int ecall_activate(struct ecall *ecall, bool active)
 static void quality_handler(void *arg)
 {
 	struct ecall *ecall = arg;
-	struct iflow_stats stats;
+	struct stats_report stats;
 	int err = 0;
-
-	memset(&stats, 0, sizeof(stats));
 
 	tmr_start(&ecall->quality.tmr, ecall->quality.interval,
 		  quality_handler, arg);
@@ -3307,19 +3318,17 @@ static void quality_handler(void *arg)
 
 	if (ecall->update)
 		return;
-	err = IFLOW_CALLE(ecall->flow, get_stats,
-			  &stats);
+	err = IFLOW_CALLE(ecall->flow, get_stats, &stats);
 
 	if (!err) {
-		uint32_t dloss = (uint32_t)stats.dloss;
-		uint32_t rtt = (uint32_t)stats.rtt;
+		uint32_t dloss = (uint32_t)stats.packets.lost.rx;
+		uint32_t rtt = stats.rtt.tx;
 		ICALL_CALL_CB(ecall->icall, qualityh,
-			      &ecall->icall, 
+			      &ecall->icall,
 			      ecall->userid_peer,
 			      ecall->clientid_peer,
-			      (int)stats.rtt,
-			      (int)stats.dloss,
-			      (int)stats.dloss,
+			      stats,
+			      ecall->conv_type,
 			      ecall->icall.arg);
 
 		ecall->metrics.m.packetloss_last = dloss;

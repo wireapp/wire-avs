@@ -48,6 +48,7 @@ struct egcall {
 	const struct ecall_conf *conf;
 	enum icall_call_type call_type;
 	bool should_reject;
+        bool meeting;
 
 	struct dict *roster;
 	struct {
@@ -611,7 +612,8 @@ int egcall_alloc(struct egcall **egcallp,
 			    egcall_debug,
 			    egcall_stats,
 			    NULL, // egcall_set_background
-			    NULL,
+			    NULL, // egcall_activate
+			    NULL, // egcall_set_duration
 			    NULL);
 out:
 	if (err == 0) {
@@ -651,7 +653,7 @@ int egcall_add_turnserver(struct icall *icall,
 
 
 int egcall_start(struct icall *icall, enum icall_call_type call_type,
-		 bool audio_cbr)
+		 bool audio_cbr, bool meeting)
 {
 	struct egcall *egcall = (struct egcall*)icall;
 	int err = 0;
@@ -662,6 +664,7 @@ int egcall_start(struct icall *icall, enum icall_call_type call_type,
 
 	egcall->call_type = call_type;
 	egcall->audio_cbr = audio_cbr;
+	egcall->meeting = meeting;
 
 	info("egcall(%p): egcall_start state=%s\n", egcall, egcall_state_name(egcall->state));
 	if (egcall->state != EGCALL_STATE_IDLE &&
@@ -1025,16 +1028,21 @@ static bool roster_conn_handler(char *key, void *val, void *arg)
 	return ri->audio_state == ICALL_AUDIO_STATE_ESTABLISHED;
 }
 
-
 static void noconn_handler(void *arg)
 {
 	struct egcall *egcall = arg;
+
+	struct stats_report stats = {
+		.packets.lost.rx = ICALL_NETWORK_PROBLEM,
+		.packets.lost.tx = ICALL_NETWORK_PROBLEM,
+	};
 
 	ICALL_CALL_CB(egcall->icall, qualityh,
 		      &egcall->icall,
 		      egcall->userid_self,
 		      egcall->clientid_self,
-		      0, ICALL_NETWORK_PROBLEM, ICALL_NETWORK_PROBLEM,
+			  stats,
+		      ICALL_CONV_TYPE_GROUP,
 		      egcall->icall.arg);
 }
 
@@ -1163,14 +1171,15 @@ out:
 static void ecall_quality_handler(struct icall *icall,
 				  const char *userid,
 				  const char *clientid,
-				  int rtt, int uploss, int downloss,
+				  struct stats_report stats,
+				  enum icall_conv_type peer,
 				  void *arg)
 {
 	struct egcall *egcall = arg;
 
 	ICALL_CALL_CB(egcall->icall, qualityh,
 		icall, userid, clientid,
-		rtt, uploss, downloss, egcall->icall.arg);
+		stats, peer, egcall->icall.arg);
 }
 
 
@@ -1363,7 +1372,7 @@ static void recv_start(struct egcall *egcall,
 			}
 		}
 
-		err = ecall_start(ecall, egcall->call_type, egcall->audio_cbr);
+		err = ecall_start(ecall, egcall->call_type, egcall->audio_cbr, egcall->meeting);
 		if (EALREADY == err) {
 			err = 0;
 		}

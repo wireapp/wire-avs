@@ -23,7 +23,7 @@ struct ecall_wrapper {
 	struct tmr call_timer;
 	struct list partl;
 	bool fake_auth;
-	struct iflow_stats stats;
+	struct stats_report stats;
 };
 
 struct ecall_wrapper *init_ecall(const char *name, bool fake_auth);

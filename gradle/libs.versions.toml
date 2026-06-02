@@ -1,0 +1,25 @@
+[versions]
+agp = "8.13.0"
+camerax = "1.4.0-rc04"
+commons-math3 = "3.6.1"
+core = "1.10.1"
+guava = "31.1-jre"
+kotlin = "2.2.21"
+vtech = "0.36.0"
+
+[plugins]
+android-library = { id = "com.android.library",  version.ref = "agp" }
+java-library = { id = "java-library" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+maven-publish-base = { id = "com.vanniktech.maven.publish.base", version.ref = "vtech" }
+
+[libraries]
+android-core = { group = "androidx.core", name = "core", version.ref = "core" }
+apache-commons-math3 = { group = "org.apache.commons", name = "commons-math3", version.ref = "commons-math3" }
+camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+camera-extensions = { group = "androidx.camera", name = "camera-extensions", version.ref = "camerax" }
+camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+camera-video = { group = "androidx.camera", name = "camera-video", version.ref = "camerax" }
+camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+google-guava = { group = "com.google.guava", name = "guava", version.ref = "guava" }

@@ -76,7 +76,7 @@ static bool test_anonymous_ids(void)
 		err = ENOMEM;
 		goto out;
 	}
-	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, false);
+	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, false, false);
 	if (err)
 		goto out;
 
@@ -97,7 +97,7 @@ static bool test_anonymous_ids(void)
 	printf("    creating second call object and starting call\n");
 	/* Create a ccall for the second call and start the call */
 	alice = init_ccall("alice", CONV_ID, false, false);
-	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, false);
+	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, false, false);
 	if (err)
 		goto out;
 
@@ -165,7 +165,7 @@ static bool test_anonymous_ids_sft(void)
 
 	printf("    alice starting call\n");
 	/* alice starts the call */
-	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, true);
+	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, true, false);
 	if (err)
 		goto out;
 
@@ -229,7 +229,7 @@ static bool test_authorisation(void)
 
 	printf("    alice starting call\n");
 	/* alice starts the call */
-	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, true);
+	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, true, false);
 	if (err)
 		goto out;
 
@@ -242,9 +242,9 @@ static bool test_authorisation(void)
 	*/
 	run_main_loop();
 
-	CHECK_GTZ(alice->stats.apkts_recv);
-	CHECK_GTZ(bob->stats.apkts_recv);
-	CHECK_EQZ(eve->stats.apkts_recv);
+	CHECK_GTZ(alice->stats.packets.audio.rx);
+	CHECK_GTZ(bob->stats.packets.audio.rx);
+	CHECK_EQZ(eve->stats.packets.audio.rx);
 out:
 	alice  = (struct ccall_wrapper*)mem_deref(alice);
 	bob  = (struct ccall_wrapper*)mem_deref(bob);
@@ -283,7 +283,7 @@ static bool test_force_key(void)
 	ccall_attempt_force_key(alice, fake_key);
 	ccall_attempt_force_key(bob, fake_key);
 	printf("    alice starting call\n");
-	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, true);
+	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, true, false);
 	if (err)
 		goto out;
 
@@ -335,7 +335,7 @@ static bool test_mls_keysync(void)
 	ccall_set_target_mls_key(alice, 2);
 	ccall_set_target_mls_key(bob, 2);
 	printf("    alice starting call\n");
-	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, true);
+	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, true, false);
 	if (err)
 		goto out;
 
@@ -389,7 +389,7 @@ static bool test_mls_keysync_timeout(void)
 	ccall_set_target_mls_key(alice, 1);
 	ccall_set_target_mls_key(bob, 2);
 	printf("    alice starting call\n");
-	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, true);
+	err = ICALL_CALLE(alice->icall, start, ICALL_CALL_TYPE_NORMAL, true, false);
 	if (err)
 		goto out;
 

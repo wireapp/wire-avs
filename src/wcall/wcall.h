@@ -1,10 +1,18 @@
 
+#define WU_MAGIC 0x57550000 /* WU */
+
 struct wcall_marshal;
 struct calling_instance;
 
 struct str_le {
 	struct le le;
 	char *str;
+};
+
+struct duration_entry {
+        char *convid;
+        int duration;
+        struct le le;
 };
 
 struct calling_instance *wuser2inst(WUSER_HANDLE wuser);
@@ -95,5 +103,13 @@ int wcall_i_set_epoch_info(struct wcall *wcall,
 void wcall_i_process_notifications(struct calling_instance *inst,
 				   bool processing);
 
+void wcall_i_set_duration(struct wcall *wcall, int duration);
+
 void wcall_marshal_destroy(struct calling_instance *inst);
+int wcall_duration_add(struct calling_instance *inst,
+		       const char *convid,
+		       int duration);
+struct duration_entry *wcall_duration_lookup(struct calling_instance *inst,
+					     const char *convid);
+WUSER_HANDLE wcall_create_wuser(uint32_t *idx);
 struct calling_instance *wcall_get_instance(void);

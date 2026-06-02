@@ -69,7 +69,7 @@ const struct list *cookie_jar_list(const struct cookie_jar *jar);
 
 
 struct login_token {
-	uint32_t expires_in; /* seconds */
+	uint64_t expires_in; /* seconds */
 	char access_token[256];
 	char token_type[32];
 };

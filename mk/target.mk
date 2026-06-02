@@ -519,6 +519,7 @@ endif
 ifneq ($(IS_IOS),)
 
 AVS_OS_FAMILY := darwin
+CLANG_MODULE_CACHE := $(BUILD_TARGET)/clang-module-cache
 
 # SDK
 #
@@ -573,15 +574,18 @@ LIBS	 += \
 
 ifeq ($(SDK),iphoneos)
 CPPFLAGS += \
-         -miphoneos-version-min=15.0
+         -miphoneos-version-min=14.0
 LFLAGS	 += \
-         -miphoneos-version-min=15.0
+         -miphoneos-version-min=14.0
 else
 CPPFLAGS += \
-         -mios-simulator-version-min=15.0
+         -mios-simulator-version-min=14.0
 LFLAGS	 += \
-         -mios-simulator-version-min=15.0
+         -mios-simulator-version-min=14.0
 endif
+
+OCPPFLAGS += \
+	-fmodules-cache-path=$(CLANG_MODULE_CACHE)
 
 # video
 LIBS += \
@@ -728,4 +732,3 @@ LIBS	+= \
 endif
 
 endif
-

@@ -44,6 +44,7 @@ void avs_print_network(void);
 #define EDATACHANNEL       (-1003)
 #define ENOONEJOINED       (-1004)
 #define EEVERYONELEFT      (-1005)
+#define EDURATION          (-1006)
 
 #define E2EE_SESSIONKEY_SIZE 32
 

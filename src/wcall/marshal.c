@@ -55,6 +55,7 @@ enum mq_event {
 	WCALL_MEV_REQ_VSTREAMS,
 	WCALL_MEV_SET_EPOCH_INFO,
 	WCALL_MEV_PROCESS_NOTIFICATIONS,
+	WCALL_MEV_SET_DURATION,
 };
 
 
@@ -160,6 +161,10 @@ struct mq_data {
 		struct {
 			bool processing;
 		} process_notifications;
+
+	        struct {
+		        int duration;
+	        } set_duration;
 	} u;
 };
 
@@ -262,6 +267,55 @@ out:
 	return md;
 }
 
+static char *mev_name(int id)
+{
+	switch(id) {
+	case WCALL_MEV_START:
+		return "START";
+	case WCALL_MEV_ANSWER:
+		return "ANSWER";
+	case WCALL_MEV_REJECT:
+		return "REJECT";
+	case WCALL_MEV_END:
+		return "END";
+	case WCALL_MEV_RESP:
+		return "RESP";
+	case WCALL_MEV_RECV_MSG:
+		return"RECV_MSG";
+	case WCALL_MEV_CONFIG_UPDATE:
+		return "CONFIG_UPDATE";
+	case WCALL_MEV_VIDEO_STATE_HANDLER:
+		return "CONFIG_UPDATE";		
+	case WCALL_MEV_VIDEO_SET_STATE:
+		return "VIDEO_SET_STATE";
+	case WCALL_MEV_MCAT_CHANGED:
+		return "MCAT_CHANGED";
+	case WCALL_MEV_AUDIO_ROUTE_CHANGED:
+		return "AUDIO_ROUTE_CHNAGED";
+	case WCALL_MEV_NETWORK_CHANGED:
+		return "NETWROK_CHNAGED";
+	case WCALL_MEV_INCOMING:
+		return "INCOMING";
+	case WCALL_MEV_SFT_RESP:
+		return "SFT_RESP";
+	case WCALL_MEV_SET_CLIENTS:
+		return "SET_CLIENTS";
+	case WCALL_MEV_DCE_SEND:
+		return "DCE_SEND";
+	case WCALL_MEV_DESTROY:
+		return "DESTROY";
+	case WCALL_MEV_SET_MUTE:
+		return "SET_MUTE";
+	case WCALL_MEV_REQ_VSTREAMS:
+		return "REQ_VSTREAMS";
+	case WCALL_MEV_SET_EPOCH_INFO:
+		return "SET_EPOCH_INFO";
+	case WCALL_MEV_PROCESS_NOTIFICATIONS:
+		return "PROCESS_NOTIFICATIONS";
+	default:
+		return "???";
+	}
+}
 
 static void mqueue_handler(int id, void *data, void *arg)
 {
@@ -330,6 +384,14 @@ static void mqueue_handler(int id, void *data, void *arg)
 					md->u.start.meeting);
 			if (err || !wcall)
 				goto out;
+		}
+		{
+		       struct duration_entry *dent;
+		       dent = wcall_duration_lookup(md->inst, md->convid);
+		       if (dent) {
+			       wcall_i_set_duration(wcall, dent->duration);
+			       mem_deref(dent);
+		       }
 		}
 		err = wcall_i_start(wcall,
 				    md->u.start.call_type,
@@ -437,6 +499,15 @@ static void mqueue_handler(int id, void *data, void *arg)
 		wcall_i_set_mute(md->u.set_mute.muted);
 		break;
 
+	case WCALL_MEV_SET_DURATION:
+	        if (wcall) {
+	    	        wcall_i_set_duration(wcall, md->u.set_duration.duration);
+	        }
+		else {
+		        wcall_duration_add(md->inst, md->convid, md->u.set_duration.duration);
+		}	  
+		break;
+
 	case WCALL_MEV_REQ_VSTREAMS:
 		if (!wcall) {
 			err = ENOENT;
@@ -470,8 +541,13 @@ static void mqueue_handler(int id, void *data, void *arg)
 	}
 
 out:
-	if (err)
-		warning("wcall: mqueue_handler error (%m)\n", err);
+	if (err) {
+		char convid_anon[ANON_ID_LEN];
+
+		warning("wcall: mqueue_handler error (%m) handling event: %s convid=%s\n",
+			err, mev_name(id),
+			md->convid ? anon_id(convid_anon, md->convid) : "???");
+	}
 
 	mem_deref(md);
 }
@@ -1268,6 +1344,39 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 
 	return err;
 }
+
+AVS_EXPORT
+void wcall_set_duration(WUSER_HANDLE wuser, const char *convid, int duration)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: set_duration: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return;
+	}
+	if (!convid) {
+		warning("wcall: set_duration: no convid set\n");
+		return;
+	}
+
+	md = md_new(inst, convid, WCALL_MEV_SET_DURATION);
+	if (!md)
+		return;
+
+	md->u.set_duration.duration = duration;
+
+	info("wcall_set_duration: inst=%p duration=%d\n", inst, duration);
+
+	err = md_enqueue(md);
+	if (err)
+		mem_deref(md);
+}
+
 
 
 AVS_EXPORT

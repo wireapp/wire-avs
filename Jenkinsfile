@@ -28,6 +28,8 @@ pipeline {
                         dockerfile true
                     }
                     steps {
+		    	sh 'rm -rf contrib/openssl'
+		    	sh 'rm -rf contrib/sodium'
                         script {
                             def vcs = checkout([
                                     $class: 'GitSCM',
@@ -90,6 +92,10 @@ pipeline {
                         sh 'if [ -e ./build/dist/android/debug/ ]; then cd ./build/dist/android/debug; zip -9r ./../../../artifacts/avs.android.' + version + '.debug.zip *; cd -; fi'
 
                         archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
+
+                        // Stash the android aar directory recursively,
+                        // shared libraries will be used to generate android kmp in macos agent
+                        stash name: 'android-aar', includes: 'build/dist/android/aar/**'
                     }
                 }
                 stage('macOS') {
@@ -100,6 +106,8 @@ pipeline {
                         PATH = "/opt/homebrew/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${env.PATH}"
                     }
                     steps {
+		    	sh 'rm -rf contrib/openssl'
+		    	sh 'rm -rf contrib/sodium'
                         script {
                             def vcs = checkout([
                                     $class: 'GitSCM',
@@ -143,13 +151,14 @@ pipeline {
                         sh 'make dist_clean'
                         sh 'make zcall AVS_VERSION=' + version
                         sh '''#!/bin/bash
-                            . ./scripts/wasm_devenv.sh && make dist_osx dist_ios dist_wasm AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
+                            . ./scripts/android_devenv.sh && echo "sdk.dir=${ANDROID_SDK_ROOT}\nndk.dir=${ANDROID_NDK_ROOT}" > local.properties
+                            . ./scripts/wasm_devenv.sh && make dist_xc dist_wasm AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
                         '''
 
                         sh 'rm -rf ./build/artifacts'
                         sh 'mkdir -p ./build/artifacts'
                         sh 'cp ./build/dist/osx/avs.framework.zip ./build/artifacts/avs.framework.osx.' + version + '.zip'
-                        sh 'cp ./build/dist/ios/avs.xcframework.zip ./build/artifacts/avs.xcframework.zip'
+                        sh 'cp ./build/dist/xc/avs.xcframework.zip ./build/artifacts/avs.xcframework.zip'
                         sh 'zip -9j ./build/artifacts/zcall_osx_' + version + '.zip ./zcall'
                         sh 'mkdir -p ./osx'
                         sh 'cp ./build/dist/osx/avscore.tar.bz2 ./osx'
@@ -284,7 +293,7 @@ pipeline {
                             sh(
                                 script: """
                                     touch local.properties
-                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishAndReleaseToMavenCentral
+                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :publishAndReleaseToMavenCentral
                                 """
                             )
                         }
@@ -292,6 +301,45 @@ pipeline {
                 }
             }
         }
+
+        // WPB-24450 macos agent is handling kmp publish
+        // When migration is complate, 'Publish to sonatype' legacy android step can be removed.
+        stage('Publish kmp to sonatype') {
+            when {
+                anyOf {
+                    expression { return "${branchName}".contains('release') }
+                }
+            }
+            agent {
+                label 'macos'
+            }
+            environment {
+                PATH = "/opt/homebrew/bin:/Applications/Xcode.app/Contents/Developer/usr/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${ env.PATH }"
+            }
+            steps {
+                // Restore the android shared libraries generated in linux agent
+                unstash 'android-aar'
+
+                script {
+                    echo '### Sign and upload to sonatype'
+                    withCredentials([
+                            usernamePassword( credentialsId: 'sonatype-central', usernameVariable: 'ORG_GRADLE_PROJECT_mavenCentralUsername', passwordVariable: 'ORG_GRADLE_PROJECT_mavenCentralPassword' ),
+                            string(credentialsId: 'sonatype-signing-key-password', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKeyPassword'),
+                            string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
+                        ]) {
+                        withMaven(maven: 'M3', jdk: 'JDK17') {
+                            sh(
+                                script: """
+                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew avs:clean
+                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs:publishAndReleaseToMavenCentral --no-configuration-cache
+                                """
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
 //        stage('Publish to ios github repo') {
 //            when {
 //                anyOf {

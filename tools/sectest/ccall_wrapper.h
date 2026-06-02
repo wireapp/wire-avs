@@ -27,7 +27,7 @@ struct ccall_wrapper {
 	struct ccall_wrapper *conv_member;
 	struct tmr call_timer;
 	struct ecall_wrapper *eavesdropper;
-	struct iflow_stats stats;
+	struct stats_report stats;
 	struct tmr key_timer;
 	bool attempt_force_key;
 	uint32_t target_mls_key;

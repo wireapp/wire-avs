@@ -7,7 +7,20 @@
  * in the user manual at https://docs.gradle.org/7.6/userguide/multi_project_builds.html
  */
 
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "0.8.0"
+}
+
 rootProject.name = 'avs'
 
 include ':android:lib'
-
+include 'kmp'
+project(":kmp").name = "avs-kmp"

@@ -86,15 +86,7 @@ bool peerflow_is_dcopen(struct peerflow *pf);
 int peerflow_debug(struct re_printf *pf, const struct iflow *flow);
 
 int peerflow_get_stats(struct iflow *flow,
-		       struct iflow_stats *stats);
-void peerflow_set_stats(struct peerflow* pf,
-			int audio_level,
-			uint32_t apkts_recv,
-			uint32_t vpkts_recv,
-			uint32_t apkts_sent,
-			uint32_t vpkts_sent,
-			float downloss,
-			float rtt);
+		       struct stats_report *stats);
 
 #ifdef __cplusplus
 }

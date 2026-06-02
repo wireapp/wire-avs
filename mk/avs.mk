@@ -77,6 +77,7 @@ AVS_MODULES += rest
 AVS_MODULES += sdp
 AVS_MODULES += sem
 AVS_MODULES += serial
+AVS_MODULES += stats
 AVS_MODULES += string
 AVS_MODULES += trace
 AVS_MODULES += uuid
@@ -159,6 +160,7 @@ AVS_LIBS += $(CONTRIB_LIBRE_LIBS) \
 
 ifeq ($(HAVE_WEBRTC),1)
 AVS_LIBS += $(CONTRIB_WEBRTC_LIBS)
+AVS_LIB_FILES += $(CONTRIB_WEBRTC_LIB_FILES)
 else
 ABS_LIBS += $(CONTRIB_OPENSSL_LIBS)
 endif
@@ -221,6 +223,7 @@ $(AVS_CC_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.cpp
 $(AVS_M_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.m
 	@echo "  OC $(AVS_OS)-$(AVS_ARCH) src/$*.m"
 	@mkdir -p $(dir $@)
+	@mkdir -p $(CLANG_MODULE_CACHE)
 	@$(CC) $(CPPFLAGS) $(CFLAGS) $(OCPPFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CFLAGS) \
 		$(AVS_CPPFLAGS_$(dir $*)) $(AVS_CFLAGS_$(dir $*)) \
@@ -229,6 +232,7 @@ $(AVS_M_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.m
 $(AVS_MM_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.mm
 	@echo "  OCXX $(AVS_OS)-$(AVS_ARCH) src/$*.mm"
 	@mkdir -p $(dir $@)
+	@mkdir -p $(CLANG_MODULE_CACHE)
 	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(OCPPFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) \
 		$(AVS_CPPFLAGS_$(dir $*)) $(AVS_CXXFLAGS_$(dir $*)) \
@@ -261,4 +265,3 @@ avs: $(AVS_STATIC) avs_headers
 avs_clean:
 	@rm -f $(AVS_STATIC)
 	@rm -rf $(AVS_OBJ_PATH)
-
