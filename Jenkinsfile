@@ -28,6 +28,7 @@ pipeline {
                         dockerfile true
                     }
                     steps {
+		    	sh 'rm -rf contrib/openssl/fuzz'
                         script {
                             def vcs = checkout([
                                     $class: 'GitSCM',
@@ -104,6 +105,7 @@ pipeline {
                         PATH = "/opt/homebrew/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${env.PATH}"
                     }
                     steps {
+		    	sh 'rm -rf contrib/openssl/fuzz'
                         script {
                             def vcs = checkout([
                                     $class: 'GitSCM',
