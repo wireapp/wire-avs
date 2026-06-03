@@ -747,7 +747,8 @@ function callStreamHandler(pc: PeerConnection,
       pc.rtc.getTransceivers().forEach(trans => {
         const track = trans.receiver.track;
         pc_log(LOG_LEVEL_INFO, `vsh: label:${track.label} id:${track.id} looking for: ${label}`);
-        if (trans.receiver.track.label === label) {
+
+        if (track.id === label) {
           if (uinfo) {
               uinfo.video_track_id = track.id;
           }
@@ -1486,11 +1487,7 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
               pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid.substring(0,8)} stream=${stream}`);
               for (const track of stream.getTracks()) {
                   if (track) {
-
-                      if (pc_env === ENV_FIREFOX)
-                          label = track.id;
-                      else
-                          label = track.label;
+                      label = track.id;
 
                       pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid.substring(0,8)} track=${track.id}/${track.label}=>${label} kind=${track.kind} enabled=${track.enabled}/${track.muted}/undefined/${track.readyState} remote=undefined`);
                       if (!track.enabled)
@@ -1551,10 +1548,7 @@ function pc_Close(hnd: number) {
       const track = trans.receiver.track;
       if (track && track.kind === "audio") {
         let label: String = '';
-	if (pc_env == ENV_FIREFOX)
-	  label = track.id;
-	else
-          label = track.label;
+        label = track.id;
         if (audioStreamHandler && pc.rtc) {
           pc_log(LOG_LEVEL_INFO, `pc_Close: calling ash(${pc.convid.substring(0,8)}, ${label}) with 0 streams`);
           audioStreamHandler(pc.convid, hnd.toString() + label, null);
