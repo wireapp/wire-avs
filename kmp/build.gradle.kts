@@ -226,6 +226,25 @@ tasks.named("wasmJsProcessResources") {
     dependsOn(generateJsExports)
 }
 
+// Task that will copy avs makefile generated wasm interop code
+val copyWasmInterop by tasks.registering(Copy::class) {
+    description = "Copies and renames the avs make generated interop file."
+
+    // Configures paths relative to wire-avs/kmp/
+    from(layout.projectDirectory.file("../build/dist/wasm/src/avs_wcall.kt.tmp"))
+    into(layout.projectDirectory.dir("src/wasmJsMain/kotlin"))
+
+    rename("avs_wcall.kt.tmp", "AvsInterop.kt")
+}
+
+// Make wasmjs compilation depend on recent copy
+tasks.named("wasmJsSourcesJar") {
+    dependsOn(copyWasmInterop)
+}
+tasks.named("compileKotlinWasmJs") {
+    dependsOn(copyWasmInterop)
+}
+
 // Get used devtools/ndk version, default to lask known working one if not found
 val systemNdkVersion = System.getenv("ANDROID_NDK_VER") ?: "28.2.13676358"
 
