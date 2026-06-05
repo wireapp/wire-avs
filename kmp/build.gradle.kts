@@ -151,7 +151,7 @@ kotlin {
     }
 }
 
-// get devtools/ndk version
+// Get used devtools/ndk version, default to lask known working one if not found
 val systemNdkVersion = System.getenv("ANDROID_NDK_VER") ?: "28.2.13676358"
 
 android {
