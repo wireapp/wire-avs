@@ -25,20 +25,20 @@
 
 namespace wire {
 
-class CbrDetectorLocal : public rtc::RefCountedObject<webrtc::FrameEncryptorInterface>
+class CbrDetectorLocal : public webrtc::RefCountedObject<webrtc::FrameEncryptorInterface>
 {
 public:
 	CbrDetectorLocal();
 	~CbrDetectorLocal();
 
-	int Encrypt(cricket::MediaType media_type,
+	int Encrypt(webrtc::MediaType media_type,
 		    uint32_t ssrc,
-		    rtc::ArrayView<const uint8_t> additional_data,
-		    rtc::ArrayView<const uint8_t> frame,
-		    rtc::ArrayView<uint8_t> encrypted_frame,
+		    std::span<const uint8_t> additional_data,
+		    std::span<const uint8_t> frame,
+		    std::span<uint8_t> encrypted_frame,
 		    size_t* bytes_written);
 
-	size_t GetMaxCiphertextByteSize(cricket::MediaType media_type,
+	size_t GetMaxCiphertextByteSize(webrtc::MediaType media_type,
 					size_t frame_size);
 
 	bool Detected();

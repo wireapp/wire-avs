@@ -27,7 +27,7 @@ struct frame_encryptor;
 
 namespace wire {
 
-class FrameEncryptor : public rtc::RefCountedObject<webrtc::FrameEncryptorInterface>
+class FrameEncryptor : public webrtc::RefCountedObject<webrtc::FrameEncryptorInterface>
 {
 public:
 	FrameEncryptor(const char *userid_hash,
@@ -37,14 +37,14 @@ public:
 	int SetKeystore(struct keystore *keystore);
 	void SetSsrc(uint32_t ssrc);
 
-	int Encrypt(cricket::MediaType media_type,
+	int Encrypt(webrtc::MediaType media_type,
 		    uint32_t ssrc,
-		    rtc::ArrayView<const uint8_t> additional_data,
-		    rtc::ArrayView<const uint8_t> frame,
-		    rtc::ArrayView<uint8_t> encrypted_frame,
+		    std::span<const uint8_t> additional_data,
+		    std::span<const uint8_t> frame,
+		    std::span<uint8_t> encrypted_frame,
 		    size_t* bytes_written);
 
-	size_t GetMaxCiphertextByteSize(cricket::MediaType media_type,
+	size_t GetMaxCiphertextByteSize(webrtc::MediaType media_type,
 					size_t frame_size);
 
 private:

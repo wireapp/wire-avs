@@ -246,7 +246,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 20241021.74
+WEBRTC_VER := 20260605.90
 endif
 
 JAVAC := javac
@@ -287,7 +287,7 @@ endif
 
 CXXFLAGS += \
          -fvisibility=hidden -fno-rtti -ffunction-sections -fdata-sections \
-	-Os -g -std=c++17
+	-Os -g -std=c++20
 
 ifeq ($(ENABLE_COVERAGE),1)
 CFLAGS += -fprofile-instr-generate -fcoverage-mapping
@@ -558,6 +558,7 @@ CPPFLAGS += \
 CXXFLAGS += \
 	-Wno-vla-cxx-extension
 
+
 LFLAGS	 += \
 	 -arch $(AVS_ARCH) \
 	 -isysroot $(SDK_PATH) \
@@ -691,6 +692,9 @@ CPPFLAGS += \
          -isysroot $(SDK_PATH) \
          -DWEBRTC_POSIX -DWEBRTC_MAC -DZETA_USING_AU_HAL -DHAVE_GAI_STRERROR=1 \
 	 -Wno-vla-cxx-extension -Wno-strict-prototypes \
+	 -Wno-nullability-completeness \
+	 -Wno-inaccessible-base \
+	 -Wno-deprecated-volatile \
 	 -pipe -no-cpp-precomp \
 	 -mmacosx-version-min=10.9
 LFLAGS   += \

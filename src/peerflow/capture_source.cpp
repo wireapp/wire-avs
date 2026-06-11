@@ -38,8 +38,8 @@
 
 struct enc_stream {
 	struct le le;
-	rtc::VideoSinkInterface<webrtc::VideoFrame>* sink;
-	rtc::VideoSinkWants wants;
+	webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink;
+	webrtc::VideoSinkWants wants;
 };
 
 static void stream_destructor(void *arg)
@@ -71,6 +71,8 @@ CaptureSource::CaptureSource()
 		.max_fps = MAX_FPS
 	};
 	this->ProcessConstraints(constraints);
+
+	g_cap = this;
 }
 
 CaptureSource::~CaptureSource()
@@ -83,34 +85,18 @@ CaptureSource::~CaptureSource()
 	_lock = NULL;
 }
 
-CaptureSource* CaptureSource::GetInstance()
-{
-	if (!g_cap) {
-		g_cap = new CaptureSource();
-	}
-
-	return g_cap;
-}
-
-void CaptureSource::ReleaseInstance()
-{
-	if (g_cap) {
-		delete g_cap;
-		g_cap = NULL;
-	}
-}
 
 void CaptureSource::AddRef() const
 {
 }
 
-rtc::RefCountReleaseStatus CaptureSource::Release() const
+webrtc::RefCountReleaseStatus CaptureSource::Release() const
 {
-	return rtc::RefCountReleaseStatus::kOtherRefsRemained;
+	return webrtc::RefCountReleaseStatus::kOtherRefsRemained;
 }
 
-void CaptureSource::AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
-				    const rtc::VideoSinkWants& wants)
+void CaptureSource::AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
+				    const webrtc::VideoSinkWants& wants)
 {
 	struct enc_stream *stream = NULL;
 	struct le *found = NULL;
@@ -165,7 +151,7 @@ void CaptureSource::AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>*
 	//FireOnChanged();
 }
 
-void CaptureSource::RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink)
+void CaptureSource::RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink)
 {
 	struct enc_stream *stream = NULL;
 	struct le *found = NULL;
@@ -193,7 +179,7 @@ void CaptureSource::RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink
 
 void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 {
-	rtc::scoped_refptr<webrtc::I420Buffer> frmbuf;
+	webrtc::scoped_refptr<webrtc::I420Buffer> frmbuf;
 	webrtc::VideoRotation rtc_rotation;
 
 	int64_t ts_us = tmr_jiffies() * 1000;
@@ -310,7 +296,7 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 	}
 
 	if (dw != sw || dh != sh) {
-		rtc::scoped_refptr<webrtc::I420Buffer> sbuf;
+		webrtc::scoped_refptr<webrtc::I420Buffer> sbuf;
 
 		sbuf = webrtc::I420Buffer::Create(sw, sh);
 		sbuf->InitializeData();
@@ -351,7 +337,7 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 	lock_read_get(_lock);
 	LIST_FOREACH(&_streaml, le) {
 		struct enc_stream *stream = (struct enc_stream*)le->data;
-		rtc::VideoSinkInterface<webrtc::VideoFrame>* sink = stream->sink;
+		webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink = stream->sink;
 		sink->OnFrame(rtc_frame);
 	}
 	lock_rel(_lock);
@@ -371,7 +357,7 @@ extern "C" {
 
 void capture_source_handle_frame(struct avs_vidframe *frame)
 {
-	wire::CaptureSource::GetInstance()->HandleFrame(frame);
+	wire::g_cap->HandleFrame(frame);
 }
 
 };

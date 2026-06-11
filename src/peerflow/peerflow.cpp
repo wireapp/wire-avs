@@ -42,16 +42,18 @@ extern "C" {
 #include "api/video_codecs/video_decoder_factory_template_libvpx_vp8_adapter.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
 #include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
+#include "api/create_modular_peer_connection_factory.h"
 #include "api/media_stream_interface.h"
 #include "api/data_channel_interface.h"
 #include "api/task_queue/default_task_queue_factory.h"
+#include "api/field_trials.h"
 #include "modules/audio_processing/include/audio_processing.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "rtc_base/crypto_random.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/physical_socket_server.h"
 #include "media/engine/webrtc_media_engine.h"
-#include "system_wrappers/include/field_trial.h"
+//#include "system_wrappers/include/field_trial.h"
 
 #include "modules/video_capture/video_capture_factory.h"
 
@@ -100,8 +102,8 @@ static const char trials_str[] =
 
 
 static struct {
-	std::unique_ptr<rtc::Thread> thread;
-	rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory;	
+	std::unique_ptr<webrtc::Thread> thread;
+	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory;	
 	bool initialized;
 
 	struct {
@@ -119,8 +121,12 @@ static struct {
 		bool muted;
 	} audio;
 
+	struct {
+		webrtc::scoped_refptr<wire::CaptureSource> src;
+	} video;
+
 #ifdef ANDROID
-	rtc::scoped_refptr<webrtc::AudioDeviceModule> androidAdm;
+	webrtc::scoped_refptr<webrtc::AudioDeviceModule> androidAdm;
 #endif
 
 #if PC_STANDALONE
@@ -155,7 +161,7 @@ struct peerflow {
 	enum icall_vstate vstate;
 	size_t ncands;
 
-	rtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConn;
+	webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConn;
 
 	webrtc::PeerConnectionInterface::RTCConfiguration *config;
 	webrtc::PeerConnectionInterface:: RTCOfferAnswerOptions *offerOptions;
@@ -164,26 +170,26 @@ struct peerflow {
 	webrtc::PeerConnectionObserver *observer;
 	webrtc::CreateSessionDescriptionObserver *sdpObserver;
 	webrtc::CreateSessionDescriptionObserver *addDecoderSdpObserver;
-	rtc::scoped_refptr<webrtc::SetRemoteDescriptionObserverInterface> sdpRemoteObserver;
+	webrtc::scoped_refptr<webrtc::SetRemoteDescriptionObserverInterface> sdpRemoteObserver;
 
 	webrtc::SetSessionDescriptionObserver *offerObserver;
 	webrtc::SetSessionDescriptionObserver *answerObserver;
 	webrtc::SetSessionDescriptionObserver *decoderAnswerObserver;
 	webrtc::RtpReceiverObserverInterface *rtpObserver;
 	
-	rtc::scoped_refptr<webrtc::RtpSenderInterface> rtpSender;
+	webrtc::scoped_refptr<webrtc::RtpSenderInterface> rtpSender;
 
 	struct keystore *keystore;
 
-	rtc::scoped_refptr<wire::CbrDetectorLocal> cbr_det_local;
-	rtc::scoped_refptr<wire::CbrDetectorRemote> cbr_det_remote;
+	webrtc::scoped_refptr<wire::CbrDetectorLocal> cbr_det_local;
+	webrtc::scoped_refptr<wire::CbrDetectorRemote> cbr_det_remote;
 	struct tmr tmr_cbr;
 	struct tmr tmr_restart;
 	struct tmr tmr_nocand;
 
 	struct {
-		rtc::scoped_refptr<webrtc::AudioSourceInterface> source;
-		rtc::scoped_refptr<webrtc::AudioTrackInterface> track;
+		webrtc::scoped_refptr<webrtc::AudioSourceInterface> source;
+		webrtc::scoped_refptr<webrtc::AudioTrackInterface> track;
 
 		
 		bool local_cbr;
@@ -191,15 +197,15 @@ struct peerflow {
 	} audio;
 
 	struct {
-		rtc::scoped_refptr<webrtc::VideoTrackInterface>	track;
+		webrtc::scoped_refptr<webrtc::VideoTrackInterface>	track;
 		struct list renderl;
 		bool negotiated;
-		rtc::scoped_refptr<wire::FrameEncryptor> encryptor;
+		webrtc::scoped_refptr<wire::FrameEncryptor> encryptor;
 		uint32_t ssrc;
 	} video;
 
 	struct {
-		rtc::scoped_refptr<webrtc::DataChannelInterface> ch;
+		webrtc::scoped_refptr<webrtc::DataChannelInterface> ch;
 		webrtc::DataChannelObserver *observer;
 
 	} dc;
@@ -227,8 +233,8 @@ struct peerflow {
 };
 
 
-static webrtc::SessionDescriptionInterface *sdp_interface(const char *sdp,
-							  webrtc::SdpType type);
+static std::unique_ptr<webrtc::SessionDescriptionInterface> sdp_interface(const char *sdp,
+									  webrtc::SdpType type);
 
 static void pf_norelay_handler(bool local, void *arg);
 
@@ -407,12 +413,12 @@ static const char *connection_state_name(
 }
 
 
-class PeerConnectionThread : public rtc::Thread {
+class PeerConnectionThread : public webrtc::Thread {
 public:
 	virtual void Run() {
 		debug("pf thread: %p running\n", pthread_self());
 
-		ProcessMessages(rtc::ThreadManager::kForever);
+		ProcessMessages(webrtc::ThreadManager::kForever);
 	}
 };
 
@@ -694,19 +700,19 @@ static void mq_handler(int id, void *data, void *arg)
 }
 
 
-static enum log_level severity2level(rtc::LoggingSeverity severity)
+static enum log_level severity2level(webrtc::LoggingSeverity severity)
 {
 	switch(severity) {
-	case rtc::LS_VERBOSE:
+	case webrtc::LS_VERBOSE:
 		return LOG_LEVEL_DEBUG;
 
-	case rtc::LS_INFO:
+	case webrtc::LS_INFO:
 		return LOG_LEVEL_INFO;
 		
-	case rtc::LS_WARNING:
+	case webrtc::LS_WARNING:
 		return LOG_LEVEL_WARN;
 		
-	case rtc::LS_ERROR:
+	case webrtc::LS_ERROR:
 		return LOG_LEVEL_ERROR;
 		
 	default:
@@ -714,11 +720,11 @@ static enum log_level severity2level(rtc::LoggingSeverity severity)
 	}
 }
 
-class LogSink : public rtc::LogSink {
+class LogSink : public webrtc::LogSink {
 public:
 	LogSink() {};
 	virtual void OnLogMessage(const std::string& msg,
-					   rtc::LoggingSeverity severity,
+					   webrtc::LoggingSeverity severity,
 					   const char* tag) {
 		enum log_level lvl = severity2level(severity);
 #ifdef ANDROID
@@ -729,7 +735,7 @@ public:
 	}
 
 	virtual void OnLogMessage(const std::string& msg,
-				   rtc::LoggingSeverity severity) {
+				   webrtc::LoggingSeverity severity) {
 		
 		enum log_level lvl = severity2level(severity);
 #ifdef ANDROID
@@ -753,7 +759,7 @@ void peerflow_start_log(void)
 {
 	if (!g_pf.logsink) {
 		g_pf.logsink = new LogSink();
-		rtc::LogMessage::AddLogToStream(g_pf.logsink, rtc::LS_VERBOSE);
+		webrtc::LogMessage::AddLogToStream(g_pf.logsink, webrtc::LS_VERBOSE);
 	}
 }
 
@@ -841,7 +847,7 @@ int peerflow_init(void)
 
 	//pf_platform_init();
 
-	g_pf.thread = rtc::Thread::Create();
+	g_pf.thread = webrtc::Thread::Create();
 	g_pf.thread->Start();
 	g_pf.thread->BlockingCall([] {
 		info("pf: starting runnable\n");
@@ -849,7 +855,7 @@ int peerflow_init(void)
 		info("pf: platform initialized\n");		
 	});
 
-	webrtc::field_trial::InitFieldTrialsFromString(trials_str);
+	//webrtc::field_trial::InitFieldTrialsFromString(trials_str);
 
 #ifdef ANDROID
 	pc_deps.adm = g_pf.androidAdm;
@@ -860,9 +866,9 @@ int peerflow_init(void)
 #endif
 
 	pc_deps.signaling_thread = g_pf.thread.get();
-	pc_deps.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
-	pc_deps.network_thread = rtc::Thread::Current();
-	pc_deps.worker_thread = rtc::Thread::Current();
+	//pc_deps.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
+	pc_deps.network_thread = webrtc::Thread::Current();
+	pc_deps.worker_thread = webrtc::Thread::Current();
 	pc_deps.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
 
 	/* Media dependencies */
@@ -870,7 +876,7 @@ int peerflow_init(void)
 	/* Audio */
 	pc_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
 	pc_deps.audio_decoder_factory =	webrtc::CreateBuiltinAudioDecoderFactory();
-	pc_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();
+	//pc_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();
 
 	/* Video */
 	pc_deps.video_encoder_factory =
@@ -888,6 +894,8 @@ int peerflow_init(void)
 		goto out;
 	}
 
+	g_pf.video.src = webrtc::make_ref_counted<wire::CaptureSource>();
+	
 	g_pf.initialized = true;
 
  out:
@@ -898,7 +906,7 @@ void peerflow_destroy(void)
 {
 	info("peerflow_destroy: initialized=%d\n", g_pf.initialized);
 
-	wire::CaptureSource::ReleaseInstance();
+	//wire::CaptureSource::ReleaseInstance();
 
 	if (!g_pf.initialized)
 		return;
@@ -914,7 +922,7 @@ void peerflow_destroy(void)
 
 	g_pf.initialized = false;
 
-	rtc::LogMessage::RemoveLogToStream(g_pf.logsink);
+	webrtc::LogMessage::RemoveLogToStream(g_pf.logsink);
 	delete g_pf.logsink;
 	g_pf.logsink = nullptr;
 }
@@ -955,7 +963,7 @@ static void send_sdp(const char *sdp, const char *type,
 class DataChanObserver : public webrtc::DataChannelObserver {
  public:
 	DataChanObserver(struct peerflow *pf,
-			 rtc::scoped_refptr<webrtc::DataChannelInterface> dc)
+			 webrtc::scoped_refptr<webrtc::DataChannelInterface> dc)
 	{
 		pf_ = pf;
 		dc_ = dc;
@@ -1029,13 +1037,13 @@ class DataChanObserver : public webrtc::DataChannelObserver {
 
 private:
 	struct peerflow *pf_;
-	rtc::scoped_refptr<webrtc::DataChannelInterface> dc_;
+	webrtc::scoped_refptr<webrtc::DataChannelInterface> dc_;
 	
 };
 
 class RtpObserver : public webrtc::RtpReceiverObserverInterface {
 public:
-	RtpObserver(rtc::scoped_refptr<webrtc::RtpReceiverInterface> rcvr,
+	RtpObserver(webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rcvr,
 		    struct peerflow *pf)
 		:
 		rcvr_(rcvr),
@@ -1049,17 +1057,17 @@ public:
 	// In the future, it's likely that an RtpReceiver will only call
 	// OnFirstPacketReceived when a packet is received specifically for its
 	// SSRC/mid.
-	virtual void OnFirstPacketReceived(cricket::MediaType media_type)
+	virtual void OnFirstPacketReceived(webrtc::MediaType media_type)
 	{
 		std::vector<std::string> streams = rcvr_->stream_ids();
 		info("pf(%p): OnFirstPacketReceived: mediatype=%s "
 		     "sources: %zu streams=%zu\n",
-		     pf_, cricket::MediaTypeToString(media_type).c_str(),
+		     pf_, webrtc::MediaTypeToString(media_type).c_str(),
 		     rcvr_->GetSources().size(), streams.size());
 	}
 
 private:
-	rtc::scoped_refptr<webrtc::RtpReceiverInterface> rcvr_;
+	webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rcvr_;
 	struct peerflow *pf_;
 };
 
@@ -1153,7 +1161,7 @@ public:
 
 	// Triggered when media is received on a new stream from remote peer.
 	virtual void OnAddStream (
-		rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
+		webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
 
 		info("pf(%p): OnAddStream %s added\n",
 		     pf_, stream->id().c_str());
@@ -1161,7 +1169,7 @@ public:
 
 	// Triggered when a remote peer closes a stream.
 	virtual void OnRemoveStream (
-		rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
+		webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
 
 		info("pf(%p): stream %s added\n",
 		     pf_, stream->id().c_str());
@@ -1169,7 +1177,7 @@ public:
 
 	// Triggered when a remote peer opens a data channel.
 	virtual void OnDataChannel (
-		rtc::scoped_refptr<webrtc::DataChannelInterface> dc) {
+		webrtc::scoped_refptr<webrtc::DataChannelInterface> dc) {
 
 		struct mq_data *md;
 
@@ -1340,7 +1348,7 @@ public:
 			return;
 		}
 		
-		const cricket::Candidate& cand = icand->candidate();
+		const webrtc::Candidate& cand = icand->candidate();
 		
 		icand->ToString(&cand_str);
 		info("pf(%p): OnIceCandidate: %s url=%s has %d candidates\n",
@@ -1378,7 +1386,7 @@ public:
 
 	// Ice candidates have been removed.
 	virtual void OnIceCandidatesRemoved(
-		const std::vector<cricket::Candidate>& candidates) {
+		const std::vector<webrtc::Candidate>& candidates) {
 	}
 
 	// Called when the ICE connection receiving status changes.
@@ -1392,9 +1400,9 @@ public:
 	// compatibility
 	// (and is called in the exact same situations as OnTrack).
 	virtual void OnAddTrack(
-		rtc::scoped_refptr<webrtc::RtpReceiverInterface> rx,
-		const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>& streams) {
-		rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track =
+		webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rx,
+		const std::vector<webrtc::scoped_refptr<webrtc::MediaStreamInterface>>& streams) {
+		webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track =
 			rx->track();
 		char *label = NULL;
 		char *kind = NULL;
@@ -1441,7 +1449,7 @@ public:
 
 		if (streq(kind, webrtc::MediaStreamTrackInterface::kVideoKind))
 		{
-			rtc::VideoSinkWants vsw;
+			webrtc::VideoSinkWants vsw;
 			webrtc::VideoTrackInterface *vtrack =
 				(webrtc::VideoTrackInterface *)track.get();
 			struct render_le *render;
@@ -1457,8 +1465,8 @@ public:
 
 #if DOUBLE_ENCRYPTION
 			if (pf_->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
-				rtc::scoped_refptr<wire::FrameDecryptor> decryptor(
-					rtc::make_ref_counted<wire::FrameDecryptor>(
+				webrtc::scoped_refptr<wire::FrameDecryptor> decryptor(
+					webrtc::make_ref_counted<wire::FrameDecryptor>(
 					FRAME_MEDIA_VIDEO, pf_));
 				int e2 = decryptor->SetKeystore(pf_->keystore);
 				if (e2) {
@@ -1482,8 +1490,8 @@ public:
 		{
 #if DOUBLE_ENCRYPTION
 			if (pf_->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
-				rtc::scoped_refptr<wire::FrameDecryptor> decryptor(
-					rtc::make_ref_counted<wire::FrameDecryptor>(
+				webrtc::scoped_refptr<wire::FrameDecryptor> decryptor(
+					webrtc::make_ref_counted<wire::FrameDecryptor>(
 					FRAME_MEDIA_AUDIO, pf_));
 				int e2 = decryptor->SetKeystore(pf_->keystore);
 				if (e2) {
@@ -1525,7 +1533,7 @@ out:
 	// RTCSessionDescription" algorithm:
 	// https://w3c.github.io/webrtc-pf/#set-description
 	virtual void OnTrack(
-		rtc::scoped_refptr<webrtc::RtpTransceiverInterface> txrx) {
+		webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> txrx) {
 
 		info("pf(%p): OnTrack: track added: id=%s\n",
 		     pf_, txrx->receiver()->id().c_str());
@@ -1544,9 +1552,9 @@ out:
 	//inactive.
 	// https://w3c.github.io/webrtc-pf/#process-remote-track-removal
 	virtual void OnRemoveTrack(
-		rtc::scoped_refptr<webrtc::RtpReceiverInterface> rx) {
+		webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rx) {
 
-		rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track =
+		webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track =
 			rx->track();
 
 		struct le *le;
@@ -1590,9 +1598,9 @@ public:
 	{
 	}
 
-	virtual rtc::RefCountReleaseStatus Release() const
+	virtual webrtc::RefCountReleaseStatus Release() const
 	{
-		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+		return webrtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
 	virtual void OnSuccess()
 	{
@@ -1630,9 +1638,9 @@ public:
 	{
 	}
 
-	virtual rtc::RefCountReleaseStatus Release() const
+	virtual webrtc::RefCountReleaseStatus Release() const
 	{
-		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+		return webrtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
 
 	virtual void OnSuccess()
@@ -1671,9 +1679,9 @@ public:
 	{
 	}
 
-	virtual rtc::RefCountReleaseStatus Release() const
+	virtual webrtc::RefCountReleaseStatus Release() const
 	{
-		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+		return webrtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
 	
 	virtual void OnSetRemoteDescriptionComplete(webrtc::RTCError err)
@@ -1696,13 +1704,13 @@ public:
 
 		info("pf(%p): %d trxs, oldApi: %d\n", pf_, (int)trxs.size(), is_old_api);
 
-		for(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> txrx: trxs) {
+		for(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> txrx: trxs) {
 			std::string mid = txrx->mid().value_or("-");
 
-			rtc::scoped_refptr<webrtc::RtpSenderInterface> sender = txrx->sender();
+			webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender = txrx->sender();
 			webrtc::RtpParameters params = sender->GetParameters();
 
-			if (txrx->media_type() != cricket::MEDIA_TYPE_VIDEO
+			if (txrx->media_type() != webrtc::MediaType::VIDEO
 			    || (mid != "video" && (mid != "1" && !is_old_api)))
 				continue;
 
@@ -1711,7 +1719,7 @@ public:
 
 				txrx->SetDirection(webrtc::RtpTransceiverDirection::kSendRecv);
 
-				rtc::scoped_refptr<webrtc::RtpSenderInterface> sender = txrx->sender();
+				webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender = txrx->sender();
 				sender->SetTrack(pf_->video.track.get());
 #if DOUBLE_ENCRYPTION
 				if (pf_->video.ssrc)
@@ -1753,29 +1761,30 @@ private:
 };
 
 
-webrtc::SessionDescriptionInterface *sdp_interface(const char *sdp,
-						   webrtc::SdpType type)
+std::unique_ptr<webrtc::SessionDescriptionInterface>
+sdp_interface(const char *sdp,
+	      webrtc::SdpType type)
 {
 	webrtc::SdpParseError parse_err;
-	webrtc::SessionDescriptionInterface *isdp = nullptr;
+	std::unique_ptr<webrtc::SessionDescriptionInterface> isdp;
 
 	if (!sdp)
 		return nullptr;
 
 	switch (type) {
 	case webrtc::SdpType::kOffer:
-		isdp = webrtc::CreateSessionDescription(webrtc::SessionDescriptionInterface::kOffer, sdp, &parse_err);
+		isdp = webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &parse_err);
 		break;
 		
 	case webrtc::SdpType::kAnswer:
-		isdp = webrtc::CreateSessionDescription(webrtc::SessionDescriptionInterface::kAnswer, sdp, &parse_err);
+		isdp = webrtc::CreateSessionDescription(webrtc::SdpType::kAnswer, sdp, &parse_err);
 		break;
 
 	default:
 		break;
 	}
 
-	if (isdp == nullptr) {
+	if (!isdp) {
 		warning("peerflow: failed to parse SDP: "
 			"line=%s reason=%s\n",
 			parse_err.line.c_str(),
@@ -1799,9 +1808,9 @@ public:
 	void AddRef() const {
 	}
 
-	virtual rtc::RefCountReleaseStatus Release() const
+	virtual webrtc::RefCountReleaseStatus Release() const
 	{
-		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+		return webrtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
 	virtual void OnSuccess(webrtc::SessionDescriptionInterface *isdp)
 	{
@@ -1809,12 +1818,12 @@ public:
 		struct sdp_session *sess = NULL;
 		std::string sdp_str;
 		const char *sdp = NULL;
-		webrtc::SessionDescriptionInterface *imod_sdp = nullptr;
+		std::unique_ptr<webrtc::SessionDescriptionInterface> imod_sdp;
 		int err;
 
 		type = isdp->GetType();
-		info("pf(%p): SDP-%s created successfully\n",
-		     pf_, SdpTypeToString(type));
+		info("pf(%p): SDP-%s created successfully on pc=%p\n",
+		     pf_, SdpTypeToString(type), pf_->peerConn.get());
 
 		if (!isdp->ToString(&sdp_str)) {
 			warning("pf(%p): ToString failed\n");
@@ -1844,7 +1853,7 @@ public:
 			imod_sdp = sdp_interface(sdp, webrtc::SdpType::kOffer);
 			pf_->peerConn->SetLocalDescription(
 					pf_->offerObserver,
-					imod_sdp);
+					imod_sdp.get());
 			break;
 
 		case webrtc::SdpType::kAnswer: {
@@ -1868,7 +1877,7 @@ public:
 			imod_sdp = sdp_interface(sdp, webrtc::SdpType::kAnswer);
 			pf_->peerConn->SetLocalDescription(
 					pf_->answerObserver,
-					imod_sdp);
+					imod_sdp.get());
 		}
 			break;
 
@@ -1903,8 +1912,8 @@ public:
        void AddRef() const {
        }
 
-       virtual rtc::RefCountReleaseStatus Release() const {
-               return rtc::RefCountReleaseStatus::kDroppedLastRef;
+       virtual webrtc::RefCountReleaseStatus Release() const {
+               return webrtc::RefCountReleaseStatus::kDroppedLastRef;
        }
        
        virtual void OnSetRemoteDescriptionComplete(webrtc::RTCError err) {
@@ -1932,8 +1941,8 @@ public:
 	void AddRef() const {
 	}
 
-	virtual rtc::RefCountReleaseStatus Release() const {
-		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+	virtual webrtc::RefCountReleaseStatus Release() const {
+		return webrtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
 	virtual void OnSuccess(webrtc::SessionDescriptionInterface *isdp)
 	{
@@ -1974,8 +1983,8 @@ static void timer_cbr(void *arg)
 
 static int create_pf(struct peerflow *pf)
 {
-	cricket::AudioOptions auopts;
-	rtc::VideoSinkWants vsw;
+	webrtc::AudioOptions auopts;
+	webrtc::VideoSinkWants vsw;
 	bool recv_video;
 	int err = 0;
 
@@ -2016,7 +2025,7 @@ static int create_pf(struct peerflow *pf)
 	else 
 		pf->config->type = webrtc::PeerConnectionInterface::kAll; 
 
-	std::unique_ptr<cricket::PortAllocator> port_allocator = nullptr; 
+	std::unique_ptr<webrtc::PortAllocator> port_allocator = nullptr; 
 	
 	struct msystem_proxy *proxy = msystem_get_proxy();
 
@@ -2025,16 +2034,16 @@ static int create_pf(struct peerflow *pf)
 		 * PacketSocketFactory is the correct approach now
 		 */
 #if 0
-		rtc::ProxyInfo pri;
-		rtc::SocketAddress sa(proxy->host, proxy->port);
-		rtc::PhysicalSocketServer socket_server;
+		webrtc::ProxyInfo pri;
+		webrtc::SocketAddress sa(proxy->host, proxy->port);
+		webrtc::PhysicalSocketServer socket_server;
 
 
-		pri.type = rtc::PROXY_HTTPS;
+		pri.type = webrtc::PROXY_HTTPS;
 		pri.address = sa;
 
-		port_allocator = absl::make_unique<cricket::BasicPortAllocator>(
-					   new rtc::BasicNetworkManager(&socket_server),
+		port_allocator = absl::make_unique<webrtc::BasicPortAllocator>(
+					   new webrtc::BasicNetworkManager(&socket_server),
 					   nullptr);
 		
 		port_allocator->set_proxy("wire-call", pri);
@@ -2043,7 +2052,7 @@ static int create_pf(struct peerflow *pf)
 
 	webrtc::PeerConnectionDependencies deps(pf->observer);
 	deps.allocator = std::move(port_allocator);
-	webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::PeerConnectionInterface>> pcorerr;
+	webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::PeerConnectionInterface>> pcorerr;
 	pcorerr = g_pf.pc_factory->CreatePeerConnectionOrError(
 					*pf->config,
 					std::move(deps));
@@ -2071,9 +2080,9 @@ static int create_pf(struct peerflow *pf)
 	if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
 		tmr_start(&pf->tmr_cbr, TMR_CBR_INTERVAL, timer_cbr, pf);
 	}
-	webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::RtpSenderInterface>> aserr =
+	webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> aserr =
 		pf->peerConn->AddTrack(pf->audio.track,
-				       {rtc::CreateRandomUuid()});
+				       {webrtc::CreateRandomUuid()});
 	if (aserr.ok()) {
 		pf->rtpSender = aserr.value();
 	}
@@ -2085,7 +2094,7 @@ static int create_pf(struct peerflow *pf)
 
 #if DOUBLE_ENCRYPTION
 	if (pf->rtpSender && pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
-		rtc::scoped_refptr<wire::FrameEncryptor> encryptor;
+		webrtc::scoped_refptr<wire::FrameEncryptor> encryptor;
 		encryptor = new wire::FrameEncryptor(pf->userid_self,
 						     FRAME_MEDIA_AUDIO);
 		info("peerflow(%p): setting keystore on encryptor\n", pf);
@@ -2107,22 +2116,20 @@ static int create_pf(struct peerflow *pf)
 	if (pf->call_type == ICALL_CALL_TYPE_VIDEO ||
 	    pf->vstate != ICALL_VIDEO_STATE_STOPPED) {
 
-		webrtc::VideoTrackSourceInterface *src = wire::CaptureSource::GetInstance();
-
 		pf->video.track = g_pf.pc_factory->CreateVideoTrack(
-			 "vtrack",
-			 src);
+			 g_pf.video.src,
+			 "vtrack");
 
 		pf->video.track->set_enabled(true);
 		if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
-			rtc::scoped_refptr<webrtc::RtpSenderInterface> video_track =
+			webrtc::scoped_refptr<webrtc::RtpSenderInterface> video_track =
 				pf->peerConn->AddTrack(pf->video.track,
-						       {rtc::CreateRandomUuid()}).value();
+						       {webrtc::CreateRandomUuid()}).value();
 		}
 
 #if DOUBLE_ENCRYPTION
 		if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
-			rtc::scoped_refptr<wire::FrameEncryptor> encryptor;
+			webrtc::scoped_refptr<wire::FrameEncryptor> encryptor;
 			encryptor = new wire::FrameEncryptor(pf->userid_self,
 							     FRAME_MEDIA_VIDEO);
 			err = encryptor->SetKeystore(pf->keystore);
@@ -2201,15 +2208,15 @@ static void timer_stats(void *arg)
 {
 	struct peerflow *pf = (struct peerflow *)arg;
 
-	std::vector<rtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
+	std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
 
 	if (!pf || !pf->peerConn)
 		goto out;
 
 	trxs = pf->peerConn->GetTransceivers();
 
-	for(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
-		rtc::scoped_refptr<webrtc::RtpReceiverInterface> rx = trx->receiver();
+	for(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
+		webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rx = trx->receiver();
 		std::vector<webrtc::RtpSource> sources;
 
 		if (rx) {
@@ -2238,15 +2245,15 @@ static void timer_stats(void *arg)
 static int get_oneonone_aulevel(struct peerflow *pf,
 				struct list *levell)
 {
-	std::vector<rtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
+	std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
 	int err = 0;
 
 	if (!pf || !pf->peerConn)
 		return ENOENT;
 
 	trxs = pf->peerConn->GetTransceivers();
-	for(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
-		rtc::scoped_refptr<webrtc::RtpReceiverInterface> rx = trx->receiver();
+	for(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
+		webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rx = trx->receiver();
 		std::vector<webrtc::RtpSource> sources;
 
 		if (rx) {
@@ -2514,13 +2521,13 @@ bool peerflow_is_gathered(const struct iflow *iflow)
 #if 0
 static void set_group_audio_params(struct peerflow *pf)
 {
-	std::vector<rtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
+	std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
 
 	trxs = pf->peerConn->GetTransceivers();
 
-	for(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
-		rtc::scoped_refptr<webrtc::RtpSenderInterface> tx = trx->sender();
-		if (tx->media_type() != cricket::MEDIA_TYPE_AUDIO)
+	for(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
+		webrtc::scoped_refptr<webrtc::RtpSenderInterface> tx = trx->sender();
+		if (tx->media_type() != webrtc::MediaType::AUDIO)
 			continue;
 		
 		webrtc::RtpParameters params = tx->GetParameters();
@@ -2558,7 +2565,7 @@ int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
 	     pf, signal_state_name(state), offer);
 
 	if (offer) {
-		webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::DataChannelInterface>> ch_or_err;
+		webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::DataChannelInterface>> ch_or_err;
 		ch_or_err = pf->peerConn->CreateDataChannelOrError("calling-3.0",
 								   nullptr);
 		if (ch_or_err.ok()) {
@@ -2887,8 +2894,8 @@ int peerflow_set_remote_userclientid(struct iflow *iflow,
 static int peerflow_bundle_update(struct iflow *flow, const char *sdp)
 {
 	struct peerflow *pf = (struct peerflow *)flow;
-	rtc::scoped_refptr<webrtc::SetRemoteDescriptionObserverInterface> observer;
-	webrtc::SessionDescriptionInterface *isdp;
+	webrtc::scoped_refptr<webrtc::SetRemoteDescriptionObserverInterface> observer;
+	std::unique_ptr<webrtc::SessionDescriptionInterface> isdp;
 
 	info("peerflow_bundle_update(%p): sdp-bundle=\n%s\n", flow, sdp);
 
@@ -2904,9 +2911,7 @@ static int peerflow_bundle_update(struct iflow *flow, const char *sdp)
 	info("peerflow_bundle_update(%p): sdp: %s\n", flow, sdpoffer.c_str());
 
 	observer = new AddDecoderObserver(pf);
-	pf->peerConn->SetRemoteDescription(
-		std::unique_ptr<webrtc::SessionDescriptionInterface>(isdp),
-		observer);
+	pf->peerConn->SetRemoteDescription(std::move(isdp), observer);
 
 	return 0;
 }
@@ -3167,12 +3172,12 @@ bool peerflow_has_video(const struct iflow *iflow)
 		return false;
 	}
 
-	std::vector<rtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
+	std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
 	trxs = pf->peerConn->GetTransceivers();
-	for(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
-		cricket::MediaType mt = trx->media_type();
+	for(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
+		webrtc::MediaType mt = trx->media_type();
 		debug("pf(%p): has_video: mt=%d\n", pf, mt);
-		if (mt == cricket::MEDIA_TYPE_VIDEO) {
+		if (mt == webrtc::MediaType::VIDEO) {
 			std::optional<webrtc::RtpTransceiverDirection>	dir;
 
 			dir = trx->current_direction();
