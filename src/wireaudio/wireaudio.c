@@ -14,6 +14,12 @@
 #define AUDIO_SRATE 16000
 #define AUDIO_CHAN  1
 #define AUDIO_PTIME 20
+#define AUDIO_SAMPLES (AUDIO_SRATE*AUDIO_CHAN*AUDIO_PTIME)/1000)
+
+#define PSTN_SRATE 8000
+#define PSTN_CHAN  1
+#define PSTN_PTIME 20
+#define PSTN_SAMPLES (PSTN_SRATE*PSTN_CHAN*PSTN_PTIME)/1000)
 
 
 /** Wire audio */
@@ -63,9 +69,23 @@ struct wdev {
 	char *convid;
 
 	struct aumix *ausrc_mix;
+	struct aumix_source *wdev_src;
 	
 	struct list ausrcl;
 	struct list auplayl;
+
+	struct {
+		uint16_t sampv[AUDIO_SAMPLES];
+		size_t sampc;
+
+		struct auresamp play_resamp;
+		struct auresamp src_resamp;
+
+		ausrc_read_h *rh;
+		auplay_write_h *wh;
+
+		void *arg;
+	} wa;
 
 	struct le le;
 };
@@ -75,7 +95,6 @@ struct ausrc_st {
 	
 	struct ausrc_prm *prm;
 	struct wdev *wdev;
-	struct auresamp *resamp;
 	struct aumix_source *mix_src;
 
 	ausrc_read_h *rh;
@@ -90,7 +109,6 @@ struct auplay_st {
 	
 	struct auplay_prm *prm;
 	struct wdev *wdev;
-	struct auresamp *resamp;
 	struct aumix_source *mix_src;
 
 	auplay_write_h *wh;
@@ -114,6 +132,9 @@ static void wdev_destructor(void *arg)
 
 	mem_deref(wdev->ausrc_mix);
 	mem_deref(wdev->convid);
+
+	mem_deref(wdev->play_resamp);
+	mem_deref(wdev->src_resamp);
 }
 
 static bool list_apply_handler(struct le *le, void *arg)
@@ -162,6 +183,23 @@ static void auplay_mix_frame_handler(const int16_t *sampv,
 	//info("auplay(%p): mix frame with size: %d\n", ap, ap->sampc);	
 }
 
+static void wdev_mix_frame_handler(const int16_t *sampv,
+				   size_t sampc,
+				   void *arg)
+{
+	struct wdev *wdev = arg;
+	int err;
+
+	if (wdev->wa.wh)		
+		wdev->wa.wh(sampv, sampc, wdev->wa.arg);
+	if (wdev->wa.rh)
+		err = wdev->wa.rh(wdev->wa.sampv, wdev->wa.sampc, wdev->wa.arg);
+		
+	if (!err) {
+		aumix_source_put(wdev->aumix, wdev->wa.sampv, wdev->wa.sampc);
+	}
+}
+
 
 static int alloc_device(struct wdev **wdevp,
 			const char *convid,
@@ -179,7 +217,25 @@ static int alloc_device(struct wdev **wdevp,
 	if (err)
 		goto out;
 
+	err = aumix_source_alloc(wdev->wde_src, wdev->ausrc_mix,
+				 wdev_mix_frame_handler, wdev);
+	if (err) {
+		goto out;
+	}
+
+	auresamp_init(&wdev->wa.play_resamp);
+	auresamp_setup(&wdev->wa.play_resamp,
+		       AUDIO_SRATE, AUDIO_CHAN,
+		       PSTN_SRATE, PSTN_CHAN);
+	
+	auresamp_init(&wdev->wa.src_resamp);
+	auresamp_setup(&wdev->wa.src_resamp,
+		       PSTN_SRATE, PSTN_CHAN,
+		       AUDIO_SRATE, AUDIO_CHAN);
+
+
 	str_dup(&wdev->convid, convid);
+	wdev->wa.sampc = AUDIO_SAMPLES;
 
 	hash_append(gwa.wdevs, hash_joaat_str(convid), &wdev->le, wdev);
 
@@ -268,7 +324,6 @@ static void auplay_destructor(void *arg)
 
 	aumix_source_enable(st->mix_src, false);
 
-	mem_deref(st->resamp);
 	mem_deref(st->mix_src);
 
 	list_unlink(&st->le);
@@ -354,6 +409,31 @@ static int wireaudio_close(void)
 	info("wireaudio: module_close\n");
 	return 0;
 }
+
+
+int wireaudio_set_handlers(const char *convid,
+			   ausrc_read_h *rh,
+			   auplay_write_h *wh,
+			   void *arg)
+{
+	struct wdev *wdev = find_device(convid);
+	int err = 0;
+
+	if (!wdev) {
+		err = alloc_device(&wdev, convid,
+				   PSTN_SRATE, PSTN_PTIME, PSTN_CHAN);
+		if (err)
+			goto out;
+	}
+
+	wdev->wa.rh = rh;
+	wdev->wa.wh = wh;
+	wdev->wa.arg = arg;
+
+ out:
+	if (err)
+}
+			   
 
 
 EXPORT_SYM const struct mod_export DECL_EXPORTS(wireaudio) = {
