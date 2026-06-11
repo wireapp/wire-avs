@@ -171,10 +171,9 @@ struct peerflow {
 	webrtc::CreateSessionDescriptionObserver *sdpObserver;
 	webrtc::CreateSessionDescriptionObserver *addDecoderSdpObserver;
 	webrtc::scoped_refptr<webrtc::SetRemoteDescriptionObserverInterface> sdpRemoteObserver;
-
-	webrtc::SetSessionDescriptionObserver *offerObserver;
-	webrtc::SetSessionDescriptionObserver *answerObserver;
-	webrtc::SetSessionDescriptionObserver *decoderAnswerObserver;
+	webrtc::scoped_refptr<webrtc::SetLocalDescriptionObserverInterface> offerObserver;
+	webrtc::scoped_refptr<webrtc::SetLocalDescriptionObserverInterface> answerObserver;
+	webrtc::scoped_refptr<webrtc::SetLocalDescriptionObserverInterface> decoderAnswerObserver;
 	webrtc::RtpReceiverObserverInterface *rtpObserver;
 	
 	webrtc::scoped_refptr<webrtc::RtpSenderInterface> rtpSender;
@@ -1583,7 +1582,7 @@ private:
 	struct peerflow *pf_;
 };
 
-class OfferObserver : public webrtc::SetSessionDescriptionObserver {
+class OfferObserver : public webrtc::SetLocalDescriptionObserverInterface {
 public:
 	OfferObserver(struct peerflow *pf)
 		:
@@ -1602,10 +1601,9 @@ public:
 	{
 		return webrtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
+
 	virtual void OnSuccess()
 	{
-		bool success;
-		
 		info("pf(%p): setSdpOffer successfull\n", pf_);
 	}
 
@@ -1616,13 +1614,21 @@ public:
 
 		send_close(pf_, EINTR);
 	}
+	
+	virtual void OnSetLocalDescriptionComplete(webrtc::RTCError err)
+	{
+		if (err.ok())
+			this->OnSuccess();
+		else
+			this->OnFailure(err);
+	}
 
 private:
 	struct peerflow *pf_;
 };
 
 
-class AnswerObserver : public webrtc::SetSessionDescriptionObserver {
+class AnswerObserver : public webrtc::SetLocalDescriptionObserverInterface {
 public:
 	AnswerObserver(struct peerflow *pf)
 		:
@@ -1656,6 +1662,14 @@ public:
 			pf_, err.message());
 
 		send_close(pf_, EINTR);
+	}
+
+	virtual void OnSetLocalDescriptionComplete(webrtc::RTCError err)
+	{
+		if (err.ok())
+			this->OnSuccess();
+		else
+			this->OnFailure(err);
 	}
 
 private:
@@ -1851,9 +1865,8 @@ public:
 			info("SDP-offer-moded: %s\n", sdp);
 
 			imod_sdp = sdp_interface(sdp, webrtc::SdpType::kOffer);
-			pf_->peerConn->SetLocalDescription(
-					pf_->offerObserver,
-					imod_sdp.get());
+			pf_->peerConn->SetLocalDescription(std::move(imod_sdp),
+							   pf_->offerObserver);
 			break;
 
 		case webrtc::SdpType::kAnswer: {
@@ -1875,9 +1888,8 @@ public:
 			info("SDP-answer-moded: %s\n", sdp);
 
 			imod_sdp = sdp_interface(sdp, webrtc::SdpType::kAnswer);
-			pf_->peerConn->SetLocalDescription(
-					pf_->answerObserver,
-					imod_sdp.get());
+			pf_->peerConn->SetLocalDescription(std::move(imod_sdp),
+							   pf_->answerObserver);
 		}
 			break;
 
@@ -1952,8 +1964,7 @@ public:
 		info("pf(%p): addDecoder SDP-%s\n",
 		     pf_, SdpTypeToString(type));
 
-		pf_->peerConn->SetLocalDescription(pf_->decoderAnswerObserver,
-						   isdp);
+		pf_->peerConn->SetLocalDescription(pf_->decoderAnswerObserver);
 	}
 
 	virtual void OnFailure(webrtc::RTCError err) {
