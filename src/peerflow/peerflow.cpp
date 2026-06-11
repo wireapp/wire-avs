@@ -1634,6 +1634,14 @@ public:
 
 		send_close(pf_, EINTR);
 	}
+	
+	virtual void OnSetLocalDescriptionComplete(webrtc::RTCError err)
+	{
+		if (err.ok())
+			this->OnSuccess();
+		else
+			this->OnFailure(err);
+	}
 
 	virtual void OnSetLocalDescriptionComplete(webrtc::RTCError err)
 	{
