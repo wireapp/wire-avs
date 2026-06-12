@@ -103,7 +103,7 @@ public:
 	}
 
 protected:
-	rtc::scoped_refptr<RTCStatsReport> report;
+	webrtc::scoped_refptr<RTCStatsReport> report;
 	avs_stats *stats;
 	stats_report sr;
 };
