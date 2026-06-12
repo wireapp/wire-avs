@@ -14,11 +14,14 @@ LOCAL_MODULE    := avs
 LOCAL_CFLAGS    := -DANDROID_PLATFORM=android-21 \
 		   -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
 		   -DWEBRTC_ANDROID -DWEBRTC_POSIX -DDEBUG=$(BUILDDEBUG) \
+		   -Wno-nullability-completeness \
+	 	   -Wno-inaccessible-base \
+		   -Wno-deprecated-volatile \
 		   -pthread
 
 LOCAL_CXXFLAGS  := -DANDROID_PLATFORM=android-21 \
 		   -g -DHAVE_INTTYPES_H=1 -DPOSIX -DHAVE_WEBRTC \
-		   -x c++ -std=c++17 -stdlib=libc++ \
+		   -x c++ -std=c++20 -stdlib=libc++ \
 		   -DWEBRTC_ANDROID -DDEBUG=$(BUILDDEBUG) \
 		   -pthread
 
