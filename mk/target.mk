@@ -246,7 +246,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 20260605.90
+WEBRTC_VER := 20260605.91
 endif
 
 JAVAC := javac
@@ -270,7 +270,11 @@ CPPFLAGS += \
 	 -DSSL_USE_OPENSSL -DFEATURE_ENABLE_SSL -D__STDC_FORMAT_MACROS=1 \
 	 -DAVS_VERSION='"$(AVS_VERSION)"' -DAVS_PROJECT='"$(AVS_PROJECT)"' \
 	 -DAVS_OS='"$(AVS_OS)"' -DAVS_ARCH='"$(AVS_ARCH)"' \
-	 -I$(BUILD_TARGET)/include -Iinclude
+	 -I$(BUILD_TARGET)/include -Iinclude \
+	 -Wno-nullability-completeness \
+	 -Wno-inaccessible-base \
+	 -Wno-deprecated-volatile
+
 
 ifeq ($(HAVE_WEBRTC),1)
 CPPFLAGS += \
@@ -692,9 +696,6 @@ CPPFLAGS += \
          -isysroot $(SDK_PATH) \
          -DWEBRTC_POSIX -DWEBRTC_MAC -DZETA_USING_AU_HAL -DHAVE_GAI_STRERROR=1 \
 	 -Wno-vla-cxx-extension -Wno-strict-prototypes \
-	 -Wno-nullability-completeness \
-	 -Wno-inaccessible-base \
-	 -Wno-deprecated-volatile \
 	 -pipe -no-cpp-precomp \
 	 -mmacosx-version-min=10.9
 LFLAGS   += \
