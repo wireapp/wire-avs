@@ -83,8 +83,8 @@ static int resampler_unit_test(
 	webrtc::MonoView<int16_t> outv(output_buffer, out_samps_per_channel * num_channels);
 	
 	int out_length = out_samps_per_channel * num_channels;
-    
-        resampler.Resample(inv, outv);		
+
+        resampler.Resample(inv, outv);
         
         gettimeofday(&now, NULL);
         timersub(&now, &startTime, &res);

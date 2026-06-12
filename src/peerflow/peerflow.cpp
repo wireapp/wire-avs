@@ -905,7 +905,7 @@ int peerflow_init(void)
 	}
 
 	g_pf.video.src = webrtc::make_ref_counted<wire::CaptureSource>();
-	
+
 	g_pf.initialized = true;
 
  out:
@@ -2047,7 +2047,7 @@ static int create_pf(struct peerflow *pf)
 	else 
 		pf->config->type = webrtc::PeerConnectionInterface::kAll; 
 
-	std::unique_ptr<webrtc::PortAllocator> port_allocator = nullptr; 
+	std::unique_ptr<webrtc::PortAllocator> port_allocator = nullptr;
 	
 	struct msystem_proxy *proxy = msystem_get_proxy();
 
