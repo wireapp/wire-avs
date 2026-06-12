@@ -33,6 +33,7 @@ extern "C" {
 
 #include "api/scoped_refptr.h"
 #include "api/enable_media.h"
+#include "api/environment/environment_factory.h"
 #include "api/peer_connection_interface.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
@@ -46,14 +47,13 @@ extern "C" {
 #include "api/media_stream_interface.h"
 #include "api/data_channel_interface.h"
 #include "api/task_queue/default_task_queue_factory.h"
-#include "api/field_trials.h"
+#include "api/field_trials_view.h"
 #include "modules/audio_processing/include/audio_processing.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "rtc_base/crypto_random.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/physical_socket_server.h"
 #include "media/engine/webrtc_media_engine.h"
-//#include "system_wrappers/include/field_trial.h"
 
 #include "modules/video_capture/video_capture_factory.h"
 
@@ -93,17 +93,9 @@ extern "C" {
 #define VIDEO_BITRATE_HI (1000 * 1024)
 #define VIDEO_BITRATE_LO (250 * 1024)
 
-static const char trials_str[] =
-#if 1
-	"WebRTC-GenericDescriptorAdvertised/Enabled/WebRTC-GenericDescriptor/Enabled/WebRTC-DependencyDescriptorAdvertised/Enabled/WebRTC-DependencyDescriptor/Enabled/";
-#else
-	"WebRTC-GenericDescriptorAdvertised/Enabled/WebRTC-GenericDescriptor/Enabled/";
-#endif
-
-
 static struct {
 	std::unique_ptr<webrtc::Thread> thread;
-	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory;	
+	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory;
 	bool initialized;
 
 	struct {
@@ -124,10 +116,6 @@ static struct {
 	struct {
 		webrtc::scoped_refptr<wire::CaptureSource> src;
 	} video;
-
-#ifdef ANDROID
-	webrtc::scoped_refptr<webrtc::AudioDeviceModule> androidAdm;
-#endif
 
 #if PC_STANDALONE
 	struct dnsc *dnsc;
@@ -411,6 +399,34 @@ static const char *connection_state_name(
 	}
 }
 
+
+class WireFieldTrials : public webrtc::FieldTrialsView {
+public:
+	WireFieldTrials() {
+		// Explicitly enable webrtc features
+		trials_["WebRTC-GenericDescriptorAdvertised"] = "Enabled";
+		trials_["WebRTC-GenericDescriptor"] = "Enabled";
+		trials_["WebRTC-DependencyDescriptorAdvertised"] = "Enabled";
+		trials_["WebRTC-DependencyDescriptor"] = "Enabled";
+	}
+
+	std::string Lookup(absl::string_view key_view) const override {
+		std::string key = std::string(key_view);
+		auto it = trials_.find(key);
+		std::string val = it != trials_.end() ? it->second : "";
+		//info("WireFieldTrials::Lookup: %s -> %s\n", key.c_str(), val.c_str());
+
+		return val;
+	}
+
+	std::unique_ptr<webrtc::FieldTrialsView> CreateCopy() const override {
+		auto copy = std::make_unique<WireFieldTrials>();
+		copy->trials_ = this->trials_;
+		return copy;
+	}
+private:
+	std::map<std::string, std::string> trials_;
+};
 
 class PeerConnectionThread : public webrtc::Thread {
 public:
@@ -807,13 +823,6 @@ int peerflow_set_funcs(void)
 	return 0;
 }
 
-void peerflow_set_adm(void *adm)
-{
-#ifdef ANDROID
-	g_pf.androidAdm = (webrtc::AudioDeviceModule *)adm;
-#endif
-}
-
 int peerflow_init(void)
 {
 	webrtc::AudioDeviceModule *adm;
@@ -854,10 +863,12 @@ int peerflow_init(void)
 		info("pf: platform initialized\n");		
 	});
 
-	//webrtc::field_trial::InitFieldTrialsFromString(trials_str);
+	pc_deps.env = webrtc::CreateEnvironment(WireFieldTrials().CreateCopy());
 
 #ifdef ANDROID
-	pc_deps.adm = g_pf.androidAdm;
+	pc_deps.adm = webrtc::CreateAndroidAudioDeviceModule(
+				 *pc_deps.env,
+				 webrtc::AudioDeviceModule::AudioLayer::kAndroidOpenSLESAudio);
 #else
 	adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
 	if (adm)
@@ -1614,7 +1625,7 @@ public:
 
 		send_close(pf_, EINTR);
 	}
-	
+
 	virtual void OnSetLocalDescriptionComplete(webrtc::RTCError err)
 	{
 		if (err.ok())
