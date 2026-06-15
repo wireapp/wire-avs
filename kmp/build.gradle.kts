@@ -151,6 +151,9 @@ kotlin {
     }
 }
 
+// Get used devtools/ndk version, default to lask known working one if not found
+val systemNdkVersion = System.getenv("ANDROID_NDK_VER") ?: "28.2.13676358"
+
 android {
     namespace = "com.waz.avs"
     compileSdk = 34
@@ -158,6 +161,10 @@ android {
     defaultConfig {
         minSdk = 26
     }
+
+    // Set ndk version to resonate with devtoos/ndk version
+    // to avoid compatability errors in :avs-kmp:stripReleaseDebugSymbols
+    ndkVersion = systemNdkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
