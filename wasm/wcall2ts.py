@@ -1,44 +1,45 @@
 #!/usr/bin/env python3
+import os
 import re
 import sys
 
 callbacks = {}
 
-ind = 2
-cind = 0
-
-def indent_diff(l):
-	i = 0
-	d = [0, 0]
-	s = 0
-	for c in l:
-		if c == '(' or c == '{' or c == '[':
-			i += 1
-			d[1] += 1
-		elif c == ')' or c == '}' or c == ']':
-			i += 1
-			if d[1] > 0:
-				d[1] -= 1
-			else:
-				d[0] -= 1
-	return d
+class Write_Helper:
+	def __init__(self, file):
+		self.file = file
+		self.cind = 0
+		self.ind = 2
 	
-def write_ln(f, l):
-	global ind
-	global cind
+	def indent_diff(self, l):
+		i = 0
+		d = [0, 0]
+		s = 0
+		for c in l:
+			if c == '(' or c == '{' or c == '[':
+				i += 1
+				d[1] += 1
+			elif c == ')' or c == '}' or c == ']':
+				i += 1
+				if d[1] > 0:
+					d[1] -= 1
+				else:
+					d[0] -= 1
+		return d
 
-	blnk = '                                               '
-	l = l.strip().rstrip()
-	d = indent_diff(l)
-	cind += d[0]
-	f.write('{}{}\n'.format(blnk[:cind * ind], l))
-	cind += d[1]
-
-def write_blk(f, blk):
-	if blk:
-		lines = blk.split('\n')
+	def write_blk(self, blk):
+		if blk:
+			lines = blk.split('\n')
 		for l in lines:
-			write_ln(f, l)
+			self.write_ln(l)
+
+	def write_ln(self, l):
+		blnk = '                                               '
+		l = l.strip().rstrip()
+		d = self.indent_diff(l)
+		self.cind += d[0]
+		self.file.write('{}{}\n'.format(blnk[:self.cind * self.ind], l))
+		self.cind += d[1]
 
 def c2jstype(ty):
 	if ty == 'int' or ty == 'WUSER_HANDLE' or ty == 'size_t' or \
@@ -88,6 +89,25 @@ def c2tstype(ty):
 		return 'any'
 	return ty
 
+# Helper function to convert js/ts variables to kt
+def jsts2kt(jsts):
+	if jsts == 'int' or jsts == 'WUSER_HANDLE' or jsts == 'size_t' or \
+	   jsts == 'int8_t' or jsts == 'int16_t' or jsts == 'int32_t' or \
+	   jsts == 'uint8_t' or jsts == 'uint16_t' or jsts == 'uint32_t' or \
+	   jsts == 'void*' or jsts == 'number':
+		return 'Int'
+	elif jsts == 'void':
+		return 'Unit'
+	elif jsts == 'char*' or jsts == 'uint8_t*' or jsts == 'string':
+		return 'String'
+	elif jsts == 'string | null':
+		return 'String?'
+	elif jsts == 'any':
+		return 'JsAny?'
+	elif jsts in callbacks:
+		return callbacks[jsts]['ktsign']
+	return 'JsAny?'
+
 def convert_to_camel(fname, istype=False):
 	camel = ''
 	is_upper = istype
@@ -131,6 +151,9 @@ def parse_param(param, cb=False):
 	else:
 		return (pname, c2jstype(ptype), tsType)
 
+def should_include_return_type(type):
+	return type != 'void'
+
 def convert_fn(fn):
 
 	ignored = ['wcall_setup',
@@ -145,16 +168,16 @@ def convert_fn(fn):
 		   'wcall_set_media_laddr',
 		   'wcall_run']
 
-	m = re.search('(\w+)\s+(\w+)\((.*)\);', fn)
+	m = re.search(r'(\w+)\s+(\w+)\((.*)\);', fn)
 	if m:
 		ret = m.group(1)
 		fname = m.group(2)
 		args = m.group(3)
-		args = re.sub('\s+\/\*.*?\*\/', '', args)
+		args = re.sub(r'\s+\/\*.*?\*\/', '', args)
 		args = args.split(', ')
 
 		if fname in ignored:
-			return ''
+			return '', ''
 
 		argtypes = []
 		argnames = []
@@ -165,17 +188,28 @@ def convert_fn(fn):
 				argtypes.append(ainfo[1])
 
 		fndef = '{}('.format(convert_to_camel(fname.replace('wcall_', '')))
+		kfndef = 'fun {}('.format(convert_to_camel(fname.replace('wcall_', '')))
 		i = 0
 		for a in argnames:
 			if i > 0:
 				fndef += ','
+				kfndef += ','
 			fndef += '\n{}: {}'.format(a, c2tstype(argtypes[i]))
+			kfndef += '\n{}: {}'.format(a, jsts2kt(argtypes[i]))
 			if a == 'arg':
 				fndef += ' = 0'
 			i += 1
 		if i > 0:
 			fndef += '\n'
+			kfndef += '\n'
 		fndef += '): {} {{\n'.format(c2tstype(ret))
+
+		# kt will need non void return type
+		if (should_include_return_type(ret)):
+			kfndef += '): {}\n'.format(jsts2kt(ret))
+		else:
+			kfndef += ')\n'
+
 
 		if fname == 'wcall_init':
 			fndef += 'avs_pc.init(this.em_module, logHandler);\n'
@@ -234,23 +268,25 @@ def convert_fn(fn):
 		fndef += ']\n);'
 		fndef += '\n}\n\n'
 
-		return fndef
-	return ''
+		return fndef, kfndef
+
+	return '', ''
 
 def convert_cb(fn):
 
 	ignore = ['wcall_render_frame_h']
-	m = re.search('typedef\s+(\w+)\s+\((\w+)\)\((.*)\);', fn)
+	m = re.search(r'typedef\s+(\w+)\s+\((\w+)\)\((.*)\);', fn)
 	if m and m.group(2) not in ignore:
 		ret = m.group(1)
 		fname = m.group(2)
 		args = m.group(3)
-		args = re.sub('\s+\/\*.*?\*\/', '', args)
+		args = re.sub(r'\s+\/\*.*?\*\/', '', args)
 		args = args.split(', ')
 		argnames = []
 
 		tsname = convert_to_camel(fname, True) + 'andler'
 		fndef = 'export type {} = (\n'.format(tsname)
+		ktsign = '(('
 
 		fproto = c2jstype_cb(ret)
 		first = True
@@ -263,11 +299,16 @@ def convert_cb(fn):
 					first = False
 				else:
 					fndef += ',\n'
+					ktsign += ', '
 				fndef += '{}: {}'.format(ainfo[0], ainfo[2])
+				ktsign += '{}: {}'.format(ainfo[0], jsts2kt(ainfo[2]))
+
+		ktsign += ') -> {})?'.format(jsts2kt(c2tstype(ret)))
 
 		cb = {
 			'name': fname,
 			'tsname': tsname,
+			'ktsign': ktsign,
 			'args': argnames,
 			'proto': fproto
 		}
@@ -330,7 +371,7 @@ def convert_constants(lines):
 	}
 
 	for l in lines:
-		m = re.search('#define\s+WCALL_(\w+)\s+(.*)', l)
+		m = re.search(r'#define\s+WCALL_(\w+)\s+(.*)', l)
 		if m:
 			name = m.group(1)
 			value = m.group(2).rstrip()
@@ -344,6 +385,7 @@ def convert_constants(lines):
 	del constants['VERSION']
 
 	ctext = ''
+	ktext = ''
 	for grpname in constants:
 		grp = constants[grpname]
 
@@ -372,11 +414,20 @@ def convert_constants(lines):
 		ctext += '}\n'
 		ctext += '\n'
 
-	return ctext
+		ktext += '@JsName("{}")\n'.format(grpname)
+		ktext += 'external object {} : JsAny {{\n'.format(grpname)
+		for c in range(len(grp) - 1):
+			ktext += 'val {}: Int\n'.format(grp[c]['name'])
+		ktext += 'val {}: Int\n'.format(grp[-1]['name'])
+		ktext += '}\n'
+		ktext += '\n'	
+
+	return ctext, ktext
 
 def convert_structs(lines):
 	state = 0
 	stext = ''
+	ktext = ''
 	ignore_structs = ['wcall_members']
 	convert_names = {
 		'audio_state': 'aestab',
@@ -385,17 +436,19 @@ def convert_structs(lines):
 
 	for l in lines:
 		if state == 0:
-			m = re.search('struct (\w+) {', l)
+			m = re.search(r'struct (\w+) {', l)
 			if m:
 				if m.group(1) not in ignore_structs:
 					sname = convert_to_camel(m.group(1), True)
 					state = 1
 					stext += 'export interface {}'.format(sname) + ' {\n'
+					ktext += 'external interface {} : JsAny'.format(sname) + ' {\n'
 		elif state == 1:
 			m = re.search('};', l)
 			if m:
 				state = 0
 				stext += '\n};\n'
+				ktext += '\n}\n'
 			else:
 				param = parse_param(l.rstrip().replace('\t', '').replace(';', ''))
 				if param:
@@ -404,14 +457,16 @@ def convert_structs(lines):
 					else:
 						pname = param[0]
 					stext += '\t{}: {};\n'.format(pname, param[2])
-	return stext
+					ktext += '\t val {}: {}\n'.format(pname, jsts2kt(param[2]))
+
+	return stext, ktext
 
 def convert_callbacks(lines):
 	state = 0
 	ctext = ''
 	for l in lines:
 		if state == 0:
-			m = re.search('typedef\s+\w+\s+\(\w+\)\(.*', l)
+			m = re.search(r'typedef\s+\w+\s+\(\w+\)\(.*', l)
 			if m:
 				fn = l.strip().rstrip()
 				if ';' in l:
@@ -432,13 +487,16 @@ def convert_callbacks(lines):
 def convert_functions(lines):
 	state = 0
 	ftext = ''
+	kftext = ''
 	for l in lines:
 		if state == 0:
-			m = re.search('\w+\s+\w+\(.*', l)
+			m = re.search(r'\w+\s+\w+\(.*', l)
 			if m:
 				fn = l.strip().rstrip()
 				if ';' in l:
-					ftext += convert_fn(fn)
+					fx, ktfn = convert_fn(fn)
+					ftext += fx
+					kftext += ktfn
 					fn = ''
 				else:
 					state = 1
@@ -446,10 +504,41 @@ def convert_functions(lines):
 		elif state == 1:
 			fn += ' ' + l.strip().rstrip()
 			if ';' in l:
-				ftext += convert_fn(fn)
+				fx, ktfn = convert_fn(fn)
+				ftext += fx
+				kftext += ktfn
 				fn = ''
 				state = 0
-	return ftext
+
+	return ftext, kftext
+
+def insert_ktheaders(cpnotice):
+	kt_write_helper.write_blk(cpnotice)
+
+	kt_modification_warning = """
+				/*
+			    ============================================================================
+				WARNING: THIS FILE IS AUTO-GENERATED. DO NOT EDIT MANUALLY.
+				Any manual modifications will be overwritten during the next avs build
+				============================================================================
+				*/
+				"""
+	kt_write_helper.write_blk(kt_modification_warning)
+
+	kt_headers = """
+				@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
+				@file:JsModule("@wireapp/avs")
+				
+				package com.wire.avskmp
+
+				import kotlin.js.JsAny
+				"""
+	kt_write_helper.write_blk(kt_headers)
+
+def embed_ktfunctions(lines):
+	kt_write_helper.write_blk('external fun getAvsInstance(): JsAny\n')
+	kt_write_helper.write_blk('external class Wcall(em_module: JsAny) : JsAny {{\n{}}}'.format(lines))
+
 
 if __name__ == '__main__':
 
@@ -459,7 +548,15 @@ if __name__ == '__main__':
 
 	data = open(sys.argv[1]).read()
 	tlines = open(sys.argv[2]).readlines()
-	outfile = open(sys.argv[3], 'w')
+	fname = sys.argv[3]
+	tsfile = open(fname, 'w')
+	ts_write_helper = Write_Helper(tsfile)
+
+	# Get name of output file and form a .kt file
+	basename, _ = os.path.splitext(fname)
+	ktfname = basename + ".kt.tmp"
+	ktfile = open(ktfname, 'w')
+	kt_write_helper = Write_Helper(ktfile)
 
 	cpnotice = None
 	start = data.find('/*')
@@ -500,20 +597,29 @@ if __name__ == '__main__':
 	lines = data.split('\n')
 
 	if cpnotice:
-		outfile.write(cpnotice)
+		tsfile.write(cpnotice)
+
+	insert_ktheaders(cpnotice)
 
 	for tl in tlines:
-		m = re.match('%(\w+)%', tl)
+		m = re.match(r'%(\w+)%', tl)
 		if m:
 			pl = m.group(1)
 			if pl == 'CONSTANTS':
-				write_blk(outfile, convert_constants(lines))
+				ctext, ktext = convert_constants(lines)
+				ts_write_helper.write_blk(ctext)
+				kt_write_helper.write_blk(ktext)
 			if pl == 'STRUCTS':
-				write_blk(outfile, convert_structs(lines))
+				ctext, ktext = convert_structs(lines)
+				ts_write_helper.write_blk(ctext)
+				kt_write_helper.write_blk(ktext)
 			elif pl == 'CALLBACK_TYPES':
-				write_blk(outfile, convert_callbacks(lines))
+				ts_write_helper.write_blk(convert_callbacks(lines))
 			elif pl == 'FUNCTIONS':
-				write_blk(outfile, convert_functions(lines))
+				ctext, ktext = convert_functions(lines)
+				ts_write_helper.write_blk(ctext)
+				embed_ktfunctions(ktext)
+
 		else:
-			write_ln(outfile, tl)
+			ts_write_helper.write_ln(tl)
 

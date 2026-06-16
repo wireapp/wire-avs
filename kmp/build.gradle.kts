@@ -131,6 +131,12 @@ kotlin {
         }
     }
 
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs {
+        browser{}
+        binaries.library()
+    }
+
     sourceSets {
         val androidMain by getting {
             dependencies {
@@ -148,7 +154,95 @@ kotlin {
                 implementation(libs.android.core)
             }
         }
+
+        val wasmJsMain by getting {
+            dependencies { 
+                // Core Kotlin standard library dependencies for Wasm generation
+                implementation(kotlin("stdlib-wasm-js"))
+
+                // Provide a new package.json
+                // The one for npm (../build/dist/wasm/package.json) does not work here
+                api(npm("@wireapp/avs", project.file("src/wasmJsMain/resources")))
+            }
+
+            // Provide a resource directory for wasm resources
+            resources.srcDir("../build/dist/wasm/dist")
+        }
     }
+}
+
+// This is needed to add a custom package.json in wasmjs
+tasks.named<org.gradle.jvm.tasks.Jar>("wasmJsJar") {
+    // Instructs the JAR engine to bypass duplicate path safety blocks
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+// Define a helper task to get js filenames in ./build/dist/wasm/dist/ and
+// provide and aggregate avs.js
+val generateJsExports by tasks.registering {
+    group = "build"
+    description = "Generates a JS file exporting all JavaScript files from a specific directory."
+
+    val inputDir = file("../build/dist/wasm/dist/")
+    val outputFile = file("./src/wasmJsMain/resources/avs.js")
+
+    inputs.dir(inputDir).withPathSensitivity(PathSensitivity.RELATIVE)
+    outputs.file(outputFile)
+
+    doLast {
+        if (!inputDir.exists() || !inputDir.isDirectory) {
+            logger.warn("Input directory does not exist: ${inputDir.absolutePath}")
+            return@doLast
+        }
+
+        val exportLines = inputDir.listFiles { file -> file.isFile && file.extension == "js" }
+            ?.sortedBy { it.name }
+            ?.map { file -> "export * from './${file.name}';" }
+            ?: emptyList()
+
+        // Define the warning comment block about file being auto generated
+        val fileHeader = """
+            // ============================================================================
+            // WARNING: THIS FILE IS AUTO-GENERATED. DO NOT EDIT MANUALLY.
+            // Any manual modifications will be overwritten during the next Gradle build
+            // with task ./wire-avs/kmp/build.gradle.kts:generateJsExports
+            // ============================================================================
+            
+        """.trimIndent()
+
+        outputFile.parentFile.mkdirs()
+        
+        // Combine the header comment and the export lines
+        val finalContent = fileHeader + "\n" + exportLines.joinToString("\n") + "\n"
+        outputFile.writeText(finalContent)
+        
+        logger.lifecycle("Generated JS exports in ${outputFile.path}")
+    }
+}
+
+// Resources for the wasmJsMain compilation unit are processed with 
+// wasmJsProcessResources. Hooking the helper before this will ensure correct aggregation.
+tasks.named("wasmJsProcessResources") {
+    dependsOn(generateJsExports)
+}
+
+// Task that will copy avs makefile generated wasm interop code
+val copyWasmInterop by tasks.registering(Copy::class) {
+    description = "Copies and renames the avs make generated interop file."
+
+    // Configures paths relative to wire-avs/kmp/
+    from(layout.projectDirectory.file("../build/dist/wasm/src/avs_wcall.kt.tmp"))
+    into(layout.projectDirectory.dir("src/wasmJsMain/kotlin"))
+
+    rename("avs_wcall.kt.tmp", "AvsInterop.kt")
+}
+
+// Make wasmjs compilation depend on recent copy
+tasks.named("wasmJsSourcesJar") {
+    dependsOn(copyWasmInterop)
+}
+tasks.named("compileKotlinWasmJs") {
+    dependsOn(copyWasmInterop)
 }
 
 // Get used devtools/ndk version, default to lask known working one if not found

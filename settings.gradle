@@ -19,8 +19,18 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "0.8.0"
 }
 
+dependencyResolutionManagement {
+    repositories {
+         // test/kmp will check package sanity from local maven
+        mavenLocal()
+        google()
+        mavenCentral()
+    }
+}
+
 rootProject.name = 'avs'
 
 include ':android:lib'
 include 'kmp'
 project(":kmp").name = "avs-kmp"
+include ':test:kmp'
