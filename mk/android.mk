@@ -100,7 +100,7 @@ $(AND_JAR): android_classes
 $(AND_CC_OBJS): $(AND_OBJ_TARGET)/%.o: android/jni/%.cc
 	@echo "  CXX  $(AVS_OS)-$(AVS_ARCH) android/jni/$*.cc"
 	@mkdir -p $(dir $@)
-	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(JNICPPFLAGS) \
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(JNICPPFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) \
 		$(AND_CPPFLAGS) $(AND_CXXFLAGS) \
 		-c $< -o $@ $(DFLAGS)

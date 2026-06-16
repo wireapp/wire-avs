@@ -451,11 +451,6 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 	
 	java.context = env->NewGlobalRef(ctx);
 
-#ifdef ANDROID
-	auto adm = webrtc::CreateOpenSLESAudioDeviceModule(env, ctx);
-	peerflow_set_adm((void *)adm.get());
-#endif
-
 #if 0//USE_BREAKPAD	
 	setup_breakpad(env, ctx);
 #endif

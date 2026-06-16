@@ -41,7 +41,7 @@ public:
 	}
 
 	void OnStatsDelivered(
-		const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
+		const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
 	{
 		info("peerflow(%p): stats: %s\n", pf_, report->ToJson().c_str());
 	}
@@ -49,8 +49,8 @@ public:
 	void AddRef() const {
 	}
 
-	virtual rtc::RefCountReleaseStatus Release() const {
-		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+	virtual webrtc::RefCountReleaseStatus Release() const {
+		return webrtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
 
 private:
@@ -82,7 +82,7 @@ public:
 	}
 
 	void OnStatsDelivered(
-		const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
+		const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
 	{
 		std::string rstr = report->ToJson();
 		const char *report_json = rstr.c_str();
@@ -97,8 +97,8 @@ public:
 	void AddRef() const {
 	}
 
-	virtual rtc::RefCountReleaseStatus Release() const {
-		return rtc::RefCountReleaseStatus::kDroppedLastRef;
+	virtual webrtc::RefCountReleaseStatus Release() const {
+		return webrtc::RefCountReleaseStatus::kDroppedLastRef;
 	}
 	
 

@@ -32,18 +32,18 @@ CbrDetectorLocal::~CbrDetectorLocal()
 {
 }
 
-int CbrDetectorLocal::Encrypt(cricket::MediaType media_type,
-			    uint32_t ssrc,
-			    rtc::ArrayView<const uint8_t> additional_data,
-			    rtc::ArrayView<const uint8_t> frame,
-			    rtc::ArrayView<uint8_t> encrypted_frame,
-			    size_t* bytes_written)
+int CbrDetectorLocal::Encrypt(webrtc::MediaType media_type,
+			      uint32_t ssrc,
+			      std::span<const uint8_t> additional_data,
+			      std::span<const uint8_t> frame,
+			      std::span<uint8_t> encrypted_frame,
+			      size_t* bytes_written)
 {
 	const uint8_t *src = frame.data();
 	uint8_t *dst = encrypted_frame.data();
 	uint32_t data_len = frame.size();
 
-	if (media_type == cricket::MEDIA_TYPE_AUDIO) {
+	if (media_type == webrtc::MediaType::AUDIO) {
 		if (data_len == frame_size && frame_size >= 40) {
 			frame_count++;
 			if (frame_count > 200 && !detected) {
@@ -70,8 +70,8 @@ out:
 }
 
 
-size_t CbrDetectorLocal::GetMaxCiphertextByteSize(cricket::MediaType media_type,
-						size_t frame_size)
+size_t CbrDetectorLocal::GetMaxCiphertextByteSize(webrtc::MediaType media_type,
+						  size_t frame_size)
 {
 	  return frame_size;
 }

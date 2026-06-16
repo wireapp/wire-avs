@@ -33,7 +33,7 @@ extern "C" {
 
 struct render_le {
 	struct le le;
-	rtc::VideoSinkInterface<webrtc::VideoFrame>* sink;
+	webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink;
 	webrtc::VideoTrackInterface *track;
 };
 
@@ -50,7 +50,7 @@ static void render_destructor(void *arg)
 
 namespace wire {
 
-class VideoRendererSink : public rtc::VideoSinkInterface<webrtc::VideoFrame> {
+class VideoRendererSink : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
 public:
 	VideoRendererSink(struct peerflow *pf,
 			  const char *userid_remote,
