@@ -31,10 +31,25 @@ wire-avs$ ORG_GRADLE_PROJECT_VERSION_NAME=0.0.1 ./gradlew :avs:clean publishToMa
 ```
 
 * trigger kmp tests, that will run on the local published artifact  
+
+Linux
 ```bash
 wire-avs$ ./gradlew :test:kmp:clean :test:kmp:wasmJsBrowserTest
 ```
 
-* test results can be seen from generated html (file://**project-root-path**/wire-avs/test/kmp/build/reports/tests/wasmJsBrowserTest/index.html) 
+MacOS will have specific tests
+```bash
+wire-avs % ./gradlew :test:kmp:clean :test:kmp:wasmJsBrowserTest
+wire-avs % ./gradlew :test:kmp:clean :test:kmp:macosArm64Test
+```
 
+Running all available kmp tests
+```bash
+wire-avs % ./gradlew :test:kmp:clean :test:kmp:allTests
+```
+
+Note that google-chorome and firefox should be installed for wasm tests
+Be sure to install firefox throgh packet manager (rather han default snap)
+
+* test results can be seen from generated html (file://**project-root-path**/wire-avs/test/kmp/build/reports/tests/wasmJsBrowserTest/index.html) 
 ![test results](../../docs/assets/kmp-tests.png)

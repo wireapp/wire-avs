@@ -14,10 +14,11 @@ kotlin {
             testTask {
                 useKarma {
                     useChromeHeadless()
-                    // useFirefoxHeadless()
+                    useFirefoxHeadless()
                     if (isMacOs) {
                         // safari does not have an headless mode
-                        useSafari()
+                        // an needs some modifications to be run
+                        // useSafari()
                     }
                 }
             }
@@ -38,27 +39,24 @@ kotlin {
         // Dependencies for all platform tests will be here when 'avs' is fully multiplatform
         val commonTest by getting {
             dependencies {
-                implementation(kotlin("test")) 
+                implementation(kotlin("test"))
+                implementation(libs.coroutines.core)
+                implementation(libs.coroutines.test)
+                implementation(libs.avs.local)
             }
         }
-
 
         // ... commonTest / commonMain / wasmJsMain definitions
         val wasmJsTest by getting {
             dependencies {
-                implementation(kotlin("test"))
-                implementation(libs.coroutines.core)
-                implementation(libs.coroutines.test) 
-                implementation(libs.avs.local)
+
             }
         }
 
         // macOS test target
         val macosArm64Test by getting {
             dependencies {
-                // Pulls in the library specifically for macOS testing execution
-                implementation(kotlin("test"))
-                implementation(libs.avs.local) 
+
             }
         }
     }
