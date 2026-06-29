@@ -36,8 +36,8 @@ struct sftloader {
 
 struct sft_user {
 	WUSER_HANDLE wuser;
-	char userid[ECONN_ID_LEN];
-	char clientid[ECONN_ID_LEN];
+	char *userid;
+	char *clientid;
 	char *convid;
 
 	struct dnsc *dnsc;
@@ -91,6 +91,8 @@ static void su_destructor(void *arg)
 	tmr_cancel(&su->tmr.duration);
 	tmr_cancel(&su->tmr.video);
 	
+	mem_deref(su->userid);
+	mem_deref(su->clientid);
 	mem_deref(su->convid);
 	
 	wcall_destroy(su->wuser);
@@ -739,7 +741,9 @@ static int create_user(uint32_t uidno, uint32_t cidno)
 	if (!su)
 		return ENOMEM;
 
+	su->userid = mem_zalloc(ECONN_ID_LEN, NULL);
 	snprintf(su->userid, ECONN_ID_LEN, "usr%05u", uidno);
+	su->clientid = mem_zalloc(ECONN_ID_LEN, NULL);
 	snprintf(su->clientid, ECONN_ID_LEN, "%04u", cidno);
 	str_dup(&su->convid, sftloader->convid);
 	su->ncalls = sftloader->ncalls;
