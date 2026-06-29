@@ -375,19 +375,26 @@ static void read_rtt_rx(struct avs_stats *stats, const struct stats_obj *stats_o
 	}
 
 	// Calculate mean rtt from remote inbound reports
-	double remote_inbound_rtt = 0;
-	int remote_inbound_rtt_count = 0;
+	double remote_inbound_audio_rtt = 0;
+	double remote_inbound_video_rtt = 0;
+	int remote_inbound_audio_rtt_count = 0;
+	int remote_inbound_video_rtt_count = 0;
 
 	LIST_FOREACH(&stats_obj->remote_inbound_rtp, le) {
 		const struct stats_remote_inbound_rtp *data = (struct stats_remote_inbound_rtp *)le->data;
 
-		if (data->kind == STATS_KIND_AUDIO || data->kind == STATS_KIND_VIDEO) {
-			remote_inbound_rtt += data->rtt;
-			remote_inbound_rtt_count++;
+		if (data->kind == STATS_KIND_AUDIO) {
+			remote_inbound_audio_rtt += data->rtt;
+			remote_inbound_audio_rtt_count++;
+		}
+		else if (data->kind == STATS_KIND_VIDEO) {
+			remote_inbound_video_rtt += data->rtt;
+			remote_inbound_video_rtt_count++;
 		}
 	}
 
-	stats->report.rtt.rx = remote_inbound_rtt ? 1000 * (remote_inbound_rtt / remote_inbound_rtt_count) : 0;
+	stats->report.rtt.remote_inbound.audio = remote_inbound_audio_rtt ? 1000 * (remote_inbound_audio_rtt / remote_inbound_audio_rtt_count) : 0;
+	stats->report.rtt.remote_inbound.video = remote_inbound_video_rtt ? 1000 * (remote_inbound_video_rtt / remote_inbound_video_rtt_count) : 0;
 }
 
 static int read_rtt_and_connection(struct avs_stats *stats, const struct stats_obj *stats_obj)
@@ -414,7 +421,7 @@ static int read_rtt_and_connection(struct avs_stats *stats, const struct stats_o
 
 		if (selected_pair_id) {
 			if (data->id && streq(selected_pair_id, data->id)) {
-				stats->report.rtt.tx = max(stats->report.rtt.tx, (1000 * data->current_rtt));
+				stats->report.rtt.candidate_pair = max(stats->report.rtt.candidate_pair, (1000 * data->current_rtt));
 				connected_local_candidate_id = data->local_candidate_id;
 				break;
 			}
@@ -422,7 +429,7 @@ static int read_rtt_and_connection(struct avs_stats *stats, const struct stats_o
 		else {
 			// we will try to find connected pair without "transport" info
 			if (data->nominated && (data->state == STATS_STATE_SUCCEEDED)) {
-				stats->report.rtt.tx = max(stats->report.rtt.tx, (1000 * data->current_rtt));
+				stats->report.rtt.candidate_pair = max(stats->report.rtt.candidate_pair, (1000 * data->current_rtt));
 				if (data->local_candidate_id) {
 					connected_local_candidate_id = data->local_candidate_id;
 				}
