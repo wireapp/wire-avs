@@ -49,6 +49,16 @@ struct stats_jitter {
 	struct stats_rx_tx video;
 };
 
+struct starts_remoteInboundRtt {
+	uint32_t audio;
+	uint32_t video;
+};
+
+struct stats_rtt {
+	struct starts_remoteInboundRtt remote_inbound;
+	uint32_t candidate_pair;
+};
+
 struct stats_packet_counts {
 	struct stats_rx_tx audio;
 	struct stats_rx_tx video;
@@ -63,7 +73,7 @@ struct stats_report {
 	struct stats_packet_counts packets_per_sec;
 	int audio_level;
 	int audio_level_smooth;
-	struct stats_rx_tx rtt;
+	struct stats_rtt rtt;
 };
 
 int stats_alloc(struct avs_stats **statsp, void *arg);
