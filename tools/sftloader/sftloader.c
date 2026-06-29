@@ -95,8 +95,6 @@ static void su_destructor(void *arg)
 	
 	wcall_destroy(su->wuser);
 
-	mem_deref(su->userid);
-	mem_deref(su->clientid);
 	mem_deref(su->dnsc);
 	mem_deref(su->httpc);
 
