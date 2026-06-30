@@ -28,6 +28,7 @@ pipeline {
                         dockerfile true
                     }
                     steps {
+		    	sh 'rm -rf contrib'
                         script {
                             def vcs = checkout([
                                     $class: 'GitSCM',
@@ -57,7 +58,6 @@ pipeline {
                         }
 
                         // clean
-			sh 'rm -rf contrib'
                         sh 'make distclean'
                         sh 'touch src/version/version.c'
 
