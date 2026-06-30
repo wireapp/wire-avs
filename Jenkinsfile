@@ -57,7 +57,6 @@ pipeline {
                         }
 
                         // clean
-                        sh './prepare.sh'
                         sh 'make distclean'
                         sh 'touch src/version/version.c'
 
@@ -88,9 +87,10 @@ pipeline {
                         sh 'zip -9j ./build/artifacts/zcall_linux_' + version + '.zip ./zcall'
                         sh 'if [ -e ./build/dist/android/debug/ ]; then cd ./build/dist/android/debug; zip -9r ./../../../artifacts/avs.android.' + version + '.debug.zip *; cd -; fi'
 
-                        archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
+//                        archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
                     }
                 }
+
                 stage('macOS') {
                     agent {
                         label 'macos'
@@ -128,7 +128,6 @@ pipeline {
                         }
 
                         // clean
-                        sh './prepare.sh'
                         sh 'make distclean'
                         sh 'touch src/version/version.c'
 
@@ -153,11 +152,13 @@ pipeline {
                         sh 'cp ./build/dist/osx/avscore.tar.bz2 ./osx'
                         sh 'cp ./build/dist/wasm/wireapp-avs-' + version + '.tgz ./build/artifacts/'
 
-                        archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
+//                        archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
                     }
                 }
+
             }
         }
+/*
         stage('Prepare changelog') {
             steps {
                 script {
@@ -171,6 +172,8 @@ pipeline {
                 echo(changelog)
             }
         }
+*/
+/*
         stage('Tag + Create Github release') {
             agent {
                 label "linuxbuild"
@@ -218,6 +221,8 @@ pipeline {
                 }
             }
         }
+*/
+/*
         stage('Upload to Github') {
             when {
                 anyOf {
@@ -258,6 +263,8 @@ pipeline {
                 }
             }
         }
+*/
+/*
         stage('Publish to sonatype') {
             when {
                 anyOf {
@@ -290,6 +297,7 @@ pipeline {
                 }
             }
         }
+*/
 //        stage('Publish to ios github repo') {
 //            when {
 //                anyOf {
@@ -311,6 +319,8 @@ pipeline {
 //                }
 //            }
 //        }
+
+/*
         stage('Publish to npm') {
             when {
                 anyOf {
@@ -337,8 +347,10 @@ pipeline {
                 }
             }
         }
+*/
     }
 
+/*
     post {
         always {
             node('linuxbuild') {
@@ -364,4 +376,5 @@ pipeline {
             }
         }
     }
+*/
 }
