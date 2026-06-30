@@ -17,6 +17,7 @@
 */
 
 #include "re.h"
+#include "avs_icall.h"
 #include "avs_stats.h"
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtcstats_objects.h"
@@ -40,6 +41,14 @@ bool operator==(const stats_jitter& lhs, const stats_jitter& rhs) {
 	return lhs.audio == rhs.audio && lhs.video == rhs.video;
 }
 
+bool operator==(const starts_remoteInboundRtt& lhs, const starts_remoteInboundRtt& rhs) {
+	return lhs.audio == rhs.audio && lhs.video == rhs.video;
+}
+
+bool operator==(const stats_rtt& lhs, const stats_rtt& rhs) {
+	return lhs.remote_inbound == rhs.remote_inbound && lhs.candidate_pair == rhs.candidate_pair;
+}
+
 bool operator==(const stats_report& lhs, const stats_report& rhs) {
 	return lhs.proto == rhs.proto &&
 			lhs.cand == rhs.cand &&
@@ -58,7 +67,7 @@ const auto zero_report = stats_report {};
 class Sanity : public ::testing::TestWithParam<std::tuple<std::string, std::string>> {
 public:
 	void SetUp() override {
-		stats_alloc(&stats, NULL);
+		stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, NULL);
 	}
 
 	void TearDown() override {
@@ -94,7 +103,7 @@ TEST_P(Sanity, input) {
 class Base {
 public:
 	virtual void SetUp() {
-		stats_alloc(&stats, NULL);
+		stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, NULL);
 		report = RTCStatsReport::Create(Timestamp::Zero());
 	}
 
@@ -522,7 +531,7 @@ public:
 
 public:
 	RTCIceCandidatePairStats* candidate_pair;
-	const stats_rx_tx zero_rtt = {0, 0};
+	const stats_rtt zero_rtt = {{0, 0}, 0};
 };
 
 TEST_F(StatsRttBase, without_candidates)
@@ -583,8 +592,9 @@ public:
 		remote_video_rtp->round_trip_time = 0.04;
 		report->AddStats(std::unique_ptr<RTCStats>(remote_video_rtp));
 
-		expected_rtt.tx = 1000 * (*candidate_pair->current_round_trip_time);
-		expected_rtt.rx = 1000 * (*remote_audio_rtp->round_trip_time + *remote_video_rtp->round_trip_time) / 2;
+		expected_rtt.candidate_pair = 1000 * (*candidate_pair->current_round_trip_time);
+		expected_rtt.remote_inbound.audio = 1000 * (*remote_audio_rtp->round_trip_time);
+		expected_rtt.remote_inbound.video = 1000 * (*remote_video_rtp->round_trip_time);
 	}
 
 	void TearDown() override {
@@ -593,7 +603,7 @@ public:
 
 public:
 	RTCIceCandidatePairStats* candidate_pair;
-	stats_rx_tx expected_rtt;
+	stats_rtt expected_rtt;
 };
 
 
@@ -635,7 +645,7 @@ TEST(StatsSamples, single_item_from_web)
 	avs_stats *stats;
 	stats_report sr;
 
-	stats_alloc(&stats, NULL);
+	stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, NULL);
 
 	stats_update(stats, sample_json.c_str());
 	stats_get_report(stats, &sr);

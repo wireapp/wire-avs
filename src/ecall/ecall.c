@@ -3322,7 +3322,7 @@ static void quality_handler(void *arg)
 
 	if (!err) {
 		uint32_t dloss = (uint32_t)stats.packets.lost.rx;
-		uint32_t rtt = stats.rtt.tx;
+		uint32_t rtt = stats.rtt.candidate_pair;
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall,
 			      ecall->userid_peer,
