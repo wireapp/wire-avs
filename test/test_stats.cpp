@@ -17,6 +17,7 @@
 */
 
 #include "re.h"
+#include "avs_icall.h"
 #include "avs_stats.h"
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtcstats_objects.h"
@@ -66,7 +67,7 @@ const auto zero_report = stats_report {};
 class Sanity : public ::testing::TestWithParam<std::tuple<std::string, std::string>> {
 public:
 	void SetUp() override {
-		stats_alloc(&stats, NULL);
+		stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, NULL);
 	}
 
 	void TearDown() override {
@@ -102,7 +103,7 @@ TEST_P(Sanity, input) {
 class Base {
 public:
 	virtual void SetUp() {
-		stats_alloc(&stats, NULL);
+		stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, NULL);
 		report = RTCStatsReport::Create(Timestamp::Zero());
 	}
 
@@ -644,7 +645,7 @@ TEST(StatsSamples, single_item_from_web)
 	avs_stats *stats;
 	stats_report sr;
 
-	stats_alloc(&stats, NULL);
+	stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, NULL);
 
 	stats_update(stats, sample_json.c_str());
 	stats_get_report(stats, &sr);

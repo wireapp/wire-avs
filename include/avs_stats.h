@@ -24,6 +24,11 @@ extern "C" {
 
 struct avs_stats;
 
+/* quality info */
+#define STATS_QUALITY_NORMAL          1
+#define STATS_QUALITY_MEDIUM          2
+#define STATS_QUALITY_POOR            3
+
 enum stats_proto {
 	STATS_PROTO_UNKNOWN   = 0,
 	STATS_PROTO_UDP       = 1,
@@ -73,10 +78,11 @@ struct stats_report {
 	struct stats_packet_counts packets_per_sec;
 	int audio_level;
 	int audio_level_smooth;
+	int quality_index;
 	struct stats_rtt rtt;
 };
 
-int stats_alloc(struct avs_stats **statsp, void *arg);
+int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void *arg);
 int stats_update(struct avs_stats *stats, const char *report_json);
 int stats_get_report(struct avs_stats *stats, struct stats_report *report);
 char *stats_proto_name(enum stats_proto proto);	

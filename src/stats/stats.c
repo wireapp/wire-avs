@@ -213,6 +213,7 @@ struct stats_obj {
 };
 
 struct avs_stats {
+	enum icall_conv_type conv_type;
 	struct stats_report report;
 	struct stats_packet_counts last_packets;
 	uint64_t last_timestamp_in_ms;
@@ -482,7 +483,7 @@ static void destructor(void *arg)
 	(void)stats;
 }
 
-int stats_alloc(struct avs_stats **statsp, void *arg)
+int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void *arg)
 {
 	struct avs_stats *stats;
 	int err = 0;
@@ -492,6 +493,7 @@ int stats_alloc(struct avs_stats **statsp, void *arg)
 		return ENOMEM;
 
 	stats->arg = arg;
+	stats->conv_type = conv_type;
 
 	memset(&stats->report, 0, sizeof(stats->report));
 	memset(&stats->last_packets, 0, sizeof(stats->last_packets));
@@ -755,6 +757,65 @@ out:
 	return err;
 }
 
+// Quality level thresholds
+const int RTT_LOW = 50;
+const int RTT_HIGH = 150;
+const int JITTER_LOW = 10;
+const int JITTER_HIGH = 50;
+const int PACKET_LOSS_LOW = 5;
+const int PACKET_LOSS_HIGH = 10;
+
+// Stream direction weights
+const float UPSTREAM_WEIGHT = 0.7;
+const float DOWNSTREM_WEIGHT = (1.0 - UPSTREAM_WEIGHT);
+
+// Overall quality weights
+const float JITTER_WEIGHT = 0.35;
+const float PACKET_LOSS_WEIGHT = 0.35;
+const float RTT_WEIGHT = (1.0 - JITTER_WEIGHT - PACKET_LOSS_WEIGHT);
+
+static int normalize_to_levels(int num, int low_threshold, int high_threshold) {
+	if (num < low_threshold) {
+		return STATS_QUALITY_NORMAL;
+	}
+	else if (num > high_threshold) {
+		return STATS_QUALITY_POOR;
+	}
+	else {
+		return STATS_QUALITY_MEDIUM;
+	}
+}
+
+static void normalize_quality(struct avs_stats *stats) {
+	// Stats are 3 step normalized wrt corresponding thresholds
+	const int rtt_candidate_pair = normalize_to_levels(stats->report.rtt.candidate_pair, RTT_LOW, RTT_HIGH);
+	const int rtt_remote_inbound = normalize_to_levels((stats->report.rtt.remote_inbound.audio + stats->report.rtt.remote_inbound.video) / 2, RTT_LOW, RTT_HIGH);
+	const int jitter_tx = normalize_to_levels((stats->report.jitter.audio.tx + stats->report.jitter.video.tx) / 2, JITTER_LOW, JITTER_HIGH);
+	const int jitter_rx = normalize_to_levels((stats->report.jitter.audio.rx + stats->report.jitter.video.rx) / 2, JITTER_LOW, JITTER_HIGH);
+	const int packet_loss_tx = normalize_to_levels(stats->report.packets.lost.tx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
+	const int packet_loss_rx = normalize_to_levels(stats->report.packets.lost.rx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
+
+	float rtt = 0;
+	float jitter = 0;
+	float packet_loss = 0;
+
+	if ( stats->conv_type == ICALL_CONV_TYPE_CONFERENCE || stats->conv_type == ICALL_CONV_TYPE_CONFERENCE_MLS) {
+		// provide slightly higher importance to upstream stats fon conference
+		rtt = UPSTREAM_WEIGHT * rtt_remote_inbound + DOWNSTREM_WEIGHT * rtt_candidate_pair;
+		jitter = UPSTREAM_WEIGHT * jitter_tx + DOWNSTREM_WEIGHT * jitter_rx;
+		packet_loss = UPSTREAM_WEIGHT * packet_loss_tx + DOWNSTREM_WEIGHT * packet_loss_rx;
+	}
+	else {
+		// for 1-1 calls favor upstream information to isolate stats from peer connection
+		rtt = rtt_candidate_pair;
+		jitter = jitter_tx;
+		packet_loss = packet_loss_tx;
+	}
+
+	// provide packet loss and jitter a bit more importance than latency
+	stats->report.quality_index =  round(JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss + RTT_WEIGHT * rtt);
+}
+
 int stats_update(struct avs_stats *stats, const char *report_json)
 {
 	int err = 0;
@@ -778,6 +839,8 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 	err |= read_packet_stats_and_jitter(stats, &stats_obj);
 	err |= read_rtt_and_connection(stats, &stats_obj);
 	err |= read_audio_level(stats, &stats_obj);
+
+	normalize_quality(stats);
 
 	list_flush(&stats_obj.audio_source);
 	list_flush(&stats_obj.inbound_rtp);

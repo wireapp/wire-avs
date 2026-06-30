@@ -1643,68 +1643,6 @@ static void destructor(void *arg)
 	info("wcall(%p): dtor -- done\n", wcall);
 }
 
-static int normalize_to_levels(int num, int low_threshold, int high_threshold) {
-	if (num < low_threshold) {
-		return WCALL_QUALITY_NORMAL;
-	}
-	else if (num > high_threshold) {
-		return WCALL_QUALITY_POOR;
-	}
-	else {
-		return WCALL_QUALITY_MEDIUM;
-	}
-}
-
-// Quality level thresholds
-const int RTT_LOW = 50;
-const int RTT_HIGH = 150;
-const int JITTER_LOW = 10;
-const int JITTER_HIGH = 50;
-const int PACKET_LOSS_LOW = 5;
-const int PACKET_LOSS_HIGH = 10;
-
-// Stream direction weights
-const float UPSTREAM_WEIGHT = 0.7;
-const float DOWNSTREM_WEIGHT = (1.0 - UPSTREAM_WEIGHT);
-
-
-
-// Overall quality weights
-const float JITTER_WEIGHT = 0.35;
-const float PACKET_LOSS_WEIGHT = 0.35;
-const float RTT_WEIGHT = (1.0 - JITTER_WEIGHT - PACKET_LOSS_WEIGHT);
-
-static int normalize_quality(const struct stats_report* stats, enum icall_conv_type peer) {
-	// Stats are 3 step normalized wrt corresponding thresholds
-	const int rtt_candidate_pair = normalize_to_levels(stats->rtt.candidate_pair, RTT_LOW, RTT_HIGH);
-	const int rtt_remote_inbound = normalize_to_levels((stats->rtt.remote_inbound.audio + stats->rtt.remote_inbound.video) / 2, RTT_LOW, RTT_HIGH);
-	const int jitter_tx = normalize_to_levels((stats->jitter.audio.tx + stats->jitter.video.tx) / 2, JITTER_LOW, JITTER_HIGH);
-	const int jitter_rx = normalize_to_levels((stats->jitter.audio.rx + stats->jitter.video.rx) / 2, JITTER_LOW, JITTER_HIGH);
-	const int packet_loss_tx = normalize_to_levels(stats->packets.lost.tx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
-	const int packet_loss_rx = normalize_to_levels(stats->packets.lost.rx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
-
-	float rtt = 0;
-	float jitter = 0;
-	float packet_loss = 0;
-
-	if (peer == ICALL_CONV_TYPE_CONFERENCE || peer == ICALL_CONV_TYPE_CONFERENCE_MLS) {
-		// provide slightly higher importance to upstream stats fon conference
-		rtt = UPSTREAM_WEIGHT * rtt_remote_inbound + DOWNSTREM_WEIGHT * rtt_candidate_pair;
-		jitter = UPSTREAM_WEIGHT * jitter_tx + DOWNSTREM_WEIGHT * jitter_rx;
-		packet_loss = UPSTREAM_WEIGHT * packet_loss_tx + DOWNSTREM_WEIGHT * packet_loss_rx;
-	} 
-	else {
-		// for 1-1 calls favor upstream information to isolate stats from peer connection
-		rtt = rtt_candidate_pair;
-		jitter = jitter_tx;
-		packet_loss = packet_loss_tx;
-	}
-
-
-
-	// provide packet loss and jitter a bit more importance than latency
-	return round(JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss + RTT_WEIGHT * rtt);
-}
 
 static void icall_quality_handler(struct icall *icall,
 				  const char *userid,
@@ -1745,7 +1683,7 @@ static void icall_quality_handler(struct icall *icall,
 		quality = WCALL_QUALITY_RECONNECTING;
 	}
 	else {
-		quality = normalize_quality(&stats, peer);
+		quality = stats.quality_index;
 	}
 
 	now = tmr_jiffies();

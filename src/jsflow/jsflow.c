@@ -599,7 +599,7 @@ int jsflow_alloc(struct iflow		**flowp,
 	if (!flow)
 		return ENOMEM;
 
-	err = stats_alloc(&flow->stats, flow);
+	err = stats_alloc(&flow->stats, conv_type, flow);
 	if (err) {
 		goto out;
 	}
