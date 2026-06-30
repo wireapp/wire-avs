@@ -127,6 +127,10 @@ pipeline {
                             }
                         }
 
+                        // rust version
+                        sh 'which rustc'
+                        sh 'rustc --version'
+
                         // clean
                         sh 'make distclean'
                         sh 'touch src/version/version.c'
