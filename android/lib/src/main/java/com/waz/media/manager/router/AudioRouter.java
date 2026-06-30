@@ -115,7 +115,7 @@ public class AudioRouter
 
 	    @Override
 	    public void onCommunicationDeviceChanged(AudioDeviceInfo device) {
-		    DoLog("onCommunicationDeviceChanged: dev=" + device.getType());
+		    DoLog("onCommunicationDeviceChanged: dev=" + (device == null ? "null" : device.getType()));
 		    this.router.UpdateRoute();
 	    }
     }
