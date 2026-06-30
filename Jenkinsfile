@@ -73,7 +73,7 @@ pipeline {
                         sh 'make dist_clean'
                         sh 'make zcall sectest AVS_VERSION=' + version
                         script {
-                            def exitStatus = sh returnStatus: true, script: './sectest https://sft.calling-staging.zinfra.io:443 > ./build/artifacts/avs-' + version + '-sectest.log'
+                            def exitStatus = sh returnStatus: true, script: './sectest https://sft.calling-staging-v01.zinfra.io:443 > ./build/artifacts/avs-' + version + '-sectest.log'
                             if (exitStatus != 0) {
                                 sh 'cat ./build/artifacts/avs-' + version + '-sectest.log'
                                 error('sectest failed')
@@ -92,7 +92,10 @@ pipeline {
                 }
                 stage('macOS') {
                     agent {
-                        label 'built-in'
+                        label 'macos'
+                    }
+                    environment {
+                        PATH = "/opt/homebrew/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${env.PATH}"
                     }
                     steps {
                         script {
@@ -223,7 +226,7 @@ pipeline {
                 axes {
                     axis {
                         name 'AGENT'
-                        values 'built-in', 'linuxbuild'
+                        values 'macos', 'linuxbuild'
                     }
                 }
                 agent {
@@ -313,7 +316,10 @@ pipeline {
                 }
             }
             agent {
-                label 'built-in'
+                label 'macos'
+            }
+            environment {
+                PATH = "/opt/homebrew/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${env.PATH}"
             }
             steps {
                 // NOTE: the script upload-wasm.sh supports non-release branches, but in the past
@@ -341,7 +347,7 @@ pipeline {
         }
 
         success {
-            node( 'built-in' ) {
+            node( 'macos' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
                     wireSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:**\n${changelog}\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
@@ -349,7 +355,7 @@ pipeline {
         }
 
         failure {
-            node( 'built-in' ) {
+            node( 'macos' ) {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
                     wireSend secret: "$jenkinsbot_secret", message: "❌ ${JOB_NAME} #${BUILD_ID} failed\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
