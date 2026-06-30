@@ -554,8 +554,8 @@ CPPFLAGS += \
 	 -DUSE_APPLE_COMMONCRYPTO \
 	 -DIPHONE -pipe -no-cpp-precomp
 
-#CXXFLAGS += \
-#	-Wno-vla-cxx-extension
+CXXFLAGS += \
+	-Wno-vla-cxx-extension
 
 LFLAGS	 += \
 	 -arch $(AVS_ARCH) \
@@ -685,6 +685,7 @@ CPPFLAGS += \
          -arch $(AVS_ARCH) \
          -isysroot $(SDK_PATH) \
          -DWEBRTC_POSIX -DWEBRTC_MAC -DZETA_USING_AU_HAL -DHAVE_GAI_STRERROR=1 \
+	 -Wno-vla-cxx-extension -Wno-strict-prototypes \
 	 -pipe -no-cpp-precomp \
 	 -mmacosx-version-min=10.9
 LFLAGS   += \
