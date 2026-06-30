@@ -57,6 +57,7 @@ pipeline {
                         }
 
                         // clean
+			sh 'rm -rf contrib'
                         sh 'make distclean'
                         sh 'touch src/version/version.c'
 
