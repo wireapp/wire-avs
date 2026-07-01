@@ -26,6 +26,7 @@ apt install -y \
     libxcomposite-dev \
     libxdamage-dev \
     libxrender-dev \
+    lld \
     make \
     openjdk-17-jdk-headless \
     openjdk-17-jre-headless \

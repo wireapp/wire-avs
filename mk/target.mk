@@ -642,6 +642,9 @@ CPPFLAGS += \
 CXXFLAGS += \
 	 -fPIC -fvisibility=default
 
+LFLAGS	+= \
+	-fuse-ld=lld -flto=thin
+
 SH_LFLAGS += \
         -ffunction-sections -funwind-tables \
         -fno-short-enums \
