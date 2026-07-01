@@ -12,7 +12,8 @@ RUN /build/avs/ubuntu_20.04_dependencies.sh
 # Needed to workaround JENKINS-38438
 RUN chown -R 1015:1015 /build/avs
 
-ENV PATH="/build/avs/.cargo/bin:${PATH}"
+#ENV PATH="/build/avs/.cargo/bin:${PATH}"
+ENV PATH="/usr/share/cargo/bin:/root/.cargo/bin:${PATH}"
 
 CMD make DIST=1 && build/linux-x86_64/bin/ztest && build/linux-x86_64/bin/ztest-slow && cp -R build/* /out/
 
