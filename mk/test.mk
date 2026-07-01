@@ -62,7 +62,7 @@ $(TEST_C_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.c
 $(TEST_CC_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.cpp
 	@echo "  CXX  $(AVS_OS)-$(AVS_ARCH) test/$*.cpp"
 	@mkdir -p $(dir $@)
-	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) \
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) \
 		$(TEST_CPPFLAGS) $(TEST_CXXFLAGS) \
 		-c $< -o $@ $(DFLAGS)
@@ -78,7 +78,7 @@ $(TEST_SLOW_C_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.c
 $(TEST_SLOW_CC_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.cpp
 	@echo "  CXX  $(AVS_OS)-$(AVS_ARCH) test/$*.cpp"
 	@mkdir -p $(dir $@)
-	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) \
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) \
 		$(TEST_CPPFLAGS) $(TEST_CXXFLAGS) \
 		-c $< -o $@ $(DFLAGS)
@@ -86,13 +86,13 @@ $(TEST_SLOW_CC_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.cpp
 $(BUILD_BIN)/$(TEST_BIN)$(BIN_SUFFIX): $(TEST_OBJS) $(AVS_STATIC) $(MENG_STATIC)
 	@echo "  LD      $@"
 	@mkdir -p $(BUILD_BIN)
-	@$(CXX) $(LFLAGS) $(TEST_LFLAGS) \
+	$(CXX) $(LFLAGS) $(TEST_LFLAGS) \
 		$^ $(TEST_LIBS) $(LIBS) -o $@
 
 $(BUILD_BIN)/$(TEST_SLOW_BIN)$(BIN_SUFFIX): $(TEST_SLOW_OBJS) $(AVS_STATIC) $(MENG_STATIC)
 	@echo "  LD      $@"
 	@mkdir -p $(BUILD_BIN)
-	@$(CXX) $(LFLAGS) $(TEST_LFLAGS) \
+	$(CXX) $(LFLAGS) $(TEST_LFLAGS) \
 		$^ $(TEST_LIBS) $(LIBS) -o $@
 
 #--- Phony Targets ---

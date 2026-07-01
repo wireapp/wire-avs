@@ -636,6 +636,7 @@ CFLAGS += \
 
 CPPFLAGS += \
          -DWEBRTC_POSIX -DWEBRTC_LINUX -DHAVE_GAI_STRERROR=1 \
+	 -DABSL_INTERNAL_HAS_SOURCE_LOCATION=0 \
          -Wno-vla-extension \
 	 -fPIC -fvisibility=default
 
