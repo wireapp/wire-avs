@@ -630,6 +630,7 @@ CPPFLAGS += \
 	 -fPIC -fvisibility=default
 
 CXXFLAGS += \
+         -Wno-vla-cxx-extension \
 	 -fPIC -fvisibility=default
 
 SH_LFLAGS += \
