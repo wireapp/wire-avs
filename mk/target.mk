@@ -636,12 +636,12 @@ CFLAGS += \
 
 CPPFLAGS += \
          -DWEBRTC_POSIX -DWEBRTC_LINUX -DHAVE_GAI_STRERROR=1 \
+	 -DABSL_OPTION_HAS_SOURCE_LOCATION=0 \
          -Wno-vla-extension \
 	 -fPIC -fvisibility=default
-#	 -DABSL_OPTION_HAS_SOURCE_LOCATION=0 \
 
 CXXFLAGS += \
-	-stdlib=libc++ -fPIC -fvisibility=default
+	-fPIC -fvisibility=default
 
 LFLAGS	+= \
 	-fuse-ld=lld -flto=thin
