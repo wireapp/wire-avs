@@ -33,10 +33,9 @@ pipeline {
                     }
                     steps {
 		    	sh '''
+			  echo "Looking for cargo"
                           # Debug step to find where apt put cargo
                           whereis cargo || true
-                        
-                          cargo clean
                         '''
                         script {
                             def vcs = checkout([
