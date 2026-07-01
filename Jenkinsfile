@@ -28,7 +28,7 @@ pipeline {
 		    	  dockerfile {	    
                             filename 'Dockerfile'
                             // Clear any host tool wrappers and isolate pathing
-                            args '-v /home/jenkins/workspace:/workspace --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+                            args '-v /home/jenkins/workspace:/workspace --env PATH=/usr/share/cargo/bin:/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
                         }
                     }
                     steps {
