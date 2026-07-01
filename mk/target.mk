@@ -636,7 +636,7 @@ CFLAGS += \
 
 CPPFLAGS += \
          -DWEBRTC_POSIX -DWEBRTC_LINUX -DHAVE_GAI_STRERROR=1 \
-	 -U__cpp_lib_source_location -D__cpp_lib_source_location=0 \
+	 -D"std=struct source_location{static source_location current(){return {};} int line(){return 0;} int column(){return 0;} const char* file_name(){return \"\";} const char* function_name(){return \"\";}}; namespace std" \
          -Wno-vla-extension \
 	 -fPIC -fvisibility=default
 
