@@ -28,7 +28,6 @@ pipeline {
                         dockerfile true
                     }
                     steps {
-		    	sh 'rm -rf contrib'
                         script {
                             def vcs = checkout([
                                     $class: 'GitSCM',
