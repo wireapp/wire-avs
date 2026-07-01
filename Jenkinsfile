@@ -57,7 +57,6 @@ pipeline {
                         }
 
                         // clean
-                        sh './prepare.sh'
                         sh 'make distclean'
                         sh 'touch src/version/version.c'
 
@@ -128,7 +127,6 @@ pipeline {
                         }
 
                         // clean
-                        sh './prepare.sh'
                         sh 'make distclean'
                         sh 'touch src/version/version.c'
 
