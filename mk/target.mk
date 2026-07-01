@@ -246,7 +246,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 20260605.92
+WEBRTC_VER := 20260605.97
 endif
 
 JAVAC := javac
