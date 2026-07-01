@@ -636,7 +636,7 @@ CFLAGS += \
 
 CPPFLAGS += \
          -DWEBRTC_POSIX -DWEBRTC_LINUX -DHAVE_GAI_STRERROR=1 \
-	 -D_LIBCPP_HAS_NO_SOURCE_LOCATION=1 \
+	 -U__cpp_lib_source_location -D__cpp_lib_source_location=0 \
          -Wno-vla-extension \
 	 -fPIC -fvisibility=default
 
