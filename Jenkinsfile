@@ -23,6 +23,7 @@ pipeline {
     stages {
        stage('Test + Build') {
             parallel {
+/*
                 stage('Linux') {
                     agent {
                         dockerfile true
@@ -90,6 +91,7 @@ pipeline {
 //                        archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
                     }
                 }
+*/
 
                 stage('macOS') {
                     agent {
