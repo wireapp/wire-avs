@@ -26,7 +26,6 @@ pipeline {
                 stage('Linux') {
                     agent {
 		    	  dockerfile true 
-                        }
                     }
                     steps {
 		    	sh '''
