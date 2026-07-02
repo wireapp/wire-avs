@@ -25,11 +25,7 @@ pipeline {
             parallel {
                 stage('Linux') {
                     agent {
-		    	  dockerfile {	    
-                            filename 'Dockerfile'
-                            // Clear any host tool wrappers and isolate pathing
-                            args '-v /home/jenkins/workspace:/workspace --env PATH=/usr/share/cargo/bin:/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
-			    additionalBuildArgs '--no-cache'
+		    	  dockerfile true 
                         }
                     }
                     steps {
@@ -104,73 +100,6 @@ pipeline {
                         // Stash the android aar directory recursively,
                         // shared libraries will be used to generate android kmp in macos agent
                         stash name: 'android-aar', includes: 'build/dist/android/aar/**'
-                    }
-                }
-                stage('macOS') {
-                    agent {
-                        label 'macos'
-                    }
-                    environment {
-                        PATH = "/opt/homebrew/bin:/Users/jenkins/.cargo/bin:/usr/local/bin:${env.PATH}"
-                    }
-                    steps {
-                        script {
-                            def vcs = checkout([
-                                    $class: 'GitSCM',
-                                    changelog: true,
-                                    userRemoteConfigs: scm.userRemoteConfigs,
-                                    branches: scm.branches,
-                                    extensions: scm.extensions + [
-                                            [
-                                            $class: 'SubmoduleOption',
-                                            disableSubmodules: false,
-                                            recursiveSubmodules: true,
-                                            parentCredentials: true
-                                            ]
-                                    ]
-                            ])
-
-                            branchName = vcs.GIT_BRANCH
-                            commitId = "${vcs.GIT_COMMIT}"[0..6]
-                            repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
-
-                            release_version = branchName.replaceAll("[^\\d\\.]", "");
-                            if (release_version.length() > 0 || branchName.contains('release')) {
-                                version = release_version + "." + buildNumber
-                            } else {
-                                version = "0.0.${buildNumber}"
-                            }
-                        }
-
-                        // clean
-                        sh 'make distclean'
-                        sh 'touch src/version/version.c'
-
-                        // build tests
-                        sh 'make test AVS_VERSION=' + version
-                        // run tests
-                        sh './ztest'
-                        // run slow tests
-                        sh './ztest-slow'
-
-                        // build
-                        sh 'make dist_clean'
-                        sh 'make zcall AVS_VERSION=' + version
-                        sh '''#!/bin/bash
-                            . ./scripts/android_devenv.sh && echo "sdk.dir=${ANDROID_SDK_ROOT}\nndk.dir=${ANDROID_NDK_ROOT}" > local.properties
-                            . ./scripts/wasm_devenv.sh && make dist_xc dist_wasm AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
-                        '''
-
-                        sh 'rm -rf ./build/artifacts'
-                        sh 'mkdir -p ./build/artifacts'
-                        sh 'cp ./build/dist/osx/avs.framework.zip ./build/artifacts/avs.framework.osx.' + version + '.zip'
-                        sh 'cp ./build/dist/xc/avs.xcframework.zip ./build/artifacts/avs.xcframework.zip'
-                        sh 'zip -9j ./build/artifacts/zcall_osx_' + version + '.zip ./zcall'
-                        sh 'mkdir -p ./osx'
-                        sh 'cp ./build/dist/osx/avscore.tar.bz2 ./osx'
-                        sh 'cp ./build/dist/wasm/wireapp-avs-' + version + '.tgz ./build/artifacts/'
-
-                        archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
                     }
                 }
             }
