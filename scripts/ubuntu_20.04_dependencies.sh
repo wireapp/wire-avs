@@ -3,9 +3,26 @@
 # dependencies to build wire-avs
 # on ubuntu 18.04 and 20.04
 # for building webrtc see https://github.com/wireapp/prebuilt-webrtc-binaries
+# 1. Install base utilities and update root certificates first
+apt-get update && apt-get install -y \
+    ca-certificates \
+    wget \
+    gnupg \
+    lsb-release \
+    software-properties-common \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Now run the LLVM script safely (it won't fail the TLS handshake)
+wget https://apt.llvm.org/llvm.sh \
+    && chmod +x llvm.sh \
+    && ./llvm.sh 19 \
+    && rm llvm.sh \
+    && rm -rf /var/lib/apt/lists/*
+
 apt update
 
 apt install -y \
+    ca-certificates \
     curl \
     git \
     autoconf \
@@ -56,13 +73,9 @@ apt purge -y cargo rustc
 # cleanup apt cache to reduce image size
 apt clean
 
-# Add LLVM 19 repo and install packages
-wget -qO- https://llvm.org | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-echo "deb http://llvm.org llvm-toolchain-focal-19 main" | tee /etc/apt/sources.list.d/apt.llvm.org.list
-apt update
-
 # Setup Clang 19 alternatives and install Rust
 update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
+update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
 
 # download the rust toolchain (to build the cryptobox-c dependency)
 curl https://sh.rustup.rs -sSf | sh -s -- -y
