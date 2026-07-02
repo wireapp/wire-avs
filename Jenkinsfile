@@ -21,32 +21,6 @@ pipeline {
     }
 
     stages {
-       stage('Checkout source') {
-           agent any
-	   steps {
-	       script {
-	           def vcs = checkout([
-		       $class: 'GitSCM',
-                       changelog: true,
-                       userRemoteConfigs: scm.userRemoteConfigs,
-                       branches: scm.branches,
-                       extensions: scm.extensions + [
-                           [$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, parentCredentials: true]
-                       ]
-		   ])
-                   branchName = vcs.GIT_BRANCH
-                   commitId = "${vcs.GIT_COMMIT}"[0..6]
-                   repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
-
-                   release_version = branchName.replaceAll("[^\\d\\.]", "")
-                   if (release_version.length() > 0 || branchName.contains('release')) {
-                       version = release_version + "." + buildNumber
-                   } else {
-                       version = "0.0.${buildNumber}"
-                   }
-       	       }		   
-       	   }
-       }
        stage('Test + Build') {
             parallel {
                 stage('Linux') {
@@ -59,6 +33,28 @@ pipeline {
                         }
                     }
                     steps {
+		        script {
+	                   def vcs = checkout([
+		       	       $class: 'GitSCM',
+                       	       changelog: true,
+                       	       userRemoteConfigs: scm.userRemoteConfigs,
+                       	       branches: scm.branches,
+                       	       extensions: scm.extensions + [
+                                  [$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, parentCredentials: true]
+                       	       ]
+		   	   ])
+                   	   branchName = vcs.GIT_BRANCH
+                   	   commitId = "${vcs.GIT_COMMIT}"[0..6]
+                   	   repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
+
+                   	   release_version = branchName.replaceAll("[^\\d\\.]", "")
+                   	   if (release_version.length() > 0 || branchName.contains('release')) {
+                       	      version = release_version + "." + buildNumber
+                   	   } else {
+                       	      version = "0.0.${buildNumber}"
+                   	   }
+       	       	        }		   
+
 		    	sh '''
 			  echo "Looking for cargo"
                           # Debug step to find where apt put cargo
