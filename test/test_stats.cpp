@@ -41,7 +41,7 @@ bool operator==(const stats_jitter& lhs, const stats_jitter& rhs) {
 	return lhs.audio == rhs.audio && lhs.video == rhs.video;
 }
 
-bool operator==(const starts_remoteInboundRtt& lhs, const starts_remoteInboundRtt& rhs) {
+bool operator==(const stats_remoteInboundRtt& lhs, const stats_remoteInboundRtt& rhs) {
 	return lhs.audio == rhs.audio && lhs.video == rhs.video;
 }
 
@@ -67,7 +67,7 @@ const auto zero_report = stats_report {};
 class Sanity : public ::testing::TestWithParam<std::tuple<std::string, std::string>> {
 public:
 	void SetUp() override {
-		stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, NULL);
+		stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr);
 	}
 
 	void TearDown() override {
@@ -103,7 +103,7 @@ TEST_P(Sanity, input) {
 class Base {
 public:
 	virtual void SetUp() {
-		stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, NULL);
+		stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr);
 		report = RTCStatsReport::Create(Timestamp::Zero());
 	}
 
@@ -645,7 +645,7 @@ TEST(StatsSamples, single_item_from_web)
 	avs_stats *stats;
 	stats_report sr;
 
-	stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, NULL);
+	stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr);
 
 	stats_update(stats, sample_json.c_str());
 	stats_get_report(stats, &sr);

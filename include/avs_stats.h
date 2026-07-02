@@ -24,11 +24,6 @@ extern "C" {
 
 struct avs_stats;
 
-/* quality info */
-#define STATS_QUALITY_NORMAL          1
-#define STATS_QUALITY_MEDIUM          2
-#define STATS_QUALITY_POOR            3
-
 enum stats_proto {
 	STATS_PROTO_UNKNOWN   = 0,
 	STATS_PROTO_UDP       = 1,
@@ -54,13 +49,13 @@ struct stats_jitter {
 	struct stats_rx_tx video;
 };
 
-struct starts_remoteInboundRtt {
+struct stats_remoteInboundRtt {
 	uint32_t audio;
 	uint32_t video;
 };
 
 struct stats_rtt {
-	struct starts_remoteInboundRtt remote_inbound;
+	struct stats_remoteInboundRtt remote_inbound;
 	uint32_t candidate_pair;
 };
 
@@ -85,9 +80,16 @@ struct stats_report {
 int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void *arg);
 int stats_update(struct avs_stats *stats, const char *report_json);
 int stats_get_report(struct avs_stats *stats, struct stats_report *report);
-char *stats_proto_name(enum stats_proto proto);	
-char *stats_cand_name(enum stats_cand cand);	
-	
+char *stats_proto_name(enum stats_proto proto);
+char *stats_cand_name(enum stats_cand cand);
+
+// Exponential Movin Average
+struct avs_ema;
+int ema_alloc(struct avs_ema **emap, void *arg);
+int ema_get_val(const struct avs_ema *ema, int *val);
+int ema_update(struct avs_ema *ema, float data);
+
+
 #ifdef __cplusplus
 }
 #endif

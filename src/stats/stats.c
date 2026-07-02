@@ -217,6 +217,7 @@ struct avs_stats {
 	struct stats_report report;
 	struct stats_packet_counts last_packets;
 	uint64_t last_timestamp_in_ms;
+	struct avs_ema *ema;
 
 	void *arg;
 };
@@ -479,6 +480,7 @@ static int read_audio_level(struct avs_stats *stats, const struct stats_obj *sta
 static void destructor(void *arg)
 {
 	struct avs_stats *stats = (void *)arg;
+	mem_deref(stats->ema);
 
 	(void)stats;
 }
@@ -494,7 +496,8 @@ int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void 
 
 	stats->arg = arg;
 	stats->conv_type = conv_type;
-
+	ema_alloc(&(stats->ema), NULL)
+;
 	memset(&stats->report, 0, sizeof(stats->report));
 	memset(&stats->last_packets, 0, sizeof(stats->last_packets));
 	stats->last_timestamp_in_ms = 0;
@@ -774,6 +777,11 @@ const float JITTER_WEIGHT = 0.35;
 const float PACKET_LOSS_WEIGHT = 0.35;
 const float RTT_WEIGHT = (1.0 - JITTER_WEIGHT - PACKET_LOSS_WEIGHT);
 
+/* quality info */
+const int STATS_QUALITY_NORMAL = 1;
+const int STATS_QUALITY_MEDIUM = 2;
+const int STATS_QUALITY_POOR = 3;
+
 static int normalize_to_levels(int num, int low_threshold, int high_threshold) {
 	if (num < low_threshold) {
 		return STATS_QUALITY_NORMAL;
@@ -786,7 +794,7 @@ static int normalize_to_levels(int num, int low_threshold, int high_threshold) {
 	}
 }
 
-static void normalize_quality(struct avs_stats *stats) {
+static float normalize_quality(const struct avs_stats *stats) {
 	// Stats are 3 step normalized wrt corresponding thresholds
 	const int rtt_candidate_pair = normalize_to_levels(stats->report.rtt.candidate_pair, RTT_LOW, RTT_HIGH);
 	const int rtt_remote_inbound = normalize_to_levels((stats->report.rtt.remote_inbound.audio + stats->report.rtt.remote_inbound.video) / 2, RTT_LOW, RTT_HIGH);
@@ -813,7 +821,7 @@ static void normalize_quality(struct avs_stats *stats) {
 	}
 
 	// provide packet loss and jitter a bit more importance than latency
-	stats->report.quality_index =  round(JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss + RTT_WEIGHT * rtt);
+	return JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss + RTT_WEIGHT * rtt;
 }
 
 int stats_update(struct avs_stats *stats, const char *report_json)
@@ -840,7 +848,8 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 	err |= read_rtt_and_connection(stats, &stats_obj);
 	err |= read_audio_level(stats, &stats_obj);
 
-	normalize_quality(stats);
+	const float quality = normalize_quality(stats);
+	err = ema_update(stats->ema, quality);
 
 	list_flush(&stats_obj.audio_source);
 	list_flush(&stats_obj.inbound_rtp);
@@ -855,12 +864,15 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 
 int stats_get_report(struct avs_stats *stats, struct stats_report *report)
 {
+	int err = 0;
+
 	if (!stats || !report)
 		return EINVAL;
 
+	err = ema_get_val(stats->ema, &stats->report.quality_index);
 	*report = stats->report;
 
-	return 0;
+	return err;
 }
 
 char *stats_proto_name(enum stats_proto proto)
