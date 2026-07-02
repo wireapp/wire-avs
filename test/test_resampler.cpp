@@ -20,26 +20,6 @@
 #include <sys/stat.h>
 #endif
 #include <sys/time.h>
-#include <cstddef>
-struct source_location {
-	static source_location current() {
-		return {};
-	}
-	int line() {
-		return 0;
-	}
-	int column() {
-		return 0;
-	}
-	const char* file_name() {
-		return "";
-	}
-	const char* function_name() {
-		return "";
-	}
-};
-namespace std;
-
 #include "common_audio/resampler/include/push_resampler.h"
 
 #include "gtest/gtest.h"
