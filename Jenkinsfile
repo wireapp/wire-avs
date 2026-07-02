@@ -21,11 +21,41 @@ pipeline {
     }
 
     stages {
+       stage('Checkout source') {
+           agent any
+	   steps {
+	       script {
+	           def vcs = checkout([
+		       $class: 'GitSCM',
+                       changelog: true,
+                       userRemoteConfigs: scm.userRemoteConfigs,
+                       branches: scm.branches,
+                       extensions: scm.extensions + [
+                           [$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, parentCredentials: true]
+                       ]
+		   ])
+                   branchName = vcs.GIT_BRANCH
+                   commitId = "${vcs.GIT_COMMIT}"[0..6]
+                   repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
+
+                   release_version = branchName.replaceAll("[^\\d\\.]", "")
+                   if (release_version.length() > 0 || branchName.contains('release')) {
+                       version = release_version + "." + buildNumber
+                   } else {
+                       version = "0.0.${buildNumber}"
+                   }
+       	       }		   
+       	   }
+       }
        stage('Test + Build') {
             parallel {
                 stage('Linux') {
                     agent {
-		    	  dockerfile true 
+			  dockerfile {
+                            filename 'Dockerfile'
+                            // Explicitly force the path to look inside common cargo locations
+                            args '-v /home/jenkins/workspace:/workspace --env PATH=/usr/share/cargo/bin:/build/avs/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+                        }
                     }
                     steps {
 		    	sh '''
@@ -33,34 +63,6 @@ pipeline {
                           # Debug step to find where apt put cargo
                           whereis cargo || true
                         '''
-                        script {
-                            def vcs = checkout([
-                                    $class: 'GitSCM',
-                                    changelog: true,
-                                    userRemoteConfigs: scm.userRemoteConfigs,
-                                    branches: scm.branches,
-                                    extensions: scm.extensions + [
-                                            [
-                                            $class: 'SubmoduleOption',
-                                            disableSubmodules: false,
-                                            recursiveSubmodules: true,
-                                            parentCredentials: true
-                                            ]
-                                    ]
-                            ])
-
-                            branchName = vcs.GIT_BRANCH
-                            commitId = "${vcs.GIT_COMMIT}"[0..6]
-                            repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
-
-                            release_version = branchName.replaceAll("[^\\d\\.]", "");
-                            if (release_version.length() > 0 || branchName.contains('release')) {
-                                version = release_version + "." + buildNumber
-                            } else {
-                                version = "0.0.${buildNumber}"
-                            }
-                        }
-
                         // clean
                         sh 'make distclean'
                         sh 'touch src/version/version.c'
