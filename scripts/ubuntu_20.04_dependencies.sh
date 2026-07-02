@@ -10,8 +10,6 @@ apt install -y \
     git \
     autoconf \
     automake \
-    g++-13 \
-    clang-15 \    
     cargo \
     clang \
     clang-tools \
