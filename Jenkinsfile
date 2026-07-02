@@ -67,7 +67,10 @@ pipeline {
 			  clang++ --version
                         '''
                         // clean
-                        sh 'make distclean'
+			// Jenkins will not fail here, even if cargo clean returns an error code
+                        def exitCode = sh(script: 'make distclean', returnStatus: true)
+            		println "make distclean finished with exit code: ${exitCode}"			
+			// sh 'make distclean'
                         sh 'touch src/version/version.c'			
 
                         // build tests
