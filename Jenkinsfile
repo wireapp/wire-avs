@@ -54,7 +54,8 @@ pipeline {
 			  dockerfile {
                             filename 'Dockerfile'
                             // Explicitly force the path to look inside common cargo locations
-                            args '-v /home/jenkins/workspace:/workspace --env PATH=/usr/share/cargo/bin:/build/avs/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+                            //args '-v /home/jenkins/workspace:/workspace --env PATH=/usr/share/cargo/bin:/build/avs/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+			    additionalBuildArgs '--no-cache'
                         }
                     }
                     steps {
@@ -62,10 +63,12 @@ pipeline {
 			  echo "Looking for cargo"
                           # Debug step to find where apt put cargo
                           whereis cargo || true
+			  echo "CLANG:"
+			  clang++ --version
                         '''
                         // clean
                         sh 'make distclean'
-                        sh 'touch src/version/version.c'
+                        sh 'touch src/version/version.c'			
 
                         // build tests
                         sh 'make test AVS_VERSION=' + version
