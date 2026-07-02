@@ -85,9 +85,16 @@ struct stats_report {
 int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void *arg);
 int stats_update(struct avs_stats *stats, const char *report_json);
 int stats_get_report(struct avs_stats *stats, struct stats_report *report);
-char *stats_proto_name(enum stats_proto proto);	
-char *stats_cand_name(enum stats_cand cand);	
-	
+char *stats_proto_name(enum stats_proto proto);
+char *stats_cand_name(enum stats_cand cand);
+
+// Exponential Movin Average
+struct avs_ema;
+int ema_alloc(struct avs_ema **emap, void *arg);
+int ema_get_val(struct avs_ema *ema, int *val);
+int ema_update(struct avs_ema *ema, float data);
+
+
 #ifdef __cplusplus
 }
 #endif
