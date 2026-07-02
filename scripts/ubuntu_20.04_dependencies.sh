@@ -11,12 +11,14 @@ apt install -y \
     autoconf \
     automake \
     cargo \
-    clang \
+    clang-19 \
+    clang-tools-19 \
+    lld-19 \
+    libc++-19-dev \
+    libc++abi-19-dev \
     clang-tools \
     jq \
     libasound2-dev \
-    libc++-dev \
-    libc++abi-dev \
     libevent-dev \
     libprotobuf-c-dev \
     libreadline-dev \
@@ -26,7 +28,6 @@ apt install -y \
     libxcomposite-dev \
     libxdamage-dev \
     libxrender-dev \
-    lld \
     make \
     openjdk-17-jdk-headless \
     openjdk-17-jre-headless \
@@ -43,7 +44,11 @@ apt install -y \
     libssl-dev \
     libsctp-dev \
     libpulse-dev \
-    valgrind
+    valgrind \
+    lsb-release \
+    wget \
+    software-properties-common \
+    gnupg2
 
 # uninstall distribution version of cargo/rust
 apt purge -y cargo rustc
@@ -51,6 +56,13 @@ apt purge -y cargo rustc
 # cleanup apt cache to reduce image size
 apt clean
 
+# Add LLVM 19 repo and install packages
+wget -qO- https://llvm.org | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+echo "deb http://llvm.org llvm-toolchain-focal-19 main" | tee /etc/apt/sources.list.d/apt.llvm.org.list
+apt update
+
+# Setup Clang 19 alternatives and install Rust
+update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
 
 # download the rust toolchain (to build the cryptobox-c dependency)
 curl https://sh.rustup.rs -sSf | sh -s -- -y
