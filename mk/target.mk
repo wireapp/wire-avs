@@ -424,7 +424,7 @@ CXXFLAGS += -fPIC \
 ifneq ($(BLA),)
 LFLAGS   += \
 	 -nostdlib -fPIC -Wl,-soname,libtwolib-second.so \
-	 -Wl,--whole-archive -Wl,--no-undefined -Wl,--gc-sections
+	 -Wl,--whole-archive -Wl,--no-undefined
 else
 LFLAGS	+= \
 	-fPIC \

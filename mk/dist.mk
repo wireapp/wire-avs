@@ -154,7 +154,6 @@ AVS_ARCH_NAME := $1\n\
 	cp $(TOOLCHAIN_PATH)/sysroot/usr/lib/$3/libc++_shared.so $(BUILD_DIST_AND)/aar/jni/$2/
 endef
 
-
 .PHONY: $(BUILD_DIST_AND)/avs.aar
 $(BUILD_DIST_AND)/avs.aar:
 	@mkdir -p $(BUILD_DIST_AND)/aar
