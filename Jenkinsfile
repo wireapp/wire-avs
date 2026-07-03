@@ -374,6 +374,7 @@ pipeline {
             node('linuxbuild') {
                 script {
                     sh 'docker container prune -f && docker volume prune -f && docker image prune -f'
+		    sh 'docker system prune -af --volumes'
                 }
             }
         }
