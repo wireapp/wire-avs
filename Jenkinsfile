@@ -60,7 +60,7 @@ pipeline {
 			   # Blast away cached dependency metadata from previous container runs
 			   rm -rf /build/avs/.cargo/registry/cache/
 			   rm -rf /build/avs/.cargo/registry/src/
-			   cargo clean
+			   cargo clean || true
 			'''						
                         sh 'touch src/version/version.c'			
 
@@ -142,7 +142,7 @@ pipeline {
 			   # Blast away cached dependency metadata from previous container runs
 			   rm -rf /build/avs/.cargo/registry/cache/
 			   rm -rf /build/avs/.cargo/registry/src/
-			   cargo clean
+			   cargo clean || true
 			'''			
                         sh 'touch src/version/version.c'
 
