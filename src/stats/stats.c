@@ -490,6 +490,9 @@ int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void 
 	struct avs_stats *stats;
 	int err = 0;
 
+	if (!statsp)
+		return EINVAL;
+
 	stats = mem_zalloc(sizeof(*stats), destructor);
 	if (!stats)
 		return ENOMEM;

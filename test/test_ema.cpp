@@ -52,6 +52,10 @@ public:
 	}
 };
 
+TEST_F(EMASanity, shouldHandleNullPtr)
+{
+	EXPECT_EQ(ema_alloc(nullptr, nullptr), EINVAL);
+}
 
 TEST_F(EMASanity, shouldBeCreated)
 {

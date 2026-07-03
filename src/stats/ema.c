@@ -29,6 +29,9 @@ int ema_alloc(struct avs_ema **emap, void *arg)
 	struct avs_ema *ema;
 	int err = 0;
 
+	if (!emap)
+		return EINVAL;
+
 	ema = mem_zalloc(sizeof(*ema), destructor);
 	if (!ema)
 		return ENOMEM;

@@ -129,6 +129,11 @@ public:
 	}
 };
 
+TEST_F(StatsBase, shouldHandleNullPtr)
+{
+	EXPECT_EQ(stats_alloc(nullptr, icall_conv_type(0), nullptr), EINVAL);
+}
+
 TEST_F(StatsBase, irrelevant_packet_stats)
 {
 	// add some irrelevant inbound and outbound rtp reports
