@@ -79,7 +79,7 @@ fun generateIosOsxDef(
             language = Objective-C
             modules = avs
             package = avs
-            staticLibraries = libavsobjc.a
+            staticLibraries = libavsobjc.stripped.a
             libraryPaths = $staticLibraryDir
             linkerOpts = $linkerOpts
             """.trimIndent()
