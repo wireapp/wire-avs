@@ -1107,6 +1107,9 @@ static void ecall_close_handler(struct icall *icall,
 		set_state(ccall, CCALL_STATE_IDLE);
 
 		if (ccall->error != EDURATION) {
+			// WPB-26637 Increase reference count of ecall to balance usage.
+			// Close handle will trigger wcalls destructor that dereference icall.
+			mem_ref(ecall);
 		        ICALL_CALL_CB(ccall->icall, closeh,
 				      &ccall->icall, ccall->error, &ccall->metrics, msg_time,
 				      NULL, NULL, ccall->icall.arg);
