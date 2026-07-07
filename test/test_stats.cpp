@@ -41,6 +41,10 @@ bool operator==(const stats_jitter& lhs, const stats_jitter& rhs) {
 	return lhs.audio == rhs.audio && lhs.video == rhs.video;
 }
 
+bool operator==(const stats_jitter_buffer_delay& lhs, const stats_jitter_buffer_delay& rhs) {
+	return lhs.audio == rhs.audio && lhs.video == rhs.video;
+}
+
 bool operator==(const stats_remoteInboundRtt& lhs, const stats_remoteInboundRtt& rhs) {
 	return lhs.audio == rhs.audio && lhs.video == rhs.video;
 }
@@ -513,6 +517,61 @@ TEST_F(StatsJitter, zero_packet_rtp)
 	const auto expected_audio_jitter = 50;
 
 	EXPECT_EQ(sr.jitter.audio.rx, expected_audio_jitter);
+}
+
+// ------------------------------------- Jitter Buffer Delay Tests ------------------------------------
+
+class StatsJitterBufferDelay: public Base,
+					public ::testing::Test {
+public:
+	void SetUp() override
+	{
+		Base::SetUp();
+
+		const auto irrelevant_rtp = new RTCInboundRtpStreamStats("irrelevantRtpId", Timestamp::Zero());
+		irrelevant_rtp->kind = "irrelevant";
+		irrelevant_rtp->jitter_buffer_delay = 0.01;
+		irrelevant_rtp->jitter_buffer_emitted_count = 1;
+		irrelevant_rtp->packets_received = 1;
+		report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
+
+		const auto audio_rtp = new RTCInboundRtpStreamStats("someAudioRtpId", Timestamp::Zero());
+		audio_rtp->kind = "audio";
+		audio_rtp->jitter_buffer_delay = 0.01;
+		audio_rtp->jitter_buffer_emitted_count = 1;
+		audio_rtp->packets_received = 1;
+		report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
+
+		const auto another_audio_rtp = new RTCInboundRtpStreamStats("anotherRtpId", Timestamp::Zero());
+		another_audio_rtp->kind = "audio";
+		another_audio_rtp->jitter_buffer_delay = 0.02;
+		another_audio_rtp->jitter_buffer_emitted_count = 2;
+		another_audio_rtp->packets_received = 1;
+		report->AddStats(std::unique_ptr<RTCStats>(another_audio_rtp));
+
+		const auto video_rtp = new RTCInboundRtpStreamStats("someVideoRtpId", Timestamp::Zero());
+		video_rtp->kind = "video";
+		video_rtp->jitter_buffer_delay = 0.06;
+		video_rtp->jitter_buffer_emitted_count = 3;
+		video_rtp->packets_received = 1;
+		report->AddStats(std::unique_ptr<RTCStats>(video_rtp));
+	}
+
+	void TearDown() override {
+		Base::TearDown();
+	}
+};
+
+TEST_F(StatsJitterBufferDelay, audio_and_video)
+{
+	stats_update(stats, report->ToJson().c_str());
+	stats_get_report(stats, &sr);
+
+	stats_jitter_buffer_delay expected_jbd;
+	expected_jbd.audio = 10; // (0.01 + 0.02) / (1 + 2) * 1000
+	expected_jbd.video = 20; // (0.06 / 3) * 1000
+
+	EXPECT_EQ(sr.jitter_buffer_delay, expected_jbd);
 }
 
 // ------------------------------------- RTT Tests --------------------------------------

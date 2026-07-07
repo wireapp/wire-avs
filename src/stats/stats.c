@@ -137,6 +137,8 @@ struct stats_inbound_rtp {
 	int packets_received;
 	int packets_lost;
 	double jitter;
+	double jitter_buffer_delay;
+	int jitter_buffer_emitted_count;
 	double timestamp;
 	struct le le;
 };
@@ -243,14 +245,23 @@ static uint64_t normalize_timestamp_to_ms(double timestamp) {
 	return (uint64_t)timestamp;
 }
 
+static double safe_normalize(double divident, double divisor) {
+	return divisor ? 1000 * (divident / divisor) : 0;
+}
+
 static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct stats_obj *stats_obj)
 {
 	struct le *le = NULL;
 	double audio_jitter = 0;
 	int aj_count = 0;
+	double audio_jitter_buffer_delay = 0;
+	int audio_jitter_buffer_emitted_count = 0;
 	double video_jitter = 0;
 	int vj_count = 0;
+	double video_jitter_buffer_delay = 0;
+	int video_jitter_buffer_emitted_count = 0;
 	double timestamp = 0;
+
 
 	if (!stats || !stats_obj) {
 		return EINVAL;
@@ -280,6 +291,8 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct st
 			if (data->packets_received) {
 				audio_jitter += data->jitter;
 				aj_count++;
+				audio_jitter_buffer_delay += data->jitter_buffer_delay;
+				audio_jitter_buffer_emitted_count += data->jitter_buffer_emitted_count;
 			}
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
@@ -288,6 +301,8 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct st
 			if (data->packets_received) {
 				video_jitter += data->jitter;
 				vj_count++;
+				video_jitter_buffer_delay += data->jitter_buffer_delay;
+				video_jitter_buffer_emitted_count += data->jitter_buffer_emitted_count;
 			}
 		}
 
@@ -323,8 +338,12 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct st
 	}
 
 	// 1.1 calcualete rx jitter in ms with taking mean
-	stats->report.jitter.audio.rx = aj_count ? 1000 * (audio_jitter / aj_count) : 0;
-	stats->report.jitter.video.rx = vj_count ? 1000 * (video_jitter / vj_count) : 0;
+	stats->report.jitter.audio.rx = safe_normalize(audio_jitter, aj_count);
+	stats->report.jitter.video.rx = safe_normalize(video_jitter, vj_count);
+
+	// 1.2 calculate rx jitter buffer delay for audio and video
+	stats->report.jitter_buffer_delay.audio = safe_normalize(audio_jitter_buffer_delay, audio_jitter_buffer_emitted_count);
+	stats->report.jitter_buffer_delay.video = safe_normalize(video_jitter_buffer_delay, video_jitter_buffer_emitted_count);
 
 	// 2. calculate interval percentage for packet loss into tmp variables
     struct stats_packet_counts diff = {
@@ -525,6 +544,8 @@ static struct stats_inbound_rtp *parse_inbound_rtp(struct json_object *jitem)
 	jzon_int(&data->packets_received, jitem, "packetsReceived");
 	jzon_int(&data->packets_lost, jitem, "packetsLost");
 	jzon_double(&data->jitter, jitem, "jitter");
+	jzon_double(&data->jitter_buffer_delay, jitem, "jitterBufferDelay");
+	jzon_int(&data->jitter_buffer_emitted_count, jitem, "jitterBufferEmittedCount");
 	jzon_double(&data->timestamp, jitem, "timestamp");
 
 	return data;
@@ -657,7 +678,7 @@ static int parse_json(const char *report, struct stats_obj *stats_obj) {
 		return EPROTO;
 	}
 
-	// jzon_dump(jobj);
+	jzon_dump(jobj);
 
 	// we expect json array as root
 	if (!jzon_is_array(jobj)) {

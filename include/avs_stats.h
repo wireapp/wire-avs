@@ -49,6 +49,11 @@ struct stats_jitter {
 	struct stats_rx_tx video;
 };
 
+struct stats_jitter_buffer_delay {
+	double audio;
+	double video;
+};
+
 struct stats_remoteInboundRtt {
 	uint32_t audio;
 	uint32_t video;
@@ -69,6 +74,7 @@ struct stats_report {
 	enum stats_proto proto;
 	enum stats_cand cand;
 	struct stats_jitter jitter;
+	struct stats_jitter_buffer_delay jitter_buffer_delay;
 	struct stats_packet_counts packets;
 	struct stats_packet_counts packets_per_sec;
 	int audio_level;

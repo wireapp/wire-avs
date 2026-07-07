@@ -1753,6 +1753,10 @@ static void icall_quality_handler(struct icall *icall,
 				stats.rtt.remote_inbound.audio, stats.rtt.remote_inbound.video, 
 				stats.rtt.candidate_pair);
 
+	info(APITAG "wcall(%p): Jitter buffer delay {audio: %d, video: %d}\n",
+				wcall,
+				stats.jitter_buffer_delay.audio, stats.jitter_buffer_delay.video);
+
 	// Do not remove following log line
 	// WPB-25354: e2e tests depend on parsing the line in order to evaluate flow
 	info("pc_set_stats: level: %d ar: %d vr: %d as: %d vs: %d rtt=%d dloss=%d\n",
