@@ -1643,52 +1643,6 @@ static void destructor(void *arg)
 	info("wcall(%p): dtor -- done\n", wcall);
 }
 
-static int normalize_to_levels(int num, int low_threshold, int high_threshold) {
-	if (num < low_threshold) {
-		return WCALL_QUALITY_NORMAL;
-	}
-	else if (num > high_threshold) {
-		return WCALL_QUALITY_POOR;
-	}
-	else {
-		return WCALL_QUALITY_MEDIUM;
-	}
-}
-
-// Quality level thresholds
-const int RTT_LOW = 50;
-const int RTT_HIGH = 150;
-const int JITTER_LOW = 10;
-const int JITTER_HIGH = 50;
-const int PACKET_LOSS_LOW = 5;
-const int PACKET_LOSS_HIGH = 10;
-
-// Stream direction weights
-const float UPSTREAM_WEIGHT = 0.7;
-const float DOWNSTREM_WEIGHT = (1.0 - UPSTREAM_WEIGHT);
-
-// Overall quality weights
-const float JITTER_WEIGHT = 0.35;
-const float PACKET_LOSS_WEIGHT = 0.35;
-const float RTT_WEIGHT = (1.0 - JITTER_WEIGHT - PACKET_LOSS_WEIGHT);
-
-static int normalize_quality(const struct stats_report* stats) {
-	// Stats are 3 step normalized wrt corresponding thresholds
-	const int rtt_tx = normalize_to_levels(stats->rtt.tx, RTT_LOW, RTT_HIGH);
-	const int rtt_rx = normalize_to_levels(stats->rtt.rx, RTT_LOW, RTT_HIGH);
-	const int jitter_tx = normalize_to_levels((stats->jitter.audio.tx + stats->jitter.video.tx) / 2, JITTER_LOW, JITTER_HIGH);
-	const int jitter_rx = normalize_to_levels((stats->jitter.audio.rx + stats->jitter.video.rx) / 2, JITTER_LOW, JITTER_HIGH);
-	const int packet_loss_tx = normalize_to_levels(stats->packets.lost.tx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
-	const int packet_loss_rx = normalize_to_levels(stats->packets.lost.rx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
-
-	// provide higher importance to upstream stats
-	float rtt = UPSTREAM_WEIGHT * rtt_tx + DOWNSTREM_WEIGHT * rtt_rx;
-	float jitter = UPSTREAM_WEIGHT * jitter_tx + DOWNSTREM_WEIGHT * jitter_rx;
-	float packet_loss = UPSTREAM_WEIGHT * packet_loss_tx + DOWNSTREM_WEIGHT * packet_loss_rx;
-
-	// provide packet loss and jitter a bit more importance than latency
-	return round(JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss + RTT_WEIGHT * rtt);
-}
 
 static void icall_quality_handler(struct icall *icall,
 				  const char *userid,
@@ -1729,7 +1683,7 @@ static void icall_quality_handler(struct icall *icall,
 		quality = WCALL_QUALITY_RECONNECTING;
 	}
 	else {
-		quality = normalize_quality(&stats);
+		quality = stats.quality_index;
 	}
 
 	now = tmr_jiffies();
@@ -1740,7 +1694,7 @@ static void icall_quality_handler(struct icall *icall,
 	json_object_object_add(jobj, "quality",
 				json_object_new_int(quality));
 	json_object_object_add(jobj, "rtt",
-				json_object_new_int(stats.rtt.tx));
+				json_object_new_int(stats.rtt.candidate_pair));
 
 	struct json_object *loss_jobj = json_object_new_object();
 	json_object_object_add(loss_jobj, "tx",
@@ -1794,13 +1748,18 @@ static void icall_quality_handler(struct icall *icall,
 				stats.packets_per_sec.video.tx, stats.packets_per_sec.video.rx,
 				stats.packets_per_sec.lost.tx, stats.packets_per_sec.lost.rx);
 
+	info(APITAG "wcall(%p): Rtt {remote inbound: {audio: %d, video: %d}, candidate pair: %d}}\n",
+				wcall,
+				stats.rtt.remote_inbound.audio, stats.rtt.remote_inbound.video, 
+				stats.rtt.candidate_pair);
+
 	// Do not remove following log line
 	// WPB-25354: e2e tests depend on parsing the line in order to evaluate flow
 	info("pc_set_stats: level: %d ar: %d vr: %d as: %d vs: %d rtt=%d dloss=%d\n",
 				stats.audio_level, 
 				stats.packets.audio.rx, stats.packets.video.rx,
 				stats.packets.audio.tx, stats.packets.video.tx,
-				stats.rtt.rx, stats.packets.lost.rx);
+				stats.rtt.candidate_pair, stats.packets.lost.rx);
 
 
 	inst->quality.netqh(wcall->convid,

@@ -49,6 +49,16 @@ struct stats_jitter {
 	struct stats_rx_tx video;
 };
 
+struct stats_remoteInboundRtt {
+	uint32_t audio;
+	uint32_t video;
+};
+
+struct stats_rtt {
+	struct stats_remoteInboundRtt remote_inbound;
+	uint32_t candidate_pair;
+};
+
 struct stats_packet_counts {
 	struct stats_rx_tx audio;
 	struct stats_rx_tx video;
@@ -63,15 +73,23 @@ struct stats_report {
 	struct stats_packet_counts packets_per_sec;
 	int audio_level;
 	int audio_level_smooth;
-	struct stats_rx_tx rtt;
+	int quality_index;
+	struct stats_rtt rtt;
 };
 
-int stats_alloc(struct avs_stats **statsp, void *arg);
+int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void *arg);
 int stats_update(struct avs_stats *stats, const char *report_json);
 int stats_get_report(struct avs_stats *stats, struct stats_report *report);
-char *stats_proto_name(enum stats_proto proto);	
-char *stats_cand_name(enum stats_cand cand);	
-	
+char *stats_proto_name(enum stats_proto proto);
+char *stats_cand_name(enum stats_cand cand);
+
+// Exponential Movin Average
+struct avs_ema;
+int ema_alloc(struct avs_ema **emap, void *arg);
+int ema_get_val(const struct avs_ema *ema, int *val);
+int ema_update(struct avs_ema *ema, float data);
+
+
 #ifdef __cplusplus
 }
 #endif

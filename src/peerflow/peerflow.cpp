@@ -2411,7 +2411,7 @@ int peerflow_alloc(struct iflow		**flowp,
 			    peerflow_update_ssrc,
 			    peerflow_debug);
 
-	err = stats_alloc(&pf->stats, pf);
+	err = stats_alloc(&pf->stats, conv_type, pf);
 	if (err) {
 		goto out;
 	}
