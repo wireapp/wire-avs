@@ -89,11 +89,14 @@ int stats_get_report(struct avs_stats *stats, struct stats_report *report);
 char *stats_proto_name(enum stats_proto proto);
 char *stats_cand_name(enum stats_cand cand);
 
-// Exponential Movin Average
+// Exponential Moving Average
 struct avs_ema;
 int ema_alloc(struct avs_ema **emap, void *arg);
 int ema_get_val(const struct avs_ema *ema, int *val);
 int ema_update(struct avs_ema *ema, float data);
+
+// Mos Calculation
+double g107_2_estimate(double rtt, double packet_lost, double jitter_buffer_delay);
 
 
 #ifdef __cplusplus

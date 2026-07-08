@@ -678,7 +678,7 @@ static int parse_json(const char *report, struct stats_obj *stats_obj) {
 		return EPROTO;
 	}
 
-	jzon_dump(jobj);
+	//jzon_dump(jobj);
 
 	// we expect json array as root
 	if (!jzon_is_array(jobj)) {
