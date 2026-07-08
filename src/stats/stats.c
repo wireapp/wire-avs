@@ -249,6 +249,41 @@ static double safe_normalize(double divident, double divisor) {
 	return divisor ? 1000 * (divident / divisor) : 0;
 }
 
+
+// Helper fnc to update per sec statistics
+static void update_per_sec_stats(struct stats_packet_counts *packets_per_sec, const struct stats_packet_counts *diff, uint64_t time_difference_in_ms) {
+	if (!packets_per_sec || !diff || !time_difference_in_ms) {
+		return;
+	}
+
+	packets_per_sec->audio.tx = 1000 * diff->audio.tx / time_difference_in_ms;
+	packets_per_sec->audio.rx = 1000 * diff->audio.rx / time_difference_in_ms;
+	packets_per_sec->video.tx = 1000 * diff->video.tx / time_difference_in_ms;
+	packets_per_sec->video.rx = 1000 * diff->video.rx / time_difference_in_ms;
+	packets_per_sec->audio_lost.tx = 1000 * diff->audio_lost.tx / time_difference_in_ms;
+	packets_per_sec->audio_lost.rx = 1000 * diff->audio_lost.rx / time_difference_in_ms;
+	packets_per_sec->video_lost.tx = 1000 * diff->video_lost.tx / time_difference_in_ms;
+	packets_per_sec->video_lost.rx = 1000 * diff->video_lost.rx / time_difference_in_ms;
+}
+
+
+// Helper fnc to calculate loss percentages and update report section accordingly
+static void update_loss_percentages(struct stats_loss_percentages *loss_percentages, const struct stats_packet_counts *diff) {
+	if (!loss_percentages || !diff) {
+		return;
+	}
+
+	loss_percentages->direction.tx = calculate_loss_percentage(
+		( diff->audio.tx + diff->video.tx ), (diff->audio_lost.tx + diff->video_lost.tx));
+	loss_percentages->direction.rx = calculate_loss_percentage(
+		( diff->audio.rx + diff->video.rx ), (diff->audio_lost.rx + diff->video_lost.rx));
+	loss_percentages->channel.audio = calculate_loss_percentage(
+		( diff->audio.rx + diff->audio.tx ), (diff->audio_lost.rx + diff->audio_lost.tx));
+	loss_percentages->channel.video = calculate_loss_percentage(
+		( diff->video.rx + diff->video.tx ), (diff->video_lost.rx + diff->video_lost.tx));
+}
+
+
 static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct stats_obj *stats_obj)
 {
 	struct le *le = NULL;
@@ -287,6 +322,7 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct st
 
 		if (data->kind == STATS_KIND_AUDIO) {
 			stats->report.packets.audio.rx += data->packets_received;
+			stats->report.packets.audio_lost.rx += data->packets_lost;
 			timestamp = max(timestamp, data->timestamp);
 			if (data->packets_received) {
 				audio_jitter += data->jitter;
@@ -297,6 +333,7 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct st
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
 			stats->report.packets.video.rx += data->packets_received;
+			stats->report.packets.video_lost.rx += data->packets_lost;
 			timestamp = max(timestamp, data->timestamp);
 			if (data->packets_received) {
 				video_jitter += data->jitter;
@@ -305,8 +342,6 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct st
 				video_jitter_buffer_emitted_count += data->jitter_buffer_emitted_count;
 			}
 		}
-
-		stats->report.packets.lost.rx += data->packets_lost;
 	}
 
 	LIST_FOREACH(&stats_obj->outbound_rtp, le) {
@@ -326,15 +361,15 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct st
 		const struct stats_remote_inbound_rtp *data = (struct stats_remote_inbound_rtp *)le->data;
 
 		if (data->kind == STATS_KIND_AUDIO) {
+			stats->report.packets.audio_lost.tx += data->packets_lost;
 			stats->report.jitter.audio.tx = max(stats->report.jitter.audio.tx, (1000 * data->jitter));
 			timestamp = max(timestamp, data->timestamp);
 		}
 		else if (data->kind == STATS_KIND_VIDEO) {
+			stats->report.packets.video_lost.tx += data->packets_lost;
 			stats->report.jitter.video.tx = max(stats->report.jitter.video.tx, (1000 * data->jitter));
 			timestamp = max(timestamp, data->timestamp);
 		}
-
-		stats->report.packets.lost.tx += data->packets_lost;
 	}
 
 	// 1.1 calcualete rx jitter in ms with taking mean
@@ -345,43 +380,32 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct st
 	stats->report.jitter_buffer_delay.audio = safe_normalize(audio_jitter_buffer_delay, audio_jitter_buffer_emitted_count);
 	stats->report.jitter_buffer_delay.video = safe_normalize(video_jitter_buffer_delay, video_jitter_buffer_emitted_count);
 
-	// 2. calculate interval percentage for packet loss into tmp variables
+	// 2. calculate interval difference into a temp variable
     struct stats_packet_counts diff = {
 		.audio.tx = stats->report.packets.audio.tx - stats->last_packets.audio.tx,
 		.audio.rx = stats->report.packets.audio.rx - stats->last_packets.audio.rx,
 		.video.tx = stats->report.packets.video.tx - stats->last_packets.video.tx,
 		.video.rx = stats->report.packets.video.rx - stats->last_packets.video.rx,
-		.lost.tx = stats->report.packets.lost.tx - stats->last_packets.lost.tx,
-		.lost.rx = stats->report.packets.lost.rx - stats->last_packets.lost.rx
+		.audio_lost.tx = stats->report.packets.audio_lost.tx - stats->last_packets.audio_lost.tx,
+		.audio_lost.rx = stats->report.packets.audio_lost.rx - stats->last_packets.audio_lost.rx,
+		.video_lost.tx = stats->report.packets.video_lost.tx - stats->last_packets.video_lost.tx,
+		.video_lost.rx = stats->report.packets.video_lost.rx - stats->last_packets.video_lost.rx
 	};
-
-	uint32_t loss_tx = calculate_loss_percentage(
-		( diff.audio.tx + diff.video.tx ), diff.lost.tx);
-
-	uint32_t loss_rx = calculate_loss_percentage(
-		( diff.audio.rx + diff.video.rx ), diff.lost.rx);
 
 	// 2.1 calculate time normized packet stats if time difference make sense
 	uint64_t timestamp_in_ms = normalize_timestamp_to_ms(timestamp);
-
 	uint64_t time_difference_in_ms = timestamp_in_ms - stats->last_timestamp_in_ms;
 
-	if (time_difference_in_ms != timestamp && time_difference_in_ms != 0) {
-		stats->report.packets_per_sec.audio.tx = 1000 * diff.audio.tx / time_difference_in_ms;
-		stats->report.packets_per_sec.audio.rx = 1000 * diff.audio.rx / time_difference_in_ms;
-		stats->report.packets_per_sec.video.tx = 1000 * diff.video.tx / time_difference_in_ms;
-		stats->report.packets_per_sec.video.rx = 1000 * diff.video.rx / time_difference_in_ms;
-		stats->report.packets_per_sec.lost.tx = 1000 * diff.lost.tx / time_difference_in_ms;
-		stats->report.packets_per_sec.lost.rx = 1000 * diff.lost.rx / time_difference_in_ms;
+	if (time_difference_in_ms != timestamp) {
+		update_per_sec_stats(&stats->report.packets_per_sec, &diff, time_difference_in_ms);
 	}
 
 	// 3. save current packet cumulatives into last
 	stats->last_packets = stats->report.packets;
 	stats->last_timestamp_in_ms = timestamp_in_ms;
 
-	// 4. update report.packet.lost with calculated percentages
-	stats->report.packets.lost.tx = loss_tx;
-	stats->report.packets.lost.rx = loss_rx;
+	// 4. update report.lost_percentages with calculated percentages
+	update_loss_percentages(&stats->report.loss_percentages, &diff);
 
 	return 0;
 }
@@ -824,8 +848,8 @@ static float normalize_quality(const struct avs_stats *stats) {
 	const int rtt_remote_inbound = normalize_to_levels((stats->report.rtt.remote_inbound.audio + stats->report.rtt.remote_inbound.video) / 2, RTT_LOW, RTT_HIGH);
 	const int jitter_tx = normalize_to_levels((stats->report.jitter.audio.tx + stats->report.jitter.video.tx) / 2, JITTER_LOW, JITTER_HIGH);
 	const int jitter_rx = normalize_to_levels((stats->report.jitter.audio.rx + stats->report.jitter.video.rx) / 2, JITTER_LOW, JITTER_HIGH);
-	const int packet_loss_tx = normalize_to_levels(stats->report.packets.lost.tx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
-	const int packet_loss_rx = normalize_to_levels(stats->report.packets.lost.rx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
+	const int packet_loss_tx = normalize_to_levels(stats->report.loss_percentages.direction.tx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
+	const int packet_loss_rx = normalize_to_levels(stats->report.loss_percentages.direction.rx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
 
 	float rtt = 0;
 	float jitter = 0;
@@ -893,7 +917,12 @@ int stats_get_report(struct avs_stats *stats, struct stats_report *report)
 	if (!stats || !report)
 		return EINVAL;
 
+	// Process raw stats to generate ema and mos estimates
 	err = ema_get_val(stats->ema, &stats->report.quality_index);
+	stats->report.mos_estimate = g107_2_estimate(stats->report.rtt.candidate_pair, 
+		stats->report.loss_percentages.channel.audio, 
+		stats->report.jitter_buffer_delay.audio);
+
 	*report = stats->report;
 
 	return err;

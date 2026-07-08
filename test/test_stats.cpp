@@ -34,19 +34,21 @@ bool operator==(const stats_rx_tx& lhs, const stats_rx_tx& rhs) {
 bool operator==(const stats_packet_counts& lhs, const stats_packet_counts& rhs) {
 	return lhs.audio == rhs.audio &&
 			lhs.video == rhs.video &&
-			lhs.lost == rhs.lost;
+			lhs.audio_lost == rhs.audio_lost &&
+			lhs.video_lost == rhs.video_lost;
 }
 
 bool operator==(const stats_jitter& lhs, const stats_jitter& rhs) {
 	return lhs.audio == rhs.audio && lhs.video == rhs.video;
 }
 
-bool operator==(const stats_jitter_buffer_delay& lhs, const stats_jitter_buffer_delay& rhs) {
+bool operator==(const stats_channel& lhs, const stats_channel& rhs) {
 	return lhs.audio == rhs.audio && lhs.video == rhs.video;
 }
 
-bool operator==(const stats_remoteInboundRtt& lhs, const stats_remoteInboundRtt& rhs) {
-	return lhs.audio == rhs.audio && lhs.video == rhs.video;
+bool operator==(const stats_loss_percentages& lhs, const stats_loss_percentages& rhs) {
+	return lhs.direction == rhs.direction &&
+			lhs.channel == rhs.channel;
 }
 
 bool operator==(const stats_rtt& lhs, const stats_rtt& rhs) {
@@ -220,10 +222,19 @@ TEST_F(StatsBase, some_packet_stats)
 	expected_packets.audio.tx = 26;
 	expected_packets.video.rx = 9 + 19;
 	expected_packets.video.tx = 24;
-	expected_packets.lost.rx = 10; // (1+2+3+0) / (10+20+9+19) * 100 = 10.3;
-	expected_packets.lost.tx = 30; // (7+8) / (26*24) * 100 = 30.0;
+	expected_packets.audio_lost.rx = 1 + 2;
+	expected_packets.audio_lost.tx = 7;
+	expected_packets.video_lost.rx = 3;
+	expected_packets.video_lost.tx = 8;
+
+	stats_loss_percentages expected_loss_percentages;
+	expected_loss_percentages.direction.rx = 10; // (1+2+3+0) / (10+20+9+19) * 100 = 10.3;
+	expected_loss_percentages.direction.tx = 30; // (7+8) / (26+24) * 100 = 30.0;
+	expected_loss_percentages.channel.audio = 17; // (1+2+7+0) / (10+20+26) * 100 = 17.8;
+	expected_loss_percentages.channel.video = 21; // (3+8) / (9+19+24) * 100 = 21.1;
 
 	EXPECT_EQ(sr.packets, expected_packets);
+	EXPECT_EQ(sr.loss_percentages, expected_loss_percentages);
 }
 
 TEST_F(StatsBase, audio_should_be_cumulative)
@@ -242,11 +253,12 @@ TEST_F(StatsBase, audio_should_be_cumulative)
 
 	// 200 packets 10% loss
 	EXPECT_EQ(sr.packets.audio.rx, 200);
-	EXPECT_EQ(sr.packets.lost.rx, 10);
+	EXPECT_EQ(sr.packets.audio_lost.rx, 20);
+	EXPECT_EQ(sr.loss_percentages.direction.rx, 10);
 
 	// since this is initial packet per sec loss will be zero
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 0);
-	EXPECT_EQ(sr.packets_per_sec.lost.rx, 0);
+	EXPECT_EQ(sr.packets_per_sec.audio_lost.rx, 0);
 
 	// An incoming audio streams with double packets and half packet loss
 	const auto new_stat_time = Timestamp::Seconds(time_in_sec + 10);
@@ -260,13 +272,14 @@ TEST_F(StatsBase, audio_should_be_cumulative)
 	stats_update(stats, new_report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	// 40 packets 5% loss
+	// 400 packets 5% loss
 	EXPECT_EQ(sr.packets.audio.rx, 400);
-	EXPECT_EQ(sr.packets.lost.rx, 5);
+	EXPECT_EQ(sr.packets.audio_lost.rx, 30);
+	EXPECT_EQ(sr.loss_percentages.direction.rx, 5);
 
 	// 20 packets per sec, 1 loss per sec
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 20);
-	EXPECT_EQ(sr.packets_per_sec.lost.rx, 1);
+	EXPECT_EQ(sr.packets_per_sec.audio_lost.rx, 1);
 }
 
 
@@ -340,7 +353,7 @@ TEST_P(TsFormat, packets_per_sec) {
 
 	// since this is initial packet per sec loss will be zero
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 0);
-	EXPECT_EQ(sr.packets_per_sec.lost.rx, 0);
+	EXPECT_EQ(sr.packets_per_sec.audio_lost.rx, 0);
 
 	const auto new_report = std::get<1>(GetParam());
 	stats_update(stats, new_report);
@@ -348,7 +361,7 @@ TEST_P(TsFormat, packets_per_sec) {
 
 	// 20 packets per sec, 1 loss per sec
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 20);
-	EXPECT_EQ(sr.packets_per_sec.lost.rx, 1);
+	EXPECT_EQ(sr.packets_per_sec.audio_lost.rx, 1);
 }
 
 
@@ -567,7 +580,7 @@ TEST_F(StatsJitterBufferDelay, audio_and_video)
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	stats_jitter_buffer_delay expected_jbd;
+	stats_channel expected_jbd;
 	expected_jbd.audio = 10; // (0.01 + 0.02) / (1 + 2) * 1000
 	expected_jbd.video = 20; // (0.06 / 3) * 1000
 

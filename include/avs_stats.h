@@ -49,34 +49,37 @@ struct stats_jitter {
 	struct stats_rx_tx video;
 };
 
-struct stats_jitter_buffer_delay {
-	double audio;
-	double video;
-};
-
-struct stats_remoteInboundRtt {
+struct stats_channel {
 	uint32_t audio;
 	uint32_t video;
 };
 
 struct stats_rtt {
-	struct stats_remoteInboundRtt remote_inbound;
+	struct stats_channel remote_inbound;
 	uint32_t candidate_pair;
 };
 
 struct stats_packet_counts {
 	struct stats_rx_tx audio;
 	struct stats_rx_tx video;
-	struct stats_rx_tx lost;
+	struct stats_rx_tx audio_lost;
+	struct stats_rx_tx video_lost;
+};
+
+struct stats_loss_percentages {
+	struct stats_rx_tx direction;
+	struct stats_channel channel;
 };
 
 struct stats_report {
 	enum stats_proto proto;
 	enum stats_cand cand;
 	struct stats_jitter jitter;
-	struct stats_jitter_buffer_delay jitter_buffer_delay;
+	struct stats_channel jitter_buffer_delay;
 	struct stats_packet_counts packets;
+	struct stats_loss_percentages loss_percentages;
 	struct stats_packet_counts packets_per_sec;
+	double mos_estimate;
 	int audio_level;
 	int audio_level_smooth;
 	int quality_index;

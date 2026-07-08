@@ -1670,16 +1670,16 @@ static void icall_quality_handler(struct icall *icall,
 	// ICALL_NETWORK_PROBLEM and ICALL_RECONNECTING states are
 	// propagated through packet loss stats.
 	// Reset them back if needed to stay inside [0.100] interval.
-	if (stats.packets.lost.tx == ICALL_NETWORK_PROBLEM
-		&& stats.packets.lost.rx == ICALL_NETWORK_PROBLEM) {
-		stats.packets.lost.tx = 0;
-		stats.packets.lost.rx = 0;
+	if (stats.loss_percentages.direction.tx == ICALL_NETWORK_PROBLEM
+		&& stats.loss_percentages.direction.rx == ICALL_NETWORK_PROBLEM) {
+		stats.loss_percentages.direction.tx = 0;
+		stats.loss_percentages.direction.rx = 0;
 		quality = WCALL_QUALITY_NETWORK_PROBLEM;
 	}
-	else if (stats.packets.lost.tx == ICALL_RECONNECTING
-		&& stats.packets.lost.rx == ICALL_RECONNECTING) {
-		stats.packets.lost.tx = 0;
-		stats.packets.lost.rx = 0;
+	else if (stats.loss_percentages.direction.tx == ICALL_RECONNECTING
+		&& stats.loss_percentages.direction.rx == ICALL_RECONNECTING) {
+		stats.loss_percentages.direction.tx = 0;
+		stats.loss_percentages.direction.rx = 0;
 		quality = WCALL_QUALITY_RECONNECTING;
 	}
 	else {
@@ -1698,9 +1698,9 @@ static void icall_quality_handler(struct icall *icall,
 
 	struct json_object *loss_jobj = json_object_new_object();
 	json_object_object_add(loss_jobj, "tx",
-				json_object_new_int(stats.packets.lost.tx));
+				json_object_new_int(stats.loss_percentages.direction.tx));
 	json_object_object_add(loss_jobj, "rx",
-				json_object_new_int(stats.packets.lost.rx));
+				json_object_new_int(stats.loss_percentages.direction.rx));
 	json_object_object_add(jobj, "loss", loss_jobj);
 
 	struct json_object *audio_jitter_jobj = json_object_new_object();
@@ -1741,12 +1741,18 @@ static void icall_quality_handler(struct icall *icall,
 				  anon_client(clientid_anon, clientid),
 				  quality_info);
 
-	info(APITAG "wcall(%p): Packets per sec {audio: {tx: %d, rx: %d}, "
-				"video: {tx: %d, rx: %d}, lost: {tx: %d, rx: %d}}\n",
+	info(APITAG "wcall(%p): Packets per sec {audio: {tx: %d, rx: %d}, audio lost: {tx: %d, rx: %d} "
+				"video: {tx: %d, rx: %d}, video lost: {tx: %d, rx: %d}}\n",
 				wcall,
 				stats.packets_per_sec.audio.tx, stats.packets_per_sec.audio.rx,
+				stats.packets_per_sec.audio_lost.tx, stats.packets_per_sec.audio_lost.rx,
 				stats.packets_per_sec.video.tx, stats.packets_per_sec.video.rx,
-				stats.packets_per_sec.lost.tx, stats.packets_per_sec.lost.rx);
+				stats.packets_per_sec.video_lost.tx, stats.packets_per_sec.video_lost.rx);
+
+	info(APITAG "wcall(%p): Packet loss percentage {direction: {tx: %d, rx: %d}, channel: {audio: %d, video: %d}}\n",
+				wcall,
+				stats.loss_percentages.direction.tx, stats.loss_percentages.direction.rx,
+				stats.loss_percentages.channel.audio, stats.loss_percentages.channel.video);
 
 	info(APITAG "wcall(%p): Rtt {remote inbound: {audio: %d, video: %d}, candidate pair: %d}}\n",
 				wcall,
@@ -1757,13 +1763,15 @@ static void icall_quality_handler(struct icall *icall,
 				wcall,
 				stats.jitter_buffer_delay.audio, stats.jitter_buffer_delay.video);
 
+	info(APITAG "wcall(%p): Mos estimate: %f\n", wcall, stats.mos_estimate);
+
 	// Do not remove following log line
 	// WPB-25354: e2e tests depend on parsing the line in order to evaluate flow
 	info("pc_set_stats: level: %d ar: %d vr: %d as: %d vs: %d rtt=%d dloss=%d\n",
 				stats.audio_level, 
 				stats.packets.audio.rx, stats.packets.video.rx,
 				stats.packets.audio.tx, stats.packets.video.tx,
-				stats.rtt.candidate_pair, stats.packets.lost.rx);
+				stats.rtt.candidate_pair, stats.loss_percentages.direction.rx);
 
 
 	inst->quality.netqh(wcall->convid,
