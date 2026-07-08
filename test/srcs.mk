@@ -39,6 +39,7 @@ TEST_SRCS	+= test_zapi.cpp
 TEST_SRCS	+= test_ztime.cpp
 TEST_SRCS	+= test_stats.cpp
 TEST_SRCS	+= test_ema.cpp
+TEST_SRCS	+= test_mos.cpp
 
 
 TEST_SLOW_SRCS	+= main.cpp

@@ -4,7 +4,7 @@
 #include <math.h>
 
 // MOS coefficients to be used in G107.2 estimation
-// that provides an estimate for opus audio 
+// that provides an estimate for wideband audio
 const int MOS_PACKETIZATION_TIME_MS = 20;
 const int MOS_G107_2_RO = 148;
 const int MOS_G107_2_A_IS = 0;
