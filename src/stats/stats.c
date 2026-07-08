@@ -542,8 +542,12 @@ int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void 
 
 	stats->arg = arg;
 	stats->conv_type = conv_type;
-	ema_alloc(&(stats->ema), NULL)
-;
+	err = ema_alloc(&(stats->ema), NULL);
+	if (err != 0) {
+		mem_deref(stats);
+		return err;
+	} 
+
 	memset(&stats->report, 0, sizeof(stats->report));
 	memset(&stats->last_packets, 0, sizeof(stats->last_packets));
 	stats->last_timestamp_in_ms = 0;
@@ -842,12 +846,20 @@ static int normalize_to_levels(int num, int low_threshold, int high_threshold) {
 	}
 }
 
+static int average_if_exists(int audio, int video) {
+	if (audio && video) {
+		return (audio + video) / 2;
+	}
+	// means we have at most one of them significant
+	return audio + video;
+}
+
 static float normalize_quality(const struct avs_stats *stats) {
 	// Stats are 3 step normalized wrt corresponding thresholds
 	const int rtt_candidate_pair = normalize_to_levels(stats->report.rtt.candidate_pair, RTT_LOW, RTT_HIGH);
-	const int rtt_remote_inbound = normalize_to_levels((stats->report.rtt.remote_inbound.audio + stats->report.rtt.remote_inbound.video) / 2, RTT_LOW, RTT_HIGH);
-	const int jitter_tx = normalize_to_levels((stats->report.jitter.audio.tx + stats->report.jitter.video.tx) / 2, JITTER_LOW, JITTER_HIGH);
-	const int jitter_rx = normalize_to_levels((stats->report.jitter.audio.rx + stats->report.jitter.video.rx) / 2, JITTER_LOW, JITTER_HIGH);
+	const int rtt_remote_inbound = normalize_to_levels(average_if_exists(stats->report.rtt.remote_inbound.audio, stats->report.rtt.remote_inbound.video), RTT_LOW, RTT_HIGH);
+	const int jitter_tx = normalize_to_levels(average_if_exists(stats->report.jitter.audio.tx, stats->report.jitter.video.tx), JITTER_LOW, JITTER_HIGH);
+	const int jitter_rx = normalize_to_levels(average_if_exists(stats->report.jitter.audio.rx, stats->report.jitter.video.rx), JITTER_LOW, JITTER_HIGH);
 	const int packet_loss_tx = normalize_to_levels(stats->report.loss_percentages.direction.tx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
 	const int packet_loss_rx = normalize_to_levels(stats->report.loss_percentages.direction.rx, PACKET_LOSS_LOW, PACKET_LOSS_HIGH);
 
@@ -876,7 +888,7 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 {
 	int err = 0;
 	
-	if (!stats || !report_json)
+	if (!stats || !stats->ema || !report_json)
 		return EINVAL;
 
 	memset(&stats->report, 0, sizeof(stats->report));
@@ -897,7 +909,7 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 	err |= read_audio_level(stats, &stats_obj);
 
 	const float quality = normalize_quality(stats);
-	err = ema_update(stats->ema, quality);
+	err |= ema_update(stats->ema, quality);
 
 	list_flush(&stats_obj.audio_source);
 	list_flush(&stats_obj.inbound_rtp);
@@ -917,7 +929,7 @@ int stats_get_report(struct avs_stats *stats, struct stats_report *report)
 	if (!stats || !report)
 		return EINVAL;
 
-	// Process raw stats to generate ema and mos estimates
+	// Process raw stats to generate ema and mos estimate enhancements
 	err = ema_get_val(stats->ema, &stats->report.quality_index);
 	stats->report.mos_estimate = g107_2_estimate(stats->report.rtt.candidate_pair, 
 		stats->report.loss_percentages.channel.audio, 
