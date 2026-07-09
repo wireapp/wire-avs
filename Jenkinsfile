@@ -49,11 +49,11 @@ pipeline {
                             repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
 
                             release_version = branchName.replaceAll("[^\\d\\.]", "");
-                            if (release_version.length() > 0 || branchName.contains('release')) {
-                                version = release_version + "." + buildNumber
-                            } else {
+//                            if (release_version.length() > 0 || branchName.contains('release')) {
+//                                version = release_version + "." + buildNumber
+//                            } else {
                                 version = "0.0.${buildNumber}"
-                            }
+//                            }
                         }
 
                         // clean
@@ -89,7 +89,7 @@ pipeline {
                         sh 'zip -9j ./build/artifacts/zcall_linux_' + version + '.zip ./zcall'
                         sh 'if [ -e ./build/dist/android/debug/ ]; then cd ./build/dist/android/debug; zip -9r ./../../../artifacts/avs.android.' + version + '.debug.zip *; cd -; fi'
 
-                        archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
+//                        archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
 
                         // Stash the android aar directory recursively,
                         // shared libraries will be used to generate android kmp in macos agent
@@ -124,12 +124,12 @@ pipeline {
                             commitId = "${vcs.GIT_COMMIT}"[0..6]
                             repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
 
-                            release_version = branchName.replaceAll("[^\\d\\.]", "");
-                            if (release_version.length() > 0 || branchName.contains('release')) {
-                                version = release_version + "." + buildNumber
-                            } else {
+//                            release_version = branchName.replaceAll("[^\\d\\.]", "");
+//                            if (release_version.length() > 0 || branchName.contains('release')) {
+//                                version = release_version + "." + buildNumber
+//                            } else {
                                 version = "0.0.${buildNumber}"
-                            }
+//                            }
                         }
 
                         // clean
@@ -160,11 +160,12 @@ pipeline {
                         sh 'cp ./build/dist/osx/avscore.tar.bz2 ./osx'
                         sh 'cp ./build/dist/wasm/wireapp-avs-' + version + '.tgz ./build/artifacts/'
 
-                        archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
+//                        archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
                     }
                 }
             }
         }
+/*        
         stage('Prepare changelog') {
             steps {
                 script {
@@ -178,6 +179,8 @@ pipeline {
                 echo(changelog)
             }
         }
+*/
+/*
         stage('Tag + Create Github release') {
             agent {
                 label "linuxbuild"
@@ -225,6 +228,8 @@ pipeline {
                 }
             }
         }
+*/
+/*
         stage('Upload to Github') {
             when {
                 anyOf {
@@ -265,6 +270,7 @@ pipeline {
                 }
             }
         }
+*/
         stage('Publish to sonatype') {
             when {
                 anyOf {
@@ -358,6 +364,7 @@ pipeline {
 //            }
 //        }
     }
+/*
 
     post {
         always {
@@ -384,4 +391,5 @@ pipeline {
             }
         }
     }
+*/
 }
