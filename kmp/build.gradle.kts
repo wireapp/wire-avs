@@ -11,10 +11,6 @@ plugins {
 group = findProperty("GROUP") as String? ?: "com.wire"
 version = findProperty("VERSION_NAME") as String? ?: "0.0.1"
 
-// Enable Cinterop commonization to benefit from native libraries
-// share custom c bindings
-project.extra.set("kotlin.mpp.enableCInteropCommonization", "true")
-
 repositories {
     mavenCentral()
     google()
