@@ -1157,7 +1157,7 @@ static void ecall_quality_handler(struct icall *icall,
 
 	info("ccall(%p): ecall_quality_handler rtt=%d up=%d dn=%d "
 	     "ping=%u pdiff=%llu\n",
-	     ccall, stats.rtt, stats.loss_percentages.direction.tx,
+	     ccall, stats.rtt.candidate_pair, stats.loss_percentages.direction.tx,
 	     stats.loss_percentages.direction.rx, ccall->expected_ping, tdiff);
 
 	if (stats.loss_percentages.direction.rx > 20) {

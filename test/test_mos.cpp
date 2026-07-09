@@ -21,18 +21,14 @@
 #include "avs_stats.h"
 
 #include <limits>
-
 #include <gtest/gtest.h>
-#include <fstream>
 
 // Helper expressions to improve readabilty
 constexpr double DOUBLE_MIN = std::numeric_limits<double>::min();
 constexpr double DOUBLE_MAX = std::numeric_limits<double>::max();
 
 class MosSanity : public ::testing::TestWithParam<std::tuple<double, double, double>> {
-public:
-	void SetUp() override {}
-	void TearDown() override {}
+
 };
 
 INSTANTIATE_TEST_CASE_P(Mos,

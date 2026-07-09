@@ -228,10 +228,10 @@ TEST_F(StatsBase, some_packet_stats)
 	expected_packets.video_lost.tx = 8;
 
 	stats_loss_percentages expected_loss_percentages;
-	expected_loss_percentages.direction.rx = 10; // (1+2+3+0) / (10+20+9+19) * 100 = 10.3;
-	expected_loss_percentages.direction.tx = 30; // (7+8) / (26+24) * 100 = 30.0;
-	expected_loss_percentages.channel.audio = 17; // (1+2+7+0) / (10+20+26) * 100 = 17.8;
-	expected_loss_percentages.channel.video = 21; // (3+8) / (9+19+24) * 100 = 21.1;
+	expected_loss_percentages.direction.rx = 10; // (1+2+3+0) / (10+20+9+19) * 100
+	expected_loss_percentages.direction.tx = 30; // (7+8) / (26+24) * 100
+	expected_loss_percentages.channel.audio = 17; // (1+2+7+0) / (10+20+26) * 100
+	expected_loss_percentages.channel.video = 21; // (3+8) / (9+19+24) * 100
 
 	EXPECT_EQ(sr.packets, expected_packets);
 	EXPECT_EQ(sr.loss_percentages, expected_loss_percentages);
@@ -598,7 +598,8 @@ public:
 		auto empty_candidate_pair = new RTCIceCandidatePairStats("emptyCandidatePair", Timestamp::Zero());
 		report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
 
-		candidate_pair = new RTCIceCandidatePairStats("candidatePair", Timestamp::Zero());
+		candidate_pair = std::make_unique<RTCIceCandidatePairStats>("candidatePair", Timestamp::Zero());
+		EXPECT_TRUE(candidate_pair);
 		candidate_pair->current_round_trip_time = 0.01;
 	}
 
@@ -607,7 +608,7 @@ public:
 	}
 
 public:
-	RTCIceCandidatePairStats* candidate_pair;
+	std::unique_ptr<RTCIceCandidatePairStats> candidate_pair;
 	const stats_rtt zero_rtt = {{0, 0}, 0};
 };
 
@@ -622,7 +623,7 @@ TEST_F(StatsRttBase, without_candidates)
 TEST_F(StatsRttBase, unsucceeded_candidates)
 {
 	candidate_pair->state = "unsucceeded";
-	report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
+	std::unique_ptr<RTCIceCandidatePairStats> candidate_pair;
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
@@ -634,7 +635,7 @@ TEST_F(StatsRttBase, unnominated_candidates)
 {
 	candidate_pair->state = "succeeded";
 	candidate_pair->nominated = false;
-	report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
+	std::unique_ptr<RTCIceCandidatePairStats> candidate_pair;
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
