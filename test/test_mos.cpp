@@ -66,7 +66,7 @@ TEST_P(MosRangeSanity, should_be_in_range_1_to_5) {
 class MosSanity: public ::testing::Test {
 public:
 	double rtt_ms = 50;
-	double packet_loss_percentage = 0.01;
+	double packet_loss_percentage = 1;
 	double jitter_buffer_delay_ms =  50;
 
 	double previous_mos_estimate = MAX_MOS_SCORE;
@@ -95,8 +95,8 @@ TEST_F(MosSanity, should_decrease_with_increasing_rtt) {
 
 TEST_F(MosSanity, should_decrease_with_increasing_packet_loss) {
 	double zero_packet_loss = 0;
-	double full_packet_loss = 1.0;
-	double delta = 0.001;
+	double full_packet_loss = 100;
+	double delta = 0.1;
 
 	// initial mos estimate, with low packet loss, should be closer to MAX_MOS_SCORE
 	const auto initial_mos_estimate = g107_2_estimate(rtt_ms, zero_packet_loss, jitter_buffer_delay_ms);

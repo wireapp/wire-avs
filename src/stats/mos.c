@@ -8,7 +8,7 @@
 const int MOS_PACKETIZATION_TIME_MS = 20;
 const int MOS_G107_2_RO = 148;
 const int MOS_G107_2_A_IS = 0;
-const double ONE_SIXTH = 1.0 / 6.0;
+const double MOS_ONE_SIXTH = 1.0 / 6.0;
 
 static double get_absolute_delay(double rtt, double jitter_buffer_delay) {
 	return rtt / 2.0 + jitter_buffer_delay + MOS_PACKETIZATION_TIME_MS;
@@ -26,21 +26,17 @@ static double mos_mapping(double transmission_rating) {
 	return 1 + 0.035 * transmission_rating + transmission_rating * (transmission_rating - 60) * (100 - transmission_rating) * 0.000007;
 }
 
-double g107_2_estimate(double rtt, double packet_lost, double jitter_buffer_delay) {
-
+double g107_2_estimate(double rtt, double packet_lost_percentage, double jitter_buffer_delay) {
 	double id = 0.0;
-
 	const double absolute_delay = get_absolute_delay(rtt, jitter_buffer_delay);
-	const double ppl = packet_lost * 100; // percentage of packets lost
-
-	const double iee = 10.2 + (132 - 10.2) * (ppl / (ppl + 4.3));
+	const double iee = 10.2 + (132 - 10.2) * (packet_lost_percentage / (packet_lost_percentage + 4.3));
 
 	if (absolute_delay <= 100) {
 		id = 0;
 	}
 	else {
 		const double x = (log(absolute_delay) - log(100)) / log(2);
-		id = 1.48 * 25 * (pow(1 + pow(x, 6), ONE_SIXTH) - 3 * pow(1 + pow(x / 3.0, 6), ONE_SIXTH) + 2);
+		id = 1.48 * 25 * (pow(1 + pow(x, 6), MOS_ONE_SIXTH) - 3 * pow(1 + pow(x / 3.0, 6), MOS_ONE_SIXTH) + 2);
 	}
 
 	const double transmission_rating = (MOS_G107_2_RO + MOS_G107_2_A_IS - id - iee ) / 1.48;
