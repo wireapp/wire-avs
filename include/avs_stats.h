@@ -38,6 +38,14 @@ enum stats_cand {
 	STATS_CAND_RELAY     = 4,
 };
 
+enum stats_quality_limitation {
+	STATS_QUALITY_LIMITATION_UNKNOWN    = 0,
+	STATS_QUALITY_LIMITATION_NONE       = 1,
+	STATS_QUALITY_LIMITATION_BANDWIDTH  = 2,
+	STATS_QUALITY_LIMITATION_CPU        = 3,
+	STATS_QUALITY_LIMITATION_OTHER      = 4,
+};
+
 struct stats_rx_tx {
 	uint32_t rx;
 	uint32_t tx;
@@ -74,6 +82,7 @@ struct stats_loss_percentages {
 struct stats_report {
 	enum stats_proto proto;
 	enum stats_cand cand;
+	enum stats_quality_limitation quality_limitation;
 	struct stats_jitter jitter;
 	struct stats_channel jitter_buffer_delay;
 	struct stats_packet_counts packets;
@@ -91,6 +100,7 @@ int stats_update(struct avs_stats *stats, const char *report_json);
 int stats_get_report(struct avs_stats *stats, struct stats_report *report);
 char *stats_proto_name(enum stats_proto proto);
 char *stats_cand_name(enum stats_cand cand);
+char *stats_quality_limitation_name(enum stats_quality_limitation qality_limitation);
 
 // Exponential Moving Average
 struct avs_ema;

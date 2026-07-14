@@ -705,6 +705,56 @@ TEST_F(StatsRtt, some_rtt_values_with_transport)
 	EXPECT_EQ(sr.rtt, expected_rtt);
 }
 
+// ----------------------------------------- Quality limitation tests ----------------------------------
+
+class QualityLimitation : public Base,
+					public ::testing::TestWithParam<stats_quality_limitation> {
+
+public:
+	void SetUp() override {
+		Base::SetUp();
+	}
+
+	void TearDown() override {
+		Base::TearDown();
+	}
+};
+
+INSTANTIATE_TEST_CASE_P(Stats,
+						 QualityLimitation,
+						 ::testing::Values(
+							STATS_QUALITY_LIMITATION_NONE,
+							STATS_QUALITY_LIMITATION_BANDWIDTH,
+							STATS_QUALITY_LIMITATION_CPU,
+							STATS_QUALITY_LIMITATION_OTHER
+						),
+						 [](const testing::TestParamInfo<QualityLimitation::ParamType>& info) {
+							return stats_quality_limitation_name(info.param);});
+
+TEST_P(QualityLimitation, quality_limitation_reason) {
+	// irrelevant kind should be transparent
+	auto irrelevant_rtp = new RTCOutboundRtpStreamStats("iIrrelevantRtpId", Timestamp::Zero());
+	irrelevant_rtp->kind = "irrelevant";
+	irrelevant_rtp->packets_sent = 10000;
+	irrelevant_rtp->quality_limitation_reason = "bandwidth";
+
+	report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
+
+	const auto quality_limitation_reason = GetParam();
+
+	auto outbound_rtp = new RTCOutboundRtpStreamStats("outboundRtpId", Timestamp::Zero());
+	outbound_rtp->kind = "video";
+	outbound_rtp->packets_sent = 1;
+	outbound_rtp->quality_limitation_reason = stats_quality_limitation_name(quality_limitation_reason);
+
+	report->AddStats(std::unique_ptr<RTCStats>(outbound_rtp));
+
+	stats_update(stats, report->ToJson().c_str());
+	stats_get_report(stats, &sr);
+
+	EXPECT_EQ(sr.quality_limitation, quality_limitation_reason);
+}
+
 
 // ----------------------------------------- Sample Json from Web ----------------------------------
 

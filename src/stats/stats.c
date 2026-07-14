@@ -47,6 +47,29 @@ static enum stats_cand stats_parse_cand(const char *cand)
 	}
 }
 
+static enum stats_quality_limitation stats_parse_quality_limitation(const char *qualty_limitation)
+{
+	if (qualty_limitation == NULL) {
+		return STATS_QUALITY_LIMITATION_UNKNOWN;
+	}
+
+	if (streq(qualty_limitation, "none")) {
+		return STATS_QUALITY_LIMITATION_NONE;
+	}
+	else if (streq(qualty_limitation, "bandwidth")) {
+		return STATS_QUALITY_LIMITATION_BANDWIDTH;
+	}
+	else if (streq(qualty_limitation, "cpu")) {
+		return STATS_QUALITY_LIMITATION_CPU;
+	}
+	else if (streq(qualty_limitation, "other")) {
+		return STATS_QUALITY_LIMITATION_OTHER;
+	}
+	else { 
+		return STATS_QUALITY_LIMITATION_UNKNOWN;
+	}
+}
+
 enum stats_type {
 	STATS_TYPE_UNKNOWN,
 	STATS_TYPE_INBOUND_RTP,
@@ -147,6 +170,7 @@ struct stats_outbound_rtp {
 	enum stats_kind kind;
 	int packets_sent;
 	double timestamp;
+	enum stats_quality_limitation quality_limitation;
 	struct le le;
 };
 
@@ -358,6 +382,9 @@ static int read_packet_stats_and_jitter(struct avs_stats *stats, const struct st
 		else if (data->kind == STATS_KIND_VIDEO) {
 			stats->report.packets.video.tx += data->packets_sent;
 			timestamp = max(timestamp, data->timestamp);
+			if (data->packets_sent) {
+				stats->report.quality_limitation = data->quality_limitation;
+			}
 		}
 	}
 
@@ -586,6 +613,7 @@ static struct stats_inbound_rtp *parse_inbound_rtp(struct json_object *jitem)
 static struct stats_outbound_rtp *parse_outbound_rtp(struct json_object *jitem)
 {
 	const char *kind_str = NULL;
+	const char *quality_limitation_str = NULL;
 
 	struct stats_outbound_rtp* data;
 	data = mem_zalloc(sizeof(*data), NULL);
@@ -593,6 +621,9 @@ static struct stats_outbound_rtp *parse_outbound_rtp(struct json_object *jitem)
 
 	kind_str = jzon_str(jitem, "kind");
 	data->kind = stats_parse_kind(kind_str);
+
+	quality_limitation_str = jzon_str(jitem, "qualityLimitationReason");
+	data->quality_limitation = stats_parse_quality_limitation(quality_limitation_str);
 
 	jzon_int(&data->packets_sent, jitem, "packetsSent");
 	jzon_double(&data->timestamp, jitem, "timestamp");
@@ -878,10 +909,10 @@ static float normalize_quality(const struct avs_stats *stats) {
 		packet_loss = UPSTREAM_WEIGHT * packet_loss_tx + DOWNSTREM_WEIGHT * packet_loss_rx;
 	}
 	else {
-		// for 1-1 calls favor upstream information to isolate stats from peer connection
+		// for 1-1 calls favor downstream information to isolate stats from peer connection
 		rtt = rtt_candidate_pair;
-		jitter = jitter_tx;
-		packet_loss = packet_loss_tx;
+		jitter = jitter_rx;
+		packet_loss = packet_loss_rx;
 	}
 
 	// provide packet loss and jitter a bit more importance than latency
@@ -981,5 +1012,25 @@ char *stats_cand_name(enum stats_cand cand)
 
 	default:
 		return "???";
+	}
+}
+
+char *stats_quality_limitation_name(enum stats_quality_limitation quality_limitation)
+{
+	switch (quality_limitation) {
+	case STATS_QUALITY_LIMITATION_NONE:
+		return "none";
+		
+	case STATS_QUALITY_LIMITATION_BANDWIDTH:
+		return "bandwidth";
+
+	case STATS_QUALITY_LIMITATION_CPU:
+		return "cpu";
+		
+	case STATS_QUALITY_LIMITATION_OTHER:
+		return "other";
+
+	default:
+		return "no information";
 	}
 }

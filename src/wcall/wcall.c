@@ -1765,6 +1765,8 @@ static void icall_quality_handler(struct icall *icall,
 
 	info(APITAG "wcall(%p): Mos estimate: %f\n", wcall, stats.mos_estimate);
 
+	info(APITAG "wcall(%p): Quality limitation reason: %s\n", wcall, stats_quality_limitation_name(stats.quality_limitation));
+
 	// Do not remove following log line
 	// WPB-25354: e2e tests depend on parsing the line in order to evaluate flow
 	info("pc_set_stats: level: %d ar: %d vr: %d as: %d vs: %d rtt=%d dloss=%d\n",
