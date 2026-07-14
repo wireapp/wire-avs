@@ -228,10 +228,10 @@ TEST_F(StatsBase, some_packet_stats)
 	expected_packets.video_lost.tx = 8;
 
 	stats_loss_percentages expected_loss_percentages;
-	expected_loss_percentages.direction.rx = 10; // (1+2+3+0) / (10+20+9+19) * 100
+	expected_loss_percentages.direction.rx = 9; // (1+2+3+0) / ((10+1)+(20+2)+(9+3)+19) * 100
 	expected_loss_percentages.direction.tx = 30; // (7+8) / (26+24) * 100
-	expected_loss_percentages.channel.audio = 17; // (1+2+7+0) / (10+20+26) * 100
-	expected_loss_percentages.channel.video = 21; // (3+8) / (9+19+24) * 100
+	expected_loss_percentages.channel.audio = 16; // (1+2+7+0) / ((10+1)+(20+2)+26) * 100
+	expected_loss_percentages.channel.video = 20; // (3+8) / ((9+3)+19+24) * 100
 
 	EXPECT_EQ(sr.packets, expected_packets);
 	EXPECT_EQ(sr.loss_percentages, expected_loss_percentages);
@@ -254,7 +254,7 @@ TEST_F(StatsBase, audio_should_be_cumulative)
 	// 200 packets 10% loss
 	EXPECT_EQ(sr.packets.audio.rx, 200);
 	EXPECT_EQ(sr.packets.audio_lost.rx, 20);
-	EXPECT_EQ(sr.loss_percentages.direction.rx, 10);
+	EXPECT_EQ(sr.loss_percentages.direction.rx, 9);
 
 	// since this is initial packet per sec loss will be zero
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 0);
@@ -275,7 +275,7 @@ TEST_F(StatsBase, audio_should_be_cumulative)
 	// 400 packets 5% loss
 	EXPECT_EQ(sr.packets.audio.rx, 400);
 	EXPECT_EQ(sr.packets.audio_lost.rx, 30);
-	EXPECT_EQ(sr.loss_percentages.direction.rx, 5);
+	EXPECT_EQ(sr.loss_percentages.direction.rx, 4);
 
 	// 20 packets per sec, 1 loss per sec
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 20);

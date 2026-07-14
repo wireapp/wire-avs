@@ -224,9 +224,9 @@ struct avs_stats {
 	void *arg;
 };
 
-static uint32_t calculate_loss_percentage(uint32_t packets, uint32_t lost) {
-	if (packets)
-		return (lost / (float)packets) * 100;
+static uint32_t calculate_loss_percentage(uint32_t lost_packets, uint32_t total_packets) {
+	if (total_packets)
+		return (lost_packets / (float)total_packets) * 100;
 	else
 		return 0;
 }
@@ -273,14 +273,18 @@ static void update_loss_percentages(struct stats_loss_percentages *loss_percenta
 		return;
 	}
 
+	// Notice that rx and tx parts contain different information wrt loss percentage
+	// rx stats have packets_received & packets_lost => packets_lost/(packets_received + packets_lost)
+	// tx stats have packets_send & packets_lost => packets_lost/packets_send
+
 	loss_percentages->direction.tx = calculate_loss_percentage(
-		( diff->audio.tx + diff->video.tx ), (diff->audio_lost.tx + diff->video_lost.tx));
+		(diff->audio_lost.tx + diff->video_lost.tx), (diff->audio.tx + diff->video.tx));
 	loss_percentages->direction.rx = calculate_loss_percentage(
-		( diff->audio.rx + diff->video.rx ), (diff->audio_lost.rx + diff->video_lost.rx));
+		(diff->audio_lost.rx + diff->video_lost.rx), (diff->audio.rx + diff->audio_lost.rx + diff->video.rx + diff->video_lost.rx));
 	loss_percentages->channel.audio = calculate_loss_percentage(
-		( diff->audio.rx + diff->audio.tx ), (diff->audio_lost.rx + diff->audio_lost.tx));
+		(diff->audio_lost.rx + diff->audio_lost.tx), (diff->audio.rx + diff->audio_lost.rx + diff->audio.tx));
 	loss_percentages->channel.video = calculate_loss_percentage(
-		( diff->video.rx + diff->video.tx ), (diff->video_lost.rx + diff->video_lost.tx));
+		(diff->video_lost.rx + diff->video_lost.tx), (diff->video.rx + diff->video_lost.rx + diff->video.tx ));
 }
 
 
