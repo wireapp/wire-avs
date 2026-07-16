@@ -34,15 +34,21 @@ bool operator==(const stats_rx_tx& lhs, const stats_rx_tx& rhs) {
 bool operator==(const stats_packet_counts& lhs, const stats_packet_counts& rhs) {
 	return lhs.audio == rhs.audio &&
 			lhs.video == rhs.video &&
-			lhs.lost == rhs.lost;
+			lhs.audio_lost == rhs.audio_lost &&
+			lhs.video_lost == rhs.video_lost;
 }
 
 bool operator==(const stats_jitter& lhs, const stats_jitter& rhs) {
 	return lhs.audio == rhs.audio && lhs.video == rhs.video;
 }
 
-bool operator==(const stats_remoteInboundRtt& lhs, const stats_remoteInboundRtt& rhs) {
+bool operator==(const stats_channel& lhs, const stats_channel& rhs) {
 	return lhs.audio == rhs.audio && lhs.video == rhs.video;
+}
+
+bool operator==(const stats_loss_percentages& lhs, const stats_loss_percentages& rhs) {
+	return lhs.direction == rhs.direction &&
+			lhs.channel == rhs.channel;
 }
 
 bool operator==(const stats_rtt& lhs, const stats_rtt& rhs) {
@@ -216,10 +222,19 @@ TEST_F(StatsBase, some_packet_stats)
 	expected_packets.audio.tx = 26;
 	expected_packets.video.rx = 9 + 19;
 	expected_packets.video.tx = 24;
-	expected_packets.lost.rx = 10; // (1+2+3+0) / (10+20+9+19) * 100 = 10.3;
-	expected_packets.lost.tx = 30; // (7+8) / (26*24) * 100 = 30.0;
+	expected_packets.audio_lost.rx = 1 + 2;
+	expected_packets.audio_lost.tx = 7;
+	expected_packets.video_lost.rx = 3;
+	expected_packets.video_lost.tx = 8;
+
+	stats_loss_percentages expected_loss_percentages;
+	expected_loss_percentages.direction.rx = 9; // (1+2+3+0) / ((10+1)+(20+2)+(9+3)+19) * 100
+	expected_loss_percentages.direction.tx = 30; // (7+8) / (26+24) * 100
+	expected_loss_percentages.channel.audio = 16; // (1+2+7+0) / ((10+1)+(20+2)+26) * 100
+	expected_loss_percentages.channel.video = 20; // (3+8) / ((9+3)+19+24) * 100
 
 	EXPECT_EQ(sr.packets, expected_packets);
+	EXPECT_EQ(sr.loss_percentages, expected_loss_percentages);
 }
 
 TEST_F(StatsBase, audio_should_be_cumulative)
@@ -238,11 +253,12 @@ TEST_F(StatsBase, audio_should_be_cumulative)
 
 	// 200 packets 10% loss
 	EXPECT_EQ(sr.packets.audio.rx, 200);
-	EXPECT_EQ(sr.packets.lost.rx, 10);
+	EXPECT_EQ(sr.packets.audio_lost.rx, 20);
+	EXPECT_EQ(sr.loss_percentages.direction.rx, 9);
 
 	// since this is initial packet per sec loss will be zero
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 0);
-	EXPECT_EQ(sr.packets_per_sec.lost.rx, 0);
+	EXPECT_EQ(sr.packets_per_sec.audio_lost.rx, 0);
 
 	// An incoming audio streams with double packets and half packet loss
 	const auto new_stat_time = Timestamp::Seconds(time_in_sec + 10);
@@ -256,13 +272,14 @@ TEST_F(StatsBase, audio_should_be_cumulative)
 	stats_update(stats, new_report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	// 40 packets 5% loss
+	// 400 packets 5% loss
 	EXPECT_EQ(sr.packets.audio.rx, 400);
-	EXPECT_EQ(sr.packets.lost.rx, 5);
+	EXPECT_EQ(sr.packets.audio_lost.rx, 30);
+	EXPECT_EQ(sr.loss_percentages.direction.rx, 4);
 
 	// 20 packets per sec, 1 loss per sec
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 20);
-	EXPECT_EQ(sr.packets_per_sec.lost.rx, 1);
+	EXPECT_EQ(sr.packets_per_sec.audio_lost.rx, 1);
 }
 
 
@@ -336,7 +353,7 @@ TEST_P(TsFormat, packets_per_sec) {
 
 	// since this is initial packet per sec loss will be zero
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 0);
-	EXPECT_EQ(sr.packets_per_sec.lost.rx, 0);
+	EXPECT_EQ(sr.packets_per_sec.audio_lost.rx, 0);
 
 	const auto new_report = std::get<1>(GetParam());
 	stats_update(stats, new_report);
@@ -344,7 +361,7 @@ TEST_P(TsFormat, packets_per_sec) {
 
 	// 20 packets per sec, 1 loss per sec
 	EXPECT_EQ(sr.packets_per_sec.audio.rx, 20);
-	EXPECT_EQ(sr.packets_per_sec.lost.rx, 1);
+	EXPECT_EQ(sr.packets_per_sec.audio_lost.rx, 1);
 }
 
 
@@ -515,6 +532,61 @@ TEST_F(StatsJitter, zero_packet_rtp)
 	EXPECT_EQ(sr.jitter.audio.rx, expected_audio_jitter);
 }
 
+// ------------------------------------- Jitter Buffer Delay Tests ------------------------------------
+
+class StatsJitterBufferDelay: public Base,
+					public ::testing::Test {
+public:
+	void SetUp() override
+	{
+		Base::SetUp();
+
+		const auto irrelevant_rtp = new RTCInboundRtpStreamStats("irrelevantRtpId", Timestamp::Zero());
+		irrelevant_rtp->kind = "irrelevant";
+		irrelevant_rtp->jitter_buffer_delay = 0.01;
+		irrelevant_rtp->jitter_buffer_emitted_count = 1;
+		irrelevant_rtp->packets_received = 1;
+		report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
+
+		const auto audio_rtp = new RTCInboundRtpStreamStats("someAudioRtpId", Timestamp::Zero());
+		audio_rtp->kind = "audio";
+		audio_rtp->jitter_buffer_delay = 0.01;
+		audio_rtp->jitter_buffer_emitted_count = 1;
+		audio_rtp->packets_received = 1;
+		report->AddStats(std::unique_ptr<RTCStats>(audio_rtp));
+
+		const auto another_audio_rtp = new RTCInboundRtpStreamStats("anotherRtpId", Timestamp::Zero());
+		another_audio_rtp->kind = "audio";
+		another_audio_rtp->jitter_buffer_delay = 0.02;
+		another_audio_rtp->jitter_buffer_emitted_count = 2;
+		another_audio_rtp->packets_received = 1;
+		report->AddStats(std::unique_ptr<RTCStats>(another_audio_rtp));
+
+		const auto video_rtp = new RTCInboundRtpStreamStats("someVideoRtpId", Timestamp::Zero());
+		video_rtp->kind = "video";
+		video_rtp->jitter_buffer_delay = 0.06;
+		video_rtp->jitter_buffer_emitted_count = 3;
+		video_rtp->packets_received = 1;
+		report->AddStats(std::unique_ptr<RTCStats>(video_rtp));
+	}
+
+	void TearDown() override {
+		Base::TearDown();
+	}
+};
+
+TEST_F(StatsJitterBufferDelay, audio_and_video)
+{
+	stats_update(stats, report->ToJson().c_str());
+	stats_get_report(stats, &sr);
+
+	stats_channel expected_jbd;
+	expected_jbd.audio = 10; // (0.01 + 0.02) / (1 + 2) * 1000
+	expected_jbd.video = 20; // (0.06 / 3) * 1000
+
+	EXPECT_EQ(sr.jitter_buffer_delay, expected_jbd);
+}
+
 // ------------------------------------- RTT Tests --------------------------------------
 class StatsRttBase: public Base,
 				public ::testing::Test {
@@ -526,7 +598,8 @@ public:
 		auto empty_candidate_pair = new RTCIceCandidatePairStats("emptyCandidatePair", Timestamp::Zero());
 		report->AddStats(std::unique_ptr<RTCStats>(empty_candidate_pair));
 
-		candidate_pair = new RTCIceCandidatePairStats("candidatePair", Timestamp::Zero());
+		candidate_pair = std::make_unique<RTCIceCandidatePairStats>("candidatePair", Timestamp::Zero());
+		EXPECT_TRUE(candidate_pair);
 		candidate_pair->current_round_trip_time = 0.01;
 	}
 
@@ -535,7 +608,7 @@ public:
 	}
 
 public:
-	RTCIceCandidatePairStats* candidate_pair;
+	std::unique_ptr<RTCIceCandidatePairStats> candidate_pair;
 	const stats_rtt zero_rtt = {{0, 0}, 0};
 };
 
@@ -550,7 +623,7 @@ TEST_F(StatsRttBase, without_candidates)
 TEST_F(StatsRttBase, unsucceeded_candidates)
 {
 	candidate_pair->state = "unsucceeded";
-	report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
+	std::unique_ptr<RTCIceCandidatePairStats> candidate_pair;
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
@@ -562,7 +635,7 @@ TEST_F(StatsRttBase, unnominated_candidates)
 {
 	candidate_pair->state = "succeeded";
 	candidate_pair->nominated = false;
-	report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
+	std::unique_ptr<RTCIceCandidatePairStats> candidate_pair;
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
@@ -630,6 +703,56 @@ TEST_F(StatsRtt, some_rtt_values_with_transport)
 	stats_get_report(stats, &sr);
 
 	EXPECT_EQ(sr.rtt, expected_rtt);
+}
+
+// ----------------------------------------- Quality limitation tests ----------------------------------
+
+class QualityLimitation : public Base,
+					public ::testing::TestWithParam<stats_quality_limitation> {
+
+public:
+	void SetUp() override {
+		Base::SetUp();
+	}
+
+	void TearDown() override {
+		Base::TearDown();
+	}
+};
+
+INSTANTIATE_TEST_CASE_P(Stats,
+						 QualityLimitation,
+						 ::testing::Values(
+							STATS_QUALITY_LIMITATION_NONE,
+							STATS_QUALITY_LIMITATION_BANDWIDTH,
+							STATS_QUALITY_LIMITATION_CPU,
+							STATS_QUALITY_LIMITATION_OTHER
+						),
+						 [](const testing::TestParamInfo<QualityLimitation::ParamType>& info) {
+							return stats_quality_limitation_name(info.param);});
+
+TEST_P(QualityLimitation, quality_limitation_reason) {
+	// irrelevant kind should be transparent
+	auto irrelevant_rtp = new RTCOutboundRtpStreamStats("iIrrelevantRtpId", Timestamp::Zero());
+	irrelevant_rtp->kind = "irrelevant";
+	irrelevant_rtp->packets_sent = 10000;
+	irrelevant_rtp->quality_limitation_reason = "bandwidth";
+
+	report->AddStats(std::unique_ptr<RTCStats>(irrelevant_rtp));
+
+	const auto quality_limitation_reason = GetParam();
+
+	auto outbound_rtp = new RTCOutboundRtpStreamStats("outboundRtpId", Timestamp::Zero());
+	outbound_rtp->kind = "video";
+	outbound_rtp->packets_sent = 1;
+	outbound_rtp->quality_limitation_reason = stats_quality_limitation_name(quality_limitation_reason);
+
+	report->AddStats(std::unique_ptr<RTCStats>(outbound_rtp));
+
+	stats_update(stats, report->ToJson().c_str());
+	stats_get_report(stats, &sr);
+
+	EXPECT_EQ(sr.quality_limitation, quality_limitation_reason);
 }
 
 

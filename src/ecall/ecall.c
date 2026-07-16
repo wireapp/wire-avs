@@ -3216,8 +3216,8 @@ int ecall_restart(struct ecall *ecall,
 	}
 
 	struct stats_report stats = {
-		.packets.lost.rx = ICALL_RECONNECTING,
-		.packets.lost.tx = ICALL_RECONNECTING,
+		.loss_percentages.direction.rx = ICALL_RECONNECTING,
+		.loss_percentages.direction.tx = ICALL_RECONNECTING,
 	};
 
 	if (notify) {
@@ -3321,7 +3321,7 @@ static void quality_handler(void *arg)
 	err = IFLOW_CALLE(ecall->flow, get_stats, &stats);
 
 	if (!err) {
-		uint32_t dloss = (uint32_t)stats.packets.lost.rx;
+		uint32_t dloss = (uint32_t)stats.loss_percentages.direction.rx;
 		uint32_t rtt = stats.rtt.candidate_pair;
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall,
