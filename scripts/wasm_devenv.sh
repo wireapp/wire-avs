@@ -24,8 +24,11 @@ fi
 
 pushd $AVS_DEVTOOLS_ROOT > /dev/null
 
+
+EMSDK_TAG="6.0.3"
+
 if [ ! -e emsdk ]; then
-	git clone https://github.com/emscripten-core/emsdk.git
+	git clone --branch "$EMSDK_TAG" --depth 1 https://github.com/emscripten-core/emsdk.git
 fi
 
 cd emsdk
