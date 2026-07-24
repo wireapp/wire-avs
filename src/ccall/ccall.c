@@ -3747,6 +3747,10 @@ int  ccall_msg_recv(struct icall* icall,
 		}
 		break;
 
+	case ECONN_CONF_PART:
+		ecall_confpart_handler(ccall->ecall, msg, ccall);
+		break;
+
 	case ECONN_REJECT:
 		{
 			const struct userinfo *self = userlist_get_self(ccall->userl);

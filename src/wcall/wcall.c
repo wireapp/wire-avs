@@ -827,6 +827,7 @@ static int members_json(struct wcall *wcall, char **mjson, char **anon_str)
 		jzon_add_int(jmemb, "aestab", memb->audio_state);
 		jzon_add_int(jmemb, "vrecv", memb->video_recv);
 		jzon_add_int(jmemb, "muted", memb->muted);
+		jzon_add_bool(jmemb, "pstn", memb->pstn);
 
 		json_object_array_add(jmembs, jmemb);
 

@@ -845,11 +845,11 @@ int userlist_get_members(struct userlist *list,
 					   u->video_state :
 					   ICALL_VIDEO_STATE_STOPPED;
 			memb->muted = (u->muted && !u->active_audio) ? 1 : 0;
+			memb->pstn = u->pstn;
 
 			(mm->membc)++;
 		}
 	}
-
  out:
 	if (err)
 		mem_deref(mm);

@@ -41,6 +41,7 @@ struct userinfo {
 	uint32_t listpos;
 
 	bool muted;
+	bool pstn;
 	int active_audio;
 	int active_prev;
 };
