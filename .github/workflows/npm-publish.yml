@@ -58,10 +58,13 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org/"
+
+      - name: Update npm to the required OIDC version
+        run: npm install -g npm@latest
 
       - name: Determine npm tag for publish
         id: tag
