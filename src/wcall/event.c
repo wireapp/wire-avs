@@ -216,7 +216,7 @@ WUSER_HANDLE wcall_event_create(const char *userid,
 	     anon_id(userid_anon, userid),
 	     anon_client(clientid_anon, clientid));
 
-	for (le = calling_event.instances.head; le && !found; le = le->next) {
+	while(le && !found) {
 		inst = le->data;
 
 		found = streq(inst->userid, userid)
@@ -231,10 +231,6 @@ WUSER_HANDLE wcall_event_create(const char *userid,
 		return WUSER_INVALID_HANDLE;
 	}
 	inst->wuser = wcall_create_wuser(&calling_event.wuser_index);
-	info("wcall: event created new wuser=%08x for %s.%s\n",
-	     inst->wuser,
-	     anon_id(userid_anon, userid),
-	     anon_client(clientid_anon, clientid));
 
 	str_dup(&inst->userid, userid);
 	str_dup(&inst->clientid, clientid);
