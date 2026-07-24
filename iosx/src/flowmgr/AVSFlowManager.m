@@ -207,8 +207,9 @@ void ios_log (const char *fmt, ...)
 
 	va_start(args, fmt);
 	re_vsnprintf(msg, sizeof(msg), fmt, args);
-	os_log(OS_LOG_DEFAULT, "%{public}s", msg);
 	va_end(args);
+
+	os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "%{public}s", msg);
 }
 
 
