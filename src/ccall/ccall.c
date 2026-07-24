@@ -1107,15 +1107,13 @@ static void ecall_close_handler(struct icall *icall,
 		set_state(ccall, CCALL_STATE_IDLE);
 
 		if (ccall->error != EDURATION) {
-			// WPB-26637 Increase reference count of ecall to balance usage.
-			// Close handle will trigger wcalls destructor that dereference icall.
-			// mem_ref(ecall);
-			// WPB-27027 Revert this change as it makes sectest fail
-			// sectest wrapper does not have the same logic with wcall
-		        ICALL_CALL_CB(ccall->icall, closeh,
-				      &ccall->icall, ccall->error, &ccall->metrics, msg_time,
-				      NULL, NULL, ccall->icall.arg);
-		}
+			// WPB-27209 Notice that closeh will dereference and destruct ccall
+			// Do not make any operations on ccall / ecall after this callback
+			ICALL_CALL_CB(ccall->icall, closeh,
+				&ccall->icall, ccall->error, &ccall->metrics, msg_time,
+				NULL, NULL, ccall->icall.arg);
+			return;
+		} 
 	}
 	else {
 	        if (ccall->error == EDURATION) {
