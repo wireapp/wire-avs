@@ -80,6 +80,7 @@ static int econn_parts_encode(struct json_object *jobj,
 		re_snprintf(ssrc, sizeof(ssrc), "%u", part->ssrcv);
 		jzon_add_str(jpart, "ssrc_video", "%s", ssrc);
 		jzon_add_int(jpart, "timestamp", (int32_t)part->ts);
+		jzon_add_bool(jpart, "pstn", part->pstn);
 
 		switch(part->muted_state) {
 		case MUTED_STATE_UNMUTED:
@@ -151,6 +152,12 @@ static bool part_decode_handler(const char *key, struct json_object *jobj,
 	err |= jzon_bool(&part->authorized, jobj, "authorized");
 	if (err)
 		goto out;
+
+	/* PSTN is optional */
+	err = jzon_bool(&part->pstn, jobj, "pstn");
+	if (err) {
+		part->pstn = false;
+	}
 
 	/* Timestamp is optional */
 	err = jzon_int(&ts, jobj, "timestamp");
@@ -1199,6 +1206,7 @@ int econn_message_decode(struct econn_message **msgp,
 
 		jzon_bool(&msg->u.confpart.should_start, jobj,
 			  "should_start");
+
 		pl_set_str(&pl, jzon_str(jobj, "timestamp"));
 		msg->u.confpart.timestamp = pl_u64(&pl);
 		pl_set_str(&pl, jzon_str(jobj, "seqno"));
