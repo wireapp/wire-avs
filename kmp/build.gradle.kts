@@ -64,7 +64,6 @@ val osxLinkerOpts = listOf(
 fun generateIosOsxDef(
     buildDir: File,
     targetName: String,
-    staticLibraryDir: String,
     linkerOpts: String,
 ): File {
 
@@ -75,9 +74,7 @@ fun generateIosOsxDef(
             language = Objective-C
             modules = avs
             package = avs
-            staticLibraries = libavsobjc.stripped.a
-            libraryPaths = $staticLibraryDir
-            linkerOpts = $linkerOpts
+            linkerOpts = -framework avs $linkerOpts
             """.trimIndent()
         )
     }
@@ -89,32 +86,37 @@ kotlin {
     val generatedBuildDir = File(path, "build")
 
     val appleTargets = listOf(
-        Triple("iosArm64", "ios-arm64", "ios-arm64"),
-        Triple("iosSimulatorArm64", "ios-arm64_x86_64-simulator", "iossim-arm64"),
-        Triple("macosX64", "macos-arm64_x86_64", "osx-x86_64"),
-        Triple("macosArm64", "macos-arm64_x86_64", "osx-arm64")
+        Pair("iosArm64", "ios-arm64"),
+        Pair("iosSimulatorArm64", "ios-arm64_x86_64-simulator"),
+        Pair("macosArm64", "macos-arm64_x86_64")
     )
 
-    appleTargets.forEach { (targetName, xcDir, libDir) ->
+    appleTargets.forEach { (targetName, xcDir) ->
         val target = when (targetName) {
             "iosArm64" -> iosArm64()
             "iosSimulatorArm64" -> iosSimulatorArm64()
-            "macosX64" -> macosX64()
             "macosArm64" -> macosArm64()
             else -> error("Unknown target")
+        }
+
+        target.compilations.configureEach {
+            compileTaskProvider.configure {
+                compilerOptions.freeCompilerArgs.addAll(
+                    "-Xklib-relative-path-base=$path",
+                    "-Xklib-normalize-absolute-path",
+                )
+            }
         }
 
         target.compilations.getByName("main") {
             val avs by cinterops.creating() {
                 val frameworkPath = file("$path/build/dist/xc/avs.xcframework/$xcDir/").absolutePath
-                val staticLibraryDir = file("$path/build/$libDir/lib").absolutePath
                 val linkerOpts = if (targetName.startsWith("ios")) iosLinkerOpts else osxLinkerOpts
 
                 definitionFile.set(
                     generateIosOsxDef(
                         generatedBuildDir,
                         targetName,
-                        staticLibraryDir,
                         linkerOpts
                     )
                 )
