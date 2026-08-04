@@ -65,8 +65,7 @@ namespace webrtc {
 	    int32_t PlayoutDeviceName(uint16_t index,
 				      char name[kAdmMaxDeviceNameSize],
 				      char guid[kAdmMaxGuidSize]) {
-		    memcpy(name, "pstn", 4);
-		    name[4] = '\0';
+		    str_ncpy(name, "pstn", kAdmMaxDeviceNameSize);
 		    return 0;
 	    }
 	    int32_t RecordingDeviceName(uint16_t index,
