@@ -355,9 +355,18 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 				ev->reason = WCALL_REASON_NORMAL;
 			}
 			else {
+				/* No SETUP was seen for this call, so the envelope
+				 * sender of CONF_END may not be the caller. Prefer
+				 * the originator declared in the payload
+				 * (src_userid) when present; fall back to the
+				 * envelope sender otherwise. */
+				const char *caller_userid =
+					str_isset(msg->src_userid) ? msg->src_userid : userid;
+				const char *caller_clientid =
+					str_isset(msg->src_clientid) ? msg->src_clientid : clientid;
 				queue_event(inst,
 					    convid,
-					    userid, clientid,
+					    caller_userid, caller_clientid,
 					    msg->time,
 					    conv_type,
 					    CALL_EVENT_STATE_CLOSED,
