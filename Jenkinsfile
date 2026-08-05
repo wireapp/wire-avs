@@ -61,7 +61,7 @@ pipeline {
                         sh 'touch src/version/version.c'
 
                         // build tests
-                        sh 'make test AVS_VERSION=' + version
+                        sh 'make test BUILD_OPTIONAL_MODULES=1 HAVE_PROTOBUF=1 HAVE_CRYPTOBOX=1 AVS_VERSION=' + version
                         // run tests
                         sh './ztest'
                         // run slow tests
@@ -72,7 +72,7 @@ pipeline {
                         sh 'mkdir -p ./build/artifacts'
 
                         // build
-                        sh 'make dist_clean'
+                        sh 'make avs_clean dist_clean'
                         sh 'make zcall sectest AVS_VERSION=' + version
                         script {
                             def exitStatus = sh returnStatus: true, script: './sectest https://sft.calling-staging-v01.zinfra.io:443 > ./build/artifacts/avs-' + version + '-sectest.log'
@@ -137,14 +137,14 @@ pipeline {
                         sh 'touch src/version/version.c'
 
                         // build tests
-                        sh 'make test AVS_VERSION=' + version
+                        sh 'make test BUILD_OPTIONAL_MODULES=1 HAVE_PROTOBUF=1 HAVE_CRYPTOBOX=1 AVS_VERSION=' + version
                         // run tests
                         sh './ztest'
                         // run slow tests
                         sh './ztest-slow'
 
                         // build
-                        sh 'make dist_clean'
+                        sh 'make avs_clean dist_clean'
                         sh 'make zcall AVS_VERSION=' + version
                         sh '''#!/bin/bash
                             . ./scripts/android_devenv.sh && echo "sdk.dir=${ANDROID_SDK_ROOT}\nndk.dir=${ANDROID_NDK_ROOT}" > local.properties

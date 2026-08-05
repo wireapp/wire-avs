@@ -14,7 +14,8 @@ $(TOOL)_M_OBJS := $(patsubst %.m,$(TOOLS_OBJ_PATH)/$(TOOL)/%.o,\
 $(TOOL)_MM_OBJS := $(patsubst %.mm,$(TOOLS_OBJ_PATH)/$(TOOL)/%.o,\
 			$(filter %.mm,$($(TOOL)_SRCS)))
 $(TOOL)_OBJS := $($(TOOL)_C_OBJS) $($(TOOL)_CC_OBJS) \
-		$($(TOOL)_M_OBJS) $($(TOOL)_MM_OBJS)
+		$($(TOOL)_M_OBJS) $($(TOOL)_MM_OBJS) \
+		$($(TOOL)_EXTRA_OBJS)
 
 #-include $($(TOOL)_OBJS:.o=.d)
 
