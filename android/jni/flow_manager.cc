@@ -560,8 +560,15 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 		goto out;
 	}
 
-	while(!java.initialized && !java.err)
-		usleep(50000);
+	while(!java.initialized && !java.err) {
+		struct timespec ts;
+
+		ts.tv_sec = 0;
+		ts.tv_nsec = 50000000;
+
+		nanosleep(&ts, NULL);
+		
+	}
 	err = java.err;
 	
  out:
