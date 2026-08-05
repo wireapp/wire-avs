@@ -35,26 +35,16 @@ endif
 zcall_SRCS	+= $(PLATFORM_FILES)
 
 ifneq ($(filter osx linux,$(AVS_OS)),)
-zcall_DESKTOP_SRCS := \
-		../../src/protobuf/wrap.c \
-		../../src/protobuf/protobuf.c \
-		../../src/protobuf/proto/messages.pb-c.c \
-		../../src/cryptobox/cryptobox.c \
-		../../src/engine/call.c \
-		../../src/engine/client.c \
-		../../src/engine/conn.c \
-		../../src/engine/conv.c \
-		../../src/engine/engine.c \
-		../../src/engine/event.c \
-		../../src/engine/message.c \
-		../../src/engine/module.c \
-		../../src/engine/otr.c \
-		../../src/engine/sync.c \
-		../../src/engine/user.c \
-		../../src/engine/utils.c \
-		../../src/rtpdump/rtpdump.cpp \
-		../../src/store/store.c \
-		../../src/store/remove.c
+zcall_DESKTOP_SRC_DIRS := \
+		src/protobuf \
+		src/protobuf/proto \
+		src/cryptobox \
+		src/engine \
+		src/rtpdump \
+		src/store
+zcall_DESKTOP_SRCS := $(patsubst src/%,../../src/%,\
+		$(foreach dir,$(zcall_DESKTOP_SRC_DIRS),\
+			$(wildcard $(dir)/*.c $(dir)/*.cpp)))
 zcall_SRCS	+= $(zcall_DESKTOP_SRCS)
 endif
 
