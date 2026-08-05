@@ -886,7 +886,12 @@ static void play_handler(void *arg)
 	[media play];
 	if (snd->sync) {
 		while(mm_platform_is_sound_playing(snd) && n-- > 0) {
-			usleep(200000);
+			struct timespec ts;
+
+			ts.tv_sec = 0;
+			ts.tv_nsec = 200000000;
+
+			nanosleep(&ts, NULL);
 		}
 	}
 	

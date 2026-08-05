@@ -616,10 +616,15 @@ static int mm_alloc(struct mm **mmp)
 	mediamgr_thread(mm);
 #endif
 	for ( int cnt = 0; cnt < 10000; cnt++) {
+		struct timespec ts;
+
+		ts.tv_sec = 0;
+		ts.tv_nsec = 1000000;
+
 		if (mm->started) {
 			break;
 		}
-		usleep(1000);  /* 1ms so allow to wait 10 secs */
+		nanosleep(&ts, NULL); /* 1ms so allow to wait 10 secs */
 	}
 
 	mm->router.cur_route = MEDIAMGR_AUPLAY_UNKNOWN;

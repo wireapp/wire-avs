@@ -2055,8 +2055,14 @@ void dce_close(void)
 		return;
 
 	while (usrsctp_finish() != 0 && tries--) {
+		struct timespec ts;
+
 		re_printf("dce: close: usrsctp_finish failed (%m)\n", errno);
-		usleep(500000);
+
+		ts.tv_sec = 0;
+		ts.tv_nsec = 500000000;
+
+		nanosleep(&ts, NULL);
 	}
 
 	mem_deref(g_dce.lock);
