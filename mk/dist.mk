@@ -339,6 +339,14 @@ $(BUILD_DIST_OSX)/$(BUILD_LIB_REL)/$(BUILD_LIB_REL):
 		$(foreach arch,$(DIST_ARCH_osx),\
 		-arch $(arch) $(BUILD_BASE)/osx-$(arch)/lib/avs.framework/avs)
 
+	@unexpected_deps="$$(otool -L $@ | awk 'NR > 1 && /^[[:space:]]+/ {print $$1}' | \
+		grep -Ev '^(@rpath/avs\.framework/avs|/System/Library/|/usr/lib/)' || true)"; \
+	if [ -n "$$unexpected_deps" ]; then \
+		echo "error: macOS AVS framework has non-system dynamic dependencies:"; \
+		echo "$$unexpected_deps"; \
+		exit 1; \
+	fi
+
 
 # Package
 #

@@ -34,6 +34,30 @@ endif
 
 zcall_SRCS	+= $(PLATFORM_FILES)
 
+ifneq ($(filter osx linux,$(AVS_OS)),)
+zcall_DESKTOP_SRCS := \
+		../../src/protobuf/wrap.c \
+		../../src/protobuf/protobuf.c \
+		../../src/protobuf/proto/messages.pb-c.c \
+		../../src/cryptobox/cryptobox.c \
+		../../src/engine/call.c \
+		../../src/engine/client.c \
+		../../src/engine/conn.c \
+		../../src/engine/conv.c \
+		../../src/engine/engine.c \
+		../../src/engine/event.c \
+		../../src/engine/message.c \
+		../../src/engine/module.c \
+		../../src/engine/otr.c \
+		../../src/engine/sync.c \
+		../../src/engine/user.c \
+		../../src/engine/utils.c \
+		../../src/rtpdump/rtpdump.cpp \
+		../../src/store/store.c \
+		../../src/store/remove.c
+zcall_SRCS	+= $(zcall_DESKTOP_SRCS)
+endif
+
 
 zcall_CPPFLAGS := $(AVS_CPPFLAGS) $(MENG_CPPFLAGS)
 zcall_CFLAGS := $(AVS_CFLAGS) $(MENG_CFLAGS)
@@ -54,15 +78,25 @@ zcall_DEPS := $(AVS_DEPS) $(MENG_DEPS)
 zcall_LIB_FILES := $(AVS_STATIC) $(MENG_STATIC)
 
 
-ifneq ($(HAVE_PROTOBUF),)
-zcall_DEPS += $(CONTRIB_PROTOBUF_TARGET)
-zcall_LIBS += $(CONTRIB_PROTOBUF_LIBS)
-endif
-
-ifneq ($(HAVE_CRYPTOBOX),)
-zcall_DEPS += $(CONTRIB_CRYPTOBOX_TARGET)
-zcall_LIBS += $(CONTRIB_CRYPTOBOX_LIBS)
+ifneq ($(filter osx linux,$(AVS_OS)),)
+zcall_CPPFLAGS += \
+	-DHAVE_PROTOBUF=1 \
+	-DHAVE_CRYPTOBOX=1 \
+	-Isrc/protobuf \
+	$(shell pkg-config --cflags 'libprotobuf-c >= 1.0.0')
+zcall_DEPS += $(CONTRIB_PROTOBUF_TARGET) $(CONTRIB_CRYPTOBOX_TARGET)
+zcall_LIBS += $(CONTRIB_PROTOBUF_LIBS) $(CONTRIB_CRYPTOBOX_LIBS)
 endif
 
 
 include mk/tool.mk
+
+ifneq ($(filter osx linux,$(AVS_OS)),)
+zcall_DESKTOP_OBJS := \
+		$(patsubst %.c,$(TOOLS_OBJ_PATH)/zcall/%.o,\
+			$(filter %.c,$(zcall_DESKTOP_SRCS))) \
+		$(patsubst %.cpp,$(TOOLS_OBJ_PATH)/zcall/%.o,\
+			$(filter %.cpp,$(zcall_DESKTOP_SRCS)))
+$(zcall_DESKTOP_OBJS): CPPFLAGS += $(zcall_CPPFLAGS)
+$(zcall_DESKTOP_OBJS): CFLAGS += $(zcall_CFLAGS)
+endif
