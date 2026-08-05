@@ -61,7 +61,7 @@ pipeline {
                         sh 'touch src/version/version.c'
 
                         // build tests
-                        sh 'make test BUILD_OPTIONAL_MODULES=1 AVS_VERSION=' + version
+                        sh 'make test BUILD_OPTIONAL_MODULES=1 HAVE_PROTOBUF=1 HAVE_CRYPTOBOX=1 AVS_VERSION=' + version
                         // run tests
                         sh './ztest'
                         // run slow tests
@@ -137,7 +137,7 @@ pipeline {
                         sh 'touch src/version/version.c'
 
                         // build tests
-                        sh 'make test BUILD_OPTIONAL_MODULES=1 AVS_VERSION=' + version
+                        sh 'make test BUILD_OPTIONAL_MODULES=1 HAVE_PROTOBUF=1 HAVE_CRYPTOBOX=1 AVS_VERSION=' + version
                         // run tests
                         sh './ztest'
                         // run slow tests
