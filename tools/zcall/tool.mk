@@ -42,10 +42,16 @@ zcall_DESKTOP_SRC_DIRS := \
 		src/engine \
 		src/rtpdump \
 		src/store
-zcall_DESKTOP_SRCS := $(patsubst src/%,../../src/%,\
-		$(foreach dir,$(zcall_DESKTOP_SRC_DIRS),\
-			$(wildcard $(dir)/*.c $(dir)/*.cpp)))
-zcall_SRCS	+= $(zcall_DESKTOP_SRCS)
+zcall_DESKTOP_SRCS := $(foreach dir,$(zcall_DESKTOP_SRC_DIRS),\
+		$(wildcard $(dir)/*.c $(dir)/*.cpp))
+zcall_DESKTOP_C_OBJS := $(patsubst src/%.c,\
+		$(TOOLS_OBJ_PATH)/zcall/desktop/%.o,\
+		$(filter %.c,$(zcall_DESKTOP_SRCS)))
+zcall_DESKTOP_CC_OBJS := $(patsubst src/%.cpp,\
+		$(TOOLS_OBJ_PATH)/zcall/desktop/%.o,\
+		$(filter %.cpp,$(zcall_DESKTOP_SRCS)))
+zcall_DESKTOP_OBJS := $(zcall_DESKTOP_C_OBJS) $(zcall_DESKTOP_CC_OBJS)
+zcall_EXTRA_OBJS := $(zcall_DESKTOP_OBJS)
 endif
 
 
@@ -82,11 +88,19 @@ endif
 include mk/tool.mk
 
 ifneq ($(filter osx linux,$(AVS_OS)),)
-zcall_DESKTOP_OBJS := \
-		$(patsubst %.c,$(TOOLS_OBJ_PATH)/zcall/%.o,\
-			$(filter %.c,$(zcall_DESKTOP_SRCS))) \
-		$(patsubst %.cpp,$(TOOLS_OBJ_PATH)/zcall/%.o,\
-			$(filter %.cpp,$(zcall_DESKTOP_SRCS)))
-$(zcall_DESKTOP_OBJS): CPPFLAGS += $(zcall_CPPFLAGS)
-$(zcall_DESKTOP_OBJS): CFLAGS += $(zcall_CFLAGS)
+-include $(zcall_DESKTOP_OBJS:.o=.d)
+
+$(zcall_DESKTOP_C_OBJS): $(TOOLS_OBJ_PATH)/zcall/desktop/%.o: src/%.c
+	@echo "  CC   $(AVS_PAIR) $<"
+	@mkdir -p $(dir $@)
+	@$(CC) $(CPPFLAGS) $(CFLAGS) \
+		$(zcall_CPPFLAGS) $(zcall_CFLAGS) \
+		-o $@ -c $< $(DFLAGS)
+
+$(zcall_DESKTOP_CC_OBJS): $(TOOLS_OBJ_PATH)/zcall/desktop/%.o: src/%.cpp
+	@echo "  CXX  $(AVS_PAIR) $<"
+	@mkdir -p $(dir $@)
+	@$(CC) $(CPPFLAGS) $(CXXFLAGS) \
+		$(zcall_CPPFLAGS) \
+		-o $@ -c $< $(DFLAGS)
 endif
