@@ -84,6 +84,10 @@ OUTER_MKS := Makefile mk/target.mk
 #
 # NOTE: must be defined here, after target.mk is included
 #
+ifeq ($(AVS_OS),android)
+BUILD_OPTIONAL_MODULES := 1
+endif
+
 ifneq ($(AVS_OS),wasm)
 BUILD_NETWORK_MODULES := 1
 endif
