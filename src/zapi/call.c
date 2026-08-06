@@ -23,6 +23,7 @@
 #include "avs_uuid.h"
 #include "avs_zapi.h"
 
+#define MAX_SERVERS 16
 
 int zapi_iceservers_encode(struct json_object *jobj,
 			   const struct zapi_ice_server *srvv,
@@ -77,6 +78,7 @@ int zapi_iceservers_decode(struct json_object *jarr,
 	}
 
 	n = json_object_array_length(jarr);
+	n = min(n, MAX_SERVERS);
 	srvv = mem_zalloc(n * sizeof(*srvv), NULL);
 
 	for (i = 0; i < n; ++i) {
