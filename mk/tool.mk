@@ -29,7 +29,7 @@ $($(TOOL)_OBJS): $($(TOOL)_MKS)
 endif
 
 $(BUILD_BIN)/$(TOOL)$(BIN_SUFFIX): $($(TOOL)_OBJS) $($(TOOL)_LIB_FILES)
-	@echo "  LD   $(AVS_PAIR) $@"
+	@echo "  LDtool   $(AVS_PAIR) $@"
 	@mkdir -p $(BUILD_BIN)
 	$(CXX) $(LFLAGS) -fno-rtti -std=c++17 \
 		$($(basename $(notdir $@))_LFLAGS) \
