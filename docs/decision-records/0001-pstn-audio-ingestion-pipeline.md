@@ -1,7 +1,7 @@
 # Architectural Decision Record (ADR): Bidirectional 16-bit PCM Audio Pipeline
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 Our application needs to handle bidirectional, real-time audio streams via WebRTC. It must ingest incoming audio packets into our application for internal processing (jitter management, mixing, and analytics) and concurrently deliver outgoing mixed audio back to WebRTC for hardware playback. Both paths require ultra-low latency, strict thread safety, and must prevent audio stuttering or glitches.
