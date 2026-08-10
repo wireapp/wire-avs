@@ -105,6 +105,8 @@ void msystem_activate(bool active);
 void msystem_set_config_version(int sft_version, int turn_version);
 int  msystem_get_sft_config_version(void);
 int  msystem_get_turn_config_version(void);
+void msystem_set_pstn(bool pstn);
+bool msystem_is_pstn(void);
 
 
 
