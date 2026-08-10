@@ -58,6 +58,8 @@ struct msystem {
 	        int sft;
 	        int turn;
 	} config_version;
+
+	bool pstn;
 };
 
 
@@ -190,6 +192,9 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 	}
 	else if (streq(msys->name, "voe")) {
 		msys->using_voe = true;
+	}
+	else if (streq(msys->name, "pstn")) {
+		msys->pstn = true;
 	}
 	else {
 		warning("flowmgr: media-system not available (%s)\n",
@@ -666,4 +671,16 @@ int msystem_get_sft_config_version(void)
 int msystem_get_turn_config_version(void)
 {
         return g_msys ? g_msys->config_version.turn : 0;
+}
+
+void msystem_set_pstn(bool pstn)
+{
+	if (g_msys) {
+		g_msys->pstn = pstn;
+	}
+}
+
+bool msystem_is_pstn(void)
+{
+	return g_msys ? g_msys->pstn : false;
 }
