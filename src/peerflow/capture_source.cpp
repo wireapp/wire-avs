@@ -77,6 +77,9 @@ CaptureSource::CaptureSource()
 
 CaptureSource::~CaptureSource()
 {
+	if (g_cap == this)
+		g_cap = NULL;
+
 	lock_write_get(_lock);
 	list_flush(&_streaml);
 	lock_rel(_lock);
@@ -357,9 +360,11 @@ extern "C" {
 
 void capture_source_handle_frame(struct avs_vidframe *frame)
 {
+	if (!wire::g_cap)
+		return;
+
 	wire::g_cap->HandleFrame(frame);
 }
 
 };
-
 
