@@ -2698,14 +2698,15 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 	if (!ecall)
 		return EINVAL;
 
-	info("ecall(%p): set_video_send_state %s->%s  econn %p update %d\n",
+	info("ecall(%p): set_video_send_state %s->%s  econn %p update %d glare %d\n",
 	     ecall,
 	     icall_vstate_name(ecall->vstate),
 	     icall_vstate_name(vstate),
 	     ecall->econn,
-	     ecall->update);
+	     ecall->update,
+	     ecall->update_glare);
 
-	if (ecall->vstate == vstate) {
+	if (ecall->vstate == vstate && !ecall->update_glare) {
 		info("ecall(%p): set_video_send_state: ignorig, already in state: %s\n",
 		     ecall, icall_vstate_name(ecall->vstate));
 
@@ -3216,8 +3217,8 @@ int ecall_restart(struct ecall *ecall,
 	}
 
 	struct stats_report stats = {
-		.packets.lost.rx = ICALL_RECONNECTING,
-		.packets.lost.tx = ICALL_RECONNECTING,
+		.loss_percentages.direction.rx = ICALL_RECONNECTING,
+		.loss_percentages.direction.tx = ICALL_RECONNECTING,
 	};
 
 	if (notify) {
@@ -3321,8 +3322,8 @@ static void quality_handler(void *arg)
 	err = IFLOW_CALLE(ecall->flow, get_stats, &stats);
 
 	if (!err) {
-		uint32_t dloss = (uint32_t)stats.packets.lost.rx;
-		uint32_t rtt = stats.rtt.tx;
+		uint32_t dloss = (uint32_t)stats.loss_percentages.direction.rx;
+		uint32_t rtt = stats.rtt.candidate_pair;
 		ICALL_CALL_CB(ecall->icall, qualityh,
 			      &ecall->icall,
 			      ecall->userid_peer,

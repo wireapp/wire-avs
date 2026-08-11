@@ -239,6 +239,7 @@ struct econn_group_part {
 	uint32_t ssrca;
 	uint32_t ssrcv;
 	uint64_t ts;
+	bool pstn;
 
 	struct le le;
 };

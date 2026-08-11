@@ -34,6 +34,26 @@ endif
 
 zcall_SRCS	+= $(PLATFORM_FILES)
 
+ifneq ($(filter osx linux,$(AVS_OS)),)
+zcall_DESKTOP_SRC_DIRS := \
+		src/protobuf \
+		src/protobuf/proto \
+		src/cryptobox \
+		src/engine \
+		src/rtpdump \
+		src/store
+zcall_DESKTOP_SRCS := $(foreach dir,$(zcall_DESKTOP_SRC_DIRS),\
+		$(wildcard $(dir)/*.c $(dir)/*.cpp))
+zcall_DESKTOP_C_OBJS := $(patsubst src/%.c,\
+		$(TOOLS_OBJ_PATH)/zcall/desktop/%.o,\
+		$(filter %.c,$(zcall_DESKTOP_SRCS)))
+zcall_DESKTOP_CC_OBJS := $(patsubst src/%.cpp,\
+		$(TOOLS_OBJ_PATH)/zcall/desktop/%.o,\
+		$(filter %.cpp,$(zcall_DESKTOP_SRCS)))
+zcall_DESKTOP_OBJS := $(zcall_DESKTOP_C_OBJS) $(zcall_DESKTOP_CC_OBJS)
+zcall_EXTRA_OBJS := $(zcall_DESKTOP_OBJS)
+endif
+
 
 zcall_CPPFLAGS := $(AVS_CPPFLAGS) $(MENG_CPPFLAGS)
 zcall_CFLAGS := $(AVS_CFLAGS) $(MENG_CFLAGS)
@@ -54,15 +74,33 @@ zcall_DEPS := $(AVS_DEPS) $(MENG_DEPS)
 zcall_LIB_FILES := $(AVS_STATIC) $(MENG_STATIC)
 
 
-ifneq ($(HAVE_PROTOBUF),)
-zcall_DEPS += $(CONTRIB_PROTOBUF_TARGET)
-zcall_LIBS += $(CONTRIB_PROTOBUF_LIBS)
-endif
-
-ifneq ($(HAVE_CRYPTOBOX),)
-zcall_DEPS += $(CONTRIB_CRYPTOBOX_TARGET)
-zcall_LIBS += $(CONTRIB_CRYPTOBOX_LIBS)
+ifneq ($(filter osx linux,$(AVS_OS)),)
+zcall_CPPFLAGS += \
+	-DHAVE_PROTOBUF=1 \
+	-DHAVE_CRYPTOBOX=1 \
+	-Isrc/protobuf \
+	$(shell pkg-config --cflags 'libprotobuf-c >= 1.0.0')
+zcall_DEPS += $(CONTRIB_PROTOBUF_TARGET) $(CONTRIB_CRYPTOBOX_TARGET)
+zcall_LIBS += $(CONTRIB_PROTOBUF_LIBS) $(CONTRIB_CRYPTOBOX_LIBS)
 endif
 
 
 include mk/tool.mk
+
+ifneq ($(filter osx linux,$(AVS_OS)),)
+-include $(zcall_DESKTOP_OBJS:.o=.d)
+
+$(zcall_DESKTOP_C_OBJS): $(TOOLS_OBJ_PATH)/zcall/desktop/%.o: src/%.c
+	@echo "  CC   $(AVS_PAIR) $<"
+	@mkdir -p $(dir $@)
+	@$(CC) $(CPPFLAGS) $(CFLAGS) \
+		$(zcall_CPPFLAGS) $(zcall_CFLAGS) \
+		-o $@ -c $< $(DFLAGS)
+
+$(zcall_DESKTOP_CC_OBJS): $(TOOLS_OBJ_PATH)/zcall/desktop/%.o: src/%.cpp
+	@echo "  CXX  $(AVS_PAIR) $<"
+	@mkdir -p $(dir $@)
+	@$(CC) $(CPPFLAGS) $(CXXFLAGS) \
+		$(zcall_CPPFLAGS) \
+		-o $@ -c $< $(DFLAGS)
+endif

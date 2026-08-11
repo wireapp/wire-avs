@@ -64,7 +64,6 @@ val osxLinkerOpts = listOf(
 fun generateIosOsxDef(
     buildDir: File,
     targetName: String,
-    staticLibraryDir: String,
     linkerOpts: String,
 ): File {
 
@@ -75,9 +74,7 @@ fun generateIosOsxDef(
             language = Objective-C
             modules = avs
             package = avs
-            staticLibraries = libavsobjc.a
-            libraryPaths = $staticLibraryDir
-            linkerOpts = $linkerOpts
+            linkerOpts = -framework avs $linkerOpts
             """.trimIndent()
         )
     }
@@ -89,32 +86,37 @@ kotlin {
     val generatedBuildDir = File(path, "build")
 
     val appleTargets = listOf(
-        Triple("iosArm64", "ios-arm64", "ios-arm64"),
-        Triple("iosSimulatorArm64", "ios-arm64_x86_64-simulator", "iossim-arm64"),
-        Triple("macosX64", "macos-arm64_x86_64", "osx-x86_64"),
-        Triple("macosArm64", "macos-arm64_x86_64", "osx-arm64")
+        Pair("iosArm64", "ios-arm64"),
+        Pair("iosSimulatorArm64", "ios-arm64_x86_64-simulator"),
+        Pair("macosArm64", "macos-arm64_x86_64")
     )
 
-    appleTargets.forEach { (targetName, xcDir, libDir) ->
+    appleTargets.forEach { (targetName, xcDir) ->
         val target = when (targetName) {
             "iosArm64" -> iosArm64()
             "iosSimulatorArm64" -> iosSimulatorArm64()
-            "macosX64" -> macosX64()
             "macosArm64" -> macosArm64()
             else -> error("Unknown target")
+        }
+
+        target.compilations.configureEach {
+            compileTaskProvider.configure {
+                compilerOptions.freeCompilerArgs.addAll(
+                    "-Xklib-relative-path-base=$path",
+                    "-Xklib-normalize-absolute-path",
+                )
+            }
         }
 
         target.compilations.getByName("main") {
             val avs by cinterops.creating() {
                 val frameworkPath = file("$path/build/dist/xc/avs.xcframework/$xcDir/").absolutePath
-                val staticLibraryDir = file("$path/build/$libDir/lib").absolutePath
                 val linkerOpts = if (targetName.startsWith("ios")) iosLinkerOpts else osxLinkerOpts
 
                 definitionFile.set(
                     generateIosOsxDef(
                         generatedBuildDir,
                         targetName,
-                        staticLibraryDir,
                         linkerOpts
                     )
                 )
@@ -129,6 +131,12 @@ kotlin {
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
+    }
+
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs {
+        browser{}
+        binaries.library()
     }
 
     sourceSets {
@@ -148,8 +156,99 @@ kotlin {
                 implementation(libs.android.core)
             }
         }
+
+        val wasmJsMain by getting {
+            dependencies { 
+                // Core Kotlin standard library dependencies for Wasm generation
+                implementation(kotlin("stdlib-wasm-js"))
+
+                // Provide a new package.json
+                // The one for npm (../build/dist/wasm/package.json) does not work here
+                api(npm("@wireapp/avs", project.file("src/wasmJsMain/resources")))
+            }
+
+            // Provide a resource directory for wasm resources
+            resources.srcDir("../build/dist/wasm/dist")
+        }
     }
 }
+
+// This is needed to add a custom package.json in wasmjs
+tasks.named<org.gradle.jvm.tasks.Jar>("wasmJsJar") {
+    // Instructs the JAR engine to bypass duplicate path safety blocks
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+// Define a helper task to get js filenames in ./build/dist/wasm/dist/ and
+// provide and aggregate avs.js
+val generateJsExports by tasks.registering {
+    group = "build"
+    description = "Generates a JS file exporting all JavaScript files from a specific directory."
+
+    val inputDir = file("../build/dist/wasm/dist/")
+    val outputFile = file("./src/wasmJsMain/resources/avs.js")
+
+    inputs.dir(inputDir).withPathSensitivity(PathSensitivity.RELATIVE)
+    outputs.file(outputFile)
+
+    doLast {
+        if (!inputDir.exists() || !inputDir.isDirectory) {
+            logger.warn("Input directory does not exist: ${inputDir.absolutePath}")
+            return@doLast
+        }
+
+        val exportLines = inputDir.listFiles { file -> file.isFile && file.extension == "js" }
+            ?.sortedBy { it.name }
+            ?.map { file -> "export * from './${file.name}';" }
+            ?: emptyList()
+
+        // Define the warning comment block about file being auto generated
+        val fileHeader = """
+            // ============================================================================
+            // WARNING: THIS FILE IS AUTO-GENERATED. DO NOT EDIT MANUALLY.
+            // Any manual modifications will be overwritten during the next Gradle build
+            // with task ./wire-avs/kmp/build.gradle.kts:generateJsExports
+            // ============================================================================
+            
+        """.trimIndent()
+
+        outputFile.parentFile.mkdirs()
+        
+        // Combine the header comment and the export lines
+        val finalContent = fileHeader + "\n" + exportLines.joinToString("\n") + "\n"
+        outputFile.writeText(finalContent)
+        
+        logger.lifecycle("Generated JS exports in ${outputFile.path}")
+    }
+}
+
+// Resources for the wasmJsMain compilation unit are processed with 
+// wasmJsProcessResources. Hooking the helper before this will ensure correct aggregation.
+tasks.named("wasmJsProcessResources") {
+    dependsOn(generateJsExports)
+}
+
+// Task that will copy avs makefile generated wasm interop code
+val copyWasmInterop by tasks.registering(Copy::class) {
+    description = "Copies and renames the avs make generated interop file."
+
+    // Configures paths relative to wire-avs/kmp/
+    from(layout.projectDirectory.file("../build/dist/wasm/src/avs_wcall.kt.tmp"))
+    into(layout.projectDirectory.dir("src/wasmJsMain/kotlin"))
+
+    rename("avs_wcall.kt.tmp", "AvsInterop.kt")
+}
+
+// Make wasmjs compilation depend on recent copy
+tasks.named("wasmJsSourcesJar") {
+    dependsOn(copyWasmInterop)
+}
+tasks.named("compileKotlinWasmJs") {
+    dependsOn(copyWasmInterop)
+}
+
+// Get used devtools/ndk version, default to lask known working one if not found
+val systemNdkVersion = System.getenv("ANDROID_NDK_VER") ?: "28.2.13676358"
 
 android {
     namespace = "com.waz.avs"
@@ -158,6 +257,10 @@ android {
     defaultConfig {
         minSdk = 26
     }
+
+    // Set ndk version to resonate with devtoos/ndk version
+    // to avoid compatability errors in :avs-kmp:stripReleaseDebugSymbols
+    ndkVersion = systemNdkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

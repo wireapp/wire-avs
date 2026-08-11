@@ -72,6 +72,8 @@ extern "C" {
 #include "video_renderer.h"
 #include "stats.h"
 
+#include "src/audio_io/pstn/pstn_audiodevice.h"
+
 #include <avs_peerflow.h>
 
 #include "peerflow.h"
@@ -870,9 +872,14 @@ int peerflow_init(void)
 				 *pc_deps.env,
 				 webrtc::AudioDeviceModule::AudioLayer::kAndroidOpenSLESAudio);
 #else
-	adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
-	if (adm)
-		pc_deps.adm = adm;
+	if (msystem_is_pstn()) {
+		pc_deps.adm = new webrtc::pstn_audiodevice(true);
+	}
+	else {
+		adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
+		if (adm)
+			pc_deps.adm = adm;
+	}
 #endif
 
 	pc_deps.signaling_thread = g_pf.thread.get();
@@ -2440,7 +2447,7 @@ int peerflow_alloc(struct iflow		**flowp,
 			    peerflow_update_ssrc,
 			    peerflow_debug);
 
-	err = stats_alloc(&pf->stats, pf);
+	err = stats_alloc(&pf->stats, conv_type, pf);
 	if (err) {
 		goto out;
 	}

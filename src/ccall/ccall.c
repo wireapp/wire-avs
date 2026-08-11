@@ -537,8 +537,8 @@ static void ccall_reconnect(struct ccall *ccall,
 	if (notify) {
 
 		struct stats_report stats = {
-			.packets.lost.rx = ICALL_RECONNECTING,
-			.packets.lost.tx = ICALL_RECONNECTING,
+			.loss_percentages.direction.rx = ICALL_RECONNECTING,
+			.loss_percentages.direction.tx = ICALL_RECONNECTING,
 		};
 
 		ICALL_CALL_CB(ccall->icall, qualityh,
@@ -1107,10 +1107,13 @@ static void ecall_close_handler(struct icall *icall,
 		set_state(ccall, CCALL_STATE_IDLE);
 
 		if (ccall->error != EDURATION) {
-		        ICALL_CALL_CB(ccall->icall, closeh,
-				      &ccall->icall, ccall->error, &ccall->metrics, msg_time,
-				      NULL, NULL, ccall->icall.arg);
-		}
+			// WPB-27209 Notice that closeh will dereference and destruct ccall
+			// Do not make any operations on ccall / ecall after this callback
+			ICALL_CALL_CB(ccall->icall, closeh,
+				&ccall->icall, ccall->error, &ccall->metrics, msg_time,
+				NULL, NULL, ccall->icall.arg);
+			return;
+		} 
 	}
 	else {
 	        if (ccall->error == EDURATION) {
@@ -1154,19 +1157,19 @@ static void ecall_quality_handler(struct icall *icall,
 
 	info("ccall(%p): ecall_quality_handler rtt=%d up=%d dn=%d "
 	     "ping=%u pdiff=%llu\n",
-	     ccall, stats.rtt, stats.packets.lost.tx,
-	     stats.packets.lost.rx, ccall->expected_ping, tdiff);
+	     ccall, stats.rtt.candidate_pair, stats.loss_percentages.direction.tx,
+	     stats.loss_percentages.direction.rx, ccall->expected_ping, tdiff);
 
-	if (stats.packets.lost.rx > 20) {
+	if (stats.loss_percentages.direction.rx > 20) {
 		dec_res = true;
 	}
 	if (ccall->expected_ping >= CCALL_QUALITY_POOR_MISSING) {
 		dec_res = true;
-		stats.packets.lost.rx = 30;
+		stats.loss_percentages.direction.rx = 30;
 	}
 	else if (ccall->expected_ping > CCALL_QUALITY_MEDIUM_MISSING) {
 		dec_res = true;
-		stats.packets.lost.rx = 10;
+		stats.loss_percentages.direction.rx = 10;
 	}
 
 #if RESOLUTION_DEGRADE
@@ -3740,6 +3743,10 @@ int  ccall_msg_recv(struct icall* icall,
 			u->needs_key = true;
 			ccall_send_keys(ccall, false);
 		}
+		break;
+
+	case ECONN_CONF_PART:
+		ecall_confpart_handler(ccall->ecall, msg, ccall);
 		break;
 
 	case ECONN_REJECT:

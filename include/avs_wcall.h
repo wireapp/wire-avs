@@ -40,6 +40,7 @@ struct wcall_member {
 	int audio_state;
 	int video_recv;
 	int muted;
+	int pstn;
 };
 
 struct wcall_members {

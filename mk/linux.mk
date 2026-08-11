@@ -11,14 +11,13 @@ $(LINUX_OBJS): $(LINUX_MKS)
 -include $(LINUX_OBJS:.o=.d)
 
 $(LINUX_SHARED):  $(LINUX_OBJS) $(AVS_STATIC) $(MENG_STATIC)
-	echo "Linux objs=$(AVS_OBJS)"
-	echo "MKS=$(OUTER_MKS)"
 	@echo "  LD   $(AVS_OS)-$(AVS_ARCH) $@"
 	@mkdir -p $(dir $@)
 	$(LD) $(SH_LFLAGS) $(LFLAGS) $(LINUX_LFLAGS) \
 		$(AVS_OBJS) $(AVS_STATIC) $(MENG_STATIC) \
 		$(SH_LIBS) $(MENG_LIBS) \
 		$(CONTRIB_LIBRE_LIBS) \
+		$(CONTRIB_LIBREM_LIBS) \
 		$(CONTRIB_LIBREW_LIBS) \
 		$(CONTRIB_WEBRTC_LIBS) \
 		$(CONTRIB_SODIUM_LIBS) \
