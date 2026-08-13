@@ -555,7 +555,7 @@ int wcall_process_notifications(WUSER_HANDLE wuser, int processing);
 /**
  * Record audio API
  */
-int wcall_audio_record(WUSER_HANDLE wuser, const char *path);
+int wcall_audio_record(WUSER_HANDLE wuser, const char *convid, const char *path);
 
  
 

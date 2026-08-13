@@ -56,6 +56,7 @@ enum mq_event {
 	WCALL_MEV_SET_EPOCH_INFO,
 	WCALL_MEV_PROCESS_NOTIFICATIONS,
 	WCALL_MEV_SET_DURATION,
+	WCALL_MEV_AUDIO_RECORD,
 };
 
 
@@ -165,6 +166,10 @@ struct mq_data {
 	        struct {
 		        int duration;
 	        } set_duration;
+
+		struct {
+			char *path;
+		} audio_record;
 	} u;
 };
 
@@ -228,6 +233,10 @@ static void md_destructor(void *arg)
 	case WCALL_MEV_SET_EPOCH_INFO:
 		mem_deref(md->u.set_epoch_info.clients_json);
 		mem_deref(md->u.set_epoch_info.key_data);
+		break;
+
+	case WCALL_MEV_AUDIO_RECORD:
+		mem_deref(md->u.audio_record.path);
 		break;
 
 	default:
@@ -535,6 +544,11 @@ static void mqueue_handler(int id, void *data, void *arg)
 					      md->u.process_notifications.processing);
 		break;
 
+	case WCALL_MEV_AUDIO_RECORD:
+		wcall_i_audio_record(wcall,
+				     md->u.audio_record.path);
+		break;
+		
 	default:
 		warning("wcall: marshal: unknown event: %d\n", id);
 		break;
@@ -1404,6 +1418,38 @@ int wcall_process_notifications(WUSER_HANDLE wuser, int processing)
 
 	return err;
 }
+
+AVS_EXPORT
+int wcall_audio_record(WUSER_HANDLE wuser,
+		       const char *convid,
+		       const char *path)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: audio_record: invalid wuser: 0x%08X\n", wuser);
+		return EINVAL;
+	}
+
+	md = md_new(inst, convid, WCALL_MEV_AUDIO_RECORD);
+	if (!md)
+		return ENOMEM;
+
+	str_dup(&md->u.audio_record.path, path);
+
+	info("wcall_audio_record: inst=%p path=%sn", inst, path);
+
+	err = md_enqueue(md);
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
+
 
 
 void wcall_marshal_destroy(struct calling_instance *inst)

@@ -4164,3 +4164,9 @@ struct keystore *ccall_get_keystore(struct ccall *ccall)
 	return ccall->keystore;
 }
 
+int ccall_audio_record(struct icall *icall, const char *path)
+{
+	struct ccall *ccall = (struct ccall *)icall;
+
+	return ecall_audio_record(ccall->ecall, path);
+}

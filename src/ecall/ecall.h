@@ -150,6 +150,10 @@ struct ecall {
 		char *offer;
 	} sdp;
 
+	struct {
+		char *path;
+	} record;
+
 	struct econn *econn_pending;
 	bool answered;
 	bool established;
