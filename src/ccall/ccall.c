@@ -142,6 +142,8 @@ static void destructor(void *arg)
 	mem_deref(ccall->secret);
 	mem_deref(ccall->keystore);
 
+	mem_deref(call->rec_path);
+
 	list_flush(&ccall->sftl);
 	list_flush(&ccall->saved_partl);
 	list_flush(&ccall->videol);
@@ -2464,6 +2466,9 @@ static int create_ecall(struct ccall *ccall)
 	if (ccall->convid_hash)
 		ecall_set_sessid(ecall, ccall->convid_hash);
 
+	if (ccall->rec_path)
+		ecall_audio_record(ecall, ccall->rec_path);
+
 	ccall->ecall = ecall;
 	tmr_start(&ccall->tmr_vstate,
 		  0,
@@ -4168,5 +4173,13 @@ int ccall_audio_record(struct icall *icall, const char *path)
 {
 	struct ccall *ccall = (struct ccall *)icall;
 
-	return ecall_audio_record(ccall->ecall, path);
+	if (!icall || !path)
+		return EINVAL;
+
+	if (ccall->rec_path)
+		ccall->rec_path = mem_deref(ccall->rec_path);
+	str_dup(&ccall->rec_path, path);
+
+	if (ccall->ecall)
+		return ecall_audio_record(ccall->ecall, path);
 }
