@@ -78,8 +78,14 @@ int zapi_iceservers_decode(struct json_object *jarr,
 	}
 
 	n = json_object_array_length(jarr);
-	n = min(n, MAX_SERVERS);
+	if (n > MAX_SERVERS) {
+		warning("zapi: too many ice-servers: %d limiting to %d\n",
+			n, MAX_SERVERS);
+		n = MAX_SERVERS;
+	}
 	srvv = mem_zalloc(n * sizeof(*srvv), NULL);
+	if (!srvv)
+		return ENOMEM;
 
 	for (i = 0; i < n; ++i) {
 		struct json_object *jice;
