@@ -1188,7 +1188,7 @@ void mediamgr_unregister_media(struct mediamgr *mediamgr,
 	}
 	debug("%s: \n", __FUNCTION__);
 	str_ncpy(elem->register_media_elem.media_name, media_name,
-		 sizeof(elem->register_media_elem.media_name) - 1);
+		 sizeof(elem->register_media_elem.media_name));
 	elem->register_media_elem.media_object = NULL;
 	if (mqueue_push(mm->mq, MM_MARSHAL_DEREGISTER_MEDIA, elem) != 0) {
 		error("mediamgr_unregister_media failed \n");
