@@ -217,8 +217,14 @@ static void marshal_wait(struct marshal_elem *me)
 	 * but the Darwin implementation of it is really
 	 * not suitable for short-lived semaphores
 	 */
-	while(!me->handled)
-		usleep(40000);
+	while(!me->handled) {
+		struct timespec ts;
+
+		ts.tv_sec = 0;
+		ts.tv_nsec = 40000000;
+
+		nanosleep(&ts, NULL);
+	}
 }
 
 

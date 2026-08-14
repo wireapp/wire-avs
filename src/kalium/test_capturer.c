@@ -159,7 +159,13 @@ static void *frame_thread(void *arg)
 	first = tmr_jiffies();
 
 	while (_capturer.running) {
-		usleep(delay);
+		struct timespec ts;
+
+		ts.tv_sec = 0;
+		ts.tv_nsec = delay * 1000;
+		
+		nanosleep(&ts, NULL);
+
 		if (_capturer.typ == CAP_TYPE_DYNAMIC) {
 			draw_octotunnel(_capturer.buffer, _capturer.width, _capturer.height);
 			draw_fnum(_capturer.buffer, _capturer.width, fnum++);
