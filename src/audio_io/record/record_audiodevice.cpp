@@ -181,7 +181,9 @@ int32_t record_audiodevice::StopPlayout()
 		play_tid_ = 0;
 	}
 	if (fp_) {
-	  fclose(fp_);
+	  FILE *fp = fp_;
+	  fp_ = NULL;
+	  fclose(fp);
 	}
 	play_is_initialized_ = false;
 
@@ -275,8 +277,9 @@ void *record_audiodevice::playout_thread()
 	path = avs_get_audio_record();
 	if (path) {
 	  if (fp_) {
-	    fclose(fp_);
+	    FILE fp = fp_;
 	    fp_ = NULL;
+	    fclose(fp);
 	  }
 	  fp_ = fopen(path, "wb");
 	}
