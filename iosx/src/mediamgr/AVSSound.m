@@ -120,7 +120,12 @@
 
 	int n = 50;
 	while (!self.player.playing && n-- > 0) {
-		usleep(20000);
+		struct timespec ts;
+
+		ts.tv_sec = 0;
+		ts.tv_nsec = 20000000;
+
+		nanosleep(&ts, NULL);
 	}
 	if (n <= 0)
 		info("AVSSound playing did not start\n");
@@ -148,7 +153,13 @@
 
 	n = 10;
 	while (self.player.playing && n-- > 0) {
-		usleep(50000);
+		struct timespec ts;
+
+		ts.tv_sec = 0;
+		ts.tv_nsec = 50000000;
+
+		nanosleep(&ts, NULL);
+		
 		info("AVSSound: stop: %s playing=%s\n",
 		     [_name UTF8String], self.player.playing ? "yes" : "no");
 	}

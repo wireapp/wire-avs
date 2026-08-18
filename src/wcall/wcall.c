@@ -4616,8 +4616,14 @@ int wcall_run(void)
 	calling.run_init = calling.run_err = 0;
 
 	pthread_create(&calling.tid, NULL, avs_thread, NULL);
-	while(!calling.run_init && calling.run_err == 0)
-		usleep(100000);
+	while(!calling.run_init && calling.run_err == 0) {
+		struct timespec ts;
+
+		ts.tv_sec = 0;
+		ts.tv_nsec = 100000000;
+
+		nanosleep(&ts, NULL);
+	}
 
 	return calling.run_err;
 }

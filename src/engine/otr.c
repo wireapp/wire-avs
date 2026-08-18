@@ -361,7 +361,7 @@ int engine_send_otr_message(struct engine *engine,
 		goto out;
 	}
 
-	strncpy(ctx->local_clientid, local_clientid, MAX_ID_LEN - 1);
+	str_ncpy(ctx->local_clientid, local_clientid, MAX_ID_LEN);
 
 	ctx->engine = engine;
 	self = engine_get_self(ctx->engine);
