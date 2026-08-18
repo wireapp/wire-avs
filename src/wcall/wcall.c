@@ -4563,10 +4563,18 @@ void wcall_set_mute_handler(WUSER_HANDLE wuser, wcall_mute_h *muteh, void *arg)
 void wcall_i_audio_record(struct wcall *wcall,			 
 			  const char *path)
 {
+	if (!wcall || !path)
+		return;
+	
 	switch (wcall->conv_type) {
 	case ICALL_CONV_TYPE_CONFERENCE:
 	case ICALL_CONV_TYPE_CONFERENCE_MLS:
-		ccall_audio_record(wcall->icall, path);
+		if (!wcall->icall) {
+			warning("wcall(%p): does not have an icall\n", wcall);
+		}
+		else {
+			ccall_audio_record(wcall->icall, path);
+		}
 		break;
 
 	default:

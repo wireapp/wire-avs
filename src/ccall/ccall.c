@@ -142,7 +142,7 @@ static void destructor(void *arg)
 	mem_deref(ccall->secret);
 	mem_deref(ccall->keystore);
 
-	mem_deref(call->rec_path);
+	mem_deref(ccall->rec_path);
 
 	list_flush(&ccall->sftl);
 	list_flush(&ccall->saved_partl);
@@ -4180,6 +4180,8 @@ int ccall_audio_record(struct icall *icall, const char *path)
 		ccall->rec_path = mem_deref(ccall->rec_path);
 	str_dup(&ccall->rec_path, path);
 
-	if (ccall->ecall)
-		return ecall_audio_record(ccall->ecall, path);
+	if (!ccall->ecall)
+		return ENOSYS;
+
+	return ecall_audio_record(ccall->ecall, path);
 }

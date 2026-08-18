@@ -321,6 +321,8 @@ static char *mev_name(int id)
 		return "SET_EPOCH_INFO";
 	case WCALL_MEV_PROCESS_NOTIFICATIONS:
 		return "PROCESS_NOTIFICATIONS";
+	case WCALL_MEV_AUDIO_RECORD:
+		return "AUDIO_RECORD";
 	default:
 		return "???";
 	}
@@ -545,6 +547,10 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case WCALL_MEV_AUDIO_RECORD:
+		if (!wcall) {
+			err = ENOENT;
+			goto out;
+		}
 		wcall_i_audio_record(wcall,
 				     md->u.audio_record.path);
 		break;
@@ -1440,7 +1446,7 @@ int wcall_audio_record(WUSER_HANDLE wuser,
 
 	str_dup(&md->u.audio_record.path, path);
 
-	info("wcall_audio_record: inst=%p path=%sn", inst, path);
+	info("wcall_audio_record: inst=%p convid=%s path=%sn", inst, convid, path);
 
 	err = md_enqueue(md);
 	if (err)
