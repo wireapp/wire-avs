@@ -248,11 +248,13 @@ void *record_audiodevice::record_thread()
 		gettimeofday(&now, NULL);
 		timersub(&next_io_time, &now, &sleep_time);
 		if(sleep_time.tv_sec < 0){
+			/*
 			warning("record_audiodevice::record_thread() "
 				"not processing data fast enough "
 				"now = %d.%d next_io_time = %d.%d\n",
 				(int32_t)now.tv_sec, now.tv_usec,
 				next_io_time.tv_sec, next_io_time.tv_usec);
+			*/
 			sleep_time.tv_usec = 0;
 		}
 		timespec t;
@@ -277,7 +279,7 @@ void *record_audiodevice::playout_thread()
 	path = avs_get_audio_record();
 	if (path) {
 	  if (fp_) {
-	    FILE fp = fp_;
+	    FILE *fp = fp_;
 	    fp_ = NULL;
 	    fclose(fp);
 	  }
@@ -300,7 +302,6 @@ void *record_audiodevice::playout_thread()
 					(void*)audio_buf, nSamplesOut,
 					&elapsed_time_ms, &ntp_time_ms);
 			if (fp_) {
-			  re_printf("audio_record: frame_len=%d nsamples: %zu\n", FRAME_LEN, nSamplesOut);
 			  fwrite(audio_buf, 2, nSamplesOut, fp_);
 			}
 		}
@@ -308,11 +309,13 @@ void *record_audiodevice::playout_thread()
 		gettimeofday(&now, NULL);
 		timersub(&next_io_time, &now, &sleep_time);
 		if(sleep_time.tv_sec < 0) {
+			/*
 			warning("record_audiodevice::playout_thread(): "
 				"not processing data fast enough "
 				"now = %d.%d next_io_time = %d.%d\n",
 				(int32_t)now.tv_sec, now.tv_usec,
 				next_io_time.tv_sec, next_io_time.tv_usec);
+			*/
 			sleep_time.tv_usec = 0;
 		}
 
