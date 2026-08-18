@@ -132,7 +132,7 @@ static void test_vidstate_changed(const char *convid,
 {
 	struct le *le;
 
-	strncpy(_convid, convid, ECONN_ID_LEN);
+	str_ncpy(_convid, convid, ECONN_ID_LEN);
 	LIST_FOREACH(&_renderl, le) {
 		struct render_user *u = le->data;
 
@@ -145,8 +145,8 @@ static void test_vidstate_changed(const char *convid,
 	}
 
 	struct render_user *u = mem_zalloc(sizeof(struct render_user), NULL);
-	strncpy(u->userid, userid, ECONN_ID_LEN);
-	strncpy(u->clientid, clientid, ECONN_ID_LEN);
+	str_ncpy(u->userid, userid, ECONN_ID_LEN);
+	str_ncpy(u->clientid, clientid, ECONN_ID_LEN);
 	u->state = state;
 
 	list_append(&_renderl, &u->le, u);

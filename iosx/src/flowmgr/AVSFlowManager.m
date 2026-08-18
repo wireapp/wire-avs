@@ -451,8 +451,14 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 		if (err)
 			return nil;
 
-		while(!fmw.initialized && fmw.err == 0)
-			usleep(100000);
+		while(!fmw.initialized && fmw.err == 0) {
+			struct timespec ts;
+
+			ts.tv_sec = 0;
+			ts.tv_nsec = 100000000;
+
+			nanosleep(&ts, NULL);
+		}
 	}
 	if (fmw.err) {
 		error("AVSFlowManager::init: error initializing subsystems");

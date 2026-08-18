@@ -616,10 +616,15 @@ static int mm_alloc(struct mm **mmp)
 	mediamgr_thread(mm);
 #endif
 	for ( int cnt = 0; cnt < 10000; cnt++) {
+		struct timespec ts;
+
+		ts.tv_sec = 0;
+		ts.tv_nsec = 1000000;
+
 		if (mm->started) {
 			break;
 		}
-		usleep(1000);  /* 1ms so allow to wait 10 secs */
+		nanosleep(&ts, NULL); /* 1ms so allow to wait 10 secs */
 	}
 
 	mm->router.cur_route = MEDIAMGR_AUPLAY_UNKNOWN;
@@ -1182,8 +1187,8 @@ void mediamgr_unregister_media(struct mediamgr *mediamgr,
 		return;
 	}
 	debug("%s: \n", __FUNCTION__);
-	strncpy(elem->register_media_elem.media_name, media_name,
-		sizeof(elem->register_media_elem.media_name) - 1);
+	str_ncpy(elem->register_media_elem.media_name, media_name,
+		 sizeof(elem->register_media_elem.media_name));
 	elem->register_media_elem.media_object = NULL;
 	if (mqueue_push(mm->mq, MM_MARSHAL_DEREGISTER_MEDIA, elem) != 0) {
 		error("mediamgr_unregister_media failed \n");

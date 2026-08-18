@@ -97,7 +97,7 @@ static int copy_sft(char **pdst, const char* src)
 	if (!dst) {
 		return ENOMEM;
 	}
-	strncpy(dst, src, slen);
+	str_ncpy(dst, src, slen + 1);
 	if (dst[slen - 1] != '/') {
 		strncat(dst, "/", 1);
 	}
