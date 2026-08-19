@@ -240,6 +240,8 @@ void *record_audiodevice::record_thread()
 	gettimeofday(&next_io_time, NULL);
         
 	while(is_recording_) {
+		timeradd(&next_io_time, &delta, &next_io_time);
+
 		if(audioCallback_) {
 			audioCallback_->RecordedDataIsAvailable(
 					(void*)audio_buf,
