@@ -3175,6 +3175,8 @@ void peerflow_close(struct iflow *iflow)
 	if (!pf)
 		return;
 
+	tmr_cancel(&pf->tmr_stats);
+	pf->netStatsCb->setActive(false);
 	if (pf->peerConn) {
 		pf->peerConn->Close();
 		debug("pf(%p): close: peerConn=%p closed\n",
