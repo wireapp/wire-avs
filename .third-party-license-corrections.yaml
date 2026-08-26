@@ -1,0 +1,90 @@
+# This file is parsed by the third-party notices generator
+# see https://github.com/wireapp/notices-generator
+
+manual_dependency_entries:
+    - name: WebRTC
+      version: "20260605.97"
+      license: BSD-3-Clause
+      author: The WebRTC project authors
+    
+overrides:
+    - name: libsodium
+      license: ISC
+      author: Frank Denis <j at pureftpd dot org>
+    - name: re
+      license: BSD-3-Clause
+      author: creytiv
+      rename: libre
+    - name: rem
+      license: BSD-3-Clause
+      author: creytiv
+      rename: librem
+    - name: rew
+      license: BSD-3-Clause
+      rename: librew
+      author: Wire Swiss GmbH <seceng@wire.com>
+    - name: openssl
+      license: Apache-2.0
+      author: OpenSSL Foundation
+    - name: commons-math3
+      license: Apache-2.0
+      author: Apache Software Foundation
+    - name: guava
+      license: Apache-2.0
+      author: The Guava Authors
+
+overrides.android:
+  license: Apache-2.0
+  author: The Android Open Source Project
+  entries: 
+    - camera-core
+    - camera-extensions
+    - camera-lifecycle
+    - camera-video
+    - camera-view
+    - camera-camera2
+
+    
+subfolders:
+    # - wasm # all devDependencies; the published @wireapp/avs has zero runtime deps
+    - gradle
+    # - iosx # no third party dependencies
+    - kmp
+    - android
+    - android/lib
+
+
+ignore.test:
+  comment: this is used only for testing or building, and not included in the release artifact
+  entries:
+    - android-test-*
+    - cryptobox-c
+    - googletest
+    - generic-message-proto
+    - junit
+    - android-test-plugin
+    - android-device-provider-local
+    - android-driver-instrumentation
+    - launcher
+    - core
+    - core-proto
+    - com.android.library
+    - org.jetbrains.kotlin.multiplatform
+    - com.vanniktech.maven.publish.base
+    - j2objc-annotations
+    - kotlin-script*
+    - jna
+    - jna-platform
+    - android-device*
+    - kotlin-build*
+    - kotlin-daemon*
+    - abi-tools-api
+    - abi-tools
+    - auto-*
+    - ddmlib
+    - kotlin-compiler*
+    - kotlin-native-prebuilt
+    - utp-common
+    - error_prone_annotations
+    - checker-qual
+    - java-diff-utils
