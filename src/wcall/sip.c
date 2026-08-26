@@ -3,15 +3,26 @@
 #include <avs_wcall.h>
 #include "baresip.h"
 #include "wcall.h"
+#include "sip.h"
 
 struct {
-	struct list ual;
-} g_sip;
+	bool initialized;
+	struct list instl;
+} g_sip = {
+	.initialized = false,
+	.instl = LIST_INIT,
+};
 
 struct wsip {
+	struct sip_instance *sip_inst;
 	struct ua *ua;
 	char *aor;
 
+	struct le le;
+};
+
+struct instel {
+	struct calling_instance *inst;
 	struct le le;
 };
 
@@ -30,12 +41,16 @@ static void ua_event_handler(struct ua *ua, enum ua_event ev,
 }
 
 
-int wcall_i_sip_init(const char *conf_path)
+int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 {
+	struct instel *instel;
 	int err = 0;
 
-	info("sip: initializing with conf_path=%s\n", conf_path);
+	if (g_sip.initialized)
+		goto out;
 	
+	info("sip: initializing with conf_path=%s\n", conf_path);
+
 	conf_path_set(conf_path);
 	
 	err = conf_configure();
@@ -51,7 +66,6 @@ int wcall_i_sip_init(const char *conf_path)
 	}
 
 	info("sip: baresip initialized\n", conf_path);
-	
 
 	err = uag_event_register(ua_event_handler, NULL);
 	if (err) {
@@ -59,14 +73,54 @@ int wcall_i_sip_init(const char *conf_path)
 		return err;
 	}
 
-	info("sip: event handler registered\n");
+	info("sip: init: event handler registered\n");
+
+	g_sip.initialized = true;
+
+ out:
+	instel = mem_zalloc(sizeof(*instel), NULL);
+	if (instel)
+		instel->inst = inst;
+
+	info("sip: init: inst=%p added\n", inst);
+	list_append(&g_sip.instl, &instel->le, instel);
 	
 	return 0;
 }
 
-int wcall_i_sip_close(void)
+int wcall_i_sip_close(struct calling_instance *inst)
 {
-	baresip_close();
+	struct le *le;
+	struct instel *instel;
+	bool found = false;
+	size_t n;
+
+	info("sip: close: inst=%p\n", inst);
+	
+	if (!g_sip.initialized) {
+		warning("sip: close: not initialized\n");
+		return ENOSYS;
+	}
+
+	for(le = g_sip.instl.head; le && !found; le = le->next) {
+		instel = le->data;
+		if (!instel)
+			continue;
+
+		found = instel->inst == inst;
+	}
+	if (found) {
+		list_unlink(&instel->le);
+	}
+
+	n = list_count(&g_sip.instl);
+	info("sip: close: closed inst=%p n=%zu\n", inst, n);
+	
+	if (n == 0){
+		info("sip: no active instances left, closing\n");
+		baresip_close();
+		g_sip.initialized = false;
+	}
 
 	return 0;
 }
@@ -75,20 +129,32 @@ static void wsip_destructor(void *arg)
 {
 	struct wsip *wsip = arg;
 
-	(void)wsip;
+	info("wsip(%p): destructor\n", wsip);
+	
+	list_unlink(&wsip->le);	
+	mem_deref(wsip->aor);
+	mem_deref(wsip->ua);
 }
 
-int wcall_i_sip_create(const char *aor)
+int wcall_i_sip_create(struct calling_instance *inst, const char *aor)
 {
+	struct sip_instance *sip_inst;
 	struct wsip *wsip;
 	int err;
 
 	info("sip: create: aor=%s\n", aor);
 
+	sip_inst = wcall_get_sip_instance(inst);
+	if (!sip_inst) {
+		warning("sip: create: no SIP instance for: %p\n", inst);
+		return ENOSYS;
+	}
+	
 	wsip = mem_zalloc(sizeof(*wsip), wsip_destructor);
 	if (!wsip)
 		return ENOMEM;
 
+	wsip->sip_inst = sip_inst;
 	str_dup(&wsip->aor, aor);
 	err = ua_alloc(&wsip->ua, aor);
 	if (err) {
@@ -101,15 +167,49 @@ int wcall_i_sip_create(const char *aor)
 		mem_deref(wsip);
 	}
 	else {
-		list_append(&g_sip.ual, &wsip->le, wsip);
+		list_append(&sip_inst->ual, &wsip->le, wsip);
 	}
 
 	return err;
 }
 
-int wcall_i_sip_destroy(const char *aor)
+static struct wsip *wsip_lookup(struct sip_instance *sip_inst, const char *aor)
 {
-	/* Lookup wsip from aor */
+	struct le *le;
+	struct wsip *wsip;
+	bool found = false;
+	
+	for(le = sip_inst->ual.head; le && !found; le = le->next) {
+		wsip = le->data;
+		if (!wsip)
+			continue;
+
+		found = streq(wsip->aor, aor);
+	}
+
+	return found ? wsip : NULL;
+}
+
+int wcall_i_sip_destroy(struct calling_instance *inst, const char *aor)
+{
+	struct sip_instance *sip_inst;
+	struct wsip *wsip;
+
+	sip_inst = wcall_get_sip_instance(inst);
+	if (!sip_inst) {
+		warning("sip: destroy: could not get SIP instance\n");
+		return ENOSYS;
+	}
+
+	wsip = wsip_lookup(sip_inst, aor);
+	if (!wsip) {
+		warning("sip: destroy: could not find wsip for aor=%s\n", aor);
+		return EINVAL;
+	}
+
+	info("sip(%p): destroy: aor=%s wsip=%p\n", sip_inst, aor, wsip);
+	
+	mem_deref(wsip);
 
 	return 0;
 }
