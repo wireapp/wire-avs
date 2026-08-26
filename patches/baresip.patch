@@ -1,0 +1,36 @@
+--- baresip.h	2026-08-26 10:28:34
++++ build/osx-arm64/include/baresip/baresip.h	2026-08-26 09:57:47
+@@ -472,6 +472,7 @@
+  * Log
+  */
+ 
++#if 0
+ enum log_level {
+ 	LEVEL_DEBUG = 0,
+ 	LEVEL_INFO,
+@@ -497,7 +498,7 @@
+ void info(const char *fmt, ...);
+ void warning(const char *fmt, ...);
+ void error_msg(const char *fmt, ...);
+-
++#endif
+ 
+ /*
+  * Menc - Media encryption (for RTP)
+@@ -749,6 +750,7 @@
+ struct cmds *cmds_find(const struct commands *commands,
+ 		       const struct cmd *cmdv);
+ 
++#if 0
+ 
+ /*
+  * Video Source
+@@ -934,6 +936,8 @@
+ 					     const char *name);
+ 
+ 
++#endif
++	
+ /*
+  * Video Filter
+  */
