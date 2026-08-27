@@ -1483,8 +1483,8 @@ int wcall_sip_init(WUSER_HANDLE wuser, const char *conf_path)
 		return ENOSYS;
 	}
 
-	printf("sip_init: %s\n", conf_path);
-	
+	info("wcall(%p): sip_init: conf_path=%s\n", inst, conf_path);
+
 	md = md_new(inst, NULL, WCALL_MEV_SIP_INIT);
 	if (!md)
 		return EINVAL;
@@ -1505,8 +1505,6 @@ int wcall_sip_close(WUSER_HANDLE wuser)
 	struct mq_data *md = NULL;
 	int err = 0;	
 
-	info("wcall: sip_close: wuser=08x\n", wuser);
-	
 	inst = wuser2inst(wuser);
 	if (!inst) {
 		warning("wcall: sip_close: "
@@ -1514,7 +1512,7 @@ int wcall_sip_close(WUSER_HANDLE wuser)
 			wuser);
 		return ENOSYS;
 	}
-	info("wcall: sip_close: inst=%p\n", inst);
+	info("wcall(%p): sip_close\n", inst);
 
 	md = md_new(inst, NULL, WCALL_MEV_SIP_CLOSE);
 	if (!md)
@@ -1543,6 +1541,8 @@ int wcall_sip_create(WUSER_HANDLE wuser, const char *aor)
 		return ENOSYS;
 	}
 
+	info("wcall(%p): sip_create: aor=%s\n", inst, aor);
+
 	md = md_new(inst, NULL, WCALL_MEV_SIP_CREATE);
 	if (!md)
 		return EINVAL;
@@ -1565,11 +1565,13 @@ int wcall_sip_destroy(WUSER_HANDLE wuser, const char *aor)
 
 	inst = wuser2inst(wuser);
 	if (!inst) {
-		warning("wcall: sip_create: "
+		warning("wcall: sip_destroy: "
 			"invalid handle: 0x%08X\n",
 			wuser);
 		return ENOSYS;
 	}
+
+	info("wcall(%p): sip_destroy: aor=%s\n", inst, aor);
 
 	md = md_new(inst, NULL, WCALL_MEV_SIP_DESTROY);
 	if (!md)
