@@ -222,7 +222,7 @@ endif
 $(AVS_C_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.c
 	@echo "  CC   $(AVS_OS)-$(AVS_ARCH) src/$*.c"
 	@mkdir -p $(dir $@)
-	$(CC)  $(CPPFLAGS) $(CFLAGS) \
+	@$(CC)  $(CPPFLAGS) $(CFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CFLAGS) \
 		$(AVS_CPPFLAGS_$(dir $*)) $(AVS_CFLAGS_$(dir $*)) \
 		-c $< -o $@ $(DFLAGS)
