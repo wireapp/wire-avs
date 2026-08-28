@@ -566,7 +566,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 					      md->u.process_notifications.processing);
 		break;
 
-#if !TARGET_OS_IPHONE && (!defined ANDROID)
+#if !TARGET_OS_IPHONE && (!defined ANDROID) && (!defined __EMSCRIPTEN__)
 	case WCALL_MEV_SIP_INIT:
 		wcall_i_sip_init(md->inst, md->u.sip_init.path);
 		break;
