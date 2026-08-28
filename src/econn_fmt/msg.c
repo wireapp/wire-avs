@@ -1027,19 +1027,22 @@ int econn_message_decode(struct econn_message **msgp,
 		msg->u.confstart.seqno = pl_u32(&pl);
 
 		secret = jzon_str(jobj, "secret");
-		if (!secret || err)
-			return EBADMSG;
+		if (!secret || err) {
+			err = EBADMSG;
+			goto out;
+		}
 
 		slen = str_len(secret) * 3 / 4;
 
 		sdata = mem_zalloc(slen, NULL);
 		if (!sdata) {
-			return ENOMEM;
+			err = ENOMEM;
+			goto out;
 		}
 		err = base64_decode(secret, str_len(secret), sdata, &slen);
 		if (err) {
 			mem_deref(sdata);
-			return err;
+			goto out;
 		}
 
 		msg->u.confstart.secret = sdata;
@@ -1074,19 +1077,22 @@ int econn_message_decode(struct econn_message **msgp,
 		msg->u.confcheck.seqno = pl_u32(&pl);
 
 		secret = jzon_str(jobj, "secret");
-		if (!secret || err)
-			return EBADMSG;
+		if (!secret || err) {
+			err = EBADMSG;
+			goto out;
+		}
 
 		slen = str_len(secret) * 3 / 4;
 
 		sdata = mem_zalloc(slen, NULL);
 		if (!sdata) {
-			return ENOMEM;
+			err = ENOMEM;
+			goto out;
 		}
 		err = base64_decode(secret, str_len(secret), sdata, &slen);
 		if (err) {
 			mem_deref(sdata);
-			return err;
+			goto out;
 		}
 
 		msg->u.confcheck.secret = sdata;
@@ -1218,12 +1224,13 @@ int econn_message_decode(struct econn_message **msgp,
 
 			edata = mem_zalloc(elen, NULL);
 			if (!edata) {
-				return ENOMEM;
+				err = ENOMEM;
+				goto out;
 			}
 			err = base64_decode(entropy, str_len(entropy), edata, &elen);
 			if (err) {
 				mem_deref(edata);
-				return err;
+				goto out;
 			}
 
 			msg->u.confpart.entropy = edata;
@@ -1238,14 +1245,16 @@ int econn_message_decode(struct econn_message **msgp,
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_KEY))) {
 		msg->msg_type = ECONN_CONF_KEY;
 		err = econn_keys_decode(&msg->u.confkey.keyl, jobj);
-		if (err)
-			return err;
+		if (err) {
+			goto out;
+		}
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_STREAMS))) {
 		msg->msg_type = ECONN_CONF_STREAMS;
 		err = econn_streams_decode(&msg->u.confstreams.streaml, jobj);
-		if (err)
-			return err;
+		if (err) {
+			goto out;
+		}
 
 		err = jzon_strdup(&msg->u.confstreams.mode,
 				  jobj, "mode");
