@@ -51,6 +51,7 @@ void debug(const char *fmt, ...);
 void info(const char *fmt, ...);
 void warning(const char *fmt, ...);
 void error(const char *fmt, ...);
+void error_msg(const char *fmt, ...);
 
 /* anonymous IDs */
 #define ANON_ID_LEN     16
