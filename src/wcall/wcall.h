@@ -113,3 +113,5 @@ struct duration_entry *wcall_duration_lookup(struct calling_instance *inst,
 					     const char *convid);
 WUSER_HANDLE wcall_create_wuser(uint32_t *idx);
 struct calling_instance *wcall_get_instance(void);
+
+

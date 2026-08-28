@@ -51,9 +51,10 @@ CONTRIB_PARTS_iossim := \
 	GTEST LIBRE LIBREW SODIUM
 CONTRIB_PARTS_linux := \
 	GTEST LIBRE LIBREM LIBREW \
-	CRYPTOBOX SODIUM
+	CRYPTOBOX SODIUM BARESIP
 CONTRIB_PARTS_osx := \
-	GTEST LIBRE LIBREM LIBREW CRYPTOBOX SODIUM
+	GTEST LIBRE LIBREM LIBREW \
+	CRYPTOBOX SODIUM BARESIP
 CONTRIB_PARTS_wasm := \
 	LIBRE SODIUM
 
@@ -453,6 +454,52 @@ $(CONTRIB_LIBREM_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 	install -m 0644 $(CONTRIB_LIBREM_PATH)/librem.a $(BUILD_TARGET)/lib
 
 contrib_librem: $(CONTRIB_LIBREM_TARGET)
+
+# --- baresip ---
+
+CONTRIB_BARESIP_PATH := contrib/baresip
+CONTRIB_BARESIP_TARGET := $(BUILD_TARGET)/lib/libbaresip.a
+CONTRIB_BARESIP_FILES := $(shell git ls-files $(CONTRIB_BAReSIP_PATH))
+
+CONTRIB_BARESIP_LIBS := -lrem $(CONTRIB_LIBRE_LIBS)
+CONTRIB_BARESIP_LIB_FILES := \
+	$(CONTRIB_BARESIP_TARGET) \
+	$(CONTRIB_LIBREM_LIB_FILES)
+
+$(CONTRIB_BARESIP_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
+	                   $(CONTRIB_LIBREM_TARGET) \
+			  $(CONTRIB_BARESIP_FILES)
+	cp patches/baresip.patch $(BUILD_TARGET)
+	cp patches/baresip_srcs.patch $(BUILD_TARGET)
+	@cd $(CONTRIB_BARESIP_PATH) && \
+		( git apply $(BUILD_TARGET)/baresip_srcs.patch || echo "Skip" ) && \
+		rm -f libbaresip.a && \
+		make libbaresip.a $(JOBS) \
+		BUILD=build-$(AVS_OS)-$(AVS_ARCH) \
+		CC="$(CC)" \
+		AR="$(AR)" \
+		RANLIB="$(RANLIB)" \
+		EXTRA_CFLAGS="$(CPPFLAGS) $(CFLAGS)" \
+		EXTRA_LFLAGS="$(LFLAGS) $(LIBS)" \
+		SYSROOT="$(SYSROOT)" \
+		SYSROOT_ALT="$(BUILD_TARGET)" \
+		PREFIX= USE_OPENSSL=yes USE_OPENSSL_DTLS=1 \
+		USE_OPENSSL_SRTP=1 USE_ZLIB=yes \
+		DESTDIR=$(BUILD_TARGET) \
+		$(CONTRIB_LIBRE_FAMILY_OPTIONS_$(AVS_FAMILY)) \
+		$(CONTRIB_LIBRE_OS_OPTIONS_$(AVS_OS)) \
+		$(CONTRIB_LIBREM_OS_OPTIONS_$(AVS_OS)) \
+		$(CONTRIB_LIBBARESIP_OS_OPTIONS_$(AVS_OS))
+	mkdir -p \
+		$(BUILD_TARGET)/include/baresip \
+		$(BUILD_TARGET)/lib
+	install -m 0644 \
+		$(shell find $(CONTRIB_BARESIP_PATH)/include -name "*.h") \
+		$(BUILD_TARGET)/include/baresip
+	install -m 0644 $(CONTRIB_BARESIP_PATH)/libbaresip.a $(BUILD_TARGET)/lib
+	patch -p1 -t $(BUILD_TARGET)/include/baresip/baresip.h < $(BUILD_TARGET)/baresip.patch
+
+contrib_baresip: $(CONTRIB_BARESIP_TARGET)
 
 
 #--- librew ---
