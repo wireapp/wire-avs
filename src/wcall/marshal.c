@@ -566,6 +566,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 					      md->u.process_notifications.processing);
 		break;
 
+#if !TARGET_OS_IPHONE && (!defined ANDROID)
 	case WCALL_MEV_SIP_INIT:
 		wcall_i_sip_init(md->inst, md->u.sip_init.path);
 		break;
@@ -581,7 +582,8 @@ static void mqueue_handler(int id, void *data, void *arg)
 	case WCALL_MEV_SIP_DESTROY:
 		wcall_i_sip_destroy(md->inst, md->u.sip_crdest.aor);
 		break;
-		
+#endif
+
 	default:
 		warning("wcall: marshal: unknown event: %d\n", id);
 		break;
