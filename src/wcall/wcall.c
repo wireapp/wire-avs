@@ -207,6 +207,14 @@ struct wcall {
 
 	int state; /* wcall state */
 	bool disable_audio;
+
+	/* Original caller captured from the incoming SETUP/CONF_START
+	 * (server-authenticated envelope sender). Reported on close/missed
+	 * so call-end surfaces attribute to the caller rather than the
+	 * sender of the end/missed-trigger message. NULL for outgoing
+	 * calls, where self is the caller (existing fallback applies). */
+	char *orig_userid;
+	char *orig_clientid;
 	
 	struct le le;
 };
@@ -554,13 +562,20 @@ static void icall_start_handler(struct icall *icall,
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
 	int ct = WCALL_CONV_TYPE_ONEONONE;
 
-	(void)clientid_sender;
 
 	if (!WCALL_VALID(wcall)) {
 		warning("wcall(%p): icall_start_handler: invalid wcall "
 			"inst=%p\n", wcall, inst);
 		return;
 	}
+	/* Capture the original caller for the lifetime of this call, so
+	 * close/missed callbacks report the caller instead of the sender
+	 * of the close-inducing message. Set once; the originator is
+	 * invariant for a given call. */
+	if (!wcall->orig_userid && userid_sender)
+		str_dup(&wcall->orig_userid, userid_sender);
+	if (!wcall->orig_clientid && clientid_sender)
+		str_dup(&wcall->orig_clientid, clientid_sender);
 
 	set_state(wcall, WCALL_STATE_INCOMING);
 
@@ -1216,7 +1231,13 @@ static void icall_close_handler(struct icall *icall, int err,
 		set_state(wcall, WCALL_STATE_TERM_REMOTE);
 	}
 
-	if (!userid) {
+	if (wcall->orig_userid) {
+		/* Report the original caller captured at ring time, not the
+		 * sender of the close-inducing message. */
+		userid = wcall->orig_userid;
+		clientid = wcall->orig_clientid;
+	}
+	else if (!userid) {
 		userid = inst->userid;
 	}
 	set_state(wcall, WCALL_STATE_NONE);
@@ -1331,7 +1352,9 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 		     wcall_reason_name(reason));
 
 		inst->closeh(wreason, wcall->convid, msg_time,
-			     inst->userid, inst->clientid, inst->arg);
+			     wcall->orig_userid ? wcall->orig_userid : inst->userid,
+			     wcall->orig_clientid ? wcall->orig_clientid : inst->clientid,
+			     inst->arg);
 		info(APITAG "wcall(%p): icall_leave_handler: "
 		     "closeh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
@@ -1643,6 +1666,8 @@ static void destructor(void *arg)
 
 	mem_deref(wcall->icall);
 	mem_deref(wcall->convid);
+	mem_deref(wcall->orig_userid);
+	mem_deref(wcall->orig_clientid);
 
 	info("wcall(%p): dtor -- done\n", wcall);
 }
@@ -3518,8 +3543,10 @@ int wcall_i_reject(struct wcall *wcall)
 			     wcall_reason_name(reason));
 
 			inst->closeh(reason, wcall->convid,
-				ECONN_MESSAGE_TIME_UNKNOWN, inst->userid,
-				inst->clientid, inst->arg);
+			            ECONN_MESSAGE_TIME_UNKNOWN,
+			            wcall->orig_userid ? wcall->orig_userid : inst->userid,
+			            wcall->orig_clientid ? wcall->orig_clientid : inst->clientid,
+			            inst->arg);
 			info(APITAG "wcall(%p): wcall_reject: closeh took %llu ms\n",
 			     wcall, tmr_jiffies() - now);
 		}
