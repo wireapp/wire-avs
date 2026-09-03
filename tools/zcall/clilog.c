@@ -29,7 +29,7 @@
 
 
 struct {
-	enum log_level level;
+	enum avs_log_level level;
 	FILE *file;
 } clilog_glob = {
 	.level = LOG_LEVEL_WARN,
@@ -37,7 +37,7 @@ struct {
 };
 
 
-static const char *level_prefix(enum log_level level)
+static const char *level_prefix(enum avs_log_level level)
 {
 	switch (level) {
 
@@ -94,7 +94,7 @@ static void log_handler(uint32_t level, const char *msg, void *arg)
 	}
 }
 
-static struct log logh = {
+static struct avs_log logh = {
 	.h = log_handler
 };
 
@@ -118,7 +118,7 @@ static bool debug_key_handler(int ch)
 		break;
 	}
 	if (!clilog_glob.file)
-		log_set_min_level(clilog_glob.level);
+		avs_log_set_min_level(clilog_glob.level);
 
 	return true;
 }
@@ -130,7 +130,7 @@ struct key_stroke debug_stroke = {
 };
 
 
-int clilog_init(enum log_level level, const char *path)
+int clilog_init(enum avs_log_level level, const char *path)
 {
 	clilog_glob.level = level;
 	if (path) {
@@ -138,12 +138,12 @@ int clilog_init(enum log_level level, const char *path)
 		if (!clilog_glob.file) {
 			return errno;
 		}
-		log_set_min_level(LOG_LEVEL_DEBUG);
+		avs_log_set_min_level(LOG_LEVEL_DEBUG);
 	}
 	else
-		log_set_min_level(level);
-	log_register_handler(&logh);
-	log_enable_stderr(false);
+		avs_log_set_min_level(level);
+	avs_log_register_handler(&logh);
+	avs_log_enable_stderr(false);
 	register_key_stroke(&debug_stroke);
 	return 0;
 }
@@ -151,8 +151,8 @@ int clilog_init(enum log_level level, const char *path)
 
 void clilog_close(void)
 {
-	log_unregister_handler(&logh);
-	log_enable_stderr(true);
+	avs_log_unregister_handler(&logh);
+	avs_log_enable_stderr(true);
 	if (clilog_glob.file) {
 		fflush(clilog_glob.file);
 		fclose(clilog_glob.file);

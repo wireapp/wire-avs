@@ -115,8 +115,8 @@ int init_system(const char *sft)
 	if (err)
 		goto out;
 
-	log_enable_stderr(false);
-	log_set_min_level(LOG_LEVEL_ERROR);
+	avs_log_enable_stderr(false);
+	avs_log_set_min_level(LOG_LEVEL_ERROR);
 
 	err = avs_init(AVS_FLAG_EXPERIMENTAL | AVS_FLAG_AUDIO_TEST);
 	if (err)

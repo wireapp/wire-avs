@@ -67,7 +67,7 @@ void register_output_handler(output_h *outputh, void *arg);
 
 /* Logging  */
 
-int clilog_init(enum log_level level, const char *path);
+int clilog_init(enum avs_log_level level, const char *path);
 void clilog_close(void);
 
 
