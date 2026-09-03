@@ -2614,7 +2614,8 @@ function pc_GetLocalStats(hnd: number) {
           }
         }
 
-        report += JSON.stringify(stat);
+        // Ignore `priority` as browsers may report values exceeding the AVS JSON decoder range.
+        report += JSON.stringify(stat, (key, value) => key === 'priority' ? undefined : value);
         report += ',';
       })
       // remove tailing ',' if any
