@@ -726,6 +726,11 @@ static struct stats_transport *parse_transport(struct json_object *jitem)
 	return data;
 }
 
+static bool stats_json_filter(const char *name)
+{
+	return strcmp(name, "priority") != 0;
+}
+
 static int parse_json(const char *report, struct stats_obj *stats_obj) {
 	const char *type_str = NULL;
 	const char *kind_str = NULL;
@@ -736,7 +741,7 @@ static int parse_json(const char *report, struct stats_obj *stats_obj) {
 	}
 
 	struct json_object *jobj;
-	err = jzon_decode(&jobj, report, strlen(report));
+	err = jzon_decode_filter(&jobj, report, strlen(report), stats_json_filter);
 	if (err) {
 		return EPROTO;
 	}

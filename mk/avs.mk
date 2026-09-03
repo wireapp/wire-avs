@@ -121,12 +121,12 @@ AVS_MKS := $(OUTER_MKS) mk/avs.mk $(AVS_MODMKS)
 
 include $(AVS_MODMKS)
 
-AVS_C_OBJS := $(patsubst %.c,$(AVS_OBJ_PATH)/%.o,$(filter %.c,$(AVS_SRCS)))
-AVS_CC_OBJS := $(patsubst %.cpp,$(AVS_OBJ_PATH)/%.o,$(filter %.cpp,$(AVS_SRCS)))
-AVS_M_OBJS := $(patsubst %.m,$(AVS_OBJ_PATH)/%.o,$(filter %.m,$(AVS_SRCS)))
-AVS_MM_OBJS := $(patsubst %.mm,$(AVS_OBJ_PATH)/%.o,$(filter %.mm,$(AVS_SRCS)))
+AVS_C_OBJS = $(patsubst %.c,$(AVS_OBJ_PATH)/%.o,$(filter %.c,$(AVS_SRCS)))
+AVS_CC_OBJS = $(patsubst %.cpp,$(AVS_OBJ_PATH)/%.o,$(filter %.cpp,$(AVS_SRCS)))
+AVS_M_OBJS = $(patsubst %.m,$(AVS_OBJ_PATH)/%.o,$(filter %.m,$(AVS_SRCS)))
+AVS_MM_OBJS = $(patsubst %.mm,$(AVS_OBJ_PATH)/%.o,$(filter %.mm,$(AVS_SRCS)))
 
-AVS_OBJS := $(AVS_C_OBJS) $(AVS_CC_OBJS) $(AVS_M_OBJS) $(AVS_MM_OBJS)
+AVS_OBJS = $(AVS_C_OBJS) $(AVS_CC_OBJS) $(AVS_M_OBJS) $(AVS_MM_OBJS)
 
 AVS_CPPFLAGS += \
 	-I$(BUILD_TARGET)/include/re \

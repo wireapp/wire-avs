@@ -364,8 +364,12 @@ int jzon_encode(char **strp, struct json_object *jobj)
 	return re_sdprintf(strp, "%H", jzon_print, jobj);
 }
 
-
 int jzon_decode(struct json_object **jobjp, const char *buf, size_t len)
+{
+	return jzon_decode_filter(jobjp, buf, len, NULL);
+}
+
+int jzon_decode_filter(struct json_object **jobjp, const char *buf, size_t len, jzon_filter_h *filterh)
 {
 	struct json_object *jobj = NULL;
 	struct pl pl;
@@ -400,7 +404,7 @@ int jzon_decode(struct json_object **jobjp, const char *buf, size_t len)
 		return ENOMEM;
 
 	jobj->entry.u.odict = mem_deref(jobj->entry.u.odict);
-	err = json_decode_odict(&jobj->entry.u.odict, 16, buf, len, 8);
+	err = json_decode_odict_filter(&jobj->entry.u.odict, 16, buf, len, 8, filterh);
 	if (err)
 		goto out;
 
@@ -415,8 +419,7 @@ int jzon_decode(struct json_object **jobjp, const char *buf, size_t len)
 }
 
 
-struct json_object *jzon_apply(struct json_object *jobj,
-			       jzon_apply_h *ah, void *arg)
+struct json_object *jzon_apply(struct json_object *jobj, jzon_apply_h *ah, void *arg)
 {
 	struct odict *odict;
 	struct le *le;

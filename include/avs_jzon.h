@@ -26,6 +26,7 @@ struct json_object;
 
 typedef bool (jzon_apply_h)(const char *key, struct json_object *jobj,
 			    void *arg);
+typedef bool (jzon_filter_h)(const char *name);
 
 struct json_object *jzon_alloc_object(void);
 struct json_object *jzon_alloc_array(void);
@@ -61,6 +62,7 @@ int jzon_print(struct re_printf *pf, struct json_object *jobj);
 int jzon_encode_odict_pretty(struct re_printf *pf, const struct odict *o);
 int jzon_encode(char **strp, struct json_object *jobj);
 int jzon_decode(struct json_object **jobjp, const char *buf, size_t len);
+int jzon_decode_filter(struct json_object **jobjp, const char *buf, size_t len, jzon_filter_h *filterh);
 struct json_object *jzon_apply(struct json_object *jobj,
 			       jzon_apply_h *ah, void *arg);
 
