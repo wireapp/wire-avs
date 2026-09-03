@@ -14,6 +14,9 @@
 
 #include "../../iosx/include/AVSMedia.h"
 
+#ifdef error
+#undef error
+#endif
 
 
 struct {
@@ -77,10 +80,10 @@ static bool set_active_sync(bool active)
 				    error:&err];
 
 	if (!success) {
-		error("mm_platform_ios: could not set active: %s "
-		      "err=%ld %s\n",
-		      active ? "YES" : "NO", (long)err.code,
-		      [err.localizedDescription UTF8String]);
+		avs_error("mm_platform_ios: could not set active: %s "
+			  "err=%ld %s\n",
+			  active ? "YES" : "NO", (long)err.code,
+			  [err.localizedDescription UTF8String]);
 	}
 	else {
 		NSLog(@"mm_platform_ios: active successfull\n");
@@ -347,12 +350,12 @@ static bool set_category_sync(NSString *cat, bool speaker)
 			withOptions:options
 			      error:&err];
 	if (!success) {
-		error("mm_platform_ios: set_category: "
-		      "failed to set category: %s "
-		      "err=%ld %s\n",
-		      cat_name(cat),
-		      (long)err.code,
-		      [err.localizedDescription UTF8String]);
+		avs_error("mm_platform_ios: set_category: "
+			  "failed to set category: %s "
+			  "err=%ld %s\n",
+			  cat_name(cat),
+			  (long)err.code,
+			  [err.localizedDescription UTF8String]);
 	}
 
 #if TARGET_IPHONE_SIMULATOR
@@ -565,9 +568,9 @@ static void category_change(NSString *cat)
 		BOOL success = [sess setMode:AVAudioSessionModeVoiceChat
 				       error:&err];
 		if (!success) {
-			error("mm_platform_ios: incall_category: "
-			      "could not set VoiceChat mode: %ld\n",
-			      (long)err.code);
+			avs_error("mm_platform_ios: incall_category: "
+				  "could not set VoiceChat mode: %ld\n",
+				  (long)err.code);
 		}
 		mediamgr_sys_entered_call(mm_ios.mm);
 	}

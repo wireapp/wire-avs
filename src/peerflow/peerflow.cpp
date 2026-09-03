@@ -717,7 +717,7 @@ static void mq_handler(int id, void *data, void *arg)
 }
 
 
-static enum log_level severity2level(webrtc::LoggingSeverity severity)
+static enum avs_log_level severity2level(webrtc::LoggingSeverity severity)
 {
 	switch(severity) {
 	case webrtc::LS_VERBOSE:
@@ -743,22 +743,22 @@ public:
 	virtual void OnLogMessage(const std::string& msg,
 					   webrtc::LoggingSeverity severity,
 					   const char* tag) {
-		enum log_level lvl = severity2level(severity);
+		enum avs_log_level lvl = severity2level(severity);
 #ifdef ANDROID
 		__android_log_write(ANDROID_LOG_INFO, tag, msg.c_str());
 #else
-		loglv(lvl, "[%s] %s", tag, msg.c_str());
+		avs_loglv(lvl, "[%s] %s", tag, msg.c_str());
 #endif
 	}
 
 	virtual void OnLogMessage(const std::string& msg,
 				   webrtc::LoggingSeverity severity) {
 		
-		enum log_level lvl = severity2level(severity);
+		enum avs_log_level lvl = severity2level(severity);
 #ifdef ANDROID
 		__android_log_write(ANDROID_LOG_INFO, "AVS", msg.c_str());
 #else
-		loglv(lvl, "%s", msg.c_str());
+		avs_loglv(lvl, "%s", msg.c_str());
 #endif
 	}
 	

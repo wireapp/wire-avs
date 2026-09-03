@@ -145,7 +145,7 @@ $(CONTRIB_OPENSSL_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_OPENSSL_FILES)
 	@mkdir -p $(CONTRIB_OPENSSL_BUILD_PATH)
 	@rsync -aq $(CONTRIB_OPENSSL_PATH)/ $(CONTRIB_OPENSSL_BUILD_PATH)/
 	@$(MAKE) -C $(CONTRIB_OPENSSL_BUILD_PATH) clean || echo ""
-	cd $(CONTRIB_OPENSSL_BUILD_PATH) && \
+	@cd $(CONTRIB_OPENSSL_BUILD_PATH) && \
 	        $(CONTRIB_OPENSSL_CC) ./Configure --prefix="$(BUILD_TARGET)" \
 		$(CONTRIB_OPENSSL_OPTIONS) \
 		$(CONTRIB_OPENSSL_OPTIONS_$(AVS_OS)) \
@@ -182,7 +182,7 @@ CONTRIB_BREAKPAD_LIB_FILES := $(CONTRIB_BREAKPAD_TARGET)
 $(CONTRIB_BREAKPAD_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_BREAKPAD_FILES)
 	@rm -rf $(CONTRIB_BREAKPAD_BUILD_PATH)
 	@mkdir -p $(CONTRIB_BREAKPAD_BUILD_PATH)
-	cd $(CONTRIB_BREAKPAD_BUILD_PATH) && \
+	@cd $(CONTRIB_BREAKPAD_BUILD_PATH) && \
 		PATH=$(TOOLCHAIN_PATH)/bin:$(PATH) \
 		CC="$(CC)" \
 		CXX="$(CXX)" \
@@ -222,7 +222,7 @@ $(CONTRIB_GTEST_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_GTEST_FILES)
 	@mkdir -p $(CONTRIB_GTEST_BUILD_PATH)
 	@rsync -aq $(CONTRIB_GTEST_PATH)/ $(CONTRIB_GTEST_BUILD_PATH)/
 	rm -f $(CONTRIB_GTEST_BUILD_PATH)/gtest-all.o
-	cd $(CONTRIB_GTEST_BUILD_PATH) && \
+	@cd $(CONTRIB_GTEST_BUILD_PATH) && \
 		$(CXX) \
 		-isystem include \
 		-I. \
@@ -375,7 +375,7 @@ $(CONTRIB_LIBRE_TARGET): $(TOOLCHAIN_MASTER) \
 			 $(CONTRIB_LIBRE_FILES) \
 			 $(CONTRIB_WEBRTC_TARGET) \
 			 $(CONTRIB_OPENSSL_TARGET)
-	cd $(CONTRIB_LIBRE_PATH) && \
+	@cd $(CONTRIB_LIBRE_PATH) && \
 		rm -rf build-$(AVS_OS)-$(AVS_ARCH) && \
 		rm -f libre.a && \
 		make libre.a $(JOBS) \
@@ -461,27 +461,29 @@ contrib_librem: $(CONTRIB_LIBREM_TARGET)
 
 CONTRIB_BARESIP_PATH := contrib/baresip
 CONTRIB_BARESIP_TARGET := $(BUILD_TARGET)/lib/libbaresip.a
-CONTRIB_BARESIP_FILES := $(shell git ls-files $(CONTRIB_BAReSIP_PATH))
+CONTRIB_BARESIP_FILES := $(shell git ls-files $(CONTRIB_BARESIP_PATH))
 
 CONTRIB_BARESIP_LIBS := -lrem $(CONTRIB_LIBRE_LIBS) -lbaresip
 CONTRIB_BARESIP_LIB_FILES := \
 	$(CONTRIB_BARESIP_TARGET) \
 	$(CONTRIB_LIBREM_LIB_FILES)
+CONTRIB_BARESIP_AVS_PATH := $(PWD)
 
 $(CONTRIB_BARESIP_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 	                   $(CONTRIB_LIBREM_TARGET) \
-			  $(CONTRIB_BARESIP_FILES)
-	cp patches/baresip.patch $(BUILD_TARGET)
-	cp patches/baresip_srcs.patch $(BUILD_TARGET)
+			   $(CONTRIB_BARESIP_FILES)
+	@ln -s $(CONTRIB_BARESIP_AVS_PATH)/src/wireaudio \
+		$(CONTRIB_BARESIP_PATH)/modules/wireaudio || true
 	@cd $(CONTRIB_BARESIP_PATH) && \
-		( git apply $(BUILD_TARGET)/baresip_srcs.patch || echo "Skip" ) && \
 		rm -f libbaresip.a && \
-		make libbaresip.a $(JOBS) \
+		make STATIC=yes USE_G711=yes \
+		EXTRA_MODULES=wireaudio libbaresip.a $(JOBS) \
 		BUILD=build-$(AVS_OS)-$(AVS_ARCH) \
 		CC="$(CC)" \
 		AR="$(AR)" \
 		RANLIB="$(RANLIB)" \
-		EXTRA_CFLAGS="$(CPPFLAGS) $(CFLAGS)" \
+		EXTRA_CFLAGS="-DAVS_HEADER="$(CONTRIB_BARESIP_AVS_PATH)/include/avs.h" \
+			$(CPPFLAGS) $(CFLAGS)" \
 		EXTRA_LFLAGS="$(LFLAGS) $(LIBS)" \
 		SYSROOT="$(SYSROOT)" \
 		SYSROOT_ALT="$(BUILD_TARGET)" \
@@ -499,7 +501,6 @@ $(CONTRIB_BARESIP_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 		$(shell find $(CONTRIB_BARESIP_PATH)/include -name "*.h") \
 		$(BUILD_TARGET)/include/baresip
 	install -m 0644 $(CONTRIB_BARESIP_PATH)/libbaresip.a $(BUILD_TARGET)/lib
-	patch -p1 -t $(BUILD_TARGET)/include/baresip/baresip.h < $(BUILD_TARGET)/baresip.patch
 
 contrib_baresip: $(CONTRIB_BARESIP_TARGET)
 
@@ -646,7 +647,7 @@ endif
 
 
 $(CONTRIB_SODIUM_CONFIG_TARGET):	$(CONTRIB_SODIUM_PATH)/autogen.sh
-	cd $(CONTRIB_SODIUM_PATH) && \
+	@cd $(CONTRIB_SODIUM_PATH) && \
 	./autogen.sh
 
 
@@ -688,7 +689,7 @@ $(CONTRIB_SODIUM_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_SODIUM_CONFIG_TARGET) \
 	$(CONTRIB_SODIUM_DEPS) $(CONTRIB_SODIUM_FILES)
 	@rm -rf $(CONTRIB_SODIUM_BUILD_PATH)
 	@mkdir -p $(CONTRIB_SODIUM_BUILD_PATH)
-	cd $(CONTRIB_SODIUM_BUILD_PATH) && \
+	@cd $(CONTRIB_SODIUM_BUILD_PATH) && \
 		CC="$(CC)" \
 		CXX="$(CXX)" \
 		RANLIB="$(RANLIB)" \

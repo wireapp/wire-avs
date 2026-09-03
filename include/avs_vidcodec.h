@@ -22,7 +22,7 @@
  */
 
 
-struct vidcodec_param {
+struct avs_vidcodec_param {
 	uint32_t local_ssrcv[2];
 	size_t local_ssrcc;
 
@@ -31,64 +31,64 @@ struct vidcodec_param {
 };
 
 struct media_ctx;
-struct videnc_state;
-struct viddec_state;
-struct vidcodec;
+struct avs_videnc_state;
+struct avs_viddec_state;
+struct avs_vidcodec;
 struct vidframe;
 
-typedef void (videnc_err_h)(int err, const char *msg, void *arg);
+typedef void (avs_videnc_err_h)(int err, const char *msg, void *arg);
 
-typedef int  (videnc_rtp_h)(const uint8_t *pkt, size_t len, void *arg);
-typedef int  (videnc_rtcp_h)(const uint8_t *pkt, size_t len, void *arg);
+typedef int  (avs_videnc_rtp_h)(const uint8_t *pkt, size_t len, void *arg);
+typedef int  (avs_videnc_rtcp_h)(const uint8_t *pkt, size_t len, void *arg);
 
-typedef int (videnc_alloc_h)(struct videnc_state **vesp,
+typedef int (avs_videnc_alloc_h)(struct avs_videnc_state **vesp,
 			     struct media_ctx **mctxp,
-			     const struct vidcodec *vc,
+			     const struct avs_vidcodec *vc,
 			     const char *fmtp, int pt,
 			     struct sdp_media *sdpm,
-			     struct vidcodec_param *prm,
-			     videnc_rtp_h *rtph,
-			     videnc_rtcp_h *rtcph,
-			     videnc_err_h *errh,
+			     struct avs_vidcodec_param *prm,
+			     avs_videnc_rtp_h *rtph,
+			     avs_videnc_rtcp_h *rtcph,
+			     avs_videnc_err_h *errh,
 			     void *arg);
 
 
-typedef int (videnc_packet_h)(bool marker, const uint8_t *hdr, size_t hdr_len,
+typedef int (avs_videnc_packet_h)(bool marker, const uint8_t *hdr, size_t hdr_len,
 			      const uint8_t *pld, size_t pld_len, void *arg);
 
-typedef int  (videnc_start_h)(struct videnc_state *ves, bool group_mode,
+typedef int  (avs_videnc_start_h)(struct avs_videnc_state *ves, bool group_mode,
 			      void *extcodec_arg);
-typedef void (videnc_stop_h)(struct videnc_state *ves);
-typedef void (videnc_hold_h)(struct videnc_state *ves, bool hold);
-typedef uint32_t (videnc_bwalloc_h)(struct videnc_state *ves);
+typedef void (avs_videnc_stop_h)(struct avs_videnc_state *ves);
+typedef void (avs_videnc_hold_h)(struct avs_videnc_state *ves, bool hold);
+typedef uint32_t (avs_videnc_bwalloc_h)(struct avs_videnc_state *ves);
 
 
-typedef void (viddec_err_h)(int err, const char *msg, void *arg);
+typedef void (avs_viddec_err_h)(int err, const char *msg, void *arg);
 
-typedef int (viddec_alloc_h)(struct viddec_state **vdsp,
+typedef int (avs_viddec_alloc_h)(struct avs_viddec_state **vdsp,
 			     struct media_ctx **mctxp,
-			     const struct vidcodec *vc,
+			     const struct avs_vidcodec *vc,
 			     const char *fmtp, int pt,
 			     struct sdp_media *sdpm,
-			     struct vidcodec_param *prm,
-			     viddec_err_h *errh,
+			     struct avs_vidcodec_param *prm,
+			     avs_viddec_err_h *errh,
 			     void *arg);
 
-typedef void (viddec_rtp_h)(struct viddec_state *vds,
+typedef void (avs_viddec_rtp_h)(struct avs_viddec_state *vds,
 			    const uint8_t *pkt, size_t len);
-typedef void (viddec_rtcp_h)(struct viddec_state *vds,
+typedef void (avs_viddec_rtcp_h)(struct avs_viddec_state *vds,
 			     const uint8_t *pkt, size_t len);
-typedef int  (viddec_start_h)(struct viddec_state *vds,
+typedef int  (avs_viddec_start_h)(struct avs_viddec_state *vds,
 			      const char *userid_remote,
 			      void *extcodec_arg);
-typedef void (viddec_stop_h)(struct viddec_state *vds);
-typedef void (viddec_hold_h)(struct viddec_state *vds, bool hold);
-typedef int  (viddec_debug_h)(struct re_printf *pf,
-			      const struct viddec_state *vds);
-typedef uint32_t (viddec_bwalloc_h)(struct viddec_state *vds);
+typedef void (avs_viddec_stop_h)(struct avs_viddec_state *vds);
+typedef void (avs_viddec_hold_h)(struct avs_viddec_state *vds, bool hold);
+typedef int  (avs_viddec_debug_h)(struct re_printf *pf,
+			      const struct avs_viddec_state *vds);
+typedef uint32_t (avs_viddec_bwalloc_h)(struct avs_viddec_state *vds);
 
 
-struct vidcodec {
+struct avs_vidcodec {
 	struct le le;
 	struct le ext_le; /* member of external codec list */
 	const char *pt;
@@ -96,22 +96,22 @@ struct vidcodec {
 	const char *variant;
 	const char *fmtp;
 
-	videnc_alloc_h *enc_alloch;
-	videnc_start_h *enc_starth;
-	videnc_stop_h *enc_stoph;
-	videnc_hold_h *enc_holdh;
-	videnc_bwalloc_h *enc_bwalloch;
+	avs_videnc_alloc_h *enc_alloch;
+	avs_videnc_start_h *enc_starth;
+	avs_videnc_stop_h *enc_stoph;
+	avs_videnc_hold_h *enc_holdh;
+	avs_videnc_bwalloc_h *enc_bwalloch;
 
-	viddec_alloc_h *dec_alloch;
-	viddec_start_h *dec_starth;
-	viddec_stop_h *dec_stoph;
-	viddec_hold_h *dec_holdh;
-	viddec_rtp_h *dec_rtph;
-	viddec_rtcp_h *dec_rtcph;
-	viddec_debug_h *dec_debugh;
-	viddec_bwalloc_h *dec_bwalloch;
+	avs_viddec_alloc_h *dec_alloch;
+	avs_viddec_start_h *dec_starth;
+	avs_viddec_stop_h *dec_stoph;
+	avs_viddec_hold_h *dec_holdh;
+	avs_viddec_rtp_h *dec_rtph;
+	avs_viddec_rtcp_h *dec_rtcph;
+	avs_viddec_debug_h *dec_debugh;
+	avs_viddec_bwalloc_h *dec_bwalloch;
 	
-	struct vidcodec *codec_ref;
+	struct avs_vidcodec *codec_ref;
 
 	sdp_fmtp_enc_h *fmtp_ench;
 	sdp_fmtp_cmp_h *fmtp_cmph;
@@ -119,10 +119,10 @@ struct vidcodec {
 	void *data;
 };
 
-void vidcodec_register(struct list *vidcodecl, struct vidcodec *vc);
-void vidcodec_unregister(struct vidcodec *vc);
-const struct vidcodec *vidcodec_find(const struct list *vidcodecl,
+void avs_vidcodec_register(struct list *vidcodecl, struct avs_vidcodec *vc);
+void avs_vidcodec_unregister(struct avs_vidcodec *vc);
+const struct avs_vidcodec *avs_vidcodec_find(const struct list *vidcodecl,
 				     const char *name, const char *variant);
-const struct vidcodec *videnc_get(struct videnc_state *ves);
-const struct vidcodec *viddec_get(struct viddec_state *vds);
+const struct avs_vidcodec *avs_videnc_get(struct avs_videnc_state *ves);
+const struct avs_vidcodec *avs_viddec_get(struct avs_viddec_state *vds);
 

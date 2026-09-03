@@ -8,9 +8,15 @@
 struct {
 	bool initialized;
 	struct list instl;
+	struct log log;
 } g_sip = {
 	.initialized = false,
 	.instl = LIST_INIT,
+	.log = {
+		.le = LE_INIT,
+		.h = wcall_ext_log,
+	},
+
 };
 
 struct wsip {
@@ -66,6 +72,12 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 	}
 
 	info("sip: baresip initialized\n", conf_path);
+
+	err = conf_modules();
+	if (err) {
+		warning("sip: failed to load modules: %m\n", err);
+		return err;
+	}
 
 	err = uag_event_register(ua_event_handler, NULL);
 	if (err) {

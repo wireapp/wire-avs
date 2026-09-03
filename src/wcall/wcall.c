@@ -96,7 +96,7 @@ static struct {
 
 
 struct log_entry {
-	struct log logger;
+	struct avs_log logger;
 
 	wcall_log_h *logh;
 	void *arg;
@@ -2361,7 +2361,7 @@ int wcall_setup_ex(int flags)
 {
 	int err = 0;
 
-	log_set_min_level(LOG_LEVEL_DEBUG);
+	avs_log_set_min_level(LOG_LEVEL_DEBUG);
 
 	info(APITAG "wcall_setup(%d): starting...\n", flags);
 
@@ -2468,7 +2468,7 @@ void wcall_close(void)
 	LIST_FOREACH(&calling.logl, le) {
 		struct log_entry *loge = le->data;
 		
-		log_unregister_handler(&loge->logger);
+		avs_log_unregister_handler(&loge->logger);
 	}
 	list_flush(&calling.logl);
 	list_flush(&calling.instances);
@@ -4086,7 +4086,7 @@ static void wcall_log_handler(uint32_t level, const char *msg, void *arg)
 	struct log_entry *loge = arg;
 	int wlvl;
 
-	log_mask_ipaddr(msg);
+	avs_log_mask_ipaddr(msg);
 
 	switch (level) {
 	case LOG_LEVEL_DEBUG:
@@ -4130,14 +4130,26 @@ void wcall_set_log_handler(wcall_log_h *logh, void *arg)
 	loge->logger.h = wcall_log_handler;
 	loge->logger.arg = loge;
 
-	log_register_handler(&loge->logger);
-	log_enable_stderr(false);
+	avs_log_register_handler(&loge->logger);
+	avs_log_enable_stderr(false);
 
 	lock_write_get(calling.lock);
 	list_append(&calling.logl, &loge->le, loge);
 	lock_rel(calling.lock);
 }
 
+void wcall_ext_log(uint32_t level, const char *msg)
+{
+	struct le *le;
+
+	LIST_FOREACH(&calling.logl, le) {
+		struct log_entry *lent = le->data;
+
+		if (lent) {
+			wcall_log_handler(level, msg, lent);
+		}
+	}
+}
 
 #if USE_AVSLIB
 static void netprobe_handler(int err, const struct netprobe_result *result,
