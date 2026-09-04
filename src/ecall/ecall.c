@@ -647,6 +647,8 @@ static void ecall_destructor(void *data)
 	mem_deref(ecall->sdp.offer);
 	mem_deref(ecall->media_laddr);
 
+	mem_deref(ecall->record.path);
+
 	//list_flush(&ecall->audio.level.l);
 	
 	list_flush(&ecall->tracel);
@@ -2123,6 +2125,7 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 			  ecall->conv_type,
 			  call_type,
 			  ecall->vstate,
+			  ecall->record.path,
 			  ecall->icall.arg);
 
 	if (err) {
@@ -3505,5 +3508,15 @@ int ecall_set_ping_handler(struct ecall *ecall,
 	}
 
 	ecall->pingh = pingh;
+	return 0;
+}
+
+int ecall_audio_record(struct ecall *ecall, const char *path)
+{
+	if (!ecall)
+		return EINVAL;
+
+	str_dup(&ecall->record.path, path);
+
 	return 0;
 }

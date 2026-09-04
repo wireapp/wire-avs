@@ -4569,11 +4569,28 @@ void wcall_set_mute_handler(WUSER_HANDLE wuser, wcall_mute_h *muteh, void *arg)
 	inst->mute.arg = arg;
 }
 
-AVS_EXPORT
-int wcall_audio_record(WUSER_HANDLE wuser, const char *path)
+void wcall_i_audio_record(struct wcall *wcall,			 
+			  const char *path)
 {
-        (void)wuser;
-        return avs_set_audio_record(path);
+	if (!wcall || !path)
+		return;
+	
+	switch (wcall->conv_type) {
+	case ICALL_CONV_TYPE_CONFERENCE:
+	case ICALL_CONV_TYPE_CONFERENCE_MLS:
+		if (!wcall->icall) {
+			warning("wcall(%p): does not have an icall\n", wcall);
+		}
+		else {
+			ccall_audio_record(wcall->icall, path);
+		}
+		break;
+
+	default:
+		warning("wcall(%p): recording not supported for "
+			"non-conference calls\n", wcall);
+		break;
+	}
 }
 
 AVS_EXPORT

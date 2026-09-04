@@ -43,7 +43,7 @@ static void *play_thread(void *arg)
 	return static_cast<record_audiodevice*>(arg)->playout_thread();
 }
     
-record_audiodevice::record_audiodevice(bool realtime)
+record_audiodevice::record_audiodevice(const char *rec_path)
 {
 	audioCallback_ = NULL;
 	is_recording_ = false;
@@ -52,12 +52,14 @@ record_audiodevice::record_audiodevice(bool realtime)
 	play_is_initialized_ = false;
 	rec_tid_ = 0;
 	play_tid_ = 0;
-	realtime_ = realtime;
+	realtime_ = true;
 	delta_omega_ = 0.0f;
 	omega_ = 0.0f;
 	muted_ = false;
 	noise_ = false;
 	fp_ = NULL;
+
+	str_dup(&rec_path_, rec_path);
 }
 
 record_audiodevice::~record_audiodevice()
@@ -238,6 +240,8 @@ void *record_audiodevice::record_thread()
 	gettimeofday(&next_io_time, NULL);
         
 	while(is_recording_) {
+		timeradd(&next_io_time, &delta, &next_io_time);
+
 		if(audioCallback_) {
 			audioCallback_->RecordedDataIsAvailable(
 					(void*)audio_buf,
@@ -274,19 +278,17 @@ void *record_audiodevice::playout_thread()
 	size_t nSamplesOut;
 	int64_t elapsed_time_ms, ntp_time_ms;
 	struct timeval now, next_io_time, delta, sleep_time;
-	const char *path;
 
-	path = avs_get_audio_record();
-	if (path) {
+	if (rec_path_) {
 	  if (fp_) {
 	    FILE *fp = fp_;
 	    fp_ = NULL;
 	    fclose(fp);
 	  }
-	  fp_ = fopen(path, "wb");
+	  fp_ = fopen(rec_path_, "wb");
 	}
 
-	info("audio_io_record: playout_thread: started path=%s\n", path);
+	info("audio_io_record: playout_thread: started path=%s\n", rec_path_);
 
 	delta.tv_sec = 0;
 	delta.tv_usec = FRAME_LEN_MS * 1000;
