@@ -579,11 +579,14 @@ int jsflow_alloc(struct iflow		**flowp,
 		 enum icall_conv_type	conv_type,
 		 enum icall_call_type	call_type,
 		 enum icall_vstate	vstate,
+		 const char             *rec_path,
 		 void			*extarg)
 {
 	struct jsflow *flow;
 	int err = 0;
 
+	(void)rec_path;
+	
 	info("jsflow_alloc: initialized=%d call_type=%d vstate=%s\n",
 	     g_jf.initialized, call_type, icall_vstate_name(vstate));
 	if (!g_jf.initialized) {
