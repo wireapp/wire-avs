@@ -25,6 +25,7 @@
 #include "rtc_base/platform_thread_types.h"
 #include "modules/utility/include/jvm_android.h"
 #ifdef ANDROID
+#include "sdk/android/native_api/base/init.h"
 #include "sdk/android/native_api/audio_device_module/audio_device_android.h"
 #endif
 
@@ -440,21 +441,20 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 
 
 	if (1) {
+
+		__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: calling InitAndroid\n");
+		webrtc::InitAndroid(java.vm);
 		__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: calling JVM::Initialize\n");
 		webrtc::JVM::Initialize(java.vm, ctx);
 		__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: calling JVM::Initialize done\n");
 		std::unique_ptr<webrtc::JNIEnvironment> jenv = webrtc::JVM::GetInstance()->environment();
+		__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: got env\n");
 		info("flow_manager: init: vm: %p env: %p\n",
 		     webrtc::JVM::GetInstance()->jvm(),
 		     jenv.get());
 	}
 	
 	java.context = env->NewGlobalRef(ctx);
-
-#ifdef ANDROID
-	auto adm = webrtc::CreateOpenSLESAudioDeviceModule(env, ctx);
-	peerflow_set_adm((void *)adm.get());
-#endif
 
 #if 0//USE_BREAKPAD	
 	setup_breakpad(env, ctx);

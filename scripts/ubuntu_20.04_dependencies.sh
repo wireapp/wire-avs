@@ -3,20 +3,39 @@
 # dependencies to build wire-avs
 # on ubuntu 18.04 and 20.04
 # for building webrtc see https://github.com/wireapp/prebuilt-webrtc-binaries
+# 1. Install base utilities and update root certificates first
+apt-get update && apt-get install -y \
+    ca-certificates \
+    wget \
+    gnupg \
+    lsb-release \
+    software-properties-common \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Now run the LLVM script safely (it won't fail the TLS handshake)
+wget https://apt.llvm.org/llvm.sh \
+    && chmod +x llvm.sh \
+    && ./llvm.sh 19 \
+    && rm llvm.sh \
+    && rm -rf /var/lib/apt/lists/*
+
 apt update
 
 apt install -y \
+    ca-certificates \
     curl \
     git \
     autoconf \
     automake \
     cargo \
-    clang \
+    clang-19 \
+    clang-tools-19 \
+    lld-19 \
+    libc++-19-dev \
+    libc++abi-19-dev \
     clang-tools \
     jq \
     libasound2-dev \
-    libc++-dev \
-    libc++abi-dev \
     libevent-dev \
     libprotobuf-c-dev \
     libreadline-dev \
@@ -42,7 +61,11 @@ apt install -y \
     libssl-dev \
     libsctp-dev \
     libpulse-dev \
-    valgrind
+    valgrind \
+    lsb-release \
+    wget \
+    software-properties-common \
+    gnupg2
 
 # uninstall distribution version of cargo/rust
 apt purge -y cargo rustc
@@ -50,6 +73,9 @@ apt purge -y cargo rustc
 # cleanup apt cache to reduce image size
 apt clean
 
+# Setup Clang 19 alternatives and install Rust
+update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
+update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
 
 # download the rust toolchain (to build the cryptobox-c dependency)
 curl https://sh.rustup.rs -sSf | sh -s -- -y

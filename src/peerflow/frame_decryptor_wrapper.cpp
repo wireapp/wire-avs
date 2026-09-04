@@ -60,11 +60,11 @@ int FrameDecryptor::SetUserID(const char *userid_hash)
 	return frame_decryptor_set_uid(_dec, userid_hash);
 }
 
-FrameDecryptor::Result FrameDecryptor::Decrypt(cricket::MediaType media_type,
-				     const std::vector<uint32_t>& csrcs,
-				     rtc::ArrayView<const uint8_t> additional_data,
-				     rtc::ArrayView<const uint8_t> encrypted_frame,
-				     rtc::ArrayView<uint8_t> frame)
+FrameDecryptor::Result FrameDecryptor::Decrypt(webrtc::MediaType media_type,
+					       const std::vector<uint32_t>& csrcs,
+					       std::span<const uint8_t> additional_data,
+					       std::span<const uint8_t> encrypted_frame,
+					       std::span<uint8_t> frame)
 {
 	size_t decsz = 0;
 	int err;
@@ -92,7 +92,7 @@ FrameDecryptor::Result FrameDecryptor::Decrypt(cricket::MediaType media_type,
 	}
 }
 
-size_t FrameDecryptor::GetMaxPlaintextByteSize(cricket::MediaType media_type,
+size_t FrameDecryptor::GetMaxPlaintextByteSize(webrtc::MediaType media_type,
 					       size_t encrypted_frame_size)
 {
 	return frame_decryptor_max_size(_dec, encrypted_frame_size);;

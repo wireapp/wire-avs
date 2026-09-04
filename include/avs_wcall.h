@@ -598,7 +598,11 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 			 int conv_type);
 void wcall_event_end(WUSER_HANDLE wuser);
 				
-				
+/* SIP */
+int wcall_sip_init(WUSER_HANDLE wuser, const char *conf_path);
+int wcall_sip_close(WUSER_HANDLE wuser);
+int wcall_sip_create(WUSER_HANDLE wuser, const char *aor);
+int wcall_sip_destroy(WUSER_HANDLE wuser, const char *aor);
 
 #define WCALL_MODE_MARSHAL 0
 #define WCALL_MODE_DIRECT  1

@@ -74,7 +74,7 @@ void find_pitch_lags(struct pitch_estimator *pest, int16_t x[], int L)
     silk_apply_sine_window_FLP( &Wsig[Z_FS_KHZ*(Z_PEST_BUF_SZ_MS - Z_WIN_LEN_MS)], &Wsig[Z_FS_KHZ*(Z_PEST_BUF_SZ_MS - Z_WIN_LEN_MS)], 2, Z_WIN_LEN_MS*Z_FS_KHZ );
     
     /* Calculate autocorrelation sequence */
-    silk_autocorrelation_FLP( auto_corr, Wsig, Z_FS_KHZ*Z_PEST_BUF_SZ_MS, Z_LPC_ORDER + 1 );
+    silk_autocorrelation_FLP( auto_corr, Wsig, Z_FS_KHZ*Z_PEST_BUF_SZ_MS, Z_LPC_ORDER + 1, 0 );
         
     /* Add white noise, as fraction of energy */
     auto_corr[ 0 ] += auto_corr[ 0 ] * 1e-3f + 1;

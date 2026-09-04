@@ -24,21 +24,21 @@
 
 namespace wire {
 
-class CaptureSource : public webrtc::Notifier<webrtc::VideoTrackSourceInterface>
+	class CaptureSource : private webrtc::RefCountInterface, public webrtc::VideoTrackSourceInterface
 {
 public:
-	void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
-			     const rtc::VideoSinkWants& wants);
+	CaptureSource();
+	~CaptureSource();
 
-	void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink);
+	void AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
+			     const webrtc::VideoSinkWants& wants);
+
+	void RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink);
 
 	void HandleFrame(struct avs_vidframe *frame);
 
-	static CaptureSource* GetInstance();
-	static void ReleaseInstance();
-
 	void AddRef() const;
-	rtc::RefCountReleaseStatus Release() const;
+	webrtc::RefCountReleaseStatus Release() const;
 
 	webrtc::MediaSourceInterface::SourceState state() const;
 
@@ -54,14 +54,14 @@ public:
 
 	void GenerateKeyFrame() {}
 
-	void AddEncodedSink(rtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>* sink) {}
+	void AddEncodedSink(webrtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>* sink) {}
 
-	void RemoveEncodedSink(rtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>* sink) {}
+	void RemoveEncodedSink(webrtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>* sink) {}
+
+	void RegisterObserver(webrtc::ObserverInterface* observer) {};
+	void UnregisterObserver(webrtc::ObserverInterface* observer) {};
 
 private:
-	CaptureSource();
-	~CaptureSource();
-
 	struct list  _streaml;
 	struct lock* _lock;
 	bool         _buffer_rotate;

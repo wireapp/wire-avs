@@ -113,7 +113,7 @@ static void find_res(struct vocoder_effect *ve, int16_t x[], int L, int16_t res[
     }
     
     /* Calculate autocorrelation sequence */
-    silk_autocorrelation_FLP( auto_corr, Wsig, PROC_FS_KHZ*Z_REST_BUF_SZ_MS, Z_REST_LPC_ORDER + 1 );
+    silk_autocorrelation_FLP( auto_corr, Wsig, PROC_FS_KHZ*Z_REST_BUF_SZ_MS, Z_REST_LPC_ORDER + 1, 0 );
     
     /* Add white noise, as fraction of energy */
     auto_corr[ 0 ] += auto_corr[ 0 ] * 1e-3 + 1;

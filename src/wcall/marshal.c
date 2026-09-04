@@ -21,6 +21,7 @@
 #include <avs.h>
 #include "avs_wcall.h"
 #include "wcall.h"
+#include "sip.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -57,6 +58,11 @@ enum mq_event {
 	WCALL_MEV_PROCESS_NOTIFICATIONS,
 	WCALL_MEV_SET_DURATION,
 	WCALL_MEV_AUDIO_RECORD,
+
+	WCALL_MEV_SIP_INIT,
+	WCALL_MEV_SIP_CLOSE,
+	WCALL_MEV_SIP_CREATE,
+	WCALL_MEV_SIP_DESTROY,
 };
 
 
@@ -170,6 +176,14 @@ struct mq_data {
 		struct {
 			char *path;
 		} audio_record;
+
+		struct {
+			char *path;
+		} sip_init;
+
+		struct {
+			char *aor;
+		} sip_crdest;
 	} u;
 };
 
@@ -237,6 +251,15 @@ static void md_destructor(void *arg)
 
 	case WCALL_MEV_AUDIO_RECORD:
 		mem_deref(md->u.audio_record.path);
+		break;
+
+	case WCALL_MEV_SIP_INIT:
+		mem_deref(md->u.sip_init.path);
+		break;
+
+	case WCALL_MEV_SIP_CREATE:
+	case WCALL_MEV_SIP_DESTROY:
+		mem_deref(md->u.sip_crdest.aor);
 		break;
 
 	default:
@@ -323,6 +346,14 @@ static char *mev_name(int id)
 		return "PROCESS_NOTIFICATIONS";
 	case WCALL_MEV_AUDIO_RECORD:
 		return "AUDIO_RECORD";
+	case WCALL_MEV_SIP_INIT:
+		return "SIP_INIT";
+	case WCALL_MEV_SIP_CLOSE:
+		return "SIP_CLOSE";
+	case WCALL_MEV_SIP_CREATE:
+		return "SIP_CREATE";
+	case WCALL_MEV_SIP_DESTROY:
+		return "SIP_DESTROY";
 	default:
 		return "???";
 	}
@@ -555,6 +586,23 @@ static void mqueue_handler(int id, void *data, void *arg)
 				     md->u.audio_record.path);
 		break;
 		
+#if !TARGET_OS_IPHONE && (!defined ANDROID) && (!defined __EMSCRIPTEN__)
+	case WCALL_MEV_SIP_INIT:
+		wcall_i_sip_init(md->inst, md->u.sip_init.path);
+		break;
+
+	case WCALL_MEV_SIP_CLOSE:
+		wcall_i_sip_close(md->inst);
+		break;
+
+	case WCALL_MEV_SIP_CREATE:
+		wcall_i_sip_create(md->inst, md->u.sip_crdest.aor);
+		break;
+
+	case WCALL_MEV_SIP_DESTROY:
+		wcall_i_sip_destroy(md->inst, md->u.sip_crdest.aor);
+		break;
+#endif
 	default:
 		warning("wcall: marshal: unknown event: %d\n", id);
 		break;
@@ -667,8 +715,6 @@ static int md_enqueue(struct mq_data *md)
 
  out:
 	return err;
-	
-	
 }
 
 
@@ -1474,3 +1520,122 @@ void wcall_marshal_destroy(struct calling_instance *inst)
  out:
 	return;
 }
+
+AVS_EXPORT
+int wcall_sip_init(WUSER_HANDLE wuser, const char *conf_path)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: sip_init: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return ENOSYS;
+	}
+
+	info("wcall(%p): sip_init: conf_path=%s\n", inst, conf_path);
+
+	md = md_new(inst, NULL, WCALL_MEV_SIP_INIT);
+	if (!md)
+		return EINVAL;
+
+	str_dup(&md->u.sip_init.path, conf_path);
+	err = md_enqueue(md);
+	if (err)
+		goto out;
+
+ out:
+	return 0;
+}
+
+AVS_EXPORT
+int wcall_sip_close(WUSER_HANDLE wuser)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;	
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: sip_close: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return ENOSYS;
+	}
+	info("wcall(%p): sip_close\n", inst);
+
+	md = md_new(inst, NULL, WCALL_MEV_SIP_CLOSE);
+	if (!md)
+		return EINVAL;
+
+	err = md_enqueue(md);
+	if (err)
+		goto out;
+
+ out:
+	return 0;
+}
+
+AVS_EXPORT
+int wcall_sip_create(WUSER_HANDLE wuser, const char *aor)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: sip_create: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return ENOSYS;
+	}
+
+	info("wcall(%p): sip_create: aor=%s\n", inst, aor);
+
+	md = md_new(inst, NULL, WCALL_MEV_SIP_CREATE);
+	if (!md)
+		return EINVAL;
+
+	str_dup(&md->u.sip_crdest.aor, aor);
+	err = md_enqueue(md);
+	if (err)
+		goto out;
+
+ out:
+	return 0;
+}
+
+AVS_EXPORT
+int wcall_sip_destroy(WUSER_HANDLE wuser, const char *aor)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: sip_destroy: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return ENOSYS;
+	}
+
+	info("wcall(%p): sip_destroy: aor=%s\n", inst, aor);
+
+	md = md_new(inst, NULL, WCALL_MEV_SIP_DESTROY);
+	if (!md)
+		return EINVAL;
+
+	str_dup(&md->u.sip_crdest.aor, aor);
+	err = md_enqueue(md);
+	if (err)
+		goto out;
+
+ out:
+	return 0;
+}
+

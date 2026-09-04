@@ -20,8 +20,10 @@
 #include "avs_audio_effect.h"
 
 #include "common_audio/resampler/include/push_resampler.h"
-#include "modules/audio_processing/include/audio_processing.h"
 #include "modules/include/module_common_types.h"
+#include "api/environment/environment_factory.h"
+#include "api/audio/builtin_audio_processing_builder.h"
+#include "api/audio/audio_processing.h"
 #include "api/audio/audio_frame.h"
 
 #ifdef __cplusplus
@@ -307,7 +309,8 @@ int apply_effect_to_wav(const char* wavIn,
         return -1;
     }
     
-    rtc::scoped_refptr<webrtc::AudioProcessing> apm(webrtc::AudioProcessingBuilder().Create());
+    webrtc::scoped_refptr<webrtc::AudioProcessing> apm(
+	webrtc::BuiltinAudioProcessingBuilder().Build(webrtc::CreateEnvironment()));
     
     struct aueffect *aue;
     int ret = aueffect_alloc(&aue, effect_type, FS_PROC);

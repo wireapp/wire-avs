@@ -33,6 +33,7 @@
 
 
 #include "wcall.h"
+#include "sip.h"
 
 #ifdef __APPLE__
 #       include <TargetConditionals.h>
@@ -182,6 +183,8 @@ struct calling_instance {
 	struct list pending_eventl;
         struct list durationl;
 	struct list config_updatel;
+
+	struct sip_instance sip_inst;
 };
 
 struct wcall {
@@ -3447,10 +3450,16 @@ static void wcall_end_internal(struct wcall *wcall)
 		return;
 	}
 
+	if (wcall->state == WCALL_STATE_INCOMING) {
+		info("wcall(%p): end: cannot end in incoming state. Rejecting instead\n", wcall);
+		wcall_i_reject(wcall);
+		return; 
+	}
+
 	if (wcall->state != WCALL_STATE_TERM_REMOTE)
 		set_state(wcall, WCALL_STATE_TERM_LOCAL);
 	ICALL_CALL(wcall->icall, end);
-
+	
 	wcall->disable_audio = true;
 	if (!wcall_has_calls()) {
 		if (wcall->inst->mm) {
@@ -4724,4 +4733,9 @@ struct calling_instance *wcall_get_instance(void)
 	else {
 		return NULL;
 	}
+}
+
+struct sip_instance *wcall_get_sip_instance(struct calling_instance *inst)
+{
+	return inst ? &inst->sip_inst : NULL;
 }

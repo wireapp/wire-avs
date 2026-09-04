@@ -246,7 +246,7 @@ endif
 #--- Generic settings -------------------------------------------------------
 
 ifeq ($(WEBRTC_VER),)
-WEBRTC_VER := 20241021.74
+WEBRTC_VER := 20260605.102
 endif
 
 JAVAC := javac
@@ -270,7 +270,11 @@ CPPFLAGS += \
 	 -DSSL_USE_OPENSSL -DFEATURE_ENABLE_SSL -D__STDC_FORMAT_MACROS=1 \
 	 -DAVS_VERSION='"$(AVS_VERSION)"' -DAVS_PROJECT='"$(AVS_PROJECT)"' \
 	 -DAVS_OS='"$(AVS_OS)"' -DAVS_ARCH='"$(AVS_ARCH)"' \
-	 -I$(BUILD_TARGET)/include -Iinclude
+	 -I$(BUILD_TARGET)/include -Iinclude \
+	 -Wno-nullability-completeness \
+	 -Wno-inaccessible-base \
+	 -Wno-deprecated-volatile
+
 
 ifeq ($(HAVE_WEBRTC),1)
 CPPFLAGS += \
@@ -287,7 +291,7 @@ endif
 
 CXXFLAGS += \
          -fvisibility=hidden -fno-rtti -ffunction-sections -fdata-sections \
-	-Os -g -std=c++17
+	-Os -g -std=c++20
 
 ifeq ($(ENABLE_COVERAGE),1)
 CFLAGS += -fprofile-instr-generate -fcoverage-mapping
@@ -420,7 +424,7 @@ CXXFLAGS += -fPIC \
 ifneq ($(BLA),)
 LFLAGS   += \
 	 -nostdlib -fPIC -Wl,-soname,libtwolib-second.so \
-	 -Wl,--whole-archive -Wl,--no-undefined -Wl,--gc-sections
+	 -Wl,--whole-archive -Wl,--no-undefined
 else
 LFLAGS	+= \
 	-fPIC \
@@ -558,6 +562,7 @@ CPPFLAGS += \
 CXXFLAGS += \
 	-Wno-vla-cxx-extension
 
+
 LFLAGS	 += \
 	 -arch $(AVS_ARCH) \
 	 -isysroot $(SDK_PATH) \
@@ -635,7 +640,10 @@ CPPFLAGS += \
 	 -fPIC -fvisibility=default
 
 CXXFLAGS += \
-	 -fPIC -fvisibility=default
+	-fPIC -fvisibility=default
+
+LFLAGS	+= \
+	-fuse-ld=lld -flto=thin
 
 SH_LFLAGS += \
         -ffunction-sections -funwind-tables \

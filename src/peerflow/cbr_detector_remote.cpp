@@ -34,17 +34,17 @@ CbrDetectorRemote::~CbrDetectorRemote()
 {
 }
 
-CbrDetectorRemote::Result CbrDetectorRemote::Decrypt(cricket::MediaType media_type,
-						const std::vector<uint32_t>& csrcs,
-						rtc::ArrayView<const uint8_t> additional_data,
-						rtc::ArrayView<const uint8_t> encrypted_frame,
-						rtc::ArrayView<uint8_t> frame)
+CbrDetectorRemote::Result CbrDetectorRemote::Decrypt(webrtc::MediaType media_type,
+						     const std::vector<uint32_t>& csrcs,
+						     std::span<const uint8_t> additional_data,
+						     std::span<const uint8_t> encrypted_frame,
+						     std::span<uint8_t> frame)
 {
 	const uint8_t *src = encrypted_frame.data();
 	uint8_t *dst = frame.data();
 	uint32_t data_len = encrypted_frame.size();
 
-	if (media_type == cricket::MEDIA_TYPE_AUDIO) {
+	if (media_type == webrtc::MediaType::AUDIO) {
 		if (data_len == frame_size && frame_size >= 40) {
 			missmatch_count = 0;
 			frame_count++;
@@ -74,8 +74,8 @@ out:
 	return CbrDetectorRemote::Result(CbrDetectorRemote::Status::kOk, data_len);
 }
 
-size_t CbrDetectorRemote::GetMaxPlaintextByteSize(cricket::MediaType media_type,
-					       size_t encrypted_frame_size)
+size_t CbrDetectorRemote::GetMaxPlaintextByteSize(webrtc::MediaType media_type,
+						  size_t encrypted_frame_size)
 {
 	return encrypted_frame_size;
 }

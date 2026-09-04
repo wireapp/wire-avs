@@ -91,6 +91,8 @@ $(AND_JAR): android_classes
 	@echo "  UNZ webrtc jars"
 	@unzip -o contrib/webrtc/$(WEBRTC_VER)/java/base.jar -d $(AND_CLS_TARGET)
 	@unzip -o contrib/webrtc/$(WEBRTC_VER)/java/audiodev.jar -d $(AND_CLS_TARGET)
+	@unzip -o contrib/webrtc/$(WEBRTC_VER)/java/base_sdk.jar -d $(AND_CLS_TARGET)
+	@unzip -o contrib/webrtc/$(WEBRTC_VER)/java/jni_zero.jar -d $(AND_CLS_TARGET)
 	@rm -rf $(AND_CLS_TARGET)/META-INF
 	cp -R android/lib/build/intermediates/javac/debug/classes/* $(AND_CLS_TARGET)
 	@echo "  ZIP  $(AVS_OS)-$(AVS_ARCH) $@"
@@ -100,7 +102,7 @@ $(AND_JAR): android_classes
 $(AND_CC_OBJS): $(AND_OBJ_TARGET)/%.o: android/jni/%.cc
 	@echo "  CXX  $(AVS_OS)-$(AVS_ARCH) android/jni/$*.cc"
 	@mkdir -p $(dir $@)
-	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(JNICPPFLAGS) \
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(JNICPPFLAGS) \
 		$(AVS_CPPFLAGS) $(AVS_CXXFLAGS) \
 		$(AND_CPPFLAGS) $(AND_CXXFLAGS) \
 		-c $< -o $@ $(DFLAGS)

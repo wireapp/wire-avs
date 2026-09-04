@@ -937,15 +937,36 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 							.transport = LIST_INIT,
 						};
 
-	err |= parse_json(report_json, &stats_obj);
+	err = parse_json(report_json, &stats_obj);
+	if (err) {
+		warning("stats_update: parse_json failed: %m\n", err);
+		goto out;
+	}
 
-	err |= read_packet_stats_and_jitter(stats, &stats_obj);
-	err |= read_rtt_and_connection(stats, &stats_obj);
-	err |= read_audio_level(stats, &stats_obj);
+	err = read_packet_stats_and_jitter(stats, &stats_obj);
+	if (err) {
+		warning("stats_update: read_packet_stats failed: %m\n", err);
+		goto out;
+	}
+	err = read_rtt_and_connection(stats, &stats_obj);
+	if (err) {
+		warning("stats_update: read_rtt failed: %m\n", err);
+		goto out;
+	}
+	err = read_audio_level(stats, &stats_obj);
+	if (err) {
+		warning("stats_update: read_audio_level failed: %m\n", err);
+		goto out;
+	}
 
 	const float quality = normalize_quality(stats);
-	err |= ema_update(stats->ema, quality);
+	err = ema_update(stats->ema, quality);
+	if (err) {
+		warning("stats_update: ema_update failed: %m\n", err);
+		goto out;
+	}
 
+ out:
 	list_flush(&stats_obj.audio_source);
 	list_flush(&stats_obj.inbound_rtp);
 	list_flush(&stats_obj.outbound_rtp);
@@ -954,6 +975,11 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 	list_flush(&stats_obj.local_candidate);
 	list_flush(&stats_obj.transport);
 
+	if (err) {
+		warning("stats_update: parsing json failed: %s\n",
+			report_json);
+	}
+	
 	return err;
 }
 

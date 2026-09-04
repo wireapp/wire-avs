@@ -27,19 +27,19 @@
 
 namespace wire {
 
-class CbrDetectorRemote : public rtc::RefCountedObject<webrtc::FrameDecryptorInterface>
+class CbrDetectorRemote : public webrtc::RefCountedObject<webrtc::FrameDecryptorInterface>
 {
 public:
 	CbrDetectorRemote();
 	~CbrDetectorRemote();
 
-	Result Decrypt(cricket::MediaType media_type,
-			       const std::vector<uint32_t>& csrcs,
-			       rtc::ArrayView<const uint8_t> additional_data,
-			       rtc::ArrayView<const uint8_t> encrypted_frame,
-			       rtc::ArrayView<uint8_t> frame);
+	Result Decrypt(webrtc::MediaType media_type,
+		       const std::vector<uint32_t>& csrcs,
+		       std::span<const uint8_t> additional_data,
+		       std::span<const uint8_t> encrypted_frame,
+		       std::span<uint8_t> frame);
 
-	size_t GetMaxPlaintextByteSize(cricket::MediaType media_type,
+	size_t GetMaxPlaintextByteSize(webrtc::MediaType media_type,
 				       size_t encrypted_frame_size);
 
 	bool Detected();

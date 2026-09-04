@@ -51,11 +51,11 @@ int FrameEncryptor::SetKeystore(struct keystore *keystore)
 	return frame_encryptor_set_keystore(_enc, keystore);
 }
 
-int FrameEncryptor::Encrypt(cricket::MediaType media_type,
+int FrameEncryptor::Encrypt(webrtc::MediaType media_type,
 			    uint32_t ssrc,
-			    rtc::ArrayView<const uint8_t> additional_data,
-			    rtc::ArrayView<const uint8_t> frame,
-			    rtc::ArrayView<uint8_t> encrypted_frame,
+			    std::span<const uint8_t> additional_data,
+			    std::span<const uint8_t> frame,
+			    std::span<uint8_t> encrypted_frame,
 			    size_t* bytes_written)
 {
 	ssrc = _ssrc ? _ssrc : ssrc;
@@ -69,7 +69,7 @@ int FrameEncryptor::Encrypt(cricket::MediaType media_type,
 }
 
 
-size_t FrameEncryptor::GetMaxCiphertextByteSize(cricket::MediaType media_type,
+size_t FrameEncryptor::GetMaxCiphertextByteSize(webrtc::MediaType media_type,
 						size_t frame_size)
 {
 	return frame_encryptor_max_size(_enc, frame_size);
