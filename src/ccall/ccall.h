@@ -103,7 +103,11 @@ struct ccall {
 	uint64_t sft_timestamp;
 	uint32_t sft_seqno;
 
+	/* False by default: retain the single, bidirectional SFT call. */
+	bool enable_publish_subscribe;
+	/* Separate ownership; the legacy SFT transport uses ecall. */
 	struct ecall *ecall;
+	struct ecall *ecall_subscriber;
 	bool is_caller;
 	bool is_ringing;
 	enum sreason stop_ringing_reason;;

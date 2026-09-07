@@ -17,6 +17,19 @@
 */
 
 struct ccall;
+struct ecall;
+
+enum ccall_ecall_role {
+	CCALL_ECALL_PUBLISHER = 0,
+	CCALL_ECALL_SUBSCRIBER,
+};
+
+// Activate subscriber and publisher behavior
+int ccall_set_enable_publish_subscribe(struct ccall *ccall, bool enable_publish_subscribe);
+
+int ccall_prepare_ecalls(struct ccall *ccall);
+
+struct ecall *ccall_get_ecall(const struct ccall *ccall, enum ccall_ecall_role role);
 
 enum ccall_state {
 	CCALL_STATE_NONE = 0,
@@ -34,7 +47,7 @@ enum ccall_state {
 };
 
 int ccall_alloc(struct ccall **ccallp,
-		const struct ecall_conf *conf,		 
+		const struct ecall_conf *conf,
 		const char *convid,
 		const char *userid_self,
 		const char *clientid,

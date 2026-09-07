@@ -138,6 +138,7 @@ static void destructor(void *arg)
 	mem_deref(ccall->turnv);
 	mem_deref(ccall->userl);
 
+	mem_deref(ccall->ecall_subscriber);
 	mem_deref(ccall->ecall);
 	mem_deref(ccall->secret);
 	mem_deref(ccall->keystore);
@@ -183,6 +184,8 @@ static int ccall_set_secret(struct ccall *ccall,
 
 	if (ccall->ecall)
 		ecall_set_sessid(ccall->ecall, ccall->convid_hash);
+	if (ccall->ecall_subscriber)
+		ecall_set_sessid(ccall->ecall_subscriber, ccall->convid_hash);
 
 	return err;
 }
@@ -1036,6 +1039,13 @@ static void ecall_close_handler(struct icall *icall,
 	struct ccall *ccall = arg;
 	bool should_end = false;
 
+	// subscriber close do not mean close the the publisher
+	if (ecall == ccall->ecall_subscriber) {
+		ccall->ecall_subscriber = NULL;
+		mem_deref(ecall);
+		return;
+	}
+
 	should_end = userlist_incall_count(ccall->userl) == 0;
 	info("ccall(%p): ecall_close_handler err=%d ecall=%p should_end=%s parts=%u\n",
 	     ccall, err, ecall, should_end ? "YES" : "NO", userlist_get_count(ccall->userl));
@@ -1075,6 +1085,9 @@ static void ecall_close_handler(struct icall *icall,
 				err == EAGAIN);
 		return;
 	}
+
+	// close even the subscriber when publisher closed
+	ccall->ecall_subscriber = mem_deref(ccall->ecall_subscriber);
 
 	userlist_incall_clear(ccall->userl, false, false);
 
@@ -2378,7 +2391,8 @@ out:
 	return err;
 }
 
-static int create_ecall(struct ccall *ccall)
+static int alloc_ecall(struct ccall *ccall, enum ccall_ecall_role role,
+		       struct ecall **ecallp)
 {
 	struct ecall *ecall = NULL;
 	struct msystem *msys = msystem_instance();
@@ -2388,8 +2402,6 @@ static int create_ecall(struct ccall *ccall)
 
 	if (!ccall)
 		return EINVAL;
-
-	assert(ccall->ecall == NULL);
 
 	self = userlist_get_self(ccall->userl);
 	if (!self)
@@ -2420,32 +2432,40 @@ static int create_ecall(struct ccall *ccall)
 		goto out;
 	}
 
-	icall_set_callbacks(ecall_get_icall(ecall),
-			    ecall_transp_send_handler,
-			    NULL, // sft_handler,
-			    ecall_setup_handler, 
-			    ecall_setup_resp_handler,
-			    ecall_media_estab_handler,
-			    ecall_audio_estab_handler,
-			    ecall_datachan_estab_handler,
-			    NULL, // ecall_media_stopped_handler,
-			    NULL, // group_changed_handler
-			    NULL, // leave_handler
-			    ecall_close_handler,
-			    NULL, // metrics_handler
-			    NULL, // ecall_vstate_handler,
-			    NULL, // ecall_audiocbr_handler,
-			    NULL, // muted_changed_handler,
-			    ecall_quality_handler,
-			    NULL, // ecall_req_clients_handler,
-			    NULL, // ecall_norelay_handler,
-			    ecall_aulevel_handler,
-			    NULL, // ecall_req_new_epoch_handler,
-			    ccall);
+	if (role == CCALL_ECALL_PUBLISHER) {
+		icall_set_callbacks(ecall_get_icall(ecall),
+				    ecall_transp_send_handler,
+				    NULL, // sft_handler,
+				    ecall_setup_handler,
+				    ecall_setup_resp_handler,
+				    ecall_media_estab_handler,
+				    ecall_audio_estab_handler,
+				    ecall_datachan_estab_handler,
+				    NULL, // ecall_media_stopped_handler,
+				    NULL, // group_changed_handler
+				    NULL, // leave_handler
+				    ecall_close_handler,
+				    NULL, // metrics_handler
+				    NULL, // ecall_vstate_handler,
+				    NULL, // ecall_audiocbr_handler,
+				    NULL, // muted_changed_handler,
+				    ecall_quality_handler,
+				    NULL, // ecall_req_clients_handler,
+				    NULL, // ecall_norelay_handler,
+				    ecall_aulevel_handler,
+				    NULL, // ecall_req_new_epoch_handler,
+				    ccall);
 
-	ecall_set_confmsg_handler(ecall, ecall_confmsg_handler);
-	ecall_set_propsync_handler(ecall, ecall_propsync_handler);
-	ecall_set_ping_handler(ecall, ecall_ping_handler);
+		ecall_set_confmsg_handler(ecall, ecall_confmsg_handler);
+		ecall_set_propsync_handler(ecall, ecall_propsync_handler);
+		ecall_set_ping_handler(ecall, ecall_ping_handler);
+	}
+	else {
+		// The subscriber has no callbacks.
+		struct icall *icall = ecall_get_icall(ecall);
+		icall->closeh = ecall_close_handler;
+		icall->arg = ccall;
+	}
 	ecall_set_keystore(ecall, ccall->keystore);
 	err = ecall_set_quality_interval(ecall, ccall->quality_interval);
 	if (err)
@@ -2464,12 +2484,10 @@ static int create_ecall(struct ccall *ccall)
 	if (ccall->convid_hash)
 		ecall_set_sessid(ecall, ccall->convid_hash);
 
-	ccall->ecall = ecall;
-	tmr_start(&ccall->tmr_vstate,
-		  0,
-		  ccall_sync_vstate_timeout, ccall);
-
-	info("ccall(%p): created ecall: %p for %s.%s\n", ccall, ecall, self->userid_hash, self->clientid_hash);
+	*ecallp = ecall;
+	info("ccall(%p): created %s ecall: %p for %s.%s\n", ccall,
+	     role == CCALL_ECALL_PUBLISHER ? "publisher" : "subscriber",
+	     ecall, self->userid_hash, self->clientid_hash);
 
 out:
 	if (err) {
@@ -2477,6 +2495,66 @@ out:
 	}
 
 	return err;
+}
+
+struct ecall *ccall_get_ecall(const struct ccall *ccall,
+			    enum ccall_ecall_role role)
+{
+	if (!ccall)
+		return NULL;
+
+	switch (role) {
+	case CCALL_ECALL_PUBLISHER:
+		return ccall->ecall;
+	case CCALL_ECALL_SUBSCRIBER:
+		return ccall->ecall_subscriber;
+	default:
+		return NULL;
+	}
+}
+
+int ccall_set_enable_publish_subscribe(struct ccall *ccall,
+				       bool enable_publish_subscribe)
+{
+	if (!ccall)
+		return EINVAL;
+	if (ccall->enable_publish_subscribe == enable_publish_subscribe)
+		return 0;
+	if (ccall->ecall || ccall->ecall_subscriber ||
+	    (ccall->state != CCALL_STATE_IDLE &&
+	     ccall->state != CCALL_STATE_INCOMING))
+		return EBUSY;
+
+	ccall->enable_publish_subscribe = enable_publish_subscribe;
+	return 0;
+}
+
+int ccall_prepare_ecalls(struct ccall *ccall)
+{
+	struct ecall *publisher = NULL;
+	struct ecall *subscriber = NULL;
+	int err;
+
+	if (!ccall)
+		return EINVAL;
+	if (ccall->ecall || ccall->ecall_subscriber)
+		return EALREADY;
+
+	err = alloc_ecall(ccall, CCALL_ECALL_PUBLISHER, &publisher);
+	if (err)
+		return err;
+	if (ccall->enable_publish_subscribe) {
+		err = alloc_ecall(ccall, CCALL_ECALL_SUBSCRIBER, &subscriber);
+		if (err) {
+			mem_deref(publisher);
+			return err;
+		}
+	}
+
+	ccall->ecall = publisher;
+	ccall->ecall_subscriber = subscriber;
+	tmr_start(&ccall->tmr_vstate, 0, ccall_sync_vstate_timeout, ccall);
+	return 0;
 }
 
 static void userlist_add_user_handler(const struct userinfo *user,
@@ -3156,8 +3234,13 @@ void ccall_end(struct icall *icall)
 	if (!ccall)
 		return;
 
-	if (ccall->ecall)
-		ecall_end(ccall->ecall);
+	ccall->ecall_subscriber = mem_deref(ccall->ecall_subscriber);
+	if (ccall->ecall) {
+		if (!ccall->enable_publish_subscribe || ecall_get_econn(ccall->ecall))
+			ecall_end(ccall->ecall);
+		else
+			ccall->ecall = mem_deref(ccall->ecall);
+	}
 }
 
 void ccall_reject(struct icall *icall)
@@ -3180,6 +3263,8 @@ int  ccall_media_start(struct icall *icall)
 	struct ccall *ccall = (struct ccall*)icall;
 
 	ecall_media_start(ccall->ecall);
+	if (ccall->ecall_subscriber)
+		ecall_media_start(ccall->ecall_subscriber);
 	
 	return 0;
 }
@@ -3189,6 +3274,8 @@ void ccall_media_stop(struct icall *icall)
 	struct ccall *ccall = (struct ccall*)icall;
 
 	ecall_media_stop(ccall->ecall);
+	if (ccall->ecall_subscriber)
+		ecall_media_stop(ccall->ecall_subscriber);
 }
 
 int  ccall_set_vstate(struct icall *icall, enum icall_vstate state)
@@ -3255,7 +3342,9 @@ int  ccall_set_quality_interval(struct icall *icall, uint64_t interval)
 
 	if (ccall->ecall)
 		ecall_set_quality_interval(ccall->ecall, interval);
-	
+	if (ccall->ecall_subscriber)
+		ecall_set_quality_interval(ccall->ecall_subscriber, interval);
+
 	return 0;
 }
 
@@ -3555,6 +3644,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		if (ts_cmp > 0) {
 			/* If remote call is earlier, drop connection and
 			   reconnect to the earlier call */
+			ccall->ecall_subscriber = mem_deref(ccall->ecall_subscriber);
 			ecall_end(ccall->ecall);
 			ccall->ecall = NULL;
 			ccall->metrics.initiator = false;
@@ -3568,6 +3658,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		if (ts_cmp > 0) {
 			/* If remote call is earlier, drop connection and
 			   reconnect to the earlier call */
+			ccall->ecall_subscriber = mem_deref(ccall->ecall_subscriber);
 			ecall_end(ccall->ecall);
 			ccall->ecall = NULL;
 
@@ -3881,7 +3972,9 @@ int  ccall_sft_msg_recv(struct icall* icall,
 			set_state(ccall, CCALL_STATE_SETUPRECV);
 		}
 		if (!ccall->ecall) {
-			create_ecall(ccall);
+			err = ccall_prepare_ecalls(ccall);
+			if (err)
+				return err;
 			info("ccall(%p): sft_url=[%s]\n", ccall, msg->u.setup.url);
 		}
 
@@ -4024,6 +4117,9 @@ int  ccall_debug(struct re_printf *pf, const struct icall* icall)
 	if (ccall->ecall) {
 		err = re_hprintf(pf, "%H", ecall_mfdebug, ccall->ecall);
 	}
+	if (ccall->ecall_subscriber) {
+		err |= re_hprintf(pf, "\nsubscriber: %H", ecall_mfdebug, ccall->ecall_subscriber);
+	}
 out:
 	return err;
 }
@@ -4035,7 +4131,10 @@ int ccall_activate(struct icall *icall, bool active)
 	info("ccall(%p): activate: active=%d\n", ccall, active);
 
 	if (ccall->ecall) {
-	       ecall_activate(ccall->ecall, active);
+		ecall_activate(ccall->ecall, active);
+	}
+	if (ccall->ecall_subscriber) {
+		ecall_activate(ccall->ecall_subscriber, active);
 	}
 
 	return 0;
@@ -4151,9 +4250,11 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 
 	userlist_incall_clear(ccall->userl, false, false);
 	if (ccall->ecall && ecall_get_econn(ccall->ecall))
-		ecall_end(ccall->ecall);
-	else
+		ccall_end(&ccall->icall);
+	else {
+		ccall_end(&ccall->icall);
 		set_state(ccall, CCALL_STATE_IDLE);
+	}
 
 }
 
@@ -4163,4 +4264,3 @@ struct keystore *ccall_get_keystore(struct ccall *ccall)
 		return NULL;
 	return ccall->keystore;
 }
-

@@ -10,6 +10,7 @@ TEST_SRCS	+= util.cpp
 TEST_SRCS	+= test_version.cpp
 
 # Testcases in alphabetical order
+TEST_SRCS	+= test_ccall.cpp
 TEST_SRCS	+= test_cert.cpp
 TEST_SRCS	+= test_chunk.cpp
 TEST_SRCS	+= test_confpos.cpp
