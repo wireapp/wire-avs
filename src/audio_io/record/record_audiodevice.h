@@ -27,7 +27,7 @@
 namespace webrtc {
     class record_audiodevice : public audio_io_class {
     public:
-	    record_audiodevice(bool realtime = false);
+	    record_audiodevice(const char *rec_path);
 	    ~record_audiodevice();
 	    void AddRef() const {};
 	    RefCountReleaseStatus Release() const {
@@ -201,6 +201,7 @@ namespace webrtc {
 	    float omega_;
 	    bool muted_;
 	    bool noise_;
+	    char *rec_path_;
             FILE *fp_;
     };
 }
