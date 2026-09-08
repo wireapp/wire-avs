@@ -57,6 +57,7 @@ enum mq_event {
 	WCALL_MEV_SET_EPOCH_INFO,
 	WCALL_MEV_PROCESS_NOTIFICATIONS,
 	WCALL_MEV_SET_DURATION,
+	WCALL_MEV_AUDIO_RECORD,
 
 	WCALL_MEV_SIP_INIT,
 	WCALL_MEV_SIP_CLOSE,
@@ -174,6 +175,10 @@ struct mq_data {
 
 		struct {
 			char *path;
+		} audio_record;
+
+		struct {
+			char *path;
 		} sip_init;
 
 		struct {
@@ -242,6 +247,10 @@ static void md_destructor(void *arg)
 	case WCALL_MEV_SET_EPOCH_INFO:
 		mem_deref(md->u.set_epoch_info.clients_json);
 		mem_deref(md->u.set_epoch_info.key_data);
+		break;
+
+	case WCALL_MEV_AUDIO_RECORD:
+		mem_deref(md->u.audio_record.path);
 		break;
 
 	case WCALL_MEV_SIP_INIT:
@@ -335,6 +344,8 @@ static char *mev_name(int id)
 		return "SET_EPOCH_INFO";
 	case WCALL_MEV_PROCESS_NOTIFICATIONS:
 		return "PROCESS_NOTIFICATIONS";
+	case WCALL_MEV_AUDIO_RECORD:
+		return "AUDIO_RECORD";
 	case WCALL_MEV_SIP_INIT:
 		return "SIP_INIT";
 	case WCALL_MEV_SIP_CLOSE:
@@ -566,6 +577,15 @@ static void mqueue_handler(int id, void *data, void *arg)
 					      md->u.process_notifications.processing);
 		break;
 
+	case WCALL_MEV_AUDIO_RECORD:
+		if (!wcall) {
+			err = ENOENT;
+			goto out;
+		}
+		wcall_i_audio_record(wcall,
+				     md->u.audio_record.path);
+		break;
+		
 #if !TARGET_OS_IPHONE && (!defined ANDROID) && (!defined __EMSCRIPTEN__)
 	case WCALL_MEV_SIP_INIT:
 		wcall_i_sip_init(md->inst, md->u.sip_init.path);
@@ -583,7 +603,6 @@ static void mqueue_handler(int id, void *data, void *arg)
 		wcall_i_sip_destroy(md->inst, md->u.sip_crdest.aor);
 		break;
 #endif
-
 	default:
 		warning("wcall: marshal: unknown event: %d\n", id);
 		break;
@@ -1451,6 +1470,38 @@ int wcall_process_notifications(WUSER_HANDLE wuser, int processing)
 
 	return err;
 }
+
+AVS_EXPORT
+int wcall_audio_record(WUSER_HANDLE wuser,
+		       const char *convid,
+		       const char *path)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: audio_record: invalid wuser: 0x%08X\n", wuser);
+		return EINVAL;
+	}
+
+	md = md_new(inst, convid, WCALL_MEV_AUDIO_RECORD);
+	if (!md)
+		return ENOMEM;
+
+	str_dup(&md->u.audio_record.path, path);
+
+	info("wcall_audio_record: inst=%p convid=%s path=%sn", inst, convid, path);
+
+	err = md_enqueue(md);
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
+
 
 
 void wcall_marshal_destroy(struct calling_instance *inst)

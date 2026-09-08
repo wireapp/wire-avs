@@ -156,4 +156,6 @@ struct ccall {
 	        struct tmr tmr_duration;
 	        struct tmr tmr_term;
 	} meeting;
+
+	char *rec_path;
 };

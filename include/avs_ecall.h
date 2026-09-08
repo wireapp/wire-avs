@@ -182,3 +182,4 @@ typedef int (ecall_ping_h)(struct ecall *ecall,
 int ecall_set_ping_handler(struct ecall *ecall,
 			   ecall_ping_h *pingh);
 
+int ecall_audio_record(struct ecall *ecall, const char *path);
