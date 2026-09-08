@@ -94,6 +94,7 @@ typedef int (iflow_allocf)(struct iflow		**flowp,
 			   enum icall_conv_type	conv_type,
 			   enum icall_call_type	call_type,
 			   enum icall_vstate	vstate,
+			   const char           *rec_path,
 			   void			*extarg);
 
 typedef void (iflow_destroyf)(void);
@@ -248,6 +249,7 @@ int iflow_alloc(struct iflow		**flowp,
 		enum icall_conv_type	conv_type,
 		enum icall_call_type	call_type,
 		enum icall_vstate	vstate,
+		const char              *rec_path,
 		void			*extarg);
 
 void iflow_destroy(void);
