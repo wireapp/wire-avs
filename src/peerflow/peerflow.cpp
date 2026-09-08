@@ -26,7 +26,8 @@ extern "C" {
 #include <avs_version.h>
 #include <avs_audio_io.h>
 #include <avs_audio_level.h>
-
+#include <avs_pstn.h>
+	
 #ifdef __cplusplus
 }
 #endif
@@ -862,7 +863,9 @@ static void create_pc_deps(struct peerflow *pf,
 		pc_deps.adm = new webrtc::record_audiodevice(pf->rec_path);
 	}
 	else if (msystem_is_pstn()) {
-		pc_deps.adm = new webrtc::pstn_audiodevice(true);
+		auto adm = new webrtc::pstn_audiodevice(true);
+		pc_deps.adm = adm;
+		pstn_adm_register(pf->convid, (void *)adm);
 	}
 	else {
 		pc_deps.adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();

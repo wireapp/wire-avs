@@ -117,4 +117,11 @@ struct calling_instance *wcall_get_instance(void);
 
 void wcall_ext_log(uint32_t level, const char *msg);
 
+/* SIP instance */
+struct sip_instance;
 
+int  wcall_register_sip_instance(struct calling_instance *inst,
+				struct sip_instance *sip_inst);
+void wcall_unregister_sip_instance(struct calling_instance *inst,
+				   struct sip_instance *sip_inst);
+struct sip_instance *wcall_get_sip_instance(struct calling_instance *inst);

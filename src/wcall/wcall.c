@@ -33,7 +33,6 @@
 
 
 #include "wcall.h"
-#include "sip.h"
 
 #ifdef __APPLE__
 #       include <TargetConditionals.h>
@@ -184,7 +183,7 @@ struct calling_instance {
         struct list durationl;
 	struct list config_updatel;
 
-	struct sip_instance sip_inst;
+	struct sip_instance *sip_inst;
 };
 
 struct wcall {
@@ -4747,7 +4746,29 @@ struct calling_instance *wcall_get_instance(void)
 	}
 }
 
+int  wcall_register_sip_instance(struct calling_instance *inst,
+				struct sip_instance *sip_inst)
+{
+	if (!inst)
+		return EINVAL;
+
+	inst->sip_inst = sip_inst;
+
+	return 0;
+}
+
+void wcall_unregister_sip_instance(struct calling_instance *inst,
+				   struct sip_instance *sip_inst)
+{
+	(void)sip_inst;
+	
+	if (!inst)
+		return;
+
+	inst->sip_inst = NULL;
+}
+
 struct sip_instance *wcall_get_sip_instance(struct calling_instance *inst)
 {
-	return inst ? &inst->sip_inst : NULL;
+	return inst ? inst->sip_inst : NULL;
 }

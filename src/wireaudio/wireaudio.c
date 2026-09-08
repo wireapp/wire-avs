@@ -11,16 +11,22 @@
 
 
 /* Configurable items */
-#define PTIME 20
+#define AUDIO_SRATE 16000
+#define AUDIO_CHAN  1
+#define AUDIO_PTIME 20
 
 
 /** Wire audio */
 struct wireaudio {
 	uint32_t index;
+	struct ausrc *ausrc;
+	struct auplay *auplay;
+
+	struct hash *wdevs;
+
 	struct aubuf *ab;
-	struct ausrc_st *ausrc;
-	struct auplay_st *auplay;
-	const struct aucodec *ac;
+	//struct ausrc_st *ausrc;
+	//struct auplay_st *auplay;
 	struct auenc_state *enc;
 	struct audec_state *dec;
 	int16_t *sampv;
@@ -50,337 +56,302 @@ static const struct {
 	{48000, 2},
 };
 
-static struct wireaudio *gwa = NULL;
-static char aucodec[64];
+static struct wireaudio gwa;
 
 
-static void wireaudio_destructor(void *arg)
+struct wdev {
+	char *convid;
+
+	struct aumix *ausrc_mix;
+	
+	struct list ausrcl;
+	struct list auplayl;
+
+	struct le le;
+};
+
+struct ausrc_st {
+	const struct ausrc *as;  /* pointer to base-class (inheritance) */
+	
+	struct ausrc_prm *prm;
+	struct wdev *wdev;
+	struct auresamp *resamp;
+	struct aumix_source *mix_src;
+
+	ausrc_read_h *rh;
+	ausrc_error_h *errh;
+	void *arg;
+	
+	struct le le;
+};
+
+struct auplay_st {
+	const struct auplay *ap;  /* pointer to base-class (inheritance) */
+	
+	struct auplay_prm *prm;
+	struct wdev *wdev;
+	struct auresamp *resamp;
+	struct aumix_source *mix_src;
+
+	auplay_write_h *wh;
+	void *arg;
+
+	void  *sampv;
+	size_t sampc;
+	void  *out_sampv;
+	size_t out_sampc;
+
+	struct le le;
+};
+
+
+static void wdev_destructor(void *arg)
 {
-	struct wireaudio *wa = arg;
+	struct wdev *wdev = arg;
 
-	tmr_cancel(&wa->tmr);
-	mem_deref(wa->ausrc);
-	mem_deref(wa->auplay);
-	mem_deref(wa->sampv);
-	mem_deref(wa->ab);
-	mem_deref(wa->enc);
-	mem_deref(wa->dec);
+	list_flush(&wdev->ausrcl);
+	list_flush(&wdev->auplayl);
+
+	mem_deref(wdev->ausrc_mix);
+	mem_deref(wdev->convid);
+}
+
+static bool list_apply_handler(struct le *le, void *arg)
+{
+	struct wdev *wdev = le->data;
+
+	return 0 == str_cmp(wdev->convid, arg);
+}
+
+static struct wdev *find_device(const char *convid)
+{
+	return list_ledata(hash_lookup(gwa.wdevs, hash_joaat_str(convid),
+				       list_apply_handler, (void *)convid));
 }
 
 
-static void print_stats(struct wireaudio *wa)
+static void ausrc_mix_frame_handler(const int16_t *sampv,
+				    size_t sampc,
+				    void *arg)
 {
-	double rw_ratio = 0.0;
+	struct ausrc_st *st = arg;
 
-	if (wa->n_write)
-		rw_ratio = 1.0 * wa->n_read / wa->n_write;
+	//info("ausrc(%p): mix frame with size: %lld\n", st, sampc);
+	if (st->rh) {
+		st->rh(sampv, sampc, st->arg);
+	}
+}
 
-	(void)re_fprintf(stdout, "\r%uHz %dch %s "
-			 " n_read=%u n_write=%u rw_ratio=%.2f",
-			 wa->srate, wa->ch, aufmt_name(wa->fmt),
-			 wa->n_read, wa->n_write, rw_ratio);
+static void auplay_mix_frame_handler(const int16_t *sampv,
+				    size_t sampc,
+				    void *arg)
+{
+	struct auplay_st *ap = arg;
 
-	if (str_isset(aucodec))
-		(void)re_fprintf(stdout, " codec='%s'", aucodec);
+	//info("auplay(%p): mix frame with size: %d\n", ap, sampc);
 
-	fflush(stdout);
+	// Send frame here to Wire buffer
+	
+	if (ap->wh)
+		ap->wh(ap->sampv, ap->sampc, ap->arg);
+
+	/* This is to be mixed with all others together with the wire
+	 * audio stream, to all participants on this gateway
+	 */
+	aumix_source_put(ap->mix_src, ap->sampv, ap->sampc);
+	//info("auplay(%p): mix frame with size: %d\n", ap, ap->sampc);	
 }
 
 
-static void tmr_handler(void *arg)
+static int alloc_device(struct wdev **wdevp,
+			const char *convid,
+			uint32_t srate, uint32_t ptime, uint8_t ch)
 {
-	struct wireaudio *wa = arg;
-
-	tmr_start(&wa->tmr, 100, tmr_handler, wa);
-	print_stats(wa);
-}
-
-
-static int codec_read(struct wireaudio *wa, int16_t *sampv, size_t sampc)
-{
-	uint8_t x[2560];
-	size_t xlen = sizeof(x);
+	struct wdev *wdev;
 	int err;
 
-	aubuf_read_samp(wa->ab, wa->sampv, wa->sampc);
-
-	err = wa->ac->ench(wa->enc, x, &xlen,
-			   AUFMT_S16LE, wa->sampv, wa->sampc);
-	if (err)
-		goto out;
-
-	if (wa->ac->dech) {
-		err = wa->ac->dech(wa->dec, AUFMT_S16LE, sampv, &sampc,
-				   x, xlen);
-		if (err)
-			goto out;
-	}
-	else {
-		info("wireaudio: no decode handler\n");
-	}
-
- out:
-
-	return err;
-}
-
-
-static void read_handler(const void *sampv, size_t sampc, void *arg)
-{
-	struct wireaudio *wa = arg;
-	size_t num_bytes = sampc * aufmt_sample_size(wa->fmt);
-	int err;
-
-	++wa->n_read;
-
-	err = aubuf_write(wa->ab, sampv, num_bytes);
-	if (err) {
-		warning("wireaduio: aubuf_write: %m\n", err);
-	}
-}
-
-
-static void write_handler(void *sampv, size_t sampc, void *arg)
-{
-	struct wireaudio *wa = arg;
-	size_t num_bytes = sampc * aufmt_sample_size(wa->fmt);
-	int err;
-
-	++wa->n_write;
-
-	/* read from beginning */
-	if (wa->ac) {
-		err = codec_read(wa, sampv, sampc);
-		if (err) {
-			warning("wireaudio: codec_read error "
-				"on %zu samples (%m)\n", sampc, err);
-		}
-	}
-	else {
-		aubuf_read(wa->ab, sampv, num_bytes);
-	}
-}
-
-
-static void error_handler(int err, const char *str, void *arg)
-{
-	(void)arg;
-	warning("wireaudio: ausrc error: %m (%s)\n", err, str);
-	gwa = mem_deref(gwa);
-}
-
-
-static void start_codec(struct wireaudio *wa, const char *name)
-{
-	struct auenc_param prm = {PTIME, 0};
-	int err;
-
-	wa->ac = aucodec_find(baresip_aucodecl(), name,
-			      configv[wa->index].srate,
-			      configv[wa->index].ch);
-	if (!wa->ac) {
-		warning("wireaudio: could not find codec: %s\n", name);
-		return;
-	}
-
-	if (wa->ac->encupdh) {
-		err = wa->ac->encupdh(&wa->enc, wa->ac, &prm, NULL);
-		if (err) {
-			warning("wireaudio: encoder update failed: %m\n", err);
-		}
-	}
-
-	if (wa->ac->decupdh) {
-		err = wa->ac->decupdh(&wa->dec, wa->ac, NULL);
-		if (err) {
-			warning("wireaudio: decoder update failed: %m\n", err);
-		}
-	}
-}
-
-
-static int wireaudio_reset(struct wireaudio *wa)
-{
-	struct auplay_prm auplay_prm;
-	struct ausrc_prm ausrc_prm;
-	const struct config *cfg = conf_config();
-	int err;
-
-	if (!cfg)
-		return ENOENT;
-
-	if (cfg->audio.src_fmt != cfg->audio.play_fmt) {
-		warning("wireaudio: ausrc_format and auplay_format"
-			" must be the same\n");
-		return EINVAL;
-	}
-
-	wa->fmt = cfg->audio.src_fmt;
-
-	/* Optional audio codec */
-	if (str_isset(aucodec)) {
-		if (cfg->audio.src_fmt != AUFMT_S16LE) {
-			warning("wireaudio: only s16 supported with codec\n");
-			return EINVAL;
-		}
-
-		start_codec(wa, aucodec);
-	}
-
-	/* audio player/source must be stopped first */
-	wa->auplay = mem_deref(wa->auplay);
-	wa->ausrc  = mem_deref(wa->ausrc);
-
-	wa->sampv  = mem_deref(wa->sampv);
-	wa->ab     = mem_deref(wa->ab);
-
-	wa->srate = configv[wa->index].srate;
-	wa->ch    = configv[wa->index].ch;
-
-	if (str_isset(aucodec)) {
-		wa->sampc = wa->srate * wa->ch * PTIME / 1000;
-		wa->sampv = mem_alloc(wa->sampc * 2, NULL);
-		if (!wa->sampv)
-			return ENOMEM;
-	}
-
-	info("Audio-loop: %uHz, %dch\n", wa->srate, wa->ch);
-
-	err = aubuf_alloc(&wa->ab, 320, 0);
-	if (err)
-		return err;
-
-	auplay_prm.srate      = wa->srate;
-	auplay_prm.ch         = wa->ch;
-	auplay_prm.ptime      = PTIME;
-	auplay_prm.fmt        = wa->fmt;
-	err = auplay_alloc(&wa->auplay, baresip_auplayl(),
-			   cfg->audio.play_mod, &auplay_prm,
-			   cfg->audio.play_dev, write_handler, wa);
-	if (err) {
-		warning("wireaudio: auplay %s,%s failed: %m\n",
-			cfg->audio.play_mod, cfg->audio.play_dev,
-			err);
-		return err;
-	}
-
-	ausrc_prm.srate      = wa->srate;
-	ausrc_prm.ch         = wa->ch;
-	ausrc_prm.ptime      = PTIME;
-	ausrc_prm.fmt        = wa->fmt;
-	err = ausrc_alloc(&wa->ausrc, baresip_ausrcl(),
-			  NULL, cfg->audio.src_mod,
-			  &ausrc_prm, cfg->audio.src_dev,
-			  read_handler, error_handler, wa);
-	if (err) {
-		warning("wireaudio: ausrc %s,%s failed: %m\n", cfg->audio.src_mod,
-			cfg->audio.src_dev, err);
-		return err;
-	}
-
-	return err;
-}
-
-
-static int wireaudio_alloc(struct wireaudio **wap)
-{
-	struct wireaudio *wa;
-	int err;
-
-	wa = mem_zalloc(sizeof(*wa), wireaudio_destructor);
-	if (!wa)
+	wdev = mem_zalloc(sizeof(*wdev), wdev_destructor);
+	if (!wdev)
 		return ENOMEM;
 
-	tmr_start(&wa->tmr, 100, tmr_handler, wa);
-
-	err = wireaudio_reset(wa);
+	info("aumix_alloc: srate=%d ch=%d ptime=%d\n", srate, ch, ptime);
+	err = aumix_alloc(&wdev->ausrc_mix, srate, ch, ptime);
 	if (err)
 		goto out;
 
+	str_dup(&wdev->convid, convid);
+
+	hash_append(gwa.wdevs, hash_joaat_str(convid), &wdev->le, wdev);
+
  out:
-	if (err)
-		mem_deref(wa);
-	else
-		*wap = wa;
-
-	return err;
-}
-
-
-static int wireaudio_cycle(struct wireaudio *wa)
-{
-	int err;
-
-	++wa->index;
-
-	if (wa->index >= ARRAY_SIZE(configv)) {
-		gwa = mem_deref(gwa);
-		info("\nAudio-loop stopped\n");
-		return 0;
+	if (err) {
+		mem_deref(wdev);
 	}
-
-	err = wireaudio_reset(wa);
-	if (err)
-		return err;
-
-	info("\nAudio-loop started: %uHz, %dch\n", wa->srate, wa->ch);
-
-	return 0;
-}
-
-
-/**
- * Start the audio loop (for testing)
- */
-static int wireaudio_start(struct re_printf *pf, void *arg)
-{
-	int err;
-
-	(void)pf;
-	(void)arg;
-
-	if (gwa) {
-		err = wireaudio_cycle(gwa);
-		if (err) {
-			warning("wireaudio: loop cycle: %m\n", err);
-		}
-	}
-	else {
-		err = wireaudio_alloc(&gwa);
-		if (err) {
-			warning("wireaudio: alloc failed %m\n", err);
-		}
+	else if (wdevp) {
+		*wdevp = wdev;
 	}
 
 	return err;
 }
 
-
-static int wireaudio_stop(struct re_printf *pf, void *arg)
+static void ausrc_destructor(void *arg)
 {
-	(void)arg;
+	struct ausrc_st *st = arg;
 
-	if (gwa) {
-		(void)re_hprintf(pf, "audio-loop stopped\n");
-		gwa = mem_deref(gwa);
+	info("wireaudio: ausrc=%p destructor\n", st);
+
+	aumix_source_enable(st->mix_src, false);
+	list_unlink(&st->le);
+	
+	mem_deref(st->mix_src);
+	
+}
+
+static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
+			struct media_ctx **ctx,
+			struct ausrc_prm *prm, const char *device,
+			ausrc_read_h *rh, ausrc_error_h *errh, void *arg)
+{
+	struct ausrc_st *st;
+	struct wdev *wdev;
+	int err = 0;
+
+	info("wa_src_alloc: convid=%s srate=%d ch=%d ptime=%d fmt=%d\n",
+	     device, prm->srate, prm->ch, prm->ptime, prm->fmt);
+
+	wdev = find_device(device);
+	if (!wdev) {
+		err = alloc_device(&wdev, device,
+				   prm->srate, prm->ptime, prm->ch);
+		if (err) {
+			return err;
+		}
 	}
 
-	return 0;
+	st = mem_zalloc(sizeof(*st), ausrc_destructor);
+	if (!st) {
+		return ENOMEM;
+	}
+
+	err = aumix_source_alloc(&st->mix_src, wdev->ausrc_mix,
+				 ausrc_mix_frame_handler, st);
+	if (err) {
+		goto out;
+	}
+	
+
+	st->as = as;
+	st->wdev = wdev;
+	st->rh = rh;
+	st->errh = errh;
+	st->arg = arg;
+
+	list_append(&wdev->ausrcl, &st->le, st);
+	aumix_source_enable(st->mix_src, true);
+
+ out:
+	if (err) {
+		mem_deref(st);
+	}
+	else if (stp) {
+		*stp = st;
+	}
+
+	return err;
+}
+
+static void auplay_destructor(void *arg)
+{
+	struct auplay_st *st = arg;
+
+	info("wireaudio: auplay=%p destructor\n", st);
+
+	aumix_source_enable(st->mix_src, false);
+
+	mem_deref(st->resamp);
+	mem_deref(st->mix_src);
+
+	list_unlink(&st->le);
+}
+
+static int wa_play_alloc(struct auplay_st **stp, const struct auplay *ap,
+				struct auplay_prm *prm, const char *device,
+				auplay_write_h *wh, void *arg)
+{
+	struct auplay_st *st;
+	struct wdev *wdev;
+	int err = 0;
+
+	info("wa_play_alloc: convid=%s srate=%d ch=%d ptime=%d fmt=%d\n",
+	     device, prm->srate, prm->ch, prm->ptime, prm->fmt);
+
+	wdev = find_device(device);
+	if (!wdev) {
+		err = alloc_device(&wdev, device,
+				   prm->srate, prm->ptime, prm->ch);
+		if (err) {
+			return err;
+		}
+	}
+
+	st = mem_zalloc(sizeof(*st), auplay_destructor);
+	if (!st) {
+		return ENOMEM;
+	}
+
+	err = aumix_source_alloc(&st->mix_src, wdev->ausrc_mix,
+				 auplay_mix_frame_handler, st);
+	if (err) {
+		goto out;
+	}
+
+	st->ap = ap;
+	st->wdev = wdev;
+	st->wh = wh;
+	st->arg = arg;
+
+	st->sampc = prm->srate * prm->ch * prm->ptime / 1000;
+	st->sampv = mem_alloc(aufmt_sample_size(prm->fmt) * st->sampc, NULL);
+
+	st->out_sampc = AUDIO_SRATE * AUDIO_CHAN * AUDIO_PTIME / 1000;
+	st->out_sampv = mem_alloc(sizeof(int16_t) * st->sampc, NULL);
+	
+	list_append(&wdev->auplayl, &st->le, st);
+
+	aumix_source_enable(st->mix_src, true);
+
+ out:
+	if (err) {
+		mem_deref(st);
+	}
+	else if (stp) {
+		*stp = st;
+	}
+
+	return err;
 }
 
 
-
-static int module_init(void)
+static int wireaudio_init(void)
 {
+	int err = 0;
+	
 	info("wireaudio: module_init\n");
-	return 0;
+
+	err = hash_alloc(&gwa.wdevs, 32);
+
+	err  = ausrc_register(&gwa.ausrc, baresip_ausrcl(),
+			      "wireaudio", wa_src_alloc);
+	err |= auplay_register(&gwa.auplay, baresip_auplayl(),
+			       "wireaudio", wa_play_alloc);
+	
+	return err;
 }
 
 
-static int module_close(void)
+static int wireaudio_close(void)
 {
 	info("wireaudio: module_close\n");
-	wireaudio_stop(NULL, NULL);
 	return 0;
 }
 
@@ -388,6 +359,6 @@ static int module_close(void)
 EXPORT_SYM const struct mod_export DECL_EXPORTS(wireaudio) = {
 	"wireaudio",
 	"application",
-	module_init,
-	module_close,
+	wireaudio_init,
+	wireaudio_close,
 };

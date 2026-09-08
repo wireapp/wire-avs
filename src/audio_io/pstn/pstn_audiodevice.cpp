@@ -23,6 +23,10 @@
 #include <string.h>
 #include <math.h>
 
+#include <avs_string.h>
+#include <avs_pstn.h>
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -307,4 +311,158 @@ struct aubuf *pstn_audiodevice::get_aubuf_rec(void)
 }
 
 } // namespace webrtc
+
+
+struct {
+	struct list adml;
+	struct list handlerl;
+} pstn = {
+	.adml = LIST_INIT,
+	.handlerl = LIST_INIT
+};
+
+struct adm_entry {
+	void *adm;
+	char *convid;
+
+	struct le le;
+};
+
+struct adm_handler {
+	pstn_adm_h *admh;
+	void *arg;
+
+	struct le le;
+};
+
+static void ae_destructor(void *arg)
+{
+	struct adm_entry *ae = (struct adm_entry *)arg;
+
+	list_unlink(&ae->le);
+	mem_deref(ae->convid);
+}
+
+static struct adm_entry *adm_find(const char *convid)
+{
+	struct le *le;
+	bool found = false;
+	struct adm_entry *ae;
+	
+	for(le = pstn.adml.head; le && !found; le = le->next) {
+		ae = (struct adm_entry *)le->data;
+		if (!ae)
+			continue;
+
+		found = streq(ae->convid, convid);
+	}
+
+	return found ? ae : NULL;
+	
+}
+
+static void ah_destructor(void *arg)
+{
+	struct adm_handler *ah = (struct adm_handler *)arg;
+
+	list_unlink(&ah->le);
+}
+
+int pstn_adm_handler_register(pstn_adm_h *admh, void *arg)
+{
+	struct adm_handler *ah;
+	
+	if (!admh)
+		return EINVAL;
+
+	ah = (struct adm_handler *)mem_zalloc(sizeof(*ah), ah_destructor);
+	if (!ah)
+		return ENOMEM;
+
+	ah->admh = admh;
+	ah->arg = arg;
+
+	list_append(&pstn.handlerl, &ah->le, ah);
+
+	return 0;
+}
+
+void pstn_adm_handler_unregister(pstn_adm_h *admh, void *arg)	
+{
+	struct adm_handler *ah;
+	struct le *le;
+	bool found = false;
+
+	for(le = pstn.handlerl.head; le && !found; le = le->next) {
+		ah = (struct adm_handler *)le->data;
+		if (!ah)
+			continue;
+		found = ah->admh == admh && ah->arg == arg;
+	}
+
+	if (found) {
+		mem_deref(ah);
+	}
+}
+
+
+int pstn_adm_register(const char *convid, void *adm)
+{
+	struct adm_entry *ae = adm_find(convid);
+	struct le *le;
+
+	if (ae)
+		return EALREADY;
+
+	ae = (struct adm_entry *)mem_zalloc(sizeof(*ae), ae_destructor);
+	if (!ae)
+		return ENOMEM;
+
+	ae->adm = adm;
+	str_dup(&ae->convid, convid);
+	
+	list_append(&pstn.adml, &ae->le, ae);
+
+	LIST_FOREACH(&pstn.handlerl, le) {
+		struct adm_handler *ah = (struct adm_handler *)le->data;
+
+		if (!ah)
+			continue;
+
+		if (ah->admh) {
+			ah->admh(ae->convid, ae->adm, true, ah->arg);
+		}
+	}
+
+	return 0;
+}
+
+int pstn_adm_unregister(const char *convid)
+{
+	struct adm_entry *ae = adm_find(convid);
+
+	if (!ae)
+		return ENOENT;
+
+	mem_deref((void *)ae);
+
+	return 0;
+}
+
+void *pstn_adm_find(const char *convid)
+{
+	struct adm_entry *ae = adm_find(convid);
+
+	return ae ? ae->adm : NULL;
+}
+
+struct aubuf *pstn_get_aubuf_play(void *adm)
+{
+	return ((webrtc::pstn_audiodevice *)adm)->get_aubuf_play();
+}
+
+struct aubuf *pstn_get_aubuf_rec(void *adm)
+{
+	return ((webrtc::pstn_audiodevice *)adm)->get_aubuf_rec();
+}
 

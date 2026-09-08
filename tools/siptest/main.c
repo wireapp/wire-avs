@@ -4,7 +4,8 @@
 
 static WUSER_HANDLE wuser;
 
-#define SIP_AOR "sip:foo@bar.com;regint=0"
+//#define SIP_AOR "sip:wire@192.168.2.240:5061;regint=0"
+#define SIP_AOR "sip:wire@172.20.10.8:5061;regint=0"
 
 int main(int argc, char **argv)
 {
@@ -32,11 +33,13 @@ int main(int argc, char **argv)
 				NULL);
 	
 	wcall_sip_init(wuser, argv[1]);
-	wcall_sip_create(wuser, SIP_AOR);
+	wcall_sip_create(wuser, "1111", SIP_AOR);
 
-	sleep(5);
+	while(true) {
+		sleep(5);
+	}
 
-	wcall_sip_destroy(wuser, SIP_AOR);
+	wcall_sip_destroy(wuser, "1111", SIP_AOR);
 	wcall_sip_close(wuser);
 
 	sleep(5);
