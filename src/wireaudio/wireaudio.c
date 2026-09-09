@@ -14,12 +14,12 @@
 #define AUDIO_SRATE 16000
 #define AUDIO_CHAN  1
 #define AUDIO_PTIME 20
-#define AUDIO_SAMPLES (AUDIO_SRATE*AUDIO_CHAN*AUDIO_PTIME)/1000)
+#define AUDIO_SAMPLES ((AUDIO_SRATE*AUDIO_CHAN*AUDIO_PTIME)/1000)
 
 #define PSTN_SRATE 8000
 #define PSTN_CHAN  1
 #define PSTN_PTIME 20
-#define PSTN_SAMPLES (PSTN_SRATE*PSTN_CHAN*PSTN_PTIME)/1000)
+#define PSTN_SAMPLES ((PSTN_SRATE*PSTN_CHAN*PSTN_PTIME)/1000)
 
 
 /** Wire audio */
@@ -69,20 +69,27 @@ struct wdev {
 	char *convid;
 
 	struct aumix *ausrc_mix;
-	struct aumix_source *wdev_src;
 	
 	struct list ausrcl;
 	struct list auplayl;
 
 	struct {
-		uint16_t sampv[AUDIO_SAMPLES];
-		size_t sampc;
+		int16_t sampv[AUDIO_SAMPLES];
+		size_t  sampc;
+
+		int16_t play_sampv[AUDIO_SAMPLES];
+		size_t  play_sampc;
+
+		int16_t src_sampv[AUDIO_SAMPLES];
+		size_t  src_sampc;
 
 		struct auresamp play_resamp;
 		struct auresamp src_resamp;
 
 		ausrc_read_h *rh;
 		auplay_write_h *wh;
+
+		struct aumix_source *aumix_src;
 
 		void *arg;
 	} wa;
@@ -133,8 +140,7 @@ static void wdev_destructor(void *arg)
 	mem_deref(wdev->ausrc_mix);
 	mem_deref(wdev->convid);
 
-	mem_deref(wdev->play_resamp);
-	mem_deref(wdev->src_resamp);
+	mem_deref(wdev->wa.aumix_src);
 }
 
 static bool list_apply_handler(struct le *le, void *arg)
@@ -157,7 +163,10 @@ static void ausrc_mix_frame_handler(const int16_t *sampv,
 {
 	struct ausrc_st *st = arg;
 
-	//info("ausrc(%p): mix frame with size: %lld\n", st, sampc);
+#if 0
+	info("ausrc(%p): mix frame with size: %lld buf=%w\n",
+	     st, sampc, sampv, 10);
+#endif
 	if (st->rh) {
 		st->rh(sampv, sampc, st->arg);
 	}
@@ -169,18 +178,14 @@ static void auplay_mix_frame_handler(const int16_t *sampv,
 {
 	struct auplay_st *ap = arg;
 
-	//info("auplay(%p): mix frame with size: %d\n", ap, sampc);
-
-	// Send frame here to Wire buffer
-	
-	if (ap->wh)
+	if (ap->wh) {
 		ap->wh(ap->sampv, ap->sampc, ap->arg);
+	}
 
 	/* This is to be mixed with all others together with the wire
 	 * audio stream, to all participants on this gateway
 	 */
 	aumix_source_put(ap->mix_src, ap->sampv, ap->sampc);
-	//info("auplay(%p): mix frame with size: %d\n", ap, ap->sampc);	
 }
 
 static void wdev_mix_frame_handler(const int16_t *sampv,
@@ -188,16 +193,33 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 				   void *arg)
 {
 	struct wdev *wdev = arg;
-	int err;
 
-	if (wdev->wa.wh)		
-		wdev->wa.wh(sampv, sampc, wdev->wa.arg);
-	if (wdev->wa.rh)
-		err = wdev->wa.rh(wdev->wa.sampv, wdev->wa.sampc, wdev->wa.arg);
-		
-	if (!err) {
-		aumix_source_put(wdev->aumix, wdev->wa.sampv, wdev->wa.sampc);
+	if (wdev->wa.rh) {
+		auresamp(&wdev->wa.src_resamp,
+			 wdev->wa.src_sampv, &wdev->wa.src_sampc,
+			 sampv, sampc);
+		wdev->wa.rh((void *)wdev->wa.src_sampv, wdev->wa.src_sampc,
+			    wdev->wa.arg);
 	}
+	if (wdev->wa.wh) {
+		wdev->wa.wh(wdev->wa.sampv, wdev->wa.sampc, wdev->wa.arg);
+
+		wdev->wa.play_sampc = AUDIO_SAMPLES;
+		int err = auresamp(&wdev->wa.play_resamp,
+				   wdev->wa.play_sampv, &wdev->wa.play_sampc,
+				   wdev->wa.sampv, wdev->wa.sampc);
+
+#if 0
+		re_printf("err=%d insampc=%d out_sampc=%d wframe=%w\n",
+			  err,
+			  wdev->wa.sampc, wdev->wa.play_sampc,
+			  wdev->wa.play_sampv, 10);
+#endif
+
+		aumix_source_put(wdev->wa.aumix_src,
+				 wdev->wa.play_sampv, wdev->wa.play_sampc);
+	}
+		
 }
 
 
@@ -207,21 +229,25 @@ static int alloc_device(struct wdev **wdevp,
 {
 	struct wdev *wdev;
 	int err;
+	
+	info("wireaudio: alloc_device: convid=%s srate=%d ch=%d ptime=%d\n",
+	     convid, srate, ch, ptime);
 
 	wdev = mem_zalloc(sizeof(*wdev), wdev_destructor);
 	if (!wdev)
 		return ENOMEM;
 
-	info("aumix_alloc: srate=%d ch=%d ptime=%d\n", srate, ch, ptime);
 	err = aumix_alloc(&wdev->ausrc_mix, srate, ch, ptime);
 	if (err)
 		goto out;
 
-	err = aumix_source_alloc(wdev->wde_src, wdev->ausrc_mix,
+	err = aumix_source_alloc(&wdev->wa.aumix_src, wdev->ausrc_mix,
 				 wdev_mix_frame_handler, wdev);
 	if (err) {
 		goto out;
 	}
+
+	aumix_source_enable(wdev->wa.aumix_src, true);
 
 	auresamp_init(&wdev->wa.play_resamp);
 	auresamp_setup(&wdev->wa.play_resamp,
@@ -233,9 +259,10 @@ static int alloc_device(struct wdev **wdevp,
 		       PSTN_SRATE, PSTN_CHAN,
 		       AUDIO_SRATE, AUDIO_CHAN);
 
-
 	str_dup(&wdev->convid, convid);
 	wdev->wa.sampc = AUDIO_SAMPLES;
+	wdev->wa.play_sampc = AUDIO_SAMPLES;
+	wdev->wa.src_sampc = AUDIO_SAMPLES;
 
 	hash_append(gwa.wdevs, hash_joaat_str(convid), &wdev->le, wdev);
 
@@ -410,6 +437,11 @@ static int wireaudio_close(void)
 	return 0;
 }
 
+int wireaudio_set_handlers(const char *convid,
+			   ausrc_read_h *rh,
+			   auplay_write_h *wh,
+			   void *arg);
+
 
 int wireaudio_set_handlers(const char *convid,
 			   ausrc_read_h *rh,
@@ -431,7 +463,7 @@ int wireaudio_set_handlers(const char *convid,
 	wdev->wa.arg = arg;
 
  out:
-	if (err)
+	return err;
 }
 			   
 

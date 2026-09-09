@@ -4,7 +4,9 @@
 #include <avs_wcall.h>
 
 //#define SIP_AOR "sip:wire@192.168.2.240:5061;regint=0"
-#define SIP_AOR "sip:wire@172.20.10.8:5061;regint=0"
+//#define SIP_AOR "sip:wire@172.20.10.8:5061;regint=0"
+//#define SIP_AOR "sip:wire@192.168.20.157:5061;regint=0"
+#define SIP_AOR "sip:wire@127.0.0.1:5061;regint=0"
 
 #define CONVID "siptest"
 
@@ -251,7 +253,7 @@ int main(int argc, char **argv)
 				&g_st.clients.pstn);
 	
 	wcall_sip_init(wuser, g_st.config_path);
-	wcall_sip_create(wuser, SIP_AOR);
+	wcall_sip_create(wuser, CONVID, SIP_AOR);
 
 	g_st.clients.pstn.wuser = wuser;
 
@@ -279,7 +281,7 @@ int main(int argc, char **argv)
 		usleep(100 * 1000);
 	}
 
-	wcall_sip_destroy(g_st.clients.pstn.wuser, SIP_AOR);
+	wcall_sip_destroy(g_st.clients.pstn.wuser, CONVID, SIP_AOR);
 	wcall_sip_close(g_st.clients.pstn.wuser);
 
 	sleep(1);

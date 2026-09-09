@@ -109,6 +109,7 @@ struct calling_instance {
 	struct mediamgr *mm;
 	char *userid;
 	char *clientid;
+	char *msys_name;
 	struct ecall_conf config;
 	struct ecall_conf conf_config;
 	struct call_config *call_config;
@@ -1954,7 +1955,9 @@ int wcall_add(struct calling_instance *inst,
 		err = ecall_alloc(&ecall, &inst->ecalls,
 				  ICALL_CONV_TYPE_ONEONONE,
 				  ICALL_CALL_TYPE_NORMAL,
-				  &inst->config, inst->msys,
+				  &inst->config,
+				  inst->msys_name,
+				  inst->msys,
 				  convid,
 				  inst->userid,
 				  inst->clientid);
@@ -1994,6 +1997,7 @@ int wcall_add(struct calling_instance *inst,
 		struct egcall* egcall;
 		err = egcall_alloc(&egcall,
 				   &inst->config,
+				   inst->msys_name,
 				   convid,
 				   inst->userid,
 				   inst->clientid);
@@ -2035,6 +2039,7 @@ int wcall_add(struct calling_instance *inst,
 		struct ccall* ccall;
 		err = ccall_alloc(&ccall,
 				  &inst->conf_config,
+				  inst->msys_name,
 				  convid,
 				  inst->userid,
 				  inst->clientid,
@@ -2952,6 +2957,8 @@ WUSER_HANDLE wcall_create_ex(const char *userid,
 			inst, err);
 		goto out;
 	}
+
+	str_dup(&inst->msys_name, msys_name);
 
 	/* Always enable Crypto-KASE for now .. */
 	msystem_enable_kase(inst->msys, true);

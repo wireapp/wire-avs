@@ -2,9 +2,16 @@
 #include <avs.h>
 #include <avs_wcall.h>
 #include <avs_pstn.h>
+//#include <avs_wireaudio.h>
 #include "baresip.h"
 #include "wcall.h"
 #include "sip.h"
+
+extern int wireaudio_set_handlers(const char *convid,
+				  ausrc_read_h *rh,
+				  auplay_write_h *wh,
+				  void *arg);
+
 
 struct {
 	bool initialized;
@@ -30,6 +37,7 @@ struct wsip {
 	struct ua *ua;
 	char *aor;
 	char *convid;
+	void *adm;
 
 	struct list calll; /* List of calls on this UA */
 
@@ -198,6 +206,20 @@ static void ua_event_handler(struct ua *ua, enum ua_event ev,
 	}
 }
 
+static void adm_rec_handler(void *sampv, size_t sampc, void *arg)
+{
+	struct wsip *wsip = arg;
+	
+	pstn_play_read(wsip->adm, (int16_t *)sampv, sampc);
+}
+
+static void adm_play_handler(const void *sampv, size_t sampc, void *arg)
+{
+	struct wsip *wsip = arg;
+	
+	pstn_rec_write(wsip->adm, (const int16_t *)sampv, sampc);
+}
+
 
 static void adm_handler(const char *convid, void *adm, bool added, void *arg)
 {
@@ -205,6 +227,11 @@ static void adm_handler(const char *convid, void *adm, bool added, void *arg)
 
 	info("sip(%p): adm_handler: adm=%p %s on wsip=%p\n",
 	     wsip->sip_inst, adm, added ? "ADDED" : "REMOVED", wsip);
+
+	wsip->adm = adm;
+	
+	wireaudio_set_handlers(convid, adm_play_handler, adm_rec_handler,
+			       wsip);
 }
 
 

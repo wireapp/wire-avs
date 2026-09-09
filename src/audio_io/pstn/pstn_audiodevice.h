@@ -38,6 +38,8 @@ namespace webrtc {
 
 	    struct aubuf *get_aubuf_play(void);
 	    struct aubuf *get_aubuf_rec(void);
+	    void play_read(int16_t *sampv, size_t sampc);
+	    void rec_write(const int16_t *sampv, size_t sampc);
 
 	    int32_t RegisterAudioCallback(AudioTransport* audioCallback);
 	    int32_t Init() { return 0; }

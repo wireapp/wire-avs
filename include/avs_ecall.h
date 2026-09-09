@@ -29,6 +29,7 @@ int  ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		 enum icall_conv_type conv_type,
 		 enum icall_call_type call_type,
 		 const struct ecall_conf *conf,
+		 const char *msys_name,
 		 struct msystem *msys,
 		 const char *convid, const char *userid_self,
 		 const char *clientid);

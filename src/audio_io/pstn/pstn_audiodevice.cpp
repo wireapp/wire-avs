@@ -41,12 +41,14 @@ extern "C" {
 namespace webrtc {
 static void *rec_thread(void *arg)
 {
-	return static_cast<pstn_audiodevice*>(arg)->record_thread();
+	//return static_cast<pstn_audiodevice*>(arg)->record_thread();
+	return NULL;
 }
 
 static void *play_thread(void *arg)
 {
-	return static_cast<pstn_audiodevice*>(arg)->playout_thread();
+	//return static_cast<pstn_audiodevice*>(arg)->playout_thread();
+	return NULL;
 }
 
 pstn_audiodevice::pstn_audiodevice(bool realtime)
@@ -148,7 +150,7 @@ int32_t pstn_audiodevice::StartRecording()
 
 	if (!is_recording_) {
 		is_recording_ = true;
-		pthread_create(&rec_tid_, NULL, rec_thread, this);
+		//pthread_create(&rec_tid_, NULL, rec_thread, this);
 	}
 
 	return 0;
@@ -168,8 +170,8 @@ int32_t pstn_audiodevice::StopRecording()
 	if (rec_tid_ && is_recording_) {
 		void* thread_ret;
 		is_recording_ = false;
-		pthread_join(rec_tid_, &thread_ret);
-		rec_tid_ = 0;
+		//pthread_join(rec_tid_, &thread_ret);
+		//rec_tid_ = 0;
 	}
 	rec_is_initialized_ = false;
 
@@ -310,6 +312,49 @@ struct aubuf *pstn_audiodevice::get_aubuf_rec(void)
 	return aubuf_rec_;
 }
 
+void pstn_audiodevice::play_read(int16_t *sampv, size_t sampc)
+{
+	size_t nSamplesOut;
+	int64_t elapsed_time_ms;
+	int64_t ntp_time_ms;
+
+#if 0
+	info("pstn(%p): play_read of size=%zu playing=%d ac=%p\n",
+	     this, sampc, is_playing_, audioCallback_);
+#endif
+
+	if(is_playing_ && audioCallback_) {
+		audioCallback_->NeedMorePlayData(
+			sampc/2, 2, 1, FS_KHZ*1000,
+			(void*)sampv, nSamplesOut,
+			&elapsed_time_ms, &ntp_time_ms);
+
+		audioCallback_->NeedMorePlayData(
+			sampc/2, 2, 1, FS_KHZ*1000,
+			(void*)&sampv[sampc/2], nSamplesOut,
+			&elapsed_time_ms, &ntp_time_ms);
+	}
+}
+	
+void pstn_audiodevice::rec_write(const int16_t *sampv, size_t sampc)
+{
+	uint32_t currentMicLevel = 10;
+	uint32_t newMicLevel = 0;
+
+	if (is_recording_ && audioCallback_) {
+		audioCallback_->RecordedDataIsAvailable(
+			(void*)sampv,
+			sampc/2, 2, 1, FS_KHZ*1000, 0, 0,
+			currentMicLevel, false, newMicLevel);
+		audioCallback_->RecordedDataIsAvailable(
+			(void*)&sampv[sampc/2],
+			sampc/2, 2, 1, FS_KHZ*1000, 0, 0,
+			currentMicLevel, false, newMicLevel);
+	}
+}
+
+	
+
 } // namespace webrtc
 
 
@@ -411,6 +456,8 @@ int pstn_adm_register(const char *convid, void *adm)
 	struct adm_entry *ae = adm_find(convid);
 	struct le *le;
 
+	info("pstn_adm_register: convid=%s adm=%p\n", convid, adm);
+	
 	if (ae)
 		return EALREADY;
 
@@ -420,12 +467,16 @@ int pstn_adm_register(const char *convid, void *adm)
 
 	ae->adm = adm;
 	str_dup(&ae->convid, convid);
+
 	
 	list_append(&pstn.adml, &ae->le, ae);
 
+	printf("+++++ registered adm, calling handlers\n");
 	LIST_FOREACH(&pstn.handlerl, le) {
 		struct adm_handler *ah = (struct adm_handler *)le->data;
 
+		printf("+++++ registered adm calling handler(%p)\n", ah);
+	
 		if (!ah)
 			continue;
 
@@ -466,3 +517,12 @@ struct aubuf *pstn_get_aubuf_rec(void *adm)
 	return ((webrtc::pstn_audiodevice *)adm)->get_aubuf_rec();
 }
 
+void pstn_rec_write(void *adm, const int16_t *sampv, size_t sampc)
+{
+	((webrtc::pstn_audiodevice *)adm)->rec_write(sampv, sampc);
+}
+
+void pstn_play_read(void *adm, int16_t *sampv, size_t sampc)
+{
+	((webrtc::pstn_audiodevice *)adm)->play_read(sampv, sampc);
+}

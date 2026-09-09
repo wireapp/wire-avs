@@ -140,6 +140,7 @@ static struct {
 
 struct peerflow {
 	struct iflow iflow;
+	char *msys_name;
 	char *convid;
 	char *userid_self;
 	char *clientid_self;
@@ -862,7 +863,7 @@ static void create_pc_deps(struct peerflow *pf,
 	if (pf->rec_path) {
 		pc_deps.adm = new webrtc::record_audiodevice(pf->rec_path);
 	}
-	else if (msystem_is_pstn()) {
+	else if (streq(pf->msys_name, "pstn")) {
 		auto adm = new webrtc::pstn_audiodevice(true);
 		pc_deps.adm = adm;
 		pstn_adm_register(pf->convid, (void *)adm);
@@ -1643,14 +1644,6 @@ public:
 			this->OnFailure(err);
 	}
 
-	virtual void OnSetLocalDescriptionComplete(webrtc::RTCError err)
-	{
-		if (err.ok())
-			this->OnSuccess();
-		else
-			this->OnFailure(err);
-	}
-
 private:
 	struct peerflow *pf_;
 };
@@ -2094,7 +2087,9 @@ static int create_pf(struct peerflow *pf)
 	webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::PeerConnectionInterface>> pcorerr;
 	webrtc::PeerConnectionFactoryDependencies pc_deps;
 
+	printf("******* create_pc_deps\n");
 	create_pc_deps(pf, pc_deps);
+	printf("******* create_pc_deps DONE\n");
 
 	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
 	factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
@@ -2248,6 +2243,7 @@ static void pf_destructor(void *arg)
 	mem_deref(pf->rec_path);
 	mem_deref(pf->cm);
 	mem_deref(pf->stats);
+	mem_deref(pf->msys_name);
 
 	list_flush(&pf->cml.list);
 	mem_deref(pf->cml.lock);
@@ -2419,6 +2415,7 @@ int peerflow_update_ssrc(struct iflow *iflow, uint32_t ssrca, uint32_t ssrcv)
 }
 
 int peerflow_alloc(struct iflow		**flowp,
+		   const char           *msys_name,
 		   const char		*convid,
 		   const char		*userid_self,
 		   const char		*clientid_self,
@@ -2431,8 +2428,8 @@ int peerflow_alloc(struct iflow		**flowp,
 	struct peerflow *pf;
 	int err = 0;
 
-	info("pf_alloc: initialized=%d call_type=%d vstate=%s\n",
-	     g_pf.initialized, call_type, icall_vstate_name(vstate));
+	info("pf_alloc: initialized=%d msys_name=%s call_type=%d vstate=%s\n",
+	     g_pf.initialized, msys_name, call_type, icall_vstate_name(vstate));
 	if (!g_pf.initialized) {
 		peerflow_init();
 		if (!g_pf.initialized)
@@ -2474,6 +2471,7 @@ int peerflow_alloc(struct iflow		**flowp,
 	if (err) {
 		goto out;
 	}
+	str_dup(&pf->msys_name, msys_name);
 	str_dup(&pf->convid, convid);
 	str_dup(&pf->userid_self, userid_self);
 	str_dup(&pf->clientid_self, clientid_self);
