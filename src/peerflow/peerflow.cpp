@@ -486,7 +486,7 @@ static void send_close(struct peerflow *pf, int err)
 	
 	md = (struct mq_data *)mem_zalloc(sizeof(*md), md_destructor);
 	if (!md) {
-		warning("pf(%p): could not alloc md\n");
+		warning("pf(%p): could not alloc md\n", pf);
 		return;
 	}
 	md->id = MQ_PC_CLOSE;
@@ -1316,8 +1316,7 @@ public:
 
 			isdp = pf_->peerConn->local_description();
 			if (!isdp) {
-				warning("pf(%p): ice gathering "
-					"no local SDP\n", pf_);
+				warning("pf(%p): ice gathering no local SDP\n", pf_);
 				return;
 			}
 
@@ -1362,8 +1361,7 @@ public:
 			if (isdp)
 				invoke_gather(pf_, isdp);
 			else {
-				warning("pf(%p): ice candidate "
-					"no local SDP\n", pf_);
+				warning("pf(%p): ice candidate no local SDP\n", pf_);
 			}
 			return;
 		}
@@ -1396,8 +1394,7 @@ public:
 			if (isdp)
 				invoke_gather(pf_, isdp);
 			else {
-				warning("pf(%p): ice candidate "
-					"no local SDP\n", pf_);
+				warning("pf(%p): ice candidate no local SDP\n", pf_);
 				return;
 			}
 		}
@@ -1460,8 +1457,7 @@ public:
 			clientid = pf_->clientid_remote;
 		}
 		else {
-			warning("pf(%p); no conf member for label: %s\n",
-				pf_, label);
+			warning("pf(%p); no conf member for label: %s\n", pf_, label);
 			lock_rel(pf_->cml.lock);
 			goto out;
 		}
@@ -1861,7 +1857,7 @@ public:
 		     pf_, SdpTypeToString(type), pf_->peerConn.get());
 
 		if (!isdp->ToString(&sdp_str)) {
-			warning("pf(%p): ToString failed\n");
+			warning("pf(%p): ToString failed\n", pf_);
 			return;
 		}
 		
@@ -1873,7 +1869,7 @@ public:
 			err = sdp_dup(&sess, pf_->conv_type,
 				      sdp_str.c_str(), true);
 			if (err) {
-				warning("pf(%p): sdp_dup failed: %m\n", err);
+				warning("pf(%p): sdp_dup failed: %m\n", pf_, err);
 				return;
 			}
 
@@ -1896,7 +1892,7 @@ public:
 			err = sdp_dup(&sess, pf_->conv_type,
 				      sdp_str.c_str(), false);
 			if (err) {
-				warning("pf(%p): sdp_dup failed: %m\n", err);
+				warning("pf(%p): sdp_dup failed: %m\n",pf_ , err);
 				return;
 			}
 			
@@ -1923,7 +1919,7 @@ public:
 	}
 
 	virtual void OnFailure(webrtc::RTCError err) {
-		warning("pf(5p); SDP-Failure: %s\n", err.message());
+		warning("pf(%p); SDP-Failure: %s\n", pf_, err.message());
 	}
 
 private:
@@ -2087,9 +2083,7 @@ static int create_pf(struct peerflow *pf)
 	webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::PeerConnectionInterface>> pcorerr;
 	webrtc::PeerConnectionFactoryDependencies pc_deps;
 
-	printf("******* create_pc_deps\n");
 	create_pc_deps(pf, pc_deps);
-	printf("******* create_pc_deps DONE\n");
 
 	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
 	factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
@@ -3221,7 +3215,7 @@ bool peerflow_has_video(const struct iflow *iflow)
 	const struct peerflow *pf = (const struct peerflow*)iflow;
 
 	if (!pf || !pf->peerConn) {
-		warning("pf(%p): has_video: no peerflow\n");
+		warning("pf(-): has_video: no peerflow\n");
 		return false;
 	}
 

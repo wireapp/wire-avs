@@ -117,6 +117,9 @@ struct calling_instance *wcall_get_instance(void);
 
 void wcall_ext_log(uint32_t level, const char *msg);
 
+void wcall_i_audio_record(struct wcall *wcall, const char *path);
+
+
 /* SIP instance */
 struct sip_instance;
 

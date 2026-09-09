@@ -286,6 +286,10 @@ void *record_audiodevice::playout_thread()
 	    fclose(fp);
 	  }
 	  fp_ = fopen(rec_path_, "wb");
+	  if (!fp_) {
+		  warning("audio_io_record: playout thread: cannot open: %s\n",
+			  rec_path_);
+	  }
 	}
 
 	info("audio_io_record: playout_thread: started path=%s\n", rec_path_);
