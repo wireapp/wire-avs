@@ -1,12 +1,7 @@
 
-#define STR_HELPER(x) #x
-#define STR(x) STR_HELPER(x)
-#define AVS_H STR(AVS_HEADER)
-
 #include <string.h>
 #include <re.h>
 #include <rem.h>
-#include AVS_H
 #include <baresip.h>
 
 
@@ -21,49 +16,11 @@
 #define PSTN_PTIME 20
 #define PSTN_SAMPLES ((PSTN_SRATE*PSTN_CHAN*PSTN_PTIME)/1000)
 
-
-/** Wire audio */
-struct wireaudio {
-	uint32_t index;
+struct {
+	struct hash *wdevs;
 	struct ausrc *ausrc;
 	struct auplay *auplay;
-
-	struct hash *wdevs;
-
-	struct aubuf *ab;
-	//struct ausrc_st *ausrc;
-	//struct auplay_st *auplay;
-	struct auenc_state *enc;
-	struct audec_state *dec;
-	int16_t *sampv;
-	size_t sampc;
-	struct tmr tmr;
-	uint32_t srate;
-	uint32_t ch;
-	enum aufmt fmt;
-
-	uint32_t n_read;
-	uint32_t n_write;
-};
-
-static const struct {
-	uint32_t srate;
-	uint32_t ch;
-} configv[] = {
-	{ 8000, 1},
-	{16000, 1},
-	{32000, 1},
-	{44100, 1},
-	{48000, 1},
-	{ 8000, 2},
-	{16000, 2},
-	{32000, 2},
-	{44100, 2},
-	{48000, 2},
-};
-
-static struct wireaudio gwa;
-
+} gwa;
 
 struct wdev {
 	char *convid;
@@ -134,6 +91,8 @@ static void wdev_destructor(void *arg)
 {
 	struct wdev *wdev = arg;
 
+	aumix_source_enable(wdev->wa.aumix_src, false);
+	
 	list_flush(&wdev->ausrcl);
 	list_flush(&wdev->auplayl);
 
@@ -214,12 +173,13 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 			  err,
 			  wdev->wa.sampc, wdev->wa.play_sampc,
 			  wdev->wa.play_sampv, 10);
+#else
+		(void)err;
 #endif
 
 		aumix_source_put(wdev->wa.aumix_src,
 				 wdev->wa.play_sampv, wdev->wa.play_sampc);
 	}
-		
 }
 
 
@@ -286,8 +246,7 @@ static void ausrc_destructor(void *arg)
 	aumix_source_enable(st->mix_src, false);
 	list_unlink(&st->le);
 	
-	mem_deref(st->mix_src);
-	
+	mem_deref(st->mix_src);	
 }
 
 static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
@@ -321,7 +280,6 @@ static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 	if (err) {
 		goto out;
 	}
-	
 
 	st->as = as;
 	st->wdev = wdev;
@@ -392,12 +350,6 @@ static int wa_play_alloc(struct auplay_st **stp, const struct auplay *ap,
 	st->wh = wh;
 	st->arg = arg;
 
-	st->sampc = prm->srate * prm->ch * prm->ptime / 1000;
-	st->sampv = mem_alloc(aufmt_sample_size(prm->fmt) * st->sampc, NULL);
-
-	st->out_sampc = AUDIO_SRATE * AUDIO_CHAN * AUDIO_PTIME / 1000;
-	st->out_sampv = mem_alloc(sizeof(int16_t) * st->sampc, NULL);
-	
 	list_append(&wdev->auplayl, &st->le, st);
 
 	aumix_source_enable(st->mix_src, true);
