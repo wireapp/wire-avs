@@ -168,8 +168,8 @@ static void incoming_handler(const char *convid, uint32_t msg_time,
 		  cli->userId.c_str(), cli->clientId.c_str(),
 		  convid,
 		  userid);
-	// usleep(500 * 1000); // 100 ms
-	auto err = wcall_answer(cli->call->callee.wuser, convid, WCALL_CALL_TYPE_NORMAL, 0);
+
+	auto err = wcall_answer(cli->wuser, convid, WCALL_CALL_TYPE_NORMAL, 0);
 	ASSERT_EQ(0, err);
 }
 
@@ -208,8 +208,6 @@ static void close_handler(int reason,
 
 	if (cli->call->caller.state == Closed &&
 	    cli->call->callee.state == Closed) {
-
-		re_cancel();
 
 		// TEMPORARILY REMOVE:
 		//
@@ -407,8 +405,6 @@ public:
 
 TEST_F(NetworkQuality, settingHandlerMultipleTimes)
 {
-	// I do net get why we create the same user again. We have 123 as cally already
-	// If we need really this one we can unot destroy this at the end ore we have to give him a new ID
 	WUSER_HANDLE wuser = wcall_create_ex("user", "123", 0, "voe", NULL, NULL, NULL, NULL, NULL, NULL,
 		NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
@@ -421,9 +417,7 @@ TEST_F(NetworkQuality, settingHandlerMultipleTimes)
                         i,
                         NULL);
     }
-
-    // This is the main issue because test is flaky, and it is a race condition to the other user 123 we had already running!
-	// wcall_destroy(wuser);
+	wcall_destroy(wuser);
 }
 
 TEST_F(NetworkQuality, checkHandlerForDifferentIntervals)
