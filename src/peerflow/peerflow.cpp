@@ -98,6 +98,7 @@ extern "C" {
 
 static struct {
 	std::unique_ptr<webrtc::Thread> thread;
+	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory;
 	bool initialized;
 
 	struct {
@@ -834,49 +835,56 @@ void peerflow_set_adm(void *adm)
 #endif
 }
 
-static void create_pc_deps(struct peerflow *pf,
-			   webrtc::PeerConnectionFactoryDependencies &pc_deps)
+static void create_pc_deps(
+		struct peerflow *pf,
+		webrtc::PeerConnectionFactoryDependencies &pc_deps)
 {
 	pc_deps.env = webrtc::CreateEnvironment(WireFieldTrials().CreateCopy());
 	pc_deps.signaling_thread = g_pf.thread.get();
 	pc_deps.network_thread = webrtc::Thread::Current();
 	pc_deps.worker_thread = webrtc::Thread::Current();
-	pc_deps.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
+	pc_deps.event_log_factory =
+			std::make_unique<webrtc::RtcEventLogFactory>();
 
-	/* Audio */
-	pc_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
-	pc_deps.audio_decoder_factory =	webrtc::CreateBuiltinAudioDecoderFactory();
+	pc_deps.audio_encoder_factory =
+			webrtc::CreateBuiltinAudioEncoderFactory();
+	pc_deps.audio_decoder_factory =
+			webrtc::CreateBuiltinAudioDecoderFactory();
 
-	/* Video */
 	pc_deps.video_encoder_factory =
-		std::make_unique<webrtc::VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter>>();
+			std::make_unique<webrtc::VideoEncoderFactoryTemplate<
+					webrtc::LibvpxVp8EncoderTemplateAdapter>>();
+
 	pc_deps.video_decoder_factory =
-		std::make_unique<webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter>>();
+			std::make_unique<webrtc::VideoDecoderFactoryTemplate<
+					webrtc::LibvpxVp8DecoderTemplateAdapter>>();
 
 #ifdef ANDROID
 	pc_deps.adm = webrtc::CreateAndroidAudioDeviceModule(
-				 *pc_deps.env,
-				 webrtc::AudioDeviceModule::AudioLayer::kAndroidOpenSLESAudio);
+        *pc_deps.env,
+        webrtc::AudioDeviceModule::AudioLayer::kAndroidOpenSLESAudio);
 #else
-	if (pf->rec_path) {
+	if (pf && pf->rec_path) {
 		pc_deps.adm = new webrtc::record_audiodevice(pf->rec_path);
 	}
 	else if (msystem_is_pstn()) {
 		pc_deps.adm = new webrtc::pstn_audiodevice(true);
 	}
 	else {
-		pc_deps.adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
+		pc_deps.adm =
+				(webrtc::AudioDeviceModule *)audio_io_create_adm();
 	}
 #endif
 
-	/* Media must be explicilty enabled */
 	webrtc::EnableMedia(pc_deps);
 }
 
 int peerflow_init(void)
 {
 	webrtc::AudioDeviceModule *adm;
+	webrtc::PeerConnectionFactoryDependencies pc_deps;
 	int err;
+
 
 	if (g_pf.initialized)
 		return EALREADY;
@@ -911,6 +919,16 @@ int peerflow_init(void)
 		pc_platform_init();
 		info("pf: platform initialized\n");		
 	});
+
+	create_pc_deps(NULL, pc_deps);
+
+	g_pf.pc_factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
+
+	if (!g_pf.pc_factory) {
+		err = ENOSYS;
+		goto out;
+	}
+
 	g_pf.video.src = webrtc::make_ref_counted<wire::CaptureSource>();
 	g_pf.initialized = true;
 
@@ -2078,11 +2096,16 @@ static int create_pf(struct peerflow *pf)
 	deps.allocator = std::move(port_allocator);
 	webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::PeerConnectionInterface>> pcorerr;
 	webrtc::PeerConnectionFactoryDependencies pc_deps;
-
-	create_pc_deps(pf, pc_deps);
-
 	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
-	factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
+
+	if (!pf->rec_path) {
+		factory = g_pf.pc_factory;
+	}
+	else {
+		create_pc_deps(pf, pc_deps);
+
+		factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
+	}
 
 	if (!factory) {
 		err = ENOSYS;
