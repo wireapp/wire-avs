@@ -431,6 +431,7 @@ CONTRIB_LIBREM_LIB_FILES := \
 $(CONTRIB_LIBREM_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 			  $(CONTRIB_LIBREM_FILES)
 	@cd $(CONTRIB_LIBREM_PATH) && \
+		( git apply ../../patches/rem.patch || true ) && \
 		rm -f librem.a && \
 		make librem.a $(JOBS) \
 		BUILD=build-$(AVS_OS)-$(AVS_ARCH) \
@@ -472,7 +473,8 @@ CONTRIB_BARESIP_AVS_PATH := $(PWD)
 $(CONTRIB_BARESIP_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 	                   $(CONTRIB_LIBREM_TARGET) \
 			   $(CONTRIB_BARESIP_FILES)
-	@ln -s $(CONTRIB_BARESIP_AVS_PATH)/src/wireaudio \
+	@rm -rf $(CONTRIB_BARESIP_PATH)/modules/wireaudio && \
+		ln -s $(CONTRIB_BARESIP_AVS_PATH)/src/wireaudio \
 		$(CONTRIB_BARESIP_PATH)/modules/wireaudio || true
 	@cd $(CONTRIB_BARESIP_PATH) && \
 		rm -f libbaresip.a && \
