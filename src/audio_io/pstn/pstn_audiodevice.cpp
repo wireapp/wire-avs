@@ -39,17 +39,6 @@ extern "C" {
 #define AUBUF_MAX   6
 
 namespace webrtc {
-static void *rec_thread(void *arg)
-{
-	//return static_cast<pstn_audiodevice*>(arg)->record_thread();
-	return NULL;
-}
-
-static void *play_thread(void *arg)
-{
-	//return static_cast<pstn_audiodevice*>(arg)->playout_thread();
-	return NULL;
-}
 
 pstn_audiodevice::pstn_audiodevice(bool realtime)
 {
@@ -58,15 +47,6 @@ pstn_audiodevice::pstn_audiodevice(bool realtime)
 	is_playing_ = false;
 	rec_is_initialized_ = false;
 	play_is_initialized_ = false;
-	rec_tid_ = 0;
-	play_tid_ = 0;
-	realtime_ = realtime;
-	delta_omega_ = 0.0f;
-	omega_ = 0.0f;
-	muted_ = false;
-
-	aubuf_alloc(&aubuf_play_, AUBUF_MIN, AUBUF_MAX);
-	aubuf_alloc(&aubuf_rec_, AUBUF_MIN, AUBUF_MAX);
 }
 
 pstn_audiodevice::~pstn_audiodevice()
@@ -129,10 +109,6 @@ int32_t pstn_audiodevice::StartPlayout()
 {
 	info("audio_io_pstn: StartPlayout\n");
 
-	if(!is_playing_) {
-		pthread_create(&play_tid_, NULL, play_thread, this);
-	}
-
 	is_playing_ = true;
 	return 0;
 }
@@ -150,7 +126,6 @@ int32_t pstn_audiodevice::StartRecording()
 
 	if (!is_recording_) {
 		is_recording_ = true;
-		//pthread_create(&rec_tid_, NULL, rec_thread, this);
 	}
 
 	return 0;
@@ -167,12 +142,7 @@ int32_t pstn_audiodevice::StopRecording()
 {
 	info("audio_io_pstn: StopRecording\n");
 
-	if (rec_tid_ && is_recording_) {
-		void* thread_ret;
-		is_recording_ = false;
-		//pthread_join(rec_tid_, &thread_ret);
-		//rec_tid_ = 0;
-	}
+	is_recording_ = false;
 	rec_is_initialized_ = false;
 
 	return 0;
@@ -181,14 +151,8 @@ int32_t pstn_audiodevice::StopRecording()
 int32_t pstn_audiodevice::StopPlayout()
 {
 	info("audio_io_pstn: StopPlayout\n");
-
-	if (play_tid_ && is_playing_) {
-		void *thread_ret;
-
-		is_playing_ = false;
-		pthread_join(play_tid_, &thread_ret);
-		play_tid_ = 0;
-	}
+	
+	is_playing_ = false;
 	play_is_initialized_ = false;
 
 	return 0;
@@ -206,86 +170,6 @@ int32_t pstn_audiodevice::Terminate()
 	return 0;
 }
 
-void *pstn_audiodevice::record_thread()
-{
-	int16_t audio_buf[FRAME_LEN];
-	uint32_t currentMicLevel = 10;
-	uint32_t newMicLevel = 0;
-	struct timeval now, next_io_time, delta, sleep_time;
-
-	info("audio_io_pstn: record_thread: started\n");
-
-	memset(audio_buf, 0, sizeof(audio_buf));
-
-	delta.tv_sec = 0;
-	delta.tv_usec = FRAME_LEN_MS * 1000;
-
-	gettimeofday(&next_io_time, NULL);
-
-	while(is_recording_) {
-		timeradd(&next_io_time, &delta, &next_io_time);
-		aubuf_read(aubuf_rec_,
-			   (uint8_t *)audio_buf,
-			   FRAME_LEN * sizeof(int16_t));
-
-		if(audioCallback_) {
-			audioCallback_->RecordedDataIsAvailable(
-					(void*)audio_buf,
-					FRAME_LEN, 2, 1, FS_KHZ*1000, 0, 0,
-					currentMicLevel, false, newMicLevel);
-		}
-
-		gettimeofday(&now, NULL);
-		timersub(&next_io_time, &now, &sleep_time);
-		if(sleep_time.tv_sec < 0){
-			warning("pstn_audiodevice::record_thread() "
-				"not processing data fast enough "
-				"now = %d.%d next_io_time = %d.%d\n",
-				(int32_t)now.tv_sec, now.tv_usec,
-				next_io_time.tv_sec, next_io_time.tv_usec);
-			sleep_time.tv_usec = 0;
-		}
-		timespec t;
-		t.tv_sec = 0;
-		t.tv_nsec = sleep_time.tv_usec*1000;
-		if (realtime_) {
-			nanosleep(&t, NULL);
-		}
-	}
-
-	return NULL;
-}
-
-void *pstn_audiodevice::playout_thread()
-{
-	int16_t audio_buf[FRAME_LEN] = {0};
-	size_t nSamplesOut;
-	int64_t elapsed_time_ms, ntp_time_ms;
-	struct timeval now, next_io_time, delta, sleep_time;
-
-	info("audio_io_pstn: playout_thread: started\n");
-
-	delta.tv_sec = 0;
-	delta.tv_usec = FRAME_LEN_MS * 1000;
-
-	gettimeofday(&next_io_time, NULL);
-
-	while(is_playing_) {
-		timeradd(&next_io_time, &delta, &next_io_time);
-
-		if(audioCallback_) {
-			audioCallback_->NeedMorePlayData(
-					FRAME_LEN, 2, 1, FS_KHZ*1000,
-					(void*)audio_buf, nSamplesOut,
-					&elapsed_time_ms, &ntp_time_ms);
-		}
-		aubuf_write(aubuf_play_,
-			    (const uint8_t *)audio_buf,
-			    nSamplesOut * sizeof(int16_t));
-	}
-	return NULL;
-}
-
 int32_t pstn_audiodevice::MicrophoneMuteIsAvailable(bool* available)
 {
 	info("pstn_audiodevice: MicrophoneMuteIsAvailable: available=%p\n", available);
@@ -297,19 +181,9 @@ int32_t pstn_audiodevice::MicrophoneMuteIsAvailable(bool* available)
 
 int32_t pstn_audiodevice::SetMicrophoneMute(bool enable)
 {
-	muted_ = enable;
+	(void)enable;
 
 	return 0;
-}
-
-struct aubuf *pstn_audiodevice::get_aubuf_play(void)
-{
-	return aubuf_play_;
-}
-
-struct aubuf *pstn_audiodevice::get_aubuf_rec(void)
-{
-	return aubuf_rec_;
 }
 
 void pstn_audiodevice::play_read(int16_t *sampv, size_t sampc)
@@ -505,16 +379,6 @@ void *pstn_adm_find(const char *convid)
 	struct adm_entry *ae = adm_find(convid);
 
 	return ae ? ae->adm : NULL;
-}
-
-struct aubuf *pstn_get_aubuf_play(void *adm)
-{
-	return ((webrtc::pstn_audiodevice *)adm)->get_aubuf_play();
-}
-
-struct aubuf *pstn_get_aubuf_rec(void *adm)
-{
-	return ((webrtc::pstn_audiodevice *)adm)->get_aubuf_rec();
 }
 
 void pstn_rec_write(void *adm, const int16_t *sampv, size_t sampc)

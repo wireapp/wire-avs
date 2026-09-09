@@ -179,22 +179,11 @@ namespace webrtc {
 	    int32_t EnableSine() { return 0; }
 	    int32_t EnableNoise() { return 0; }
 	    
-
-	    void* record_thread();
-	    void* playout_thread();
     private:
 	    AudioTransport* audioCallback_;
-	    pthread_t rec_tid_ = 0;
-	    pthread_t play_tid_ = 0;
 	    volatile bool is_recording_;
 	    volatile bool is_playing_;
 	    volatile bool rec_is_initialized_;
 	    volatile bool play_is_initialized_;
-	    bool realtime_;
-	    float delta_omega_;
-	    float omega_;
-	    bool muted_;
-	    struct aubuf *aubuf_play_;
-	    struct aubuf *aubuf_rec_;
     };
 }
