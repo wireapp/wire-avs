@@ -84,9 +84,9 @@ static void ready_handler(int version, void *arg)
 
 	info("[ %s.%s ] Ready.\n", cli->userId.c_str(), cli->clientId.c_str());
 
-	if (cli->call->caller.state == Ready && cli->call->callee.state == Ready) {
+	if (cli->call->caller.state == Ready && cli->call->callee.state == Ready && cli == &cli->call->caller) {
 		info("[ %s.%s ] Ready, all participants are ready\n", cli->userId.c_str(), cli->clientId.c_str());
-		int err = wcall_start(cli->wuser, cli->call->callId.c_str(), WCALL_CALL_TYPE_NORMAL,
+		int err = wcall_start(cli->call->caller.wuser, cli->call->callId.c_str(), WCALL_CALL_TYPE_NORMAL,
 				conv_type, 0, 0);
 		ASSERT_EQ(0, err);
     }
@@ -95,52 +95,66 @@ static void ready_handler(int version, void *arg)
 }
 
 static int send_handler(void *ctx, const char *convid,
-			const char *userid_self, const char *clientid_self,
-			const char *userid_dest, const char *clientid_dest,
-			const uint8_t *data, size_t len, int transient,
-		    int my_clients_only,
-			void *arg)
+                        const char *userid_self, const char *clientid_self,
+                        const char *userid_dest, const char *clientid_dest,
+                        const uint8_t *data, size_t len, int transient,
+                        int my_clients_only,
+                        void *arg)
 {
-	auto cli = (Client* )arg;
+	auto cli = (Client *)arg;
 
 	info("[ %s.%s ] {%s} Send message from %s.%s ---> %s.%s\n",
-		  cli->userId.c_str(), cli->clientId.c_str(),
-		  convid,
-		  userid_self, clientid_self,
-		  userid_dest, clientid_dest);
+	     cli->userId.c_str(), cli->clientId.c_str(),
+	     convid,
+	     userid_self, clientid_self,
+	     userid_dest, clientid_dest);
 
-    /* Reply with success */
-	wcall_resp(cli->wuser, 200, "", ctx);
 
-    const uint32_t curr_time = time(0);
-    if (NULL != userid_dest && NULL != clientid_dest) {
+	/* Reply with success */
+	// wcall_resp(cli->wuser, 200, "", ctx);
+	if (cli->call->callee.userId != userid_self) {
+		wcall_resp(cli->call->caller.wuser, 200, "", ctx);
+	} else {
+		wcall_resp(cli->call->callee.wuser, 200, "", ctx);
+	}
+	const uint32_t curr_time = time(0);
+
+	if (NULL != userid_dest && NULL != clientid_dest) {
 		warning("[ %s.%s ] {%s} Implement Me \n",
-            cli->userId.c_str(), cli->clientId.c_str(), convid);
-    } else {
-        if (cli->call->callee.userId != userid_self) {
-            // send message to callee
-			wcall_recv_msg(cli->call->callee.wuser, data, len,
-				curr_time,
-				curr_time,
-				convid,
-				userid_self,
-				clientid_self,
-				WCALL_CONV_TYPE_CONFERENCE_MLS,
-				false);
-        }
-        if (cli->call->caller.userId != userid_self) {
-            // send message to callee
-			wcall_recv_msg(cli->call->caller.wuser, data, len,
-				curr_time,
-				curr_time,
-				convid,
-				userid_self,
-				clientid_self,
-				WCALL_CONV_TYPE_CONFERENCE_MLS,
-				false);
-        }
-    }
-    return 0;
+		        cli->userId.c_str(),
+		        cli->clientId.c_str(),
+		        convid);
+	} else {
+		if (cli->call->callee.userId != userid_self) {
+			// send message to callee
+			wcall_recv_msg(
+					cli->call->callee.wuser,
+					data,
+					len,
+					curr_time,
+					curr_time,
+					convid,
+					userid_self,
+					clientid_self,
+					WCALL_CONV_TYPE_GROUP,
+					false);
+		}
+		if (cli->call->caller.userId != userid_self) {
+			// send message to callee
+			wcall_recv_msg(
+					cli->call->caller.wuser,
+					data,
+					len,
+					curr_time,
+					curr_time,
+					convid,
+					userid_self,
+					clientid_self,
+					WCALL_CONV_TYPE_GROUP,
+					false);
+		}
+	}
+	return 0;
 }
 
 static void incoming_handler(const char *convid, uint32_t msg_time,
@@ -154,7 +168,8 @@ static void incoming_handler(const char *convid, uint32_t msg_time,
 		  cli->userId.c_str(), cli->clientId.c_str(),
 		  convid,
 		  userid);
-    auto err = wcall_answer(cli->wuser, convid, WCALL_CALL_TYPE_NORMAL, 0);
+	// usleep(500 * 1000); // 100 ms
+	auto err = wcall_answer(cli->call->callee.wuser, convid, WCALL_CALL_TYPE_NORMAL, 0);
 	ASSERT_EQ(0, err);
 }
 
@@ -177,28 +192,30 @@ static void estab_handler(const char *convid,
 }
 
 
-static void close_handler(int reason, const char *convid, uint32_t msg_time,
-			  const char *userid, const char *clientid, void *arg)
+static void close_handler(int reason,
+                          const char *convid,
+                          uint32_t msg_time,
+                          const char *userid,
+                          const char *clientid,
+                          void *arg)
 {
 	auto cli = (Client *)arg;
 	auto closeReason = std::string(wcall_reason_name(reason));
-
-	info("[ %s.%s ] {%s} Closed handler (%s)\n",
-		cli->userId.c_str(), cli->clientId.c_str(),
-		convid,
-		closeReason.c_str());
 
 	if (closeReason == "Normal") {
 		cli->state = Closed;
 	}
 
-	if (cli->call->caller.state == Closed && cli->call->callee.state == Closed) {
-		info("[ %s.%s ] {%s} Closed handler, all participants are closed\n",
-			cli->userId.c_str(), cli->clientId.c_str(), convid);
+	if (cli->call->caller.state == Closed &&
+	    cli->call->callee.state == Closed) {
 
-		wcall_destroy(cli->call->caller.wuser);
-		wcall_destroy(cli->call->callee.wuser);
-    }
+		re_cancel();
+
+		// TEMPORARILY REMOVE:
+		//
+		 wcall_destroy(cli->call->caller.wuser);
+		 wcall_destroy(cli->call->callee.wuser);
+	}
 }
 
 // {..., "quality":1, ...}
@@ -298,7 +315,7 @@ bool is_valid_quality_json(const char *quality_info) {
 		return false;
 	}
 
-	const auto is_valid = 
+	const auto is_valid =
 		has_valid_quality_indication(jobj) &&
 		has_valid_rtt(jobj) &&
 		has_valid_packet_loss(jobj) &&
@@ -356,7 +373,7 @@ static void set_quality_interval(void *arg)
 static void cleanup_function(void *arg)
 {
 	auto call = (SimpleCall *)arg;
-	wcall_end(call->caller.wuser, call->callId.c_str());
+	wcall_end(call->callee.wuser, call->callId.c_str());
 }
 
 
@@ -390,6 +407,8 @@ public:
 
 TEST_F(NetworkQuality, settingHandlerMultipleTimes)
 {
+	// I do net get why we create the same user again. We have 123 as cally already
+	// If we need really this one we can unot destroy this at the end ore we have to give him a new ID
 	WUSER_HANDLE wuser = wcall_create_ex("user", "123", 0, "voe", NULL, NULL, NULL, NULL, NULL, NULL,
 		NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
@@ -403,7 +422,8 @@ TEST_F(NetworkQuality, settingHandlerMultipleTimes)
                         NULL);
     }
 
-	wcall_destroy(wuser);
+    // This is the main issue because test is flaky, and it is a race condition to the other user 123 we had already running!
+	// wcall_destroy(wuser);
 }
 
 TEST_F(NetworkQuality, checkHandlerForDifferentIntervals)
