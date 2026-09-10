@@ -255,6 +255,7 @@ struct ecall_wrapper *init_ecall(const char *name, bool fake_auth)
 			  ICALL_CONV_TYPE_CONFERENCE,
 			  ICALL_CALL_TYPE_NORMAL,
 			  NULL,
+			  "sectest",
 			  msystem_instance(),
 			  "guess",
 			  name,

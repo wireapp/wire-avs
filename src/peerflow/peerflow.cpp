@@ -99,6 +99,7 @@ extern "C" {
 
 static struct {
 	std::unique_ptr<webrtc::Thread> thread;
+	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory;
 	bool initialized;
 
 	struct {
@@ -860,10 +861,10 @@ static void create_pc_deps(struct peerflow *pf,
 				 *pc_deps.env,
 				 webrtc::AudioDeviceModule::AudioLayer::kAndroidOpenSLESAudio);
 #else
-	if (pf->rec_path) {
+	if (pf && pf->rec_path) {
 		pc_deps.adm = new webrtc::record_audiodevice(pf->rec_path);
 	}
-	else if (streq(pf->msys_name, "pstn")) {
+	else if (pf && streq(pf->msys_name, "pstn")) {
 		auto adm = new webrtc::pstn_audiodevice(true);
 		pc_deps.adm = adm;
 		pstn_adm_register(pf->convid, (void *)adm);
@@ -880,6 +881,7 @@ static void create_pc_deps(struct peerflow *pf,
 int peerflow_init(void)
 {
 	webrtc::AudioDeviceModule *adm;
+	webrtc::PeerConnectionFactoryDependencies pc_deps;
 	int err;
 
 	if (g_pf.initialized)
@@ -913,8 +915,20 @@ int peerflow_init(void)
 	g_pf.thread->BlockingCall([] {
 		info("pf: starting runnable\n");
 		pc_platform_init();
-		info("pf: platform initialized\n");		
+		info("pf: platform initialized\n");
 	});
+
+	// Regardless of whether we need them, we create a global PeerConnection factory.
+	// This gives us the ability to use it for general calls or to create dedicated factories for
+	// audio recording or PSTN forwarding.
+	create_pc_deps(NULL, pc_deps);
+	g_pf.pc_factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
+
+	if (!g_pf.pc_factory) {
+		err = ENOSYS;
+		goto out;
+	}
+
 	g_pf.video.src = webrtc::make_ref_counted<wire::CaptureSource>();
 	g_pf.initialized = true;
 
@@ -2082,11 +2096,16 @@ static int create_pf(struct peerflow *pf)
 	deps.allocator = std::move(port_allocator);
 	webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::PeerConnectionInterface>> pcorerr;
 	webrtc::PeerConnectionFactoryDependencies pc_deps;
-
-	create_pc_deps(pf, pc_deps);
-
 	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
-	factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
+
+	if (pf->rec_path || streq(pf->msys_name, "pstn")) {
+		// we will create a new PeerConnectionFactory for each call in case of audio recording or PSTN forwarding
+		create_pc_deps(pf, pc_deps);
+		factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
+	} else {
+		// reuse the global PeerConnectionFactory for regular calls to avoid system conflicts
+		factory = g_pf.pc_factory;
+	}
 
 	if (!factory) {
 		err = ENOSYS;
