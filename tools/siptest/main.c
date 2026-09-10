@@ -3,10 +3,7 @@
 #include <re.h>
 #include <avs_wcall.h>
 
-//#define SIP_AOR "sip:wire@192.168.2.240:5061;regint=0"
-//#define SIP_AOR "sip:wire@172.20.10.8:5061;regint=0"
-//#define SIP_AOR "sip:wire@192.168.20.157:5061;regint=0"
-#define SIP_AOR "sip:wire@127.0.0.1:5061;regint=0"
+#define SIP_AOR "sip:wire@127.0.0.1;regint=0"
 
 #define CONVID "siptest"
 
