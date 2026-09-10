@@ -215,6 +215,10 @@ void pstn_audiodevice::rec_write(const int16_t *sampv, size_t sampc)
 	uint32_t currentMicLevel = 10;
 	uint32_t newMicLevel = 0;
 
+#if 0
+	re_printf("rec_write: rec=%d ac=%p sampv=%w\n",
+		  is_recording_, audioCallback_, sampv, 6);
+#endif
 	if (is_recording_ && audioCallback_) {
 		audioCallback_->RecordedDataIsAvailable(
 			(void*)sampv,
