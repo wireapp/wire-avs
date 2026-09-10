@@ -78,10 +78,8 @@ struct auplay_st {
 	auplay_write_h *wh;
 	void *arg;
 
-	void  *sampv;
+	int16_t sampv[PSTN_SAMPLES];
 	size_t sampc;
-	void  *out_sampv;
-	size_t out_sampc;
 
 	struct le le;
 };
@@ -141,6 +139,10 @@ static void auplay_mix_frame_handler(const int16_t *sampv,
 		ap->wh(ap->sampv, ap->sampc, ap->arg);
 	}
 
+#if 0
+	re_printf("auplay_frame: sampc=%d sampv=%w\n", ap->sampc, ap->sampv, 6);
+#endif
+
 	/* This is to be mixed with all others together with the wire
 	 * audio stream, to all participants on this gateway
 	 */
@@ -154,10 +156,20 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 	struct wdev *wdev = arg;
 
 	if (wdev->wa.rh) {
-		auresamp(&wdev->wa.src_resamp,
-			 wdev->wa.src_sampv, &wdev->wa.src_sampc,
-			 sampv, sampc);
-		wdev->wa.rh((void *)wdev->wa.src_sampv, wdev->wa.src_sampc,
+		int err = auresamp(&wdev->wa.src_resamp,
+				   wdev->wa.src_sampv, &wdev->wa.src_sampc,
+				   sampv, sampc);
+#if 0
+		re_printf("err=%d insampc=%d out_sampc=%d sin=%w sout=%w\n",
+			  err,
+			  sampc, wdev->wa.src_sampc,
+			  sampv, 6,
+			  wdev->wa.src_sampv, 6);
+#else
+		(void)err;
+#endif
+		wdev->wa.rh((const void *)wdev->wa.src_sampv,
+			    wdev->wa.src_sampc,
 			    wdev->wa.arg);
 	}
 	if (wdev->wa.wh) {
@@ -347,6 +359,7 @@ static int wa_play_alloc(struct auplay_st **stp, const struct auplay *ap,
 
 	st->ap = ap;
 	st->wdev = wdev;
+	st->sampc = PSTN_SAMPLES;
 	st->wh = wh;
 	st->arg = arg;
 
@@ -422,7 +435,7 @@ int wireaudio_set_handlers(const char *convid,
 
 EXPORT_SYM const struct mod_export DECL_EXPORTS(wireaudio) = {
 	"wireaudio",
-	"application",
+	"audio",
 	wireaudio_init,
 	wireaudio_close,
 };
