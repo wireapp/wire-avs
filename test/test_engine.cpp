@@ -37,8 +37,8 @@ public:
 	{
 #if 1
 		/* you can enable this to see what is going on .. */
-		log_set_min_level(LOG_LEVEL_WARN);
-		log_enable_stderr(false);
+		avs_log_set_min_level(LOG_LEVEL_WARN);
+		avs_log_enable_stderr(false);
 #endif
 
 		err = engine_init(ENG_MSYS);
@@ -232,8 +232,8 @@ TEST_F(EngineTest, register_client)
 
 #if 0
 	/* you can enable this to see what is going on .. */
-	log_set_min_level(LOG_LEVEL_WARN);
-	log_enable_stderr(true);
+	avs_log_set_min_level(LOG_LEVEL_WARN);
+	avs_log_enable_stderr(true);
 #endif
 
 	/* wait for engine to login .. */

@@ -61,8 +61,8 @@ static void print_udp_bufsize(int af)
 
 TEST(version, print)
 {
-	log_set_min_level(LOG_LEVEL_INFO);
-	log_enable_stderr(true);
+	avs_log_set_min_level(LOG_LEVEL_INFO);
+	avs_log_enable_stderr(true);
 
 	avs_print_versions();
 
