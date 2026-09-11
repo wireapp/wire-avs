@@ -1426,7 +1426,7 @@ void pc_log(int level, const char *msg);
 EMSCRIPTEN_KEEPALIVE
 void pc_log(int level, const char *msg)
 {
-	loglv((enum log_level)level, msg);
+	avs_loglv((enum avs_log_level)level, msg);
 }
 
 
