@@ -478,7 +478,9 @@ $(CONTRIB_BARESIP_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 		$(CONTRIB_BARESIP_PATH)/modules/wireaudio || true
 	@cd $(CONTRIB_BARESIP_PATH) && \
 		rm -f libbaresip.a && \
-		make STATIC=yes USE_G711=yes \
+		make STATIC=yes \
+		USE_G711=yes \
+		USE_ALSA= USE_PULSE= \
 		EXTRA_MODULES=wireaudio libbaresip.a $(JOBS) \
 		BUILD=build-$(AVS_OS)-$(AVS_ARCH) \
 		CC="$(CC)" \
