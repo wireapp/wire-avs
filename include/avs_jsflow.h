@@ -9,6 +9,7 @@ typedef void (jsflow_acbr_h)(bool enabled, bool offer, void *arg);
 void jsflow_start_log(void);
 
 int jsflow_alloc(struct iflow		**flowp,
+		 const char             *msys_name,
 		 const char		*convid,
 		 const char		*userid_self,
 		 const char		*clientid_self,
