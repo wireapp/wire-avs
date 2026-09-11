@@ -26,7 +26,7 @@
 
 static struct {
 	struct list logl;
-	enum log_level min_level;
+	enum avs_log_level min_level;
 	bool stder;
 } lg = {
 	.logl  = LIST_INIT,
@@ -35,7 +35,7 @@ static struct {
 };
 
 
-void log_register_handler(struct log *log)
+void avs_log_register_handler(struct avs_log *log)
 {
 	if (!log)
 		return;
@@ -44,7 +44,7 @@ void log_register_handler(struct log *log)
 }
 
 
-void log_unregister_handler(struct log *log)
+void avs_log_unregister_handler(struct avs_log *log)
 {
 	if (!log)
 		return;
@@ -53,34 +53,34 @@ void log_unregister_handler(struct log *log)
 }
 
 
-void log_set_min_level(enum log_level level)
+void avs_log_set_min_level(enum avs_log_level level)
 {
 	lg.min_level = level;
 }
 
 
-enum log_level log_get_min_level(void)
+enum avs_log_level avs_log_get_min_level(void)
 {
 	return lg.min_level;
 }
 
 
-void log_enable_stderr(bool enable)
+void avs_log_enable_stderr(bool enable)
 {
 	lg.stder = enable;
 }
 
 
-void vloglv(enum log_level level, const char *fmt, va_list ap)
+void avs_vloglv(enum avs_log_level level, const char *fmt, va_list ap)
 {
 	if (lg.min_level > level)
 		return;
 
-	vlog(level, fmt, ap);
+	avs_vlog(level, fmt, ap);
 }
 
 
-void vlog(enum log_level level, const char *fmt, va_list ap)
+void avs_vlog(enum avs_log_level level, const char *fmt, va_list ap)
 {
 	struct le *le;
 	char *msg;
@@ -90,7 +90,7 @@ void vlog(enum log_level level, const char *fmt, va_list ap)
 	if (err)
 		return;
 
-	log_mask_ipaddr(msg);
+	avs_log_mask_ipaddr(msg);
 
 	if (lg.stder) {
 
@@ -110,7 +110,7 @@ void vlog(enum log_level level, const char *fmt, va_list ap)
 
 	while (le) {
 
-		struct log *log = le->data;
+		struct avs_log *log = le->data;
 		le = le->next;
 
 		if (log->h)
@@ -121,7 +121,7 @@ void vlog(enum log_level level, const char *fmt, va_list ap)
 }
 
 
-void loglv(enum log_level level, const char *fmt, ...)
+void avs_loglv(enum avs_log_level level, const char *fmt, ...)
 {
 	va_list ap;
 
@@ -129,12 +129,12 @@ void loglv(enum log_level level, const char *fmt, ...)
 		return;
 
 	va_start(ap, fmt);
-	vlog(level, fmt, ap);
+	avs_vlog(level, fmt, ap);
 	va_end(ap);
 }
 
 
-void debug(const char *fmt, ...)
+void avs_debug(const char *fmt, ...)
 {
 	va_list ap;
 
@@ -142,12 +142,12 @@ void debug(const char *fmt, ...)
 		return;
 
 	va_start(ap, fmt);
-	vlog(LOG_LEVEL_DEBUG, fmt, ap);
+	avs_vlog(LOG_LEVEL_DEBUG, fmt, ap);
 	va_end(ap);
 }
 
 
-void info(const char *fmt, ...)
+void avs_info(const char *fmt, ...)
 {
 	va_list ap;
 
@@ -155,12 +155,12 @@ void info(const char *fmt, ...)
 		return;
 
 	va_start(ap, fmt);
-	vlog(LOG_LEVEL_INFO, fmt, ap);
+	avs_vlog(LOG_LEVEL_INFO, fmt, ap);
 	va_end(ap);
 }
 
 
-void warning(const char *fmt, ...)
+void avs_warning(const char *fmt, ...)
 {
 	va_list ap;
 
@@ -168,32 +168,17 @@ void warning(const char *fmt, ...)
 		return;
 
 	va_start(ap, fmt);
-	vlog(LOG_LEVEL_WARN, fmt, ap);
+	avs_vlog(LOG_LEVEL_WARN, fmt, ap);
 	va_end(ap);
 }
 
 
-void error(const char *fmt, ...)
+void avs_error(const char *fmt, ...)
 {
 	va_list ap;
 
 	va_start(ap, fmt);
-	vlog(LOG_LEVEL_ERROR, fmt, ap);
-	va_end(ap);
-}
-
-/**
- * Print an ERROR message to the logging system
- *
- * @param fmt   Formatted message
- * @param ...   Variable arguments
- */
-void error_msg(const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	vlog(LOG_LEVEL_ERROR, fmt, ap);
+	avs_vlog(LOG_LEVEL_ERROR, fmt, ap);
 	va_end(ap);
 }
 
@@ -243,7 +228,7 @@ const char *anon_client(char *outid, const char *inid)
 
 
 #if 1
-void log_mask_ipaddr(const char *msg)
+void avs_log_mask_ipaddr(const char *msg)
 {
 	struct pl a, b, c, d, e, f, g, h;
 	const char *p = msg;

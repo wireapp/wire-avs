@@ -20,9 +20,11 @@
 #include <pthread.h>
 #include <string.h>
 
+
 #define FRAME_LEN_MS 10
 #define FS_KHZ 16
 #define FRAME_LEN (FRAME_LEN_MS*FS_KHZ)
+
 
 namespace webrtc {
     class pstn_audiodevice : public audio_io_class {
@@ -36,6 +38,8 @@ namespace webrtc {
 
 	    struct aubuf *get_aubuf_play(void);
 	    struct aubuf *get_aubuf_rec(void);
+	    void play_read(int16_t *sampv, size_t sampc);
+	    void rec_write(const int16_t *sampv, size_t sampc);
 
 	    int32_t RegisterAudioCallback(AudioTransport* audioCallback);
 	    int32_t Init() { return 0; }
@@ -175,22 +179,11 @@ namespace webrtc {
 	    int32_t EnableSine() { return 0; }
 	    int32_t EnableNoise() { return 0; }
 	    
-
-	    void* record_thread();
-	    void* playout_thread();
     private:
 	    AudioTransport* audioCallback_;
-	    pthread_t rec_tid_ = 0;
-	    pthread_t play_tid_ = 0;
 	    volatile bool is_recording_;
 	    volatile bool is_playing_;
 	    volatile bool rec_is_initialized_;
 	    volatile bool play_is_initialized_;
-	    bool realtime_;
-	    float delta_omega_;
-	    float omega_;
-	    bool muted_;
-	    struct aubuf *aubuf_play_;
-	    struct aubuf *aubuf_rec_;
     };
 }

@@ -9,6 +9,10 @@
 #include <re.h>
 #include <avs.h>
 
+#ifdef error
+#undef error
+#endif
+
 @implementation AVSVideoView {
 	id<MTLDevice> _metalDevice;
 	CAMetalLayer *_metalLayer;

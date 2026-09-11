@@ -19,6 +19,11 @@
 #import "AVSSound.h"
 #include <re.h>
 #include <avs.h>
+
+#ifdef error
+#undef error
+#endif
+
 @interface AVSSound ( )
 
 - (void)updateVolume;

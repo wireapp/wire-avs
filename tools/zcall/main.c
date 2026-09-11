@@ -406,7 +406,7 @@ int main(int argc, char *argv[])
 	const char *request_uri = DEFAULT_REQUEST_URL;
 	const char *notification_uri = DEFAULT_NOTIFICATION_URL;
 	const char *store_dir = DEFAULT_STORE_DIR;
-	enum log_level level = LOG_LEVEL_INFO;
+	enum avs_log_level level = LOG_LEVEL_INFO;
 	bool flush = false;
 	char msys[64] = "voe";
 	char log_file_name[100];
@@ -600,7 +600,7 @@ int main(int argc, char *argv[])
 		output("Log level set to INFO.\n");
 	else if (level == LOG_LEVEL_DEBUG)
 		output("Log level set to DEBUG.\n");
-	log_set_min_level(level);
+	avs_log_set_min_level(level);
 
 	info("libavs version %s\n", wcall_library_version());
 

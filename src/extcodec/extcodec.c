@@ -34,7 +34,7 @@ static struct {
 };
 
 
-int extcodec_audio_register(struct aucodec *ac)
+int extcodec_audio_register(struct avs_aucodec *ac)
 {
 	if (!ac)
 		return EINVAL;
@@ -45,7 +45,7 @@ int extcodec_audio_register(struct aucodec *ac)
 }
 
 
-void extcodec_audio_unregister(struct aucodec *ac)
+void extcodec_audio_unregister(struct avs_aucodec *ac)
 {
 	if (!ac)
 		return;
@@ -54,7 +54,7 @@ void extcodec_audio_unregister(struct aucodec *ac)
 }
 
 
-int extcodec_video_register(struct vidcodec *vc)
+int extcodec_video_register(struct avs_vidcodec *vc)
 {
 	if (!vc)
 		return EINVAL;
@@ -65,7 +65,7 @@ int extcodec_video_register(struct vidcodec *vc)
 }
 
 
-void extcodec_video_unregister(struct vidcodec *vc)
+void extcodec_video_unregister(struct avs_vidcodec *vc)
 {
 	if (!vc)
 		return;
@@ -74,7 +74,7 @@ void extcodec_video_unregister(struct vidcodec *vc)
 }
 
 
-int extcodec_audio_init(struct list *aucodecl)
+int extcodec_audio_init(struct list *avs_aucodecl)
 {
 	struct le *le;
 	int err = 0;
@@ -82,14 +82,14 @@ int extcodec_audio_init(struct list *aucodecl)
 	/* list all supported codecs */
 
 	LIST_FOREACH(&extcodec.aucodecl, le) {
-		struct aucodec *ac = le->data;
+		struct avs_aucodec *ac = le->data;
 
 		if (!ac->name || !ac->srate || !ac->ch)
 			continue;
 
 		ac->data = NULL;
 
-		aucodec_register(aucodecl, ac);
+		avs_aucodec_register(aucodecl, ac);
 
 		info("extcodec_audio_init: registering %s(%d) ch=%d\n",
 		     ac->name, ac->srate, ac->ch);
@@ -110,11 +110,11 @@ int extcodec_video_init(struct list *vidcodecl)
 	/* list all supported codecs */
 
 	LIST_FOREACH(&extcodec.vidcodecl, le) {
-		struct vidcodec *vc = le->data;
+		struct avs_vidcodec *vc = le->data;
 
 		vc->data = NULL;
 
-		vidcodec_register(vidcodecl, vc);
+		avs_vidcodec_register(vidcodecl, vc);
 		info("extcodec_video_init: registering %s(%d)", vc->name);
 	}
 
@@ -130,9 +130,9 @@ void extcodec_audio_close(void)
 	struct le *le;
 	
 	LIST_FOREACH(&extcodec.aucodecl, le) {	
-		struct aucodec *ac = le->data;
+		struct avs_aucodec *ac = le->data;
 
-		aucodec_unregister(ac);
+		avs_aucodec_unregister(ac);
 
 		info("extcodec_audio_close: unregistered %s(%d) ch=%d\n",
 		     ac->name, ac->srate, ac->ch);

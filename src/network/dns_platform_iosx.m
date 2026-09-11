@@ -23,6 +23,9 @@
 #include "avs.h"
 #include "dns_platform.h"
 
+#ifdef error
+#undef error
+#endif
 
 static int lookup_done(struct sa *srv,
 		       CFHostRef host,

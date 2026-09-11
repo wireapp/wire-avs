@@ -42,7 +42,8 @@ typedef void (egcall_metrics_h)(const char *metrics_json, void *arg);
 const char *egcall_state_name(enum egcall_state state);
 
 int egcall_alloc(struct egcall **egcallp,
-		 const struct ecall_conf *conf,		 
+		 const struct ecall_conf *conf,
+		 const char *msys_name,
 		 const char *convid,
 		 const char *userid_self,
 		 const char *clientid);

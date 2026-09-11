@@ -45,13 +45,17 @@
 typedef NSView AVSVideoView;
 #endif
 
+#ifdef error
+#undef error
+#endif
+
 #define DISPATCH_Q \
 	dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)
 
 static struct {
 	bool initialized;
 	pthread_t tid;
-	enum log_level log_level;
+	enum avs_log_level log_level;
 	int err;
 	uint64_t avs_flags;
 } fmw = {
@@ -234,7 +238,7 @@ static void log_handler(uint32_t lve, const char *msg, void *arg)
 }
 
 
-static struct log log_def = {
+static struct avs_log log_def = {
 	.h = log_handler
 };
 
@@ -258,9 +262,9 @@ static void *avs_thread(void *arg)
 		return NULL;
 	}
 
-	log_enable_stderr(false);
-	log_set_min_level(LOG_LEVEL_DEBUG);
-	log_register_handler(&log_def);
+	avs_log_enable_stderr(false);
+	avs_log_set_min_level(LOG_LEVEL_DEBUG);
+	avs_log_register_handler(&log_def);
 
 	NSLog(@"Calling avs_init");
 	
@@ -274,7 +278,7 @@ static void *avs_thread(void *arg)
 	fmw.initialized = err == 0;
 	fmw.err = err;
 	if (err) {
-		error("avs_thread: failed to init flowmgr\n");
+		avs_error("avs_thread: failed to init flowmgr\n");
 		goto out;
 	}
 
@@ -284,7 +288,7 @@ out:
 	flowmgr_close();
 	avs_close();
 
-	log_unregister_handler(&log_def);
+	avs_log_unregister_handler(&log_def);
 
 	info("avs_thread: done\n");
 
@@ -365,7 +369,7 @@ static void err_handler(int err, const char *convid, void *arg)
 }
 
 #if 0
-static inline enum log_level convert_logl(AVSFlowManagerLogLevel logLevel)
+static inline enum avs_log_level convert_logl(AVSFlowManagerLogLevel logLevel)
 {
 	switch(logLevel) {
 	case FLOWMANAGER_LOGLEVEL_DEBUG:
@@ -461,7 +465,7 @@ static AVSFlowManager *_AVSFlowManagerInstance = nil;
 		}
 	}
 	if (fmw.err) {
-		error("AVSFlowManager::init: error initializing subsystems");
+		avs_error("AVSFlowManager::init: error initializing subsystems");
 		return nil;
 	}
 

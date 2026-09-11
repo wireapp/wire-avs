@@ -26,7 +26,8 @@ extern "C" {
 #include <avs_version.h>
 #include <avs_audio_io.h>
 #include <avs_audio_level.h>
-
+#include <avs_pstn.h>
+	
 #ifdef __cplusplus
 }
 #endif
@@ -98,6 +99,7 @@ extern "C" {
 
 static struct {
 	std::unique_ptr<webrtc::Thread> thread;
+	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory;
 	bool initialized;
 
 	struct {
@@ -139,6 +141,7 @@ static struct {
 
 struct peerflow {
 	struct iflow iflow;
+	char *msys_name;
 	char *convid;
 	char *userid_self;
 	char *clientid_self;
@@ -719,7 +722,7 @@ static void mq_handler(int id, void *data, void *arg)
 }
 
 
-static enum log_level severity2level(webrtc::LoggingSeverity severity)
+static enum avs_log_level severity2level(webrtc::LoggingSeverity severity)
 {
 	switch(severity) {
 	case webrtc::LS_VERBOSE:
@@ -745,22 +748,22 @@ public:
 	virtual void OnLogMessage(const std::string& msg,
 					   webrtc::LoggingSeverity severity,
 					   const char* tag) {
-		enum log_level lvl = severity2level(severity);
+		enum avs_log_level lvl = severity2level(severity);
 #ifdef ANDROID
 		__android_log_write(ANDROID_LOG_INFO, tag, msg.c_str());
 #else
-		loglv(lvl, "[%s] %s", tag, msg.c_str());
+		avs_loglv(lvl, "[%s] %s", tag, msg.c_str());
 #endif
 	}
 
 	virtual void OnLogMessage(const std::string& msg,
 				   webrtc::LoggingSeverity severity) {
 		
-		enum log_level lvl = severity2level(severity);
+		enum avs_log_level lvl = severity2level(severity);
 #ifdef ANDROID
 		__android_log_write(ANDROID_LOG_INFO, "AVS", msg.c_str());
 #else
-		loglv(lvl, "%s", msg.c_str());
+		avs_loglv(lvl, "%s", msg.c_str());
 #endif
 	}
 	
@@ -858,11 +861,13 @@ static void create_pc_deps(struct peerflow *pf,
 				 *pc_deps.env,
 				 webrtc::AudioDeviceModule::AudioLayer::kAndroidOpenSLESAudio);
 #else
-	if (pf->rec_path) {
+	if (pf && pf->rec_path) {
 		pc_deps.adm = new webrtc::record_audiodevice(pf->rec_path);
 	}
-	else if (msystem_is_pstn()) {
-		pc_deps.adm = new webrtc::pstn_audiodevice(true);
+	else if (pf && streq(pf->msys_name, "pstn")) {
+		auto adm = new webrtc::pstn_audiodevice(true);
+		pc_deps.adm = adm;
+		pstn_adm_register(pf->convid, (void *)adm);
 	}
 	else {
 		pc_deps.adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
@@ -876,6 +881,7 @@ static void create_pc_deps(struct peerflow *pf,
 int peerflow_init(void)
 {
 	webrtc::AudioDeviceModule *adm;
+	webrtc::PeerConnectionFactoryDependencies pc_deps;
 	int err;
 
 	if (g_pf.initialized)
@@ -909,8 +915,20 @@ int peerflow_init(void)
 	g_pf.thread->BlockingCall([] {
 		info("pf: starting runnable\n");
 		pc_platform_init();
-		info("pf: platform initialized\n");		
+		info("pf: platform initialized\n");
 	});
+
+	// Regardless of whether we need them, we create a global PeerConnection factory.
+	// This gives us the ability to use it for general calls or to create dedicated factories for
+	// audio recording or PSTN forwarding.
+	create_pc_deps(NULL, pc_deps);
+	g_pf.pc_factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
+
+	if (!g_pf.pc_factory) {
+		err = ENOSYS;
+		goto out;
+	}
+
 	g_pf.video.src = webrtc::make_ref_counted<wire::CaptureSource>();
 	g_pf.initialized = true;
 
@@ -1627,7 +1645,7 @@ public:
 
 		send_close(pf_, EINTR);
 	}
-
+	
 	virtual void OnSetLocalDescriptionComplete(webrtc::RTCError err)
 	{
 		if (err.ok())
@@ -2078,11 +2096,16 @@ static int create_pf(struct peerflow *pf)
 	deps.allocator = std::move(port_allocator);
 	webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::PeerConnectionInterface>> pcorerr;
 	webrtc::PeerConnectionFactoryDependencies pc_deps;
-
-	create_pc_deps(pf, pc_deps);
-
 	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
-	factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
+
+	if (pf->rec_path || streq(pf->msys_name, "pstn")) {
+		// we will create a new PeerConnectionFactory for each call in case of audio recording or PSTN forwarding
+		create_pc_deps(pf, pc_deps);
+		factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
+	} else {
+		// reuse the global PeerConnectionFactory for regular calls to avoid system conflicts
+		factory = g_pf.pc_factory;
+	}
 
 	if (!factory) {
 		err = ENOSYS;
@@ -2233,6 +2256,7 @@ static void pf_destructor(void *arg)
 	mem_deref(pf->rec_path);
 	mem_deref(pf->cm);
 	mem_deref(pf->stats);
+	mem_deref(pf->msys_name);
 
 	list_flush(&pf->cml.list);
 	mem_deref(pf->cml.lock);
@@ -2404,6 +2428,7 @@ int peerflow_update_ssrc(struct iflow *iflow, uint32_t ssrca, uint32_t ssrcv)
 }
 
 int peerflow_alloc(struct iflow		**flowp,
+		   const char           *msys_name,
 		   const char		*convid,
 		   const char		*userid_self,
 		   const char		*clientid_self,
@@ -2416,8 +2441,8 @@ int peerflow_alloc(struct iflow		**flowp,
 	struct peerflow *pf;
 	int err = 0;
 
-	info("pf_alloc: initialized=%d call_type=%d vstate=%s\n",
-	     g_pf.initialized, call_type, icall_vstate_name(vstate));
+	info("pf_alloc: initialized=%d msys_name=%s call_type=%d vstate=%s\n",
+	     g_pf.initialized, msys_name, call_type, icall_vstate_name(vstate));
 	if (!g_pf.initialized) {
 		peerflow_init();
 		if (!g_pf.initialized)
@@ -2459,6 +2484,7 @@ int peerflow_alloc(struct iflow		**flowp,
 	if (err) {
 		goto out;
 	}
+	str_dup(&pf->msys_name, msys_name);
 	str_dup(&pf->convid, convid);
 	str_dup(&pf->userid_self, userid_self);
 	str_dup(&pf->clientid_self, clientid_self);

@@ -34,7 +34,8 @@ enum ccall_state {
 };
 
 int ccall_alloc(struct ccall **ccallp,
-		const struct ecall_conf *conf,		 
+		const struct ecall_conf *conf,
+		const char *msys_name,
 		const char *convid,
 		const char *userid_self,
 		const char *clientid,
