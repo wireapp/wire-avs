@@ -29,8 +29,8 @@ public:
 	{
 		int err;
 
-		log_set_min_level(LOG_LEVEL_INFO);
-		log_enable_stderr(true);
+		avs_log_set_min_level(LOG_LEVEL_INFO);
+		avs_log_enable_stderr(true);
 
 		err = tls_alloc(&tls, TLS_METHOD_SSLV23, 0, 0);
 		ASSERT_EQ(0, err);

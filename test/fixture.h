@@ -34,8 +34,8 @@ public:
 
 
 #if 1
-		log_set_min_level(LOG_LEVEL_WARN);
-		log_enable_stderr(true);
+		avs_log_set_min_level(LOG_LEVEL_WARN);
+		avs_log_enable_stderr(true);
 #endif
 
 		backend = new FakeBackend;
