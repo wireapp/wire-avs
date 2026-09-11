@@ -33,7 +33,6 @@
 
 
 #include "wcall.h"
-#include "sip.h"
 
 #ifdef __APPLE__
 #       include <TargetConditionals.h>
@@ -96,7 +95,7 @@ static struct {
 
 
 struct log_entry {
-	struct log logger;
+	struct avs_log logger;
 
 	wcall_log_h *logh;
 	void *arg;
@@ -110,6 +109,7 @@ struct calling_instance {
 	struct mediamgr *mm;
 	char *userid;
 	char *clientid;
+	char *msys_name;
 	struct ecall_conf config;
 	struct ecall_conf conf_config;
 	struct call_config *call_config;
@@ -184,7 +184,7 @@ struct calling_instance {
         struct list durationl;
 	struct list config_updatel;
 
-	struct sip_instance sip_inst;
+	struct sip_instance *sip_inst;
 };
 
 struct wcall {
@@ -1955,7 +1955,9 @@ int wcall_add(struct calling_instance *inst,
 		err = ecall_alloc(&ecall, &inst->ecalls,
 				  ICALL_CONV_TYPE_ONEONONE,
 				  ICALL_CALL_TYPE_NORMAL,
-				  &inst->config, inst->msys,
+				  &inst->config,
+				  inst->msys_name,
+				  inst->msys,
 				  convid,
 				  inst->userid,
 				  inst->clientid);
@@ -1995,6 +1997,7 @@ int wcall_add(struct calling_instance *inst,
 		struct egcall* egcall;
 		err = egcall_alloc(&egcall,
 				   &inst->config,
+				   inst->msys_name,
 				   convid,
 				   inst->userid,
 				   inst->clientid);
@@ -2036,6 +2039,7 @@ int wcall_add(struct calling_instance *inst,
 		struct ccall* ccall;
 		err = ccall_alloc(&ccall,
 				  &inst->conf_config,
+				  inst->msys_name,
 				  convid,
 				  inst->userid,
 				  inst->clientid,
@@ -2361,7 +2365,7 @@ int wcall_setup_ex(int flags)
 {
 	int err = 0;
 
-	log_set_min_level(LOG_LEVEL_DEBUG);
+	avs_log_set_min_level(LOG_LEVEL_DEBUG);
 
 	info(APITAG "wcall_setup(%d): starting...\n", flags);
 
@@ -2468,7 +2472,7 @@ void wcall_close(void)
 	LIST_FOREACH(&calling.logl, le) {
 		struct log_entry *loge = le->data;
 		
-		log_unregister_handler(&loge->logger);
+		avs_log_unregister_handler(&loge->logger);
 	}
 	list_flush(&calling.logl);
 	list_flush(&calling.instances);
@@ -2953,6 +2957,8 @@ WUSER_HANDLE wcall_create_ex(const char *userid,
 			inst, err);
 		goto out;
 	}
+
+	str_dup(&inst->msys_name, msys_name);
 
 	/* Always enable Crypto-KASE for now .. */
 	msystem_enable_kase(inst->msys, true);
@@ -4086,7 +4092,7 @@ static void wcall_log_handler(uint32_t level, const char *msg, void *arg)
 	struct log_entry *loge = arg;
 	int wlvl;
 
-	log_mask_ipaddr(msg);
+	avs_log_mask_ipaddr(msg);
 
 	switch (level) {
 	case LOG_LEVEL_DEBUG:
@@ -4130,14 +4136,26 @@ void wcall_set_log_handler(wcall_log_h *logh, void *arg)
 	loge->logger.h = wcall_log_handler;
 	loge->logger.arg = loge;
 
-	log_register_handler(&loge->logger);
-	log_enable_stderr(false);
+	avs_log_register_handler(&loge->logger);
+	avs_log_enable_stderr(false);
 
 	lock_write_get(calling.lock);
 	list_append(&calling.logl, &loge->le, loge);
 	lock_rel(calling.lock);
 }
 
+void wcall_ext_log(uint32_t level, const char *msg)
+{
+	struct le *le;
+
+	LIST_FOREACH(&calling.logl, le) {
+		struct log_entry *lent = le->data;
+
+		if (lent) {
+			wcall_log_handler(level, msg, lent);
+		}
+	}
+}
 
 #if USE_AVSLIB
 static void netprobe_handler(int err, const struct netprobe_result *result,
@@ -4735,7 +4753,29 @@ struct calling_instance *wcall_get_instance(void)
 	}
 }
 
+int  wcall_register_sip_instance(struct calling_instance *inst,
+				struct sip_instance *sip_inst)
+{
+	if (!inst)
+		return EINVAL;
+
+	inst->sip_inst = sip_inst;
+
+	return 0;
+}
+
+void wcall_unregister_sip_instance(struct calling_instance *inst,
+				   struct sip_instance *sip_inst)
+{
+	(void)sip_inst;
+	
+	if (!inst)
+		return;
+
+	inst->sip_inst = NULL;
+}
+
 struct sip_instance *wcall_get_sip_instance(struct calling_instance *inst)
 {
-	return inst ? &inst->sip_inst : NULL;
+	return inst ? inst->sip_inst : NULL;
 }

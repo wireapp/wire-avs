@@ -573,6 +573,7 @@ static struct jsflow *self2pc(int self)
 }
 
 int jsflow_alloc(struct iflow		**flowp,
+		 const char             *msys_name,
 		 const char		*convid,
 		 const char		*userid_self,
 		 const char             *clientid_self,
@@ -585,6 +586,7 @@ int jsflow_alloc(struct iflow		**flowp,
 	struct jsflow *flow;
 	int err = 0;
 
+	(void)msys_name;
 	(void)rec_path;
 	
 	info("jsflow_alloc: initialized=%d call_type=%d vstate=%s\n",

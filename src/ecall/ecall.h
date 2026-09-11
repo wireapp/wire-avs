@@ -116,6 +116,7 @@ struct ecall {
 	enum icall_vstate vstate;
         enum icall_vstate glare_vstate;
 	struct ecall_conf conf;
+	char *msys_name;
 	struct msystem *msys;
 	struct econn *econn;
 

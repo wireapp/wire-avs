@@ -94,7 +94,7 @@ static struct {
 
 	pthread_t tid;
 	
-	enum log_level log_level;
+	enum avs_log_level log_level;
 
 	jobject context;
 
@@ -420,7 +420,7 @@ static int init(JNIEnv *env, jobject jobj, jobject ctx, uint64_t avs_flags)
 	jclass videoRendererCls;
 	int err = 0;
 
-	log_set_min_level(LOG_LEVEL_DEBUG);
+	avs_log_set_min_level(LOG_LEVEL_DEBUG);
 	//log_register_handler(&logh);
 	//__android_log_write(ANDROID_LOG_INFO, "AVS-I", "jni: init\n");
 	info("jni: init\n");
@@ -1056,7 +1056,7 @@ JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_callInterruption
 JNIEXPORT void JNICALL Java_com_waz_call_FlowManager_setLogLevel
 (JNIEnv *env, jclass cls, jint jlevel)
 {
-	java.log_level = (enum log_level)jlevel;
+	java.log_level = (enum avs_log_level)jlevel;
 }
 
 

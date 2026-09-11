@@ -18,6 +18,7 @@ typedef void (peerflow_tool_h)(const char *tool, void *arg);
 void peerflow_start_log(void);
 
 int peerflow_alloc(struct iflow		**flowp,
+		   const char           *msys_name,
 		   const char		*convid,
 		   const char		*userid_self,
 		   const char		*clientid_self,

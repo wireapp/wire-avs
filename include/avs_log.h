@@ -24,34 +24,38 @@
  * Log
  */
 
-enum log_level {
+enum avs_log_level {
 	LOG_LEVEL_DEBUG = 0,
 	LOG_LEVEL_INFO  = 1,
 	LOG_LEVEL_WARN  = 2,
 	LOG_LEVEL_ERROR = 3,
 };
 
-typedef void (log_h)(uint32_t level, const char *msg, void *arg);
+typedef void (avs_log_h)(uint32_t level, const char *msg, void *arg);
 
-struct log {
+struct avs_log {
 	struct le le;
-	log_h *h;
+	avs_log_h *h;
 	void *arg;
 };
 
-void log_register_handler(struct log *log);
-void log_unregister_handler(struct log *log);
-void log_set_min_level(enum log_level level);
-enum log_level log_get_min_level(void);
-void log_enable_stderr(bool enable);
-void vlog(enum log_level level, const char *fmt, va_list ap);
-void loglv(enum log_level level, const char *fmt, ...);
-void vloglv(enum log_level level, const char *fmt, va_list ap);
-void debug(const char *fmt, ...);
-void info(const char *fmt, ...);
-void warning(const char *fmt, ...);
-void error(const char *fmt, ...);
-void error_msg(const char *fmt, ...);
+void avs_log_register_handler(struct avs_log *log);
+void avs_log_unregister_handler(struct avs_log *log);
+void avs_log_set_min_level(enum avs_log_level level);
+enum avs_log_level avs_log_get_min_level(void);
+void avs_log_enable_stderr(bool enable);
+void avs_vlog(enum avs_log_level level, const char *fmt, va_list ap);
+void avs_loglv(enum avs_log_level level, const char *fmt, ...);
+void avs_vloglv(enum avs_log_level level, const char *fmt, va_list ap);
+void avs_debug(const char *fmt, ...);
+void avs_info(const char *fmt, ...);
+void avs_warning(const char *fmt, ...);
+void avs_error(const char *fmt, ...);
+
+#define debug   avs_debug
+#define info    avs_info
+#define warning avs_warning
+#define error   avs_error
 
 /* anonymous IDs */
 #define ANON_ID_LEN     16
@@ -61,7 +65,7 @@ const char *anon_id(char *outid, const char *inid);
 const char *anon_client(char *outid, const char *inid);
 
 
-void log_mask_ipaddr(const char *msg);
+void avs_log_mask_ipaddr(const char *msg);
 
 
 #endif //#ifndef AVS_LOG_H

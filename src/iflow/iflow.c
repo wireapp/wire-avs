@@ -214,6 +214,7 @@ void iflow_set_alloc(iflow_allocf *allocf)
 
 
 int iflow_alloc(struct iflow		**flowp,
+		const char              *msys_name,
 		const char		*convid,
 		const char		*userid_self,
 		const char		*clientid_self,
@@ -228,6 +229,7 @@ int iflow_alloc(struct iflow		**flowp,
 		return ENOMEM;
 	}
 	return statics.alloc(flowp,
+			     msys_name,
 			     convid,
 			     userid_self,
 			     clientid_self,

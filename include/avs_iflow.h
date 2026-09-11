@@ -88,6 +88,7 @@ typedef int  (iflow_debug)(struct re_printf *pf, const struct iflow *flow);
 
 /* Static functions */
 typedef int (iflow_allocf)(struct iflow		**flowp,
+			   const char           *msys_name,
 			   const char		*convid,
 			   const char		*userid_self,
 			   const char		*clientid_self,
@@ -243,6 +244,7 @@ void iflow_register_statics(iflow_destroyf *destroy,
 			    iflow_get_mutef *get_mute);
 
 int iflow_alloc(struct iflow		**flowp,
+		const char              *msys_name,
 		const char		*convid,
 		const char		*userid_self,
 		const char		*clientid_self,
