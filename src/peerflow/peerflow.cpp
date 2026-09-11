@@ -832,9 +832,7 @@ int peerflow_set_funcs(void)
 
 void peerflow_set_adm(void *adm)
 {
-#ifdef ANDROID
-	g_pf.androidAdm = (webrtc::AudioDeviceModule *)adm;
-#endif
+	(void)adm;
 }
 
 static void create_pc_deps(struct peerflow *pf,
