@@ -15,6 +15,7 @@ local.properties
 /coin
 /tmp
 /scripts/tmp
+/doc
 
 /build
 .DS_STORE

@@ -138,8 +138,14 @@ static void destructor(void *arg)
 	mem_deref(ccall->turnv);
 	mem_deref(ccall->userl);
 
-	mem_deref(ccall->ecall_subscriber);
-	mem_deref(ccall->ecall);
+	if (ccall->enable_publish_subscribe) {
+		ccall_pubsub_release(ccall, CCALL_ECALL_SUBSCRIBER);
+		ccall_pubsub_release(ccall, CCALL_ECALL_PUBLISHER);
+	}
+	else {
+		mem_deref(ccall->ecall_subscriber);
+		mem_deref(ccall->ecall);
+	}
 	mem_deref(ccall->secret);
 	mem_deref(ccall->keystore);
 
@@ -1087,7 +1093,7 @@ static void ecall_close_handler(struct icall *icall,
 	}
 
 	// close even the subscriber when publisher closed
-	ccall->ecall_subscriber = mem_deref(ccall->ecall_subscriber);
+	ccall_pubsub_release(ccall, CCALL_ECALL_SUBSCRIBER);
 
 	userlist_incall_clear(ccall->userl, false, false);
 
@@ -2432,7 +2438,7 @@ static int alloc_ecall(struct ccall *ccall, enum ccall_ecall_role role,
 		goto out;
 	}
 
-	if (role == CCALL_ECALL_PUBLISHER) {
+	if (role == CCALL_ECALL_BIDIRECTIONAL) {
 		icall_set_callbacks(ecall_get_icall(ecall),
 				    ecall_transp_send_handler,
 				    NULL, // sft_handler,
@@ -2460,12 +2466,6 @@ static int alloc_ecall(struct ccall *ccall, enum ccall_ecall_role role,
 		ecall_set_propsync_handler(ecall, ecall_propsync_handler);
 		ecall_set_ping_handler(ecall, ecall_ping_handler);
 	}
-	else {
-		// The subscriber has no callbacks.
-		struct icall *icall = ecall_get_icall(ecall);
-		icall->closeh = ecall_close_handler;
-		icall->arg = ccall;
-	}
 	ecall_set_keystore(ecall, ccall->keystore);
 	err = ecall_set_quality_interval(ecall, ccall->quality_interval);
 	if (err)
@@ -2486,6 +2486,7 @@ static int alloc_ecall(struct ccall *ccall, enum ccall_ecall_role role,
 
 	*ecallp = ecall;
 	info("ccall(%p): created %s ecall: %p for %s.%s\n", ccall,
+	     role == CCALL_ECALL_BIDIRECTIONAL ? "bidirectional" :
 	     role == CCALL_ECALL_PUBLISHER ? "publisher" : "subscriber",
 	     ecall, self->userid_hash, self->clientid_hash);
 
@@ -2504,10 +2505,12 @@ struct ecall *ccall_get_ecall(const struct ccall *ccall,
 		return NULL;
 
 	switch (role) {
+	case CCALL_ECALL_BIDIRECTIONAL:
+		return ccall->enable_publish_subscribe ? NULL : ccall->ecall;
 	case CCALL_ECALL_PUBLISHER:
-		return ccall->ecall;
+		return ccall->enable_publish_subscribe ? ccall->ecall : NULL;
 	case CCALL_ECALL_SUBSCRIBER:
-		return ccall->ecall_subscriber;
+		return ccall->enable_publish_subscribe ? ccall->ecall_subscriber : NULL;
 	default:
 		return NULL;
 	}
@@ -2520,7 +2523,7 @@ int ccall_set_enable_publish_subscribe(struct ccall *ccall,
 		return EINVAL;
 	if (ccall->enable_publish_subscribe == enable_publish_subscribe)
 		return 0;
-	if (ccall->ecall || ccall->ecall_subscriber ||
+	if (ccall->transport_ending || ccall->ecall || ccall->ecall_subscriber ||
 	    (ccall->state != CCALL_STATE_IDLE &&
 	     ccall->state != CCALL_STATE_INCOMING))
 		return EBUSY;
@@ -2537,10 +2540,14 @@ int ccall_prepare_ecalls(struct ccall *ccall)
 
 	if (!ccall)
 		return EINVAL;
+	if (ccall->transport_ending)
+		return EBUSY;
 	if (ccall->ecall || ccall->ecall_subscriber)
 		return EALREADY;
 
-	err = alloc_ecall(ccall, CCALL_ECALL_PUBLISHER, &publisher);
+	err = alloc_ecall(ccall, ccall->enable_publish_subscribe
+			  ? CCALL_ECALL_PUBLISHER : CCALL_ECALL_BIDIRECTIONAL,
+			  &publisher);
 	if (err)
 		return err;
 	if (ccall->enable_publish_subscribe) {
@@ -2553,6 +2560,10 @@ int ccall_prepare_ecalls(struct ccall *ccall)
 
 	ccall->ecall = publisher;
 	ccall->ecall_subscriber = subscriber;
+	if (ccall->enable_publish_subscribe) {
+		ccall_pubsub_bind(ccall, publisher, CCALL_ECALL_PUBLISHER);
+		ccall_pubsub_bind(ccall, subscriber, CCALL_ECALL_SUBSCRIBER);
+	}
 	tmr_start(&ccall->tmr_vstate, 0, ccall_sync_vstate_timeout, ccall);
 	return 0;
 }
@@ -3233,14 +3244,13 @@ void ccall_end(struct icall *icall)
 	struct ccall *ccall = (struct ccall*)icall;
 	if (!ccall)
 		return;
-
-	ccall->ecall_subscriber = mem_deref(ccall->ecall_subscriber);
-	if (ccall->ecall) {
-		if (!ccall->enable_publish_subscribe || ecall_get_econn(ccall->ecall))
-			ecall_end(ccall->ecall);
-		else
-			ccall->ecall = mem_deref(ccall->ecall);
+	if (ccall->enable_publish_subscribe) {
+		ccall_pubsub_end(ccall);
+		return;
 	}
+
+	if (ccall->ecall)
+		ecall_end(ccall->ecall);
 }
 
 void ccall_reject(struct icall *icall)
@@ -3644,7 +3654,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		if (ts_cmp > 0) {
 			/* If remote call is earlier, drop connection and
 			   reconnect to the earlier call */
-			ccall->ecall_subscriber = mem_deref(ccall->ecall_subscriber);
+			ccall_pubsub_release(ccall, CCALL_ECALL_SUBSCRIBER);
 			ecall_end(ccall->ecall);
 			ccall->ecall = NULL;
 			ccall->metrics.initiator = false;
@@ -3658,7 +3668,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		if (ts_cmp > 0) {
 			/* If remote call is earlier, drop connection and
 			   reconnect to the earlier call */
-			ccall->ecall_subscriber = mem_deref(ccall->ecall_subscriber);
+			ccall_pubsub_release(ccall, CCALL_ECALL_SUBSCRIBER);
 			ecall_end(ccall->ecall);
 			ccall->ecall = NULL;
 
@@ -4249,6 +4259,12 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 	}
 
 	userlist_incall_clear(ccall->userl, false, false);
+	if (ccall->enable_publish_subscribe) {
+		/* Transport observers may destroy ccall, even without an econn. */
+		set_state(ccall, CCALL_STATE_IDLE);
+		ccall_end(&ccall->icall);
+		return;
+	}
 	if (ccall->ecall && ecall_get_econn(ccall->ecall))
 		ccall_end(&ccall->icall);
 	else {

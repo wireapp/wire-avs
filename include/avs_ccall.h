@@ -22,7 +22,43 @@ struct ecall;
 enum ccall_ecall_role {
 	CCALL_ECALL_PUBLISHER = 0,
 	CCALL_ECALL_SUBSCRIBER,
+	CCALL_ECALL_BIDIRECTIONAL,
 };
+
+enum ccall_transport_event {
+	CCALL_TRANSPORT_OFFER_RECEIVED,
+	CCALL_TRANSPORT_ANSWER_RECEIVED,
+	CCALL_TRANSPORT_MEDIA_READY,
+	CCALL_TRANSPORT_AUDIO_READY,
+	CCALL_TRANSPORT_DATA_READY,
+	CCALL_TRANSPORT_MEDIA_STOPPED,
+	CCALL_TRANSPORT_CLOSED,
+};
+
+struct ccall_transport_state {
+	bool offer_received;
+	bool answer_received;
+	bool media_ready;
+	bool audio_ready;
+	bool data_ready;
+	bool closed;
+	int error;
+};
+
+// this are the standard transport handlers
+struct ccall_transport_handlers {
+	int (*sendh)(struct ccall *, enum ccall_ecall_role, struct econn_message *, void *);
+	void (*eventh)(struct ccall *, enum ccall_ecall_role,
+				enum ccall_transport_event,
+				const struct ccall_transport_state *, void *);
+	void (*qualityh)(struct ccall *, enum ccall_ecall_role, const struct stats_report *, void *);
+	void (*audio_levelh)(struct ccall *, enum ccall_ecall_role, struct list *, void *);
+};
+
+int ccall_set_transport_handlers(struct ccall *ccall,
+		const struct ccall_transport_handlers *handlers, void *arg);
+int ccall_get_transport_state(const struct ccall *ccall,
+		enum ccall_ecall_role role, struct ccall_transport_state *state);
 
 // Activate subscriber and publisher behavior
 int ccall_set_enable_publish_subscribe(struct ccall *ccall, bool enable_publish_subscribe);

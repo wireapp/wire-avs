@@ -73,6 +73,12 @@ struct join_elem {
 	struct config_update_elem upe;
 };
 
+struct ccall_ecall_context {
+	struct ccall *ccall;
+	enum ccall_ecall_role role;
+	struct ccall_transport_state state;
+};
+
 struct ccall {
 	struct icall icall;
 
@@ -108,6 +114,10 @@ struct ccall {
 	/* Separate ownership; the legacy SFT transport uses ecall. */
 	struct ecall *ecall;
 	struct ecall *ecall_subscriber;
+	struct ccall_ecall_context transport[2];
+	struct ccall_transport_handlers transport_handlers;
+	void *transport_arg;
+	bool transport_ending;
 	bool is_caller;
 	bool is_ringing;
 	enum sreason stop_ringing_reason;;
@@ -161,3 +171,8 @@ struct ccall {
 	        struct tmr tmr_term;
 	} meeting;
 };
+
+void ccall_pubsub_bind(struct ccall *ccall, struct ecall *ecall,
+		       enum ccall_ecall_role role);
+void ccall_pubsub_release(struct ccall *ccall, enum ccall_ecall_role role);
+void ccall_pubsub_end(struct ccall *ccall);
