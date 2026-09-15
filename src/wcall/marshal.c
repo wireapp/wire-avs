@@ -63,6 +63,8 @@ enum mq_event {
 	WCALL_MEV_SIP_CLOSE,
 	WCALL_MEV_SIP_CREATE,
 	WCALL_MEV_SIP_DESTROY,
+	WCALL_MEV_SIP_ANSWER,
+	WCALL_MEV_SIP_HANGUP,
 };
 
 
@@ -182,9 +184,26 @@ struct mq_data {
 		} sip_init;
 
 		struct {
-			char *convid;
 			char *aor;
-		} sip_crdest;
+			wcall_sip_incoming_h *incomingh;
+			wcall_sip_close_h *closeh;
+			void *arg;
+		} sip_create;
+
+		struct {
+			char *aor;
+		} sip_destroy;
+
+		struct {
+			struct wsip_call *wsip;
+			char *convid;
+		} sip_answer;
+
+		struct {
+			struct wsip_call *wsip;
+			int code;
+			char *status;
+		} sip_hangup;
 	} u;
 };
 
@@ -259,9 +278,19 @@ static void md_destructor(void *arg)
 		break;
 
 	case WCALL_MEV_SIP_CREATE:
+		mem_deref(md->u.sip_create.aor);
+		break;
+
 	case WCALL_MEV_SIP_DESTROY:
-		mem_deref(md->u.sip_crdest.convid);
-		mem_deref(md->u.sip_crdest.aor);
+		mem_deref(md->u.sip_destroy.aor);
+		break;
+
+	case WCALL_MEV_SIP_ANSWER:
+		mem_deref(md->u.sip_answer.convid);
+		break;
+
+	case WCALL_MEV_SIP_HANGUP:
+		mem_deref(md->u.sip_hangup.status);
 		break;
 
 	default:
@@ -356,6 +385,10 @@ static char *mev_name(int id)
 		return "SIP_CREATE";
 	case WCALL_MEV_SIP_DESTROY:
 		return "SIP_DESTROY";
+	case WCALL_MEV_SIP_ANSWER:
+		return "SIP_ANSWER";
+	case WCALL_MEV_SIP_HANGUP:
+		return "SIP_HANGUP";
 	default:
 		return "???";
 	}
@@ -599,15 +632,30 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 	case WCALL_MEV_SIP_CREATE:
 		wcall_i_sip_create(md->inst,
-				   md->u.sip_crdest.convid,
-				   md->u.sip_crdest.aor);
+				   md->u.sip_create.aor,
+				   md->u.sip_create.incomingh,
+				   md->u.sip_create.closeh,
+				   md->u.sip_create.arg);
 		break;
 
 	case WCALL_MEV_SIP_DESTROY:
 		wcall_i_sip_destroy(md->inst,
-				    md->u.sip_crdest.convid,
-				    md->u.sip_crdest.aor);
+				    md->u.sip_destroy.aor);
 		break;
+
+	case WCALL_MEV_SIP_ANSWER:
+		wcall_i_sip_answer(md->inst,
+				   md->u.sip_answer.wsip,
+				   md->u.sip_answer.convid);
+		break;
+
+	case WCALL_MEV_SIP_HANGUP:
+		wcall_i_sip_hangup(md->inst,
+				   md->u.sip_hangup.wsip,
+				   md->u.sip_hangup.code,
+				   md->u.sip_hangup.status);
+		break;
+
 #endif
 	default:
 		warning("wcall: marshal: unknown event: %d\n", id);
@@ -1586,7 +1634,10 @@ int wcall_sip_close(WUSER_HANDLE wuser)
 }
 
 AVS_EXPORT
-int wcall_sip_create(WUSER_HANDLE wuser, const char *convid, const char *aor)
+int wcall_sip_create(WUSER_HANDLE wuser, const char *aor,
+		     wcall_sip_incoming_h *incomingh,
+		     wcall_sip_close_h *closeh,
+		     void *arg)
 {
 	struct calling_instance *inst;
 	struct mq_data *md = NULL;
@@ -1606,8 +1657,11 @@ int wcall_sip_create(WUSER_HANDLE wuser, const char *convid, const char *aor)
 	if (!md)
 		return EINVAL;
 
-	str_dup(&md->u.sip_crdest.convid, convid);
-	str_dup(&md->u.sip_crdest.aor, aor);
+	str_dup(&md->u.sip_create.aor, aor);
+	md->u.sip_create.incomingh = incomingh;
+	md->u.sip_create.closeh = closeh;
+	md->u.sip_create.arg = arg;
+
 	err = md_enqueue(md);
 	if (err)
 		goto out;
@@ -1637,8 +1691,7 @@ int wcall_sip_destroy(WUSER_HANDLE wuser, const char *convid, const char *aor)
 	if (!md)
 		return EINVAL;
 
-	str_dup(&md->u.sip_crdest.convid, convid);
-	str_dup(&md->u.sip_crdest.aor, aor);
+	str_dup(&md->u.sip_destroy.aor, aor);
 	err = md_enqueue(md);
 	if (err)
 		goto out;
@@ -1647,3 +1700,68 @@ int wcall_sip_destroy(WUSER_HANDLE wuser, const char *convid, const char *aor)
 	return 0;
 }
 
+
+AVS_EXPORT
+int wcall_sip_answer(WUSER_HANDLE wuser,
+		     struct wsip_call *wsip, const char *convid)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: sip_answer: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return ENOSYS;
+	}
+	info("wcall(%p): sip_answer: convid=%s\n", inst, convid);
+
+	md = md_new(inst, NULL, WCALL_MEV_SIP_ANSWER);
+	if (!md)
+		return EINVAL;
+
+	str_dup(&md->u.sip_answer.convid, convid);
+	md->u.sip_answer.wsip = wsip;
+
+	err = md_enqueue(md);
+	if (err)
+		goto out;
+
+ out:
+	return 0;
+}
+
+AVS_EXPORT
+int wcall_sip_hangup(WUSER_HANDLE wuser,
+		     struct wsip_call *wsip,
+		     int code, const char *status)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: sip_hangup: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return ENOSYS;
+	}
+	info("wcall(%p): sip_hangup: call=%s\n", inst, wsip);
+
+	md = md_new(inst, NULL, WCALL_MEV_SIP_HANGUP);
+	if (!md)
+		return EINVAL;
+
+	md->u.sip_hangup.code = code;
+	str_dup(&md->u.sip_hangup.status, status);
+
+	err = md_enqueue(md);
+	if (err)
+		goto out;
+
+ out:
+	return 0;
+}

@@ -189,6 +189,28 @@ static void close_handler(int reason, const char *convid, uint32_t msg_time,
 }
 
 
+static void sip_incoming_handler(struct wsip_call *wsip,
+				 const char *from,
+				 const char *pin,
+				 void *arg)
+{
+	struct client *cli = arg;
+
+	re_printf("SIP: incoming from: %s pin=%s\n", from, pin ? pin : "???");
+
+	/* For now, just blindly answer */
+	wcall_sip_answer(cli->wuser, wsip, CONVID);
+}
+
+static void sip_close_handler(struct wsip_call *wsip, void *arg)
+{
+	struct client *cli = arg;
+
+	(void)cli;
+
+	re_printf("SIP: client: %p closed\n", wsip);
+}
+
 int main(int argc, char **argv)
 {
 	WUSER_HANDLE wuser;
@@ -250,7 +272,10 @@ int main(int argc, char **argv)
 				&g_st.clients.pstn);
 	
 	wcall_sip_init(wuser, g_st.config_path);
-	wcall_sip_create(wuser, CONVID, SIP_AOR);
+	wcall_sip_create(wuser, SIP_AOR,
+			 sip_incoming_handler,
+			 sip_close_handler,
+			 &g_st.clients.pstn);
 
 	g_st.clients.pstn.wuser = wuser;
 

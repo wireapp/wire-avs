@@ -599,10 +599,26 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 void wcall_event_end(WUSER_HANDLE wuser);
 				
 /* SIP */
+
+struct wsip_call;
+typedef void (wcall_sip_incoming_h)(struct wsip_call *wsip,
+				    const char *from,
+				    const char *pin,
+				    void *arg);
+typedef void (wcall_sip_close_h)(struct wsip_call *wsip, void *arg);
+
 int wcall_sip_init(WUSER_HANDLE wuser, const char *conf_path);
 int wcall_sip_close(WUSER_HANDLE wuser);
-int wcall_sip_create(WUSER_HANDLE wuser, const char *convid, const char *aor);
+int wcall_sip_create(WUSER_HANDLE wuser, const char *aor,
+		     wcall_sip_incoming_h *incomingh,
+		     wcall_sip_close_h *closeh,
+		     void *arg);
 int wcall_sip_destroy(WUSER_HANDLE wuser, const char *convid, const char *aor);
+
+int wcall_sip_answer(WUSER_HANDLE wuser,
+		     struct wsip_call *wsip, const char *convid);
+int wcall_sip_hangup(WUSER_HANDLE wuser,
+		     struct wsip_call *wsip, int code, const char *status);
 
 #define WCALL_MODE_MARSHAL 0
 #define WCALL_MODE_DIRECT  1
