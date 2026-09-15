@@ -3198,6 +3198,14 @@ int  ccall_start(struct icall *icall,
 
 	case CCALL_STATE_IDLE:
 		ccall->is_caller = true;
+		/* In publish/subscribe mode both ECalls belong to the call from
+		 * the moment it starts.  The legacy path still creates its ECall
+		 * when the SFT setup arrives. */
+		if (ccall->enable_publish_subscribe && !ccall->ecall) {
+			err = ccall_prepare_ecalls(ccall);
+			if (err)
+				return err;
+		}
 		err = ccall_req_cfg_join(ccall, call_type, audio_cbr, false, true);
 		break;
 
@@ -3227,6 +3235,11 @@ int  ccall_answer(struct icall *icall,
 	case CCALL_STATE_INCOMING:
 		ccall->is_caller = false;
 		ccall->stop_ringing_reason = CCALL_STOP_RINGING_ANSWERED;
+		if (ccall->enable_publish_subscribe && !ccall->ecall) {
+			err = ccall_prepare_ecalls(ccall);
+			if (err)
+				return err;
+		}
 		err = ccall_req_cfg_join(ccall, call_type, audio_cbr, false, false);
 		break;
 
@@ -3272,7 +3285,10 @@ int  ccall_media_start(struct icall *icall)
 {
 	struct ccall *ccall = (struct ccall*)icall;
 
-	ecall_media_start(ccall->ecall);
+	if (!ccall)
+		return EINVAL;
+	if (ccall->ecall)
+		ecall_media_start(ccall->ecall);
 	if (ccall->ecall_subscriber)
 		ecall_media_start(ccall->ecall_subscriber);
 	
@@ -3283,7 +3299,10 @@ void ccall_media_stop(struct icall *icall)
 {
 	struct ccall *ccall = (struct ccall*)icall;
 
-	ecall_media_stop(ccall->ecall);
+	if (!ccall)
+		return;
+	if (ccall->ecall)
+		ecall_media_stop(ccall->ecall);
 	if (ccall->ecall_subscriber)
 		ecall_media_stop(ccall->ecall_subscriber);
 }
@@ -4163,13 +4182,19 @@ void ccall_set_duration(struct icall *icall, int duration)
 int ccall_restart(struct icall *icall)
 {
 	struct ccall *ccall = (struct ccall *)icall;
+	int err = 0;
 
+	if (!ccall)
+		return EINVAL;
 	info("ccall(%p): restart\n", ccall);
 	if (ccall->ecall) {
-		ecall_restart(ccall->ecall, ccall->call_type, false);
+		err = ecall_restart(ccall->ecall, ccall->call_type, false);
+	}
+	if (!err && ccall->ecall_subscriber) {
+		err = ecall_restart(ccall->ecall_subscriber, ccall->call_type, false);
 	}
 
-	return 0;
+	return err;
 }
 
 static void ccall_connect_timeout(void *arg)
