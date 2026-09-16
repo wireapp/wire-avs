@@ -53,7 +53,7 @@ static struct {
 		},
 	}
 };
-
+#if 1
 static void timeout_call_handler(void *arg)
 {
 	struct client *cli = &g_st.clients.wire;
@@ -65,6 +65,7 @@ static void timeout_call_handler(void *arg)
 		    1,
 		    0);
 }
+#endif
 
 static void ready_handler(int version, void *arg)
 {
@@ -188,8 +189,18 @@ static void close_handler(int reason, const char *convid, uint32_t msg_time,
 	wcall_end(other->wuser, g_st.convid);
 }
 
+static void sip_ready_handler(struct wsip_ua *wua, void *arg)
+{
+	struct client *cli = arg;
 
-static void sip_incoming_handler(struct wsip_call *wsip,
+	(void)wua;
+
+	re_printf("SIP: ready_handler: cli: %p is ready\n", cli);
+}
+
+
+static void sip_incoming_handler(struct wsip_ua *wua,
+				 struct wsip_call *wsip,
 				 const char *from,
 				 const char *pin,
 				 void *arg)
@@ -210,6 +221,14 @@ static void sip_close_handler(struct wsip_call *wsip, void *arg)
 
 	re_printf("SIP: client: %p closed\n", wsip);
 }
+
+static void sip_err_handler(struct wsip_ua *wua, const char *err, void *arg)
+{
+	struct client *cli = arg;
+
+	re_printf("SIP: client: %p err=%s\n", cli, err);
+}
+
 
 int main(int argc, char **argv)
 {
@@ -273,8 +292,10 @@ int main(int argc, char **argv)
 	
 	wcall_sip_init(wuser, g_st.config_path);
 	wcall_sip_create(wuser, SIP_AOR,
+			 sip_ready_handler,
 			 sip_incoming_handler,
 			 sip_close_handler,
+			 sip_err_handler,
 			 &g_st.clients.pstn);
 
 	g_st.clients.pstn.wuser = wuser;
@@ -303,7 +324,7 @@ int main(int argc, char **argv)
 		usleep(100 * 1000);
 	}
 
-	wcall_sip_destroy(g_st.clients.pstn.wuser, CONVID, SIP_AOR);
+	wcall_sip_destroy(g_st.clients.pstn.wuser, SIP_AOR);
 	wcall_sip_close(g_st.clients.pstn.wuser);
 
 	sleep(1);

@@ -185,8 +185,10 @@ struct mq_data {
 
 		struct {
 			char *aor;
+			wcall_sip_ready_h *readyh;
 			wcall_sip_incoming_h *incomingh;
 			wcall_sip_close_h *closeh;
+			wcall_sip_err_h *errh;
 			void *arg;
 		} sip_create;
 
@@ -633,8 +635,10 @@ static void mqueue_handler(int id, void *data, void *arg)
 	case WCALL_MEV_SIP_CREATE:
 		wcall_i_sip_create(md->inst,
 				   md->u.sip_create.aor,
+				   md->u.sip_create.readyh,
 				   md->u.sip_create.incomingh,
 				   md->u.sip_create.closeh,
+				   md->u.sip_create.errh,
 				   md->u.sip_create.arg);
 		break;
 
@@ -1635,8 +1639,10 @@ int wcall_sip_close(WUSER_HANDLE wuser)
 
 AVS_EXPORT
 int wcall_sip_create(WUSER_HANDLE wuser, const char *aor,
+		     wcall_sip_ready_h *readyh,
 		     wcall_sip_incoming_h *incomingh,
 		     wcall_sip_close_h *closeh,
+		     wcall_sip_err_h *errh,
 		     void *arg)
 {
 	struct calling_instance *inst;
@@ -1658,8 +1664,10 @@ int wcall_sip_create(WUSER_HANDLE wuser, const char *aor,
 		return EINVAL;
 
 	str_dup(&md->u.sip_create.aor, aor);
+	md->u.sip_create.readyh = readyh;
 	md->u.sip_create.incomingh = incomingh;
 	md->u.sip_create.closeh = closeh;
+	md->u.sip_create.errh = errh;
 	md->u.sip_create.arg = arg;
 
 	err = md_enqueue(md);
@@ -1671,7 +1679,7 @@ int wcall_sip_create(WUSER_HANDLE wuser, const char *aor,
 }
 
 AVS_EXPORT
-int wcall_sip_destroy(WUSER_HANDLE wuser, const char *convid, const char *aor)
+int wcall_sip_destroy(WUSER_HANDLE wuser, const char *aor)
 {
 	struct calling_instance *inst;
 	struct mq_data *md = NULL;

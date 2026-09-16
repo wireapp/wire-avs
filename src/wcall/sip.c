@@ -38,8 +38,10 @@ struct wsip_ua {
 	char *aor;
 
 	/* User callbacks */
+	wcall_sip_ready_h *readyh;
 	wcall_sip_incoming_h *incomingh;
 	wcall_sip_close_h *closeh;
+	wcall_sip_err_h *errh;
 	void *arg;
 
 	struct list wsipl; /* List of calls on this UA */
@@ -212,12 +214,25 @@ static void ua_event_handler(struct ua *ua, enum ua_event ev,
 		return;
 	}
 
-#if 0
+#if 1
 	info("sip: event: %d(%s) ua: %p call=%p\n",
 	     ev, uag_event_str(ev), ua, call);
 #endif
 
 	switch(ev) {
+	case UA_EVENT_REGISTER_OK:
+		if (wua->readyh) {
+			wua->readyh(wua, wua->arg);
+		}
+		break;
+
+	case UA_EVENT_REGISTER_FAIL:
+		info("ua(%p): register failed errh=%p\n", wua, wua->errh);
+		if (wua->errh) {
+			wua->errh(wua, prm, wua->arg);
+		}
+		break;
+
 	case UA_EVENT_CALL_INCOMING:
 		wsip = mem_zalloc(sizeof(*wsip), wsip_destructor);
 		if (!wsip) {
@@ -237,10 +252,10 @@ static void ua_event_handler(struct ua *ua, enum ua_event ev,
 
 			err = parse_pin(&pin, call_localuri(call));
 			if (err) {
-				wua->incomingh(wsip, from, NULL, wua->arg);
+				wua->incomingh(wua, wsip, from, NULL, wua->arg);
 			}
 			else {
-				wua->incomingh(wsip, from, pin, wua->arg);
+				wua->incomingh(wua, wsip, from, pin, wua->arg);
 				mem_deref(pin);
 			}
 		}
@@ -434,8 +449,10 @@ static void wua_destructor(void *arg)
 
 int wcall_i_sip_create(struct calling_instance *inst,
 		       const char *aor,
+		       wcall_sip_ready_h *readyh,
 		       wcall_sip_incoming_h *incomingh,
 		       wcall_sip_close_h *closeh,
+		       wcall_sip_err_h *errh,
 		       void *arg)
 {
 	struct sip_instance *sip_inst;
@@ -456,8 +473,10 @@ int wcall_i_sip_create(struct calling_instance *inst,
 		return ENOMEM;
 	
 	wua->sip_inst = sip_inst;
+	wua->readyh = readyh;
 	wua->incomingh = incomingh;
 	wua->closeh = closeh;
+	wua->errh = errh;
 	wua->arg = arg;
 
 	re_snprintf(mod_aor, sizeof(mod_aor),
