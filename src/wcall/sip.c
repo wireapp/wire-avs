@@ -38,6 +38,7 @@ struct wsip_ua {
 	struct sip_instance *sip_inst;
 	struct ua *ua;
 	char *aor;
+	bool first_reg;
 	bool ready;
 
 	/* User callbacks */
@@ -234,6 +235,7 @@ static void ua_event_handler(struct ua *ua, enum ua_event ev,
 			break;
 		else {
 			wua->ready = true;
+			wua->first_reg = false;
 			if (wua->readyh) {
 				wua->readyh(wua, wua->arg);
 			}
@@ -241,9 +243,14 @@ static void ua_event_handler(struct ua *ua, enum ua_event ev,
 		break;
 
 	case UA_EVENT_REGISTER_FAIL:
-		info("ua(%p): register failed errh=%p\n", wua, wua->errh);
-		if (wua->errh) {
-			wua->errh(wua, prm, wua->arg);
+		info("ua(%p): register failed ready=%d\n", wua, wua->ready);
+		if (!wua->first_reg && !wua->ready)
+			break;
+		else {
+			wua->ready = false;
+			if (wua->errh) {
+				wua->errh(wua, prm, wua->arg);
+			}
 		}
 		break;
 
@@ -466,7 +473,6 @@ int wcall_i_sip_create(struct calling_instance *inst,
 {
 	struct sip_instance *sip_inst;
 	struct wsip_ua *wua;
-	char mod_aor[1024];
 	int err;
 
 	info("sip: create: aor=%s\n", aor);
@@ -482,19 +488,14 @@ int wcall_i_sip_create(struct calling_instance *inst,
 		return ENOMEM;
 	
 	wua->sip_inst = sip_inst;
+	wua->first_reg = true;
 	wua->readyh = readyh;
 	wua->incomingh = incomingh;
 	wua->closeh = closeh;
 	wua->errh = errh;
 	wua->arg = arg;
 
-	re_snprintf(mod_aor, sizeof(mod_aor),
-		    "%s;"
-		    "audio_source=wireaudio;"
-		    "audio_player=wireaudio",
-		    aor);
-	
-	err = str_dup(&wua->aor, mod_aor);
+	err = str_dup(&wua->aor, aor);
 	if (err) {
 		warning("sip: could not allocate aor string\n");
 		goto out;
@@ -539,7 +540,9 @@ int wcall_i_sip_destroy(struct calling_instance *inst,
 		return EINVAL;
 	}
 
-	info("sip(%p): destroy: aor=%s wua=%p\n", sip_inst, aor, wua);
+	info("sip(%p): destroy: aor=%s wua=%p ua=%[\n", sip_inst, aor, wua, wua->ua);
+
+	ua_unregister(wua->ua);
 	
 	mem_deref(wua);
 
