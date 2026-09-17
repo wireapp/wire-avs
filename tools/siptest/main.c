@@ -1,14 +1,13 @@
 #include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
 #include <re.h>
 #include <avs_wcall.h>
 
-//#define SIP_AOR "sip:wire@127.0.0.1;regint=0"
-#define SIP_AOR "<sip:wire.test@iptel.org>;auth_pass=dulesip123;natpinhole=yes;"
+#define SIP_AOR "sip:wire@127.0.0.1;regint=0"
 
 #define CONVID "siptest"
 
-#define RUN_WIRE 0
 
 struct client {
 	WUSER_HANDLE wuser;
@@ -34,7 +33,9 @@ static struct {
 	/* timers */
 	struct tmr tmr_call;
 	struct tmr tmr_answer;
+	struct tmr tmr_end;
 
+	char *aor;
 	char *convid;
 	
 	struct {
@@ -48,6 +49,7 @@ static struct {
 	.call_timeout = 100,
 	.duration_timeout = 0,
 	.convid = CONVID,
+	.aor = NULL,
 	.clients = {
 		.pstn = {
 			.wuser = WUSER_INVALID_HANDLE,
@@ -63,7 +65,7 @@ static struct {
 		},
 	}
 };
-#if RUN_WIRE
+
 static void timeout_call_handler(void *arg)
 {
 	struct client *cli = &g_st.clients.wire;
@@ -75,7 +77,6 @@ static void timeout_call_handler(void *arg)
 		    1,
 		    0);
 }
-#endif
 
 static void ready_handler(int version, void *arg)
 {
@@ -86,10 +87,10 @@ static void ready_handler(int version, void *arg)
 	cli->ready = true;
 
 	if (g_st.clients.pstn.ready && g_st.clients.wire.ready) {
-#if RUN_WIRE
-		tmr_start(&g_st.tmr_call, g_st.call_timeout,
-			  timeout_call_handler, NULL);
-#endif
+		if (g_st.call_timeout) {
+			tmr_start(&g_st.tmr_call, g_st.call_timeout,
+				  timeout_call_handler, NULL);
+		}
 	}
 }
 
@@ -139,6 +140,15 @@ static int send_handler(void *ctx, const char *convid,
 	return 0;
 }
 
+static void timeout_end_handler(void *arg)
+{
+	(void)arg;
+
+	re_printf("siptest: ending test\n");
+
+	g_st.running = false;
+}
+
 static void timeout_duration_handler(void *arg)
 {
 	struct client *cli = arg;
@@ -147,6 +157,8 @@ static void timeout_duration_handler(void *arg)
 
 	if (cli->wsip)
 		wcall_sip_hangup(cli->wuser, cli->wsip, 0, NULL);
+
+	tmr_start(&g_st.tmr_end, 1000, timeout_end_handler, NULL);
 }
 
 static void timeout_answer_handler(void *arg)
@@ -257,13 +269,21 @@ static void sip_err_handler(struct wsip_ua *wua, const char *err, void *arg)
 	re_printf("SIP: client: %p err=%s\n", cli, err);
 }
 
+static void sig_handler(int sig)
+{
+	re_printf("Interrupted... terminating gracefully\n");
+
+	g_st.running = false;
+}
 
 int main(int argc, char **argv)
 {
 	WUSER_HANDLE wuser;
+
+	signal(SIGINT, sig_handler);
 	
 	for (;;) {
-		const int c = getopt(argc, argv, "a:d:f:Tt:");
+		const int c = getopt(argc, argv, "a:d:f:s:Tt:");
 		if (c < 0)
 			break;
 
@@ -278,6 +298,10 @@ int main(int argc, char **argv)
 
 		case 'f':
 			str_dup(&g_st.config_path, optarg);
+			break;
+
+		case 's':
+			str_dup(&g_st.aor, optarg);
 			break;
 
 		case 'T':
@@ -298,6 +322,9 @@ int main(int argc, char **argv)
 		fprintf(stderr, "%s: missing config path\n", argv[0]);
 		return 2;
 	}
+
+	if (!g_st.aor)
+		g_st.aor = SIP_AOR;
 	
 	wcall_run();
 
@@ -323,7 +350,7 @@ int main(int argc, char **argv)
 				&g_st.clients.pstn);
 	
 	wcall_sip_init(wuser, g_st.config_path);
-	wcall_sip_create(wuser, SIP_AOR,
+	wcall_sip_create(wuser, g_st.aor,
 			 sip_ready_handler,
 			 sip_incoming_handler,
 			 sip_close_handler,
@@ -355,8 +382,9 @@ int main(int argc, char **argv)
 	while(g_st.running) {
 		usleep(100 * 1000);
 	}
+	usleep(1000 * 1000);
 
-	wcall_sip_destroy(g_st.clients.pstn.wuser, SIP_AOR);
+	wcall_sip_destroy(g_st.clients.pstn.wuser, g_st.aor);
 	wcall_sip_close(g_st.clients.pstn.wuser);
 
 	sleep(1);
