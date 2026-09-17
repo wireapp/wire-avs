@@ -29,6 +29,8 @@ struct {
 
 struct sip_instance {
 	struct list wual;
+
+	struct le le;
 };
 
 
@@ -36,6 +38,7 @@ struct wsip_ua {
 	struct sip_instance *sip_inst;
 	struct ua *ua;
 	char *aor;
+	bool ready;
 
 	/* User callbacks */
 	wcall_sip_ready_h *readyh;
@@ -54,12 +57,6 @@ struct wsip_call {
 	struct call *call;
 	char *convid;
 	void *adm;
-
-	struct le le;
-};
-
-struct instel {
-	struct sip_instance *inst;
 
 	struct le le;
 };
@@ -103,6 +100,11 @@ static struct wsip_ua *ua2wua(struct ua *ua)
 
 	for(le = g_sip.instl.head; le && !found; le = le->next) {
 		struct sip_instance *sip_inst = le->data;
+
+		if (!sip_inst) {
+			warning("sip: ua2wua: no sip_instance in list\n");
+			continue;
+		}
 
 		wua = wua_lookup(sip_inst, NULL, ua);
 		found = wua != NULL;
@@ -208,21 +210,33 @@ static void ua_event_handler(struct ua *ua, enum ua_event ev,
 	
 	(void)prm;
 
+#if 1
+	info("sip: event: %d(%s) ua: %p call=%p prm=%s\n",
+	     ev, uag_event_str(ev), ua, call, prm);
+#endif
+
 	wua = ua2wua(ua);
 	if (!wua) {
 		warning("sip: ua_event: no instance for ua=%p\n", ua);
+		/* There is a quirk in baresip where ua_register is called in
+		 * context of ua_alloc, so wua might not be ready yet,
+		 * ensure to register again
+		 */
+		if (ev == UA_EVENT_REGISTER_OK) {
+			ua_register(ua);
+		}
 		return;
 	}
 
-#if 1
-	info("sip: event: %d(%s) ua: %p call=%p\n",
-	     ev, uag_event_str(ev), ua, call);
-#endif
-
 	switch(ev) {
 	case UA_EVENT_REGISTER_OK:
-		if (wua->readyh) {
-			wua->readyh(wua, wua->arg);
+		if (wua->ready)
+			break;
+		else {
+			wua->ready = true;
+			if (wua->readyh) {
+				wua->readyh(wua, wua->arg);
+			}
 		}
 		break;
 
@@ -327,7 +341,6 @@ static void adm_handler(const char *convid, void *adm, bool added, void *arg)
 int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 {
 	struct sip_instance *sip_inst;
-	struct instel *instel;
 	int err = 0;
 
 	if (g_sip.initialized)
@@ -386,12 +399,8 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 			sip_inst, err);
 	}
 	
-	instel = mem_zalloc(sizeof(*instel), NULL);
-	if (instel)
-		instel->inst = sip_inst;
-
 	info("sip(%p): init: added to inst=%p\n", sip_inst, inst);
-	list_append(&g_sip.instl, &instel->le, instel);
+	list_append(&g_sip.instl, &sip_inst->le, sip_inst);
 	
 	return 0;
 }
@@ -399,7 +408,7 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 int wcall_i_sip_close(struct calling_instance *inst)
 {
 	struct le *le;
-	struct instel *instel;
+	struct sip_instance *sip_inst;
 	bool found = false;
 	size_t n;
 
@@ -411,14 +420,14 @@ int wcall_i_sip_close(struct calling_instance *inst)
 	}
 
 	for(le = g_sip.instl.head; le && !found; le = le->next) {
-		instel = le->data;
-		if (!instel)
+		sip_inst = le->data;
+		if (!sip_inst)
 			continue;
 
-		found = instel->inst == wcall_get_sip_instance(inst);
+		found = sip_inst == wcall_get_sip_instance(inst);
 	}
 	if (found) {
-		list_unlink(&instel->le);
+		list_unlink(&sip_inst->le);
 	}
 
 	n = list_count(&g_sip.instl);
@@ -579,6 +588,8 @@ void wcall_i_sip_hangup(struct calling_instance *inst,
 			struct wsip_call *wsip, int code, const char *status)
 {
 	(void)inst;
+
+	info("wcall(%p): sip_hangup: wsip=%p code=%d status=%s\n", inst, wsip, code, status);
 
 	if (!(wsip && wsip->wua))
 		return;

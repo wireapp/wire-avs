@@ -3,9 +3,12 @@
 #include <re.h>
 #include <avs_wcall.h>
 
-#define SIP_AOR "sip:wire@127.0.0.1;regint=0"
+//#define SIP_AOR "sip:wire@127.0.0.1;regint=0"
+#define SIP_AOR "<sip:wire.test@iptel.org>;auth_pass=dulesip123;natpinhole=yes;"
 
 #define CONVID "siptest"
+
+#define RUN_WIRE 0
 
 struct client {
 	WUSER_HANDLE wuser;
@@ -14,6 +17,11 @@ struct client {
 	char *clientid;
 
 	bool ready;
+
+	struct tmr tmr_duration;
+
+	struct wsip_ua *wua;
+	struct wsip_call *wsip;
 };
 
 static struct {
@@ -21,6 +29,7 @@ static struct {
 	char *config_path;
 	uint64_t answer_timeout;
 	uint64_t call_timeout;
+	uint64_t duration_timeout;
 
 	/* timers */
 	struct tmr tmr_call;
@@ -37,6 +46,7 @@ static struct {
 	.config_path = NULL,
 	.answer_timeout = 1000,
 	.call_timeout = 100,
+	.duration_timeout = 0,
 	.convid = CONVID,
 	.clients = {
 		.pstn = {
@@ -53,7 +63,7 @@ static struct {
 		},
 	}
 };
-#if 1
+#if RUN_WIRE
 static void timeout_call_handler(void *arg)
 {
 	struct client *cli = &g_st.clients.wire;
@@ -76,8 +86,10 @@ static void ready_handler(int version, void *arg)
 	cli->ready = true;
 
 	if (g_st.clients.pstn.ready && g_st.clients.wire.ready) {
+#if RUN_WIRE
 		tmr_start(&g_st.tmr_call, g_st.call_timeout,
 			  timeout_call_handler, NULL);
+#endif
 	}
 }
 
@@ -127,12 +139,21 @@ static int send_handler(void *ctx, const char *convid,
 	return 0;
 }
 
+static void timeout_duration_handler(void *arg)
+{
+	struct client *cli = arg;
+
+	re_printf("call: duration timeout on client: %p\n", cli);
+
+	if (cli->wsip)
+		wcall_sip_hangup(cli->wuser, cli->wsip, 0, NULL);
+}
+
 static void timeout_answer_handler(void *arg)
 {
 	struct client *cli = arg;
 	
 	wcall_answer(cli->wuser, g_st.convid, WCALL_CALL_TYPE_NORMAL, 0);
-	
 }
 
 static void incoming_handler(const char *convid, uint32_t msg_time,
@@ -210,16 +231,23 @@ static void sip_incoming_handler(struct wsip_ua *wua,
 	re_printf("SIP: incoming from: %s pin=%s\n", from, pin ? pin : "???");
 
 	/* For now, just blindly answer */
+	cli->wua = wua;
+	cli->wsip = wsip;
 	wcall_sip_answer(cli->wuser, wsip, CONVID);
+
+	if (g_st.duration_timeout) {
+		tmr_start(&cli->tmr_duration, g_st.duration_timeout, timeout_duration_handler, cli);
+	}
 }
 
 static void sip_close_handler(struct wsip_call *wsip, void *arg)
 {
 	struct client *cli = arg;
 
-	(void)cli;
-
 	re_printf("SIP: client: %p closed\n", wsip);
+
+	if (cli->wsip == wsip)
+		cli->wsip = NULL;
 }
 
 static void sip_err_handler(struct wsip_ua *wua, const char *err, void *arg)
@@ -235,19 +263,23 @@ int main(int argc, char **argv)
 	WUSER_HANDLE wuser;
 	
 	for (;;) {
-		const int c = getopt(argc, argv, "a:f:Tt:");
+		const int c = getopt(argc, argv, "a:d:f:Tt:");
 		if (c < 0)
 			break;
 
 		switch (c) {
 		case 'a':
-			g_st.answer_timeout = atoi(optarg) * 1000;		
+			g_st.answer_timeout = atoi(optarg) * 1000;
+			break;
+
+		case 'd':
+			g_st.duration_timeout = atoi(optarg) * 1000;
 			break;
 
 		case 'f':
 			str_dup(&g_st.config_path, optarg);
 			break;
-			
+
 		case 'T':
 			// Set AVS into test mode
 			break;

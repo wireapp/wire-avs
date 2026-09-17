@@ -1757,12 +1757,13 @@ int wcall_sip_hangup(WUSER_HANDLE wuser,
 			wuser);
 		return ENOSYS;
 	}
-	info("wcall(%p): sip_hangup: call=%s\n", inst, wsip);
+	info("wcall(%p): sip_hangup: call=%p\n", inst, wsip);
 
 	md = md_new(inst, NULL, WCALL_MEV_SIP_HANGUP);
 	if (!md)
 		return EINVAL;
 
+	md->u.sip_hangup.wsip = wsip;
 	md->u.sip_hangup.code = code;
 	str_dup(&md->u.sip_hangup.status, status);
 
