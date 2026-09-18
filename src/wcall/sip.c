@@ -2,10 +2,11 @@
 #include <avs.h>
 #include <avs_wcall.h>
 #include <avs_pstn.h>
-//#include <avs_wireaudio.h>
 #include "baresip.h"
 #include "wcall.h"
 #include "sip.h"
+
+#define PIN_CODE_HDR "X-PIN-Code"
 
 extern int wireaudio_set_handlers(const char *convid,
 				  ausrc_read_h *rh,
@@ -17,6 +18,7 @@ struct {
 	bool initialized;
 	struct list instl;
 	struct log log;
+	struct sip *sip;
 } g_sip = {
 	.initialized = false,
 	.instl = LIST_INIT,
@@ -58,6 +60,13 @@ struct wsip_call {
 	struct call *call;
 	char *convid;
 	void *adm;
+
+	struct le le;
+};
+
+struct pin_entry {
+	char *callid;
+	char *pin_code;
 
 	struct le le;
 };
@@ -141,6 +150,62 @@ static int answer_call(struct wsip_call *wsip)
 	return err;
 }
 
+static void wsip_destructor(void *arg)
+{
+	struct wsip_call *wsip = arg;
+
+	info("wsip(%p): destructor\n", wsip);
+
+	list_unlink(&wsip->le);
+
+	adm_handler(wsip->convid, wsip->adm, false, wsip);
+
+	mem_deref(wsip->convid);
+}
+
+
+static void incoming_call(struct wsip_ua *wua, struct call *call)
+{
+	struct wsip_call *wsip = NULL;
+	struct sip_msg *msg = call_sipmsg(call);
+	char *pin_code = NULL;
+
+	info("sip: incoming call: %p on wua: %p msg=%p\n", call, wua, msg);
+	if (msg) {
+		if (pl_strcmp(&msg->met, "INVITE") == 0) {
+			const struct sip_hdr *x_pinh = sip_msg_xhdr(msg, PIN_CODE_HDR);
+			if (!x_pinh) {
+				warning("sip: no %s in INVITE\n", PIN_CODE_HDR);
+			}
+			else {
+				pl_strdup(&pin_code, &x_pinh->val);
+			}
+		}
+	}
+
+	wsip = mem_zalloc(sizeof(*wsip), wsip_destructor);
+	if (!wsip) {
+		warning("sip: could not allocate wsip\n");
+		return;
+	}
+
+	wsip->wua = wua;
+	wsip->call = call;
+	list_append(&wua->wsipl, &wsip->le, wsip);
+
+	info("sip(%p): incoming call on wua=%p call=%p\n",
+	     wua->sip_inst, wua, call);
+
+	if (wua->incomingh) {
+		wua->incomingh(wua, wsip,
+			       call_peeruri(call),
+			       pin_code,
+			       wua->arg);
+	}
+
+	mem_deref(pin_code);
+}
+
 static void close_call(struct wsip_ua *wua, struct call *call)
 {
 	struct wsip_call *wsip;
@@ -164,6 +229,7 @@ static void close_call(struct wsip_ua *wua, struct call *call)
 	}
 }
 
+#if 0
 static int parse_pin(char **pin, const char *local_uri)
 {
 	static struct pl x_pin_code = PL("X-PIN-Code");
@@ -187,27 +253,13 @@ static int parse_pin(char **pin, const char *local_uri)
 
 	return pl_strdup(pin, &pin_val);
 }
-
-static void wsip_destructor(void *arg)
-{
-	struct wsip_call *wsip = arg;
-
-	info("wsip(%p): destructor\n", wsip);
-
-	list_unlink(&wsip->le);
-
-	adm_handler(wsip->convid, wsip->adm, false, wsip);
-
-	mem_deref(wsip->convid);
-}
+#endif
 
 static void ua_event_handler(struct ua *ua, enum ua_event ev,
 			     struct call *call, const char *prm,
 			     void *arg)
 {
 	struct wsip_ua *wua = NULL;
-	struct wsip_call *wsip = NULL;
-	int err = 0;
 	
 	(void)prm;
 
@@ -255,31 +307,7 @@ static void ua_event_handler(struct ua *ua, enum ua_event ev,
 		break;
 
 	case UA_EVENT_CALL_INCOMING:
-		wsip = mem_zalloc(sizeof(*wsip), wsip_destructor);
-		if (!wsip) {
-			err = ENOMEM;
-			break;
-		}
-
-		wsip->wua = wua;
-		wsip->call = call;
-		list_append(&wua->wsipl, &wsip->le, wsip);
-
-		info("sip(%p): incoming call on wua=%p call=%p\n",
-		     wua->sip_inst, wua, call);
-		if (wua->incomingh) {
-			const char *from = call_peeruri(call);
-			char *pin;
-
-			err = parse_pin(&pin, call_localuri(call));
-			if (err) {
-				wua->incomingh(wua, wsip, from, NULL, wua->arg);
-			}
-			else {
-				wua->incomingh(wua, wsip, from, pin, wua->arg);
-				mem_deref(pin);
-			}
-		}
+		incoming_call(wua, call);
 		break;
 
 	case UA_EVENT_CALL_RINGING:
@@ -344,7 +372,6 @@ static void adm_handler(const char *convid, void *adm, bool added, void *arg)
 	}
 }
 
-
 int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 {
 	struct sip_instance *sip_inst;
@@ -384,13 +411,14 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 	}
 	info("sip: init: event handler registered\n");
 
+
 	info("sip: init: initializing UA\n");
-	err = ua_init("jbp", true, true, false, false);
+	err = ua_init("wire-jbp", true, true, false, false);
 	if (err) {
 		warning("sip: failed to init UA\n");
 		return err;
 	}
-	
+
 	g_sip.initialized = true;
 
  newinst:
