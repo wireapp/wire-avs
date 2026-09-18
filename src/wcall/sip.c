@@ -501,6 +501,7 @@ int wcall_i_sip_create(struct calling_instance *inst,
 {
 	struct sip_instance *sip_inst;
 	struct wsip_ua *wua;
+	char mod_aor[1024];
 	int err;
 
 	info("sip: create: aor=%s\n", aor);
@@ -529,9 +530,10 @@ int wcall_i_sip_create(struct calling_instance *inst,
 		goto out;
 	}
 
+	re_snprintf(mod_aor, sizeof(mod_aor), "%s;natpinhole=yes;", aor);
 	info("sip(%p): create: allocating UA with aor=%s\n",
-	     sip_inst, wua->aor);
-	err = ua_alloc(&wua->ua, wua->aor);
+	     sip_inst, mod_aor);
+	err = ua_alloc(&wua->ua, mod_aor);
 	if (err) {
 		warning("sip(%p): create: could not allocate ua\n", sip_inst);
 		goto out;
