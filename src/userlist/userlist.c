@@ -597,6 +597,9 @@ void userlist_update_from_selist(struct userlist* list,
 		if (!u)
 			continue;
 
+		if (u->was_in_subconv != u->in_subconv) {
+			list_changed = true;
+		}
 		if (!u->in_subconv) {
 			u->first_epoch = 0;
 			if (u->was_in_subconv) {
