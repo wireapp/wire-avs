@@ -45,11 +45,18 @@ pipeline {
 			       ],
                        	       branches: scm.branches,
                        	       extensions: scm.extensions + [
-                                  [$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, parentCredentials: false],
-				  [$class: 'CloneOption', noTags: false, reference: '', shallow: false, timeout: 10],
-    				  [$class: 'GitWSRequestor']
+ 			           [
+				       $class: 'SubmoduleOption',
+				       disableSubmodules: true
+				   ]
                        	       ]
 		   	   ])
+			   sshagent(credentials: ['github-repo-access']) {
+    			       sh '''
+			           git submodule sync --recursive
+				   git submodule update --init --recursive
+			       '''
+			   }
                    	   branchName = vcs.GIT_BRANCH
                    	   commitId = "${vcs.GIT_COMMIT}"[0..6]
                    	   repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
