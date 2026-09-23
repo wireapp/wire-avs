@@ -46,7 +46,6 @@ pipeline {
                   	branchName = vcs.GIT_BRANCH
                   	commitId = "${vcs.GIT_COMMIT}"[0..6]
                   	repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
-
                   	release_version = branchName.replaceAll("[^\\d\\.]", "")
                   	if (release_version.length() > 0 || branchName.contains('release')) {
                      		version = release_version + "." + buildNumber
