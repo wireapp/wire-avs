@@ -37,26 +37,12 @@ pipeline {
 	                   def vcs = checkout([
 		       	       $class: 'GitSCM',
                        	       changelog: true,
-                       	       userRemoteConfigs: scm.userRemoteConfigs + [
-        			   [
-					credentialsId: 'github-repo-access',
-            				url: 'git@github.com:wireapp/wire-baresip.git'
-        			   ]
-			       ],
+                       	       userRemoteConfigs: scm.userRemoteConfigs,
                        	       branches: scm.branches,
                        	       extensions: scm.extensions + [
- 			           [
-				       $class: 'SubmoduleOption',
-				       disableSubmodules: true
-				   ]
+                                  [$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, parentCredentials: true]
                        	       ]
 		   	   ])
-			   sshagent(credentials: ['github-repo-access']) {
-    			       sh '''
-			           git submodule sync --recursive
-				   git submodule update --init --recursive
-			       '''
-			   }
                    	   branchName = vcs.GIT_BRANCH
                    	   commitId = "${vcs.GIT_COMMIT}"[0..6]
                    	   repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
