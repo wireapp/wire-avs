@@ -45,7 +45,9 @@ pipeline {
 			       ],
                        	       branches: scm.branches,
                        	       extensions: scm.extensions + [
-                                  [$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, parentCredentials: true]
+                                  [$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, parentCredentials: true],
+				  [$class: 'CloneOption', noTags: false, reference: '', shallow: false, timeout: 10],
+    				  [$class: 'GitWSRequestor']
                        	       ]
 		   	   ])
                    	   branchName = vcs.GIT_BRANCH
