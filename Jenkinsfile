@@ -39,7 +39,7 @@ pipeline {
                        	       changelog: true,
                        	       userRemoteConfigs: scm.userRemoteConfigs + [
         			   [
-					credentialsId: 'github-repo-access',
+					credentialsId: 'wire-avs',
             				url: 'git@github.com:wireapp/wire-baresip.git'
         			   ]
 			       ],
