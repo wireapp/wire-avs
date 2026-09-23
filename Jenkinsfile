@@ -41,7 +41,13 @@ pipeline {
                        	       branches: scm.branches,
                        	       extensions: scm.extensions + [
                                   [$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, parentCredentials: true]
-                       	       ]
+                       	       ],
+			       userRemoteConfigs: [
+        			   [
+					credentialsId: 'github-repo-access',
+            				url: 'git@github.com:wireapp/wire-baresip.git'
+        			   ]
+			       ]
 		   	   ])
                    	   branchName = vcs.GIT_BRANCH
                    	   commitId = "${vcs.GIT_COMMIT}"[0..6]
