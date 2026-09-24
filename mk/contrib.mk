@@ -477,6 +477,7 @@ $(CONTRIB_BARESIP_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 		ln -s $(CONTRIB_BARESIP_AVS_PATH)/src/wireaudio \
 		$(CONTRIB_BARESIP_PATH)/modules/wireaudio || true
 	@cd $(CONTRIB_BARESIP_PATH) && \
+		( git apply ../../patches/baresip_sipmsg.patch || true ) && \
 		rm -f libbaresip.a && \
 		make STATIC=yes \
 		USE_G711=yes \
