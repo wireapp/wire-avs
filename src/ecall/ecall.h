@@ -114,7 +114,8 @@ struct ecall {
 	struct le ecall_le;
 	enum icall_call_type call_type;
 	enum icall_vstate vstate;
-        enum icall_vstate glare_vstate;
+	enum ecall_media_direction media_direction;
+	enum icall_vstate glare_vstate;
 	struct ecall_conf conf;
 	struct msystem *msys;
 	struct econn *econn;

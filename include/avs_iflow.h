@@ -23,9 +23,16 @@
 struct iflow;
 struct avs_vidframe;
 
+enum iflow_media_direction {
+	IFLOW_MEDIA_SENDRECV = 0,
+	IFLOW_MEDIA_SENDONLY,
+	IFLOW_MEDIA_RECVONLY,
+};
 
 /* Calls into iflow */
 typedef int  (iflow_set_video_state)(struct iflow *flow, enum icall_vstate vstate);
+typedef int  (iflow_set_media_direction)(struct iflow *flow,
+					 enum iflow_media_direction direction);
 
 typedef int  (iflow_generate_offer)(struct iflow *flow, char *sdp, size_t sz);
 typedef int  (iflow_generate_answer)(struct iflow *flow, char *sdp, size_t sz);
@@ -147,6 +154,7 @@ typedef int (iflow_render_frame_h)(struct avs_vidframe *frame,
 
 struct iflow {
 	iflow_set_video_state		*set_video_state;
+	iflow_set_media_direction	*set_media_direction;
 	iflow_generate_offer		*generate_offer;
 	iflow_generate_answer		*generate_answer;
 	iflow_handle_offer		*handle_offer;
@@ -196,6 +204,7 @@ struct iflow {
 
 void iflow_set_functions(struct iflow *iflow,
 			 iflow_set_video_state		*set_video_state,
+			 iflow_set_media_direction	*set_media_direction,
 			 iflow_generate_offer		*generate_offer,
 			 iflow_generate_answer		*generate_answer,
 			 iflow_handle_offer		*handle_offer,
@@ -266,4 +275,3 @@ void iflow_video_sizeh(int w,
 int iflow_render_frameh(struct avs_vidframe *frame,
 			const char *userid,
 			const char *clientid);
-

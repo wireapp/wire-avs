@@ -83,8 +83,10 @@ typedef int  (pc_IceGatheringState_t)(int handle);
 typedef int  (pc_SignallingState_t)(int handle);
 typedef int  (pc_ConnectionState_t)(int handle);
 typedef int  (pc_CreateDataChannel_t)(int handle, const char *label);
-typedef void (pc_CreateOffer_t)(int handle, int call_type, int vstate);
-typedef void (pc_CreateAnswer_t)(int handle, int call_type, int vstate);
+typedef void (pc_CreateOffer_t)(int handle, int call_type, int vstate,
+				       int media_direction);
+typedef void (pc_CreateAnswer_t)(int handle, int call_type, int vstate,
+					int media_direction);
 typedef void (pc_AddDecoderAnswer_t)(int handle);
 typedef void (pc_AddUserInfo_t)(int handle, const char *label,
 				const char *userid, const char *clientid,
@@ -130,7 +132,7 @@ static pc_HeapFree_t *pc_HeapFree = NULL;
 static pc_AddTurnServer_t *pc_AddTurnServer = NULL;
 static pc_IceGatheringState_t *pc_IceGatheringState = NULL;
 static pc_SignallingState_t *pc_SignallingState = NULL;
-static pc_ConnectionState_t *pc_ConnectionState = NULL;
+static pc_ConnectionState_t *pc_ConnectionState __attribute__((unused)) = NULL;
 static pc_CreateDataChannel_t *pc_CreateDataChannel = NULL;
 static pc_CreateOffer_t *pc_CreateOffer = NULL;
 static pc_CreateAnswer_t *pc_CreateAnswer = NULL;
@@ -141,15 +143,15 @@ static pc_SetRemoteDescription_t *pc_SetRemoteDescription = NULL;
 static pc_SetLocalDescription_t *pc_SetLocalDescription = NULL;
 static pc_LocalDescription_t *pc_LocalDescription = NULL;
 static pc_SetMute_t *pc_SetMute = NULL;
-static pc_GetMute_t *pc_GetMute = NULL;
+static pc_GetMute_t *pc_GetMute __attribute__((unused)) = NULL;
 static pc_GetLocalStats_t *pc_GetLocalStats = NULL;
 static pc_SetRemoteUserClientId_t *pc_SetRemoteUserClientId = NULL;
 static pc_HasVideo_t *pc_HasVideo = NULL;
 static pc_SetVideoState_t *pc_SetVideoState = NULL;
 
 /* DataChannel */
-static pc_DataChannelId_t *pc_DataChannelId = NULL;
-static pc_DataChannelState_t *pc_DataChannelState = NULL;
+static pc_DataChannelId_t *pc_DataChannelId __attribute__((unused)) = NULL;
+static pc_DataChannelState_t *pc_DataChannelState __attribute__((unused)) = NULL;
 static pc_DataChannelSend_t *pc_DataChannelSend = NULL;
 static pc_DataChannelClose_t *pc_DataChannelClose = NULL;
 
@@ -193,6 +195,7 @@ struct jsflow {
 	enum icall_call_type call_type;
 	enum icall_conv_type conv_type;
 	enum icall_vstate vstate;
+	enum iflow_media_direction media_direction;
 
 	struct {
 		bool req_local_cbr;
@@ -606,6 +609,7 @@ int jsflow_alloc(struct iflow		**flowp,
 
 	iflow_set_functions(&flow->iflow,
 			    jsflow_set_video_state,
+			    jsflow_set_media_direction,
 			    jsflow_generate_offer,
 			    jsflow_generate_answer,
 			    jsflow_handle_offer,
@@ -637,6 +641,7 @@ int jsflow_alloc(struct iflow		**flowp,
 	str_dup(&flow->clientid_self, clientid_self);
 
 	flow->vstate = vstate;
+	flow->media_direction = IFLOW_MEDIA_SENDRECV;
 	flow->handle = PC_INVALID_HANDLE;
 	flow->conv_type = conv_type;
 	flow->call_type = call_type;
@@ -779,12 +784,14 @@ int  jsflow_gather_all_turn(struct iflow *flow, bool offer)
 
 	if (offer) {
 		jsflow->dc.handle = pc_CreateDataChannel(jsflow->handle, DCE_LABEL);
-		pc_CreateOffer(jsflow->handle, jsflow->call_type, jsflow->vstate);
+		pc_CreateOffer(jsflow->handle, jsflow->call_type, jsflow->vstate,
+			       jsflow->media_direction);
 	}
 	else {
 		jsflow->gather = true;
 		if (PC_SIG_STATE_REMOTE_OFFER == state) {
-			pc_CreateAnswer(jsflow->handle, jsflow->call_type, jsflow->vstate);
+			pc_CreateAnswer(jsflow->handle, jsflow->call_type, jsflow->vstate,
+				jsflow->media_direction);
 		}
 	}
 
@@ -1314,6 +1321,22 @@ int jsflow_set_video_state(struct iflow *iflow,
 	return 0;
 }
 
+int jsflow_set_media_direction(struct iflow *iflow,
+			       enum iflow_media_direction direction)
+{
+	struct jsflow *jsflow = (struct jsflow *)iflow;
+
+	if (!jsflow)
+		return EINVAL;
+	if (direction < IFLOW_MEDIA_SENDRECV ||
+	    direction > IFLOW_MEDIA_RECVONLY)
+		return EINVAL;
+
+	jsflow->media_direction = direction;
+	info("jsflow(%p): media direction=%d\n", jsflow, direction);
+	return 0;
+}
+
 int jsflow_get_stats(struct iflow *flow,
 		     struct stats_report *stats)
 {
@@ -1526,7 +1549,8 @@ void pc_signalling_handler(int self, int state)
 	case PC_SIG_STATE_REMOTE_OFFER:
 		if (flow->gather) {
 			flow->gather = false;
-			pc_CreateAnswer(flow->handle, flow->call_type, flow->vstate);
+			pc_CreateAnswer(flow->handle, flow->call_type, flow->vstate,
+					flow->media_direction);
 		}
 		if (flow->bundle_update > 0) {
 			--flow->bundle_update;

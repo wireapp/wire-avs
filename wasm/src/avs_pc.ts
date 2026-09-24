@@ -70,6 +70,7 @@ interface PeerConnection {
   conv_type: number,
   call_type: number;
   sending_video: boolean;
+  media_direction: number;
   muted: boolean;
   stats: LocalStats;
   users: any;
@@ -80,6 +81,10 @@ interface PeerConnection {
 }
 
 const ENV_FIREFOX = 1;
+
+const PC_MEDIA_SENDRECV = 0;
+const PC_MEDIA_SENDONLY = 1;
+const PC_MEDIA_RECVONLY = 2;
 
 const TIMEOUT_GATHER = 2000;
 
@@ -1413,6 +1418,7 @@ function pc_New(self: number, convidPtr: number,
     remote_clientid: "",
     vstate: PC_VIDEO_STATE_STOPPED,
     sending_video: false,
+    media_direction: PC_MEDIA_SENDRECV,
     call_type: CALL_TYPE_NORMAL,
     conv_type: CONV_TYPE_ONEONONE,
     muted: false,
@@ -1919,18 +1925,23 @@ function createSdp(
     pc.call_type = callType;
     pc.vstate = vstate;
 
+    const mediaDirection = pc.media_direction;
+
     const use_video = vstate === PC_VIDEO_STATE_STARTED;
     const use_ss = vstate === PC_VIDEO_STATE_SCREENSHARE;
 
     pc_log(LOG_LEVEL_INFO, `createSdp: calling umh(1, ${use_video}, ${use_ss})`);
 
-    pc.sending_video = use_video || use_ss;
+    pc.sending_video = mediaDirection !== PC_MEDIA_RECVONLY && (use_video || use_ss);
 
-    if (userMediaHandler) {
-	userMediaHandler(pc.convid, true, use_video, use_ss)
-        .then((stream: MediaStream) => {
-            return update_tracks(pc, stream).then(() => stream);
-        }).then((stream: MediaStream) => {
+    const mediaReady = mediaDirection === PC_MEDIA_RECVONLY || !userMediaHandler
+        ? Promise.resolve(null)
+        : userMediaHandler(pc.convid, true, use_video, use_ss)
+            .then((stream: MediaStream) => {
+                return update_tracks(pc, stream).then(() => stream);
+            });
+
+    mediaReady.then(() => {
 
 		const doSdp: (options: RTCOfferOptions) => Promise<RTCSessionDescriptionInit> = isOffer
 		      ? rtc.createOffer
@@ -1940,30 +1951,25 @@ function createSdp(
 
 		ccallStartGatherHandler(pc);
 
-		doSdp
-		    .bind(rtc)(offerVideoRx)
-		    .then(sdp => {
-			const typeStr = sdp.type;
-			const sdpStr = sdp.sdp || '';
+		doSdp.bind(rtc)(offerVideoRx).then(sdp => {
+            const typeStr = sdp.type;
+            const sdpStr = sdp.sdp || '';
 
-			pc_log(LOG_LEVEL_INFO, `createSdp: type=${typeStr} sdp=${sdpStr}`);
+            pc_log(LOG_LEVEL_INFO, `createSdp: type=${typeStr} sdp=${sdpStr}`);
 
-			const modSdp = sdpMap(sdpStr, true, false);
-			ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
-		    })
-		    .catch((err: any) => {
-		        pc_log(LOG_LEVEL_WARN, 'createSdp: doSdp failed: ' + err, err);
-			ccallLocalSdpHandler(pc, 1, "sdp-error", err.toString());
-		    })
-	    })
-	    .catch((err: any) => {
-	        pc_log(LOG_LEVEL_WARN, 'createSdp: userMedia failed: ' + err, err);
-		ccallLocalSdpHandler(pc, 1, "media-error", err.toString());
-	    });
-    }
+            const modSdp = sdpMap(sdpStr, true, false);
+            ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
+        }).catch((err: any) => {
+            pc_log(LOG_LEVEL_WARN, 'createSdp: doSdp failed: ' + err, err);
+            ccallLocalSdpHandler(pc, 1, "sdp-error", err.toString());
+        });
+    }).catch((err: any) => {
+        pc_log(LOG_LEVEL_WARN, 'createSdp: userMedia failed: ' + err, err);
+        ccallLocalSdpHandler(pc, 1, "media-error", err.toString());
+    });
 }
 
-function pc_CreateOffer(hnd: number, callType: number, vstate: number) {
+function pc_CreateOffer(hnd: number, callType: number, vstate: number, mediaDirection: number) {
   const pc = connectionsStore.getPeerConnection(hnd);
 
   if (pc == null) {
@@ -1975,10 +1981,12 @@ function pc_CreateOffer(hnd: number, callType: number, vstate: number) {
     `pc_CreateOffer: hnd=${hnd} self=${pc.self.toString(16)} call_type=${callType}`
   );
 
+  pc.media_direction = mediaDirection;
+
   createSdp(pc, callType, vstate, true);
 }
 
-function pc_CreateAnswer(hnd: number, callType: number, vstate: number) {
+function pc_CreateAnswer(hnd: number, callType: number, vstate: number, mediaDirection: number) {
   pc_log(LOG_LEVEL_INFO, `pc_CreateAnswer: ${hnd} callType=${callType}`);
 
   const pc = connectionsStore.getPeerConnection(hnd);
@@ -1986,6 +1994,8 @@ function pc_CreateAnswer(hnd: number, callType: number, vstate: number) {
   if (pc == null) {
     return;
   }
+
+  pc.media_direction = mediaDirection;
 
   createSdp(pc, callType, vstate, false);
 }
@@ -2464,8 +2474,8 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_SignalingState, "ii"],
     [pc_ConnectionState, "ii"],
     [pc_CreateDataChannel, "iii"],
-    [pc_CreateOffer, "viii"],
-    [pc_CreateAnswer, "viii"],
+    [pc_CreateOffer, "viiii"],
+    [pc_CreateAnswer, "viiii"],
     [pc_AddDecoderAnswer, "vi"],
     [pc_AddUserInfo, "viiiiiiiii"],
     [pc_RemoveUserInfo, "vii"],

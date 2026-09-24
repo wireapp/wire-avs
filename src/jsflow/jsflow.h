@@ -28,6 +28,8 @@ void jsflow_destroy(void);
 int jsflow_set_video_state(struct iflow *iflow,
 			     enum icall_vstate vstate);
 
+int jsflow_set_media_direction(struct iflow *iflow, enum iflow_media_direction direction);
+
 int jsflow_generate_offer(struct iflow *iflow,
 			    char *sdp, size_t sz);
 int jsflow_generate_answer(struct iflow *iflow,
@@ -91,4 +93,3 @@ int jsflow_debug(struct re_printf *pf, const struct iflow *flow);
 #ifdef __cplusplus
 }
 #endif
-

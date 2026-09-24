@@ -21,6 +21,7 @@
 
 void iflow_set_functions(struct iflow *iflow,
 			 iflow_set_video_state		*set_video_state,
+			 iflow_set_media_direction	*set_media_direction,
 			 iflow_generate_offer		*generate_offer,
 			 iflow_generate_answer		*generate_answer,
 			 iflow_handle_offer		*handle_offer,
@@ -51,6 +52,7 @@ void iflow_set_functions(struct iflow *iflow,
 		return;
 	}
 	iflow->set_video_state		= set_video_state;
+	iflow->set_media_direction	= set_media_direction;
 	iflow->generate_offer		= generate_offer;
 	iflow->generate_answer		= generate_answer;
 	iflow->handle_offer		= handle_offer;
@@ -235,4 +237,3 @@ int iflow_alloc(struct iflow		**flowp,
 			     vstate,
 			     extarg);
 }
-

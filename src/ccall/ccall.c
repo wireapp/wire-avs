@@ -2438,6 +2438,13 @@ static int alloc_ecall(struct ccall *ccall, enum ccall_ecall_role role,
 		goto out;
 	}
 
+	if (role == CCALL_ECALL_PUBLISHER)
+		err = ecall_set_media_direction(ecall, ECALL_MEDIA_SENDONLY);
+	else if (role == CCALL_ECALL_SUBSCRIBER)
+		err = ecall_set_media_direction(ecall, ECALL_MEDIA_RECVONLY);
+	if (err)
+		goto out;
+
 	if (role == CCALL_ECALL_BIDIRECTIONAL) {
 		icall_set_callbacks(ecall_get_icall(ecall),
 				    ecall_transp_send_handler,

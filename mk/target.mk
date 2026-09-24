@@ -700,7 +700,7 @@ CPPFLAGS += \
          -DWEBRTC_POSIX -DWEBRTC_MAC -DZETA_USING_AU_HAL -DHAVE_GAI_STRERROR=1 \
 	 -Wno-vla-cxx-extension -Wno-strict-prototypes \
 	 -pipe -no-cpp-precomp \
-	 -mmacosx-version-min=10.9
+	 -mmacosx-version-min=11.0
 LFLAGS   += \
          -isysroot $(SDK_PATH) \
 	 -no-cpp-precomp
