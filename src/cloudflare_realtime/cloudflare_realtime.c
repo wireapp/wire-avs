@@ -23,6 +23,7 @@ struct cloudflare_realtime {
 	cloudflare_realtime_request_h *requesth;
 	void *arg;
 	bool enabled;
+	enum cloudflare_realtime_operation pending[2];
 };
 
 static void request_response(struct cloudflare_realtime *adapter,
@@ -31,12 +32,10 @@ static void request_response(struct cloudflare_realtime *adapter,
 
 static bool valid_role(enum ccall_ecall_role role)
 {
-	return role == CCALL_ECALL_PUBLISHER ||
-	       role == CCALL_ECALL_SUBSCRIBER;
+	return role == CCALL_ECALL_PUBLISHER || role == CCALL_ECALL_SUBSCRIBER;
 }
 
-static const char *session_id(const struct cloudflare_realtime *adapter,
-			      enum ccall_ecall_role role)
+static const char *session_id(const struct cloudflare_realtime *adapter, enum ccall_ecall_role role)
 {
 	const struct realtime_bridge_session *session;
 
@@ -47,8 +46,7 @@ static const char *session_id(const struct cloudflare_realtime *adapter,
 	return session->session_id;
 }
 
-static int make_request_body(char **bodyp, enum ccall_ecall_role role,
-			     const char *sdp, const char *tracks_json)
+static int make_request_body(char **bodyp, bool offer, const char *sdp, const char *tracks_json)
 {
 	struct json_object *root = NULL;
 	struct json_object *description = NULL;
@@ -65,9 +63,7 @@ static int make_request_body(char **bodyp, enum ccall_ecall_role role,
 		goto out;
 	}
 
-	json_object_object_add(description, "type",
-		json_object_new_string(role == CCALL_ECALL_PUBLISHER
-				       ? "offer" : "answer"));
+	json_object_object_add(description, "type", json_object_new_string(offer ? "offer" : "answer"));
 	json_object_object_add(description, "sdp", json_object_new_string(sdp));
 	json_object_object_add(root, "sessionDescription", description);
 	description = NULL;
@@ -89,15 +85,14 @@ out:
 	return err;
 }
 
-static int request_role(struct cloudflare_realtime *adapter,
-			 enum ccall_ecall_role role,
-			 struct econn_message *msg)
+static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_role role, struct econn_message *msg)
 {
 	const char *sid;
 	const char *method;
 	char pathbuf[256];
 	char *body = NULL;
 	int err;
+	enum cloudflare_realtime_operation operation;
 
 	if (!adapter || !valid_role(role) || !msg || !adapter->requesth)
 		return EINVAL;
@@ -105,13 +100,17 @@ static int request_role(struct cloudflare_realtime *adapter,
 		return EPROTONOSUPPORT;
 	if (!msg->u.setup.sdp_msg)
 		return EINVAL;
+	err = cloudflare_realtime_map_message(adapter, role, msg, &operation);
+	if (err)
+		return err;
+	if (adapter->pending[role] != CLOUDFLARE_REALTIME_OP_NONE)
+		return EBUSY;
 
 	sid = session_id(adapter, role);
-	if (!sid && (role == CCALL_ECALL_SUBSCRIBER ||
-		     msg->msg_type == ECONN_UPDATE))
+	if (!sid && (role == CCALL_ECALL_SUBSCRIBER || msg->msg_type == ECONN_UPDATE))
 		return ENOTCONN;
 
-	err = make_request_body(&body, role, msg->u.setup.sdp_msg,
+	err = make_request_body(&body, !msg->resp, msg->u.setup.sdp_msg,
 				role == CCALL_ECALL_SUBSCRIBER
 				? adapter->tracks_json : NULL);
 	if (err)
@@ -129,12 +128,49 @@ static int request_role(struct cloudflare_realtime *adapter,
 		method = "POST";
 		re_snprintf(pathbuf, sizeof(pathbuf), "/sessions/%s/tracks/new", sid);
 	}
+	adapter->pending[role] = operation;
 
 	err = adapter->requesth(adapter, role, method, pathbuf,
 				adapter->app_id, adapter->app_secret, body,
 				request_response, adapter->arg);
 	mem_deref(body);
+	if (err)
+		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
 	return err;
+}
+
+int cloudflare_realtime_map_message(
+				struct cloudflare_realtime *adapter,
+				enum ccall_ecall_role role,
+				const struct econn_message *msg,
+				enum cloudflare_realtime_operation *operation)
+{
+	const char *sid;
+
+	if (!adapter || !valid_role(role) || !msg || !operation)
+		return EINVAL;
+	if (msg->msg_type != ECONN_SETUP && msg->msg_type != ECONN_UPDATE)
+		return EPROTONOSUPPORT;
+
+	sid = session_id(adapter, role);
+	if (msg->msg_type == ECONN_UPDATE) {
+		if (!sid)
+			return ENOTCONN;
+		*operation = CLOUDFLARE_REALTIME_OP_RENEGOTIATE;
+	}
+	else if (role == CCALL_ECALL_PUBLISHER && !sid) {
+		*operation = CLOUDFLARE_REALTIME_OP_CREATE_SESSION;
+	}
+	else if (role == CCALL_ECALL_PUBLISHER) {
+		*operation = CLOUDFLARE_REALTIME_OP_PUBLISH_TRACKS;
+	}
+	else {
+		if (!sid)
+			return ENOTCONN;
+		*operation = CLOUDFLARE_REALTIME_OP_SUBSCRIBE_TRACKS;
+	}
+
+	return 0;
 }
 
 static void request_response(struct cloudflare_realtime *adapter,
@@ -291,6 +327,8 @@ int cloudflare_realtime_handle_response(
 
 	if (!adapter || !valid_role(role) || status < 200 || status >= 300 || !body)
 		return status >= 400 ? EPROTO : EINVAL;
+	if (adapter->pending[role] == CLOUDFLARE_REALTIME_OP_NONE)
+		return EPROTO;
 
 	err = jzon_decode(&root, body, strlen(body));
 	if (err)
@@ -300,8 +338,10 @@ int cloudflare_realtime_handle_response(
 		goto out;
 	sdp = jzon_str(description, "sdp");
 	type = jzon_str(description, "type");
-	if (!sdp || !type)
+	if (!sdp || !type) {
+		err = EPROTO;
 		goto out;
+	}
 
 	sid = jzon_str(root, "sessionId");
 	if (sid) {
@@ -316,7 +356,10 @@ int cloudflare_realtime_handle_response(
 		goto out;
 	}
 
-	err = econn_message_init(&msg, ECONN_SETUP, sid ? sid : "cloudflare");
+	err = econn_message_init(&msg,
+				 adapter->pending[role] == CLOUDFLARE_REALTIME_OP_RENEGOTIATE
+				 ? ECONN_UPDATE : ECONN_SETUP,
+				 sid ? sid : "cloudflare");
 	if (err)
 		goto out;
 	msg.resp = 0 == strcmp(type, "answer");
@@ -324,8 +367,11 @@ int cloudflare_realtime_handle_response(
 	if (!err)
 		err = ecall_msg_recv(ecall, 0, 0, "cloudflare", "realtime", &msg);
 	econn_message_reset(&msg);
+	adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
 
 out:
+	if (err)
+		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
 	mem_deref(description);
 	mem_deref(root);
 	return err ? err : 0;

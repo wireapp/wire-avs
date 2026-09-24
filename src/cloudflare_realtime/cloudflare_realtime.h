@@ -6,11 +6,21 @@
 #define CLOUDFLARE_REALTIME_H
 
 #include <stddef.h>
+#include <stdbool.h>
 
 struct cloudflare_realtime;
 struct ccall;
+struct econn_message;
 enum ccall_ecall_role;
 enum ccall_transport_event;
+
+enum cloudflare_realtime_operation {
+	CLOUDFLARE_REALTIME_OP_NONE = 0,
+	CLOUDFLARE_REALTIME_OP_CREATE_SESSION,
+	CLOUDFLARE_REALTIME_OP_PUBLISH_TRACKS,
+	CLOUDFLARE_REALTIME_OP_SUBSCRIBE_TRACKS,
+	CLOUDFLARE_REALTIME_OP_RENEGOTIATE,
+};
 
 typedef void (cloudflare_realtime_response_h)(
 	struct cloudflare_realtime *adapter,
@@ -53,6 +63,12 @@ int cloudflare_realtime_set_session(struct cloudflare_realtime *adapter,
 int cloudflare_realtime_set_subscribe_tracks(
 				struct cloudflare_realtime *adapter,
 				const char *tracks_json);
+
+int cloudflare_realtime_map_message(
+				struct cloudflare_realtime *adapter,
+				enum ccall_ecall_role role,
+				const struct econn_message *msg,
+				enum cloudflare_realtime_operation *operation);
 
 /* Feed an HTTP response from the configured request callback back to ECall. */
 int cloudflare_realtime_handle_response(
