@@ -78,6 +78,7 @@ interface PeerConnection {
   ivv: Uint8Array;
   streams: {[ssrc: string]: string};
   gatherTimer: any;
+  catalogDc: RTCDataChannel | null;
 }
 
 const ENV_FIREFOX = 1;
@@ -93,6 +94,8 @@ let logFn: WcallLogHandler | null = null;
 let userMediaHandler: UserMediaHandler | null = null;
 let audioStreamHandler: AudioStreamHandler | null = null;
 let videoStreamHandler: VideoStreamHandler | null = null;
+let catalogStateHandler: ((self: number, state: number) => void) | null = null;
+let catalogMessageHandler: ((self: number, data: string) => void) | null = null;
 let insertableLegacy: boolean = false;
 let insertableStreams: boolean = false;
 
@@ -1358,23 +1361,50 @@ function connectionHandler(pc: PeerConnection) {
 
 function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   const dcHnd = connectionsStore.storeDataChannel(dc);
+  const isCatalog = dc.label === "catalog";
+
+  if (isCatalog) {
+    pc.catalogDc = dc;
+  }
+
   dc.onopen = () => {
     pc_log(LOG_LEVEL_INFO, "dc-opened");
-    ccallDcStateChangeHandler(pc, DC_STATE_OPEN);
+    if (isCatalog) {
+      if (catalogStateHandler) catalogStateHandler(pc.self, DC_STATE_OPEN);
+    }
+    else {
+      ccallDcStateChangeHandler(pc, DC_STATE_OPEN);
+    }
   };
   dc.onclose = () => {
     pc_log(LOG_LEVEL_INFO, "dc-closed");
-    ccallDcStateChangeHandler(pc, DC_STATE_CLOSED);
+    if (isCatalog) {
+      if (catalogStateHandler) catalogStateHandler(pc.self, DC_STATE_CLOSED);
+    }
+    else {
+      ccallDcStateChangeHandler(pc, DC_STATE_CLOSED);
+    }
   };
   dc.onerror = event => {
     if (event instanceof RTCErrorEvent) {
       pc_log(LOG_LEVEL_INFO, `dc-error: ${event.error}`);
-      ccallDcStateChangeHandler(pc, DC_STATE_ERROR);
+      if (isCatalog) {
+        if (catalogStateHandler) catalogStateHandler(pc.self, DC_STATE_ERROR);
+      }
+      else {
+        ccallDcStateChangeHandler(pc, DC_STATE_ERROR);
+      }
     }
   };
   dc.onmessage = event => {
     pc_log(LOG_LEVEL_INFO, `dc-onmessage: data=${event.data.length}`);
-        ccallDcDataHandler(pc, event.data.toString());
+    const data = event.data.toString();
+    if (isCatalog) {
+      if (catalogMessageHandler) catalogMessageHandler(pc.self, data);
+    }
+    else {
+      ccallDcDataHandler(pc, data);
+    }
   };
 
   return dcHnd;
@@ -1386,7 +1416,11 @@ function dataChannelHandler(pc: PeerConnection, event: RTCDataChannelEvent) {
 
   const dcHnd = setupDataChannel(pc, dc);
 
-  ccallDcEstabHandler(pc, dcHnd);
+  /* The catalog channel has its own JS callback path.  Do not pass it to
+   * dc_estab_handler, which belongs exclusively to the ECall channel. */
+  if (dc.label !== "catalog") {
+    ccallDcEstabHandler(pc, dcHnd);
+  }
 }
 
 function pc_SetEnv(env: number) {
@@ -1437,7 +1471,8 @@ function pc_New(self: number, convidPtr: number,
       rtt: 0
     },
     streams: {},
-    gatherTimer: null
+    gatherTimer: null,
+    catalogDc: null
   };
 
   worker.postMessage({op: 'create', self: pc.self, iva: iva8, ivv: ivv8});
@@ -2378,6 +2413,14 @@ function pc_CreateDataChannel(hnd: number, labelPtr: number) {
   let dcHnd = 0;
   if (dc != null) {
     dcHnd = setupDataChannel(pc, dc);
+
+    /* The catalog uses a separate, fixed, reliable/ordered channel.  It is
+     * created together with the established ECall channel and therefore is
+     * negotiated in the same SDP exchange. */
+    if (label === "calling-3.0" && pc.catalogDc == null) {
+      const catalogDc = rtc.createDataChannel("catalog");
+      if (catalogDc != null) setupDataChannel(pc, catalogDc);
+    }
   }
 
   return dcHnd;
@@ -2520,6 +2563,23 @@ function pc_SetVideoStreamHandler(vsh: VideoStreamHandler) {
   videoStreamHandler = vsh;
 }
 
+function pc_SetCatalogStateHandler(handler: ((self: number, state: number) => void) | null) {
+  catalogStateHandler = handler;
+}
+
+function pc_SetCatalogMessageHandler(handler: ((self: number, data: string) => void) | null) {
+  catalogMessageHandler = handler;
+}
+
+function pc_SendCatalog(self: number, data: string) {
+  const pcs = connectionsStore.getPeerConnectionBySelf(self);
+  if (pcs.length === 0 || pcs[0].catalogDc == null) return false;
+  const dc = pcs[0].catalogDc;
+  if (dc.readyState !== "open") return false;
+  dc.send(data);
+  return true;
+}
+
 function pc_ReplaceTrack(convid: string, newTrack: MediaStreamTrack) {
   const pcs = connectionsStore.getPeerConnectionByConvid(convid);
   if (pcs.length === 0) return;
@@ -2648,6 +2708,9 @@ export default {
   setUserMediaHandler: pc_SetUserMediaHandler,
   setAudioStreamHandler: pc_SetAudioStreamHandler,
   setVideoStreamHandler: pc_SetVideoStreamHandler,
+  setCatalogStateHandler: pc_SetCatalogStateHandler,
+  setCatalogMessageHandler: pc_SetCatalogMessageHandler,
+  sendCatalog: pc_SendCatalog,
   isConferenceCallingSupported: pc_IsConferenceCallingSupported,
   replaceTrack: pc_ReplaceTrack,
   getStats: pc_GetStats
