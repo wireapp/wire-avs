@@ -24,4 +24,4 @@
 	url = https://github.com/openssl/openssl.git
 [submodule "contrib/baresip"]
 	path = contrib/baresip
-	url = git@github.com:wireapp/wire-baresip.git
+	url = https://github.com/baresip/baresip.git
