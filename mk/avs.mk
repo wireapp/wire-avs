@@ -74,6 +74,7 @@ AVS_MODULES += protobuf
 endif
 AVS_MODULES += queue
 AVS_MODULES += realtime_bridge
+AVS_MODULES += cloudflare_realtime
 AVS_MODULES += rest
 AVS_MODULES += sdp
 AVS_MODULES += sem

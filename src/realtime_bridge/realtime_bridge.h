@@ -33,7 +33,9 @@ enum icall_call_type;
 enum icall_stream_mode;
 enum icall_vstate;
 
+#ifndef AVS_CCALL_INCLUDED
 #include <avs_ccall.h>
+#endif
 
 struct realtime_bridge;
 
