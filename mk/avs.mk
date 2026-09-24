@@ -33,6 +33,7 @@
 #--- AVS Core Modules ---
 
 AVS_MODULES += base
+AVS_MODULES += catalog
 AVS_MODULES += cert
 AVS_MODULES += conf_pos
 AVS_MODULES += conf_member
