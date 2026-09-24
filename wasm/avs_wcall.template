@@ -47,6 +47,26 @@ export class Wcall {
     avs_pc.setVideoStreamHandler(videoStreamHandler);
   }
 
+  setCatalogStateHandler(handler: (convid: string, state: number) => void): void {
+    avs_pc.setCatalogStateHandler(handler);
+  }
+
+  setCatalogMessageHandler(handler: (convid: string, data: string) => void): void {
+    avs_pc.setCatalogMessageHandler(handler);
+  }
+
+  sendCatalog(convid: string, data: string): boolean {
+    return avs_pc.sendCatalog(convid, data);
+  }
+
+  getCatalogDataChannelLabel(): string {
+    return avs_pc.catalogDataChannelLabel;
+  }
+
+  getCatalogDataChannelStates(): {connecting: number, open: number, closing: number, closed: number, error: number} {
+    return avs_pc.dataChannelState;
+  }
+
   isConferenceCallingSupported() : boolean {
     return avs_pc.isConferenceCallingSupported();
   }
@@ -80,4 +100,3 @@ export const getAvsInstance = function(): Promise<Wcall> {
     });
   });
 };
-
