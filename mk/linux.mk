@@ -1,4 +1,4 @@
-LINUX_SHARED := $(BUILD_TARGET)/lib/libavs$(JNI_SUFFIX)
+LINUX_SHARED := $(BUILD_TARGET)/lib/libavs$(LINUX_JNI_SUFFIX)
 
 LINUX_MKS    := $(OUTER_MKS) mk/linux.mk
 
@@ -11,9 +11,9 @@ $(LINUX_OBJS): $(LINUX_MKS)
 -include $(LINUX_OBJS:.o=.d)
 
 $(LINUX_SHARED):  $(LINUX_OBJS) $(AVS_STATIC) $(MENG_STATIC)
-	@echo "  LD   $(AVS_OS)-$(AVS_ARCH) $@"
+	@echo "  linuxLD   $(AVS_OS)-$(AVS_ARCH) $@"
 	@mkdir -p $(dir $@)
-	$(LD) $(SH_LFLAGS) $(LFLAGS) $(LINUX_LFLAGS) \
+	@$(LD) $(SH_LFLAGS) $(LFLAGS) $(LINUX_LFLAGS) \
 		$(AVS_OBJS) $(AVS_STATIC) $(MENG_STATIC) \
 		$(SH_LIBS) $(MENG_LIBS) \
 		$(CONTRIB_LIBRE_LIBS) \
