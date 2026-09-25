@@ -350,6 +350,10 @@ int wcall_start(WUSER_HANDLE wuser, const char *convid,
 		int audio_cbr /*bool*/,
                 int meeting /*bool*/);
 
+/* Configure publish/subscribe mode for subsequently created conference
+ * calls. Must be called before wcall_start()/wcall_answer(). */
+int wcall_set_enable_publish_subscribe(WUSER_HANDLE wuser, int enabled);
+
 /* Returns 0 if successfull
  * Set call_type from defines above.
  * Set audio_cbr to 0 for false, non-zero for true.

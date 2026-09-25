@@ -119,6 +119,8 @@ struct calling_instance {
 	struct list ecalls;
 	struct list wcalls;
 	struct list ctxl;
+	/* Applied to newly created conference calls before ECalls are prepared. */
+	bool enable_publish_subscribe;
 
 	pthread_t tid;
 	bool thread_run;
@@ -246,6 +248,20 @@ struct config_update_entry {
 
 static void wcall_end_internal(struct wcall *wcall);
 static bool wcall_has_calls(void);
+
+AVS_EXPORT
+int wcall_set_enable_publish_subscribe(WUSER_HANDLE wuser, int enabled)
+{
+	struct calling_instance *inst = wuser2inst(wuser);
+
+	if (!inst)
+		return EINVAL;
+
+	/* This flag is intentionally applied only when the next conference
+	 * ccall is allocated. Existing calls keep their current mode. */
+	inst->enable_publish_subscribe = enabled != 0;
+	return 0;
+}
 
 static void call_group_change_json(struct calling_instance *inst,
 				   struct wcall *wcall);
@@ -2043,6 +2059,14 @@ int wcall_add(struct calling_instance *inst,
 			warning("wcall(%p): add: could not alloc ccall: %m\n",
 				wcall, err);
 			goto out;
+		}
+
+		if (inst->enable_publish_subscribe) {
+			err = ccall_set_enable_publish_subscribe(ccall, true);
+			if (err) {
+				mem_deref(ccall);
+				goto out;
+			}
 		}
 
 		wcall->icall = ccall_get_icall(ccall);
