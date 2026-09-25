@@ -279,7 +279,18 @@ typedef void (wcall_audio_cbr_change_h)(const char *userid,
 					int enabled,
 					void *arg);
 
-typedef int (wcall_config_req_h)(WUSER_HANDLE wuser, void *arg);	
+typedef int (wcall_config_req_h)(WUSER_HANDLE wuser, void *arg);
+
+/* Cloudflare Realtime HTTP bridge. The callback starts an asynchronous HTTP
+ * request; the application completes it with wcall_cloudflare_response(). */
+typedef int (wcall_cloudflare_request_h)(const char *convid,
+					 int role,
+					 const char *method,
+					 const char *path,
+					 const char *app_id,
+					 const char *app_secret,
+					 const char *body,
+					 void *arg);
 
 #define WCALL_ENV_DEFAULT 0
 #define WCALL_ENV_FIREFOX 1
@@ -353,6 +364,19 @@ int wcall_start(WUSER_HANDLE wuser, const char *convid,
 /* Configure publish/subscribe mode for subsequently created conference
  * calls. Must be called before wcall_start()/wcall_answer(). */
 int wcall_set_enable_publish_subscribe(WUSER_HANDLE wuser, int enabled);
+
+int wcall_enable_cloudflare_realtime(WUSER_HANDLE wuser,
+					 const char *convid,
+					 const char *app_id,
+					 const char *app_secret,
+					 const char *api_base,
+					 wcall_cloudflare_request_h *requesth);
+
+int wcall_cloudflare_response(WUSER_HANDLE wuser,
+				      const char *convid,
+				      int role,
+				      int status,
+				      const char *body);
 
 /* Returns 0 if successfull
  * Set call_type from defines above.

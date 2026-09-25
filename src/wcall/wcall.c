@@ -33,6 +33,7 @@
 
 
 #include "wcall.h"
+#include "../cloudflare_realtime/cloudflare_realtime.h"
 
 #ifdef __APPLE__
 #       include <TargetConditionals.h>
@@ -121,6 +122,10 @@ struct calling_instance {
 	struct list ctxl;
 	/* Applied to newly created conference calls before ECalls are prepared. */
 	bool enable_publish_subscribe;
+	wcall_cloudflare_request_h *cloudflare_requesth;
+	char *cloudflare_app_id;
+	char *cloudflare_app_secret;
+	char *cloudflare_api_base;
 
 	pthread_t tid;
 	bool thread_run;
@@ -193,6 +198,7 @@ struct wcall {
         int duration;
 
 	struct icall *icall;
+	struct cloudflare_realtime *cloudflare;
 
 	struct {
 		bool video_call;
@@ -249,6 +255,29 @@ struct config_update_entry {
 static void wcall_end_internal(struct wcall *wcall);
 static bool wcall_has_calls(void);
 
+static int cloudflare_request_bridge(
+		struct cloudflare_realtime *adapter,
+		enum ccall_ecall_role role,
+		const char *method,
+		const char *path,
+		const char *app_id,
+		const char *app_secret,
+		const char *body,
+		cloudflare_realtime_response_h *responseh,
+		void *arg)
+{
+	struct wcall *wcall = arg;
+	(void)adapter;
+	(void)responseh;
+
+	if (!wcall || !wcall->inst || !wcall->inst->cloudflare_requesth)
+		return ENOSYS;
+
+	return wcall->inst->cloudflare_requesth(wcall->convid, role, method,
+						path, app_id, app_secret, body,
+						wcall->inst->arg);
+}
+
 AVS_EXPORT
 int wcall_set_enable_publish_subscribe(WUSER_HANDLE wuser, int enabled)
 {
@@ -261,6 +290,62 @@ int wcall_set_enable_publish_subscribe(WUSER_HANDLE wuser, int enabled)
 	 * ccall is allocated. Existing calls keep their current mode. */
 	inst->enable_publish_subscribe = enabled != 0;
 	return 0;
+}
+
+AVS_EXPORT
+int wcall_enable_cloudflare_realtime(WUSER_HANDLE wuser,
+					     const char *convid,
+					     const char *app_id,
+					     const char *app_secret,
+					     const char *api_base,
+					     wcall_cloudflare_request_h *requesth)
+{
+	struct calling_instance *inst = wuser2inst(wuser);
+	int err;
+
+	if (!inst || !convid || !app_id || !app_secret || !api_base || !requesth)
+		return EINVAL;
+	if (wcall_lookup(inst, convid))
+		return EBUSY;
+	/* A Cloudflare publisher/subscriber transport requires the two-ECall
+	 * conference mode. Enable it together with the adapter configuration. */
+	inst->enable_publish_subscribe = true;
+
+	inst->cloudflare_app_id = mem_deref(inst->cloudflare_app_id);
+	inst->cloudflare_app_secret = mem_deref(inst->cloudflare_app_secret);
+	inst->cloudflare_api_base = mem_deref(inst->cloudflare_api_base);
+	err = str_dup(&inst->cloudflare_app_id, app_id);
+	if (!err)
+		err = str_dup(&inst->cloudflare_app_secret, app_secret);
+	if (!err)
+		err = str_dup(&inst->cloudflare_api_base, api_base);
+	if (err)
+		return err;
+
+	inst->cloudflare_requesth = requesth;
+	return 0;
+}
+
+AVS_EXPORT
+int wcall_cloudflare_response(WUSER_HANDLE wuser,
+				      const char *convid,
+				      int role,
+				      int status,
+				      const char *body)
+{
+	struct calling_instance *inst = wuser2inst(wuser);
+	struct wcall *wcall;
+
+	if (!inst || !convid || !body)
+		return EINVAL;
+	wcall = wcall_lookup(inst, convid);
+	if (!wcall || !wcall->cloudflare)
+		return ENOENT;
+	if (role != CCALL_ECALL_PUBLISHER && role != CCALL_ECALL_SUBSCRIBER)
+		return EINVAL;
+
+	return cloudflare_realtime_handle_response(wcall->cloudflare, role,
+							 status, body);
 }
 
 static void call_group_change_json(struct calling_instance *inst,
@@ -1655,6 +1740,7 @@ static void destructor(void *arg)
 	}
 
 	mem_deref(wcall->icall);
+	cloudflare_realtime_close(wcall->cloudflare);
 	mem_deref(wcall->convid);
 
 	info("wcall(%p): dtor -- done\n", wcall);
@@ -2067,6 +2153,22 @@ int wcall_add(struct calling_instance *inst,
 				mem_deref(ccall);
 				goto out;
 			}
+		}
+
+		if (!err && inst->cloudflare_requesth) {
+			struct cloudflare_realtime_conf cfconf = {
+				.app_id = inst->cloudflare_app_id,
+				.app_secret = inst->cloudflare_app_secret,
+				.api_base = inst->cloudflare_api_base,
+				.requesth = cloudflare_request_bridge,
+			};
+			err = cloudflare_realtime_alloc(&wcall->cloudflare, ccall,
+							&cfconf, wcall);
+			if (err)
+				goto out;
+			err = cloudflare_realtime_enable(wcall->cloudflare, true);
+			if (err)
+				goto out;
 		}
 
 		wcall->icall = ccall_get_icall(ccall);
@@ -2769,6 +2871,9 @@ static void instance_destroy(struct calling_instance *inst)
 	inst->mm = mem_deref(inst->mm);
 	inst->msys = mem_deref(inst->msys);
 	inst->cfg = mem_deref(inst->cfg);
+	inst->cloudflare_app_id = mem_deref(inst->cloudflare_app_id);
+	inst->cloudflare_app_secret = mem_deref(inst->cloudflare_app_secret);
+	inst->cloudflare_api_base = mem_deref(inst->cloudflare_api_base);
 	inst->media_laddr = mem_deref(inst->media_laddr);
 
 	inst->readyh = NULL;
