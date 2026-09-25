@@ -413,9 +413,13 @@ int wireaudio_set_handlers(const char *convid,
 			   auplay_write_h *wh,
 			   void *arg)
 {
-	struct wdev *wdev = find_device(convid);
+	struct wdev *wdev;
 	int err = 0;
+	
+	if (!convid)
+		return EINVAL;
 
+	wdev = find_device(convid);
 	if (!wdev) {
 		err = alloc_device(&wdev, convid,
 				   PSTN_SRATE, PSTN_PTIME, PSTN_CHAN);
