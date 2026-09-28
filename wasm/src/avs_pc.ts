@@ -2415,14 +2415,6 @@ function pc_CreateDataChannel(hnd: number, labelPtr: number) {
   let dcHnd = 0;
   if (dc != null) {
     dcHnd = setupDataChannel(pc, dc);
-
-    /* The catalog uses a separate, fixed, reliable/ordered channel.  It is
-     * created together with the established ECall channel and therefore is
-     * negotiated in the same SDP exchange. */
-    if (label === "calling-3.0" && pc.catalogDc == null) {
-      const catalogDc = rtc.createDataChannel(CATALOG_DATA_CHANNEL_LABEL);
-      if (catalogDc != null) setupDataChannel(pc, catalogDc);
-    }
   }
 
   return dcHnd;

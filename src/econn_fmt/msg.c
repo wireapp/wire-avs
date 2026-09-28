@@ -750,6 +750,16 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		econn_streams_encode(jobj, &msg->u.confstreams.streaml);
 		break;
 
+	case ECONN_CATALOG:
+		if (!msg->u.catalog.json) {
+			err = EINVAL;
+			goto out;
+		}
+		err = jzon_add_str(jobj, "catalog", "%s", msg->u.catalog.json);
+		if (err)
+			goto out;
+		break;
+
 	case ECONN_DEVPAIR_PUBLISH:
 		err = zapi_iceservers_encode(jobj,
 					     msg->u.devpair_publish.turnv,
@@ -1263,6 +1273,12 @@ int econn_message_decode(struct econn_message **msgp,
 				"could not find mode in message\n");
 			goto out;
 		}
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CATALOG))) {
+		msg->msg_type = ECONN_CATALOG;
+		err = jzon_strdup(&msg->u.catalog.json, jobj, "catalog");
+		if (err)
+			goto out;
 	}
 	else if (0 == str_casecmp(type,
 				  econn_msg_name(ECONN_DEVPAIR_PUBLISH))) {

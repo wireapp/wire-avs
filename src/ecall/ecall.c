@@ -541,7 +541,12 @@ static void econn_confmsg_handler(struct econn *econn,
 
 	case ECONN_CONF_STREAMS:
 		info("ecall(%p): confstreams: streams: %u\n",
-		     ecall, list_count(&msg->u.confstreams.streaml));
+			 ecall, list_count(&msg->u.confstreams.streaml));
+		break;
+
+	case ECONN_CATALOG:
+		info("ecall(%p): catalog message: %zu bytes\n", ecall,
+		     msg->u.catalog.json ? str_len(msg->u.catalog.json) : 0);
 		break;
 
 	default:

@@ -46,6 +46,8 @@ enum econn_msg {
 	ECONN_REJECT = 0x11,
 	ECONN_ALERT  = 0x12,
 	ECONN_PING   = 0x13,
+	/* Publish/subscribe catalog carried on the existing ECall DataChannel. */
+	ECONN_CATALOG = 0x14,
 
 	/* Device pairing messages */
 	ECONN_DEVPAIR_PUBLISH = 0x21,
@@ -218,6 +220,10 @@ struct econn_message {
 			struct list streaml; /* list of struct econn_stream_info */
 			char *mode;
 		} confstreams;
+
+		struct catalog_message {
+			char *json;
+		} catalog;
 	} u;
 };
 
@@ -449,5 +455,3 @@ struct vector {
 };
 
 int vector_alloc(struct vector **vecp, const uint8_t *bytes, size_t len);
-
-
