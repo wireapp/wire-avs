@@ -304,6 +304,34 @@ pipeline {
                             )
                         }
                     }
+                    echo '### Publish MavenLocal for Wire S3 upload'
+                    withCredentials([
+                            string(credentialsId: 'sonatype-signing-key-password', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKeyPassword'),
+                            string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
+                        ]) {
+                        sh(
+                            script: """
+                                mkdir -p ./build/artifacts/maven
+                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishMavenJavaPublicationToMavenLocal
+                                cp -r build/publish/mavenJava/* ./build/artifacts/maven/
+                            """
+                        )
+                    }
+                    echo '### Attach MavenLocal artifacts to GitHub release'
+                    withCredentials([ string( credentialsId: 'github-repo-user', variable: 'repoUser' ),
+                        string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
+                        sh(
+                            script: """
+                                GITHUB_USER=${repoUser} \\
+                                GITHUB_TOKEN=${accessToken} \\
+                                python3 ./scripts/release-on-github.py \\
+                                    ${repoName} \\
+                                    ./build/artifacts/maven \\
+                                    ${version} \\
+                                    "MavenLocal artifacts for ${version}"
+                            """
+                        )
+                    }
                 }
             }
         }
@@ -342,6 +370,63 @@ pipeline {
                             )
                         }
                     }
+                    echo '### Publish MavenLocal for Wire S3 upload'
+                    withCredentials([
+                            string(credentialsId: 'sonatype-signing-key-password', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKeyPassword'),
+                            string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
+                        ]) {
+                        sh(
+                            script: """
+                                mkdir -p ./build/artifacts/maven
+                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs:publishToMavenLocal --no-configuration-cache
+                                cp -r avs/build/publish/avs-kmpPublication/* ./build/artifacts/maven/
+                            """
+                        )
+                    }
+                    echo '### Attach MavenLocal artifacts to GitHub release'
+                    withCredentials([ string( credentialsId: 'github-repo-user', variable: 'repoUser' ),
+                        string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
+                        sh(
+                            script: """
+                                GITHUB_USER=${repoUser} \\
+                                GITHUB_TOKEN=${accessToken} \\
+                                python3 ./scripts/release-on-github.py \\
+                                    ${repoName} \\
+                                    ./build/artifacts/maven \\
+                                    ${version} \\
+                                    "MavenLocal artifacts for ${version}"
+                            """
+                        )
+                    }
+                }
+            }
+        }
+
+        stage('Trigger Wire Maven publish') {
+            when {
+                anyOf {
+                    expression { return "${branchName}".contains('release') }
+                }
+            }
+            agent {
+                label 'linuxbuild'
+            }
+            steps {
+                withCredentials([ string( credentialsId: 'github-repo-user', variable: 'repoUser' ),
+                    string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
+                    sh(
+                        script: """
+                            cd "${env.WORKSPACE}"
+                            echo "Triggering GitHub Actions Maven publish for tag ${version}..."
+                            curl -X POST \
+                                -H "Accept: application/vnd.github+json" \
+                                -H "Authorization: Bearer ${accessToken}" \
+                                -H "X-GitHub-Api-Version: 2022-11-28" \
+                                https://api.github.com/repos/wireapp/wire-avs/actions/workflows/maven-publish.yml/dispatches \
+                                -d '{"ref":"main","inputs":{"tag":"${version}"}}'
+                            echo "Maven publish workflow triggered for tag ${version}"
+                        """
+                    )
                 }
             }
         }

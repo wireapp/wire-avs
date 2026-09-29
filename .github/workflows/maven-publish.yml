@@ -1,0 +1,138 @@
+name: Publish to Wire Maven S3
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Git tag to publish to Wire Maven'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.inputs.tag }}
+
+      - name: Wait for Maven artifacts in release
+        run: |
+          echo "Waiting for Maven artifacts in release..."
+          for i in {1..60}; do
+            assets=$(gh release view "${{ github.event.inputs.tag }}" \
+              --json assets --jq '.assets[].name' 2>/dev/null || true)
+            if echo "$assets" | grep -qE '\.(jar|aar|pom|module)(\.asc)?$'; then
+              echo "Found Maven artifacts after $i attempts."
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "ERROR: Maven artifacts not found after 600 seconds."
+              echo "Release assets: $assets"
+              exit 1
+            fi
+            echo "Attempt $i/60: no Maven artifacts yet, waiting 10s..."
+            sleep 10
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all release assets
+        uses: robinraju/release-downloader@a96f54c1b5f5e09e47d9504526e96febd949d4c2 # v1.11
+        with:
+          repository: ${{ github.repository }}
+          tag: ${{ github.event.inputs.tag }}
+          fileName: "*"
+          outDir: ./artifacts
+          extract: false
+
+      - name: Filter Maven artifacts
+        run: |
+          mkdir -p ./maven-artifacts
+          for f in ./artifacts/*; do
+            case "$(basename "$f")" in
+              *.pom|*.module|*.jar|*.aar|*.asc)
+                mv "$f" ./maven-artifacts/
+                ;;
+            esac
+          done
+          echo "Filtered Maven artifacts:"
+          ls -la ./maven-artifacts/
+
+      - name: Extract version from pom
+        id: version
+        run: |
+          POM_FILE=$(ls ./maven-artifacts/*.pom 2>/dev/null | head -1)
+          if [ -z "$POM_FILE" ]; then
+            echo "ERROR: No .pom files found"
+            exit 1
+          fi
+          VERSION=$(grep -oP '<version>\K[^<]+' "$POM_FILE" | head -1)
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: Could not extract version"
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e381572d3f0dc3043472875e44f2c77701b3c67c # v4
+        with:
+          role-to-assume: arn:aws:iam::093205192929:role/gh-actions-maven-publish-wire-avs
+          aws-region: us-east-1
+
+      - name: Upload to Wire S3 (Maven layout)
+        run: |
+          ARTIFACTS_DIR="./maven-artifacts"
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Upload avs-kmp artifacts to com/wire/avs-kmp/<version>/
+          echo "Uploading avs-kmp artifacts..."
+          for f in "$ARTIFACTS_DIR"/avs-kmp*; do
+            [ -f "$f" ] && aws s3 cp "$f" "s3://maven-wire-com/com/wire/avs-kmp/$VERSION/$(basename "$f")" && echo "  Uploaded: $(basename "$f")"
+          done
+
+          # Upload legacy android .pom files (non-avs-kmp)
+          echo "Uploading legacy android pom artifacts..."
+          for pom in "$ARTIFACTS_DIR"/*.pom; do
+            [ "$pom" = "$ARTIFACTS_DIR/avs-kmp"* ] && continue
+            [ ! -f "$pom" ] && continue
+            artifact_base=$(basename "$pom" .pom | grep -oP '^[^-]+')
+            s3_path="s3://maven-wire-com/com/wire/$artifact_base/$VERSION"
+            aws s3 cp "$pom" "$s3_path/$(basename "$pom")"
+            echo "  Uploaded: $(basename "$pom") -> $s3_path/"
+          done
+
+          # Upload .aar files for legacy android
+          echo "Uploading .aar artifacts..."
+          for f in "$ARTIFACTS_DIR"/*.aar; do
+            [ "$f" = "$ARTIFACTS_DIR/avs-kmp"* ] && continue
+            [ ! -f "$f" ] && continue
+            aws s3 cp "$f" "s3://maven-wire-com/com/wire/avs/$VERSION/$(basename "$f")"
+            echo "  Uploaded: $(basename "$f")"
+          done
+
+          # Upload remaining .jar files (not from avs-kmp)
+          echo "Uploading .jar artifacts..."
+          for f in "$ARTIFACTS_DIR"/*.jar; do
+            [ "$f" = "$ARTIFACTS_DIR/avs-kmp"* ] && continue
+            [ ! -f "$f" ] && continue
+            aws s3 cp "$f" "s3://maven-wire-com/com/wire/avs/$VERSION/$(basename "$f")"
+            echo "  Uploaded: $(basename "$f")"
+          done
+
+          # Upload remaining .asc signature files (not from avs-kmp)
+          echo "Uploading .asc artifacts..."
+          for f in "$ARTIFACTS_DIR"/*.asc; do
+            [ "$f" = "$ARTIFACTS_DIR/avs-kmp"* ] && continue
+            [ ! -f "$f" ] && continue
+            aws s3 cp "$f" "s3://maven-wire-com/com/wire/avs/$VERSION/$(basename "$f")"
+            echo "  Uploaded: $(basename "$f")"
+          done
+
+          echo "Maven publish to Wire S3 complete."
