@@ -98,12 +98,92 @@ out:
 	return err;
 }
 
+static int make_publisher_tracks(char **tracksp, const char *sdp)
+{
+	struct json_object *tracks = NULL;
+	char *encoded = NULL;
+	const char *line;
+	const char *kind = NULL;
+	int err = 0;
+
+	if (!tracksp || !sdp)
+		return EINVAL;
+
+	tracks = jzon_alloc_array();
+	if (!tracks)
+		return ENOMEM;
+
+	line = sdp;
+	while (*line) {
+		struct json_object *track;
+		const char *line_end = strchr(line, '\n');
+		char mid[64];
+		size_t len;
+
+		if (!line_end)
+			line_end = line + strlen(line);
+		len = (size_t)(line_end - line);
+
+		if (len >= 7 && 0 == strncmp(line, "m=audio", 7))
+			kind = "audio";
+		else if (len >= 7 && 0 == strncmp(line, "m=video", 7))
+			kind = "video";
+		else if (len >= 13 && 0 == strncmp(line, "m=application", 13))
+			kind = NULL;
+
+		if (kind && len > 6 && 0 == strncmp(line, "a=mid:", 6)) {
+			const char *mid_start = line + 6;
+			const char *mid_end = line_end;
+
+			while (mid_end > mid_start &&
+			       (mid_end[-1] == '\r' || mid_end[-1] == '\n'))
+				--mid_end;
+			if (!kind || mid_end <= mid_start ||
+			    (size_t)(mid_end - mid_start) >= sizeof(mid))
+				goto next_line;
+
+			memcpy(mid, mid_start, (size_t)(mid_end - mid_start));
+			mid[mid_end - mid_start] = '\0';
+
+			track = jzon_alloc_object();
+			if (!track) {
+				err = ENOMEM;
+				goto out;
+			}
+			jzon_add_str(track, "location", "%s", "local");
+			jzon_add_str(track, "mid", "%s", mid);
+			jzon_add_str(track, "trackName", "%s", kind);
+			json_object_array_add(tracks, track);
+		}
+
+	next_line:
+		line = *line_end ? line_end + 1 : line_end;
+	}
+
+	if (json_object_array_length(tracks) == 0) {
+		err = EPROTO;
+		goto out;
+	}
+
+	err = jzon_encode(&encoded, tracks);
+	if (!err)
+		*tracksp = encoded;
+
+out:
+	if (err)
+		mem_deref(encoded);
+	mem_deref(tracks);
+	return err;
+}
+
 static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_role role, struct econn_message *msg)
 {
 	const char *sid;
 	const char *method;
 	char pathbuf[256];
 	char *body = NULL;
+	char *publisher_tracks = NULL;
+	const char *tracks_json = NULL;
 	int err;
 	enum cloudflare_realtime_operation operation;
 
@@ -123,15 +203,26 @@ static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_ro
 	if (!sid && (role == CCALL_ECALL_SUBSCRIBER || msg->msg_type == ECONN_UPDATE))
 		return ENOTCONN;
 
+	if (role == CCALL_ECALL_SUBSCRIBER) {
+		tracks_json = adapter->tracks_json;
+	}
+	else if (msg->msg_type == ECONN_SETUP && !msg->resp) {
+		err = make_publisher_tracks(&publisher_tracks,
+					    msg->u.setup.sdp_msg);
+		if (err)
+			return err;
+		tracks_json = publisher_tracks;
+	}
+
 	err = make_request_body(&body, !msg->resp, msg->u.setup.sdp_msg,
-				role == CCALL_ECALL_SUBSCRIBER
-				? adapter->tracks_json : NULL);
+				tracks_json);
+	mem_deref(publisher_tracks);
 	if (err)
 		return err;
 
-	if (role == CCALL_ECALL_PUBLISHER && !sid) {
-		method = "POST";
-		str_ncpy(pathbuf, "/sessions/new", sizeof(pathbuf));
+	if (!sid) {
+		/* The session is created by ECONN_CONF_CONN before SETUP. */
+		return ENOTCONN;
 	}
 	else if (msg->msg_type == ECONN_UPDATE) {
 		method = "PUT";
@@ -149,6 +240,30 @@ static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_ro
 	mem_deref(body);
 	if (err)
 		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+	return err;
+}
+
+int cloudflare_realtime_send_conf_conn(
+				struct cloudflare_realtime *adapter)
+{
+	enum ccall_ecall_role role = CCALL_ECALL_PUBLISHER;
+	int err;
+
+	if (!adapter || !adapter->requesth)
+		return EINVAL;
+	if (session_id(adapter, role))
+		return EALREADY;
+	if (adapter->pending[role] != CLOUDFLARE_REALTIME_OP_NONE)
+		return EBUSY;
+
+	adapter->pending[role] = CLOUDFLARE_REALTIME_OP_CREATE_SESSION;
+	err = adapter->requesth(adapter, role,
+				"POST", "/sessions/new",
+				adapter->app_id, adapter->app_secret, NULL,
+				request_response, adapter->arg);
+	if (err)
+		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+
 	return err;
 }
 
@@ -172,7 +287,7 @@ int cloudflare_realtime_map_message(
 		*operation = CLOUDFLARE_REALTIME_OP_RENEGOTIATE;
 	}
 	else if (role == CCALL_ECALL_PUBLISHER && !sid) {
-		*operation = CLOUDFLARE_REALTIME_OP_CREATE_SESSION;
+		return ENOTCONN;
 	}
 	else if (role == CCALL_ECALL_PUBLISHER) {
 		*operation = CLOUDFLARE_REALTIME_OP_PUBLISH_TRACKS;
@@ -346,6 +461,24 @@ int cloudflare_realtime_handle_response(
 	err = jzon_decode(&root, body, strlen(body));
 	if (err)
 		goto out;
+
+	if (adapter->pending[role] == CLOUDFLARE_REALTIME_OP_CREATE_SESSION) {
+		sid = jzon_str(root, "sessionId");
+		if (!sid) {
+			err = EPROTO;
+			goto out;
+		}
+		err = cloudflare_realtime_set_session(adapter, role, sid);
+		if (!err && role == CCALL_ECALL_PUBLISHER) {
+			err = ccall_start_ecall(adapter->ccall, role);
+			if (err == EALREADY)
+				err = 0;
+		}
+		if (!err)
+			adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+		goto out;
+	}
+
 	err = jzon_object(&description, root, "sessionDescription");
 	if (err)
 		goto out;

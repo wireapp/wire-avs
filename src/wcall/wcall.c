@@ -1691,6 +1691,13 @@ static int icall_sft_handler(struct icall *icall,
 			"inst=%p\n", wcall, inst);
 		return ENODEV;
 	}
+
+	/* Cloudflare creates the publisher session at CONF_CONN time.  This
+	 * request has no SDP and therefore does not use the legacy SFT callback. */
+	if (wcall->cloudflare && msg &&
+	    msg->msg_type == ECONN_CONF_CONN) {
+		return cloudflare_realtime_send_conf_conn(wcall->cloudflare);
+	}
 	
 	if (inst->sfth == NULL)
 		return ENOSYS;

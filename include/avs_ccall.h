@@ -65,6 +65,9 @@ int ccall_set_enable_publish_subscribe(struct ccall *ccall, bool enable_publish_
 
 int ccall_prepare_ecalls(struct ccall *ccall);
 
+/* Start one role-specific ECall after its transport is ready. */
+int ccall_start_ecall(struct ccall *ccall, enum ccall_ecall_role role);
+
 struct ecall *ccall_get_ecall(const struct ccall *ccall, enum ccall_ecall_role role);
 
 enum ccall_state {

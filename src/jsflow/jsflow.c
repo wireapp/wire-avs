@@ -783,9 +783,15 @@ int  jsflow_gather_all_turn(struct iflow *flow, bool offer)
 	jsflow->pending_gather = true;
 
 	if (offer) {
-		jsflow->dc.handle = pc_CreateDataChannel(jsflow->handle, DCE_LABEL);
+		/* The publisher creates the ordinary application DataChannel in its
+		 * offer. A receive-only flow must never create a second local channel;
+		 * it subscribes to the publisher's channel on the remote side. */
+		if (jsflow->media_direction != IFLOW_MEDIA_RECVONLY &&
+		    jsflow->dc.handle == PC_INVALID_HANDLE)
+			jsflow->dc.handle = pc_CreateDataChannel(jsflow->handle,
+								DCE_LABEL);
 		pc_CreateOffer(jsflow->handle, jsflow->call_type, jsflow->vstate,
-			       jsflow->media_direction);
+				       jsflow->media_direction);
 	}
 	else {
 		jsflow->gather = true;

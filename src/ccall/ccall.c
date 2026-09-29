@@ -2575,6 +2575,21 @@ int ccall_prepare_ecalls(struct ccall *ccall)
 	return 0;
 }
 
+int ccall_start_ecall(struct ccall *ccall, enum ccall_ecall_role role)
+{
+	struct ecall *ecall;
+
+	if (!ccall)
+		return EINVAL;
+
+	ecall = ccall_get_ecall(ccall, role);
+	if (!ecall)
+		return ENOENT;
+
+	return ecall_start(ecall, ccall->call_type, false,
+			   ccall->meeting.is_set);
+}
+
 static void userlist_add_user_handler(const struct userinfo *user,
 				      void *arg)
 {

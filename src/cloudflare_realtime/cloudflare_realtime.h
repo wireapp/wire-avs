@@ -74,6 +74,10 @@ int cloudflare_realtime_set_session(struct cloudflare_realtime *adapter,
 				    enum ccall_ecall_role role,
 				    const char *session_id);
 
+/* Start the Cloudflare publisher session for ECONN_CONF_CONN. */
+int cloudflare_realtime_send_conf_conn(
+				struct cloudflare_realtime *adapter);
+
 int cloudflare_realtime_set_subscribe_tracks(
 				struct cloudflare_realtime *adapter,
 				const char *tracks_json);
