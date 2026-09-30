@@ -339,16 +339,3 @@ mavenPublishing {
         }
     }
 }
-
-publishing {
-    repositories {
-        maven {
-            name = "wireS3"
-            url = uri(layout.buildDirectory.dir("publish/avs-kmpPublication"))
-        }
-    }
-}
-
-tasks.register("publishToWireS3Local") {
-    dependsOn("publishAllPublicationsToWireS3Repository")
-}

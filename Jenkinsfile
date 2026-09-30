@@ -312,8 +312,8 @@ pipeline {
                         sh(
                             script: """
                                 mkdir -p ./build/artifacts/maven
-                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishToWireS3Local
-                                cp -r build/publish/mavenJava/* ./build/artifacts/maven/
+                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishMavenJavaPublicationToMavenLocal
+                                cp -r ~/.m2/repository/com/wire/avs/* ./build/artifacts/maven/
                             """
                         )
                     }
@@ -378,8 +378,8 @@ pipeline {
                         sh(
                             script: """
                                 mkdir -p ./build/artifacts/maven
-                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToWireS3Local --no-configuration-cache
-                                cp -r kmp/build/publish/avs-kmpPublication/* ./build/artifacts/maven/
+                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToMavenLocal --no-configuration-cache
+                                cp -r ~/.m2/repository/com/wire/avs-kmp/* ./build/artifacts/maven/
                             """
                         )
                     }
@@ -402,7 +402,7 @@ pipeline {
             }
         }
 
-        stage('Trigger Wire Maven publish') {
+        stage('Publish to Wire S3 Maven repository') {
             when {
                 anyOf {
                     expression { return "${branchName}".contains('release') }
@@ -412,19 +412,22 @@ pipeline {
                 label 'linuxbuild'
             }
             steps {
-                withCredentials([ string( credentialsId: 'github-repo-user', variable: 'repoUser' ),
-                    string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 's3_package_key',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )
+                ]) {
                     sh(
                         script: """
                             cd "${env.WORKSPACE}"
-                            echo "Triggering GitHub Actions Maven publish for tag ${version}..."
-                            curl -X POST \
-                                -H "Accept: application/vnd.github+json" \
-                                -H "Authorization: Bearer ${accessToken}" \
-                                -H "X-GitHub-Api-Version: 2022-11-28" \
-                                https://api.github.com/repos/wireapp/wire-avs/actions/workflows/maven-publish.yml/dispatches \
-                                -d '{"ref":"main","inputs":{"tag":"${version}"}}'
-                            echo "Maven publish workflow triggered for tag ${version}"
+                            echo "Uploading Maven artifacts to s3://maven-wire-com..."
+                            aws s3 sync ./build/artifacts/maven/ s3://maven-wire-com/ \\
+                                --region us-east-1 \\
+                                --exact-timestamps \\
+                                --delete
+                            echo "Maven artifacts published to s3://maven-wire-com"
                         """
                     )
                 }

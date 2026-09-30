@@ -23,12 +23,6 @@ mavenPublishing {
 
 afterEvaluate {
     publishing {
-        repositories {
-            maven {
-                name = 'wireS3'
-                url = "${buildDir}/publish/mavenJava"
-            }
-        }
         publications {
             mavenJava(MavenPublication) {
                 artifact "build/dist/android/avs.aar"
@@ -45,10 +39,6 @@ afterEvaluate {
                 }
             }
         }
-    }
-    // Also publish to WireS3 for Wire S3 upload compatibility
-    tasks.register('publishToWireS3Local') {
-        dependsOn 'publishMavenJavaPublicationToWireS3MavenRepository'
     }
     // Allows skipping signing jars published to 'MavenLocal' repository
     tasks.named("signMavenJavaPublication").configure {
