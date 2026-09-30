@@ -48,7 +48,7 @@ afterEvaluate {
     }
     // Also publish to WireS3 for Wire S3 upload compatibility
     tasks.register('publishToWireS3Local') {
-        dependsOn 'publishMavenJavaPublicationToWireS3Maven'
+        dependsOn 'publishMavenJavaPublicationToWireS3MavenRepository'
     }
     // Allows skipping signing jars published to 'MavenLocal' repository
     tasks.named("signMavenJavaPublication").configure {

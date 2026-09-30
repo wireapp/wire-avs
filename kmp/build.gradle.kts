@@ -344,11 +344,11 @@ publishing {
     repositories {
         maven {
             name = "wireS3"
-            url = file("${buildDir}/publish/avs-kmpPublication")
+            url = uri(layout.buildDirectory.dir("publish/avs-kmpPublication"))
         }
     }
 }
 
 tasks.register("publishToWireS3Local") {
-    dependsOn("publishAvs-kmpPublicationToWireS3Maven")
+    dependsOn("publishAllPublicationsToWireS3Repository")
 }
