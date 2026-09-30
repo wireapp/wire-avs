@@ -45,5 +45,8 @@ else:
 for folder_entry in os.listdir(assets_directory_path):
     print('Uploading {} as asset to release {}'.format(folder_entry, name))
     asset_path = os.path.join(assets_directory_path, folder_entry)
+    if os.path.isdir(asset_path):
+        print('Skipping directory: {}'.format(asset_path))
+        continue
     release.upload_asset(asset_path)
 

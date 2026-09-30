@@ -313,7 +313,7 @@ pipeline {
                             script: """
                                 mkdir -p ./build/artifacts/maven
                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishMavenJavaPublicationToMavenLocal
-                                cp -r ~/.m2/repository/com/wire/avs/* ./build/artifacts/maven/
+                                cp ~/.m2/repository/com/wire/avs/*.pom ~/.m2/repository/com/wire/avs/*.aar ~/.m2/repository/com/wire/avs/*.module ~/.m2/repository/com/wire/avs/*.xml ./build/artifacts/maven/ 2>/dev/null || true
                             """
                         )
                     }
