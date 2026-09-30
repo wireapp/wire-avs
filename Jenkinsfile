@@ -97,7 +97,7 @@ pipeline {
 
                         // Stash the android aar directory recursively,
                         // shared libraries will be used to generate android kmp in macos agent
-                        stash name: 'android-aar', includes: 'build/dist/android/aar/**'
+                        stash name: 'android-aar', includes: 'build/dist/android/aar/**,build/dist/android/avs.aar'
                     }
                 }
                 stage('macOS') {
@@ -312,7 +312,7 @@ pipeline {
                         sh(
                             script: """
                                 mkdir -p ./build/artifacts/maven
-                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishMavenJavaPublicationToMavenLocal
+                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishToWireS3Local
                                 cp -r build/publish/mavenJava/* ./build/artifacts/maven/
                             """
                         )
@@ -364,8 +364,8 @@ pipeline {
                         withMaven(maven: 'M3', jdk: 'JDK17') {
                             sh(
                                 script: """
-                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew avs:clean
-                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs:publishAndReleaseToMavenCentral --no-configuration-cache
+                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:clean
+                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishAndReleaseToMavenCentral --no-configuration-cache
                                 """
                             )
                         }
@@ -378,8 +378,8 @@ pipeline {
                         sh(
                             script: """
                                 mkdir -p ./build/artifacts/maven
-                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs:publishToMavenLocal --no-configuration-cache
-                                cp -r avs/build/publish/avs-kmpPublication/* ./build/artifacts/maven/
+                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToWireS3Local --no-configuration-cache
+                                cp -r kmp/build/publish/avs-kmpPublication/* ./build/artifacts/maven/
                             """
                         )
                     }
