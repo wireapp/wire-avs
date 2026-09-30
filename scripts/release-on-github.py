@@ -48,5 +48,11 @@ for folder_entry in os.listdir(assets_directory_path):
     if os.path.isdir(asset_path):
         print('Skipping directory: {}'.format(asset_path))
         continue
-    release.upload_asset(asset_path)
+    try:
+        release.upload_asset(asset_path)
+    except github.GithubException.GithubException as e:
+        if 'already_exists' in str(e):
+            print('Asset already exists, skipping: {}'.format(folder_entry))
+        else:
+            raise
 

@@ -311,9 +311,10 @@ pipeline {
                         ]) {
                         sh(
                             script: """
+                                rm -rf ./build/artifacts/maven
                                 mkdir -p ./build/artifacts/maven
                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishMavenJavaPublicationToMavenLocal
-                                cp ~/.m2/repository/com/wire/avs/*.pom ~/.m2/repository/com/wire/avs/*.aar ~/.m2/repository/com/wire/avs/*.module ~/.m2/repository/com/wire/avs/*.xml ./build/artifacts/maven/ 2>/dev/null || true
+                                find ~/.m2/repository/com/wire/avs -type f \\( -name "*.pom" -o -name "*.aar" -o -name "*.module" \\) -exec cp {} ./build/artifacts/maven/ \\;
                             """
                         )
                     }
@@ -377,9 +378,10 @@ pipeline {
                         ]) {
                         sh(
                             script: """
+                                rm -rf ./build/artifacts/maven
                                 mkdir -p ./build/artifacts/maven
                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToMavenLocal --no-configuration-cache
-                                cp -r ~/.m2/repository/com/wire/avs-kmp/* ./build/artifacts/maven/
+                                find ~/.m2/repository/com/wire/avs-kmp -type f \\( -name "*.pom" -o -name "*.module" \\) -exec cp {} ./build/artifacts/maven/ \\;
                             """
                         )
                     }
