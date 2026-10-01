@@ -32,6 +32,7 @@ enum cloudflare_realtime_operation {
 	CLOUDFLARE_REALTIME_OP_NONE = 0,
 	CLOUDFLARE_REALTIME_OP_CREATE_SESSION,
 	CLOUDFLARE_REALTIME_OP_PUBLISH_TRACKS,
+	CLOUDFLARE_REALTIME_OP_CREATE_DATACHANNEL,
 	CLOUDFLARE_REALTIME_OP_SUBSCRIBE_TRACKS,
 	CLOUDFLARE_REALTIME_OP_RENEGOTIATE,
 };
@@ -81,6 +82,11 @@ int cloudflare_realtime_send_conf_conn(
 int cloudflare_realtime_set_subscribe_tracks(
 				struct cloudflare_realtime *adapter,
 				const char *tracks_json);
+
+/* Register the publisher's application data channel after the SCTP
+ * transport has become ready. */
+int cloudflare_realtime_send_datachannel(
+				struct cloudflare_realtime *adapter);
 
 int cloudflare_realtime_map_message(
 				struct cloudflare_realtime *adapter,

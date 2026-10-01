@@ -79,6 +79,9 @@ interface PeerConnection {
   streams: {[ssrc: string]: string};
   gatherTimer: any;
   catalogDc: RTCDataChannel | null;
+  closing: boolean;
+  ignoredDataChannels: {[hnd: number]: boolean};
+  applicationDcHnd: number;
 }
 
 const ENV_FIREFOX = 1;
@@ -1072,6 +1075,34 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
     }).then();
 }
 
+/* Apply the media direction selected by the ECall role to browser
+ * transceivers. Legacy send/receive calls keep the browser's default
+ * direction; publisher and subscriber flows are explicit. */
+function applyMediaDirection(pc: PeerConnection) {
+    const rtc = pc.rtc;
+
+    if (!rtc || pc.media_direction === PC_MEDIA_SENDRECV)
+	return;
+
+    for (const transceiver of rtc.getTransceivers()) {
+	    try {
+		if (pc.media_direction === PC_MEDIA_SENDONLY) {
+		    /* A publisher must only expose media it actually sends. */
+		    if (transceiver.sender && transceiver.sender.track)
+			transceiver.direction = "sendonly";
+		}
+		else if (pc.media_direction === PC_MEDIA_RECVONLY) {
+		    transceiver.direction = "recvonly";
+		}
+	    }
+	    catch (err) {
+		pc_log(LOG_LEVEL_WARN,
+		       `applyMediaDirection: could not set transceiver direction: ${err}`,
+		       err);
+	    }
+    }
+}
+
 function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {
     pc_log(LOG_LEVEL_INFO, `update_tracks: adjust`)
     const params = sender.getParameters()
@@ -1370,6 +1401,7 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   }
 
   dc.onopen = () => {
+    if (pc.closing || pc.ignoredDataChannels[dcHnd]) return;
     pc_log(LOG_LEVEL_INFO, "dc-opened");
     if (isCatalog) {
       if (catalogStateHandler) catalogStateHandler(pc.convid, DC_STATE_OPEN);
@@ -1380,6 +1412,7 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   };
   dc.onclose = () => {
     pc_log(LOG_LEVEL_INFO, "dc-closed");
+    if (pc.closing || pc.ignoredDataChannels[dcHnd]) return;
     if (isCatalog) {
       if (catalogStateHandler) catalogStateHandler(pc.convid, DC_STATE_CLOSED);
     }
@@ -1388,6 +1421,7 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
     }
   };
   dc.onerror = event => {
+    if (pc.closing || pc.ignoredDataChannels[dcHnd]) return;
     if (event instanceof RTCErrorEvent) {
       pc_log(LOG_LEVEL_INFO, `dc-error: ${event.error}`);
       if (isCatalog) {
@@ -1399,6 +1433,7 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
     }
   };
   dc.onmessage = event => {
+    if (pc.closing || pc.ignoredDataChannels[dcHnd]) return;
     pc_log(LOG_LEVEL_INFO, `dc-onmessage: data=${event.data.length}`);
     const data = event.data.toString();
     if (isCatalog) {
@@ -1474,7 +1509,10 @@ function pc_New(self: number, convidPtr: number,
     },
     streams: {},
     gatherTimer: null,
-    catalogDc: null
+    catalogDc: null,
+    closing: false,
+    ignoredDataChannels: {},
+    applicationDcHnd: 0
   };
 
   worker.postMessage({op: 'create', self: pc.self, iva: iva8, ivv: ivv8});
@@ -1585,6 +1623,11 @@ function pc_Close(hnd: number) {
   if (pc == null) {
     return;
   }
+
+  /* RTCDataChannel close events may arrive after RTCPeerConnection.close().
+   * Mark the owner first so late events cannot call into a removed native
+   * jsflow handle. */
+  pc.closing = true;
 
   if (pc.rtc) {
     pc.rtc.getTransceivers().forEach(trans => {
@@ -1755,6 +1798,16 @@ function sdpMap(sdp: string, local: boolean, bundle: boolean): string {
     });
 
     return sdpLines.join('\r\n');
+}
+
+function sdpDirectionSummary(sdp: string): string {
+    return sdp.split('\r\n')
+        .filter(line => line.startsWith('m=') ||
+                        line === 'a=sendrecv' ||
+                        line === 'a=sendonly' ||
+                        line === 'a=recvonly' ||
+                        line === 'a=inactive')
+        .join('|');
 }
 
 function sdpCbrMap(sdp: string): string {
@@ -1984,7 +2037,15 @@ function createSdp(
 		      ? rtc.createOffer
 		      : rtc.createAnswer;
 
-		const offerVideoRx: RTCOfferOptions = isOffer ? {offerToReceiveVideo: true} : {};
+		/* A publisher must not create a receive-only video section when it has
+		 * no local video track. Legacy and subscriber offers retain the existing
+		 * receive-video behaviour. */
+		const offerVideoRx: RTCOfferOptions =
+		    isOffer && mediaDirection !== PC_MEDIA_SENDONLY
+		    ? {offerToReceiveVideo: true}
+		    : {};
+
+		applyMediaDirection(pc);
 
 		ccallStartGatherHandler(pc);
 
@@ -2185,6 +2246,22 @@ function pc_SetRemoteDescription(hnd: number, typePtr: number, sdpPtr: number) {
   }
 
   pc_log(LOG_LEVEL_INFO, `pc_SetRemoteDescription: hnd=${hnd} SDP=${sdpStr}`);
+
+  const localDescription = rtc.localDescription;
+  pc_log(LOG_LEVEL_INFO,
+         `pc_SetRemoteDescription: local=${localDescription ?
+           `${localDescription.type} ${sdpDirectionSummary(localDescription.sdp || '')}` :
+           '(none)'}`);
+  pc_log(LOG_LEVEL_INFO,
+         `pc_SetRemoteDescription: remote=${type} ${sdpDirectionSummary(sdpStr)}`);
+  rtc.getTransceivers().forEach((transceiver, index) => {
+    pc_log(LOG_LEVEL_INFO,
+           `pc_SetRemoteDescription: transceiver=${index} ` +
+           `direction=${transceiver.direction} ` +
+           `current=${transceiver.currentDirection || '(none)'} ` +
+           `senderTrack=${transceiver.sender && transceiver.sender.track ?
+             transceiver.sender.track.id : '(none)'}`);
+  });
 
   rtc
     .setRemoteDescription({ type: type, sdp: sdpStr })
@@ -2415,9 +2492,26 @@ function pc_CreateDataChannel(hnd: number, labelPtr: number) {
   let dcHnd = 0;
   if (dc != null) {
     dcHnd = setupDataChannel(pc, dc);
+    pc.applicationDcHnd = dcHnd;
   }
 
   return dcHnd;
+}
+
+function pc_CreateNegotiatedDataChannel(hnd: number, labelPtr: number, channelId: number) {
+  pc_log(LOG_LEVEL_INFO, `pc_CreateNegotiatedDataChannel: hnd=${hnd} id=${channelId}`);
+  const pc = connectionsStore.getPeerConnection(hnd);
+  if (pc == null || pc.rtc == null || channelId < 0) return 0;
+  const label = em_module.UTF8ToString(labelPtr);
+  if (pc.applicationDcHnd > 0) {
+    pc.ignoredDataChannels[pc.applicationDcHnd] = true;
+    const oldDc = connectionsStore.getDataChannel(pc.applicationDcHnd);
+    if (oldDc != null) oldDc.close();
+  }
+  const dc = pc.rtc.createDataChannel(label, { negotiated: true, id: channelId });
+  if (dc == null) return 0;
+  pc.applicationDcHnd = setupDataChannel(pc, dc);
+  return pc.applicationDcHnd;
 }
 
 function pc_DataChannelId(hnd: number) {
@@ -2511,6 +2605,7 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_SignalingState, "ii"],
     [pc_ConnectionState, "ii"],
     [pc_CreateDataChannel, "iii"],
+    [pc_CreateNegotiatedDataChannel, "iiii"],
     [pc_CreateOffer, "viiii"],
     [pc_CreateAnswer, "viiii"],
     [pc_AddDecoderAnswer, "vi"],

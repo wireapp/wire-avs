@@ -58,7 +58,14 @@ struct ccall_transport_handlers {
 int ccall_set_transport_handlers(struct ccall *ccall,
 		const struct ccall_transport_handlers *handlers, void *arg);
 int ccall_get_transport_state(const struct ccall *ccall,
-		enum ccall_ecall_role role, struct ccall_transport_state *state);
+				      enum ccall_ecall_role role, struct ccall_transport_state *state);
+
+/* Advance the publisher-specific Pub/Sub state machine. */
+void ccall_set_transport_connected(struct ccall *ccall,
+				   enum ccall_ecall_role role);
+
+void ccall_set_transport_active(struct ccall *ccall,
+				enum ccall_ecall_role role);
 
 // Activate subscriber and publisher behavior
 int ccall_set_enable_publish_subscribe(struct ccall *ccall, bool enable_publish_subscribe);

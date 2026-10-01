@@ -1199,6 +1199,13 @@ void econn_set_datachan_established(struct econn *econn)
 
 		econn_set_state(econn, ECONN_DATACHAN_ESTABLISHED);
 	}
+	else if (econn->state == ECONN_DATACHAN_ESTABLISHED) {
+		/* Replacing the provisional SCTP channel with Cloudflare's negotiated
+		 * application channel can emit a second open callback.  The transport
+		 * is already established, so this callback is intentionally idempotent.
+		 */
+		return;
+	}
 	else {
 		warning("econn(%p): set_datachan_established: "
 			"illegal state %s\n",
@@ -1268,5 +1275,4 @@ int econn_send_ping(struct econn *conn, bool response)
 
 	return err;
 }
-
 

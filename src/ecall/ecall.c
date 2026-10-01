@@ -960,6 +960,13 @@ int ecall_dce_send(struct ecall *ecall, struct mbuf *mb)
 	return err;
 }
 
+int ecall_dce_create(struct ecall *ecall, const char *label, int channel_id)
+{
+	if (!ecall || !label || channel_id < 0)
+		return EINVAL;
+	return IFLOW_CALLE(ecall->flow, dce_create, label, channel_id);
+}
+
 int ecall_dce_sendmsg(struct ecall *ecall, struct econn_message *msg)
 {
 	char *str = NULL;

@@ -22,6 +22,54 @@
 #include "priv_jzon.h"
 
 
+static int jzon_encode_array(struct re_printf *pf, const struct odict *o);
+
+static int jzon_encode_entry(struct re_printf *pf,
+			     const struct odict_entry *e)
+{
+	if (!e)
+		return 0;
+
+	switch (e->type) {
+	case ODICT_OBJECT:
+		return json_encode_odict(pf, e->u.odict);
+	case ODICT_ARRAY:
+		return jzon_encode_array(pf, e->u.odict);
+	case ODICT_INT:
+		return re_hprintf(pf, "%lld", e->u.integer);
+	case ODICT_DOUBLE:
+		return re_hprintf(pf, "%f", e->u.dbl);
+	case ODICT_STRING:
+		return re_hprintf(pf, "\"%H\"", utf8_encode, e->u.str);
+	case ODICT_BOOL:
+		return re_hprintf(pf, "%s", e->u.boolean ? "true" : "false");
+	case ODICT_NULL:
+		return re_hprintf(pf, "null");
+	default:
+		return EINVAL;
+	}
+}
+
+static int jzon_encode_array(struct re_printf *pf, const struct odict *o)
+{
+	struct le *le;
+	int err;
+
+	if (!o)
+		return 0;
+
+	err = re_hprintf(pf, "[");
+	for (le=o->lst.head; le; le=le->next) {
+		const struct odict_entry *e = le->data;
+		err |= re_hprintf(pf, "%H%s", jzon_encode_entry, e,
+				  le->next ? "," : "");
+	}
+	err |= re_hprintf(pf, "]");
+
+	return err;
+}
+
+
 struct json_object *jzon_alloc_object(void)
 {
 	return jzon_container_alloc(ODICT_OBJECT);
@@ -351,7 +399,10 @@ int jzon_print(struct re_printf *pf, struct json_object *jobj)
 	if (!jzon_is_container(jobj))
 		return EINVAL;
 
-	/* NOTE: array will be printed with {} tokens */
+	if (jobj->entry.type == ODICT_ARRAY)
+		return re_hprintf(pf, "%H", jzon_encode_array,
+				 jobj->entry.u.odict);
+
 	return re_hprintf(pf, "%H", json_encode_odict, jobj->entry.u.odict);
 }
 

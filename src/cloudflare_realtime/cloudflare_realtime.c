@@ -17,6 +17,7 @@
 */
 
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <re.h>
@@ -33,6 +34,7 @@ struct cloudflare_realtime {
 	char *app_secret;
 	char *api_base;
 	char *tracks_json;
+	char *datachannel_id;
 	cloudflare_realtime_request_h *requesth;
 	void *arg;
 	bool enabled;
@@ -104,6 +106,10 @@ static int make_publisher_tracks(char **tracksp, const char *sdp)
 	char *encoded = NULL;
 	const char *line;
 	const char *kind = NULL;
+	struct json_object *current_track = NULL;
+	bool media_send = true;
+	char track_name[128] = {0};
+	char current_mid[64] = {0};
 	int err = 0;
 
 	if (!tracksp || !sdp)
@@ -117,21 +123,84 @@ static int make_publisher_tracks(char **tracksp, const char *sdp)
 	while (*line) {
 		struct json_object *track;
 		const char *line_end = strchr(line, '\n');
-		char mid[64];
 		size_t len;
 
 		if (!line_end)
 			line_end = line + strlen(line);
 		len = (size_t)(line_end - line);
 
-		if (len >= 7 && 0 == strncmp(line, "m=audio", 7))
+		if (len >= 7 && 0 == strncmp(line, "m=audio", 7)) {
 			kind = "audio";
-		else if (len >= 7 && 0 == strncmp(line, "m=video", 7))
+			current_track = NULL;
+			current_mid[0] = '\0';
+			media_send = true;
+			track_name[0] = '\0';
+		}
+		else if (len >= 7 && 0 == strncmp(line, "m=video", 7)) {
 			kind = "video";
-		else if (len >= 13 && 0 == strncmp(line, "m=application", 13))
+			current_track = NULL;
+			current_mid[0] = '\0';
+			media_send = true;
+			track_name[0] = '\0';
+		}
+		else if (len >= 13 && 0 == strncmp(line, "m=application", 13)) {
 			kind = NULL;
+			current_track = NULL;
+			current_mid[0] = '\0';
+			media_send = false;
+			track_name[0] = '\0';
+		}
+		else if (len >= 10 && 0 == strncmp(line, "a=recvonly", 10))
+			media_send = false;
+		else if (len >= 10 && 0 == strncmp(line, "a=inactive", 10))
+			media_send = false;
+		else if (len >= 10 && 0 == strncmp(line, "a=sendonly", 10))
+			media_send = true;
+		else if (len >= 10 && 0 == strncmp(line, "a=sendrecv", 10))
+			media_send = true;
+		else if (len > 7 && 0 == strncmp(line, "a=msid:", 7)) {
+			const char *track_start = line + 7;
+			const char *track_end;
+			size_t track_len;
 
-		if (kind && len > 6 && 0 == strncmp(line, "a=mid:", 6)) {
+			info("cloudflare: found msid line=%.*s\n", (int)len, line);
+
+			while (track_start < line_end && *track_start != ' ' &&
+			       *track_start != '\t')
+				++track_start;
+			if (track_start < line_end) {
+				while (track_start < line_end &&
+				       (*track_start == ' ' || *track_start == '\t'))
+					++track_start;
+				track_end = track_start;
+				while (track_end < line_end && *track_end != ' ' &&
+				       *track_end != '\t' && *track_end != '\r')
+					++track_end;
+				track_len = (size_t)(track_end - track_start);
+				if (track_len > 0 && track_len < sizeof(track_name)) {
+					memcpy(track_name, track_start, track_len);
+					track_name[track_len] = '\0';
+				}
+			}
+			info("cloudflare: parsed track name=%s\n",
+			     track_name[0] ? track_name : "(empty)");
+			if (!current_track && media_send && current_mid[0]) {
+				track = jzon_alloc_object();
+				if (!track) {
+					err = ENOMEM;
+					goto out;
+				}
+				jzon_add_str(track, "location", "%s", "local");
+				jzon_add_str(track, "mid", "%s", current_mid);
+				jzon_add_str(track, "trackName", "%s", track_name);
+				json_object_array_add(tracks, track);
+				current_track = track;
+				info("cloudflare: publisher track name=%s\n", track_name);
+			}
+		}
+
+		if (kind && media_send && len > 6 &&
+		    0 == strncmp(line, "a=mid:", 6)) {
 			const char *mid_start = line + 6;
 			const char *mid_end = line_end;
 
@@ -139,21 +208,27 @@ static int make_publisher_tracks(char **tracksp, const char *sdp)
 			       (mid_end[-1] == '\r' || mid_end[-1] == '\n'))
 				--mid_end;
 			if (!kind || mid_end <= mid_start ||
-			    (size_t)(mid_end - mid_start) >= sizeof(mid))
+			    (size_t)(mid_end - mid_start) >= sizeof(current_mid))
 				goto next_line;
 
-			memcpy(mid, mid_start, (size_t)(mid_end - mid_start));
-			mid[mid_end - mid_start] = '\0';
+			memcpy(current_mid, mid_start,
+			       (size_t)(mid_end - mid_start));
+			current_mid[mid_end - mid_start] = '\0';
+			info("cloudflare: publisher track kind=%s mid=%s track_name=%s\n",
+			     kind, current_mid, track_name[0] ? track_name : "(empty)");
 
-			track = jzon_alloc_object();
-			if (!track) {
-				err = ENOMEM;
-				goto out;
+			if (track_name[0]) {
+				track = jzon_alloc_object();
+				if (!track) {
+					err = ENOMEM;
+					goto out;
+				}
+				jzon_add_str(track, "location", "%s", "local");
+				jzon_add_str(track, "mid", "%s", current_mid);
+				jzon_add_str(track, "trackName", "%s", track_name);
+				json_object_array_add(tracks, track);
+				current_track = track;
 			}
-			jzon_add_str(track, "location", "%s", "local");
-			jzon_add_str(track, "mid", "%s", mid);
-			jzon_add_str(track, "trackName", "%s", kind);
-			json_object_array_add(tracks, track);
 		}
 
 	next_line:
@@ -166,8 +241,10 @@ static int make_publisher_tracks(char **tracksp, const char *sdp)
 	}
 
 	err = jzon_encode(&encoded, tracks);
-	if (!err)
+	if (!err) {
+		info("cloudflare: publisher tracks JSON=%s\n", encoded);
 		*tracksp = encoded;
+	}
 
 out:
 	if (err)
@@ -240,6 +317,63 @@ static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_ro
 	mem_deref(body);
 	if (err)
 		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+	return err;
+}
+
+int cloudflare_realtime_send_datachannel(
+				struct cloudflare_realtime *adapter)
+{
+	struct json_object *root = NULL;
+	struct json_object *channels = NULL;
+	struct json_object *channel = NULL;
+	char *body = NULL;
+	char pathbuf[256];
+	const char *sid;
+	int err;
+
+	if (!adapter || !adapter->requesth)
+		return EINVAL;
+	sid = session_id(adapter, CCALL_ECALL_PUBLISHER);
+	if (!sid)
+		return ENOTCONN;
+	if (adapter->pending[CCALL_ECALL_PUBLISHER] !=
+	    CLOUDFLARE_REALTIME_OP_NONE)
+		return EBUSY;
+	if (adapter->datachannel_id)
+		return EALREADY;
+
+	root = jzon_alloc_object();
+	channels = jzon_alloc_array();
+	channel = jzon_alloc_object();
+	if (!root || !channels || !channel) {
+		err = ENOMEM;
+		goto out;
+	}
+	jzon_add_str(channel, "location", "%s", "local");
+	jzon_add_str(channel, "dataChannelName", "%s", "calling-3.0");
+	json_object_array_add(channels, channel);
+	channel = NULL;
+	json_object_object_add(root, "dataChannels", channels);
+	channels = NULL;
+	err = jzon_encode(&body, root);
+	if (err)
+		goto out;
+
+	re_snprintf(pathbuf, sizeof(pathbuf), "/sessions/%s/datachannels/new", sid);
+	adapter->pending[CCALL_ECALL_PUBLISHER] =
+		CLOUDFLARE_REALTIME_OP_CREATE_DATACHANNEL;
+	err = adapter->requesth(adapter, CCALL_ECALL_PUBLISHER, "POST",
+				pathbuf, adapter->app_id, adapter->app_secret, body,
+				request_response, adapter->arg);
+	if (err)
+		adapter->pending[CCALL_ECALL_PUBLISHER] =
+			CLOUDFLARE_REALTIME_OP_NONE;
+
+out:
+	mem_deref(body);
+	mem_deref(channel);
+	mem_deref(channels);
+	mem_deref(root);
 	return err;
 }
 
@@ -340,6 +474,12 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 
 	if (event == CCALL_TRANSPORT_CLOSED)
 		realtime_bridge_stop_role(adapter->bridge, role);
+	else if (event == CCALL_TRANSPORT_DATA_READY &&
+		 role == CCALL_ECALL_PUBLISHER) {
+		int err = cloudflare_realtime_send_datachannel(adapter);
+		if (err && err != EALREADY)
+			warning("cloudflare realtime: data channel request failed: %m\n", err);
+	}
 }
 
 int cloudflare_realtime_alloc(struct cloudflare_realtime **adapterp,
@@ -453,7 +593,12 @@ int cloudflare_realtime_handle_response(
 	struct econn_message msg;
 	int err;
 
-	if (!adapter || !valid_role(role) || status < 200 || status >= 300 || !body)
+	if (status < 200 || status >= 300) {
+		warning("cloudflare: response status=%d body=%s\n",
+			status, body ? body : "(empty)");
+		return status >= 400 ? EPROTO : EINVAL;
+	}
+	if (!adapter || !valid_role(role) || !body)
 		return status >= 400 ? EPROTO : EINVAL;
 	if (adapter->pending[role] == CLOUDFLARE_REALTIME_OP_NONE)
 		return EPROTO;
@@ -479,6 +624,44 @@ int cloudflare_realtime_handle_response(
 		goto out;
 	}
 
+	if (adapter->pending[role] == CLOUDFLARE_REALTIME_OP_CREATE_DATACHANNEL) {
+		int channel_id = -1;
+		const char *channel_id_str = NULL;
+		struct json_object *channels = NULL;
+		struct json_object *channel = NULL;
+		int id_err = jzon_int(&channel_id, root, "id");
+		if (id_err)
+			channel_id_str = jzon_str(root, "id");
+		if (channel_id < 0 && !jzon_array(&channels, root, "dataChannels") &&
+		    json_object_array_length(channels) > 0) {
+			channel = json_object_array_get_idx(channels, 0);
+			id_err = jzon_int(&channel_id, channel, "id");
+			if (id_err)
+				channel_id_str = jzon_str(channel, "id");
+		}
+		if (channel_id < 0 && !channel_id_str) {
+			err = EPROTO;
+			mem_deref(channels);
+			goto out;
+		}
+	if (channel_id < 0)
+		channel_id = atoi(channel_id_str);
+	err = ecall_dce_create(ccall_get_ecall(adapter->ccall,
+						CCALL_ECALL_PUBLISHER),
+					"calling-3.0", channel_id);
+		if (!err) {
+			char idbuf[32];
+			re_snprintf(idbuf, sizeof(idbuf), "%d", channel_id);
+			err = str_dup(&adapter->datachannel_id, idbuf);
+		}
+		if (!err)
+			info("cloudflare: registered data channel calling-3.0 id=%d\n",
+			     channel_id);
+		mem_deref(channels);
+		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+		goto out;
+	}
+
 	err = jzon_object(&description, root, "sessionDescription");
 	if (err)
 		goto out;
@@ -488,6 +671,11 @@ int cloudflare_realtime_handle_response(
 		err = EPROTO;
 		goto out;
 	}
+	info("cloudflare: response type=%s direction=%s%s%s\n",
+	     type,
+	     strstr(sdp, "a=sendonly") ? "sendonly " : "",
+	     strstr(sdp, "a=recvonly") ? "recvonly " : "",
+	     strstr(sdp, "a=sendrecv") ? "sendrecv" : "");
 
 	sid = jzon_str(root, "sessionId");
 	if (sid) {
@@ -535,5 +723,6 @@ void cloudflare_realtime_close(struct cloudflare_realtime *adapter)
 	mem_deref(adapter->app_secret);
 	mem_deref(adapter->api_base);
 	mem_deref(adapter->tracks_json);
+	mem_deref(adapter->datachannel_id);
 	mem_deref(adapter);
 }

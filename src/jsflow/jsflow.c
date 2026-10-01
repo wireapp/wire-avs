@@ -83,6 +83,8 @@ typedef int  (pc_IceGatheringState_t)(int handle);
 typedef int  (pc_SignallingState_t)(int handle);
 typedef int  (pc_ConnectionState_t)(int handle);
 typedef int  (pc_CreateDataChannel_t)(int handle, const char *label);
+typedef int  (pc_CreateNegotiatedDataChannel_t)(int handle, const char *label,
+						 int channel_id);
 typedef void (pc_CreateOffer_t)(int handle, int call_type, int vstate,
 				       int media_direction);
 typedef void (pc_CreateAnswer_t)(int handle, int call_type, int vstate,
@@ -134,6 +136,7 @@ static pc_IceGatheringState_t *pc_IceGatheringState = NULL;
 static pc_SignallingState_t *pc_SignallingState = NULL;
 static pc_ConnectionState_t *pc_ConnectionState __attribute__((unused)) = NULL;
 static pc_CreateDataChannel_t *pc_CreateDataChannel = NULL;
+static pc_CreateNegotiatedDataChannel_t *pc_CreateNegotiatedDataChannel = NULL;
 static pc_CreateOffer_t *pc_CreateOffer = NULL;
 static pc_CreateAnswer_t *pc_CreateAnswer = NULL;
 static pc_AddDecoderAnswer_t *pc_AddDecoderAnswer = NULL;
@@ -306,6 +309,27 @@ int jsflow_dce_send(struct iflow *flow,
 	
 	pc_DataChannelSend(jsflow->dc.handle, (const int8_t *)data, len);
 
+	return 0;
+}
+
+static int jsflow_dce_create(struct iflow *flow, const char *label,
+				     int channel_id)
+{
+	struct jsflow *jsflow = (struct jsflow *)flow;
+	int handle;
+
+	if (!jsflow || !label || channel_id < 0)
+		return EINVAL;
+	if (jsflow->handle == PC_INVALID_HANDLE ||
+	    !pc_CreateNegotiatedDataChannel)
+		return ENOTSUP;
+	if (jsflow->dc.handle != PC_INVALID_HANDLE)
+		pc_DataChannelClose(jsflow->dc.handle);
+	handle = pc_CreateNegotiatedDataChannel(jsflow->handle, label,
+							 channel_id);
+	if (handle == PC_INVALID_HANDLE)
+		return ENOMEM;
+	jsflow->dc.handle = handle;
 	return 0;
 }
 
@@ -628,6 +652,7 @@ int jsflow_alloc(struct iflow		**flowp,
 			    jsflow_sync_decoders,
 			    jsflow_set_keystore,
 			    jsflow_dce_send,
+			    jsflow_dce_create,
 			    jsflow_stop_media,
 			    jsflow_close,
 			    jsflow_get_stats,
@@ -928,7 +953,12 @@ int jsflow_handle_answer(struct iflow *flow,
 	has_video = pc_HasVideo(jsflow->handle);
 
 	jsflow->remote_sdp = mem_deref(jsflow->remote_sdp);
-	if (has_video)
+	/* Cloudflare's publisher answer is already expressed from the
+	 * publisher's perspective (recvonly).  The legacy video stripping
+	 * helper swaps send/receive directions while rebuilding the SDP,
+	 * which would turn that answer into sendonly and make the browser
+	 * reject it.  Keep the publisher answer byte-for-byte intact. */
+	if (has_video || jsflow->media_direction == IFLOW_MEDIA_SENDONLY)
 		str_dup(&jsflow->remote_sdp, sdp_str);
 	else
 		sdp_strip_video(&jsflow->remote_sdp, jsflow->conv_type, sdp_str);
@@ -1923,6 +1953,7 @@ void pc_set_callbacks(
 	pc_SignallingState_t *signallingState,
 	pc_ConnectionState_t *connectionState,
 	pc_CreateDataChannel_t *createDataChannel,
+	pc_CreateNegotiatedDataChannel_t *createNegotiatedDataChannel,
 	pc_CreateOffer_t *createOffer,
 	pc_CreateAnswer_t *createAnswer,
 	pc_AddDecoderAnswer_t *addDecoderAnswer,
@@ -1959,6 +1990,7 @@ void pc_set_callbacks(
 	pc_SignallingState_t *signallingState,
 	pc_ConnectionState_t *connectionState,
 	pc_CreateDataChannel_t *createDataChannel,
+	pc_CreateNegotiatedDataChannel_t *createNegotiatedDataChannel,
 	pc_CreateOffer_t *createOffer,
 	pc_CreateAnswer_t *createAnswer,
 	pc_AddDecoderAnswer_t *addDecoderAnswer,
@@ -1993,6 +2025,7 @@ void pc_set_callbacks(
 	pc_SignallingState = signallingState;
 	pc_ConnectionState = connectionState;
 	pc_CreateDataChannel = createDataChannel;
+	pc_CreateNegotiatedDataChannel = createNegotiatedDataChannel;
 	pc_CreateOffer = createOffer;
 	pc_CreateAnswer = createAnswer;
 	pc_AddDecoderAnswer = addDecoderAnswer;

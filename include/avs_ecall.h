@@ -123,6 +123,7 @@ int ecall_set_confmsg_handler(struct ecall *ecall,
 			      ecall_confmsg_h confmsgh);
 
 int ecall_dce_send(struct ecall *ecall, struct mbuf *mb);
+int ecall_dce_create(struct ecall *ecall, const char *label, int channel_id);
 
 int ecall_dce_sendmsg(struct ecall *ecall, struct econn_message *msg);
 

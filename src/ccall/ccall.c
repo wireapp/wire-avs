@@ -382,6 +382,25 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 	}
 }
 
+void ccall_set_transport_connected(struct ccall *ccall,
+				   enum ccall_ecall_role role)
+{
+	if (!ccall || role != CCALL_ECALL_PUBLISHER)
+		return;
+	if (ccall->state == CCALL_STATE_CONNSENT ||
+	    ccall->state == CCALL_STATE_CONNECTING)
+		set_state(ccall, CCALL_STATE_CONNECTED);
+}
+
+void ccall_set_transport_active(struct ccall *ccall,
+					enum ccall_ecall_role role)
+{
+	if (!ccall || role != CCALL_ECALL_PUBLISHER)
+		return;
+	if (ccall->state == CCALL_STATE_CONNECTED)
+		set_state(ccall, CCALL_STATE_ACTIVE);
+}
+
 static void ccall_send_check_timeout(void *arg)
 {
 	struct ccall *ccall = arg;

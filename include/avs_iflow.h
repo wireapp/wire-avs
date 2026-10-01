@@ -80,6 +80,8 @@ typedef void (iflow_close)(struct iflow *flow);
 typedef int (iflow_dce_send)(struct iflow *flow,
 			     const uint8_t *data,
 			     size_t len);
+typedef int (iflow_dce_create)(struct iflow *flow,
+			       const char *label, int channel_id);
 
 typedef int  (iflow_get_stats)(struct iflow *flow,
 			       struct stats_report *stats);
@@ -173,6 +175,7 @@ struct iflow {
 	iflow_sync_decoders	        *sync_decoders;
 	iflow_set_keystore		*set_keystore;
 	iflow_dce_send			*dce_send;
+	iflow_dce_create		*dce_create;
 	iflow_stop_media		*stop_media;
 	iflow_close			*close;
 	iflow_get_stats			*get_stats;
@@ -221,9 +224,10 @@ void iflow_set_functions(struct iflow *iflow,
 			 iflow_add_decoders_for_user	*add_decoders_for_user,
 			 iflow_remove_decoders_for_user	*remove_decoders_for_user,
 			 iflow_sync_decoders	        *sync_decoders,
-			 iflow_set_keystore		*set_keystore,
-			 iflow_dce_send			*dce_send,
-			 iflow_stop_media		*stop_media,
+				 iflow_set_keystore		*set_keystore,
+				 iflow_dce_send			*dce_send,
+				 iflow_dce_create		*dce_create,
+				 iflow_stop_media		*stop_media,
 			 iflow_close			*close,
 			 iflow_get_stats		*get_stats,
 			 iflow_get_audio_level          *get_audio_level,

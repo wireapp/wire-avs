@@ -38,9 +38,10 @@ void iflow_set_functions(struct iflow *iflow,
 			 iflow_add_decoders_for_user	*add_decoders_for_user,
 			 iflow_remove_decoders_for_user	*remove_decoders_for_user,
 			 iflow_sync_decoders	        *sync_decoders,
-			 iflow_set_keystore		*set_keystore,
-			 iflow_dce_send			*dce_send,
-			 iflow_stop_media		*stop_media,
+				 iflow_set_keystore		*set_keystore,
+				 iflow_dce_send			*dce_send,
+				 iflow_dce_create		*dce_create,
+				 iflow_stop_media		*stop_media,
 			 iflow_close			*close,
 			 iflow_get_stats		*get_stats,
 			 iflow_get_audio_level          *get_audio_level,
@@ -71,6 +72,7 @@ void iflow_set_functions(struct iflow *iflow,
 	iflow->sync_decoders            = sync_decoders;
 	iflow->set_keystore		= set_keystore;
 	iflow->dce_send			= dce_send;
+	iflow->dce_create		= dce_create;
 	iflow->stop_media		= stop_media;
 	iflow->close			= close;
 	iflow->get_stats		= get_stats;
