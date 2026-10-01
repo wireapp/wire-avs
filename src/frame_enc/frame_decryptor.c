@@ -161,6 +161,10 @@ int frame_decryptor_decrypt(struct frame_decryptor *dec,
 	err = frame_hdr_read(src, srcsz, &frameid, &kid, &fcsrc, &hsize);
 	if (err)
 		goto out;
+	if (hsize > srcsz || srcsz - hsize < TAG_SIZE) {
+		err = EBADMSG;
+		goto out;
+	}
 
 	fid32 = (uint32_t)frameid;
 
