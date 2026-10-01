@@ -20,7 +20,11 @@ struct {
 	struct hash *wdevs;
 	struct ausrc *ausrc;
 	struct auplay *auplay;
-} gwa;
+} gwa = {
+	.wdevs = NULL,
+	.ausrc = NULL,
+	.auplay = NULL
+};
 
 struct wdev {
 	char *convid;
@@ -89,7 +93,11 @@ static void wdev_destructor(void *arg)
 {
 	struct wdev *wdev = arg;
 
+	info("wireaudio: wdev(%p): destructor\n", wdev);
+
 	aumix_source_enable(wdev->wa.aumix_src, false);
+
+	hash_unlink(&wdev->le);
 	
 	list_flush(&wdev->ausrcl);
 	list_flush(&wdev->auplayl);
@@ -98,6 +106,22 @@ static void wdev_destructor(void *arg)
 	mem_deref(wdev->convid);
 
 	mem_deref(wdev->wa.aumix_src);
+}
+
+static int alloc_wdevs(struct hash **wdevs)
+{
+	int err;
+
+	if (*wdevs)
+		return EALREADY;
+
+	err = hash_alloc(wdevs, 32);
+
+	if (err) {
+		warning("wireaudio: could not allocate wdevs\n");
+	}
+
+	return err;
 }
 
 static bool list_apply_handler(struct le *le, void *arg)
@@ -201,7 +225,7 @@ static int alloc_device(struct wdev **wdevp,
 {
 	struct wdev *wdev;
 	int err;
-	
+
 	info("wireaudio: alloc_device: convid=%s srate=%d ch=%d ptime=%d\n",
 	     convid, srate, ch, ptime);
 
@@ -236,6 +260,11 @@ static int alloc_device(struct wdev **wdevp,
 	wdev->wa.play_sampc = AUDIO_SAMPLES;
 	wdev->wa.src_sampc = AUDIO_SAMPLES;
 
+	if (!gwa.wdevs) {
+		err = alloc_wdevs(&gwa.wdevs);
+		if (err)
+			goto out;
+	}
 	hash_append(gwa.wdevs, hash_joaat_str(convid), &wdev->le, wdev);
 
  out:
@@ -258,7 +287,8 @@ static void ausrc_destructor(void *arg)
 	aumix_source_enable(st->mix_src, false);
 	list_unlink(&st->le);
 	
-	mem_deref(st->mix_src);	
+	mem_deref(st->mix_src);
+	mem_deref(st->wdev);
 }
 
 static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
@@ -294,7 +324,7 @@ static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 	}
 
 	st->as = as;
-	st->wdev = wdev;
+	st->wdev = mem_ref(wdev);
 	st->rh = rh;
 	st->errh = errh;
 	st->arg = arg;
@@ -324,6 +354,8 @@ static void auplay_destructor(void *arg)
 	mem_deref(st->mix_src);
 
 	list_unlink(&st->le);
+
+	mem_deref(st->wdev);
 }
 
 static int wa_play_alloc(struct auplay_st **stp, const struct auplay *ap,
@@ -358,7 +390,7 @@ static int wa_play_alloc(struct auplay_st **stp, const struct auplay *ap,
 	}
 
 	st->ap = ap;
-	st->wdev = wdev;
+	st->wdev = mem_ref(wdev);
 	st->sampc = PSTN_SAMPLES;
 	st->wh = wh;
 	st->arg = arg;
@@ -385,7 +417,7 @@ static int wireaudio_init(void)
 	
 	info("wireaudio: module_init\n");
 
-	err = hash_alloc(&gwa.wdevs, 32);
+	alloc_wdevs(&gwa.wdevs);
 
 	err  = ausrc_register(&gwa.ausrc, baresip_ausrcl(),
 			      "wireaudio", wa_src_alloc);
@@ -415,6 +447,9 @@ int wireaudio_set_handlers(const char *convid,
 {
 	struct wdev *wdev = find_device(convid);
 	int err = 0;
+
+	info("wireaudio: set_handlers: convid=%s rh=%p wh=%p arg=%p wdev=%p\n",
+	     convid, rh, wh, arg, wdev);
 
 	if (!wdev) {
 		if (rh == NULL || wh == NULL)
