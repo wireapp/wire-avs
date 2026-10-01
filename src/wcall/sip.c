@@ -158,7 +158,9 @@ static void wsip_destructor(void *arg)
 
 	list_unlink(&wsip->le);
 
-	adm_handler(wsip->convid, wsip->adm, false, wsip);
+	if (wsip->convid) {
+		adm_handler(wsip->convid, wsip->adm, false, wsip);
+	}
 
 	mem_deref(wsip->convid);
 }
@@ -357,7 +359,7 @@ static void adm_handler(const char *convid, void *adm, bool added, void *arg)
 {
 	struct wsip_call *wsip = arg;
 
-	info("sip(%p): adm_handler: adm=%p %s on wsip=%p\n",
+	info("sip(%p): adm_handler: convid=%p adm=%p %s on wsip=%p\n",
 	     wsip->wua->sip_inst, adm, added ? "ADDED" : "REMOVED", wsip);
 
 	wsip->adm = adm;
@@ -583,7 +585,6 @@ int wcall_i_sip_answer(struct calling_instance *inst,
 		       struct wsip_call *wsip, const char *convid)
 {
 	int err = 0;
-	void *adm;
 
 	if (!wsip || !convid) {
 		warning("sip(%p): answer: invalid wsip=%p convid=%p\n",
@@ -598,18 +599,12 @@ int wcall_i_sip_answer(struct calling_instance *inst,
 
 	err = pstn_adm_handler_register(adm_handler, wsip);
 	if (err) {
-		warning("sip: could not register handler\n");
+		warning("sip(%p): answer: could not register handler\n", inst);
 		goto out;
 	}
-
-	adm = pstn_adm_find(wsip->convid);
-	/* Do we already have an adm?
-	 * If so, then register audio directly,
-	 * otherwise wait for the adm_handler for an adm
+	/* If any adms already exist, the adm_handler will be called by
+	 * the register function.
 	 */
-	if (adm) {
-		adm_handler(convid, adm, true, wsip);
-	}
 
 	err = answer_call(wsip);
 
