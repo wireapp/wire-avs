@@ -398,7 +398,8 @@ pipeline {
                             if ! command -v aws &> /dev/null; then
                                 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
                                 unzip -q awscliv2.zip
-                                ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
+                                ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                export PATH="$HOME/.local/bin:$PATH"
                             fi
                             echo "Uploading Maven artifacts to s3://maven-wire-com..."
                             aws s3 sync ./build/artifacts/maven/ s3://maven-wire-com/ \\
