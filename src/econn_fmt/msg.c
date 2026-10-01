@@ -750,7 +750,7 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		econn_streams_encode(jobj, &msg->u.confstreams.streaml);
 		break;
 
-	case ECONN_CONF_KATALOG:
+	case ECONN_CONF_CATALOG:
 		if (!msg->u.catalog.json) {
 			err = EINVAL;
 			goto out;
@@ -1274,9 +1274,10 @@ int econn_message_decode(struct econn_message **msgp,
 			goto out;
 		}
 	}
-	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_KATALOG)) ||
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_CATALOG)) ||
+		  0 == str_casecmp(type, "CONFKATALOG") ||
 		  0 == str_casecmp(type, "CATALOG")) {
-		msg->msg_type = ECONN_CONF_KATALOG;
+		msg->msg_type = ECONN_CONF_CATALOG;
 		err = jzon_strdup(&msg->u.catalog.json, jobj, "catalog");
 		if (err)
 			goto out;

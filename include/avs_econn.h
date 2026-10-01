@@ -47,7 +47,7 @@ enum econn_msg {
 	ECONN_ALERT  = 0x12,
 	ECONN_PING   = 0x13,
 	/* Publish/subscribe conference catalog carried on the ECall DataChannel. */
-	ECONN_CONF_KATALOG = 0x14,
+	ECONN_CONF_CATALOG = 0x14,
 
 	/* Device pairing messages */
 	ECONN_DEVPAIR_PUBLISH = 0x21,
@@ -55,7 +55,8 @@ enum econn_msg {
 };
 
 /* Source compatibility for callers that still use the provisional name. */
-#define ECONN_CATALOG ECONN_CONF_KATALOG
+#define ECONN_CONF_KATALOG ECONN_CONF_CATALOG
+#define ECONN_CATALOG ECONN_CONF_CATALOG
 
 enum econn_state {
 	ECONN_IDLE     = 0,
