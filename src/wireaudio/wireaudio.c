@@ -417,6 +417,9 @@ int wireaudio_set_handlers(const char *convid,
 	int err = 0;
 
 	if (!wdev) {
+		if (rh = NULL || wh == NULL)
+			return 0;
+		
 		err = alloc_device(&wdev, convid,
 				   PSTN_SRATE, PSTN_PTIME, PSTN_CHAN);
 		if (err)
