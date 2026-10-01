@@ -34,27 +34,27 @@ pipeline {
                     }
                     steps {
 		        script {
-	                   def vcs = checkout([
-		       	       $class: 'GitSCM',
-                       	       changelog: true,
-                       	       userRemoteConfigs: scm.userRemoteConfigs,
-                       	       branches: scm.branches,
-                       	       extensions: scm.extensions + [
-                                  [$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, parentCredentials: true]
-                       	       ]
+		           def vcs = checkout([
+		              	$class: 'GitSCM',
+		              	changelog: true,
+		              	userRemoteConfigs: scm.userRemoteConfigs,
+		              	branches: scm.branches,
+		              	extensions: scm.extensions + [
+			          [$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, parentCredentials: true]
+		              	]
 		   	   ])
-                   	   branchName = vcs.GIT_BRANCH
-                   	   commitId = "${vcs.GIT_COMMIT}"[0..6]
-                   	   repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
+                  	branchName = vcs.GIT_BRANCH
+                  	commitId = "${vcs.GIT_COMMIT}"[0..6]
+                  	repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
 
-                   	   release_version = branchName.replaceAll("[^\\d\\.]", "")
-                   	   if (release_version.length() > 0 || branchName.contains('release')) {
-                       	      version = release_version + "." + buildNumber
-                   	   } else {
-                       	      version = "0.0.${buildNumber}"
-                   	   }
-       	       	        }		   
-
+                  	release_version = branchName.replaceAll("[^\\d\\.]", "")
+                  	if (release_version.length() > 0 || branchName.contains('release')) {
+                     		version = release_version + "." + buildNumber
+                  	} else {
+                     		version = "0.0.${buildNumber}"
+                  	}
+	        	}		   
+			
 			sh 'make distclean || true'
 			sh '''
 			   # Blast away cached dependency metadata from previous container runs
@@ -295,15 +295,14 @@ pipeline {
                             string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
                         ]) {
                         sh(
-                             script: """
-                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishMavenJavaPublicationToMavenLocal
-                                 mkdir -p ./build/artifacts/maven
-                                 cp -r ~/.m2/repository/com/wire/avs ./build/artifacts/maven/
-                             """
-                         )
-                     }
-                     stash name: 'maven-linux', includes: 'build/artifacts/maven/'
-                     echo '### Attach MavenLocal artifacts to GitHub release'
+                            script: """
+                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishMavenJavaPublicationToMavenLocal
+                                mkdir -p ./build/artifacts/maven/com/wire
+                                cp -r ~/.m2/repository/com/wire/avs ./build/artifacts/maven/com/wire/
+                            """
+                        )
+                    }
+                    echo '### Attach MavenLocal artifacts to GitHub release'
                     withCredentials([ string( credentialsId: 'github-repo-user', variable: 'repoUser' ),
                         string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
                         sh(
@@ -315,6 +314,34 @@ pipeline {
                                     ./build/artifacts/maven \\
                                     ${version} \\
                                     "MavenLocal artifacts for ${version}"
+                            """
+                        )
+                    }
+                    echo '### Upload to Wire S3 Maven repository'
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 's3_package_key',
+                            usernameVariable: 'AWS_ACCESS_KEY_ID',
+                            passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                        )
+                    ]) {
+                        sh(
+                            script: """
+                                cd "${env.WORKSPACE}"
+                                # Install AWS CLI if not present
+                                if ! command -v aws &> /dev/null; then
+                                    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                                    rm -rf aws || true
+                                    unzip -q awscliv2.zip
+                                    ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                    export PATH="$HOME/.local/bin:$PATH"
+                                fi
+                                echo "Uploading Maven artifacts to s3://maven-wire-com..."
+                                aws s3 sync ./build/artifacts/maven/com s3://maven-wire-com/ \\
+                                    --region us-east-1 \\
+                                    --exact-timestamps \\
+                                    --delete
+                                echo "Maven artifacts published to s3://maven-wire-com"
                             """
                         )
                     }
@@ -347,15 +374,14 @@ pipeline {
                             string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
                         ]) {
                         sh(
-                             script: """
-                                 mkdir -p ./build/artifacts/maven
-                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToMavenLocal --no-configuration-cache
-                                 cp -r ~/.m2/repository/com/wire/avs-kmp ./build/artifacts/maven/
-                             """
-                         )
-                     }
-                     stash name: 'maven-kmp', includes: 'build/artifacts/maven/'
-                     echo '### Attach MavenLocal artifacts to GitHub release'
+                            script: """
+                                mkdir -p ./build/artifacts/maven
+                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToMavenLocal --no-configuration-cache
+                                cp -r ~/.m2/repository/com/wire/avs-kmp ./build/artifacts/maven/
+                            """
+                        )
+                    }
+                    echo '### Attach MavenLocal artifacts to GitHub release'
                     withCredentials([ string( credentialsId: 'github-repo-user', variable: 'repoUser' ),
                         string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
                         sh(
@@ -370,48 +396,34 @@ pipeline {
                             """
                         )
                     }
-                }
-            }
-        }
-
-        stage('Publish to Wire S3 Maven repository') {
-            when {
-                anyOf {
-                    expression { return "${branchName}".contains('release') }
-                }
-            }
-            agent {
-                label 'linuxbuild'
-            }
-            steps {
-                unstash 'maven-linux'
-                unstash 'maven-kmp'
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 's3_package_key',
-                        usernameVariable: 'AWS_ACCESS_KEY_ID',
-                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                    )
-                ]) {
-                    sh(
-                        script: """
-                            cd "${env.WORKSPACE}"
-                            # Install AWS CLI if not present
-                            if ! command -v aws &> /dev/null; then
-                                curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-                                rm -rf aws
-                                unzip -q awscliv2.zip
-                                ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
-                                export PATH="$HOME/.local/bin:$PATH"
-                            fi
-                            echo "Uploading Maven artifacts to s3://maven-wire-com..."
-                            aws s3 sync ./build/artifacts/maven/com s3://maven-wire-com/ \\
-                                --region us-east-1 \\
-                                --exact-timestamps \\
-                                --delete
-                            echo "Maven artifacts published to s3://maven-wire-com"
-                        """
-                    )
+                    echo '### Upload to Wire S3 Maven repository'
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 's3_package_key',
+                            usernameVariable: 'AWS_ACCESS_KEY_ID',
+                            passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                        )
+                    ]) {
+                        sh(
+                            script: """
+                                cd "${env.WORKSPACE}"
+                                # Install AWS CLI if not present
+                                if ! command -v aws &> /dev/null; then
+                                    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                                    rm -rf aws || true
+                                    unzip -q awscliv2.zip
+                                    ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                    export PATH="$HOME/.local/bin:$PATH"
+                                fi
+                                echo "Uploading Maven artifacts to s3://maven-wire-com..."
+                                aws s3 sync ./build/artifacts/maven/com s3://maven-wire-com/ \\
+                                    --region us-east-1 \\
+                                    --exact-timestamps \\
+                                    --delete
+                                echo "Maven artifacts published to s3://maven-wire-com"
+                            """
+                        )
+                    }
                 }
             }
         }
