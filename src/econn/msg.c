@@ -145,7 +145,7 @@ void econn_message_reset(struct econn_message *msg)
 		list_flush(&msg->u.confkey.keyl);
 		break;
 
-	case ECONN_CATALOG:
+	case ECONN_CONF_KATALOG:
 		msg->u.catalog.json = mem_deref(msg->u.catalog.json);
 		break;
 		
@@ -198,7 +198,7 @@ int econn_message_print(struct re_printf *pf, const struct econn_message *msg)
 				  msg->u.confpart.seqno);
 		break;
 
-	case ECONN_CATALOG:
+	case ECONN_CONF_KATALOG:
 		err |= re_hprintf(pf, " catalog-json: %zu bytes\n",
 				  msg->u.catalog.json ? str_len(msg->u.catalog.json) : 0);
 		break;
