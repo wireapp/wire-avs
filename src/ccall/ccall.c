@@ -1324,7 +1324,8 @@ static int send_confpart_response(struct ccall *ccall)
 
 	err = userlist_get_partlist(ccall->userl,
 				    &msg->u.confpart.partl,
-				    ccall->is_mls_call);
+				    ccall->is_mls_call,
+				    false);
 	if (err) {
 		goto out;
 	}

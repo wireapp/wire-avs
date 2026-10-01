@@ -98,6 +98,9 @@ void userlist_update_from_selist(struct userlist* list,
 				 bool *changed,
 				 bool *removed);
 
+void userlist_update_from_pstnlist(struct userlist *list,
+				   struct list *clientl);
+
 void userlist_update_audio_level(struct userlist *list,
 				 const struct list *levell,
 				 bool *list_changed);
@@ -154,7 +157,8 @@ int userlist_get_members(struct userlist *list,
 
 int userlist_get_partlist(struct userlist *list,
 			  struct list *msglist,
-			  bool require_subconv);
+			  bool require_subconv,
+			  bool include_pstn);
 
 int userlist_get_my_clients(struct userlist *list,
 			    struct list *targets);

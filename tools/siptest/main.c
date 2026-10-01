@@ -78,6 +78,17 @@ static void timeout_call_handler(void *arg)
 		    0);
 }
 
+static void sip_parts_handler(const char *convid,
+			      const char *parts_json, void *arg)
+{
+	struct client *cli = arg;
+
+	re_printf("SIP: client: %p convid=%s parts_json=%s\n",
+		  cli, convid, parts_json);
+	
+}
+
+
 static void ready_handler(int version, void *arg)
 {
 	struct client *cli = arg;
@@ -85,7 +96,7 @@ static void ready_handler(int version, void *arg)
 	printf("ready_handler: client: %p is ready\n", cli);
 
 	cli->ready = true;
-
+	
 	if (g_st.clients.pstn.ready && g_st.clients.wire.ready) {
 		if (g_st.call_timeout) {
 			tmr_start(&g_st.tmr_call, g_st.call_timeout,
@@ -124,6 +135,9 @@ static int send_handler(void *ctx, const char *convid,
 	else if (cli == &g_st.clients.wire) {
 		other = &g_st.clients.pstn;
 	}
+
+
+	printf("!!!! DATA(%zu): %s\n", len, data);
 	
 	wcall_recv_msg(other->wuser, data, len,
 		       0,
@@ -354,6 +368,7 @@ int main(int argc, char **argv)
 			 sip_ready_handler,
 			 sip_incoming_handler,
 			 sip_close_handler,
+			 sip_parts_handler,
 			 sip_err_handler,
 			 &g_st.clients.pstn);
 
@@ -377,12 +392,16 @@ int main(int argc, char **argv)
 				NULL,
 				NULL,
 				&g_st.clients.wire);
+	
 	g_st.clients.wire.wuser = wuser;
 	
 	while(g_st.running) {
 		usleep(100 * 1000);
 	}
 	usleep(1000 * 1000);
+
+	wcall_end(g_st.clients.pstn.wuser, g_st.convid);
+	wcall_end(g_st.clients.wire.wuser, g_st.convid);
 
 	wcall_sip_destroy(g_st.clients.pstn.wuser, g_st.aor);
 	wcall_sip_close(g_st.clients.pstn.wuser);

@@ -862,7 +862,8 @@ int userlist_get_members(struct userlist *list,
 
 int userlist_get_partlist(struct userlist *list,
 			  struct list *msglist,
-			  bool require_subconv)
+			  bool require_subconv,
+			  bool include_pstn)
 {
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
@@ -873,8 +874,9 @@ int userlist_get_partlist(struct userlist *list,
 
 	LIST_FOREACH(&list->users, le) {
 		struct userinfo *u = le->data;
-		if (u && u->se_approved && u->incall_now &&
-		    (u->in_subconv || !require_subconv)) {
+		if ((u->pstn && include_pstn) ||
+		    (u && u->se_approved && u->incall_now &&
+		     (u->in_subconv || !require_subconv))) {
 			struct econn_group_part *part = econn_part_alloc(u->userid_hash,
 									 u->clientid_hash);
 			if (!part) {
@@ -884,6 +886,7 @@ int userlist_get_partlist(struct userlist *list,
 			part->ssrca = u->ssrca;
 			part->ssrcv = u->ssrcv;
 			part->authorized = true;
+			part->pstn = u->pstn;
 			list_append(msglist, &part->le, part);
 
 			info("userlist(%p) get_members adding %s.%s hash %s.%s "

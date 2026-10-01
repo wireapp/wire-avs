@@ -161,7 +161,7 @@ enum econn_transport econn_transp_resolve(enum econn_msg type)
 	case ECONN_CONF_CONN:		return ECONN_TRANSP_DIRECT;
 	case ECONN_CONF_START:		return ECONN_TRANSP_BACKEND;
 	case ECONN_CONF_END:		return ECONN_TRANSP_BACKEND;
-	case ECONN_CONF_PART:		return ECONN_TRANSP_DIRECT;
+	case ECONN_CONF_PART:		return ECONN_TRANSP_ANY;
 	case ECONN_CONF_CHECK:		return ECONN_TRANSP_BACKEND;
 	case ECONN_CONF_STREAMS:	return ECONN_TRANSP_DIRECT;
 	case ECONN_PING:		return ECONN_TRANSP_DIRECT;

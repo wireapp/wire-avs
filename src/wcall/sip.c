@@ -32,11 +32,17 @@ struct {
 struct sip_instance {
 	struct list wual;
 
+	struct {
+		wcall_sip_parts_h *h;
+		void *arg;
+	} parts;
+
 	struct le le;
 };
 
 
 struct wsip_ua {
+	struct calling_instance *inst;
 	struct sip_instance *sip_inst;
 	struct ua *ua;
 	char *aor;
@@ -51,15 +57,33 @@ struct wsip_ua {
 	void *arg;
 
 	struct list wsipl; /* List of calls on this UA */
+	struct list convl; /* List of conv entries */
 
+	char *userid;
+	char *clientid;
+	
 	struct le le;
 };
 
 struct wsip_call {
 	struct wsip_ua *wua;
 	struct call *call;
+	char *from;
+	char *pin_code;
 	char *convid;
 	void *adm;
+
+	struct userinfo *uinfo;
+	struct conv_entry *ce;
+	bool estab;
+
+	struct le le;
+};
+
+struct conv_entry {
+	char *convid;
+
+	struct userlist *userl;
 
 	struct le le;
 };
@@ -74,6 +98,91 @@ struct pin_entry {
 static void adm_handler(const char *convid, void *adm, bool added, void *arg);
 
 
+static int alloc_message(struct econn_message **msgp,
+			 enum econn_msg type,
+			 bool resp,
+			 const char *src_userid,
+			 const char *src_clientid)
+{
+	struct econn_message *msg = NULL;
+
+	msg = econn_message_alloc();
+	if (msg == NULL) {
+		return ENOMEM;
+	}
+
+	str_ncpy(msg->src_userid, src_userid, ECONN_ID_LEN);
+	str_ncpy(msg->src_clientid, src_clientid, ECONN_ID_LEN);
+	msg->msg_type = type;
+	msg->resp = resp;
+	msg->transient = false;
+
+	str_ncpy(msg->dest_userid, "PSTN", ECONN_ID_LEN);
+	str_ncpy(msg->dest_clientid, "PSTN", ECONN_ID_LEN);
+
+	if (msgp)
+		*msgp = msg;
+
+	return 0;
+}
+
+static struct conv_entry *get_conv_entry(struct wsip_ua *wua,
+					 const char *convid)
+{
+	struct conv_entry *ce;
+	struct le *le;
+	bool found = false;
+
+	if (!wua)
+		return NULL;
+
+	for(le = wua->convl.head; le && !found; le = le->next) {
+		ce = le->data;
+
+		found = ce->convid == convid;
+	}
+
+	return found ? ce : NULL;
+}
+
+static int send_confpart_response(struct wsip_call *wsip)
+{
+	struct wsip_ua *wua;
+	struct econn_message *msg = NULL;
+	char *str = NULL;
+	int err = 0;
+
+	if (!wsip)
+		return EINVAL;
+
+	wua = wsip->wua;
+
+	err = alloc_message(&msg, ECONN_CONF_PART, true,
+			    wua->userid, wua->clientid);
+	if (err) {
+		warning("sip: send_confpart_response: failed to alloc "
+			"message: %m\n", err);
+		goto out;
+	}
+
+	err = userlist_get_partlist(wsip->ce->userl,
+				    &msg->u.confpart.partl,
+				    false,
+				    true);
+	if (err) {
+		goto out;
+	}
+
+	wcall_send_msg(wua->inst, wsip->convid, msg, wua);
+		       
+ out:
+	mem_deref(str);
+	mem_deref(msg);
+
+	return err;
+}
+
+
 static void inst_destructor(void *arg)
 {
 	struct sip_instance *sip_inst = arg;
@@ -82,7 +191,7 @@ static void inst_destructor(void *arg)
 }
 
 static struct wsip_ua *wua_lookup(struct sip_instance *sip_inst,
-			      const char *aor, struct ua *ua)
+				  const char *aor, struct ua *ua)
 {
 	struct le *le;
 	struct wsip_ua *wua;
@@ -123,6 +232,15 @@ static struct wsip_ua *ua2wua(struct ua *ua)
 	return found ? wua : NULL;
 }
 
+static void ce_destructor(void *arg)
+{
+	struct conv_entry *ce = arg;
+
+	list_unlink(&ce->le);
+	mem_deref(ce->convid);
+	mem_deref(ce->userl);
+}
+
 static int answer_call(struct wsip_call *wsip)
 {
 	struct wsip_ua *wua;
@@ -154,21 +272,56 @@ static void wsip_destructor(void *arg)
 {
 	struct wsip_call *wsip = arg;
 
-	info("wsip(%p): destructor\n", wsip);
+	info("wsip(%p): convid=%s destructor\n", wsip, wsip->convid);
 
 	list_unlink(&wsip->le);
 
 	adm_handler(wsip->convid, wsip->adm, false, wsip);
 
+	mem_deref(wsip->from);
+	mem_deref(wsip->pin_code);
+	if (wsip->uinfo) {
+		list_unlink(&wsip->uinfo->le);
+		mem_deref(wsip->uinfo);
+	}
 	mem_deref(wsip->convid);
+
+	/* Do we have any more users in this conversation?
+	 * If not, remove the conversation
+	 */
+	if (userlist_get_count(wsip->ce->userl) == 0) {
+		mem_deref(wsip->ce);
+	}
 }
 
+static struct wsip_call *lookup_call(struct wsip_ua *wua, struct call *call)
+{
+	struct wsip_call *wsip;
+	struct le *le;
+	bool found = false;
+
+	if (!wua || !call)
+		return NULL;
+	
+	for(le = wua->wsipl.head; le && !found; le = le->next) {
+		wsip = le->data;
+		if (!wsip)
+			continue;
+
+		found = call == wsip->call;
+	}
+
+	return found ? wsip : NULL;
+}
 
 static void incoming_call(struct wsip_ua *wua, struct call *call)
 {
 	struct wsip_call *wsip = NULL;
 	struct sip_msg *msg = call_sipmsg(call);
+	struct pl peer_pl = PL_INIT;
+	struct uri from_uri;
 	char *pin_code = NULL;
+	int err = 0;
 
 	info("sip: incoming call: %p on wua: %p msg=%p\n", call, wua, msg);
 	if (msg) {
@@ -191,6 +344,18 @@ static void incoming_call(struct wsip_ua *wua, struct call *call)
 
 	wsip->wua = wua;
 	wsip->call = call;
+
+	/* Extract the username from the peer URI */
+	pl_set_str(&peer_pl, call_peeruri(call));
+	err = uri_decode(&from_uri, &peer_pl);
+	if (err) {
+		warning("sip: could not parse peeruri: %r\n", &peer_pl);
+	}
+	else {
+		pl_strdup(&wsip->from, &from_uri.user);
+	}
+	wsip->pin_code = pin_code;
+
 	list_append(&wua->wsipl, &wsip->le, wsip);
 
 	info("sip(%p): incoming call on wua=%p call=%p\n",
@@ -198,35 +363,181 @@ static void incoming_call(struct wsip_ua *wua, struct call *call)
 
 	if (wua->incomingh) {
 		wua->incomingh(wua, wsip,
-			       call_peeruri(call),
-			       pin_code,
+			       wsip->from,
+			       wsip->pin_code,
 			       wua->arg);
 	}
+}
 
-	mem_deref(pin_code);
+static void uinfo_destructor(void *arg)
+{
+	struct userinfo *uinfo = arg;
+
+	list_unlink(&uinfo->le);
+	
+	mem_deref(uinfo->userid_real);
+	mem_deref(uinfo->clientid_real);
+	mem_deref(uinfo->userid_hash);
+	mem_deref(uinfo->clientid_hash);
+}
+
+static int parts_json(char **jsonp,
+		      const char *convid,
+		      struct list *userl)
+{
+	struct json_object *tparts;
+	struct json_object *jparts;
+	struct le *le;
+	int err = 0;
+	
+	tparts = jzon_alloc_object();
+	if (!tparts)
+		return ENOMEM;
+	
+	jzon_add_str(tparts, "convid", "%s", convid);
+
+	/* Array of participants, may be empty */
+	jparts = json_object_new_array();
+	if (!jparts) {
+		err = ENOMEM;
+		goto out;
+	}
+
+	LIST_FOREACH(userl, le) {
+		struct userinfo *uinfo = le->data;
+		struct json_object *jpart;
+
+		jpart = jzon_alloc_object();
+		if (!jpart)
+			continue;
+
+		jzon_add_str(jpart, "userid", "%s", uinfo->userid_real);
+
+		json_object_array_add(jparts, jpart);
+	}
+
+	json_object_object_add(tparts, "participants", jparts);
+	jzon_encode(jsonp, tparts);
+
+ out:
+	mem_deref(tparts);
+
+	return err;
+}
+
+static void update_parts(struct wsip_ua *wua, struct wsip_call *wsip,
+			 bool remove)
+{
+	struct conv_entry *ce;
+	int err = 0;
+
+	ce = get_conv_entry(wua, wsip->convid);
+	if (remove) {
+		/* Has this call been added to the userlist,
+		 * if it has it will be we need to remove it.
+		 */
+		if (wsip->uinfo) {
+			list_unlink(&wsip->uinfo->le);
+			wsip->uinfo = mem_deref(wsip->uinfo);
+		}
+		if (ce) {
+			
+		}
+	}
+	else {
+		struct userinfo *uinfo;
+
+		if (!ce) {
+			ce = mem_zalloc(sizeof(*ce), ce_destructor);
+			if (!ce) {
+				warning("sip: could nou allocate conv entry\n");
+				return;
+			}
+			str_dup(&ce->convid, wsip->convid);
+			err = userlist_alloc(&ce->userl,
+					     wua->userid,
+					     wua->clientid,
+					     NULL,
+					     NULL,
+					     NULL,
+					     NULL,
+					     NULL,
+					     ce);
+			if (err) {
+				warning("wua(%p): could not allocate "
+					"userlist: %m\n",
+					wua, err);
+				return;
+			}
+		
+			list_append(&wua->convl, &ce->le, ce);
+		}
+		wsip->ce = ce;
+	
+		uinfo = mem_zalloc(sizeof(*uinfo), uinfo_destructor);
+		if (!uinfo) {
+			warning("sip: establ_call: could not "
+				"allocate userinfo\n");
+			return;
+		}
+
+		str_dup(&uinfo->userid_real, wsip->from);
+		str_dup(&uinfo->userid_hash, wsip->from);
+		str_dup(&uinfo->clientid_real, "_");
+		str_dup(&uinfo->clientid_hash, "_");
+		uinfo->pstn = true;
+
+		wsip->uinfo = uinfo;
+
+		list_append(&wsip->ce->userl->users, &uinfo->le, uinfo);
+	}
+
+	send_confpart_response(wsip);
+
+	printf("ce=%p partsh=%p\n", ce, wua->sip_inst->parts.h);
+	
+	if (ce && wua->sip_inst->parts.h) {
+		char *pjson = NULL;
+
+		printf("creating parts json\n");
+		err = parts_json(&pjson, wsip->convid, &ce->userl->users);
+		if (!err) {
+			wua->sip_inst->parts.h(wsip->convid,
+				pjson,
+				wua->sip_inst->parts.arg);
+		}
+	}
+}
+
+static void estab_call(struct wsip_ua *wua, struct call *call)
+{
+	struct wsip_call *wsip = lookup_call(wua, call);
+
+	if (wsip->estab)
+		return;
+
+	wsip->estab = true;
+
+	update_parts(wua, wsip, false);
 }
 
 static void close_call(struct wsip_ua *wua, struct call *call)
 {
 	struct wsip_call *wsip;
-	bool found = false;
-	struct le *le;
 
-	for(le = wua->wsipl.head; le && !found; le = le->next) {
-		wsip = le->data;
-		if (!wsip)
-			continue;
+	wsip = lookup_call(wua, call);
+	if (!wsip)
+		return;
 
-		found = call == wsip->call;
-	}
+	wsip->estab = false;
 
-	if (found && wua->closeh) {
+	update_parts(wua, wsip, true);
+
+	if (wua->closeh) {
 		wua->closeh(wsip, wua->arg);
 	}
 
-	if (found) {
-		mem_deref(wsip);
-	}
+	mem_deref(wsip);
 }
 
 #if 0
@@ -307,6 +618,7 @@ static void ua_event_handler(struct ua *ua, enum ua_event ev,
 		break;
 
 	case UA_EVENT_CALL_INCOMING:
+		info("sip(%p): call=%p incoming\n", wua->sip_inst, call);
 		incoming_call(wua, call);
 		break;
 
@@ -317,6 +629,8 @@ static void ua_event_handler(struct ua *ua, enum ua_event ev,
 		break;
 
 	case UA_EVENT_CALL_ESTABLISHED:
+		info("sip(%p): call=%p established\n", wua->sip_inst, call);
+		estab_call(wua, call);
 		break;
 
 	case UA_EVENT_CALL_CLOSED:
@@ -357,8 +671,9 @@ static void adm_handler(const char *convid, void *adm, bool added, void *arg)
 {
 	struct wsip_call *wsip = arg;
 
-	info("sip(%p): adm_handler: adm=%p %s on wsip=%p\n",
-	     wsip->wua->sip_inst, adm, added ? "ADDED" : "REMOVED", wsip);
+	info("sip(%p): adm_handler: convid=%p adm=%p %s on wsip=%p\n",
+	     wsip->wua->sip_inst, convid, adm,
+	     added ? "ADDED" : "REMOVED", wsip);
 
 	wsip->adm = adm;
 
@@ -379,6 +694,10 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 
 	if (g_sip.initialized)
 		goto newinst;
+
+	log_enable_debug(true);
+	log_enable_info(true);
+	log_enable_stdout(true);
 	
 	info("sip: initializing with conf_path=%s\n", conf_path);
 
@@ -484,18 +803,22 @@ static void wua_destructor(void *arg)
 	mem_deref(wua->aor);
 
 	list_unlink(&wua->le);
-	
+
+	mem_deref(wua->userid);
+	mem_deref(wua->clientid);
+
 	mem_deref(wua->ua);
 
+	list_flush(&wua->convl);
 	list_flush(&wua->wsipl);
 }
-
 
 int wcall_i_sip_create(struct calling_instance *inst,
 		       const char *aor,
 		       wcall_sip_ready_h *readyh,
 		       wcall_sip_incoming_h *incomingh,
 		       wcall_sip_close_h *closeh,
+		       wcall_sip_parts_h *partsh,
 		       wcall_sip_err_h *errh,
 		       void *arg)
 {
@@ -511,11 +834,15 @@ int wcall_i_sip_create(struct calling_instance *inst,
 		warning("sip: create: no SIP instance for: %p\n", inst);
 		return ENOSYS;
 	}
+
+	sip_inst->parts.h = partsh;
+	sip_inst->parts.arg = arg;
 	
 	wua = mem_zalloc(sizeof(*wua), wua_destructor);
 	if (!wua)
 		return ENOMEM;
-	
+
+	wua->inst = inst;
 	wua->sip_inst = sip_inst;
 	wua->first_reg = true;
 	wua->readyh = readyh;
@@ -530,7 +857,11 @@ int wcall_i_sip_create(struct calling_instance *inst,
 		goto out;
 	}
 
-	re_snprintf(mod_aor, sizeof(mod_aor), "%s;natpinhole=yes;", aor);
+	str_dup(&wua->userid, wcall_get_userid(inst));
+	str_dup(&wua->clientid, wcall_get_clientid(inst));
+
+	//re_snprintf(mod_aor, sizeof(mod_aor), "%s;natpinhole=yes;", aor);
+	re_snprintf(mod_aor, sizeof(mod_aor), "%s;", aor);
 	info("sip(%p): create: allocating UA with aor=%s\n",
 	     sip_inst, mod_aor);
 	err = ua_alloc(&wua->ua, mod_aor);
@@ -580,8 +911,10 @@ int wcall_i_sip_destroy(struct calling_instance *inst,
 }
 
 int wcall_i_sip_answer(struct calling_instance *inst,
-		       struct wsip_call *wsip, const char *convid)
+		       struct wsip_call *wsip,
+		       const char *convid)
 {
+	struct wsip_ua *wua;
 	int err = 0;
 	void *adm;
 
@@ -591,7 +924,9 @@ int wcall_i_sip_answer(struct calling_instance *inst,
 		return EINVAL;
 	}
 
-	info("sip(%p): answer: on wsip=%p convid=%s\n", inst, wsip, convid);
+	wua = wsip->wua;
+	info("sip(%p): answer: on wua=%p wsip=%p convid=%s\n",
+	     inst, wua, wsip, convid);
 
 	/* Assign convid to this call */
 	str_dup(&wsip->convid, convid);
