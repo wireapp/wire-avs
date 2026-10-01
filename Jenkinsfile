@@ -337,7 +337,7 @@ pipeline {
                                     export PATH="$HOME/.local/bin:$PATH"
                                 fi
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
-                                aws s3 sync ./build/artifacts/maven/com s3://maven-wire-com/ \\
+                                aws s3 sync ./build/artifacts/maven s3://maven-wire-com/ \\
                                     --region us-east-1 \\
                                     --exact-timestamps \\
                                     --delete
@@ -416,7 +416,7 @@ pipeline {
                                     export PATH="$HOME/.local/bin:$PATH"
                                 fi
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
-                                aws s3 sync ./build/artifacts/maven/com s3://maven-wire-com/ \\
+                                aws s3 sync ./build/artifacts/maven s3://maven-wire-com/ \\
                                     --region us-east-1 \\
                                     --exact-timestamps \\
                                     --delete
