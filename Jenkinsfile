@@ -299,7 +299,7 @@ pipeline {
                                 rm -rf ./build/artifacts/maven
                                 mkdir -p ./build/artifacts/maven
                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishMavenJavaPublicationToMavenLocal
-                                find ~/.m2/repository/com/wire/avs -type f \\( -name "*.pom" -o -name "*.aar" -o -name "*.module" \\) -exec cp {} ./build/artifacts/maven/ \\;
+                                 cp -r ~/.m2/repository/com/wire/avs ./build/artifacts/maven/
                             """
                         )
                     }
@@ -351,7 +351,7 @@ pipeline {
                                 rm -rf ./build/artifacts/maven
                                 mkdir -p ./build/artifacts/maven
                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToMavenLocal --no-configuration-cache
-                                find ~/.m2/repository/com/wire/avs-kmp -type f \\( -name "*.pom" -o -name "*.module" \\) -exec cp {} ./build/artifacts/maven/ \\;
+                                 cp -r ~/.m2/repository/com/wire/avs-kmp ./build/artifacts/maven/
                             """
                         )
                     }
@@ -403,7 +403,7 @@ pipeline {
                                 export PATH="$HOME/.local/bin:$PATH"
                             fi
                             echo "Uploading Maven artifacts to s3://maven-wire-com..."
-                            aws s3 sync ./build/artifacts/maven/ s3://maven-wire-com/ \\
+                            aws s3 sync ./build/artifacts/maven/com s3://maven-wire-com/ \\
                                 --region us-east-1 \\
                                 --exact-timestamps \\
                                 --delete
