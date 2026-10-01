@@ -295,15 +295,15 @@ pipeline {
                             string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
                         ]) {
                         sh(
-                            script: """
-                                rm -rf ./build/artifacts/maven
-                                mkdir -p ./build/artifacts/maven
-                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishMavenJavaPublicationToMavenLocal
+                             script: """
+                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishMavenJavaPublicationToMavenLocal
+                                 mkdir -p ./build/artifacts/maven
                                  cp -r ~/.m2/repository/com/wire/avs ./build/artifacts/maven/
-                            """
-                        )
-                    }
-                    echo '### Attach MavenLocal artifacts to GitHub release'
+                             """
+                         )
+                     }
+                     stash name: 'maven-linux', includes: 'build/artifacts/maven/'
+                     echo '### Attach MavenLocal artifacts to GitHub release'
                     withCredentials([ string( credentialsId: 'github-repo-user', variable: 'repoUser' ),
                         string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
                         sh(
@@ -347,15 +347,15 @@ pipeline {
                             string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
                         ]) {
                         sh(
-                            script: """
-                                rm -rf ./build/artifacts/maven
-                                mkdir -p ./build/artifacts/maven
-                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToMavenLocal --no-configuration-cache
+                             script: """
+                                 mkdir -p ./build/artifacts/maven
+                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToMavenLocal --no-configuration-cache
                                  cp -r ~/.m2/repository/com/wire/avs-kmp ./build/artifacts/maven/
-                            """
-                        )
-                    }
-                    echo '### Attach MavenLocal artifacts to GitHub release'
+                             """
+                         )
+                     }
+                     stash name: 'maven-kmp', includes: 'build/artifacts/maven/'
+                     echo '### Attach MavenLocal artifacts to GitHub release'
                     withCredentials([ string( credentialsId: 'github-repo-user', variable: 'repoUser' ),
                         string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
                         sh(
@@ -384,6 +384,8 @@ pipeline {
                 label 'linuxbuild'
             }
             steps {
+                unstash 'maven-linux'
+                unstash 'maven-kmp'
                 withCredentials([
                     usernamePassword(
                         credentialsId: 's3_package_key',
