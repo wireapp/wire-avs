@@ -289,21 +289,6 @@ pipeline {
             }
             steps {
                 script {
-                    echo '### Sign and upload to sonatype'
-                    withCredentials([
-                            usernamePassword( credentialsId: 'sonatype-central', usernameVariable: 'ORG_GRADLE_PROJECT_mavenCentralUsername', passwordVariable: 'ORG_GRADLE_PROJECT_mavenCentralPassword' ),
-                            string(credentialsId: 'sonatype-signing-key-password', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKeyPassword'),
-                            string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
-                        ]) {
-                        withMaven(maven: 'M3', jdk: 'JDK17') {
-                            sh(
-                                script: """
-                                    touch local.properties
-                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :publishAndReleaseToMavenCentral
-                                """
-                            )
-                        }
-                    }
                     echo '### Publish MavenLocal for Wire S3 upload'
                     withCredentials([
                             string(credentialsId: 'sonatype-signing-key-password', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKeyPassword'),
@@ -356,21 +341,6 @@ pipeline {
                 unstash 'android-aar'
 
                 script {
-                    echo '### Sign and upload to sonatype'
-                    withCredentials([
-                            usernamePassword( credentialsId: 'sonatype-central', usernameVariable: 'ORG_GRADLE_PROJECT_mavenCentralUsername', passwordVariable: 'ORG_GRADLE_PROJECT_mavenCentralPassword' ),
-                            string(credentialsId: 'sonatype-signing-key-password', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKeyPassword'),
-                            string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
-                        ]) {
-                        withMaven(maven: 'M3', jdk: 'JDK17') {
-                            sh(
-                                script: """
-                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:clean
-                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishAndReleaseToMavenCentral --no-configuration-cache
-                                """
-                            )
-                        }
-                    }
                     echo '### Publish MavenLocal for Wire S3 upload'
                     withCredentials([
                             string(credentialsId: 'sonatype-signing-key-password', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKeyPassword'),
