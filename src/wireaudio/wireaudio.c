@@ -445,12 +445,16 @@ int wireaudio_set_handlers(const char *convid,
 			   auplay_write_h *wh,
 			   void *arg)
 {
-	struct wdev *wdev = find_device(convid);
+	struct wdev *wdev;
 	int err = 0;
+	
+	if (!convid)
+		return EINVAL;
 
 	info("wireaudio: set_handlers: convid=%s rh=%p wh=%p arg=%p wdev=%p\n",
 	     convid, rh, wh, arg, wdev);
 
+	wdev = find_device(convid);
 	if (!wdev) {
 		if (rh == NULL || wh == NULL)
 			return 0;

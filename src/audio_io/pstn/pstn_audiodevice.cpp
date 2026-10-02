@@ -294,6 +294,7 @@ static void ah_destructor(void *arg)
 int pstn_adm_handler_register(pstn_adm_h *admh, void *arg)
 {
 	struct adm_handler *ah;
+	struct le *le;
 	
 	if (!admh)
 		return EINVAL;
@@ -306,6 +307,15 @@ int pstn_adm_handler_register(pstn_adm_h *admh, void *arg)
 	ah->arg = arg;
 
 	list_append(&pstn.handlerl, &ah->le, ah);
+
+	/* Call this adm handler if there are adms in the list */
+	LIST_FOREACH(&pstn.adml, le) {
+		struct adm_entry *ae = (struct adm_entry *)le->data;
+
+		if (ae && ah->admh) {
+			ah->admh(ae->convid, ae->adm, true, ah->arg);
+		}
+	}
 
 	return 0;
 }
