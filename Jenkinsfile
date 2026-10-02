@@ -34,27 +34,27 @@ pipeline {
                     }
                     steps {
 		        script {
-	                   def vcs = checkout([
-		       	       $class: 'GitSCM',
-                       	       changelog: true,
-                       	       userRemoteConfigs: scm.userRemoteConfigs,
-                       	       branches: scm.branches,
-                       	       extensions: scm.extensions + [
-                                  [$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, parentCredentials: true]
-                       	       ]
+		           def vcs = checkout([
+		              	$class: 'GitSCM',
+		              	changelog: true,
+		              	userRemoteConfigs: scm.userRemoteConfigs,
+		              	branches: scm.branches,
+		              	extensions: scm.extensions + [
+			          [$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, parentCredentials: true]
+		              	]
 		   	   ])
-                   	   branchName = vcs.GIT_BRANCH
-                   	   commitId = "${vcs.GIT_COMMIT}"[0..6]
-                   	   repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
+                  	branchName = vcs.GIT_BRANCH
+                  	commitId = "${vcs.GIT_COMMIT}"[0..6]
+                  	repoName = vcs.GIT_URL.tokenize( '/' ).last().tokenize( '.' ).first()
 
-                   	   release_version = branchName.replaceAll("[^\\d\\.]", "")
-                   	   if (release_version.length() > 0 || branchName.contains('release')) {
-                       	      version = release_version + "." + buildNumber
-                   	   } else {
-                       	      version = "0.0.${buildNumber}"
-                   	   }
-       	       	        }		   
-
+                  	release_version = branchName.replaceAll("[^\\d\\.]", "")
+                  	if (release_version.length() > 0 || branchName.contains('release')) {
+                     		version = release_version + "." + buildNumber
+                  	} else {
+                     		version = "0.0.${buildNumber}"
+                  	}
+	        	}		   
+			
 			sh 'make distclean || true'
 			sh '''
 			   # Blast away cached dependency metadata from previous container runs
@@ -97,7 +97,7 @@ pipeline {
 
                         // Stash the android aar directory recursively,
                         // shared libraries will be used to generate android kmp in macos agent
-                        stash name: 'android-aar', includes: 'build/dist/android/aar/**'
+                        stash name: 'android-aar', includes: 'build/dist/android/aar/**,build/dist/android/avs.aar'
                     }
                 }
                 stage('macOS') {
@@ -289,20 +289,69 @@ pipeline {
             }
             steps {
                 script {
-                    echo '### Sign and upload to sonatype'
+                    echo '### Publish MavenLocal for Wire S3 upload'
                     withCredentials([
-                            usernamePassword( credentialsId: 'sonatype-central', usernameVariable: 'ORG_GRADLE_PROJECT_mavenCentralUsername', passwordVariable: 'ORG_GRADLE_PROJECT_mavenCentralPassword' ),
                             string(credentialsId: 'sonatype-signing-key-password', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKeyPassword'),
                             string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
                         ]) {
-                        withMaven(maven: 'M3', jdk: 'JDK17') {
-                            sh(
-                                script: """
-                                    touch local.properties
-                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :publishAndReleaseToMavenCentral
-                                """
-                            )
-                        }
+                        sh(
+                            script: """
+                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishMavenJavaPublicationToMavenLocal
+                                mkdir -p ./build/artifacts/maven/com/wire
+                                cp -r ~/.m2/repository/com/wire/avs ./build/artifacts/maven/com/wire/
+                            """
+                        )
+                    }
+                    echo '### Attach MavenLocal artifacts to GitHub release'
+                    withCredentials([ string( credentialsId: 'github-repo-user', variable: 'repoUser' ),
+                        string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
+                        sh(
+                            script: """
+                                GITHUB_USER=${repoUser} \\
+                                GITHUB_TOKEN=${accessToken} \\
+                                python3 ./scripts/release-on-github.py \\
+                                    ${repoName} \\
+                                    ./build/artifacts/maven \\
+                                    ${version} \\
+                                    "MavenLocal artifacts for ${version}"
+                            """
+                        )
+                    }
+                    echo '### Upload to Wire S3 Maven repository'
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 's3_package_key',
+                            usernameVariable: 'AWS_ACCESS_KEY_ID',
+                            passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                        )
+                    ]) {
+                        sh(
+                            script: '''
+                                cd "$WORKSPACE"
+                                # Install AWS CLI v2 if not present
+                                if ! command -v aws &> /dev/null; then
+                                    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                                    rm -rf aws || true
+                                    unzip -q awscliv2.zip
+                                    ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                fi
+                                export PATH="$HOME/.local/bin:$PATH"
+                                # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
+                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "${f%-local.xml}.xml"; done' _ {} +
+                                echo "Uploading Maven artifacts to s3://maven-wire-com..."
+                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \
+                                    --recursive \
+                                    --no-overwrite \
+                                    --region us-east-1 \
+                                    --exclude '*maven-metadata.xml'
+                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \
+                                    --recursive \
+                                    --region us-east-1 \
+                                    --exclude '*' \
+                                    --include '*maven-metadata.xml'
+                                echo "Maven artifacts published to s3://maven-wire-com"
+                            '''
+                        )
                     }
                 }
             }
@@ -327,20 +376,69 @@ pipeline {
                 unstash 'android-aar'
 
                 script {
-                    echo '### Sign and upload to sonatype'
+                    echo '### Publish MavenLocal for Wire S3 upload'
                     withCredentials([
-                            usernamePassword( credentialsId: 'sonatype-central', usernameVariable: 'ORG_GRADLE_PROJECT_mavenCentralUsername', passwordVariable: 'ORG_GRADLE_PROJECT_mavenCentralPassword' ),
                             string(credentialsId: 'sonatype-signing-key-password', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKeyPassword'),
                             string(credentialsId: 'sonatype-signing-key', variable: 'ORG_GRADLE_PROJECT_signingInMemoryKey')
                         ]) {
-                        withMaven(maven: 'M3', jdk: 'JDK17') {
-                            sh(
-                                script: """
-                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew avs:clean
-                                    ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs:publishAndReleaseToMavenCentral --no-configuration-cache
-                                """
-                            )
-                        }
+                        sh(
+                            script: """
+                                mkdir -p ./build/artifacts/maven/com/wire
+                                ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToMavenLocal --no-configuration-cache
+                                cp -r ~/.m2/repository/com/wire/avs-kmp ./build/artifacts/maven/com/wire/
+                            """
+                        )
+                    }
+                    echo '### Attach MavenLocal artifacts to GitHub release'
+                    withCredentials([ string( credentialsId: 'github-repo-user', variable: 'repoUser' ),
+                        string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
+                        sh(
+                            script: """
+                                GITHUB_USER=${repoUser} \\
+                                GITHUB_TOKEN=${accessToken} \\
+                                python3 ./scripts/release-on-github.py \\
+                                    ${repoName} \\
+                                    ./build/artifacts/maven \\
+                                    ${version} \\
+                                    "MavenLocal artifacts for ${version}"
+                            """
+                        )
+                    }
+                    echo '### Upload to Wire S3 Maven repository'
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 's3_package_key',
+                            usernameVariable: 'AWS_ACCESS_KEY_ID',
+                            passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                        )
+                    ]) {
+                        sh(
+                            script: '''
+                                cd "$WORKSPACE"
+                                # Install AWS CLI v2 if not present
+                                if ! command -v aws &> /dev/null; then
+                                    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                                    rm -rf aws || true
+                                    unzip -q awscliv2.zip
+                                    ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                fi
+                                export PATH="$HOME/.local/bin:$PATH"
+                                # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
+                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "${f%-local.xml}.xml"; done' _ {} +
+                                echo "Uploading Maven artifacts to s3://maven-wire-com..."
+                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \
+                                    --recursive \
+                                    --no-overwrite \
+                                    --region us-east-1 \
+                                    --exclude '*maven-metadata.xml'
+                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \
+                                    --recursive \
+                                    --region us-east-1 \
+                                    --exclude '*' \
+                                    --include '*maven-metadata.xml'
+                                echo "Maven artifacts published to s3://maven-wire-com"
+                            '''
+                        )
                     }
                 }
             }
