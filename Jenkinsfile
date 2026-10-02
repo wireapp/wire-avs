@@ -337,7 +337,7 @@ pipeline {
                                 fi
                                 export PATH="$HOME/.local/bin:$PATH"
                                 # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
-                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' | while read -r f; do mv "$f" "${f%-local.xml}.xml"; done
+                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "\${f%-local.xml}.xml"; done' _ {} +
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
                                 aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
                                     --recursive \\
@@ -424,7 +424,7 @@ pipeline {
                                 fi
                                 export PATH="$HOME/.local/bin:$PATH"
                                 # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
-                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' | while read -r f; do mv "$f" "${f%-local.xml}.xml"; done
+                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "\${f%-local.xml}.xml"; done' _ {} +
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
                                 aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
                                     --recursive \\
