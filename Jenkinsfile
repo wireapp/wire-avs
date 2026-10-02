@@ -336,18 +336,19 @@ pipeline {
                                     ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
                                 fi
                                 export PATH="$HOME/.local/bin:$PATH"
+                                # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
+                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' | while read -r f; do mv "$f" "${f%-local.xml}.xml"; done
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
                                 aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
                                     --recursive \\
                                     --no-overwrite \\
                                     --region us-east-1 \\
-                                    --exclude '*maven-metadata.xml' \\
-                                    --exclude '*maven-metadata-local.xml'
+                                    --exclude '*maven-metadata.xml'
                                 aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
                                     --recursive \\
                                     --region us-east-1 \\
                                     --exclude '*' \\
-                                    --include '*maven-metadata*'
+                                    --include '*maven-metadata.xml'
                                 echo "Maven artifacts published to s3://maven-wire-com"
                             """
                         )
@@ -422,18 +423,19 @@ pipeline {
                                     ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
                                 fi
                                 export PATH="$HOME/.local/bin:$PATH"
+                                # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
+                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' | while read -r f; do mv "$f" "${f%-local.xml}.xml"; done
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
                                 aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
                                     --recursive \\
                                     --no-overwrite \\
                                     --region us-east-1 \\
-                                    --exclude '*maven-metadata.xml' \\
-                                    --exclude '*maven-metadata-local.xml'
+                                    --exclude '*maven-metadata.xml'
                                 aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
                                     --recursive \\
                                     --region us-east-1 \\
                                     --exclude '*' \\
-                                    --include '*maven-metadata*'
+                                    --include '*maven-metadata.xml'
                                 echo "Maven artifacts published to s3://maven-wire-com"
                             """
                         )
