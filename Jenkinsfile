@@ -340,7 +340,7 @@ pipeline {
                                 aws s3 sync ./build/artifacts/maven s3://maven-wire-com/ \\
                                     --region us-east-1 \\
                                     --exact-timestamps \\
-                                    --delete
+                                    --no-overwrite
                                 echo "Maven artifacts published to s3://maven-wire-com"
                             """
                         )
@@ -419,7 +419,7 @@ pipeline {
                                 aws s3 sync ./build/artifacts/maven s3://maven-wire-com/ \\
                                     --region us-east-1 \\
                                     --exact-timestamps \\
-                                    --delete
+                                    --no-overwrite
                                 echo "Maven artifacts published to s3://maven-wire-com"
                             """
                         )
