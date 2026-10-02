@@ -440,9 +440,6 @@ static void update_parts(struct wsip_ua *wua, struct wsip_call *wsip,
 			list_unlink(&wsip->uinfo->le);
 			wsip->uinfo = mem_deref(wsip->uinfo);
 		}
-		if (ce) {
-			
-		}
 	}
 	else {
 		struct userinfo *uinfo;
@@ -494,12 +491,9 @@ static void update_parts(struct wsip_ua *wua, struct wsip_call *wsip,
 
 	send_confpart_response(wsip);
 
-	printf("ce=%p partsh=%p\n", ce, wua->sip_inst->parts.h);
-	
 	if (ce && wua->sip_inst->parts.h) {
 		char *pjson = NULL;
 
-		printf("creating parts json\n");
 		err = parts_json(&pjson, wsip->convid, &ce->userl->users);
 		if (!err) {
 			wua->sip_inst->parts.h(wsip->convid,
@@ -671,7 +665,7 @@ static void adm_handler(const char *convid, void *adm, bool added, void *arg)
 {
 	struct wsip_call *wsip = arg;
 
-	info("sip(%p): adm_handler: convid=%p adm=%p %s on wsip=%p\n",
+	info("sip(%p): adm_handler: convid=%s adm=%p %s on wsip=%p\n",
 	     wsip->wua->sip_inst, convid, adm,
 	     added ? "ADDED" : "REMOVED", wsip);
 

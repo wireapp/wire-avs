@@ -64,6 +64,7 @@ typedef void (userlist_vstate_h)(const struct userinfo *user,
 
 struct userlist {
 	struct list            users;
+	struct list            pstn_users;
 	struct userinfo        *self;
 	struct userinfo        *keygenerator;
 	userlist_add_user_h    *addh;
@@ -99,7 +100,7 @@ void userlist_update_from_selist(struct userlist* list,
 				 bool *removed);
 
 void userlist_update_from_pstnlist(struct userlist *list,
-				   struct list *clientl);
+				   const struct list *clientl);
 
 void userlist_update_audio_level(struct userlist *list,
 				 const struct list *levell,

@@ -349,12 +349,9 @@ int pstn_adm_register(const char *convid, void *adm)
 	
 	list_append(&pstn.adml, &ae->le, ae);
 
-	printf("+++++ registered adm, calling handlers\n");
 	LIST_FOREACH(&pstn.handlerl, le) {
 		struct adm_handler *ah = (struct adm_handler *)le->data;
 
-		printf("+++++ registered adm calling handler(%p)\n", ah);
-	
 		if (!ah)
 			continue;
 

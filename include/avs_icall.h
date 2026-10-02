@@ -77,6 +77,7 @@ struct icall_client {
 	char *userid;
 	char *clientid;
 	bool in_subconv;
+	bool pstn;
 	int quality;
 	enum icall_vstate vstate;
 };
