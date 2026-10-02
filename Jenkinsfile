@@ -326,8 +326,8 @@ pipeline {
                         )
                     ]) {
                         sh(
-                            script: """
-                                cd "${env.WORKSPACE}"
+                            script: '''
+                                cd "$WORKSPACE"
                                 # Install AWS CLI v2 if not present
                                 if ! command -v aws &> /dev/null; then
                                     curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
@@ -337,20 +337,20 @@ pipeline {
                                 fi
                                 export PATH="$HOME/.local/bin:$PATH"
                                 # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
-                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "\${f%-local.xml}.xml"; done' _ {} +
+                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "${f%-local.xml}.xml"; done' _ {} +
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
-                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
-                                    --recursive \\
-                                    --no-overwrite \\
-                                    --region us-east-1 \\
+                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \
+                                    --recursive \
+                                    --no-overwrite \
+                                    --region us-east-1 \
                                     --exclude '*maven-metadata.xml'
-                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
-                                    --recursive \\
-                                    --region us-east-1 \\
-                                    --exclude '*' \\
+                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \
+                                    --recursive \
+                                    --region us-east-1 \
+                                    --exclude '*' \
                                     --include '*maven-metadata.xml'
                                 echo "Maven artifacts published to s3://maven-wire-com"
-                            """
+                            '''
                         )
                     }
                 }
@@ -413,8 +413,8 @@ pipeline {
                         )
                     ]) {
                         sh(
-                            script: """
-                                cd "${env.WORKSPACE}"
+                            script: '''
+                                cd "$WORKSPACE"
                                 # Install AWS CLI v2 if not present
                                 if ! command -v aws &> /dev/null; then
                                     curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
@@ -424,20 +424,20 @@ pipeline {
                                 fi
                                 export PATH="$HOME/.local/bin:$PATH"
                                 # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
-                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "\${f%-local.xml}.xml"; done' _ {} +
+                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "${f%-local.xml}.xml"; done' _ {} +
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
-                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
-                                    --recursive \\
-                                    --no-overwrite \\
-                                    --region us-east-1 \\
+                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \
+                                    --recursive \
+                                    --no-overwrite \
+                                    --region us-east-1 \
                                     --exclude '*maven-metadata.xml'
-                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
-                                    --recursive \\
-                                    --region us-east-1 \\
-                                    --exclude '*' \\
+                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \
+                                    --recursive \
+                                    --region us-east-1 \
+                                    --exclude '*' \
                                     --include '*maven-metadata.xml'
                                 echo "Maven artifacts published to s3://maven-wire-com"
-                            """
+                            '''
                         )
                     }
                 }
