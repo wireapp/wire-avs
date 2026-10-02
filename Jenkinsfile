@@ -328,7 +328,13 @@ pipeline {
                         sh(
                             script: """
                                 cd "${env.WORKSPACE}"
-                                pip3 install --upgrade --user awscli > /dev/null 2>&1
+                                # Install AWS CLI v2 if not present
+                                if ! command -v aws &> /dev/null; then
+                                    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                                    rm -rf aws || true
+                                    unzip -q awscliv2.zip
+                                    ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                fi
                                 export PATH="$HOME/.local/bin:$PATH"
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
                                 aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
@@ -408,7 +414,13 @@ pipeline {
                         sh(
                             script: """
                                 cd "${env.WORKSPACE}"
-                                pip3 install --upgrade --user awscli > /dev/null 2>&1
+                                # Install AWS CLI v2 if not present
+                                if ! command -v aws &> /dev/null; then
+                                    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                                    rm -rf aws || true
+                                    unzip -q awscliv2.zip
+                                    ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                fi
                                 export PATH="$HOME/.local/bin:$PATH"
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
                                 aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
