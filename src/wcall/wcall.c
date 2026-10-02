@@ -3966,7 +3966,6 @@ void wcall_set_participant_changed_handler(WUSER_HANDLE wuser,
 	inst->group.json.arg = arg;
 }
 
-
 AVS_EXPORT
 struct wcall_members *wcall_get_members(WUSER_HANDLE wuser, const char *convid)
 {
@@ -4778,4 +4777,48 @@ void wcall_unregister_sip_instance(struct calling_instance *inst,
 struct sip_instance *wcall_get_sip_instance(struct calling_instance *inst)
 {
 	return inst ? inst->sip_inst : NULL;
+}
+
+const char *wcall_get_userid(struct calling_instance *inst)
+{
+	return inst ? inst->userid : NULL;
+}
+
+const char *wcall_get_clientid(struct calling_instance *inst)
+{
+	return inst ? inst->clientid : NULL;
+}
+
+int wcall_send_msg(struct calling_instance *inst,
+		   const char *convid,
+		   struct econn_message *msg,
+		   void *arg)
+{
+	struct wcall_ctx *ctx = NULL;
+	char *str = NULL;
+	int err;
+	
+	err = ctx_alloc(&ctx, inst, arg);
+	if (err)
+		return err;
+
+	err = econn_message_encode(&str, msg);
+	if (err)
+		goto out;
+
+	err = inst->sendh(ctx, convid,
+			  inst->userid, inst->clientid,
+			  NULL, NULL,
+			  (uint8_t *)str, strlen(str),
+			  msg->transient ? 1 : 0,
+			  0,
+			  inst->arg);
+
+ out:
+	mem_deref(str);
+	if (err) {
+		mem_deref(ctx);
+	}
+
+	return err;
 }

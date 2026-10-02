@@ -1324,7 +1324,8 @@ static int send_confpart_response(struct ccall *ccall)
 
 	err = userlist_get_partlist(ccall->userl,
 				    &msg->u.confpart.partl,
-				    ccall->is_mls_call);
+				    ccall->is_mls_call,
+				    false);
 	if (err) {
 		goto out;
 	}
@@ -1844,6 +1845,7 @@ static void duration_timeout_handler(void *arg)
 
 static void ecall_confpart_handler(struct ecall *ecall,
 				   const struct econn_message *msg,
+				   bool from_pstn,
 				   void *arg)
 {
 	struct ccall *ccall = arg;
@@ -1867,6 +1869,14 @@ static void ecall_confpart_handler(struct ecall *ecall,
 	     first_confpart ? "YES" : "NO");
 
 	if (!ccall || ecall != ccall->ecall) {
+		return;
+	}
+
+	if (from_pstn) {
+		userlist_update_from_pstnlist(ccall->userl, partlist);
+		ICALL_CALL_CB(ccall->icall, group_changedh,
+			      &ccall->icall, ccall->icall.arg);
+
 		return;
 	}
 
@@ -2009,7 +2019,7 @@ static void ecall_confmsg_handler(struct ecall *ecall,
 	}
 
 	if (msg->msg_type == ECONN_CONF_PART) {
-		ecall_confpart_handler(ecall, msg, arg);
+		ecall_confpart_handler(ecall, msg, false, arg);
 	}
 }
 
@@ -3759,7 +3769,7 @@ int  ccall_msg_recv(struct icall* icall,
 		break;
 
 	case ECONN_CONF_PART:
-		ecall_confpart_handler(ccall->ecall, msg, ccall);
+		ecall_confpart_handler(ccall->ecall, msg, true, ccall);
 		break;
 
 	case ECONN_REJECT:
