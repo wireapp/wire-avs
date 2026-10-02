@@ -26,6 +26,7 @@
 #define AVS_CCALL_INCLUDED
 #include "cloudflare_realtime.h"
 #include "../realtime_bridge/realtime_bridge.h"
+#include "../ccall/ccall.h"
 
 struct cloudflare_realtime {
 	struct ccall *ccall;
@@ -34,6 +35,7 @@ struct cloudflare_realtime {
 	char *app_secret;
 	char *api_base;
 	char *tracks_json;
+	char *publisher_tracks;
 	char *datachannel_id;
 	cloudflare_realtime_request_h *requesth;
 	void *arg;
@@ -289,6 +291,12 @@ static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_ro
 		if (err)
 			return err;
 		tracks_json = publisher_tracks;
+		adapter->publisher_tracks = mem_deref(adapter->publisher_tracks);
+		err = str_dup(&adapter->publisher_tracks, publisher_tracks);
+		if (err) {
+			mem_deref(publisher_tracks);
+			return err;
+		}
 	}
 
 	err = make_request_body(&body, !msg->resp, msg->u.setup.sdp_msg,
@@ -662,6 +670,14 @@ int cloudflare_realtime_handle_response(
 		goto out;
 	}
 
+	if (role == CCALL_ECALL_PUBLISHER && adapter->publisher_tracks) {
+		err = ccall_catalog_set_tracks(adapter->ccall,
+					      session_id(adapter, role),
+					      adapter->publisher_tracks);
+		if (err)
+			goto out;
+	}
+
 	err = jzon_object(&description, root, "sessionDescription");
 	if (err)
 		goto out;
@@ -722,6 +738,7 @@ void cloudflare_realtime_close(struct cloudflare_realtime *adapter)
 	mem_deref(adapter->app_id);
 	mem_deref(adapter->app_secret);
 	mem_deref(adapter->api_base);
+	mem_deref(adapter->publisher_tracks);
 	mem_deref(adapter->tracks_json);
 	mem_deref(adapter->datachannel_id);
 	mem_deref(adapter);

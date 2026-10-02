@@ -73,6 +73,8 @@ struct join_elem {
 	struct config_update_elem upe;
 };
 
+struct catalog;
+
 struct ccall_ecall_context {
 	struct ccall *ccall;
 	enum ccall_ecall_role role;
@@ -87,6 +89,14 @@ struct ccall {
 
 	char *convid_real;
 	char *convid_hash;
+	char *participant_id;
+	struct catalog *catalog;
+	char *catalog_tracks;
+	char *catalog_session;
+	bool catalog_epoch_known;
+	bool catalog_mls_matches;
+	uint32_t catalog_join_epoch;
+	uint32_t catalog_epoch;
 
 	struct userlist *userl;
 
@@ -176,3 +186,6 @@ void ccall_pubsub_bind(struct ccall *ccall, struct ecall *ecall,
 		       enum ccall_ecall_role role);
 void ccall_pubsub_release(struct ccall *ccall, enum ccall_ecall_role role);
 void ccall_pubsub_end(struct ccall *ccall);
+
+int ccall_catalog_set_tracks(struct ccall *ccall, const char *session,
+			     const char *tracks);

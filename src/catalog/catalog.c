@@ -51,7 +51,7 @@ static int make_entry(const struct catalog *catalog, struct json_object **entryp
 		return err;
 
 	jzon_add_str(entry, "participantId", "%s", catalog->participant_id);
-	jzon_add_int(entry, "publicationVersion", (int32_t)catalog->version);
+	jzon_add_int(entry, "revision", (int32_t)catalog->version);
 	jzon_add_str(entry, "state", "%s", catalog->state);
 	*entryp = entry;
 	return 0;
@@ -184,6 +184,14 @@ int catalog_encode_snapshot(const struct catalog *catalog, char **jsonp)
 	if (!root)
 		return ENOMEM;
 	jzon_add_str(root, "catalogId", "%s", catalog->catalog_id);
+	if (catalog->publication) {
+		struct json_object *self = NULL;
+		err = make_entry(catalog, &self);
+		if (err)
+			goto out;
+		json_object_object_add(catalog->participants,
+				       catalog->participant_id, self);
+	}
 	err = jzon_encode(&encoded, catalog->participants);
 	if (err)
 		goto out;
@@ -234,7 +242,10 @@ int catalog_apply_message(struct catalog *catalog,
 		goto out;
 	if (strcmp(pid, catalog->participant_id) == 0)
 		goto out;
-	err = jzon_int_opt(&incoming_version, entry, "publicationVersion", -1);
+	err = jzon_int_opt(&incoming_version, entry, "revision", -1);
+	if (!err && incoming_version < 0)
+		err = jzon_int_opt(&incoming_version, entry,
+				   "publicationVersion", -1);
 	if (err)
 		goto out;
 	if (incoming_version < 0)
@@ -244,7 +255,10 @@ int catalog_apply_message(struct catalog *catalog,
 		current_version = -1;
 		if (!jzon_object(&old, catalog->participants, pid)) {
 			err = jzon_int_opt(&current_version, old,
-					   "publicationVersion", -1);
+					   "revision", -1);
+			if (!err && current_version < 0)
+				err = jzon_int_opt(&current_version, old,
+						   "publicationVersion", -1);
 			if (err)
 				goto out;
 		}

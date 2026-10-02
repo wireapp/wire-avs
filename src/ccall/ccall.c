@@ -25,6 +25,7 @@
 #include "ccall.h"
 #include "avs_wcall.h"
 #include "avs_audio_level.h"
+#include "../catalog/catalog.h"
 
 #if (defined ANDROID || defined __EMSCRIPTEN__ || defined LINUX)
 
@@ -135,6 +136,10 @@ static void destructor(void *arg)
  	mem_deref(ccall->sft_tuple);
 	mem_deref(ccall->convid_real);
 	mem_deref(ccall->convid_hash);
+	mem_deref(ccall->participant_id);
+	catalog_close(ccall->catalog);
+	mem_deref(ccall->catalog_tracks);
+	mem_deref(ccall->catalog_session);
 	mem_deref(ccall->turnv);
 	mem_deref(ccall->userl);
 
@@ -271,6 +276,11 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 
 	switch (ccall->state) {
 	case CCALL_STATE_IDLE:
+		catalog_close(ccall->catalog);
+		ccall->catalog = NULL;
+		ccall->catalog_tracks = mem_deref(ccall->catalog_tracks);
+		ccall->catalog_session = mem_deref(ccall->catalog_session);
+		ccall->catalog_epoch_known = false;
 		ccall->sft_url = mem_deref(ccall->sft_url);
 		ccall->sft_timestamp = 0;
 		userlist_reset_keygenerator(ccall->userl);
@@ -2558,6 +2568,70 @@ int ccall_set_enable_publish_subscribe(struct ccall *ccall,
 	return 0;
 }
 
+static int ccall_catalog_refresh(struct ccall *ccall)
+{
+	const struct userinfo *self = userlist_get_self(ccall->userl);
+	struct json_object *entry = NULL, *tracks = NULL;
+	char *json = NULL;
+	int err;
+
+	if (!ccall->catalog || !self || !ccall->catalog_epoch_known ||
+	    !ccall->catalog_session || !ccall->catalog_tracks)
+		return 0;
+	entry = jzon_alloc_object();
+	if (!entry)
+		return ENOMEM;
+	err = jzon_decode(&tracks, ccall->catalog_tracks,
+			  strlen(ccall->catalog_tracks));
+	if (err)
+		goto out;
+	jzon_add_str(entry, "userId", "%s", self->userid_real);
+	jzon_add_str(entry, "clientId", "%s", self->clientid_real);
+	jzon_add_str(entry, "publisherSessionId", "%s", ccall->catalog_session);
+	json_object_object_add(entry, "joinedMlsEpoch",
+			       json_object_new_int(ccall->catalog_join_epoch));
+	json_object_object_add(entry, "mlsEpoch",
+			       json_object_new_int(ccall->catalog_epoch));
+	json_object_object_add(entry, "tracks", tracks);
+	tracks = NULL;
+	err = jzon_encode(&json, entry);
+	if (!err)
+		err = catalog_set_publication(ccall->catalog, json, 1, "reachable");
+	if (!err)
+		info("ccall(%p): local catalog participant ready epoch=%u join_epoch=%u\n",
+		     ccall, ccall->catalog_epoch, ccall->catalog_join_epoch);
+	if (!err)
+		info("ccall(%p): initial catalog MLS match=%s\n", ccall,
+		     ccall->catalog_mls_matches ? "yes" : "no");
+out:
+	mem_deref(json);
+	mem_deref(tracks);
+	mem_deref(entry);
+	return err;
+}
+
+int ccall_catalog_set_tracks(struct ccall *ccall, const char *session,
+			     const char *tracks)
+{
+	char *sid = NULL, *json = NULL;
+	int err;
+	if (!ccall || !session || !tracks)
+		return EINVAL;
+	err = str_dup(&sid, session);
+	if (!err)
+		err = str_dup(&json, tracks);
+	if (err) {
+		mem_deref(sid);
+		mem_deref(json);
+		return err;
+	}
+	mem_deref(ccall->catalog_session);
+	mem_deref(ccall->catalog_tracks);
+	ccall->catalog_session = sid;
+	ccall->catalog_tracks = json;
+	return ccall_catalog_refresh(ccall);
+}
+
 int ccall_prepare_ecalls(struct ccall *ccall)
 {
 	struct ecall *publisher = NULL;
@@ -2570,6 +2644,15 @@ int ccall_prepare_ecalls(struct ccall *ccall)
 		return EBUSY;
 	if (ccall->ecall || ccall->ecall_subscriber)
 		return EALREADY;
+
+	if (ccall->enable_publish_subscribe && !ccall->catalog) {
+		err = catalog_alloc(&ccall->catalog,
+				    ccall->convid_real,
+				    ccall->participant_id);
+		if (err)
+			return err;
+		info("ccall(%p): local catalog created\n", ccall);
+	}
 
 	err = alloc_ecall(ccall, ccall->enable_publish_subscribe
 			  ? CCALL_ECALL_PUBLISHER : CCALL_ECALL_BIDIRECTIONAL,
@@ -2793,6 +2876,15 @@ int ccall_alloc(struct ccall **ccallp,
 	if (ccall == NULL) {
 		return ENOMEM;
 	}
+
+	if (!userid_self || !clientid) {
+		err = EINVAL;
+		goto out;
+	}
+	err = re_sdprintf(&ccall->participant_id, "%s.%s",
+			  userid_self, clientid);
+	if (err)
+		goto out;
 
 	info("ccall(%p): alloc convid: %s userid: %s"
 	     " clientid: %s is_mls: %s\n",
@@ -3488,6 +3580,28 @@ void ccall_set_clients(struct icall* icall,
 
 	if (!ccall || !ccall->userl)
 		return;
+
+	if (ccall->enable_publish_subscribe && ccall->is_mls_call) {
+		if (!ccall->catalog_epoch_known)
+			ccall->catalog_join_epoch = epoch;
+		ccall->catalog_epoch_known = true;
+		ccall->catalog_epoch = epoch;
+		/* First-publisher case: MLS may include self or omit self. */
+		{
+			const struct userinfo *self = userlist_get_self(ccall->userl);
+			struct le *le;
+			ccall->catalog_mls_matches = self != NULL;
+			LIST_FOREACH(clientl, le) {
+				const struct icall_client *cli = le->data;
+				if (!self || !cli ||
+				    !strcaseeq(self->userid_real, cli->userid) ||
+				    !strcaseeq(self->clientid_real, cli->clientid))
+					ccall->catalog_mls_matches = false;
+			}
+		}
+		if (ccall_catalog_refresh(ccall))
+			warning("ccall: catalog epoch update failed\n");
+	}
 
 	userlist_update_from_selist(ccall->userl,
 				    clientl,
