@@ -328,19 +328,20 @@ pipeline {
                         sh(
                             script: """
                                 cd "${env.WORKSPACE}"
-                                # Install AWS CLI if not present
-                                if ! command -v aws &> /dev/null; then
-                                    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-                                    rm -rf aws || true
-                                    unzip -q awscliv2.zip
-                                    ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
-                                    export PATH="$HOME/.local/bin:$PATH"
-                                fi
+                                pip3 install --upgrade --user awscli > /dev/null 2>&1
+                                export PATH="$HOME/.local/bin:$PATH"
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
-                                aws s3 sync ./build/artifacts/maven s3://maven-wire-com/ \\
+                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
+                                    --recursive \\
+                                    --no-overwrite \\
                                     --region us-east-1 \\
-                                    --exact-timestamps \\
-                                    --no-overwrite
+                                    --exclude '*maven-metadata.xml' \\
+                                    --exclude '*maven-metadata-local.xml'
+                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
+                                    --recursive \\
+                                    --region us-east-1 \\
+                                    --exclude '*' \\
+                                    --include '*maven-metadata*'
                                 echo "Maven artifacts published to s3://maven-wire-com"
                             """
                         )
@@ -375,9 +376,9 @@ pipeline {
                         ]) {
                         sh(
                             script: """
-                                mkdir -p ./build/artifacts/maven
+                                mkdir -p ./build/artifacts/maven/com/wire
                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToMavenLocal --no-configuration-cache
-                                cp -r ~/.m2/repository/com/wire/avs-kmp ./build/artifacts/maven/
+                                cp -r ~/.m2/repository/com/wire/avs-kmp ./build/artifacts/maven/com/wire/
                             """
                         )
                     }
@@ -407,19 +408,20 @@ pipeline {
                         sh(
                             script: """
                                 cd "${env.WORKSPACE}"
-                                # Install AWS CLI if not present
-                                if ! command -v aws &> /dev/null; then
-                                    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-                                    rm -rf aws || true
-                                    unzip -q awscliv2.zip
-                                    ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
-                                    export PATH="$HOME/.local/bin:$PATH"
-                                fi
+                                pip3 install --upgrade --user awscli > /dev/null 2>&1
+                                export PATH="$HOME/.local/bin:$PATH"
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
-                                aws s3 sync ./build/artifacts/maven s3://maven-wire-com/ \\
+                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
+                                    --recursive \\
+                                    --no-overwrite \\
                                     --region us-east-1 \\
-                                    --exact-timestamps \\
-                                    --no-overwrite
+                                    --exclude '*maven-metadata.xml' \\
+                                    --exclude '*maven-metadata-local.xml'
+                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \\
+                                    --recursive \\
+                                    --region us-east-1 \\
+                                    --exclude '*' \\
+                                    --include '*maven-metadata*'
                                 echo "Maven artifacts published to s3://maven-wire-com"
                             """
                         )
