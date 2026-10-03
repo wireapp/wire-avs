@@ -61,6 +61,8 @@ int ccall_get_transport_state(const struct ccall *ccall,
 				      enum ccall_ecall_role role, struct ccall_transport_state *state);
 
 /* Advance the publisher-specific Pub/Sub state machine. */
+void ccall_set_transport_disconnected(struct ccall *ccall,
+				     enum ccall_ecall_role role);
 void ccall_set_transport_connected(struct ccall *ccall,
 				   enum ccall_ecall_role role);
 

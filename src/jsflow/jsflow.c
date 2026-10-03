@@ -271,7 +271,6 @@ static void gather_timeout_handler(void *arg)
 		flow->iflow.arg);
 }
 
-#if 0
 static void disconnect_timeout_handler(void *arg)
 {
 	struct jsflow *flow = arg;
@@ -281,7 +280,6 @@ static void disconnect_timeout_handler(void *arg)
 	IFLOW_CALL_CB(flow->iflow, restarth,
 		false, flow->iflow.arg);
 }
-#endif
 
 static void stats_timeout_handler(void *arg)
 {
@@ -1650,15 +1648,25 @@ void pc_connection_handler(int self, const char *state)
 	info("flow(%p): connection_handler: state=%s\n", flow, state);
 
 	if (streq(state, "connected")) {
-		if (tmr_isrunning(&flow->tmr_disconnect))
-			tmr_cancel(&flow->tmr_disconnect);
-		else {
+		bool recovering = tmr_isrunning(&flow->tmr_disconnect);
+		tmr_cancel(&flow->tmr_disconnect);
+		if (!recovering || flow->media_direction != IFLOW_MEDIA_SENDRECV) {
 			IFLOW_CALL_CB(flow->iflow, estabh,
 				"dtls", "opus", flow->iflow.arg);
 			IFLOW_CALL_CB(flow->iflow, rtp_stateh,
 				true, true, flow->iflow.arg);
 		}
 	}
+	else if (streq(state, "disconnected") &&
+		 flow->media_direction != IFLOW_MEDIA_SENDRECV) {
+		if (!tmr_isrunning(&flow->tmr_disconnect)) {
+			/* Give a transient network interruption ten seconds to recover. */
+			tmr_start(&flow->tmr_disconnect, 10000,
+				  disconnect_timeout_handler, flow);
+			IFLOW_CALL_CB(flow->iflow, stoppedh, flow->iflow.arg);
+		}
+	}
+
 	else if (streq(state, "failed")) {
 		if (tmr_isrunning(&flow->tmr_disconnect))
 			tmr_cancel(&flow->tmr_disconnect);

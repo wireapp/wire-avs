@@ -369,8 +369,12 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		tmr_cancel(&ccall->tmr_connect);
 		tmr_start(&ccall->tmr_decrypt_check, CCALL_DECRYPT_CHECK_TIMEOUT,
 			  ccall_decrypt_check_timeout, ccall);
-		tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
-			  ccall_keepalive_timeout, ccall);
+		/* SFT application pings are not supported by the Pub/Sub provider. */
+		if (ccall->enable_publish_subscribe)
+			tmr_cancel(&ccall->tmr_keepalive);
+		else
+			tmr_start(&ccall->tmr_keepalive, CCALL_KEEPALIVE_TIMEOUT,
+				  ccall_keepalive_timeout, ccall);
 		if (ccall->reconnect_attempts > 0 && userlist_is_keygenerator_me(ccall->userl)) {
 		        tmr_cancel(&ccall->tmr_send_check);
 		        tmr_start(&ccall->tmr_send_check, 0,
@@ -398,6 +402,17 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		ICALL_CALL_CB(ccall->icall, group_changedh,
 			&ccall->icall, ccall->icall.arg);
 	}
+}
+
+void ccall_set_transport_disconnected(struct ccall *ccall,
+                                     enum ccall_ecall_role role)
+{
+	if (!ccall || !ccall->enable_publish_subscribe ||
+	    role != CCALL_ECALL_PUBLISHER)
+		return;
+	if (ccall->state == CCALL_STATE_ACTIVE ||
+	    ccall->state == CCALL_STATE_CONNECTED)
+		set_state(ccall, CCALL_STATE_CONNECTING);
 }
 
 void ccall_set_transport_connected(struct ccall *ccall,
@@ -702,6 +717,12 @@ static void ccall_keepalive_timeout(void *arg)
 
 	if (!ccall)
 		return;
+
+	/* Also ignore any already scheduled SFT keepalive in Pub/Sub mode. */
+	if (ccall->enable_publish_subscribe) {
+		tmr_cancel(&ccall->tmr_keepalive);
+		return;
+	}
 
 	info("ccall(%p): keepalive: ping %u\n",
 	     ccall,

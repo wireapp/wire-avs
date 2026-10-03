@@ -115,6 +115,8 @@ static void media_handler(struct icall *icall, const char *userid,
 	 */
 	ecall_media_start(ccall_get_ecall(ctx->ccall, ctx->role));
 	ctx->state.media_ready = true;
+	if (ctx->role == CCALL_ECALL_PUBLISHER && ctx->state.data_ready)
+		ccall_set_transport_connected(ctx->ccall, ctx->role);
 	emit(ctx, CCALL_TRANSPORT_MEDIA_READY);
 	if (ctx->role == CCALL_ECALL_PUBLISHER && ctx->state.data_ready)
 		ccall_set_transport_active(ctx->ccall, ctx->role);
@@ -157,6 +159,7 @@ static void stopped_handler(struct icall *icall, void *arg)
 		return;
 	ctx->state.media_ready = false;
 	ctx->state.audio_ready = false;
+	ccall_set_transport_disconnected(ctx->ccall, ctx->role);
 	emit(ctx, CCALL_TRANSPORT_MEDIA_STOPPED);
 }
 
