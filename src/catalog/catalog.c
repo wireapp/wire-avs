@@ -280,6 +280,42 @@ out:
 	return err;
 }
 
+struct participant_match_context {
+	const struct catalog *catalog;
+	catalog_participant_match_h *matchh;
+	void *arg;
+};
+
+static bool participant_matches(struct json_object *entry,
+                                struct participant_match_context *ctx)
+{
+	const char *userid = jzon_str(entry, "userId");
+	const char *clientid = jzon_str(entry, "clientId");
+	return userid && clientid && ctx->matchh(userid, clientid, ctx->arg);
+}
+
+static bool participant_mismatch(const char *key, struct json_object *entry,
+                                 void *arg)
+{
+	struct participant_match_context *ctx = arg;
+	/* The local publication is authoritative; a snapshot may contain an older
+		* copy of it in participants. */
+	if (!strcmp(key, ctx->catalog->participant_id))
+		return false;
+	return !participant_matches(entry, ctx);
+}
+
+bool catalog_participants_match(const struct catalog *catalog,
+                               catalog_participant_match_h *matchh, void *arg)
+{
+	struct participant_match_context ctx = {catalog, matchh, arg};
+	if (!catalog || !catalog->publication || !matchh)
+		return false;
+	if (!participant_matches(catalog->publication, &ctx))
+		return false;
+	return jzon_apply(catalog->participants, participant_mismatch, &ctx) == NULL;
+}
+
 const char *catalog_id(const struct catalog *catalog)
 {
 	return catalog ? catalog->catalog_id : NULL;

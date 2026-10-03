@@ -460,6 +460,9 @@ static int bridge_sendh(struct realtime_bridge *bridge,
 			 struct econn_message *msg, void *arg)
 {
 	(void)bridge;
+	if (msg && msg->msg_type == ECONN_CONF_CONN &&
+	    role == CCALL_ECALL_PUBLISHER)
+		return cloudflare_realtime_send_conf_conn(arg);
 	return request_role(arg, role, msg);
 }
 

@@ -49,6 +49,12 @@ const char *catalog_id(const struct catalog *catalog);
 const char *catalog_participant_id(const struct catalog *catalog);
 uint32_t catalog_version(const struct catalog *catalog);
 
+/* All stored participants, including the local publication, must match. */
+typedef bool (catalog_participant_match_h)(const char *userid,
+					 const char *clientid, void *arg);
+bool catalog_participants_match(const struct catalog *catalog,
+				catalog_participant_match_h *matchh, void *arg);
+
 void catalog_close(struct catalog *catalog);
 
 #endif

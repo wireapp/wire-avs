@@ -95,6 +95,8 @@ struct ccall {
 	char *catalog_session;
 	bool catalog_epoch_known;
 	bool catalog_mls_matches;
+	bool catalog_complete;
+	bool publisher_media_notified;
 	uint32_t catalog_join_epoch;
 	uint32_t catalog_epoch;
 

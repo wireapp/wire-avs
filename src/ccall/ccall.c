@@ -18,6 +18,8 @@
 
 //#include <openssl/ssl.h>
 #include <assert.h>
+#include <time.h>
+#include <string.h>
 #include <sodium.h>
 
 #include <re.h>
@@ -281,8 +283,14 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		ccall->catalog_tracks = mem_deref(ccall->catalog_tracks);
 		ccall->catalog_session = mem_deref(ccall->catalog_session);
 		ccall->catalog_epoch_known = false;
+		ccall->catalog_complete = false;
+		ccall->publisher_media_notified = false;
+		ccall->catalog_mls_matches = false;
 		ccall->sft_url = mem_deref(ccall->sft_url);
 		ccall->sft_timestamp = 0;
+		if (ccall->enable_publish_subscribe) {
+			ccall->sft_seqno = 0;
+		}
 		userlist_reset_keygenerator(ccall->userl);
 		ccall->received_confpart = false;
 		keystore_reset(ccall->keystore);
@@ -407,8 +415,27 @@ void ccall_set_transport_active(struct ccall *ccall,
 {
 	if (!ccall || role != CCALL_ECALL_PUBLISHER)
 		return;
-	if (ccall->state == CCALL_STATE_CONNECTED)
+	if (ccall->enable_publish_subscribe) {
+		const struct ccall_transport_state *transport =
+			&ccall->transport[CCALL_ECALL_PUBLISHER].state;
+		if (!transport->media_ready || !transport->data_ready ||
+		    !ccall->catalog_complete || !ccall->catalog_mls_matches)
+			return;
+	}
+	if (ccall->state == CCALL_STATE_CONNECTED) {
 		set_state(ccall, CCALL_STATE_ACTIVE);
+		if (ccall->enable_publish_subscribe &&
+		    ccall->state == CCALL_STATE_ACTIVE &&
+		    !ccall->publisher_media_notified) {
+			ccall->publisher_media_notified = true;
+			ICALL_CALL_CB(ccall->icall, media_estabh,
+				&ccall->icall,
+				ecall_get_peer_userid(ccall->ecall),
+				ecall_get_peer_clientid(ccall->ecall),
+				false, ccall->icall.arg);
+		}
+	}
+
 }
 
 static void ccall_send_check_timeout(void *arg)
@@ -606,7 +633,9 @@ static void ccall_decrypt_check_timeout(void *arg)
 		return;
 	}
 
-	if (!ccall->received_confpart) {
+	if (ccall->enable_publish_subscribe
+	    ? !ccall->catalog_complete || !ccall->catalog_mls_matches
+	    : !ccall->received_confpart) {
 		info("ccall(%p): decrypt_check_timeout no confpart received, "
 		     "reconnecting\n",
 		     ccall);
@@ -2325,7 +2354,7 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	const struct userinfo *self = NULL;
 	int err = 0;
 
-	if (!ccall || !sft_url) {
+	if (!ccall || (!sft_url && !ccall->transport_handlers.sendh)) {
 		return EINVAL;
 	}
 
@@ -2333,7 +2362,7 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	if (!self)
 		return ENOENT;
 
-	err = copy_sft(&sft_url_term, sft_url);
+	err = sft_url ? copy_sft(&sft_url_term, sft_url) : 0;
 	if (err)
 		return err;
 
@@ -2385,7 +2414,7 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 	msg->u.confconn.vstreams = CCALL_MAX_VSTREAMS;
 
 	if (ccall->primary_sft_url && 
-	    strcmp(ccall->primary_sft_url, sft_url_term) != 0) {
+	    sft_url_term && strcmp(ccall->primary_sft_url, sft_url_term) != 0) {
 		info("ccall(%p): send_msg_sft setting primary_sft_url %s\n",
 		     ccall, ccall->primary_sft_url);
 		err = str_dup(&msg->u.confconn.sft_url, ccall->primary_sft_url);
@@ -2414,7 +2443,11 @@ static int  ccall_send_conf_conn(struct ccall *ccall,
 		}
 	}
 
-	err = ccall_send_msg_sft(ccall, sft_url_term, msg);
+	if (ccall->enable_publish_subscribe && ccall->transport_handlers.sendh)
+		err = ccall->transport_handlers.sendh(ccall, CCALL_ECALL_PUBLISHER,
+						     msg, ccall->transport_arg);
+	else
+		err = ccall_send_msg_sft(ccall, sft_url_term, msg);
 	if (err != 0) {
 		goto out;
 	}
@@ -2568,6 +2601,20 @@ int ccall_set_enable_publish_subscribe(struct ccall *ccall,
 	return 0;
 }
 
+static bool ccall_catalog_participant_approved(const char *userid,
+                                               const char *clientid, void *arg)
+{
+	struct ccall *ccall = arg;
+	const struct userinfo *self = userlist_get_self(ccall->userl);
+	const struct userinfo *user;
+	/* The MLS API may omit self, as in the legacy SE-list handling. */
+	if (self && strcaseeq(self->userid_real, userid) &&
+     strcaseeq(self->clientid_real, clientid))
+		return true;
+	user = userlist_find_by_real(ccall->userl, userid, clientid);
+	return user && user->se_approved;
+}
+
 static int ccall_catalog_refresh(struct ccall *ccall)
 {
 	const struct userinfo *self = userlist_get_self(ccall->userl);
@@ -2597,6 +2644,9 @@ static int ccall_catalog_refresh(struct ccall *ccall)
 	err = jzon_encode(&json, entry);
 	if (!err)
 		err = catalog_set_publication(ccall->catalog, json, 1, "reachable");
+	ccall->catalog_complete = !err;
+	ccall->catalog_mls_matches = !err && catalog_participants_match(
+		ccall->catalog, ccall_catalog_participant_approved, ccall);
 	if (!err)
 		info("ccall(%p): local catalog participant ready epoch=%u join_epoch=%u\n",
 		     ccall, ccall->catalog_epoch, ccall->catalog_join_epoch);
@@ -2607,6 +2657,8 @@ out:
 	mem_deref(json);
 	mem_deref(tracks);
 	mem_deref(entry);
+	if (!err)
+		ccall_set_transport_active(ccall, CCALL_ECALL_PUBLISHER);
 	return err;
 }
 
@@ -3098,6 +3150,16 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	     ccall_state_name(ccall->state),
 	     config_is_federating(ccall->cfg) ? "YES" : "NO");
 	
+	if (ccall->enable_publish_subscribe && ccall->transport_handlers.sendh) {
+		if (state != CCALL_STATE_WAITCONFIG &&
+		    state != CCALL_STATE_WAITCONFIG_OUTGOING)
+			return;
+		err = ccall_send_conf_conn(ccall, NULL, NULL, NULL, false);
+		if (err)
+			ccall_end_with_err(ccall, err);
+		goto out;
+	}
+
 	if (!urlv || !urlc) {
 		warning("ccall(%p): no SFT server configured\n", ccall);
 		ccall_end_with_err(ccall, ENOTSUP);
@@ -3331,6 +3393,11 @@ int  ccall_start(struct icall *icall,
 
 	case CCALL_STATE_IDLE:
 		ccall->is_caller = true;
+		if (ccall->enable_publish_subscribe && !ccall->sft_timestamp) {
+			ccall->sft_timestamp = (uint64_t)time(NULL);
+			ccall->sft_seqno = rand_u32();
+		}
+
 		/* In publish/subscribe mode both ECalls belong to the call from
 		 * the moment it starts.  The legacy path still creates its ECall
 		 * when the SFT setup arrives. */
@@ -3586,21 +3653,7 @@ void ccall_set_clients(struct icall* icall,
 			ccall->catalog_join_epoch = epoch;
 		ccall->catalog_epoch_known = true;
 		ccall->catalog_epoch = epoch;
-		/* First-publisher case: MLS may include self or omit self. */
-		{
-			const struct userinfo *self = userlist_get_self(ccall->userl);
-			struct le *le;
-			ccall->catalog_mls_matches = self != NULL;
-			LIST_FOREACH(clientl, le) {
-				const struct icall_client *cli = le->data;
-				if (!self || !cli ||
-				    !strcaseeq(self->userid_real, cli->userid) ||
-				    !strcaseeq(self->clientid_real, cli->clientid))
-					ccall->catalog_mls_matches = false;
-			}
-		}
-		if (ccall_catalog_refresh(ccall))
-			warning("ccall: catalog epoch update failed\n");
+
 	}
 
 	userlist_update_from_selist(ccall->userl,
@@ -3640,6 +3693,8 @@ void ccall_set_clients(struct icall* icall,
 	if (ccall->stop_ringing_reason != CCALL_STOP_RINGING_NONE) {
 		ccall_stop_others_ringing_i(ccall);
 	}
+	if (ccall->enable_publish_subscribe && ccall_catalog_refresh(ccall))
+		warning("ccall: catalog epoch update failed\n");
 }
 
 int ccall_update_mute_state(const struct icall* icall)
@@ -3729,7 +3784,12 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		ts_cmp = -1;
 	}
 	else {
-		ts_cmp = ccall->sft_seqno - msg_seqno;
+		if (ccall->enable_publish_subscribe) {
+			ts_cmp = (ccall->sft_seqno > msg_seqno) -
+				 (ccall->sft_seqno < msg_seqno);
+		}
+		else
+			ts_cmp = ccall->sft_seqno - msg_seqno;
 	}
 
 	info("ccall(%p): handle_confstart_check %s "

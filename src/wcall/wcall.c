@@ -2047,8 +2047,9 @@ int wcall_add(struct calling_instance *inst,
 	sftv = config_get_sftservers(inst->cfg, &sftc);
 	if (sftc == 0) {
 		info("wcall(%p): no sft servers\n", wcall);
-		if (WCALL_CONV_TYPE_CONFERENCE == conv_type ||
-		    WCALL_CONV_TYPE_CONFERENCE_MLS == conv_type) {
+		if (!inst->cloudflare_requesth &&
+		    (WCALL_CONV_TYPE_CONFERENCE == conv_type ||
+		     WCALL_CONV_TYPE_CONFERENCE_MLS == conv_type)) {
 			info("wcall(%p): reverting conference to legacy "
 			     "group call due to no SFT servers\n", wcall);
 			conv_type = WCALL_CONV_TYPE_GROUP;
