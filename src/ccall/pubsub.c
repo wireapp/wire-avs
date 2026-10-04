@@ -196,8 +196,14 @@ static void close_handler(struct icall *icall, int err,
 	ctx->state.data_ready = false;
 	ctx->state.closed = true;
 	ctx->state.error = err;
-	ccall_pubsub_release(ctx->ccall, ctx->role);
-	emit(ctx, CCALL_TRANSPORT_CLOSED);
+	{
+		struct ccall *ccall = mem_ref(ctx->ccall);
+		enum ccall_ecall_role role = ctx->role;
+		ccall_pubsub_release(ccall, role);
+		emit(ctx, CCALL_TRANSPORT_CLOSED);
+		ccall_pubsub_recover(ccall, role, err);
+		mem_deref(ccall);
+	}
 }
 
 static void quality_handler(struct icall *icall, const char *userid,
@@ -248,6 +254,10 @@ void ccall_pubsub_end(struct ccall *ccall)
 		return;
 	mem_ref(ccall);
 	ccall->transport_ending = true;
+	ccall->recovery_in_progress = false;
+	tmr_cancel(&ccall->tmr_recovery_start);
+	tmr_cancel(&ccall->tmr_recovery);
+	tmr_cancel(&ccall->tmr_recovery_stable);
 	calls[0] = mem_ref(ccall->ecall);
 	calls[1] = mem_ref(ccall->ecall_subscriber);
 	for (i = 0; i < 2; ++i) {

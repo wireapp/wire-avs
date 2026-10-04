@@ -20,6 +20,10 @@
 #include <re.h>
 #include <avs.h>
 #include <gtest/gtest.h>
+extern "C" {
+#include "../src/ccall/ccall.h"
+#include "../src/cloudflare_realtime/cloudflare_realtime.h"
+}
 
 class CcallPair : public ::testing::Test {
 protected:
@@ -97,6 +101,242 @@ TEST_F(CcallPair, end_clears_unstarted_pair_and_allows_recreation)
 	EXPECT_EQ(nullptr, get(CCALL_ECALL_SUBSCRIBER));
 	ccall_end(ccall_get_icall(call));
 	EXPECT_EQ(0, ccall_prepare_ecalls(call));
+}
+
+static void stopped_call(struct icall *, int err, struct icall_metrics *,
+		uint32_t, const char *, const char *, void *arg)
+{
+	EXPECT_EQ(0, err);
+	++*static_cast<unsigned *>(arg);
+}
+
+TEST_F(CcallPair, manual_stop_finishes_once_and_cancels_recovery)
+{
+	ASSERT_EQ(0, ccall_set_enable_publish_subscribe(call, true));
+	ASSERT_EQ(0, ccall_prepare_ecalls(call));
+	unsigned closes = 0;
+	call->icall.closeh = stopped_call;
+	call->icall.arg = &closes;
+	call->state = CCALL_STATE_ACTIVE;
+	call->publisher_media_notified = true;
+	ccall_pubsub_recover(call, CCALL_ECALL_PUBLISHER, ENOTCONN);
+	ASSERT_TRUE(tmr_isrunning(&call->tmr_recovery_start));
+	ASSERT_TRUE(tmr_isrunning(&call->tmr_recovery));
+	ccall_end(&call->icall);
+	EXPECT_EQ(CCALL_STATE_IDLE, call->state);
+	EXPECT_FALSE(call->recovery_in_progress);
+	EXPECT_FALSE(tmr_isrunning(&call->tmr_recovery_start));
+	EXPECT_FALSE(tmr_isrunning(&call->tmr_recovery));
+	EXPECT_FALSE(tmr_isrunning(&call->tmr_recovery_stable));
+	EXPECT_EQ(nullptr, get(CCALL_ECALL_PUBLISHER));
+	EXPECT_EQ(nullptr, get(CCALL_ECALL_SUBSCRIBER));
+	EXPECT_EQ(1u, closes);
+	ccall_end(&call->icall);
+	EXPECT_EQ(1u, closes);
+	call->icall.arg = nullptr;
+}
+
+/* Fire the real registered callback as a timer expiry would, without sleeping. */
+static void expire_timer(struct tmr *timer)
+{
+	ASSERT_TRUE(tmr_isrunning(timer));
+	tmr_h *handler = timer->th;
+	void *arg = timer->arg;
+	tmr_cancel(timer);
+	handler(arg);
+}
+
+struct RecoveryClose {
+	unsigned count = 0;
+	int error = 0;
+};
+
+static void recovery_closed(struct icall *, int err, struct icall_metrics *,
+		uint32_t, const char *, const char *, void *arg)
+{
+	auto *close = static_cast<RecoveryClose *>(arg);
+	++close->count;
+	close->error = err;
+}
+
+class CcallRecovery : public CcallPair {
+protected:
+	void SetUp() override
+	{
+		CcallPair::SetUp();
+		ASSERT_EQ(0, ccall_set_enable_publish_subscribe(call, true));
+		ASSERT_EQ(0, ccall_prepare_ecalls(call));
+		call->icall.closeh = recovery_closed;
+		call->icall.arg = &closed;
+		call->state = CCALL_STATE_ACTIVE;
+		call->publisher_media_notified = true;
+	}
+	void TearDown() override
+	{
+		call->icall.arg = nullptr;
+		call->icall.closeh = nullptr;
+		CcallPair::TearDown();
+	}
+	void recover()
+	{
+		ccall_pubsub_recover(call, CCALL_ECALL_PUBLISHER, ENOTCONN);
+	}
+	void ready()
+	{
+		/* Allocation/network steps are outside this readiness-gate test. */
+		tmr_cancel(&call->tmr_recovery_start);
+		call->transport[CCALL_ECALL_PUBLISHER].state.media_ready = true;
+		call->transport[CCALL_ECALL_PUBLISHER].state.data_ready = true;
+		call->catalog_complete = true;
+		call->catalog_mls_matches = true;
+		ccall_set_transport_connected(call, CCALL_ECALL_PUBLISHER);
+	}
+	RecoveryClose closed;
+};
+
+TEST_F(CcallRecovery, success_cancels_deadline_and_waits_for_stability)
+{
+	recover();
+	ready();
+	ccall_set_transport_active(call, CCALL_ECALL_PUBLISHER);
+	EXPECT_EQ(CCALL_STATE_CONNECTED, call->state);
+	EXPECT_TRUE(tmr_isrunning(&call->tmr_recovery));
+	call->publisher_channel_registered = true;
+	ccall_set_transport_active(call, CCALL_ECALL_PUBLISHER);
+	EXPECT_EQ(CCALL_STATE_ACTIVE, call->state);
+	EXPECT_FALSE(call->recovery_in_progress);
+	EXPECT_FALSE(tmr_isrunning(&call->tmr_recovery));
+	EXPECT_TRUE(call->recovery_used);
+	EXPECT_EQ(0u, closed.count);
+	expire_timer(&call->tmr_recovery_stable);
+	EXPECT_FALSE(call->recovery_used);
+	EXPECT_EQ(CCALL_STATE_ACTIVE, call->state);
+}
+
+TEST_F(CcallRecovery, second_failure_before_stability_closes_once)
+{
+	recover();
+	ready();
+	call->publisher_channel_registered = true;
+	ccall_set_transport_active(call, CCALL_ECALL_PUBLISHER);
+	recover();
+	EXPECT_EQ(CCALL_STATE_IDLE, call->state);
+	EXPECT_EQ(1u, closed.count);
+	EXPECT_EQ(ENOTCONN, closed.error);
+	EXPECT_FALSE(tmr_isrunning(&call->tmr_recovery_start));
+	EXPECT_FALSE(tmr_isrunning(&call->tmr_recovery_stable));
+	ccall_end(&call->icall);
+	EXPECT_EQ(1u, closed.count);
+}
+
+TEST_F(CcallRecovery, stable_connection_allows_one_new_recovery)
+{
+	recover();
+	ready();
+	call->publisher_channel_registered = true;
+	ccall_set_transport_active(call, CCALL_ECALL_PUBLISHER);
+	expire_timer(&call->tmr_recovery_stable);
+	recover();
+	EXPECT_EQ(CCALL_STATE_CONNECTING, call->state);
+	EXPECT_TRUE(call->recovery_in_progress);
+	EXPECT_TRUE(call->recovery_used);
+	EXPECT_TRUE(tmr_isrunning(&call->tmr_recovery_start));
+	EXPECT_TRUE(tmr_isrunning(&call->tmr_recovery));
+	EXPECT_EQ(0u, closed.count);
+}
+
+TEST_F(CcallRecovery, recovery_deadline_closes_and_cancels_deferred_start)
+{
+	recover();
+	expire_timer(&call->tmr_recovery);
+	EXPECT_EQ(CCALL_STATE_IDLE, call->state);
+	EXPECT_EQ(1u, closed.count);
+	EXPECT_EQ(ETIMEDOUT, closed.error);
+	EXPECT_FALSE(tmr_isrunning(&call->tmr_recovery_start));
+	EXPECT_EQ(nullptr, get(CCALL_ECALL_PUBLISHER));
+	EXPECT_EQ(nullptr, get(CCALL_ECALL_SUBSCRIBER));
+}
+
+TEST_F(CcallRecovery, short_disconnect_restarts_stability_interval)
+{
+	recover();
+	ready();
+	call->publisher_channel_registered = true;
+	ccall_set_transport_active(call, CCALL_ECALL_PUBLISHER);
+	ccall_set_transport_disconnected(call, CCALL_ECALL_PUBLISHER);
+	EXPECT_FALSE(tmr_isrunning(&call->tmr_recovery_stable));
+	EXPECT_TRUE(call->recovery_used);
+	ccall_set_transport_connected(call, CCALL_ECALL_PUBLISHER);
+	ccall_set_transport_active(call, CCALL_ECALL_PUBLISHER);
+	EXPECT_TRUE(tmr_isrunning(&call->tmr_recovery_stable));
+	EXPECT_EQ(0u, closed.count);
+}
+
+static int pending_cloudflare_request(struct cloudflare_realtime *,
+		enum ccall_ecall_role, const char *, const char *, const char *,
+		const char *, const char *, cloudflare_realtime_response_h *, void *arg)
+{
+	++*static_cast<unsigned *>(arg);
+	return 0;
+}
+
+TEST_F(CcallRecovery, cloudflare_response_after_stop_does_not_restart)
+{
+	struct cloudflare_realtime *adapter = nullptr;
+	unsigned requests = 0;
+	struct cloudflare_realtime_conf conf = {
+		"app", "secret", "https://example.invalid", pending_cloudflare_request
+	};
+	ASSERT_EQ(0, cloudflare_realtime_alloc(&adapter, call, &conf, &requests));
+	EXPECT_EQ(0, cloudflare_realtime_send_conf_conn(adapter));
+	ccall_end(&call->icall);
+	EXPECT_EQ(ECANCELED, cloudflare_realtime_handle_response(adapter,
+		CCALL_ECALL_PUBLISHER, 200, "{\"sessionId\":\"old\"}"));
+	EXPECT_EQ(CCALL_STATE_IDLE, call->state);
+	EXPECT_EQ(nullptr, get(CCALL_ECALL_PUBLISHER));
+	EXPECT_EQ(1u, requests);
+	EXPECT_EQ(1u, closed.count);
+	cloudflare_realtime_close(adapter);
+}
+
+TEST_F(CcallRecovery, old_response_after_new_prepare_is_discarded)
+{
+	struct cloudflare_realtime *adapter = nullptr;
+	unsigned requests = 0;
+	struct cloudflare_realtime_conf conf = {
+		"app", "secret", "https://example.invalid", pending_cloudflare_request
+	};
+	ASSERT_EQ(0, cloudflare_realtime_alloc(&adapter, call, &conf, &requests));
+	EXPECT_EQ(0, cloudflare_realtime_send_conf_conn(adapter));
+	ccall_end(&call->icall);
+	ASSERT_EQ(0, ccall_prepare_ecalls(call));
+	call->state = CCALL_STATE_CONNSENT;
+	EXPECT_EQ(EBUSY, cloudflare_realtime_send_conf_conn(adapter));
+	EXPECT_EQ(ECANCELED, cloudflare_realtime_handle_response(adapter,
+		CCALL_ECALL_PUBLISHER, 200, "{\"sessionId\":\"old\"}"));
+	EXPECT_EQ(nullptr, ecall_get_econn(get(CCALL_ECALL_PUBLISHER)));
+	EXPECT_EQ(0, cloudflare_realtime_send_conf_conn(adapter));
+	EXPECT_EQ(2u, requests);
+	cloudflare_realtime_close(adapter);
+}
+
+TEST_F(CcallRecovery, cloudflare_error_after_stop_does_not_close_twice)
+{
+	struct cloudflare_realtime *adapter = nullptr;
+	unsigned requests = 0;
+	struct cloudflare_realtime_conf conf = {
+		"app", "secret", "https://example.invalid", pending_cloudflare_request
+	};
+	ASSERT_EQ(0, cloudflare_realtime_alloc(&adapter, call, &conf, &requests));
+	EXPECT_EQ(0, cloudflare_realtime_send_conf_conn(adapter));
+	ccall_end(&call->icall);
+	EXPECT_EQ(ECANCELED, cloudflare_realtime_handle_response(adapter,
+		CCALL_ECALL_PUBLISHER, 599, "{\"error\":\"network\"}"));
+	EXPECT_EQ(1u, closed.count);
+	EXPECT_EQ(0, closed.error);
+	EXPECT_FALSE(call->recovery_in_progress);
+	EXPECT_EQ(nullptr, get(CCALL_ECALL_PUBLISHER));
+	cloudflare_realtime_close(adapter);
 }
 
 TEST_F(CcallPair, old_subscriber_close_does_not_clear_replacement)

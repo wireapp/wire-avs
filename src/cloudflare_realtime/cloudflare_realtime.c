@@ -41,6 +41,7 @@ struct cloudflare_realtime {
 	void *arg;
 	bool enabled;
 	enum cloudflare_realtime_operation pending[2];
+	bool pending_cancelled[2];
 };
 
 static void request_response(struct cloudflare_realtime *adapter,
@@ -483,13 +484,23 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 	(void)ccall;
 	(void)state;
 
-	if (event == CCALL_TRANSPORT_CLOSED)
+	if (event == CCALL_TRANSPORT_CLOSED) {
+		adapter->pending_cancelled[role] =
+			adapter->pending[role] != CLOUDFLARE_REALTIME_OP_NONE;
 		realtime_bridge_stop_role(adapter->bridge, role);
+		if (role == CCALL_ECALL_PUBLISHER) {
+			adapter->datachannel_id = mem_deref(adapter->datachannel_id);
+			adapter->publisher_tracks = mem_deref(adapter->publisher_tracks);
+		}
+	}
 	else if (event == CCALL_TRANSPORT_DATA_READY &&
 		 role == CCALL_ECALL_PUBLISHER) {
 		int err = cloudflare_realtime_send_datachannel(adapter);
-		if (err && err != EALREADY)
+		if (err && err != EALREADY) {
 			warning("cloudflare realtime: data channel request failed: %m\n", err);
+			if (ccall->recovery_in_progress)
+				ccall_pubsub_recovery_failed(ccall, err);
+		}
 	}
 }
 
@@ -604,9 +615,25 @@ int cloudflare_realtime_handle_response(
 	struct econn_message msg;
 	int err;
 
+	if (adapter && valid_role(role) && adapter->pending_cancelled[role]) {
+		adapter->pending_cancelled[role] = false;
+		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+		return ECANCELED;
+	}
+	/* A response may arrive after the application has stopped the call. */
+	if (adapter && valid_role(role) &&
+	    (adapter->ccall->state == CCALL_STATE_IDLE ||
+	     adapter->ccall->state == CCALL_STATE_TERMINATING ||
+	     adapter->ccall->transport_ending)) {
+		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+		return ECANCELED;
+	}
+
 	if (status < 200 || status >= 300) {
 		warning("cloudflare: response status=%d body=%s\n",
 			status, body ? body : "(empty)");
+		if (adapter && adapter->ccall->recovery_in_progress)
+			ccall_pubsub_recovery_failed(adapter->ccall, EPROTO);
 		return status >= 400 ? EPROTO : EINVAL;
 	}
 	if (!adapter || !valid_role(role) || !body)
@@ -665,6 +692,8 @@ int cloudflare_realtime_handle_response(
 			re_snprintf(idbuf, sizeof(idbuf), "%d", channel_id);
 			err = str_dup(&adapter->datachannel_id, idbuf);
 		}
+		if (!err)
+			adapter->ccall->publisher_channel_registered = true;
 		if (!err)
 			info("cloudflare: registered data channel calling-3.0 id=%d\n",
 			     channel_id);
@@ -727,6 +756,8 @@ out:
 		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
 	mem_deref(description);
 	mem_deref(root);
+	if (err && adapter->ccall->recovery_in_progress)
+		ccall_pubsub_recovery_failed(adapter->ccall, err);
 	return err ? err : 0;
 }
 

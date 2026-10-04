@@ -48,6 +48,7 @@ static void ccall_sync_vstate_timeout(void *arg);
 static void ccall_send_check_timeout(void *arg);
 static void ccall_decrypt_check_timeout(void *arg);
 static void ccall_keepalive_timeout(void *arg);
+static void recovery_stable_timeout(void *arg);
 static void ccall_end_with_err(struct ccall *ccall, int err);
 static void ccall_alone_timeout(void *arg);
 static int  ccall_send_msg(struct ccall *ccall,
@@ -118,6 +119,9 @@ static void destructor(void *arg)
 		ccall->je = mem_deref(ccall->je);
 	}
 
+	tmr_cancel(&ccall->tmr_recovery_start);
+	tmr_cancel(&ccall->tmr_recovery);
+	tmr_cancel(&ccall->tmr_recovery_stable);
 	tmr_cancel(&ccall->tmr_connect);
 	tmr_cancel(&ccall->tmr_call);
 	tmr_cancel(&ccall->tmr_send_check);
@@ -285,6 +289,13 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		ccall->catalog_epoch_known = false;
 		ccall->catalog_complete = false;
 		ccall->publisher_media_notified = false;
+		ccall->publisher_channel_registered = false;
+		ccall->recovery_used = false;
+		ccall->recovery_in_progress = false;
+		ccall->catalog_revision = 1;
+		tmr_cancel(&ccall->tmr_recovery_start);
+		tmr_cancel(&ccall->tmr_recovery);
+		tmr_cancel(&ccall->tmr_recovery_stable);
 		ccall->catalog_mls_matches = false;
 		ccall->sft_url = mem_deref(ccall->sft_url);
 		ccall->sft_timestamp = 0;
@@ -410,6 +421,7 @@ void ccall_set_transport_disconnected(struct ccall *ccall,
 	if (!ccall || !ccall->enable_publish_subscribe ||
 	    role != CCALL_ECALL_PUBLISHER)
 		return;
+	tmr_cancel(&ccall->tmr_recovery_stable);
 	if (ccall->state == CCALL_STATE_ACTIVE ||
 	    ccall->state == CCALL_STATE_CONNECTED)
 		set_state(ccall, CCALL_STATE_CONNECTING);
@@ -433,12 +445,22 @@ void ccall_set_transport_active(struct ccall *ccall,
 	if (ccall->enable_publish_subscribe) {
 		const struct ccall_transport_state *transport =
 			&ccall->transport[CCALL_ECALL_PUBLISHER].state;
-		if (!transport->media_ready || !transport->data_ready ||
+		if ((ccall->recovery_in_progress && !ccall->publisher_channel_registered) ||
+		    !transport->media_ready || !transport->data_ready ||
 		    !ccall->catalog_complete || !ccall->catalog_mls_matches)
 			return;
 	}
 	if (ccall->state == CCALL_STATE_CONNECTED) {
 		set_state(ccall, CCALL_STATE_ACTIVE);
+		if (ccall->recovery_in_progress && ccall->state == CCALL_STATE_ACTIVE) {
+			ccall->recovery_in_progress = false;
+			tmr_cancel(&ccall->tmr_recovery);
+
+			info("ccall(%p): publisher recovery succeeded\n", ccall);
+		}
+		if (ccall->state == CCALL_STATE_ACTIVE && ccall->recovery_used)
+			tmr_start(&ccall->tmr_recovery_stable, 30000,
+				  recovery_stable_timeout, ccall);
 		if (ccall->enable_publish_subscribe &&
 		    ccall->state == CCALL_STATE_ACTIVE &&
 		    !ccall->publisher_media_notified) {
@@ -2664,7 +2686,8 @@ static int ccall_catalog_refresh(struct ccall *ccall)
 	tracks = NULL;
 	err = jzon_encode(&json, entry);
 	if (!err)
-		err = catalog_set_publication(ccall->catalog, json, 1, "reachable");
+		err = catalog_set_publication(ccall->catalog, json,
+			ccall->catalog_revision ? ccall->catalog_revision : 1, "reachable");
 	ccall->catalog_complete = !err;
 	ccall->catalog_mls_matches = !err && catalog_participants_match(
 		ccall->catalog, ccall_catalog_participant_approved, ccall);
@@ -2763,6 +2786,87 @@ int ccall_start_ecall(struct ccall *ccall, enum ccall_ecall_role role)
 
 	return ecall_start(ecall, ccall->call_type, false,
 			   ccall->meeting.is_set);
+}
+
+void ccall_pubsub_recovery_failed(struct ccall *ccall, int err)
+{
+	if (!ccall || ccall->state == CCALL_STATE_IDLE ||
+	    ccall->state == CCALL_STATE_TERMINATING)
+		return;
+	info("ccall(%p): publisher recovery failed: %m\n", ccall, err);
+	tmr_cancel(&ccall->tmr_recovery_start);
+	tmr_cancel(&ccall->tmr_recovery);
+	tmr_cancel(&ccall->tmr_recovery_stable);
+	ccall->recovery_in_progress = false;
+	/* Pub/Sub transport closes do not forward the legacy close callback. */
+	mem_ref(ccall);
+	ccall->error = err ? err : ENOTCONN;
+	set_state(ccall, CCALL_STATE_IDLE);
+	ccall_pubsub_end(ccall);
+	ICALL_CALL_CB(ccall->icall, closeh, &ccall->icall,
+		ccall->error, &ccall->metrics, ECONN_MESSAGE_TIME_UNKNOWN,
+		NULL, NULL, ccall->icall.arg);
+	mem_deref(ccall);
+}
+
+static void recovery_timeout(void *arg)
+{
+	ccall_pubsub_recovery_failed(arg, ETIMEDOUT);
+}
+
+static void recovery_stable_timeout(void *arg)
+{
+	struct ccall *ccall = arg;
+	if (ccall->state == CCALL_STATE_ACTIVE &&
+	    ccall->transport[CCALL_ECALL_PUBLISHER].state.media_ready &&
+	    ccall->transport[CCALL_ECALL_PUBLISHER].state.data_ready) {
+		ccall->recovery_used = false;
+		info("ccall(%p): publisher recovery budget reset after stable connection\n", ccall);
+	}
+}
+
+static void recovery_start(void *arg)
+{
+	struct ccall *ccall = arg;
+	struct ecall *publisher = NULL;
+	int err;
+	if (!ccall->recovery_in_progress)
+		return;
+	err = alloc_ecall(ccall, CCALL_ECALL_PUBLISHER, &publisher);
+	if (err) {
+		ccall_pubsub_recovery_failed(ccall, err);
+		return;
+	}
+	ccall->ecall = publisher;
+	ccall_pubsub_bind(ccall, publisher, CCALL_ECALL_PUBLISHER);
+	err = ccall_send_conf_conn(ccall, NULL, NULL, NULL, false);
+	if (err)
+		ccall_pubsub_recovery_failed(ccall, err);
+}
+
+void ccall_pubsub_recover(struct ccall *ccall, enum ccall_ecall_role role, int err)
+{
+	if (!ccall || !ccall->enable_publish_subscribe ||
+	    role != CCALL_ECALL_PUBLISHER || ccall->transport_ending ||
+	    ccall->state == CCALL_STATE_IDLE || ccall->state == CCALL_STATE_TERMINATING)
+		return;
+	if (!err || !ccall->publisher_media_notified || ccall->recovery_used) {
+		ccall_pubsub_recovery_failed(ccall, err ? err : ENOTCONN);
+		return;
+	}
+	ccall->recovery_used = true;
+	ccall->recovery_in_progress = true;
+	ccall->publisher_channel_registered = false;
+	ccall->catalog_complete = false;
+	ccall->catalog_tracks = mem_deref(ccall->catalog_tracks);
+	ccall->catalog_session = mem_deref(ccall->catalog_session);
+	ccall->catalog_revision++;
+	tmr_cancel(&ccall->tmr_recovery_stable);
+	set_state(ccall, CCALL_STATE_CONNECTING);
+	info("ccall(%p): starting single publisher recovery attempt\n", ccall);
+	tmr_start(&ccall->tmr_recovery, 20000, recovery_timeout, ccall);
+	/* Defer allocation until the old ECall callback has unwound. */
+	tmr_start(&ccall->tmr_recovery_start, 0, recovery_start, ccall);
 }
 
 static void userlist_add_user_handler(const struct userinfo *user,
@@ -3000,6 +3104,7 @@ int ccall_alloc(struct ccall **ccallp,
 	mbuf_init(&ccall->confpart_data);
 	ccall->conf = conf;
 	ccall->state = CCALL_STATE_IDLE;
+	ccall->catalog_revision = 1;
 	ccall->stop_ringing_reason = CCALL_STOP_RINGING_NONE;
 	ccall->is_mls_call = is_mls_call;
 	ccall->meeting.is_set = meeting;
@@ -3479,7 +3584,21 @@ void ccall_end(struct icall *icall)
 	if (!ccall)
 		return;
 	if (ccall->enable_publish_subscribe) {
+		bool notify = ccall->state != CCALL_STATE_IDLE &&
+			ccall->state != CCALL_STATE_NONE;
+		if (ccall->transport_ending)
+			return;
+		mem_ref(ccall);
+		/* Reset before closing transports: callbacks must not recover. */
+		ccall->error = 0;
+		set_state(ccall, CCALL_STATE_IDLE);
+		userlist_incall_clear(ccall->userl, false, false);
 		ccall_pubsub_end(ccall);
+		if (notify)
+			ICALL_CALL_CB(ccall->icall, closeh, &ccall->icall,
+				0, &ccall->metrics, ECONN_MESSAGE_TIME_UNKNOWN,
+				NULL, NULL, ccall->icall.arg);
+		mem_deref(ccall);
 		return;
 	}
 

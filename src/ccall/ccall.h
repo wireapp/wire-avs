@@ -97,6 +97,13 @@ struct ccall {
 	bool catalog_mls_matches;
 	bool catalog_complete;
 	bool publisher_media_notified;
+	bool publisher_channel_registered;
+	bool recovery_used;
+	bool recovery_in_progress;
+	struct tmr tmr_recovery_start;
+	struct tmr tmr_recovery;
+	struct tmr tmr_recovery_stable;
+	uint32_t catalog_revision;
 	uint32_t catalog_join_epoch;
 	uint32_t catalog_epoch;
 
@@ -191,3 +198,6 @@ void ccall_pubsub_end(struct ccall *ccall);
 
 int ccall_catalog_set_tracks(struct ccall *ccall, const char *session,
 			     const char *tracks);
+
+void ccall_pubsub_recover(struct ccall *ccall, enum ccall_ecall_role role, int err);
+void ccall_pubsub_recovery_failed(struct ccall *ccall, int err);
