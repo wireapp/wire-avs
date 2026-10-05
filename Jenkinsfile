@@ -343,6 +343,7 @@ pipeline {
                                         ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
                                     fi
                                 fi
+                                export PATH="$HOME/.local/bin:$PATH"
                                 # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
                                 find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "${f%-local.xml}.xml"; done' _ {} +
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
@@ -437,6 +438,7 @@ pipeline {
                                         ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
                                     fi
                                 fi
+                                export PATH="$HOME/.local/bin:$PATH"
                                 # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
                                 find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "${f%-local.xml}.xml"; done' _ {} +
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
