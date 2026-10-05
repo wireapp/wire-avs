@@ -319,15 +319,19 @@ RUN apt-get install -qqy --no-install-recommends \
         libc++abi-dev
 
 
-Upload to sonatype
+Maven repository
 ------------------
 
+The packages were previously published to Maven central up to and including version 11.0.19.
 
-To manually upload to sonatype create a local.properties with the following values:
+After 11.0.19, the packages are published to the Maven repository at https://maven.wire.com. 
+s
+You can add this custom repository to Gradle with:
+```
+repositories {
+    maven {
+        url = uri("https://maven.wire.com")
+    }
+}
+```
 
-```
-sonatype.username=
-sonatype.password=
-signingKeyFile=<path to asc file>
-signingPassword=<gpg key passphrase>
-```
