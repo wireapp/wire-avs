@@ -498,6 +498,10 @@ pipeline {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
                     wireSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:**\n${changelog}\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
+                withCredentials([ string( credentialsId: 'wire-mls-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
+                    wireMlsSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:**\n${changelog}\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
+                }
+		
             }
         }
 
@@ -506,6 +510,10 @@ pipeline {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
                     wireSend secret: "$jenkinsbot_secret", message: "❌ ${JOB_NAME} #${BUILD_ID} failed\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
+                withCredentials([ string( credentialsId: 'wire-mls-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
+                    wireMlsSend secret: "$jenkinsbot_secret", message: "❌ ${JOB_NAME} #${BUILD_ID} failed\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
+                }
+		
             }
         }
     }
