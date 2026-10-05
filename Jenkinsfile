@@ -330,10 +330,16 @@ pipeline {
                                 cd "$WORKSPACE"
                                 # Install AWS CLI v2 if not present
                                 if ! command -v aws &> /dev/null; then
-                                    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-                                    rm -rf aws || true
-                                    unzip -q awscliv2.zip
-                                    ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                    UNAME_S="$(uname -s)"
+                                    if [ "$UNAME_S" = "Darwin" ]; then
+                                        curl -s "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "awscliv2.pkg"
+                                        sudo installer -pkg awscliv2.pkg -target /
+                                    else
+                                        curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                                        rm -rf aws || true
+                                        unzip -q awscliv2.zip
+                                        ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                    fi
                                 fi
                                 export PATH="$HOME/.local/bin:$PATH"
                                 # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
@@ -417,10 +423,16 @@ pipeline {
                                 cd "$WORKSPACE"
                                 # Install AWS CLI v2 if not present
                                 if ! command -v aws &> /dev/null; then
-                                    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-                                    rm -rf aws || true
-                                    unzip -q awscliv2.zip
-                                    ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                    UNAME_S="$(uname -s)"
+                                    if [ "$UNAME_S" = "Darwin" ]; then
+                                        curl -s "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "awscliv2.pkg"
+                                        sudo installer -pkg awscliv2.pkg -target /
+                                    else
+                                        curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                                        rm -rf aws || true
+                                        unzip -q awscliv2.zip
+                                        ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                    fi
                                 fi
                                 export PATH="$HOME/.local/bin:$PATH"
                                 # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
