@@ -1,0 +1,52 @@
+diff --git a/include/baresip.h b/include/baresip.h
+index e404e9b..f931312 100644
+--- a/include/baresip.h
++++ b/include/baresip.h
+@@ -100,6 +100,7 @@ typedef void (call_event_h)(struct call *call, enum call_event ev,
+ 			    const char *str, void *arg);
+ typedef void (call_dtmf_h)(struct call *call, char key, void *arg);
+ 
++struct sip_msg *call_sipmsg(struct call *call);
+ int  call_modify(struct call *call);
+ int  call_hold(struct call *call, bool hold);
+ int  call_send_digit(struct call *call, char key);
+diff --git a/src/call.c b/src/call.c
+index 01019a6..9d37b86 100644
+--- a/src/call.c
++++ b/src/call.c
+@@ -43,6 +43,7 @@ struct call {
+ 	MAGIC_DECL                /**< Magic number for debugging           */
+ 	struct le le;             /**< Linked list element                  */
+ 	struct ua *ua;            /**< SIP User-agent                       */
++	struct sip_msg *msg;      /**< SIP message                          */
+ 	struct account *acc;      /**< Account (ref.)                       */
+ 	struct sipsess *sess;     /**< SIP Session                          */
+ 	struct sdp_session *sdp;  /**< SDP Session                          */
+@@ -394,6 +395,7 @@ static void call_destructor(void *arg)
+ 	mem_deref(call->mencs);
+ 	mem_deref(call->sub);
+ 	mem_deref(call->not);
++	mem_deref(call->msg);
+ 	mem_deref(call->acc);
+ }
+ 
+@@ -536,6 +538,7 @@ int call_alloc(struct call **callp, const struct config *cfg, struct list *lst,
+ 
+ 	tmr_init(&call->tmr_inv);
+ 
++	call->msg    = mem_ref(msg);
+ 	call->acc    = mem_ref(acc);
+ 	call->ua     = ua;
+ 	call->state  = STATE_IDLE;
+@@ -705,6 +708,11 @@ int call_connect(struct call *call, const struct pl *paddr)
+ 	return err;
+ }
+ 
++struct sip_msg *call_sipmsg(struct call *call)
++{
++	return call ? call->msg : NULL;
++}
++
+ 
+ /**
+  * Update the current call by sending Re-INVITE or UPDATE

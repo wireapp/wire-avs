@@ -166,7 +166,14 @@ def convert_fn(fn):
 		   'wcall_stats',
 		   'wcall_dce_send',
 		   'wcall_set_media_laddr',
-		   'wcall_run']
+		   'wcall_run',
+                   'wcall_sip_init',
+                   'wcall_sip_close',
+                   'wcall_sip_create',
+                   'wcall_sip_destroy',
+                   'wcall_sip_answer',
+                   'wcall_sip_hangup',
+                   ]
 
 	m = re.search(r'(\w+)\s+(\w+)\((.*)\);', fn)
 	if m:
@@ -274,7 +281,13 @@ def convert_fn(fn):
 
 def convert_cb(fn):
 
-	ignore = ['wcall_render_frame_h']
+	ignore = [
+                'wcall_render_frame_h',
+                'wcall_sip_ready_h',
+                'wcall_sip_incoming_h',
+                'wcall_sip_close_h',
+                'wcall_sip_err_h',
+                ]
 	m = re.search(r'typedef\s+(\w+)\s+\((\w+)\)\((.*)\);', fn)
 	if m and m.group(2) not in ignore:
 		ret = m.group(1)

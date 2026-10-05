@@ -1,11 +1,13 @@
 #include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
 #include <re.h>
 #include <avs_wcall.h>
 
 #define SIP_AOR "sip:wire@127.0.0.1;regint=0"
 
 #define CONVID "siptest"
+
 
 struct client {
 	WUSER_HANDLE wuser;
@@ -14,6 +16,11 @@ struct client {
 	char *clientid;
 
 	bool ready;
+
+	struct tmr tmr_duration;
+
+	struct wsip_ua *wua;
+	struct wsip_call *wsip;
 };
 
 static struct {
@@ -21,11 +28,14 @@ static struct {
 	char *config_path;
 	uint64_t answer_timeout;
 	uint64_t call_timeout;
+	uint64_t duration_timeout;
 
 	/* timers */
 	struct tmr tmr_call;
 	struct tmr tmr_answer;
+	struct tmr tmr_end;
 
+	char *aor;
 	char *convid;
 	
 	struct {
@@ -37,7 +47,9 @@ static struct {
 	.config_path = NULL,
 	.answer_timeout = 1000,
 	.call_timeout = 100,
+	.duration_timeout = 0,
 	.convid = CONVID,
+	.aor = NULL,
 	.clients = {
 		.pstn = {
 			.wuser = WUSER_INVALID_HANDLE,
@@ -75,8 +87,10 @@ static void ready_handler(int version, void *arg)
 	cli->ready = true;
 
 	if (g_st.clients.pstn.ready && g_st.clients.wire.ready) {
-		tmr_start(&g_st.tmr_call, g_st.call_timeout,
-			  timeout_call_handler, NULL);
+		if (g_st.call_timeout) {
+			tmr_start(&g_st.tmr_call, g_st.call_timeout,
+				  timeout_call_handler, NULL);
+		}
 	}
 }
 
@@ -126,12 +140,32 @@ static int send_handler(void *ctx, const char *convid,
 	return 0;
 }
 
+static void timeout_end_handler(void *arg)
+{
+	(void)arg;
+
+	re_printf("siptest: ending test\n");
+
+	g_st.running = false;
+}
+
+static void timeout_duration_handler(void *arg)
+{
+	struct client *cli = arg;
+
+	re_printf("call: duration timeout on client: %p\n", cli);
+
+	if (cli->wsip)
+		wcall_sip_hangup(cli->wuser, cli->wsip, 0, NULL);
+
+	tmr_start(&g_st.tmr_end, 1000, timeout_end_handler, NULL);
+}
+
 static void timeout_answer_handler(void *arg)
 {
 	struct client *cli = arg;
 	
 	wcall_answer(cli->wuser, g_st.convid, WCALL_CALL_TYPE_NORMAL, 0);
-	
 }
 
 static void incoming_handler(const char *convid, uint32_t msg_time,
@@ -188,25 +222,88 @@ static void close_handler(int reason, const char *convid, uint32_t msg_time,
 	wcall_end(other->wuser, g_st.convid);
 }
 
+static void sip_ready_handler(struct wsip_ua *wua, void *arg)
+{
+	struct client *cli = arg;
+
+	(void)wua;
+
+	re_printf("SIP: ready_handler: cli: %p is ready\n", cli);
+}
+
+
+static void sip_incoming_handler(struct wsip_ua *wua,
+				 struct wsip_call *wsip,
+				 const char *from,
+				 const char *pin,
+				 void *arg)
+{
+	struct client *cli = arg;
+
+	re_printf("SIP: incoming from: %s pin=%s\n", from, pin ? pin : "???");
+
+	/* For now, just blindly answer */
+	cli->wua = wua;
+	cli->wsip = wsip;
+	wcall_sip_answer(cli->wuser, wsip, CONVID);
+
+	if (g_st.duration_timeout) {
+		tmr_start(&cli->tmr_duration, g_st.duration_timeout, timeout_duration_handler, cli);
+	}
+}
+
+static void sip_close_handler(struct wsip_call *wsip, void *arg)
+{
+	struct client *cli = arg;
+
+	re_printf("SIP: client: %p closed\n", wsip);
+
+	if (cli->wsip == wsip)
+		cli->wsip = NULL;
+}
+
+static void sip_err_handler(struct wsip_ua *wua, const char *err, void *arg)
+{
+	struct client *cli = arg;
+
+	re_printf("SIP: client: %p err=%s\n", cli, err);
+}
+
+static void sig_handler(int sig)
+{
+	re_printf("Interrupted... terminating gracefully\n");
+
+	g_st.running = false;
+}
 
 int main(int argc, char **argv)
 {
 	WUSER_HANDLE wuser;
+
+	signal(SIGINT, sig_handler);
 	
 	for (;;) {
-		const int c = getopt(argc, argv, "a:f:Tt:");
+		const int c = getopt(argc, argv, "a:d:f:s:Tt:");
 		if (c < 0)
 			break;
 
 		switch (c) {
 		case 'a':
-			g_st.answer_timeout = atoi(optarg) * 1000;		
+			g_st.answer_timeout = atoi(optarg) * 1000;
+			break;
+
+		case 'd':
+			g_st.duration_timeout = atoi(optarg) * 1000;
 			break;
 
 		case 'f':
 			str_dup(&g_st.config_path, optarg);
 			break;
-			
+
+		case 's':
+			str_dup(&g_st.aor, optarg);
+			break;
+
 		case 'T':
 			// Set AVS into test mode
 			break;
@@ -225,6 +322,9 @@ int main(int argc, char **argv)
 		fprintf(stderr, "%s: missing config path\n", argv[0]);
 		return 2;
 	}
+
+	if (!g_st.aor)
+		g_st.aor = SIP_AOR;
 	
 	wcall_run();
 
@@ -250,7 +350,12 @@ int main(int argc, char **argv)
 				&g_st.clients.pstn);
 	
 	wcall_sip_init(wuser, g_st.config_path);
-	wcall_sip_create(wuser, CONVID, SIP_AOR);
+	wcall_sip_create(wuser, g_st.aor,
+			 sip_ready_handler,
+			 sip_incoming_handler,
+			 sip_close_handler,
+			 sip_err_handler,
+			 &g_st.clients.pstn);
 
 	g_st.clients.pstn.wuser = wuser;
 
@@ -277,8 +382,9 @@ int main(int argc, char **argv)
 	while(g_st.running) {
 		usleep(100 * 1000);
 	}
+	usleep(1000 * 1000);
 
-	wcall_sip_destroy(g_st.clients.pstn.wuser, CONVID, SIP_AOR);
+	wcall_sip_destroy(g_st.clients.pstn.wuser, g_st.aor);
 	wcall_sip_close(g_st.clients.pstn.wuser);
 
 	sleep(1);
