@@ -328,20 +328,23 @@ pipeline {
                         sh(
                             script: '''
                                 cd "$WORKSPACE"
-                                # Install AWS CLI v2 if not present
+                                AWSDIR="$WORKSPACE/.aws-cli"
+                                mkdir -p "$AWSDIR"
+                                # Install AWS CLI v2 to workspace-local directory
                                 if ! command -v aws &> /dev/null; then
                                     UNAME_S="$(uname -s)"
                                     if [ "$UNAME_S" = "Darwin" ]; then
-                                        curl -s "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "awscliv2.pkg"
+                                        curl -s "https://awscli.amazonaws.com/darwin/arm64/AWSCLIV2.pkg" -o "awscliv2.pkg"
                                         sudo installer -pkg awscliv2.pkg -target /
+                                        cp /usr/local/bin/aws "$AWSDIR/aws"
                                     else
                                         curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
                                         rm -rf aws || true
                                         unzip -q awscliv2.zip
-                                        ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                        cp ./aws/dist/aws "$AWSDIR/aws"
                                     fi
                                 fi
-                                export PATH="$HOME/.local/bin:$PATH"
+                                export PATH="$AWSDIR:$PATH"
                                 # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
                                 find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "${f%-local.xml}.xml"; done' _ {} +
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
@@ -421,20 +424,23 @@ pipeline {
                         sh(
                             script: '''
                                 cd "$WORKSPACE"
-                                # Install AWS CLI v2 if not present
+                                AWSDIR="$WORKSPACE/.aws-cli"
+                                mkdir -p "$AWSDIR"
+                                # Install AWS CLI v2 to workspace-local directory
                                 if ! command -v aws &> /dev/null; then
                                     UNAME_S="$(uname -s)"
                                     if [ "$UNAME_S" = "Darwin" ]; then
-                                        curl -s "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "awscliv2.pkg"
+                                        curl -s "https://awscli.amazonaws.com/darwin/arm64/AWSCLIV2.pkg" -o "awscliv2.pkg"
                                         sudo installer -pkg awscliv2.pkg -target /
+                                        cp /usr/local/bin/aws "$AWSDIR/aws"
                                     else
                                         curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
                                         rm -rf aws || true
                                         unzip -q awscliv2.zip
-                                        ./aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update
+                                        cp ./aws/dist/aws "$AWSDIR/aws"
                                     fi
                                 fi
-                                export PATH="$HOME/.local/bin:$PATH"
+                                export PATH="$AWSDIR:$PATH"
                                 # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
                                 find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "${f%-local.xml}.xml"; done' _ {} +
                                 echo "Uploading Maven artifacts to s3://maven-wire-com..."
