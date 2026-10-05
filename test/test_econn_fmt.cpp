@@ -405,6 +405,95 @@ TEST(econn_fmt, econn_propsync)
 	mem_deref(dmsg);
 }
 
+static const char *sync_tracks =
+ "[{\"sessionId\":\"publisher\",\"trackName\":\"microphone\",\"kind\":\"audio\",\"muted\":true},"
+ "{\"sessionId\":\"publisher\",\"trackName\":\"display\",\"kind\":\"video\",\"source\":\"screen\"}]";
+
+TEST(econn_fmt, catalog_sync_roundtrip)
+{
+ struct econn_message *source = init_message(ECONN_CATALOG_SYNC);
+ struct econn_message *decoded = NULL;
+ ASSERT_NE(nullptr, source);
+ source->u.catalogsync.revision = 2;
+ ASSERT_EQ(0, jzon_decode(&source->u.catalogsync.tracks, sync_tracks, strlen(sync_tracks)));
+ encode_decode(source, &decoded);
+ ASSERT_NE(nullptr, decoded);
+ EXPECT_EQ(2u, decoded->u.catalogsync.revision);
+ ASSERT_EQ(2, json_object_array_length(decoded->u.catalogsync.tracks));
+ auto *audio = json_object_array_get_idx(decoded->u.catalogsync.tracks, 0);
+ auto *video = json_object_array_get_idx(decoded->u.catalogsync.tracks, 1);
+ EXPECT_STREQ("publisher", jzon_str(audio, "sessionId"));
+ EXPECT_STREQ("microphone", jzon_str(audio, "trackName"));
+ bool muted = false;
+ EXPECT_EQ(0, jzon_bool(&muted, audio, "muted"));
+ EXPECT_TRUE(muted);
+ EXPECT_STREQ("screen", jzon_str(video, "source"));
+ EXPECT_STREQ("CATALOGSYNC", econn_msg_name(decoded->msg_type));
+ EXPECT_EQ(ECONN_TRANSP_DIRECT, econn_transp_resolve(decoded->msg_type));
+ char *wire = NULL;
+ ASSERT_EQ(0, econn_message_encode(&wire, decoded));
+ struct json_object *root = NULL, *unused = NULL;
+ ASSERT_EQ(0, jzon_decode(&root, wire, strlen(wire)));
+ EXPECT_FALSE(json_object_object_get_ex(root, "props", &unused));
+ EXPECT_FALSE(json_object_object_get_ex(root, "participant", &unused));
+ EXPECT_FALSE(json_object_object_get_ex(root, "participantId", &unused));
+ mem_deref(root);
+ mem_deref(wire);
+ econn_message_reset(decoded);
+ EXPECT_EQ(nullptr, decoded->u.catalogsync.tracks);
+ econn_message_reset(decoded);
+ mem_deref(source);
+ mem_deref(decoded);
+}
+
+TEST(econn_fmt, catalog_sync_requires_tracks_and_revision)
+{
+ struct econn_message *msg = init_message(ECONN_CATALOG_SYNC);
+ char *encoded = NULL;
+ ASSERT_NE(nullptr, msg);
+ EXPECT_EQ(EINVAL, econn_message_encode(&encoded, msg));
+ mem_deref(encoded);
+ mem_deref(msg);
+ const char *bodies[] = {
+  "{\"revision\":2}",
+  "{\"tracks\":[]}",
+  "{\"revision\":-1,\"tracks\":[]}",
+  "{\"revision\":2,\"tracks\":{\"0\":{}}}",
+  "{\"revision\":2,\"tracks\":[{\"sessionId\":\"s\",\"trackName\":\"a\",\"kind\":\"audio\",\"muted\":\"true\"}]}",
+  "{\"revision\":2,\"tracks\":[{\"sessionId\":\"s\",\"trackName\":\"v\",\"kind\":\"video\",\"source\":\"other\"}]}"
+ };
+ for (const char *body : bodies) {
+  std::string wire = "{\"version\":\"3.0\",\"type\":\"CATALOGSYNC\",\"sessid\":\"sender\",\"resp\":false,";
+  wire += body + 1;
+  msg = NULL;
+  EXPECT_NE(0, econn_message_decode(&msg, TIME_NOW, TIME_MSG, wire.c_str(), wire.size()));
+  EXPECT_EQ(nullptr, msg);
+  mem_deref(msg);
+ }
+}
+
+static void catalog_sync_received(struct econn *, const struct econn_message *msg,
+		void *arg)
+{
+	EXPECT_EQ(ECONN_CATALOG_SYNC, msg->msg_type);
+	++*static_cast<unsigned *>(arg);
+}
+
+TEST(econn_fmt, catalog_sync_reaches_conference_callback)
+{
+	struct econn *conn = NULL;
+	unsigned received = 0;
+	ASSERT_EQ(0, econn_alloc(&conn, NULL, "self", "client", "session",
+		NULL, NULL, NULL, NULL, NULL, NULL, catalog_sync_received,
+		NULL, NULL, &received));
+	struct econn_message *msg = init_message(ECONN_CATALOG_SYNC);
+	ASSERT_NE(nullptr, msg);
+	econn_recv_message(conn, "remote", "client", msg);
+	EXPECT_EQ(1u, received);
+	mem_deref(msg);
+	mem_deref(conn);
+}
+
 TEST(econn_fmt, econn_groupstart)
 {
 	struct econn_message *smsg = NULL;

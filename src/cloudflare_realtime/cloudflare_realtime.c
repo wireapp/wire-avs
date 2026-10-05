@@ -87,7 +87,46 @@ static int make_request_body(char **bodyp, bool offer, const char *sdp, const ch
 	description = NULL;
 
 	if (tracks_json) {
+		struct json_object *wire_tracks;
+		int i;
 		err = jzon_decode(&tracks, tracks_json, strlen(tracks_json));
+		if (err)
+			goto out;
+		if (!jzon_is_array(tracks)) {
+			err = EINVAL;
+			goto out;
+		}
+		wire_tracks = jzon_alloc_array();
+		if (!wire_tracks) {
+			err = ENOMEM;
+			goto out;
+		}
+		for (i = 0; i < json_object_array_length(tracks); ++i) {
+			struct json_object *item = json_object_array_get_idx(tracks, i);
+			struct json_object *wire;
+			const char *location = jzon_str(item, "location");
+			if (location && !strcmp(location, "local")) {
+				/* kind is retained internally for the Catalog, not sent to CF. */
+				wire = jzon_alloc_object();
+				if (!wire) {
+					err = ENOMEM;
+					break;
+				}
+				err = jzon_add_str(wire, "location", "%s", location);
+				err |= jzon_add_str(wire, "mid", "%s", jzon_str(item, "mid"));
+				err |= jzon_add_str(wire, "trackName", "%s", jzon_str(item, "trackName"));
+			}
+			else
+				wire = mem_ref(item);
+			if (!err)
+				err = json_object_array_add(wire_tracks, wire);
+			if (err) {
+				mem_deref(wire);
+				break;
+			}
+		}
+		mem_deref(tracks);
+		tracks = wire_tracks;
 		if (err)
 			goto out;
 		json_object_object_add(root, "tracks", tracks);
@@ -196,6 +235,7 @@ static int make_publisher_tracks(char **tracksp, const char *sdp)
 				jzon_add_str(track, "location", "%s", "local");
 				jzon_add_str(track, "mid", "%s", current_mid);
 				jzon_add_str(track, "trackName", "%s", track_name);
+				jzon_add_str(track, "kind", "%s", kind);
 				json_object_array_add(tracks, track);
 				current_track = track;
 				info("cloudflare: publisher track name=%s\n", track_name);
@@ -229,6 +269,7 @@ static int make_publisher_tracks(char **tracksp, const char *sdp)
 				jzon_add_str(track, "location", "%s", "local");
 				jzon_add_str(track, "mid", "%s", current_mid);
 				jzon_add_str(track, "trackName", "%s", track_name);
+				jzon_add_str(track, "kind", "%s", kind);
 				json_object_array_add(tracks, track);
 				current_track = track;
 			}

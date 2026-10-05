@@ -2715,7 +2715,9 @@ int ccall_catalog_set_tracks(struct ccall *ccall, const char *session,
 		return EINVAL;
 	err = str_dup(&sid, session);
 	if (!err)
-		err = str_dup(&json, tracks);
+		err = catalog_tracks_from_publisher(&json, session, tracks,
+			msystem_get_muted(),
+			ccall->vstate == ICALL_VIDEO_STATE_SCREENSHARE ? "screen" : "camera");
 	if (err) {
 		mem_deref(sid);
 		mem_deref(json);

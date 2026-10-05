@@ -709,6 +709,7 @@ void econn_recv_message(struct econn *conn,
 	case ECONN_CONF_CONN:
 	case ECONN_CONF_PART:
 	case ECONN_CONF_STREAMS:
+	case ECONN_CATALOG_SYNC:
 		recv_confmsg(conn, userid_sender, clientid_sender, msg);
 		break;
 

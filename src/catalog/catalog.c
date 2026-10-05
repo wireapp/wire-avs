@@ -33,6 +33,89 @@ struct catalog {
 	struct json_object *participants;
 };
 
+int catalog_tracks_validate(struct json_object *tracks)
+{
+	int i;
+	if (!jzon_is_array(tracks))
+		return EINVAL;
+	for (i = 0; i < json_object_array_length(tracks); ++i) {
+		struct json_object *track = json_object_array_get_idx(tracks, i);
+		const char *kind = jzon_str(track, "kind");
+		bool muted;
+		if (!str_isset(jzon_str(track, "sessionId")) ||
+		    !str_isset(jzon_str(track, "trackName")) || !kind)
+			return EINVAL;
+		if (!strcmp(kind, "audio")) {
+			if (jzon_bool(&muted, track, "muted"))
+				return EINVAL;
+		}
+		else if (!strcmp(kind, "video")) {
+			const char *source = jzon_str(track, "source");
+			if (!source || (strcmp(source, "camera") && strcmp(source, "screen")))
+				return EINVAL;
+		}
+		else
+			return EINVAL;
+	}
+	return 0;
+}
+
+int catalog_tracks_from_publisher(char **jsonp, const char *session_id,
+		const char *publisher_tracks, bool muted, const char *video_source)
+{
+	struct json_object *input = NULL, *tracks = NULL;
+	int err, i;
+	if (!jsonp || !str_isset(session_id) || !publisher_tracks || !video_source)
+		return EINVAL;
+	err = jzon_decode(&input, publisher_tracks, strlen(publisher_tracks));
+	if (err)
+		return err;
+	if (!jzon_is_array(input)) {
+		err = EINVAL;
+		goto out;
+	}
+	tracks = jzon_alloc_array();
+	if (!tracks) {
+		err = ENOMEM;
+		goto out;
+	}
+	for (i = 0; i < json_object_array_length(input); ++i) {
+		struct json_object *item = json_object_array_get_idx(input, i);
+		struct json_object *track;
+		const char *kind = jzon_str(item, "kind");
+		const char *name = jzon_str(item, "trackName");
+		if (!kind || !str_isset(name)) {
+			err = EINVAL;
+			goto out;
+		}
+		track = jzon_alloc_object();
+		if (!track) {
+			err = ENOMEM;
+			goto out;
+		}
+		err = jzon_add_str(track, "sessionId", "%s", session_id);
+		err |= jzon_add_str(track, "trackName", "%s", name);
+		err |= jzon_add_str(track, "kind", "%s", kind);
+		if (!strcmp(kind, "audio"))
+			err |= jzon_add_bool(track, "muted", muted);
+		else if (!strcmp(kind, "video"))
+			err |= jzon_add_str(track, "source", "%s", video_source);
+		if (!err)
+			err = json_object_array_add(tracks, track);
+		if (err) {
+			mem_deref(track);
+			goto out;
+		}
+	}
+	err = catalog_tracks_validate(tracks);
+	if (!err)
+		err = jzon_encode(jsonp, tracks);
+out:
+	mem_deref(input);
+	mem_deref(tracks);
+	return err;
+}
+
 static int make_entry(const struct catalog *catalog, struct json_object **entryp)
 {
 	struct json_object *entry;
@@ -171,11 +254,28 @@ int catalog_encode_welcome(const struct catalog *catalog, const char *request_id
 				      request_id, jsonp);
 }
 
+struct snapshot_context {
+	struct json_object *participants;
+	int err;
+};
+
+static bool snapshot_participant(const char *key, struct json_object *entry,
+				void *arg)
+{
+	struct snapshot_context *ctx = arg;
+	(void)key;
+	mem_ref(entry);
+	ctx->err = json_object_array_add(ctx->participants, entry);
+	if (ctx->err)
+		mem_deref(entry);
+	return ctx->err != 0;
+}
+
 int catalog_encode_snapshot(const struct catalog *catalog, char **jsonp)
 {
 	struct json_object *root;
 	struct json_object *participants = NULL;
-	char *encoded = NULL;
+	struct snapshot_context ctx;
 	int err;
 
 	if (!catalog || !jsonp)
@@ -184,6 +284,12 @@ int catalog_encode_snapshot(const struct catalog *catalog, char **jsonp)
 	if (!root)
 		return ENOMEM;
 	jzon_add_str(root, "catalogId", "%s", catalog->catalog_id);
+	jzon_add_str(root, "type", "%s", "conf_catalog");
+	if (catalog->publication) {
+		struct json_object *epoch = NULL;
+		if (json_object_object_get_ex(catalog->publication, "mlsEpoch", &epoch))
+			json_object_object_add(root, "mlsEpoch", mem_ref(epoch));
+	}
 	if (catalog->publication) {
 		struct json_object *self = NULL;
 		err = make_entry(catalog, &self);
@@ -192,10 +298,15 @@ int catalog_encode_snapshot(const struct catalog *catalog, char **jsonp)
 		json_object_object_add(catalog->participants,
 				       catalog->participant_id, self);
 	}
-	err = jzon_encode(&encoded, catalog->participants);
-	if (err)
+	participants = jzon_alloc_array();
+	if (!participants) {
+		err = ENOMEM;
 		goto out;
-	err = jzon_decode(&participants, encoded, strlen(encoded));
+	}
+	ctx.participants = participants;
+	ctx.err = 0;
+	jzon_apply(catalog->participants, snapshot_participant, &ctx);
+	err = ctx.err;
 	if (err)
 		goto out;
 	json_object_object_add(root, "participants", participants);
@@ -203,7 +314,6 @@ int catalog_encode_snapshot(const struct catalog *catalog, char **jsonp)
 	err = jzon_encode(jsonp, root);
 
 out:
-	mem_deref(encoded);
 	mem_deref(participants);
 	mem_deref(root);
 	return err;

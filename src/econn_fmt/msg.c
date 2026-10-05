@@ -17,6 +17,7 @@
 */
 
 #include <string.h>
+#include <limits.h>
 #include <re.h>
 #include <sodium.h>
 #include "avs_log.h"
@@ -26,6 +27,7 @@
 #include "avs_icall.h"
 #include "avs_econn.h"
 #include "avs_econn_fmt.h"
+#include "../catalog/catalog.h"
 #include "avs_string.h"
 
 
@@ -641,6 +643,20 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 			goto out;
 		break;
 
+	case ECONN_CATALOG_SYNC:
+		if (msg->u.catalogsync.revision > INT32_MAX) {
+			err = EINVAL;
+			goto out;
+		}
+		err = catalog_tracks_validate(msg->u.catalogsync.tracks);
+		if (err)
+			goto out;
+		err = jzon_add_int(jobj, "revision", (int32_t)msg->u.catalogsync.revision);
+		if (err)
+			goto out;
+		json_object_object_add(jobj, "tracks", mem_ref(msg->u.catalogsync.tracks));
+		break;
+
 	case ECONN_GROUP_START:
 		/* props is optional for GROUPSTART */
 		if (msg->u.groupstart.props) {
@@ -992,6 +1008,23 @@ int econn_message_decode(struct econn_message **msgp,
 		msg->msg_type = ECONN_PROPSYNC;
 
 		err = econn_props_decode(&msg->u.propsync.props, jobj);
+		if (err)
+			goto out;
+	}
+	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CATALOG_SYNC))) {
+		int revision;
+		msg->msg_type = ECONN_CATALOG_SYNC;
+		err = jzon_int(&revision, jobj, "revision");
+		if (!err && revision < 0)
+			err = EINVAL;
+		if (!err)
+			msg->u.catalogsync.revision = (uint32_t)revision;
+		if (!err)
+			err = jzon_array(&msg->u.catalogsync.tracks, jobj, "tracks");
+		if (!err)
+			err = catalog_tracks_validate(msg->u.catalogsync.tracks);
+		/* jzon_array returns a borrowed reference, including on validation error. */
+		msg->u.catalogsync.tracks = mem_ref(msg->u.catalogsync.tracks);
 		if (err)
 			goto out;
 	}

@@ -48,6 +48,8 @@ enum econn_msg {
 	ECONN_PING   = 0x13,
 	/* Publish/subscribe conference catalog carried on the ECall DataChannel. */
 	ECONN_CONF_CATALOG = 0x14,
+	/* Media properties of an already known catalog participant. */
+	ECONN_CATALOG_SYNC = 0x15,
 
 	/* Device pairing messages */
 	ECONN_DEVPAIR_PUBLISH = 0x21,
@@ -228,6 +230,11 @@ struct econn_message {
 		struct catalog_message {
 			char *json;
 		} catalog;
+
+		struct catalog_sync {
+			uint32_t revision;
+			struct json_object *tracks;
+		} catalogsync;
 	} u;
 };
 

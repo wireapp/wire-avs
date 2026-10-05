@@ -23,6 +23,12 @@
 #include <stdint.h>
 
 struct catalog;
+struct json_object;
+
+/* Shared Track-Locator and media-attribute schema for ConfCatalog/CatalogSync. */
+int catalog_tracks_validate(struct json_object *tracks);
+int catalog_tracks_from_publisher(char **jsonp, const char *session_id,
+		const char *publisher_tracks, bool muted, const char *video_source);
 
 enum catalog_message_type {
 	CATALOG_MESSAGE_HELLO,

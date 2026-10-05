@@ -74,6 +74,9 @@ void econn_message_reset(struct econn_message *msg)
 	case ECONN_PROPSYNC:
 		msg->u.propsync.props = mem_deref(msg->u.propsync.props);
 		break;
+	case ECONN_CATALOG_SYNC:
+		msg->u.catalogsync.tracks = mem_deref(msg->u.catalogsync.tracks);
+		break;
 
 	case ECONN_DEVPAIR_PUBLISH:
 		msg->u.devpair_publish.sdp =

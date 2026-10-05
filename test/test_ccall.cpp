@@ -136,6 +136,73 @@ TEST_F(CcallPair, manual_stop_finishes_once_and_cancels_recovery)
 	call->icall.arg = nullptr;
 }
 
+struct PublicationRequest {
+	std::string body;
+	unsigned count = 0;
+};
+
+static int capture_publication_request(struct cloudflare_realtime *,
+		enum ccall_ecall_role, const char *, const char *, const char *,
+		const char *, const char *body, cloudflare_realtime_response_h *, void *arg)
+{
+	auto *request = static_cast<PublicationRequest *>(arg);
+	request->body = body ? body : "";
+	++request->count;
+	return 0;
+}
+
+TEST_F(CcallPair, publisher_request_excludes_catalog_media_attributes)
+{
+	ASSERT_EQ(0, ccall_set_enable_publish_subscribe(call, true));
+	ASSERT_EQ(0, ccall_prepare_ecalls(call));
+	PublicationRequest request;
+	struct cloudflare_realtime *adapter = nullptr;
+	struct cloudflare_realtime_conf conf = {
+		"app", "secret", "https://example.invalid", capture_publication_request
+	};
+	ASSERT_EQ(0, cloudflare_realtime_alloc(&adapter, call, &conf, &request));
+	ASSERT_EQ(0, cloudflare_realtime_enable(adapter, true));
+	ASSERT_EQ(0, cloudflare_realtime_set_session(adapter, CCALL_ECALL_PUBLISHER, "pub"));
+	struct econn_message msg = {};
+	ASSERT_EQ(0, econn_message_init(&msg, ECONN_SETUP, "local"));
+	ASSERT_EQ(0, str_dup(&msg.u.setup.sdp_msg,
+		"v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendonly\r\n"
+		"a=mid:0\r\na=msid:stream mic\r\n"));
+	auto *publisher = ecall_get_icall(get(CCALL_ECALL_PUBLISHER));
+	EXPECT_EQ(0, publisher->sendh(publisher, "self", &msg, NULL, false, publisher->arg));
+	EXPECT_EQ(1u, request.count);
+	struct json_object *root = nullptr, *tracks = nullptr, *unused = nullptr;
+	ASSERT_EQ(0, jzon_decode(&root, request.body.c_str(), request.body.size()));
+	ASSERT_EQ(0, jzon_array(&tracks, root, "tracks"));
+	ASSERT_EQ(1, json_object_array_length(tracks));
+	auto *audio = json_object_array_get_idx(tracks, 0);
+	EXPECT_STREQ("local", jzon_str(audio, "location"));
+	EXPECT_STREQ("0", jzon_str(audio, "mid"));
+	EXPECT_STREQ("mic", jzon_str(audio, "trackName"));
+	for (const char *key : {"kind", "muted", "source", "sessionId"})
+		EXPECT_FALSE(json_object_object_get_ex(audio, key, &unused));
+	mem_deref(root);
+	econn_message_reset(&msg);
+	cloudflare_realtime_close(adapter);
+}
+
+TEST_F(CcallPair, local_catalog_tracks_use_publisher_locator_and_current_mute)
+{
+	ASSERT_EQ(0, ccall_set_enable_publish_subscribe(call, true));
+	ASSERT_EQ(0, ccall_prepare_ecalls(call));
+	ASSERT_EQ(0, ccall_catalog_set_tracks(call, "pub",
+		"[{\"location\":\"local\",\"mid\":\"0\",\"trackName\":\"mic\",\"kind\":\"audio\"}]"));
+	struct json_object *tracks = nullptr;
+	ASSERT_EQ(0, jzon_decode(&tracks, call->catalog_tracks, strlen(call->catalog_tracks)));
+	auto *audio = json_object_array_get_idx(tracks, 0);
+	EXPECT_STREQ("pub", jzon_str(audio, "sessionId"));
+	EXPECT_STREQ("audio", jzon_str(audio, "kind"));
+	bool muted = !msystem_get_muted();
+	EXPECT_EQ(0, jzon_bool(&muted, audio, "muted"));
+	EXPECT_EQ(msystem_get_muted(), muted);
+	mem_deref(tracks);
+}
+
 /* Fire the real registered callback as a timer expiry would, without sleeping. */
 static void expire_timer(struct tmr *timer)
 {
