@@ -158,6 +158,29 @@ struct userinfo *userlist_find_by_real(const struct userlist *list,
 	return NULL;
 }
 
+#if 0
+struct userinfo *userlist_find_pstn(const struct userlist *list,
+				    const char *userid)
+{
+	struct le *le;
+
+	if (!list || !userid)
+		return NULL;
+	}
+
+	LIST_FOREACH(&list->pstn_users, le) {
+		struct userinfo *u = le->data;
+
+		if (u && u->userid_real) {
+			if (strcaseeq(u->userid_real, userid)) {
+				return u;
+			}
+		}
+	}
+	return NULL;
+}
+#endif
+
 struct userinfo *userlist_find_by_hash(const struct userlist *list,
 				       const char *userid_hash,
 				       const char *clientid_hash)
@@ -622,6 +645,36 @@ void userlist_update_from_selist(struct userlist* list,
 		*removed = list_removed;
 }
 
+void userlist_update_from_pstnlist(struct userlist *list,
+				   const struct list *clientl)
+{
+	struct le *le;
+
+	if (!list || !clientl)
+		return;
+
+	list_flush(&list->pstn_users);
+
+	LIST_FOREACH(clientl, le) {
+		struct icall_client *cli = le->data;
+		struct userinfo *uinfo;
+
+		if (!cli)
+			continue;
+
+		uinfo = mem_zalloc(sizeof(*uinfo), userinfo_destructor);
+		if (uinfo) {
+			str_dup(&uinfo->userid_real, cli->userid);
+			str_dup(&uinfo->clientid_real, cli->clientid);
+			uinfo->muted = 0;
+			uinfo->pstn = true;
+
+			list_append(&list->pstn_users, &uinfo->le, uinfo);
+		}
+	}
+}
+
+
 int userlist_set_latest_epoch(struct userlist *list,
 			      uint32_t epoch)
 {
@@ -809,6 +862,9 @@ int userlist_get_members(struct userlist *list,
 			n++;
 		}
 	}
+	LIST_FOREACH(&list->pstn_users, le) {
+		n++;
+	}
 
 	mm->membv = mem_zalloc(sizeof(*(mm->membv)) * n, NULL);
 	if (!mm->membv) {
@@ -825,6 +881,7 @@ int userlist_get_members(struct userlist *list,
 		memb->audio_state = astate;
 		memb->video_recv = vstate;
 		memb->muted = msystem_get_muted() ? 1 : 0;
+		memb->pstn = false;
 
 		(mm->membc)++;
 	}
@@ -850,6 +907,21 @@ int userlist_get_members(struct userlist *list,
 			(mm->membc)++;
 		}
 	}
+
+	LIST_FOREACH(&list->pstn_users, le) {
+		struct userinfo *u = le->data;
+		struct wcall_member *memb = &(mm->membv[mm->membc]);
+
+		assert(mm->membc < n);
+		str_dup(&memb->userid, u->userid_real);
+		str_dup(&memb->clientid, u->clientid_real);
+		memb->audio_state = ICALL_AUDIO_STATE_ESTABLISHED;
+		memb->muted = 0;
+		memb->pstn = true;
+
+		(mm->membc)++;
+	}
+
  out:
 	if (err)
 		mem_deref(mm);
@@ -862,7 +934,8 @@ int userlist_get_members(struct userlist *list,
 
 int userlist_get_partlist(struct userlist *list,
 			  struct list *msglist,
-			  bool require_subconv)
+			  bool require_subconv,
+			  bool include_pstn)
 {
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
@@ -873,8 +946,9 @@ int userlist_get_partlist(struct userlist *list,
 
 	LIST_FOREACH(&list->users, le) {
 		struct userinfo *u = le->data;
-		if (u && u->se_approved && u->incall_now &&
-		    (u->in_subconv || !require_subconv)) {
+		if ((u->pstn && include_pstn) ||
+		    (u && u->se_approved && u->incall_now &&
+		     (u->in_subconv || !require_subconv))) {
 			struct econn_group_part *part = econn_part_alloc(u->userid_hash,
 									 u->clientid_hash);
 			if (!part) {
@@ -884,6 +958,7 @@ int userlist_get_partlist(struct userlist *list,
 			part->ssrca = u->ssrca;
 			part->ssrcv = u->ssrcv;
 			part->authorized = true;
+			part->pstn = u->pstn;
 			list_append(msglist, &part->le, part);
 
 			info("userlist(%p) get_members adding %s.%s hash %s.%s "

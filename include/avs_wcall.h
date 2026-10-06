@@ -611,6 +611,8 @@ typedef void (wcall_sip_incoming_h)(struct wsip_ua *wua,
 				    void *arg);
 typedef void (wcall_sip_close_h)(struct wsip_call *wsip, void *arg);
 typedef void (wcall_sip_err_h)(struct wsip_ua *wua, const char *err, void *arg);
+typedef void (wcall_sip_parts_h)(const char *convid,
+				 const char *parts_json, void *arg);
 
 int wcall_sip_init(WUSER_HANDLE wuser, const char *conf_path);
 int wcall_sip_close(WUSER_HANDLE wuser);
@@ -619,10 +621,10 @@ int wcall_sip_create(WUSER_HANDLE wuser,
 		     wcall_sip_ready_h *readyh,
 		     wcall_sip_incoming_h *incomingh,
 		     wcall_sip_close_h *closeh,
+		     wcall_sip_parts_h *partsh,
 		     wcall_sip_err_h *errh,
 		     void *arg);
 int wcall_sip_destroy(WUSER_HANDLE wuser, const char *aor);
-
 int wcall_sip_answer(WUSER_HANDLE wuser,
 		     struct wsip_call *wsip, const char *convid);
 int wcall_sip_hangup(WUSER_HANDLE wuser,

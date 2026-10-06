@@ -128,3 +128,10 @@ int  wcall_register_sip_instance(struct calling_instance *inst,
 void wcall_unregister_sip_instance(struct calling_instance *inst,
 				   struct sip_instance *sip_inst);
 struct sip_instance *wcall_get_sip_instance(struct calling_instance *inst);
+const char *wcall_get_userid(struct calling_instance *inst);
+const char *wcall_get_clientid(struct calling_instance *inst);
+int wcall_send_msg(struct calling_instance *inst,
+		   const char *convid,
+		   struct econn_message *msg,
+		   void *arg);
+

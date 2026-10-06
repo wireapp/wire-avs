@@ -188,6 +188,7 @@ struct mq_data {
 			wcall_sip_ready_h *readyh;
 			wcall_sip_incoming_h *incomingh;
 			wcall_sip_close_h *closeh;
+			wcall_sip_parts_h *partsh;
 			wcall_sip_err_h *errh;
 			void *arg;
 		} sip_create;
@@ -638,6 +639,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 				   md->u.sip_create.readyh,
 				   md->u.sip_create.incomingh,
 				   md->u.sip_create.closeh,
+				   md->u.sip_create.partsh,		   
 				   md->u.sip_create.errh,
 				   md->u.sip_create.arg);
 		break;
@@ -1642,6 +1644,7 @@ int wcall_sip_create(WUSER_HANDLE wuser, const char *aor,
 		     wcall_sip_ready_h *readyh,
 		     wcall_sip_incoming_h *incomingh,
 		     wcall_sip_close_h *closeh,
+		     wcall_sip_parts_h *partsh,		     
 		     wcall_sip_err_h *errh,
 		     void *arg)
 {
@@ -1667,7 +1670,8 @@ int wcall_sip_create(WUSER_HANDLE wuser, const char *aor,
 	md->u.sip_create.readyh = readyh;
 	md->u.sip_create.incomingh = incomingh;
 	md->u.sip_create.closeh = closeh;
-	md->u.sip_create.errh = errh;
+	md->u.sip_create.partsh = partsh;
+	md->u.sip_create.errh = errh;	
 	md->u.sip_create.arg = arg;
 
 	err = md_enqueue(md);
