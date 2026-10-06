@@ -168,6 +168,7 @@ enum econn_transport econn_transp_resolve(enum econn_msg type)
 	case ECONN_CONF_STREAMS:	return ECONN_TRANSP_DIRECT;
 	case ECONN_PING:		return ECONN_TRANSP_DIRECT;
 	case ECONN_CATALOG_SYNC:	return ECONN_TRANSP_DIRECT;
+	case ECONN_CONF_CATALOG:	return ECONN_TRANSP_DIRECT;
 
 	default:
 		warning("econn: transp_resolv: message type %d"

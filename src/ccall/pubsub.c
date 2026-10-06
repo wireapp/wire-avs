@@ -163,6 +163,31 @@ static void stopped_handler(struct icall *icall, void *arg)
 	emit(ctx, CCALL_TRANSPORT_MEDIA_STOPPED);
 }
 
+static void media_update_handler(struct ecall *ecall, int err,
+				enum icall_vstate state, void *arg)
+{
+	struct ccall_ecall_context *ctx = current(ecall_get_icall(ecall), arg);
+	if (!ctx)
+		return;
+	if (err) {
+		struct ccall *ccall = mem_ref(ctx->ccall);
+		const struct userinfo *self = userlist_get_self(ccall->userl);
+		ccall->vstate = state;
+		if (self)
+			ICALL_CALL_CB(ccall->icall, vstate_changedh, &ccall->icall,
+				self->userid_real, self->clientid_real, state, ccall->icall.arg);
+		ICALL_CALL_CB(ccall->icall, group_changedh, &ccall->icall, ccall->icall.arg);
+		if (current(ecall_get_icall(ecall), ctx)) {
+			ctx->state.error = err;
+			emit(ctx, CCALL_TRANSPORT_UPDATE_APPLIED);
+		}
+		mem_deref(ccall);
+		return;
+	}
+	ctx->state.error = err;
+	emit(ctx, CCALL_TRANSPORT_UPDATE_APPLIED);
+}
+
 void ccall_pubsub_release(struct ccall *ccall, enum ccall_ecall_role role)
 {
 	struct ecall **slot;
@@ -243,6 +268,7 @@ void ccall_pubsub_bind(struct ccall *ccall, struct ecall *ecall,
 		data_handler, stopped_handler, NULL, NULL, close_handler,
 		NULL, NULL, NULL, NULL, quality_handler, NULL, NULL,
 		level_handler, NULL, ctx);
+	ecall_set_media_update_handler(ecall, media_update_handler, ctx);
 }
 
 void ccall_pubsub_end(struct ccall *ccall)

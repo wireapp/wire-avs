@@ -1504,6 +1504,11 @@ void pc_local_sdp_handler(int self, int err,
 
 	if (err) {
 		warning("pc_local_sdp_handler: error: %s -> %s\n", type, sdp);
+		tmr_cancel(&flow->tmr_gather);
+		flow->pending_gather = false;
+		flow->gather = false;
+		IFLOW_CALL_CB(flow->iflow, sdp_appliedh,
+			true, EPROTO, flow->iflow.arg);
 		return;
 	}
 
@@ -1538,6 +1543,23 @@ void pc_local_sdp_handler(int self, int err,
 
 	mem_deref(sess);
 	mem_deref((void *)modsdp);
+}
+
+void pc_sdp_applied_handler(int self, int local, int err);
+
+EMSCRIPTEN_KEEPALIVE
+void pc_sdp_applied_handler(int self, int local, int err)
+{
+	struct jsflow *flow = self2pc(self);
+	if (!flow)
+		return;
+	if (err && local) {
+		tmr_cancel(&flow->tmr_gather);
+		flow->pending_gather = false;
+		flow->gather = false;
+	}
+	IFLOW_CALL_CB(flow->iflow, sdp_appliedh,
+		local != 0, err ? EPROTO : 0, flow->iflow.arg);
 }
 
 void pc_start_gather_handler(int self);

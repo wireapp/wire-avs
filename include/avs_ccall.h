@@ -33,6 +33,7 @@ enum ccall_transport_event {
 	CCALL_TRANSPORT_DATA_READY,
 	CCALL_TRANSPORT_MEDIA_STOPPED,
 	CCALL_TRANSPORT_CLOSED,
+	CCALL_TRANSPORT_UPDATE_APPLIED,
 };
 
 struct ccall_transport_state {
@@ -53,6 +54,7 @@ struct ccall_transport_handlers {
 				const struct ccall_transport_state *, void *);
 	void (*qualityh)(struct ccall *, enum ccall_ecall_role, const struct stats_report *, void *);
 	void (*audio_levelh)(struct ccall *, enum ccall_ecall_role, struct list *, void *);
+	int (*can_updateh)(struct ccall *, enum ccall_ecall_role, void *);
 };
 
 int ccall_set_transport_handlers(struct ccall *ccall,

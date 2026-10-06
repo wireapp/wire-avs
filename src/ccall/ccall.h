@@ -198,6 +198,8 @@ void ccall_pubsub_end(struct ccall *ccall);
 
 int ccall_catalog_set_tracks(struct ccall *ccall, const char *session,
 			     const char *tracks);
+int ccall_catalog_publish_media_update(struct ccall *ccall, const char *session,
+				       const char *tracks);
 
 void ccall_pubsub_recover(struct ccall *ccall, enum ccall_ecall_role role, int err);
 void ccall_pubsub_recovery_failed(struct ccall *ccall, int err);

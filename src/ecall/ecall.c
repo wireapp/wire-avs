@@ -80,6 +80,57 @@ static void econn_ping_handler(struct econn *econn,
 			       bool response,
 			       void *arg);
 static void connection_timeout_handler(void *arg);
+static void media_update_timeout(void *arg)
+{
+	ecall_close(arg, ETIMEDOUT, ECONN_MESSAGE_TIME_UNKNOWN);
+}
+
+void ecall_set_media_update_handler(struct ecall *ecall,
+				  ecall_media_update_h *handler, void *arg)
+{
+	if (!ecall)
+		return;
+	ecall->media_updateh = handler;
+	ecall->media_update_arg = arg;
+}
+
+static void mf_sdp_applied_handler(struct iflow *flow, bool local, int err, void *arg)
+{
+	struct ecall *ecall = arg;
+	if (flow != ecall->flow || !ecall->publisher_update || (local && !err))
+		return;
+	if (!ecall->econn || econn_current_state(ecall->econn) == ECONN_TERMINATING ||
+	    econn_current_state(ecall->econn) == ECONN_HANGUP_SENT ||
+	    econn_current_state(ecall->econn) == ECONN_HANGUP_RECV)
+		return;
+	mem_ref(ecall);
+	ecall->publisher_update = false;
+	ecall->update = false;
+	ecall->sdp.async = ASYNC_COMPLETE;
+	tmr_cancel(&ecall->connection_tmr);
+	if (err) {
+		ecall->vstate = ecall->publisher_previous_vstate;
+		econn_props_update(ecall->props_local, "videosend",
+			ecall->vstate == ICALL_VIDEO_STATE_STARTED ? "true" : "false");
+		IFLOW_CALL(ecall->flow, set_video_state, ecall->vstate);
+	}
+	else {
+		ecall->call_type = ICALL_CALL_TYPE_VIDEO;
+		ecall->metrics.video_local = ecall->vstate == ICALL_VIDEO_STATE_STARTED;
+		econn_set_datachan_established(ecall->econn);
+	}
+	if (ecall->media_updateh)
+		ecall->media_updateh(ecall, err, ecall->vstate, ecall->media_update_arg);
+	if (err && (!local || ecall->publisher_previous_vstate == ICALL_VIDEO_STATE_STARTED))
+		ecall_close(ecall, err, ECONN_MESSAGE_TIME_UNKNOWN);
+	mem_deref(ecall);
+}
+
+void ecall_abort_media_update(struct ecall *ecall, int err)
+{
+	if (ecall && ecall->publisher_update)
+		mf_sdp_applied_handler(ecall->flow, false, err ? err : EPROTO, ecall);
+}
 
 
 static void set_offer_sdp(struct ecall *ecall, const char *sdp)
@@ -1405,7 +1456,8 @@ static void mf_estab_handler(struct iflow *iflow,
 		ecall->audio.estab = true;
 
 	ecall->established = true;
-	tmr_cancel(&ecall->connection_tmr);
+	if (!ecall->publisher_update)
+		tmr_cancel(&ecall->connection_tmr);
 	if (ecall->icall.media_estabh) {
 
 		/* Start a timer to check that we do start Audio Later */
@@ -1679,7 +1731,8 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		ecall->oldflow = NULL;
 	}
 	
-	econn_set_datachan_established(ecall->econn);
+	if (!ecall->publisher_update)
+		econn_set_datachan_established(ecall->econn);
 
 	if (ecall->delayed_restart) {
 		ecall->delayed_restart = false;
@@ -1723,7 +1776,8 @@ static void channel_estab_handler(struct iflow *iflow, void *arg)
 		mem_deref(dpe);
 	}
 
-	ecall->update = false;
+	if (!ecall->publisher_update)
+		ecall->update = false;
 	ecall->num_retries = 0;
 	if (ecall->metrics.inc_reconnects) {
 		ecall->metrics.m.reconnects_successful++;
@@ -2157,6 +2211,7 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 			    acbr_detect_handler,
 			    norelay_handler,
 			    ecall);
+	ecall->flow->sdp_appliedh = mf_sdp_applied_handler;
 	info("ecall(%p): alloc_flow: user=%s client=%s mediaflow=%p "
 	     "call_type=%d audio_cbr=%d\n",
 	     ecall,
@@ -2726,6 +2781,33 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 		     ecall, icall_vstate_name(ecall->vstate));
 
 		return 0;
+	}
+	/* Camera changes negotiate on the existing send-only flow.
+	 * Screen sharing remains a separate, unsupported media mutation. */
+	if (ecall->media_direction == ECALL_MEDIA_SENDONLY && ecall->established) {
+		if (!ecall->flow || !ecall->flow->gather_all_turn)
+			return ENOSYS;
+		if (ecall->publisher_update || ecall->update)
+			return EBUSY;
+		if (vstate != ICALL_VIDEO_STATE_STARTED &&
+		    vstate != ICALL_VIDEO_STATE_STOPPED)
+			return ENOTSUP;
+		ecall->publisher_previous_vstate = ecall->vstate;
+		ecall->vstate = vstate;
+		econn_props_update(ecall->props_local, "videosend",
+			vstate == ICALL_VIDEO_STATE_STARTED ? "true" : "false");
+		econn_props_update(ecall->props_local, "screensend", "false");
+		ecall->update = true;
+		ecall->publisher_update = true;
+		ecall->sdp.async = ASYNC_OFFER;
+		tmr_start(&ecall->connection_tmr, TIMEOUT_CONNECTION,
+			  media_update_timeout, ecall);
+		IFLOW_CALL(ecall->flow, set_call_type, ICALL_CALL_TYPE_VIDEO);
+		IFLOW_CALL(ecall->flow, set_video_state, vstate);
+		err = IFLOW_CALLE(ecall->flow, gather_all_turn, true);
+		if (err)
+			mf_sdp_applied_handler(ecall->flow, true, err, ecall);
+		return err;
 	}
 
 	enum econn_state conn_current_state = econn_current_state(ecall->econn);

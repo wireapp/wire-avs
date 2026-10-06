@@ -1726,6 +1726,12 @@ function pc_SetVideoState(hnd: number, vstate: number) {
 
   pc_log(LOG_LEVEL_INFO, `pc_SetVideoState: hnd=${hnd} vstate=${vstate}/${pc.vstate} callType=${pc.call_type} active=${pc.sending_video}`);
 
+    // Publisher capture is awaited by createSdp, not started a second time here.
+    if (pc.media_direction === PC_MEDIA_SENDONLY) {
+        pc.vstate = vstate;
+        return;
+    }
+
     if (pc.vstate === vstate)
 	return;
 
@@ -1926,6 +1932,8 @@ function pc_UpdateSsrc(hnd: number, ssrcaPtr: number, ssrcvPtr: number) {
 }
 
 
+const publisherTransformedSenders = new WeakSet<object>();
+
 function setupSenderTransform(pc: PeerConnection, sender: any) {
   if (!sender || !sender.track) {
      return;
@@ -1936,8 +1944,12 @@ function setupSenderTransform(pc: PeerConnection, sender: any) {
       return;
   }
 
+  if (pc.media_direction === PC_MEDIA_SENDONLY && publisherTransformedSenders.has(sender))
+      return;
+
   if (pc_env === ENV_FIREFOX) {
      sender.transform = new RTCRtpScriptTransform(worker, { name: "senderTransform", self: pc.self });
+     if (pc.media_direction === PC_MEDIA_SENDONLY) publisherTransformedSenders.add(sender);
      return;
   }
 
@@ -1961,6 +1973,7 @@ function setupSenderTransform(pc: PeerConnection, sender: any) {
     readableStream,
     writableStream,
   }, [readableStream, writableStream]);
+  if (pc.media_direction === PC_MEDIA_SENDONLY) publisherTransformedSenders.add(sender);
 }
 
 
@@ -1999,6 +2012,63 @@ function setupReceiverTransform(pc: PeerConnection, receiver: any) {
   }, [readableStream, writableStream]);
 }
 
+function discardPublisherVideo(pc: PeerConnection) {
+    if (!pc.rtc) return;
+    pc.rtc.getTransceivers().forEach(transceiver => {
+        const track = transceiver.sender.track;
+        if (track && track.kind === "video") {
+            track.stop();
+            pc.rtc!.removeTrack(transceiver.sender);
+            transceiver.stop();
+        }
+    });
+    pc.sending_video = false;
+}
+
+function preparePublisherTracks(pc: PeerConnection, useVideo: boolean,
+                                useScreen: boolean): Promise<void> {
+    const rtc = pc.rtc;
+    if (!rtc || !userMediaHandler)
+        return Promise.reject(new Error("Publisher media is unavailable"));
+    const audio = rtc.getSenders().find(sender =>
+        sender.track !== null && sender.track.kind === "audio");
+    const existingAudio = audio ? audio.track : null;
+    const video = rtc.getSenders().find(sender =>
+        sender.track !== null && sender.track.kind === "video");
+    if (audio && video && useVideo)
+        return Promise.resolve();
+    if (audio && !useVideo && !useScreen) {
+        discardPublisherVideo(pc);
+        return Promise.resolve();
+    }
+    return userMediaHandler(pc.convid, !audio, useVideo, useScreen).then(stream => {
+        const discardCapture = () => stream.getTracks().forEach(track => {
+            if (track !== existingAudio) track.stop();
+        });
+        if (pc.rtc !== rtc) {
+            discardCapture();
+            throw new Error("Publisher was closed during media capture");
+        }
+        const cameraTracks = stream.getVideoTracks();
+        if (!audio && !stream.getTracks().some(track => track.kind === "audio")) {
+            discardCapture();
+            throw new Error("No audio track returned");
+        }
+        if ((useVideo || useScreen) && cameraTracks.length === 0) {
+            discardCapture();
+            throw new Error("No video track returned");
+        }
+        stream.getTracks().forEach(track => {
+            if (track.kind === "audio" && audio) {
+                if (audio.track !== track) track.stop();
+                return;
+            }
+            if (track.kind === "audio") track.enabled = !pc.muted;
+            rtc.addTransceiver(track, {direction: "sendonly", streams: [stream]});
+        });
+    });
+}
+
 function createSdp(
   pc: PeerConnection,
   callType: number,
@@ -2022,9 +2092,12 @@ function createSdp(
 
     pc_log(LOG_LEVEL_INFO, `createSdp: calling umh(1, ${use_video}, ${use_ss})`);
 
-    pc.sending_video = mediaDirection !== PC_MEDIA_RECVONLY && (use_video || use_ss);
+    if (mediaDirection !== PC_MEDIA_SENDONLY)
+        pc.sending_video = mediaDirection !== PC_MEDIA_RECVONLY && (use_video || use_ss);
 
-    const mediaReady = mediaDirection === PC_MEDIA_RECVONLY || !userMediaHandler
+    const mediaReady = mediaDirection === PC_MEDIA_SENDONLY
+        ? preparePublisherTracks(pc, use_video, use_ss)
+        : mediaDirection === PC_MEDIA_RECVONLY || !userMediaHandler
         ? Promise.resolve(null)
         : userMediaHandler(pc.convid, true, use_video, use_ss)
             .then((stream: MediaStream) => {
@@ -2032,6 +2105,8 @@ function createSdp(
             });
 
     mediaReady.then(() => {
+		if (mediaDirection === PC_MEDIA_SENDONLY)
+			pc.sending_video = use_video || use_ss;
 
 		const doSdp: (options: RTCOfferOptions) => Promise<RTCSessionDescriptionInit> = isOffer
 		      ? rtc.createOffer
@@ -2059,6 +2134,7 @@ function createSdp(
             ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
         }).catch((err: any) => {
             pc_log(LOG_LEVEL_WARN, 'createSdp: doSdp failed: ' + err, err);
+            if (mediaDirection === PC_MEDIA_SENDONLY) discardPublisherVideo(pc);
             ccallLocalSdpHandler(pc, 1, "sdp-error", err.toString());
         });
     }).catch((err: any) => {
@@ -2265,9 +2341,16 @@ function pc_SetRemoteDescription(hnd: number, typePtr: number, sdpPtr: number) {
 
   rtc
     .setRemoteDescription({ type: type, sdp: sdpStr })
-    .then(() => {})
+    .then(() => {
+      if (pc.media_direction === PC_MEDIA_SENDONLY && type === "answer")
+        em_module.ccall("pc_sdp_applied_handler", null,
+                        ["number", "number", "number"], [pc.self, 0, 0]);
+    })
     .catch((err: any) => {
       pc_log(LOG_LEVEL_WARN, "setRemoteDescription failed: " + err, err);
+      if (pc.media_direction === PC_MEDIA_SENDONLY && type === "answer")
+        em_module.ccall("pc_sdp_applied_handler", null,
+                        ["number", "number", "number"], [pc.self, 0, 1]);
     });
 
   if (pc_env != ENV_FIREFOX)
@@ -2306,9 +2389,25 @@ function pc_SetLocalDescription(hnd: number, typePtr: number, sdpPtr: number) {
 	for (const sender of rtc.getSenders())
 	  setupSenderTransform(pc, sender);
 	}
+      // Reusing ICE may produce no new gathering-state event.
+      if (pc.media_direction === PC_MEDIA_SENDONLY && type === "offer" &&
+          rtc.iceGatheringState === "complete")
+        gatheringComplete(pc);
     })
     .catch((err: any) => {
       pc_log(LOG_LEVEL_INFO, "setLocalDescription failed: " + err, err);
+      if (pc.media_direction === PC_MEDIA_SENDONLY) {
+        const rollback = rtc.signalingState === "have-local-offer"
+          ? rtc.setLocalDescription({type: "rollback"}) : Promise.resolve();
+        rollback.then(() => {
+          discardPublisherVideo(pc);
+          em_module.ccall("pc_sdp_applied_handler", null,
+                          ["number", "number", "number"], [pc.self, 1, 1]);
+        }).catch(() => {
+          em_module.ccall("pc_sdp_applied_handler", null,
+                          ["number", "number", "number"], [pc.self, 0, 1]);
+        });
+      }
     });
 }
 

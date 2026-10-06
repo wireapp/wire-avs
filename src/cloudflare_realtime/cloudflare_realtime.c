@@ -36,6 +36,10 @@ struct cloudflare_realtime {
 	char *api_base;
 	char *tracks_json;
 	char *publisher_tracks;
+	char *publisher_offer_tracks;
+	bool awaiting_update_apply;
+	bool publisher_closing_tracks;
+	enum econn_msg pending_message[2];
 	char *datachannel_id;
 	cloudflare_realtime_request_h *requesth;
 	void *arg;
@@ -179,7 +183,8 @@ static int make_publisher_tracks(char **tracksp, const char *sdp)
 			track_name[0] = '\0';
 		}
 		else if (len >= 7 && 0 == strncmp(line, "m=video", 7)) {
-			kind = "video";
+			kind = (len >= 9 && !strncmp(line, "m=video 0", 9) &&
+				(len == 9 || line[9] == ' ' || line[9] == '\r')) ? NULL : "video";
 			current_track = NULL;
 			current_mid[0] = '\0';
 			media_send = true;
@@ -297,6 +302,49 @@ out:
 	return err;
 }
 
+static int new_publisher_tracks(char **jsonp, const char *offered, const char *published)
+{
+	struct json_object *all = NULL, *old = NULL, *added = NULL;
+	int err, i, j;
+	if (!jsonp || !offered)
+		return EINVAL;
+	err = jzon_decode(&all, offered, strlen(offered));
+	if (!err && published)
+		err = jzon_decode(&old, published, strlen(published));
+	if (err)
+		goto out;
+	added = jzon_alloc_array();
+	if (!added) {
+		err = ENOMEM;
+		goto out;
+	}
+	for (i = 0; i < json_object_array_length(all); ++i) {
+		struct json_object *track = json_object_array_get_idx(all, i);
+		bool exists = false;
+		for (j = 0; old && j < json_object_array_length(old); ++j) {
+			struct json_object *previous = json_object_array_get_idx(old, j);
+			if (streq(jzon_str(track, "trackName"), jzon_str(previous, "trackName"))) {
+				exists = true;
+				break;
+			}
+		}
+		if (!exists) {
+			mem_ref(track);
+			err = json_object_array_add(added, track);
+			if (err) {
+				mem_deref(track);
+				goto out;
+			}
+		}
+	}
+	err = json_object_array_length(added) ? jzon_encode(jsonp, added) : EALREADY;
+out:
+	mem_deref(all);
+	mem_deref(old);
+	mem_deref(added);
+	return err;
+}
+
 static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_role role, struct econn_message *msg)
 {
 	const char *sid;
@@ -327,14 +375,33 @@ static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_ro
 	if (role == CCALL_ECALL_SUBSCRIBER) {
 		tracks_json = adapter->tracks_json;
 	}
-	else if (msg->msg_type == ECONN_SETUP && !msg->resp) {
+	else if (!msg->resp) {
+		char *all = NULL;
 		err = make_publisher_tracks(&publisher_tracks,
 					    msg->u.setup.sdp_msg);
 		if (err)
 			return err;
+		if (msg->msg_type == ECONN_UPDATE) {
+			all = publisher_tracks;
+			publisher_tracks = NULL;
+			adapter->publisher_closing_tracks = false;
+			err = new_publisher_tracks(&publisher_tracks, all, adapter->publisher_tracks);
+			if (err == EALREADY) {
+				err = new_publisher_tracks(&publisher_tracks, adapter->publisher_tracks, all);
+				adapter->publisher_closing_tracks = !err;
+			}
+			if (err) {
+				mem_deref(all);
+				return err;
+			}
+			adapter->publisher_offer_tracks = mem_deref(adapter->publisher_offer_tracks);
+			adapter->publisher_offer_tracks = all;
+		}
 		tracks_json = publisher_tracks;
-		adapter->publisher_tracks = mem_deref(adapter->publisher_tracks);
-		err = str_dup(&adapter->publisher_tracks, publisher_tracks);
+		if (msg->msg_type == ECONN_SETUP) {
+			adapter->publisher_tracks = mem_deref(adapter->publisher_tracks);
+			err = str_dup(&adapter->publisher_tracks, publisher_tracks);
+		}
 		if (err) {
 			mem_deref(publisher_tracks);
 			return err;
@@ -347,11 +414,48 @@ static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_ro
 	if (err)
 		return err;
 
+	if (role == CCALL_ECALL_PUBLISHER && msg->msg_type == ECONN_UPDATE &&
+	    adapter->publisher_closing_tracks) {
+		struct json_object *root = jzon_alloc_object(), *tracks = NULL;
+		struct json_object *mids = jzon_alloc_array(), *desc = jzon_alloc_object();
+		char *removed = NULL;
+		int i;
+		err = root && mids && desc ? new_publisher_tracks(&removed,
+			adapter->publisher_tracks, adapter->publisher_offer_tracks) : ENOMEM;
+		if (!err) err = jzon_decode(&tracks, removed, strlen(removed));
+		for (i = 0; !err && i < json_object_array_length(tracks); ++i) {
+			struct json_object *item = jzon_alloc_object();
+			if (!item) { err = ENOMEM; break; }
+			err = jzon_add_str(item, "mid", "%s", jzon_str(json_object_array_get_idx(tracks, i), "mid"));
+			if (!err) err = json_object_array_add(mids, item);
+			if (err) mem_deref(item);
+		}
+		if (!err) err = jzon_add_str(desc, "type", "offer");
+		if (!err) err = jzon_add_str(desc, "sdp", "%s", msg->u.setup.sdp_msg);
+		if (!err) {
+			json_object_object_add(root, "tracks", mids); mids = NULL;
+			json_object_object_add(root, "sessionDescription", desc); desc = NULL;
+			err = jzon_add_bool(root, "force", false);
+		}
+		if (!err) {
+			body = mem_deref(body);
+			err = jzon_encode(&body, root);
+		}
+		mem_deref(root); mem_deref(tracks); mem_deref(mids);
+		mem_deref(desc); mem_deref(removed);
+		if (err) { mem_deref(body); return err; }
+	}
+
 	if (!sid) {
 		/* The session is created by ECONN_CONF_CONN before SETUP. */
 		return ENOTCONN;
 	}
-	else if (msg->msg_type == ECONN_UPDATE) {
+	else if (role == CCALL_ECALL_PUBLISHER && msg->msg_type == ECONN_UPDATE &&
+		 adapter->publisher_closing_tracks) {
+		method = "PUT";
+		re_snprintf(pathbuf, sizeof(pathbuf), "/sessions/%s/tracks/close", sid);
+	}
+	else if (operation == CLOUDFLARE_REALTIME_OP_RENEGOTIATE) {
 		method = "PUT";
 		re_snprintf(pathbuf, sizeof(pathbuf), "/sessions/%s/renegotiate", sid);
 	}
@@ -360,6 +464,7 @@ static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_ro
 		re_snprintf(pathbuf, sizeof(pathbuf), "/sessions/%s/tracks/new", sid);
 	}
 	adapter->pending[role] = operation;
+	adapter->pending_message[role] = msg->msg_type;
 
 	err = adapter->requesth(adapter, role, method, pathbuf,
 				adapter->app_id, adapter->app_secret, body,
@@ -468,7 +573,9 @@ int cloudflare_realtime_map_message(
 	if (msg->msg_type == ECONN_UPDATE) {
 		if (!sid)
 			return ENOTCONN;
-		*operation = CLOUDFLARE_REALTIME_OP_RENEGOTIATE;
+		*operation = role == CCALL_ECALL_PUBLISHER && !msg->resp
+			? CLOUDFLARE_REALTIME_OP_PUBLISH_TRACKS
+			: CLOUDFLARE_REALTIME_OP_RENEGOTIATE;
 	}
 	else if (role == CCALL_ECALL_PUBLISHER && !sid) {
 		return ENOTCONN;
@@ -530,9 +637,28 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 			adapter->pending[role] != CLOUDFLARE_REALTIME_OP_NONE;
 		realtime_bridge_stop_role(adapter->bridge, role);
 		if (role == CCALL_ECALL_PUBLISHER) {
+			adapter->awaiting_update_apply = false;
+			adapter->publisher_offer_tracks = mem_deref(adapter->publisher_offer_tracks);
 			adapter->datachannel_id = mem_deref(adapter->datachannel_id);
 			adapter->publisher_tracks = mem_deref(adapter->publisher_tracks);
 		}
+	}
+	else if (event == CCALL_TRANSPORT_UPDATE_APPLIED && role == CCALL_ECALL_PUBLISHER) {
+		int err = state->error;
+		if (!adapter->awaiting_update_apply && !err)
+			return;
+		adapter->awaiting_update_apply = false;
+		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+		if (!err && adapter->publisher_offer_tracks) {
+			adapter->publisher_tracks = mem_deref(adapter->publisher_tracks);
+			adapter->publisher_tracks = adapter->publisher_offer_tracks;
+			adapter->publisher_offer_tracks = NULL;
+			err = ccall_catalog_publish_media_update(ccall,
+				session_id(adapter, role), adapter->publisher_tracks);
+		}
+		adapter->publisher_offer_tracks = mem_deref(adapter->publisher_offer_tracks);
+		if (err)
+			warning("cloudflare: publisher media update failed: %m\n", err);
 	}
 	else if (event == CCALL_TRANSPORT_DATA_READY &&
 		 role == CCALL_ECALL_PUBLISHER) {
@@ -543,6 +669,14 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 				ccall_pubsub_recovery_failed(ccall, err);
 		}
 	}
+}
+
+static int can_update(struct ccall *ccall, enum ccall_ecall_role role, void *arg)
+{
+	struct cloudflare_realtime *adapter = arg;
+	(void)ccall;
+	return adapter->pending[role] != CLOUDFLARE_REALTIME_OP_NONE ||
+		adapter->awaiting_update_apply ? EBUSY : 0;
 }
 
 int cloudflare_realtime_alloc(struct cloudflare_realtime **adapterp,
@@ -557,6 +691,7 @@ int cloudflare_realtime_alloc(struct cloudflare_realtime **adapterp,
 	struct ccall_transport_handlers transport = {
 		.sendh = ccall_sendh,
 		.eventh = ccall_eventh,
+		.can_updateh = can_update,
 	};
 	int err;
 
@@ -675,12 +810,18 @@ int cloudflare_realtime_handle_response(
 			status, body ? body : "(empty)");
 		if (adapter && adapter->ccall->recovery_in_progress)
 			ccall_pubsub_recovery_failed(adapter->ccall, EPROTO);
+		else if (adapter && valid_role(role) && adapter->pending_message[role] == ECONN_UPDATE) {
+			adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+			ecall_abort_media_update(ccall_get_ecall(adapter->ccall, role), EPROTO);
+		}
 		return status >= 400 ? EPROTO : EINVAL;
 	}
 	if (!adapter || !valid_role(role) || !body)
 		return status >= 400 ? EPROTO : EINVAL;
 	if (adapter->pending[role] == CLOUDFLARE_REALTIME_OP_NONE)
 		return EPROTO;
+	if (adapter->awaiting_update_apply && role == CCALL_ECALL_PUBLISHER)
+		return EBUSY;
 
 	err = jzon_decode(&root, body, strlen(body));
 	if (err)
@@ -743,7 +884,8 @@ int cloudflare_realtime_handle_response(
 		goto out;
 	}
 
-	if (role == CCALL_ECALL_PUBLISHER && adapter->publisher_tracks) {
+	if (role == CCALL_ECALL_PUBLISHER && adapter->publisher_tracks &&
+	    adapter->pending_message[role] != ECONN_UPDATE) {
 		err = ccall_catalog_set_tracks(adapter->ccall,
 					      session_id(adapter, role),
 					      adapter->publisher_tracks);
@@ -780,17 +922,62 @@ int cloudflare_realtime_handle_response(
 	}
 
 	err = econn_message_init(&msg,
+				 adapter->pending_message[role] == ECONN_UPDATE ||
 				 adapter->pending[role] == CLOUDFLARE_REALTIME_OP_RENEGOTIATE
 				 ? ECONN_UPDATE : ECONN_SETUP,
 				 sid ? sid : "cloudflare");
 	if (err)
 		goto out;
 	msg.resp = 0 == strcmp(type, "answer");
+	if (role == CCALL_ECALL_PUBLISHER && adapter->pending_message[role] == ECONN_UPDATE) {
+		struct json_object *results = NULL;
+		int i;
+		if (!msg.resp || jzon_array(&results, root, "tracks") ||
+		    !json_object_array_length(results)) {
+			err = EPROTO;
+			econn_message_reset(&msg);
+			goto out;
+		}
+		for (i = 0; i < json_object_array_length(results); ++i)
+			if (jzon_str(json_object_array_get_idx(results, i), "errorCode")) {
+				err = EPROTO;
+				econn_message_reset(&msg);
+				goto out;
+			}
+		{
+			char *added_json = NULL;
+			struct json_object *added = NULL;
+			int j;
+			err = adapter->publisher_closing_tracks
+				? new_publisher_tracks(&added_json, adapter->publisher_tracks, adapter->publisher_offer_tracks)
+				: new_publisher_tracks(&added_json, adapter->publisher_offer_tracks, adapter->publisher_tracks);
+			if (!err)
+				err = jzon_decode(&added, added_json, strlen(added_json));
+			for (i = 0; !err && i < json_object_array_length(added); ++i) {
+				const char *key = adapter->publisher_closing_tracks ? "mid" : "trackName";
+				const char *name = jzon_str(json_object_array_get_idx(added, i), key);
+				bool found = false;
+				for (j = 0; j < json_object_array_length(results); ++j)
+					if (streq(name, jzon_str(json_object_array_get_idx(results, j), key)))
+						found = true;
+				if (!found)
+					err = EPROTO;
+			}
+			mem_deref(added_json);
+			mem_deref(added);
+			if (err) {
+				econn_message_reset(&msg);
+				goto out;
+			}
+		}
+		adapter->awaiting_update_apply = true;
+	}
 	err = str_dup(&msg.u.setup.sdp_msg, sdp);
 	if (!err)
 		err = ecall_msg_recv(ecall, 0, 0, "cloudflare", "realtime", &msg);
 	econn_message_reset(&msg);
-	adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+	if (!adapter->awaiting_update_apply)
+		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
 
 out:
 	if (err)
@@ -799,6 +986,8 @@ out:
 	mem_deref(root);
 	if (err && adapter->ccall->recovery_in_progress)
 		ccall_pubsub_recovery_failed(adapter->ccall, err);
+	else if (err && adapter->pending_message[role] == ECONN_UPDATE)
+		ecall_abort_media_update(ccall_get_ecall(adapter->ccall, role), err);
 	return err ? err : 0;
 }
 
@@ -814,6 +1003,7 @@ void cloudflare_realtime_close(struct cloudflare_realtime *adapter)
 	mem_deref(adapter->app_secret);
 	mem_deref(adapter->api_base);
 	mem_deref(adapter->publisher_tracks);
+	mem_deref(adapter->publisher_offer_tracks);
 	mem_deref(adapter->tracks_json);
 	mem_deref(adapter->datachannel_id);
 	mem_deref(adapter);

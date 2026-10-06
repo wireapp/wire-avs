@@ -445,7 +445,7 @@ void ccall_set_transport_active(struct ccall *ccall,
 	if (ccall->enable_publish_subscribe) {
 		const struct ccall_transport_state *transport =
 			&ccall->transport[CCALL_ECALL_PUBLISHER].state;
-		if ((ccall->recovery_in_progress && !ccall->publisher_channel_registered) ||
+		if (!ccall->publisher_channel_registered ||
 		    !transport->media_ready || !transport->data_ready ||
 		    !ccall->catalog_complete || !ccall->catalog_mls_matches)
 			return;
@@ -2730,6 +2730,44 @@ int ccall_catalog_set_tracks(struct ccall *ccall, const char *session,
 	return ccall_catalog_refresh(ccall);
 }
 
+int ccall_catalog_publish_media_update(struct ccall *ccall, const char *session,
+				       const char *tracks)
+{
+	struct econn_message msg = {0};
+	const struct userinfo *self;
+	int err;
+	if (!ccall || !ccall->ecall)
+		return EINVAL;
+	self = userlist_get_self(ccall->userl);
+	if (!self || !ccall->catalog || !ccall->catalog_epoch_known)
+		return EAGAIN;
+	++ccall->catalog_revision;
+	err = ccall_catalog_set_tracks(ccall, session, tracks);
+	if (err)
+		return err;
+	err = econn_message_init(&msg, ECONN_CONF_CATALOG, econn_sessid_local(ecall_get_econn(ccall->ecall)));
+	if (!err)
+		err = catalog_encode_snapshot(ccall->catalog, &msg.u.catalog.json);
+	str_ncpy(msg.src_userid, self->userid_hash, ECONN_ID_LEN);
+	str_ncpy(msg.src_clientid, self->clientid_hash, ECONN_ID_LEN);
+	if (!err)
+		err = ecall_dce_sendmsg(ccall->ecall, &msg);
+	econn_message_reset(&msg);
+	if (err)
+		return err;
+	err = econn_message_init(&msg, ECONN_CATALOG_SYNC, econn_sessid_local(ecall_get_econn(ccall->ecall)));
+	msg.u.catalogsync.revision = ccall->catalog_revision;
+	str_ncpy(msg.src_userid, self->userid_hash, ECONN_ID_LEN);
+	str_ncpy(msg.src_clientid, self->clientid_hash, ECONN_ID_LEN);
+	if (!err)
+		err = jzon_decode(&msg.u.catalogsync.tracks, ccall->catalog_tracks,
+				  strlen(ccall->catalog_tracks));
+	if (!err)
+		err = ecall_dce_sendmsg(ccall->ecall, &msg);
+	econn_message_reset(&msg);
+	return err;
+}
+
 int ccall_prepare_ecalls(struct ccall *ccall)
 {
 	struct ecall *publisher = NULL;
@@ -3657,6 +3695,20 @@ int  ccall_set_vstate(struct icall *icall, enum icall_vstate state)
 
 	if (!ccall)
 		return EINVAL;
+	if (ccall->enable_publish_subscribe && ccall->state == CCALL_STATE_ACTIVE &&
+	    state != ccall->vstate) {
+		if (state != ICALL_VIDEO_STATE_STARTED &&
+		    state != ICALL_VIDEO_STATE_STOPPED)
+			return ENOTSUP;
+		if (!ccall->publisher_channel_registered)
+			return EAGAIN;
+		if (ccall->transport_handlers.can_updateh) {
+			err = ccall->transport_handlers.can_updateh(ccall,
+				CCALL_ECALL_PUBLISHER, ccall->transport_arg);
+			if (err)
+				return err;
+		}
+	}
 
 	info("ccall(%p) set_vstate ecall: %p state: %u\n",
 	      ccall,

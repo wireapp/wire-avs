@@ -39,6 +39,11 @@ int  ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		 const char *convid, const char *userid_self,
 		 const char *clientid);
 struct icall *ecall_get_icall(struct ecall* ecall);
+typedef void (ecall_media_update_h)(struct ecall *ecall, int err,
+				  enum icall_vstate state, void *arg);
+void ecall_set_media_update_handler(struct ecall *ecall,
+				  ecall_media_update_h *handler, void *arg);
+void ecall_abort_media_update(struct ecall *ecall, int err);
 int ecall_add_turnserver(struct ecall *ecall,
 			 struct zapi_ice_server *srv);
 int  ecall_start(struct ecall *ecall,
