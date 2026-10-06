@@ -3529,15 +3529,16 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		break;
 
 	case CCALL_STATE_INCOMING:
-        if (strcaseeq(userid_sender, self->userid_real)) {
-            ICALL_CALL_CB(ccall->icall, leaveh,
-                          &ccall->icall, ICALL_REASON_ANSWERED_ELSEWHERE,
-                          msg->time, ccall->icall.arg);
-            if (ccall->is_ringing) {
-                tmr_cancel(&ccall->tmr_ring);
-                ccall->is_ringing = false;
-            }
-        }
+		if (strcaseeq(userid_sender, self->userid_real)) {
+			if (ccall->is_ringing) {
+				ICALL_CALL_CB(ccall->icall, leaveh,
+					      &ccall->icall, ICALL_REASON_ANSWERED_ELSEWHERE,
+					      msg->time, ccall->icall.arg);
+
+				tmr_cancel(&ccall->tmr_ring);
+				ccall->is_ringing = false;
+			}
+		}
 		tmr_cancel(&ccall->tmr_ongoing);
 		tmr_start(&ccall->tmr_ongoing, CCALL_ONGOING_CALL_TIMEOUT,
 			  ccall_ongoing_call_timeout, ccall);
