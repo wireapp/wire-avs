@@ -908,21 +908,21 @@ TEST_F(UserlistTest, get_partlist)
 	userlist_update_from_sftlist(list, &sftlist2, &changed, &self_changed, &missing);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
-	ASSERT_EQ(0, userlist_get_partlist(list, &partlist, false));
+	ASSERT_EQ(0, userlist_get_partlist(list, &partlist, false, false));
 	ASSERT_EQ(list_count(&partlist), 1);
 
 	p = (struct econn_group_part*)partlist.head->data;
 	ASSERT_EQ(strcmp(p->userid, userid_hash), 0);
 	ASSERT_EQ(strcmp(p->clientid, "_"), 0);
 
-	ASSERT_EQ(0, userlist_get_partlist(list, &partlist, true));
+	ASSERT_EQ(0, userlist_get_partlist(list, &partlist, true, false));
 	ASSERT_EQ(list_count(&partlist), 0);
 
 	SetInSubconv(&selist2, 2);
 	userlist_update_from_selist(list, &selist2, 1, secret1, sizeof(secret1), &changed, &removed);
 	ASSERT_EQ(userlist_get_count(list), 3);
 
-	ASSERT_EQ(0, userlist_get_partlist(list, &partlist, true));
+	ASSERT_EQ(0, userlist_get_partlist(list, &partlist, true, false));
 	ASSERT_EQ(list_count(&partlist), 1);
 
 	list_flush(&partlist);
