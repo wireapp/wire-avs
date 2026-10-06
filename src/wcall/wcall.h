@@ -16,6 +16,7 @@ struct duration_entry {
 };
 
 struct calling_instance *wuser2inst(WUSER_HANDLE wuser);
+const char *wcall_self_userid(struct calling_instance *inst);
 
 bool wcall_is_ready(struct calling_instance *inst,
 		    int conv_type);
@@ -28,7 +29,7 @@ struct wcall_marshal *wcall_get_marshal(struct calling_instance *inst);
 struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid);
 int  wcall_add(struct calling_instance *inst,
 	       struct wcall **wcallp, const char *convid,
-	       int conv_type, bool meeting);
+	       int conv_type, bool meeting, const char *caller_id);
 void wcall_mcat_changed(struct calling_instance *inst,
 			enum mediamgr_state state);
 void wcall_audio_route_changed(struct calling_instance *inst,
@@ -38,6 +39,7 @@ void wcall_invoke_incoming_handler(const char *convid,
 				   uint32_t msg_time,
 				   const char *userid,
 				   const char *clientid,
+                   const char *caller_id,
 				   int video_call,
 				   int should_ring,
 				   int conv_type,
@@ -80,6 +82,7 @@ void wcall_i_invoke_incoming_handler(const char *convid,
 				    uint32_t msg_time,
 				    const char *userid,
 				    const char *clientid,
+                    const char *caller_id,
 				    int video_call,
 				    int should_ring,
 				    int conv_type,

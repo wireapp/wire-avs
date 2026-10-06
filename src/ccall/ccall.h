@@ -112,6 +112,8 @@ struct ccall {
 	enum icall_call_type call_type;
 	enum icall_vstate vstate;
 
+    char *caller_id;
+
 	bool someone_joined;
 	bool someone_left;
 	bool became_kg;
