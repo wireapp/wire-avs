@@ -29,6 +29,7 @@ pipeline {
                             filename 'Dockerfile'
                             // Explicitly force the path to look inside common cargo locations
                             //args '-v /home/jenkins/workspace:/workspace --env PATH=/usr/share/cargo/bin:/build/avs/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+			    args '--dns=8.8.8.8 --dns=1.1.1.1'
 			    additionalBuildArgs '--no-cache'
                         }
                     }
@@ -275,7 +276,7 @@ pipeline {
 				    	echo "Digging..."
 					dig github.com
 					dig github.com @8.8.8.8
-					cat -A /etc/resolv.conf
+					cat /etc/resolv.conf
 					cat /etc/nsswitch.conf
 					python3 -c 'import socket; print(socket.gethostbyname(\"github.com\"))' || true
                                         sleep 5
