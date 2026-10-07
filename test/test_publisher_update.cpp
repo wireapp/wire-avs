@@ -16,12 +16,19 @@ struct FakeFlow {
  enum icall_vstate video;
  unsigned gathers;
  unsigned answers;
+ unsigned video_mid;
+ const char *video_name;
 };
 struct Request { std::string method, path, body; };
 static unsigned allocations;
 static std::vector<std::string> frames;
 static int video_state(struct iflow *flow, enum icall_vstate state) {
- reinterpret_cast<FakeFlow *>(flow)->video = state;
+ auto *fake = reinterpret_cast<FakeFlow *>(flow);
+ if (state != ICALL_VIDEO_STATE_STOPPED) {
+  ++fake->video_mid;
+  if (fake->video_mid == 2) ++fake->video_mid;
+ }
+ fake->video = state;
  return 0;
 }
 static bool gathered(const struct iflow *) { return false; }
@@ -31,8 +38,12 @@ static int gather(struct iflow *flow, bool) {
 }
 static int offer(struct iflow *flow, char *sdp, size_t size) {
  std::string result = "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendonly\r\na=mid:0\r\na=msid:stream mic\r\n";
- if (reinterpret_cast<FakeFlow *>(flow)->video == ICALL_VIDEO_STATE_STARTED)
-  result += "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=sendonly\r\na=mid:1\r\na=msid:stream camera\r\n";
+ if (reinterpret_cast<FakeFlow *>(flow)->video != ICALL_VIDEO_STATE_STOPPED) {
+  result += "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=sendonly\r\na=mid:" + std::to_string(reinterpret_cast<FakeFlow *>(flow)->video_mid) + "\r\na=msid:stream ";
+  auto *fake = reinterpret_cast<FakeFlow *>(flow);
+  result += fake->video_name ? std::string(fake->video_name) + "\r\n" :
+   (fake->video == ICALL_VIDEO_STATE_SCREENSHARE ? "screen\r\n" : "camera\r\n");
+ }
  else
   result += "m=video 0 UDP/TLS/RTP/SAVPF 96\r\na=inactive\r\na=mid:1\r\n";
  result += "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:2\r\n";
@@ -272,4 +283,183 @@ TEST_F(PublisherUpdate, camera_off_closes_video_with_offer_then_updates_catalog)
  camera_on();
  ASSERT_EQ(1u, requests.size());
  EXPECT_EQ("/sessions/pub/tracks/new", requests[0].path);
+}
+
+TEST_F(PublisherUpdate, source_change_force_closes_then_publishes_new_locator) {
+ camera_on();
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"camera-answer\"},\"tracks\":[{\"mid\":\"1\",\"trackName\":\"camera\"}]}"));
+ fake->api.sdp_appliedh(&fake->api, false, 0, fake->api.arg);
+ unsigned old_mid = 1;
+ for (auto desired : {ICALL_VIDEO_STATE_SCREENSHARE, ICALL_VIDEO_STATE_STARTED}) {
+  const uint32_t revision = call->catalog_revision;
+  requests.clear(); frames.clear();
+  ASSERT_EQ(0, ccall_set_vstate(&call->icall, desired));
+  complete_offer();
+  ASSERT_EQ(1u, requests.size());
+  EXPECT_EQ("PUT", requests[0].method);
+  EXPECT_EQ("/sessions/pub/tracks/close", requests[0].path);
+  struct json_object *root = NULL, *tracks = NULL, *description = NULL;
+  ASSERT_EQ(0, jzon_decode(&root, requests[0].body.c_str(), requests[0].body.size()));
+  ASSERT_EQ(0, jzon_array(&tracks, root, "tracks"));
+  EXPECT_STREQ(std::to_string(old_mid).c_str(), jzon_str(json_object_array_get_idx(tracks, 0), "mid"));
+  bool force = false;
+  ASSERT_EQ(0, jzon_bool(&force, root, "force"));
+  EXPECT_TRUE(force);
+  EXPECT_EQ(ENOENT, jzon_object(&description, root, "sessionDescription"));
+  mem_deref(root);
+  EXPECT_TRUE(frames.empty());
+  EXPECT_EQ(revision, call->catalog_revision);
+  const std::string closed = "{\"tracks\":[{\"mid\":\"" + std::to_string(old_mid) + "\"}]}";
+  ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200, closed.c_str()));
+  ASSERT_EQ(2u, requests.size());
+  EXPECT_EQ("POST", requests[1].method);
+  EXPECT_EQ("/sessions/pub/tracks/new", requests[1].path);
+  root = NULL; tracks = NULL;
+  ASSERT_EQ(0, jzon_decode(&root, requests[1].body.c_str(), requests[1].body.size()));
+  ASSERT_EQ(0, jzon_array(&tracks, root, "tracks"));
+  ASSERT_EQ(1, json_object_array_length(tracks));
+  const char *name = desired == ICALL_VIDEO_STATE_SCREENSHARE ? "screen" : "camera";
+  EXPECT_STREQ(name, jzon_str(json_object_array_get_idx(tracks, 0), "trackName"));
+  EXPECT_STREQ(std::to_string(fake->video_mid).c_str(), jzon_str(json_object_array_get_idx(tracks, 0), "mid"));
+  mem_deref(root);
+  EXPECT_EQ(EBUSY, call->transport_handlers.can_updateh(call, CCALL_ECALL_PUBLISHER, call->transport_arg));
+  const std::string answer = "{\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"source-answer\"},\"tracks\":[{\"mid\":\"" + std::to_string(fake->video_mid) + "\",\"trackName\":\"" + name + "\"}]}";
+  ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200, answer.c_str()));
+  EXPECT_EQ(revision, call->catalog_revision);
+  fake->api.sdp_appliedh(&fake->api, false, 0, fake->api.arg);
+  ASSERT_EQ(2u, frames.size());
+  struct econn_message *sync = NULL;
+  ASSERT_EQ(0, econn_message_decode(&sync, 0, 0, frames[1].c_str(), frames[1].size()));
+  EXPECT_EQ(revision + 1, sync->u.catalogsync.revision);
+  ASSERT_EQ(2, json_object_array_length(sync->u.catalogsync.tracks));
+  auto *video = json_object_array_get_idx(sync->u.catalogsync.tracks, 1);
+  EXPECT_STREQ(name, jzon_str(video, "trackName"));
+  EXPECT_STREQ(name, jzon_str(video, "source"));
+  EXPECT_EQ(1u, allocations);
+  EXPECT_EQ(CCALL_STATE_ACTIVE, call->state);
+  old_mid = fake->video_mid;
+  mem_deref(sync);
+ }
+}
+
+TEST_F(PublisherUpdate, screenshare_can_be_added_without_camera_then_closed) {
+ ASSERT_EQ(0, ccall_set_vstate(&call->icall, ICALL_VIDEO_STATE_SCREENSHARE));
+ complete_offer();
+ ASSERT_EQ(1u, requests.size());
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"screen-answer\"},\"tracks\":[{\"mid\":\"1\",\"trackName\":\"screen\"}]}"));
+ fake->api.sdp_appliedh(&fake->api, false, 0, fake->api.arg);
+ requests.clear(); frames.clear();
+ ASSERT_EQ(0, ccall_set_vstate(&call->icall, ICALL_VIDEO_STATE_STOPPED));
+ complete_offer();
+ ASSERT_EQ(1u, requests.size());
+ EXPECT_EQ("/sessions/pub/tracks/close", requests[0].path);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"close-answer\"},\"tracks\":[{\"mid\":\"1\"}]}"));
+ fake->api.sdp_appliedh(&fake->api, false, 0, fake->api.arg);
+ EXPECT_EQ(CCALL_STATE_ACTIVE, call->state);
+ EXPECT_EQ(3u, call->catalog_revision);
+ EXPECT_EQ(1u, allocations);
+}
+
+TEST_F(PublisherUpdate, failed_force_close_does_not_publish_new_track) {
+ camera_on();
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"answer\"},\"tracks\":[{\"mid\":\"1\",\"trackName\":\"camera\"}]}"));
+ fake->api.sdp_appliedh(&fake->api, false, 0, fake->api.arg);
+ requests.clear(); frames.clear();
+ ASSERT_EQ(0, ccall_set_vstate(&call->icall, ICALL_VIDEO_STATE_SCREENSHARE));
+ complete_offer();
+ ASSERT_EQ(1u, requests.size());
+ EXPECT_NE(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"tracks\":[{\"mid\":\"1\",\"errorCode\":\"close_failed\"}]}"));
+ EXPECT_EQ(1u, requests.size());
+ EXPECT_TRUE(frames.empty());
+}
+
+TEST_F(PublisherUpdate, stop_before_force_close_response_prevents_publish) {
+ camera_on();
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"answer\"},\"tracks\":[{\"mid\":\"1\",\"trackName\":\"camera\"}]}"));
+ fake->api.sdp_appliedh(&fake->api, false, 0, fake->api.arg);
+ requests.clear(); frames.clear();
+ ASSERT_EQ(0, ccall_set_vstate(&call->icall, ICALL_VIDEO_STATE_SCREENSHARE));
+ complete_offer();
+ ccall_end(&call->icall);
+ EXPECT_EQ(ECANCELED, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"tracks\":[{\"mid\":\"1\"}]}"));
+ EXPECT_EQ(1u, requests.size());
+ EXPECT_EQ(CCALL_STATE_IDLE, call->state);
+}
+
+TEST_F(PublisherUpdate, stopped_then_started_waits_for_first_update_before_camera_publish) {
+ ASSERT_EQ(0, ccall_set_vstate(&call->icall, ICALL_VIDEO_STATE_SCREENSHARE));
+ complete_offer();
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"screen-answer\"},\"tracks\":[{\"mid\":\"1\",\"trackName\":\"screen\"}]}"));
+ fake->api.sdp_appliedh(&fake->api, false, 0, fake->api.arg);
+ requests.clear(); frames.clear();
+ ASSERT_EQ(0, ccall_set_vstate(&call->icall, ICALL_VIDEO_STATE_STOPPED));
+ // The real webapp requests STARTED immediately after stopping screen sharing.
+ ASSERT_EQ(0, ccall_set_vstate(&call->icall, ICALL_VIDEO_STATE_STARTED));
+ EXPECT_TRUE(call->pending_vstate_valid);
+ EXPECT_EQ(ICALL_VIDEO_STATE_STOPPED, call->vstate);
+ complete_offer();
+ ASSERT_EQ(1u, requests.size());
+ EXPECT_EQ("/sessions/pub/tracks/close", requests[0].path);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"close-answer\"},\"tracks\":[{\"mid\":\"1\"}]}"));
+ fake->api.sdp_appliedh(&fake->api, false, 0, fake->api.arg);
+ EXPECT_FALSE(call->pending_vstate_valid);
+ EXPECT_EQ(ICALL_VIDEO_STATE_STARTED, call->vstate);
+ EXPECT_TRUE(ecall_media_update_pending(publisher));
+ complete_offer();
+ ASSERT_EQ(2u, requests.size());
+ EXPECT_EQ("/sessions/pub/tracks/new", requests[1].path);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"camera-answer\"},\"tracks\":[{\"mid\":\"3\",\"trackName\":\"camera\"}]}"));
+ fake->api.sdp_appliedh(&fake->api, false, 0, fake->api.arg);
+ EXPECT_EQ(4u, call->catalog_revision);
+ EXPECT_EQ(CCALL_STATE_ACTIVE, call->state);
+}
+
+TEST_F(PublisherUpdate, camera_device_change_refreshes_same_state_and_uses_force_close) {
+ camera_on();
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"camera-answer\"},\"tracks\":[{\"mid\":\"1\",\"trackName\":\"camera\"}]}"));
+ fake->api.sdp_appliedh(&fake->api, false, 0, fake->api.arg);
+ requests.clear(); frames.clear();
+ fake->video_name = "camera-two";
+ ASSERT_EQ(0, fake->api.video_updateh(&fake->api, fake->api.arg));
+ EXPECT_EQ(ICALL_VIDEO_STATE_STARTED, publisher->vstate);
+ EXPECT_EQ(EBUSY, fake->api.video_updateh(&fake->api, fake->api.arg));
+ complete_offer();
+ ASSERT_EQ(1u, requests.size());
+ EXPECT_EQ("/sessions/pub/tracks/close", requests[0].path);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"tracks\":[{\"mid\":\"1\"}]}"));
+ ASSERT_EQ(2u, requests.size());
+ EXPECT_EQ("/sessions/pub/tracks/new", requests[1].path);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"new-camera-answer\"},\"tracks\":[{\"mid\":\"3\",\"trackName\":\"camera-two\"}]}"));
+ fake->api.sdp_appliedh(&fake->api, false, 0, fake->api.arg);
+ EXPECT_EQ(3u, call->catalog_revision);
+ ASSERT_EQ(2u, frames.size());
+ struct econn_message *sync = NULL;
+ ASSERT_EQ(0, econn_message_decode(&sync, 0, 0, frames[1].c_str(), frames[1].size()));
+ auto *video = json_object_array_get_idx(sync->u.catalogsync.tracks, 1);
+ EXPECT_STREQ("camera-two", jzon_str(video, "trackName"));
+ EXPECT_STREQ("camera", jzon_str(video, "source"));
+ EXPECT_EQ(1u, allocations);
+ mem_deref(sync);
+}
+
+TEST_F(PublisherUpdate, pending_video_state_is_cleared_on_stop) {
+ camera_on();
+ ASSERT_EQ(0, ccall_set_vstate(&call->icall, ICALL_VIDEO_STATE_SCREENSHARE));
+ EXPECT_TRUE(call->pending_vstate_valid);
+ ccall_end(&call->icall);
+ EXPECT_FALSE(call->pending_vstate_valid);
+ EXPECT_EQ(CCALL_STATE_IDLE, call->state);
 }

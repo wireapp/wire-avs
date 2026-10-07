@@ -7,7 +7,7 @@ const ts = require('../../build/dist/wasm/node_modules/typescript');
 const {test} = require('node:test');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../src/avs_pc.ts'), 'utf8');
 const ast = ts.createSourceFile('avs_pc.ts', source, ts.ScriptTarget.Latest, true);
-const names = ['discardPublisherVideo', 'preparePublisherTracks', 'pc_SetRemoteDescription', 'pc_SetLocalDescription', 'gatheringComplete'];
+const names = ['pc_ReplaceTrack', 'requestPublisherVideoUpdate', 'createSdp', 'sdpMap', 'discardPublisherVideo', 'preparePublisherTracks', 'pc_SetRemoteDescription', 'pc_SetLocalDescription', 'gatheringComplete'];
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) &&
   node.name && names.includes(node.name.text)).map(node => node.getText(ast)).join('\n');
 assert.equal(ast.statements.filter(node => ts.isFunctionDeclaration(node) &&
@@ -161,4 +161,150 @@ test('camera off stops only video and keeps audio and the same connection', asyn
   assert.equal(video.stops, 1);
   assert.equal(stopped, 1);
   assert.equal(pc.sending_video, false);
+});
+
+
+
+for (const [from, to] of [['camera', 'screen'], ['screen', 'camera']]) {
+  test(`source change ${from} to ${to} retires video and adds a new transceiver`, async () => {
+    const audio = track('audio', 'mic');
+    const oldVideo = track('video', from);
+    const newVideo = track('video', to);
+    const added = [];
+    let stopped = 0;
+    const sender = {track: oldVideo, replaceTrack: () => {throw Error('No replaceTrack');}};
+    const rtc = {getSenders: () => [{track: audio}, sender],
+      getTransceivers: () => [{sender: {track: audio}}, {sender, stop: () => ++stopped}],
+      removeTrack: value => {assert.equal(value, sender); sender.track = null;},
+      addTransceiver: (track, options) => added.push({track, options})};
+    const pc = {rtc, convid: 'call', publisher_video_source: from};
+    let args;
+    const ctx = runtime({userMediaHandler: (...values) => {
+      args = values; return Promise.resolve(stream([newVideo]));
+    }});
+    await ctx.preparePublisherTracks(pc, to === 'camera', to === 'screen');
+    assert.deepEqual(args, ['call', false, to === 'camera', to === 'screen']);
+    assert.equal(stopped, 1);
+    assert.equal(oldVideo.stops, 1);
+    assert.equal(audio.stops, 0);
+    assert.equal(pc.rtc, rtc);
+    assert.equal(added.length, 1);
+    assert.equal(added[0].track, newVideo);
+    assert.equal(added[0].options.direction, 'sendonly');
+    assert.equal(pc.publisher_video_source, to);
+  });
+}
+
+test('capture failure preserves the existing video before transceiver retirement', async () => {
+  const audio = track('audio', 'mic');
+  const oldVideo = track('video', 'camera');
+  const pc = {rtc: {getSenders: () => [{track: audio}, {track: oldVideo}]}, publisher_video_source: 'camera'};
+  const ctx = runtime({userMediaHandler: () => Promise.reject(Error('capture declined'))});
+  await assert.rejects(ctx.preparePublisherTracks(pc, false, true), /capture declined/);
+  assert.equal(oldVideo.stops, 0);
+  assert.equal(audio.stops, 0);
+  assert.equal(pc.publisher_video_source, 'camera');
+});
+
+test('publisher offers preserve rejected video sections without legacy SDP munging', async () => {
+  const audio = track('audio', 'mic');
+  const rawSdp = 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nm=video 0 UDP/TLS/RTP/SAVPF 96\r\na=inactive\r\n';
+  const rtc = {getSenders: () => [{track: audio}], getTransceivers: () => [],
+    createOffer: () => Promise.resolve({type: 'offer', sdp: rawSdp})};
+  const pc = {rtc, media_direction: 1};
+  let offer;
+  const ctx = runtime({PC_MEDIA_SENDONLY: 1, PC_MEDIA_RECVONLY: 2,
+    PC_VIDEO_STATE_STARTED: 1, PC_VIDEO_STATE_SCREENSHARE: 2,
+    userMediaHandler: () => {throw Error('Must keep audio');},
+    pc_log: () => {}, LOG_LEVEL_INFO: 1, LOG_LEVEL_WARN: 2,
+    applyMediaDirection: () => {}, ccallStartGatherHandler: () => {},
+    ccallLocalSdpHandler: (_pc, err, _type, sdp) => {assert.equal(err, 0); offer = sdp;}});
+  ctx.createSdp(pc, 0, 0, true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(offer, rawSdp);
+});
+
+test('late source capture after stop is discarded without publishing a new source', async () => {
+  const audio = track('audio', 'mic');
+  const oldVideo = track('video', 'camera');
+  const screen = track('video', 'screen');
+  let complete;
+  const pc = {rtc: {getSenders: () => [{track: audio}, {track: oldVideo}]}, publisher_video_source: 'camera'};
+  const ctx = runtime({userMediaHandler: () => new Promise(resolve => {complete = resolve;})});
+  const pending = ctx.preparePublisherTracks(pc, false, true);
+  pc.rtc = null;
+  complete(stream([screen]));
+  await assert.rejects(pending, /closed during media capture/);
+  assert.equal(screen.stops, 1);
+  assert.equal(audio.stops, 0);
+  assert.equal(pc.publisher_video_source, 'camera');
+});
+
+
+test('publisher replaceTrack API requests native refresh instead of browser replacement', () => {
+  const oldVideo = track('video', 'camera-one');
+  const nextVideo = track('video', 'camera-two');
+  const pc = {self: 17, media_direction: 1, rtc: {getSenders: () => [{track: oldVideo}]}};
+  const calls = [];
+  const ctx = runtime({PC_MEDIA_SENDONLY: 1, PC_MEDIA_RECVONLY: 2,
+    connectionsStore: {getPeerConnectionByConvid: () => [pc]},
+    em_module: {ccall: (...args) => {calls.push(args); return 0;}},
+    replace_track: () => {throw Error('Must use publisher UPDATE');}});
+  ctx.pc_ReplaceTrack('call', nextVideo);
+  assert.equal(pc.pending_video_track, nextVideo);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], 'pc_video_source_changed_handler');
+  assert.equal(oldVideo.stops, 0);
+});
+
+test('explicit camera track bypasses same-source capture shortcut and creates a new sender', async () => {
+  const audio = track('audio', 'mic');
+  const oldVideo = track('video', 'camera-one');
+  const nextVideo = track('video', 'camera-two');
+  const added = [];
+  const sender = {track: oldVideo};
+  const pc = {pending_video_track: nextVideo, publisher_video_source: 'camera', rtc: {
+    getSenders: () => [{track: audio}, sender],
+    getTransceivers: () => [{sender, stop() {}}], removeTrack: () => {sender.track = null;},
+    addTransceiver: value => added.push(value)}};
+  const ctx = runtime({MediaStream: class {constructor(tracks) {Object.assign(this, stream(tracks));}},
+    userMediaHandler: () => {throw Error('Must use supplied camera track');}});
+  await ctx.preparePublisherTracks(pc, true, false);
+  assert.equal(pc.pending_video_track, undefined);
+  assert.equal(oldVideo.stops, 1);
+  assert.equal(audio.stops, 0);
+  assert.deepEqual(added, [nextVideo]);
+});
+
+test('pending camera change retries only after the current remote answer completes', async () => {
+  let complete;
+  const calls = [];
+  const pc = {self: 99, media_direction: 1, pending_video_track: track('video', 'next'), rtc: {
+    localDescription: {type: 'offer', sdp: 'offer'}, getTransceivers: () => [],
+    setRemoteDescription: () => new Promise(resolve => {complete = resolve;})}};
+  const ctx = runtime({pc_log: () => {}, LOG_LEVEL_INFO: 1, LOG_LEVEL_WARN: 2,
+    connectionsStore: {getPeerConnection: () => pc},
+    em_module: {UTF8ToString: value => value, ccall: (...args) => {calls.push(args); return 1;}},
+    pc_env: 0, ENV_FIREFOX: 1, CONV_TYPE_CONFERENCE: 2, PC_MEDIA_SENDONLY: 1,
+    sdpDirectionSummary: () => '', extractSSRCs: () => {}});
+  ctx.pc_SetRemoteDescription(1, 'answer', 'answer');
+  assert.equal(calls.length, 0);
+  complete();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls[0][0], 'pc_sdp_applied_handler');
+  assert.equal(calls[1][0], 'pc_video_source_changed_handler');
+  assert.ok(pc.pending_video_track);
+});
+
+
+test('turning video off discards a queued camera track rather than keeping capture alive', async () => {
+  const audio = track('audio', 'mic');
+  const pending = track('video', 'pending-camera');
+  const pc = {pending_video_track: pending, rtc: {
+    getSenders: () => [{track: audio}], getTransceivers: () => []}};
+  const ctx = runtime({userMediaHandler: () => {throw Error('No capture expected');}});
+  await ctx.preparePublisherTracks(pc, false, false);
+  assert.equal(pc.pending_video_track, undefined);
+  assert.equal(pending.stops, 1);
+  assert.equal(audio.stops, 0);
 });

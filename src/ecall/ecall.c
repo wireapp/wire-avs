@@ -94,6 +94,12 @@ void ecall_set_media_update_handler(struct ecall *ecall,
 	ecall->media_update_arg = arg;
 }
 
+static int mf_video_update_handler(struct iflow *flow, void *arg)
+{
+	struct ecall *ecall = arg;
+	return ecall && ecall->flow == flow ? ecall_refresh_video_track(ecall) : EINVAL;
+}
+
 static void mf_sdp_applied_handler(struct iflow *flow, bool local, int err, void *arg)
 {
 	struct ecall *ecall = arg;
@@ -112,16 +118,18 @@ static void mf_sdp_applied_handler(struct iflow *flow, bool local, int err, void
 		ecall->vstate = ecall->publisher_previous_vstate;
 		econn_props_update(ecall->props_local, "videosend",
 			ecall->vstate == ICALL_VIDEO_STATE_STARTED ? "true" : "false");
+		econn_props_update(ecall->props_local, "screensend",
+			ecall->vstate == ICALL_VIDEO_STATE_SCREENSHARE ? "true" : "false");
 		IFLOW_CALL(ecall->flow, set_video_state, ecall->vstate);
 	}
 	else {
 		ecall->call_type = ICALL_CALL_TYPE_VIDEO;
-		ecall->metrics.video_local = ecall->vstate == ICALL_VIDEO_STATE_STARTED;
+		ecall->metrics.video_local = ecall->vstate != ICALL_VIDEO_STATE_STOPPED;
 		econn_set_datachan_established(ecall->econn);
 	}
 	if (ecall->media_updateh)
 		ecall->media_updateh(ecall, err, ecall->vstate, ecall->media_update_arg);
-	if (err && (!local || ecall->publisher_previous_vstate == ICALL_VIDEO_STATE_STARTED))
+	if (err && (!local || ecall->publisher_previous_vstate != ICALL_VIDEO_STATE_STOPPED))
 		ecall_close(ecall, err, ECONN_MESSAGE_TIME_UNKNOWN);
 	mem_deref(ecall);
 }
@@ -2212,6 +2220,7 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 			    norelay_handler,
 			    ecall);
 	ecall->flow->sdp_appliedh = mf_sdp_applied_handler;
+	ecall->flow->video_updateh = mf_video_update_handler;
 	info("ecall(%p): alloc_flow: user=%s client=%s mediaflow=%p "
 	     "call_type=%d audio_cbr=%d\n",
 	     ecall,
@@ -2762,7 +2771,7 @@ struct econn *ecall_get_econn(const struct ecall *ecall)
 }
 
 
-int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
+static int set_video_send_state(struct ecall *ecall, enum icall_vstate vstate, bool refresh)
 {
 	int err = 0;
 	if (!ecall)
@@ -2776,27 +2785,28 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 	     ecall->update,
 	     ecall->update_glare);
 
-	if (ecall->vstate == vstate && !ecall->update_glare) {
+	if (ecall->vstate == vstate && !ecall->update_glare && !refresh) {
 		info("ecall(%p): set_video_send_state: ignorig, already in state: %s\n",
 		     ecall, icall_vstate_name(ecall->vstate));
 
 		return 0;
 	}
-	/* Camera changes negotiate on the existing send-only flow.
-	 * Screen sharing remains a separate, unsupported media mutation. */
+	/* Video source changes negotiate on the existing send-only flow. */
 	if (ecall->media_direction == ECALL_MEDIA_SENDONLY && ecall->established) {
 		if (!ecall->flow || !ecall->flow->gather_all_turn)
 			return ENOSYS;
 		if (ecall->publisher_update || ecall->update)
 			return EBUSY;
 		if (vstate != ICALL_VIDEO_STATE_STARTED &&
-		    vstate != ICALL_VIDEO_STATE_STOPPED)
+		    vstate != ICALL_VIDEO_STATE_STOPPED &&
+		    vstate != ICALL_VIDEO_STATE_SCREENSHARE)
 			return ENOTSUP;
 		ecall->publisher_previous_vstate = ecall->vstate;
 		ecall->vstate = vstate;
 		econn_props_update(ecall->props_local, "videosend",
 			vstate == ICALL_VIDEO_STATE_STARTED ? "true" : "false");
-		econn_props_update(ecall->props_local, "screensend", "false");
+		econn_props_update(ecall->props_local, "screensend",
+			vstate == ICALL_VIDEO_STATE_SCREENSHARE ? "true" : "false");
 		ecall->update = true;
 		ecall->publisher_update = true;
 		ecall->sdp.async = ASYNC_OFFER;
@@ -2918,6 +2928,24 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 	return err;
 }
 
+
+int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
+{
+	return set_video_send_state(ecall, vstate, false);
+}
+
+bool ecall_media_update_pending(const struct ecall *ecall)
+{
+	return ecall && ecall->publisher_update;
+}
+
+int ecall_refresh_video_track(struct ecall *ecall)
+{
+	if (!ecall || ecall->media_direction != ECALL_MEDIA_SENDONLY) return ENOTSUP;
+	if (!ecall->established || (ecall->vstate != ICALL_VIDEO_STATE_STARTED &&
+	    ecall->vstate != ICALL_VIDEO_STATE_SCREENSHARE)) return EAGAIN;
+	return set_video_send_state(ecall, ecall->vstate, true);
+}
 
 bool ecall_is_answered(const struct ecall *ecall)
 {

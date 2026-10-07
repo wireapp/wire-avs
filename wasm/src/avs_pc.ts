@@ -70,6 +70,8 @@ interface PeerConnection {
   conv_type: number,
   call_type: number;
   sending_video: boolean;
+  publisher_video_source?: "camera" | "screen";
+  pending_video_track?: MediaStreamTrack;
   media_direction: number;
   muted: boolean;
   stats: LocalStats;
@@ -1628,6 +1630,10 @@ function pc_Close(hnd: number) {
    * Mark the owner first so late events cannot call into a removed native
    * jsflow handle. */
   pc.closing = true;
+  if (pc.pending_video_track) {
+    pc.pending_video_track.stop();
+    pc.pending_video_track = undefined;
+  }
 
   if (pc.rtc) {
     pc.rtc.getTransceivers().forEach(trans => {
@@ -2023,25 +2029,35 @@ function discardPublisherVideo(pc: PeerConnection) {
         }
     });
     pc.sending_video = false;
+    pc.publisher_video_source = undefined;
 }
 
 function preparePublisherTracks(pc: PeerConnection, useVideo: boolean,
                                 useScreen: boolean): Promise<void> {
     const rtc = pc.rtc;
-    if (!rtc || !userMediaHandler)
+    if (!rtc || (!userMediaHandler && !pc.pending_video_track))
         return Promise.reject(new Error("Publisher media is unavailable"));
     const audio = rtc.getSenders().find(sender =>
         sender.track !== null && sender.track.kind === "audio");
     const existingAudio = audio ? audio.track : null;
     const video = rtc.getSenders().find(sender =>
         sender.track !== null && sender.track.kind === "video");
-    if (audio && video && useVideo)
+    const source = useScreen ? "screen" : "camera";
+    if (audio && video && !pc.pending_video_track && (useVideo || useScreen) &&
+        (pc.publisher_video_source || "camera") === source)
         return Promise.resolve();
     if (audio && !useVideo && !useScreen) {
         discardPublisherVideo(pc);
+        if (pc.pending_video_track) pc.pending_video_track.stop();
+        pc.pending_video_track = undefined;
         return Promise.resolve();
     }
-    return userMediaHandler(pc.convid, !audio, useVideo, useScreen).then(stream => {
+    const requestedTrack = pc.pending_video_track;
+    pc.pending_video_track = undefined;
+    const capture = requestedTrack
+        ? Promise.resolve(new MediaStream([requestedTrack]))
+        : userMediaHandler!(pc.convid, !audio, useVideo, useScreen);
+    return capture.then(stream => {
         const discardCapture = () => stream.getTracks().forEach(track => {
             if (track !== existingAudio) track.stop();
         });
@@ -2058,6 +2074,8 @@ function preparePublisherTracks(pc: PeerConnection, useVideo: boolean,
             discardCapture();
             throw new Error("No video track returned");
         }
+        // Source changes retire the old transceiver and publish a fresh MID.
+        if (video && (useVideo || useScreen)) discardPublisherVideo(pc);
         stream.getTracks().forEach(track => {
             if (track.kind === "audio" && audio) {
                 if (audio.track !== track) track.stop();
@@ -2066,6 +2084,7 @@ function preparePublisherTracks(pc: PeerConnection, useVideo: boolean,
             if (track.kind === "audio") track.enabled = !pc.muted;
             rtc.addTransceiver(track, {direction: "sendonly", streams: [stream]});
         });
+        if (cameraTracks.length) pc.publisher_video_source = source;
     });
 }
 
@@ -2130,7 +2149,8 @@ function createSdp(
 
             pc_log(LOG_LEVEL_INFO, `createSdp: type=${typeStr} sdp=${sdpStr}`);
 
-            const modSdp = sdpMap(sdpStr, true, false);
+            const modSdp = mediaDirection === PC_MEDIA_SENDONLY
+                ? sdpStr : sdpMap(sdpStr, true, false);
             ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
         }).catch((err: any) => {
             pc_log(LOG_LEVEL_WARN, 'createSdp: doSdp failed: ' + err, err);
@@ -2311,7 +2331,7 @@ function pc_SetRemoteDescription(hnd: number, typePtr: number, sdpPtr: number) {
   }
 
   let sdpStr = sdp;
-  if (pc_env === ENV_FIREFOX) {
+  if (pc_env === ENV_FIREFOX && pc.media_direction !== PC_MEDIA_SENDONLY) {
       sdpStr = sdp.replace(/ DTLS\/SCTP (5000|webrtc-datachannel)/, ' UDP/DTLS/SCTP webrtc-datachannel');
       sdpStr = sdpMap(sdpStr, false, false);
   }
@@ -2342,9 +2362,13 @@ function pc_SetRemoteDescription(hnd: number, typePtr: number, sdpPtr: number) {
   rtc
     .setRemoteDescription({ type: type, sdp: sdpStr })
     .then(() => {
-      if (pc.media_direction === PC_MEDIA_SENDONLY && type === "answer")
+      if (pc.media_direction === PC_MEDIA_SENDONLY)
+        pc_log(LOG_LEVEL_INFO, `cloudflare: publisher remote-sdp-applied: hnd=${hnd} type=${type} signaling=${rtc.signalingState} connection=${rtc.connectionState}`);
+      if (pc.media_direction === PC_MEDIA_SENDONLY && type === "answer") {
         em_module.ccall("pc_sdp_applied_handler", null,
                         ["number", "number", "number"], [pc.self, 0, 0]);
+        requestPublisherVideoUpdate(pc);
+      }
     })
     .catch((err: any) => {
       pc_log(LOG_LEVEL_WARN, "setRemoteDescription failed: " + err, err);
@@ -2375,7 +2399,7 @@ function pc_SetLocalDescription(hnd: number, typePtr: number, sdpPtr: number) {
 
   let sdpStr = '';
 
-    if (pc_env === ENV_FIREFOX)
+    if (pc_env === ENV_FIREFOX && pc.media_direction !== PC_MEDIA_SENDONLY)
 	sdpStr = sdpMap(sdp, true, false);
     else
 	sdpStr = sdp;
@@ -2441,7 +2465,7 @@ function pc_LocalDescription(hnd: number, typePtr: number) {
 
   pc_log(LOG_LEVEL_INFO, `pc_LocalDescription: env=${pc_env}`);
 
-  if (pc_env === ENV_FIREFOX) {
+  if (pc_env === ENV_FIREFOX && pc.media_direction !== PC_MEDIA_SENDONLY) {
       sdpStr = sdp.replace(' UDP/DTLS/SCTP', ' DTLS/SCTP');
       sdpStr = sdpMap(sdpStr, true, false);
   }
@@ -2768,6 +2792,16 @@ function pc_SendCatalog(convid: string, data: string) {
   return true;
 }
 
+function requestPublisherVideoUpdate(pc: PeerConnection) {
+  if (!pc.rtc || pc.closing || !pc.pending_video_track) return;
+  const result = em_module.ccall("pc_video_source_changed_handler", "number",
+                                 ["number"], [pc.self]);
+  if (result < 0) {
+    pc_log(LOG_LEVEL_WARN, `Publisher video source update failed: ${result}`);
+    pc.pending_video_track = undefined;
+  }
+}
+
 function pc_ReplaceTrack(convid: string, newTrack: MediaStreamTrack) {
   const pcs = connectionsStore.getPeerConnectionByConvid(convid);
   if (pcs.length === 0) return;
@@ -2777,7 +2811,15 @@ function pc_ReplaceTrack(convid: string, newTrack: MediaStreamTrack) {
       continue;
     }
 
+    if (pc.media_direction === PC_MEDIA_SENDONLY && newTrack.kind === "video") {
+      if (pc.rtc.getSenders().some(sender => sender.track === newTrack)) continue;
+      if (pc.pending_video_track && pc.pending_video_track !== newTrack)
+        pc.pending_video_track.stop();
+      pc.pending_video_track = newTrack;
+      requestPublisherVideoUpdate(pc);
+    } else if (pc.media_direction !== PC_MEDIA_RECVONLY) {
       replace_track(pc, newTrack);
+    }
   }
 }
 

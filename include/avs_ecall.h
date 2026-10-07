@@ -43,6 +43,8 @@ typedef void (ecall_media_update_h)(struct ecall *ecall, int err,
 				  enum icall_vstate state, void *arg);
 void ecall_set_media_update_handler(struct ecall *ecall,
 				  ecall_media_update_h *handler, void *arg);
+bool ecall_media_update_pending(const struct ecall *ecall);
+int ecall_refresh_video_track(struct ecall *ecall);
 void ecall_abort_media_update(struct ecall *ecall, int err);
 int ecall_add_turnserver(struct ecall *ecall,
 			 struct zapi_ice_server *srv);

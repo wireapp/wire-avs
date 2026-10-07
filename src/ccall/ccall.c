@@ -276,6 +276,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		ccall_state_name(state));
 
 	ccall->state = state;
+	if (state != CCALL_STATE_ACTIVE) ccall->pending_vstate_valid = false;
 
 	if (old_state == CCALL_STATE_IDLE && ccall->ts_start == 0)
 		ccall->ts_start = tmr_jiffies();
@@ -3695,16 +3696,21 @@ int  ccall_set_vstate(struct icall *icall, enum icall_vstate state)
 
 	if (!ccall)
 		return EINVAL;
-	if (ccall->enable_publish_subscribe && ccall->state == CCALL_STATE_ACTIVE &&
-	    state != ccall->vstate) {
+	if (ccall->enable_publish_subscribe && ccall->state == CCALL_STATE_ACTIVE) {
 		if (state != ICALL_VIDEO_STATE_STARTED &&
-		    state != ICALL_VIDEO_STATE_STOPPED)
+		    state != ICALL_VIDEO_STATE_STOPPED &&
+		    state != ICALL_VIDEO_STATE_SCREENSHARE)
 			return ENOTSUP;
 		if (!ccall->publisher_channel_registered)
 			return EAGAIN;
 		if (ccall->transport_handlers.can_updateh) {
 			err = ccall->transport_handlers.can_updateh(ccall,
 				CCALL_ECALL_PUBLISHER, ccall->transport_arg);
+			if (err == EBUSY) {
+				ccall->pending_vstate = state;
+				ccall->pending_vstate_valid = true;
+				return 0;
+			}
 			if (err)
 				return err;
 		}

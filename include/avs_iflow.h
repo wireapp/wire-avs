@@ -130,6 +130,8 @@ typedef void (iflow_restart_h)(struct iflow *flow,
 			       bool force_cbr,
 			       void *arg);
 typedef void (iflow_gather_h)(struct iflow *flow, void *arg);
+typedef int (iflow_video_update_h)(struct iflow *flow, void *arg);
+
 typedef void (iflow_sdp_applied_h)(struct iflow *flow, bool local,
 				 int err, void *arg);
 typedef void (iflow_norelay_h)(struct iflow *flow, bool local, void *arg);
@@ -200,6 +202,7 @@ struct iflow {
 	void				*arg;
 	/* Optional asynchronous SDP result, used by in-place publisher updates. */
 	iflow_sdp_applied_h             *sdp_appliedh;
+	iflow_video_update_h            *video_updateh;
 }__attribute__ ((aligned (8)));
 
 #define IFLOW_CALL(iflow, fn, ...) if(iflow && (iflow)->fn){iflow->fn(iflow, ##__VA_ARGS__);}

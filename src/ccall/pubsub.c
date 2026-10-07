@@ -173,6 +173,7 @@ static void media_update_handler(struct ecall *ecall, int err,
 		struct ccall *ccall = mem_ref(ctx->ccall);
 		const struct userinfo *self = userlist_get_self(ccall->userl);
 		ccall->vstate = state;
+		ccall->pending_vstate_valid = false;
 		if (self)
 			ICALL_CALL_CB(ccall->icall, vstate_changedh, &ccall->icall,
 				self->userid_real, self->clientid_real, state, ccall->icall.arg);
@@ -184,8 +185,17 @@ static void media_update_handler(struct ecall *ecall, int err,
 		mem_deref(ccall);
 		return;
 	}
+	struct ccall *ccall = mem_ref(ctx->ccall);
 	ctx->state.error = err;
 	emit(ctx, CCALL_TRANSPORT_UPDATE_APPLIED);
+	if (current(ecall_get_icall(ecall), ctx) && ccall->state == CCALL_STATE_ACTIVE &&
+	    !ctx->state.error && ccall->pending_vstate_valid) {
+		enum icall_vstate desired = ccall->pending_vstate;
+		ccall->pending_vstate_valid = false;
+		int next_err = ccall_set_vstate(&ccall->icall, desired);
+		if (next_err) warning("ccall: queued video state failed: %m\n", next_err);
+	}
+	mem_deref(ccall);
 }
 
 void ccall_pubsub_release(struct ccall *ccall, enum ccall_ecall_role role)

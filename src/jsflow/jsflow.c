@@ -992,7 +992,7 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 					size_t sz)
 {
 	struct jsflow *jsflow = (struct jsflow*)flow;
-	struct sdp_session *sess;
+	struct sdp_session *sess = NULL;
 	char *sdpstr = NULL;
 	char *modsdp = NULL;
 	size_t len;
@@ -1013,6 +1013,13 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 	isoffer = streq(type, "offer");
 	sdp_check(sdpstr, true, isoffer, local_acbr_handler, NULL, NULL, jsflow);
 	
+	if (jsflow->media_direction == IFLOW_MEDIA_SENDONLY) {
+		err = sdp_publisher_local(&modsdp, sdpstr, jsflow->audio.req_local_cbr);
+		pc_HeapFree(sdpstr);
+		if (err) goto out;
+		goto copy_sdp;
+	}
+
 	sdp_dup(&sess, jsflow->conv_type, sdpstr, true);
 
 	/* We have converted the string to a session now, 
@@ -1038,6 +1045,7 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 			 avs_version_str());	
 
 	modsdp = (char *)sdp_sess2str(sess);
+copy_sdp:
 	len = str_len(modsdp);
 
 	info("jsflow(%p): generate SDP-%s(%zu(%zu) bytes):\n"
@@ -1047,7 +1055,7 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 	     sz,
 	     modsdp);
 
-	if (sz < len) {
+	if (sz <= len) {
 		err = EIO;
 		goto out;
 	}
@@ -1516,6 +1524,20 @@ void pc_local_sdp_handler(int self, int err,
 	isoffer = streq(type, "offer");
 	sdp_check(sdp, true, isoffer, NULL, jf_norelay_handler, NULL, flow);
 	
+	if (flow->media_direction == IFLOW_MEDIA_SENDONLY) {
+		err = sdp_publisher_local((char **)&modsdp, sdp, flow->audio.req_local_cbr);
+		if (err) {
+			tmr_cancel(&flow->tmr_gather);
+			flow->pending_gather = false;
+			flow->gather = false;
+			IFLOW_CALL_CB(flow->iflow, sdp_appliedh, true, err, flow->iflow.arg);
+			return;
+		}
+		pc_SetLocalDescription(flow->handle, type, modsdp);
+		mem_deref((void *)modsdp);
+		return;
+	}
+
 #if MODIFY_SDP
 	/* Modify SDP here */
 	if (isoffer) {
@@ -1543,6 +1565,19 @@ void pc_local_sdp_handler(int self, int err,
 
 	mem_deref(sess);
 	mem_deref((void *)modsdp);
+}
+
+int pc_video_source_changed_handler(int self);
+
+EMSCRIPTEN_KEEPALIVE
+int pc_video_source_changed_handler(int self)
+{
+	struct jsflow *flow = self2pc(self);
+	int err;
+	if (!flow || !flow->iflow.video_updateh) return -EINVAL;
+	err = IFLOW_CALL_CBE(flow->iflow, video_updateh, flow->iflow.arg);
+	/* The JavaScript bridge retains the pending track until another update completes. */
+	return err == EBUSY || err == EAGAIN ? 1 : -err;
 }
 
 void pc_sdp_applied_handler(int self, int local, int err);

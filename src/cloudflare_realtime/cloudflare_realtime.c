@@ -39,6 +39,9 @@ struct cloudflare_realtime {
 	char *publisher_offer_tracks;
 	bool awaiting_update_apply;
 	bool publisher_closing_tracks;
+	bool publisher_force_pending;
+	char *publisher_force_tracks;
+	char *publisher_publish_body;
 	enum econn_msg pending_message[2];
 	char *datachannel_id;
 	cloudflare_realtime_request_h *requesth;
@@ -46,6 +49,9 @@ struct cloudflare_realtime {
 	bool enabled;
 	enum cloudflare_realtime_operation pending[2];
 	bool pending_cancelled[2];
+	uint32_t request_sequence;
+	uint32_t request_id[2];
+	uint64_t request_started[2];
 };
 
 static void request_response(struct cloudflare_realtime *adapter,
@@ -66,6 +72,45 @@ static const char *session_id(const struct cloudflare_realtime *adapter, enum cc
 
 	session = &adapter->bridge->session[role];
 	return session->session_id;
+}
+
+/* Diagnostics only: do not log credentials or full SDP/candidates. */
+static int traced_request(struct cloudflare_realtime *adapter,
+                          enum ccall_ecall_role role,
+                          const char *method, const char *path,
+                          const char *app_id, const char *app_secret,
+                          const char *body,
+                          cloudflare_realtime_response_h *responseh,
+                          void *arg)
+{
+	struct json_object *root = NULL;
+	struct json_object *tracks = NULL;
+	uint32_t id = ++adapter->request_sequence;
+	int err;
+
+	adapter->request_id[role] = id;
+	adapter->request_started[role] = tmr_jiffies();
+	info("cloudflare(%p): request-start id=%u role=%d session=%s method=%s path=%s pending=%d awaiting-sdp=%d time=%llu\n",
+	     adapter, id, role, session_id(adapter, role) ? session_id(adapter, role) : "(new)",
+	     method, path, adapter->pending[role], adapter->awaiting_update_apply,
+	     (unsigned long long)adapter->request_started[role]);
+	if (body && !jzon_decode(&root, body, strlen(body)) &&
+	    !jzon_array(&tracks, root, "tracks")) {
+		int i;
+		for (i = 0; i < json_object_array_length(tracks); ++i) {
+			struct json_object *track = json_object_array_get_idx(tracks, i);
+			const char *mid = jzon_str(track, "mid");
+			const char *name = jzon_str(track, "trackName");
+			info("cloudflare(%p): request-track id=%u mid=%s name=%s\n",
+			     adapter, id, mid ? mid : "(none)", name ? name : "(none)");
+		}
+	}
+	mem_deref(root);
+	err = adapter->requesth(adapter, role, method, path, app_id,
+	                        app_secret, body, responseh, arg);
+	if (err)
+		info("cloudflare(%p): request-dispatch-failed id=%u err=%d\n", adapter, id, err);
+	return err;
 }
 
 static int make_request_body(char **bodyp, bool offer, const char *sdp, const char *tracks_json)
@@ -345,6 +390,31 @@ out:
 	return err;
 }
 
+static int make_force_close_body(char **bodyp, const char *removed)
+{
+	struct json_object *tracks = NULL, *root = jzon_alloc_object();
+	struct json_object *mids = jzon_alloc_array();
+	int err, i;
+	err = root && mids ? jzon_decode(&tracks, removed, strlen(removed)) : ENOMEM;
+	for (i = 0; !err && i < json_object_array_length(tracks); ++i) {
+		struct json_object *track = json_object_array_get_idx(tracks, i);
+		struct json_object *item;
+		if (!streq(jzon_str(track, "kind"), "video")) { err = ENOTSUP; break; }
+		item = jzon_alloc_object();
+		if (!item) { err = ENOMEM; break; }
+		err = jzon_add_str(item, "mid", "%s", jzon_str(json_object_array_get_idx(tracks, i), "mid"));
+		if (!err) err = json_object_array_add(mids, item);
+		if (err) mem_deref(item);
+	}
+	if (!err) {
+		json_object_object_add(root, "tracks", mids); mids = NULL;
+		err = jzon_add_bool(root, "force", true);
+	}
+	if (!err) err = jzon_encode(bodyp, root);
+	mem_deref(root); mem_deref(tracks); mem_deref(mids);
+	return err;
+}
+
 static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_role role, struct econn_message *msg)
 {
 	const char *sid;
@@ -385,13 +455,22 @@ static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_ro
 			all = publisher_tracks;
 			publisher_tracks = NULL;
 			adapter->publisher_closing_tracks = false;
+			adapter->publisher_force_tracks = mem_deref(adapter->publisher_force_tracks);
 			err = new_publisher_tracks(&publisher_tracks, all, adapter->publisher_tracks);
-			if (err == EALREADY) {
+			if (!err) {
+				/* A replacement removes a publication as well as adding one. */
+				int removed_err = new_publisher_tracks(&adapter->publisher_force_tracks,
+					adapter->publisher_tracks, all);
+				if (removed_err != EALREADY) err = removed_err;
+			}
+			else if (err == EALREADY) {
 				err = new_publisher_tracks(&publisher_tracks, adapter->publisher_tracks, all);
 				adapter->publisher_closing_tracks = !err;
 			}
 			if (err) {
 				mem_deref(all);
+				mem_deref(publisher_tracks);
+				adapter->publisher_force_tracks = mem_deref(adapter->publisher_force_tracks);
 				return err;
 			}
 			adapter->publisher_offer_tracks = mem_deref(adapter->publisher_offer_tracks);
@@ -446,12 +525,22 @@ static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_ro
 		if (err) { mem_deref(body); return err; }
 	}
 
+	if (adapter->publisher_force_tracks && role == CCALL_ECALL_PUBLISHER &&
+	    msg->msg_type == ECONN_UPDATE) {
+		adapter->publisher_publish_body = mem_deref(adapter->publisher_publish_body);
+		adapter->publisher_publish_body = body;
+		body = NULL;
+		err = make_force_close_body(&body, adapter->publisher_force_tracks);
+		if (err) return err;
+		adapter->publisher_force_pending = true;
+	}
+
 	if (!sid) {
 		/* The session is created by ECONN_CONF_CONN before SETUP. */
 		return ENOTCONN;
 	}
 	else if (role == CCALL_ECALL_PUBLISHER && msg->msg_type == ECONN_UPDATE &&
-		 adapter->publisher_closing_tracks) {
+		 (adapter->publisher_closing_tracks || adapter->publisher_force_pending)) {
 		method = "PUT";
 		re_snprintf(pathbuf, sizeof(pathbuf), "/sessions/%s/tracks/close", sid);
 	}
@@ -466,7 +555,7 @@ static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_ro
 	adapter->pending[role] = operation;
 	adapter->pending_message[role] = msg->msg_type;
 
-	err = adapter->requesth(adapter, role, method, pathbuf,
+	err = traced_request(adapter, role, method, pathbuf,
 				adapter->app_id, adapter->app_secret, body,
 				request_response, adapter->arg);
 	mem_deref(body);
@@ -517,7 +606,7 @@ int cloudflare_realtime_send_datachannel(
 	re_snprintf(pathbuf, sizeof(pathbuf), "/sessions/%s/datachannels/new", sid);
 	adapter->pending[CCALL_ECALL_PUBLISHER] =
 		CLOUDFLARE_REALTIME_OP_CREATE_DATACHANNEL;
-	err = adapter->requesth(adapter, CCALL_ECALL_PUBLISHER, "POST",
+	err = traced_request(adapter, CCALL_ECALL_PUBLISHER, "POST",
 				pathbuf, adapter->app_id, adapter->app_secret, body,
 				request_response, adapter->arg);
 	if (err)
@@ -546,7 +635,7 @@ int cloudflare_realtime_send_conf_conn(
 		return EBUSY;
 
 	adapter->pending[role] = CLOUDFLARE_REALTIME_OP_CREATE_SESSION;
-	err = adapter->requesth(adapter, role,
+	err = traced_request(adapter, role,
 				"POST", "/sessions/new",
 				adapter->app_id, adapter->app_secret, NULL,
 				request_response, adapter->arg);
@@ -639,12 +728,20 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 		if (role == CCALL_ECALL_PUBLISHER) {
 			adapter->awaiting_update_apply = false;
 			adapter->publisher_offer_tracks = mem_deref(adapter->publisher_offer_tracks);
+			adapter->publisher_force_pending = false;
+			adapter->publisher_force_tracks = mem_deref(adapter->publisher_force_tracks);
+			adapter->publisher_publish_body = mem_deref(adapter->publisher_publish_body);
 			adapter->datachannel_id = mem_deref(adapter->datachannel_id);
 			adapter->publisher_tracks = mem_deref(adapter->publisher_tracks);
 		}
 	}
 	else if (event == CCALL_TRANSPORT_UPDATE_APPLIED && role == CCALL_ECALL_PUBLISHER) {
 		int err = state->error;
+		info("cloudflare(%p): sdp-applied id=%u role=%d session=%s err=%d elapsed=%llu awaiting-sdp=%d\n",
+		     adapter, adapter->request_id[role], role,
+		     session_id(adapter, role) ? session_id(adapter, role) : "(none)",
+		     err, (unsigned long long)(tmr_jiffies() - adapter->request_started[role]),
+		     adapter->awaiting_update_apply);
 		if (!adapter->awaiting_update_apply && !err)
 			return;
 		adapter->awaiting_update_apply = false;
@@ -657,6 +754,9 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 				session_id(adapter, role), adapter->publisher_tracks);
 		}
 		adapter->publisher_offer_tracks = mem_deref(adapter->publisher_offer_tracks);
+		adapter->publisher_force_pending = false;
+		adapter->publisher_force_tracks = mem_deref(adapter->publisher_force_tracks);
+		adapter->publisher_publish_body = mem_deref(adapter->publisher_publish_body);
 		if (err)
 			warning("cloudflare: publisher media update failed: %m\n", err);
 	}
@@ -674,8 +774,8 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 static int can_update(struct ccall *ccall, enum ccall_ecall_role role, void *arg)
 {
 	struct cloudflare_realtime *adapter = arg;
-	(void)ccall;
-	return adapter->pending[role] != CLOUDFLARE_REALTIME_OP_NONE ||
+	return ecall_media_update_pending(ccall_get_ecall(ccall, role)) ||
+		adapter->pending[role] != CLOUDFLARE_REALTIME_OP_NONE ||
 		adapter->awaiting_update_apply ? EBUSY : 0;
 }
 
@@ -791,6 +891,13 @@ int cloudflare_realtime_handle_response(
 	struct econn_message msg;
 	int err;
 
+	if (adapter && valid_role(role))
+		info("cloudflare(%p): http-response id=%u role=%d session=%s status=%d elapsed=%llu pending=%d awaiting-sdp=%d cancelled=%d\n",
+		     adapter, adapter->request_id[role], role,
+		     session_id(adapter, role) ? session_id(adapter, role) : "(new)",
+		     status, (unsigned long long)(tmr_jiffies() - adapter->request_started[role]),
+		     adapter->pending[role], adapter->awaiting_update_apply, adapter->pending_cancelled[role]);
+
 	if (adapter && valid_role(role) && adapter->pending_cancelled[role]) {
 		adapter->pending_cancelled[role] = false;
 		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
@@ -826,6 +933,40 @@ int cloudflare_realtime_handle_response(
 	err = jzon_decode(&root, body, strlen(body));
 	if (err)
 		goto out;
+	if (jzon_str(root, "errorCode")) {
+		err = EPROTO;
+		goto out;
+	}
+
+	if (role == CCALL_ECALL_PUBLISHER && adapter->publisher_force_pending) {
+		struct json_object *expected = NULL, *results = NULL;
+		char path[256], *publish_body;
+		int i, j;
+		err = jzon_array(&results, root, "tracks");
+		if (!err) err = jzon_decode(&expected, adapter->publisher_force_tracks,
+			strlen(adapter->publisher_force_tracks));
+		for (i = 0; !err && i < json_object_array_length(results); ++i)
+			if (jzon_str(json_object_array_get_idx(results, i), "errorCode")) err = EPROTO;
+		for (i = 0; !err && i < json_object_array_length(expected); ++i) {
+			const char *mid = jzon_str(json_object_array_get_idx(expected, i), "mid");
+			bool found = false;
+			for (j = 0; j < json_object_array_length(results); ++j)
+				if (streq(mid, jzon_str(json_object_array_get_idx(results, j), "mid"))) found = true;
+			if (!found) err = EPROTO;
+		}
+		mem_deref(expected);
+		if (err) goto out;
+		adapter->publisher_force_pending = false;
+		adapter->publisher_force_tracks = mem_deref(adapter->publisher_force_tracks);
+		publish_body = adapter->publisher_publish_body;
+		adapter->publisher_publish_body = NULL;
+		re_snprintf(path, sizeof(path), "/sessions/%s/tracks/new", session_id(adapter, role));
+		err = traced_request(adapter, role, "POST", path,
+			adapter->app_id, adapter->app_secret, publish_body,
+			request_response, adapter->arg);
+		mem_deref(publish_body);
+		goto out;
+	}
 
 	if (adapter->pending[role] == CLOUDFLARE_REALTIME_OP_CREATE_SESSION) {
 		sid = jzon_str(root, "sessionId");
@@ -1004,6 +1145,8 @@ void cloudflare_realtime_close(struct cloudflare_realtime *adapter)
 	mem_deref(adapter->api_base);
 	mem_deref(adapter->publisher_tracks);
 	mem_deref(adapter->publisher_offer_tracks);
+	mem_deref(adapter->publisher_force_tracks);
+	mem_deref(adapter->publisher_publish_body);
 	mem_deref(adapter->tracks_json);
 	mem_deref(adapter->datachannel_id);
 	mem_deref(adapter);

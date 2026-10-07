@@ -16,6 +16,9 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+/* Preserve browser SDP structure; adjust only Opus CBR when requested. */
+int sdp_publisher_local(char **result, const char *sdp, bool audio_cbr);
+
 int sdp_dup(struct sdp_session **sessp,
 	    enum icall_conv_type conv_type,
 	    const char *sdp,

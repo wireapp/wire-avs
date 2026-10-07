@@ -31,6 +31,7 @@ TEST_SRCS	+= test_msystem.cpp
 TEST_SRCS	+= test_network.cpp
 TEST_SRCS	+= test_nevent.cpp
 TEST_SRCS	+= test_publisher_update.cpp
+TEST_SRCS	+= test_publisher_sdp.cpp
 TEST_SRCS	+= test_resampler.cpp
 TEST_SRCS	+= test_rest.cpp
 #TEST_SRCS	+= test_sdp.cpp

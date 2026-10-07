@@ -144,6 +144,8 @@ struct ccall {
 
 	enum icall_call_type call_type;
 	enum icall_vstate vstate;
+	bool pending_vstate_valid;
+	enum icall_vstate pending_vstate;
 
 	bool someone_joined;
 	bool someone_left;
