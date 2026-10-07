@@ -269,7 +269,9 @@ pipeline {
 				    	echo "Digging..."
 					dig github.com
 					dig github.com @8.8.8.8
-					cat /etc/resolv.conf
+					cat -A /etc/resolv.conf
+					cat /etc/nsswitch.conf
+					python3 -c 'import socket; print(socket.gethostbyname(\"github.com\"))'
                                         sleep 5
                                         GITHUB_USER=${repoUser} \
                                         GITHUB_TOKEN=${accessToken} \
