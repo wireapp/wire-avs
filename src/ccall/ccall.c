@@ -420,7 +420,7 @@ static void ccall_ongoing_call_timeout(void *arg)
 
 		set_state(ccall, CCALL_STATE_IDLE);
 		ICALL_CALL_CB(ccall->icall, closeh, 
-			      &ccall->icall, 0, &ccall->metrics, ECONN_MESSAGE_TIME_UNKNOWN,
+			      &ccall->icall, 0, &ccall->metrics, time(NULL),
 			      NULL, NULL, ccall->icall.arg);
 	}
 }
@@ -433,7 +433,7 @@ static void ccall_stop_ringing_timeout(void *arg)
 		info("ccall(%p): stop_ringing_timeout\n", ccall);
 		ICALL_CALL_CB(ccall->icall, leaveh,
 			      &ccall->icall, ICALL_REASON_STILL_ONGOING,
-			      ECONN_MESSAGE_TIME_UNKNOWN, ccall->icall.arg);
+                  time(NULL), ccall->icall.arg);
 		ccall->is_ringing = false;
 	}
 }
@@ -465,7 +465,7 @@ static void ccall_sft_reject_timeout(void *arg)
 		}
 		ICALL_CALL_CB(ccall->icall, leaveh,
 			      &ccall->icall, reason,
-			      ECONN_MESSAGE_TIME_UNKNOWN, ccall->icall.arg);
+                  time(NULL), ccall->icall.arg);
 		ecall_end(ccall->ecall);
 	}
 }
@@ -1020,7 +1020,7 @@ static void durterm_timeout_handler(void *arg)
 	set_state(ccall, CCALL_STATE_IDLE);
 	ICALL_CALL_CB(ccall->icall, closeh,
 		      &ccall->icall, ccall->error, &ccall->metrics,
-		      ECONN_MESSAGE_TIME_UNKNOWN,
+              time(NULL),
 		      NULL, NULL, ccall->icall.arg);
 }
 
@@ -3529,13 +3529,15 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		break;
 
 	case CCALL_STATE_INCOMING:
-		if (strcaseeq(userid_sender, self->userid_real) &&
-		    ccall->is_ringing) {
-			tmr_cancel(&ccall->tmr_ring);
-			ICALL_CALL_CB(ccall->icall, leaveh,
-				      &ccall->icall, ICALL_REASON_STILL_ONGOING,
-				      ECONN_MESSAGE_TIME_UNKNOWN, ccall->icall.arg);
-			ccall->is_ringing = false;
+		if (strcaseeq(userid_sender, self->userid_real)) {
+			if (ccall->is_ringing) {
+				ICALL_CALL_CB(ccall->icall, leaveh,
+					      &ccall->icall, ICALL_REASON_ANSWERED_ELSEWHERE,
+					      msg->time, ccall->icall.arg);
+
+				tmr_cancel(&ccall->tmr_ring);
+				ccall->is_ringing = false;
+			}
 		}
 		tmr_cancel(&ccall->tmr_ongoing);
 		tmr_start(&ccall->tmr_ongoing, CCALL_ONGOING_CALL_TIMEOUT,
@@ -3625,7 +3627,7 @@ int  ccall_msg_recv(struct icall* icall,
 				set_state(ccall, CCALL_STATE_IDLE);
 				ICALL_CALL_CB(ccall->icall, closeh, 
 					      &ccall->icall, 0, &ccall->metrics,
-					      ECONN_MESSAGE_TIME_UNKNOWN,
+                          msg_time,
 					      NULL, NULL, ccall->icall.arg);
 			}
 			else {
@@ -3757,7 +3759,7 @@ int  ccall_msg_recv(struct icall* icall,
 				tmr_cancel(&ccall->tmr_ring);
 				ICALL_CALL_CB(ccall->icall, leaveh,
 					      &ccall->icall, ICALL_REASON_STILL_ONGOING,
-					      ECONN_MESSAGE_TIME_UNKNOWN, ccall->icall.arg);
+                          msg_time, ccall->icall.arg);
 				ccall->is_ringing = false;
 			}
 		}
@@ -4130,7 +4132,7 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 		set_state(ccall, CCALL_STATE_IDLE);
 		ICALL_CALL_CB(ccall->icall, leaveh,
 			      &ccall->icall, reason,
-			      ECONN_MESSAGE_TIME_UNKNOWN, ccall->icall.arg);
+                  time(NULL), ccall->icall.arg);
 		break;
 
 	case CCALL_STATE_TERMINATING:
@@ -4144,7 +4146,7 @@ static void ccall_end_with_err(struct ccall *ccall, int err)
 		if (err == EDURATION ) {
 		        ICALL_CALL_CB(ccall->icall, leaveh,
 				      &ccall->icall, ICALL_REASON_DURATION,
-				      ECONN_MESSAGE_TIME_UNKNOWN, ccall->icall.arg);
+                      time(NULL), ccall->icall.arg);
 		}
 		break;
 	}
