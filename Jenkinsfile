@@ -197,8 +197,15 @@ pipeline {
                     expression { return "${branchName}".contains('release') || "${branchName}".contains('main') }
                 }
             }
+	    options {
+	            skipDefaultCheckout()
+            }	    
 
             steps {
+	    	echo "Digging..."
+  		sh 'dig github.com'
+		sh 'dig github.com @8.8.8.8'
+		sh 'cat /etc/resolv.conf'
                 echo "Tag as ${version}"
                 withCredentials([sshUserPrivateKey(credentialsId: 'wire-avs', keyFileVariable: 'sshPrivateKeyPath')]) {
                     sh(
