@@ -265,10 +265,16 @@ static bool snapshot_participant(const char *key, struct json_object *entry,
 {
 	struct snapshot_context *ctx = arg;
 	(void)key;
-	mem_ref(entry);
-	ctx->err = json_object_array_add(ctx->participants, entry);
-	if (ctx->err)
-		mem_deref(entry);
+	struct json_object *copy = NULL;
+	char *json = NULL;
+	ctx->err = jzon_encode(&json, entry);
+	if (!ctx->err)
+		ctx->err = jzon_decode(&copy, json, strlen(json));
+	mem_deref(json);
+	if (!ctx->err)
+		ctx->err = json_object_array_add(ctx->participants, copy);
+	else
+		mem_deref(copy);
 	return ctx->err != 0;
 }
 
@@ -296,6 +302,7 @@ int catalog_encode_snapshot(const struct catalog *catalog, char **jsonp)
 		err = make_entry(catalog, &self);
 		if (err)
 			goto out;
+		jzon_del(catalog->participants, catalog->participant_id);
 		json_object_object_add(catalog->participants,
 				       catalog->participant_id, self);
 	}
@@ -382,8 +389,10 @@ int catalog_apply_message(struct catalog *catalog,
 	{
 		struct json_object *copy = NULL;
 		err = jzon_decode(&copy, encoded, strlen(encoded));
-		if (!err)
+		if (!err) {
+			jzon_del(catalog->participants, pid);
 			json_object_object_add(catalog->participants, pid, copy);
+		}
 	}
 out:
 	mem_deref(encoded);
@@ -517,6 +526,84 @@ int catalog_apply_snapshot(struct catalog *catalog, const char *json,
 		else err = merge_participant(catalog, entry);
 	}
 	mem_deref(root);
+	return err;
+}
+
+int catalog_get_participant(const struct catalog *catalog, const char *participant_id, char **jsonp)
+{
+	struct json_object *entry = NULL;
+	int err;
+	if (!catalog || !participant_id || !jsonp) return EINVAL;
+	err = jzon_object(&entry, catalog->participants, participant_id);
+	return err ? err : jzon_encode(jsonp, entry);
+}
+
+uint32_t catalog_participant_revision(const struct catalog *catalog, const char *participant_id)
+{
+	struct json_object *entry = NULL;
+	int revision = 0;
+	if (catalog && participant_id && !jzon_object(&entry, catalog->participants, participant_id))
+		jzon_int(&revision, entry, "revision");
+	return revision > 0 ? (uint32_t)revision : 0;
+}
+
+int catalog_apply_peer_snapshot(struct catalog *catalog, const char *json,
+                                const char *participant_id, const char *session_id,
+                                catalog_participant_match_h *approved, void *arg)
+{
+	struct json_object *root = NULL, *entries = NULL;
+	int i, err = jzon_decode(&root, json, strlen(json));
+	if (!err && (!streq(jzon_str(root, "catalogId"), catalog->catalog_id) ||
+	    !streq(jzon_str(root, "type"), "conf_catalog"))) err = EINVAL;
+	if (!err) err = jzon_array(&entries, root, "participants");
+	if (!err) {
+		err = ENOENT;
+		for (i = 0; i < json_object_array_length(entries); ++i) {
+			struct json_object *entry = json_object_array_get_idx(entries, i);
+			if (!streq(jzon_str(entry, "participantId"), participant_id)) continue;
+			if (!streq(jzon_str(entry, "publisherSessionId"), session_id)) { err = EINVAL; break; }
+			err = validate_participant(entry, approved, arg);
+			if (!err) err = merge_participant(catalog, entry);
+			break;
+		}
+	}
+	mem_deref(root);
+	return err;
+}
+
+int catalog_apply_peer_sync(struct catalog *catalog, const char *participant_id,
+                            const char *session_id, uint32_t revision, struct json_object *tracks,
+                            catalog_participant_match_h *approved, void *arg)
+{
+	struct json_object *stored = NULL, *entry = NULL;
+	char *json = NULL;
+	int i, err;
+	if (!catalog || !participant_id || !session_id || revision > INT32_MAX) return EINVAL;
+	err = catalog_tracks_validate(tracks);
+	for (i = 0; !err && i < json_object_array_length(tracks); ++i)
+		if (!streq(jzon_str(json_object_array_get_idx(tracks, i), "sessionId"), session_id)) err = EINVAL;
+	if (!err) err = jzon_object(&stored, catalog->participants, participant_id);
+	if (!err && !streq(jzon_str(stored, "publisherSessionId"), session_id)) err = EINVAL;
+	if (!err) err = jzon_encode(&json, stored);
+	if (!err) err = jzon_decode(&entry, json, strlen(json));
+	if (!err) {
+		jzon_del(entry, "revision");
+		err = jzon_add_int(entry, "revision", revision);
+	}
+	if (!err) {
+		struct json_object *copy = NULL;
+		char *encoded = NULL;
+		err = jzon_encode(&encoded, tracks);
+		if (!err) err = jzon_decode(&copy, encoded, strlen(encoded));
+		mem_deref(encoded);
+		if (!err) {
+			jzon_del(entry, "tracks");
+			json_object_object_add(entry, "tracks", copy);
+		}
+	}
+	if (!err) err = validate_participant(entry, approved, arg);
+	if (!err) err = merge_participant(catalog, entry);
+	mem_deref(json); mem_deref(entry);
 	return err;
 }
 

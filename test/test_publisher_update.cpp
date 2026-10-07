@@ -585,7 +585,7 @@ TEST_F(PublisherUpdate, join_negotiates_subscriber_channel_before_hello) {
  EXPECT_EQ(previous + 1, requests.size()); // No further grants or other channel subscriptions.
 }
 
-TEST_F(PublisherUpdate, keyholder_merges_hello_and_broadcasts_current_catalog_without_subscribing) {
+TEST_F(PublisherUpdate, keyholder_subscribes_hello_sender_and_receives_publisher_updates) {
  struct list clients = LIST_INIT;
  auto *client = icall_client_alloc("remote", "two");
  ASSERT_NE(nullptr, client);
@@ -608,10 +608,62 @@ TEST_F(PublisherUpdate, keyholder_merges_hello_and_broadcasts_current_catalog_wi
  EXPECT_NE(std::string::npos, frames.back().find("conf_catalog"));
  EXPECT_NE(std::string::npos, frames.back().find("remote-pub"));
  EXPECT_NE(std::string::npos, frames.back().find("remote.two"));
+ EXPECT_EQ(7u, catalog_participant_revision(call->catalog, "remote.two"));
  fake->api.dce_recvh(&fake->api, reinterpret_cast<const uint8_t *>(wire), strlen(wire), fake->api.arg);
  mem_deref(wire);
  EXPECT_EQ(2u, frames.size()); // Repeat welcome, not a second participant.
- EXPECT_EQ(before, requests.size()); // Keyholder reverse subscriptions are step two.
+ ASSERT_EQ(before + 1, requests.size());
+ EXPECT_EQ(CCALL_ECALL_SUBSCRIBER, requests.back().role);
+ EXPECT_EQ("/sessions/new", requests.back().path);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 201,
+  "{\"sessionId\":\"sub-a\"}"));
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200,
+  "{\"sessionDescription\":{\"type\":\"offer\",\"sdp\":\"v=0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\na=mid:0\\r\\na=sctp-port:5000\\r\\n\"}}"));
+ auto *sub = ccall_get_ecall(call, CCALL_ECALL_SUBSCRIBER);
+ auto *subflow = reinterpret_cast<FakeFlow *>(sub->flow);
+ subflow->api.gatherh(&subflow->api, subflow->api.arg);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{}"));
+ subflow->api.estabh(&subflow->api, "DTLS", "", subflow->api.arg);
+ ASSERT_EQ(before + 4, requests.size());
+ EXPECT_EQ("/sessions/sub-a/datachannels/new", requests.back().path);
+ EXPECT_NE(std::string::npos, requests.back().body.find("remote-pub"));
+ EXPECT_NE(std::string::npos, requests.back().body.find("\"canReply\":false"));
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200,
+  "{\"dataChannels\":[{\"id\":6}]}"));
+ subflow->api.dce_estabh(&subflow->api, subflow->api.arg);
+ auto *user = userlist_find_by_real(call->userl, "remote", "two");
+ ASSERT_NE(nullptr, user);
+ EXPECT_TRUE(user->incall_now);
+ EXPECT_EQ(0u, user->ssrca); // Presence is established without media subscription.
+ econn_message_reset(&msg);
+ ASSERT_EQ(0, catalog_set_publication(remote,
+  "{\"userId\":\"remote\",\"clientId\":\"two\",\"publisherSessionId\":\"remote-pub\",\"tracks\":[{\"sessionId\":\"remote-pub\",\"trackName\":\"mic-b\",\"kind\":\"audio\",\"muted\":true}]}", 8, "reachable"));
+ ASSERT_EQ(0, econn_message_init(&msg, ECONN_CONF_CATALOG, "remote-session"));
+ str_ncpy(msg.src_userid, user->userid_hash, ECONN_ID_LEN);
+ str_ncpy(msg.src_clientid, user->clientid_hash, ECONN_ID_LEN);
+ ASSERT_EQ(0, catalog_encode_snapshot(remote, &msg.u.catalog.json));
+ wire = NULL;
+ ASSERT_EQ(0, econn_message_encode(&wire, &msg));
+ subflow->api.dce_recvh(&subflow->api, reinterpret_cast<const uint8_t *>(wire), strlen(wire), subflow->api.arg);
+ mem_deref(wire);
+ EXPECT_EQ(8u, catalog_participant_revision(call->catalog, "remote.two"));
+ EXPECT_TRUE(user->muted);
+ econn_message_reset(&msg);
+ ASSERT_EQ(0, econn_message_init(&msg, ECONN_CATALOG_SYNC, "remote-session"));
+ str_ncpy(msg.src_userid, user->userid_hash, ECONN_ID_LEN);
+ str_ncpy(msg.src_clientid, user->clientid_hash, ECONN_ID_LEN);
+ msg.u.catalogsync.revision = 9;
+ const char *tracks = "[{\"sessionId\":\"remote-pub\",\"trackName\":\"mic-b\",\"kind\":\"audio\",\"muted\":false}]";
+ ASSERT_EQ(0, jzon_decode(&msg.u.catalogsync.tracks, tracks, strlen(tracks)));
+ wire = NULL;
+ ASSERT_EQ(0, econn_message_encode(&wire, &msg));
+ subflow->api.dce_recvh(&subflow->api, reinterpret_cast<const uint8_t *>(wire), strlen(wire), subflow->api.arg);
+ EXPECT_EQ(9u, catalog_participant_revision(call->catalog, "remote.two"));
+ EXPECT_FALSE(user->muted);
+ const size_t updates = frames.size();
+ subflow->api.dce_recvh(&subflow->api, reinterpret_cast<const uint8_t *>(wire), strlen(wire), subflow->api.arg);
+ EXPECT_EQ(updates, frames.size()); // Same revision must not rebroadcast in a loop.
+ mem_deref(wire);
  econn_message_reset(&msg);
  catalog_close(remote);
 }

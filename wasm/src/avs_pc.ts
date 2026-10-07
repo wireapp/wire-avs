@@ -84,6 +84,7 @@ interface PeerConnection {
   closing: boolean;
   ignoredDataChannels: {[hnd: number]: boolean};
   applicationDcHnd: number;
+  dataChannelHandles?: number[];
 }
 
 const ENV_FIREFOX = 1;
@@ -1396,8 +1397,11 @@ function connectionHandler(pc: PeerConnection) {
 
 function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   const dcHnd = connectionsStore.storeDataChannel(dc);
+  if (!pc.dataChannelHandles) pc.dataChannelHandles = [];
+  pc.dataChannelHandles.push(dcHnd);
   const isCatalog = dc.label === CATALOG_DATA_CHANNEL_LABEL;
   const isServerEvents = dc.label === "server-events";
+  const isPeerChannel = dc.label.indexOf("calling-3.0/") === 0;
 
   if (isCatalog) {
     pc.catalogDc = dc;
@@ -1420,6 +1424,10 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   dc.onclose = () => {
     pc_log(LOG_LEVEL_INFO, "dc-closed");
     if (pc.closing || pc.ignoredDataChannels[dcHnd]) return;
+    if (isPeerChannel) {
+      pc_log(LOG_LEVEL_INFO, `cloudflare: peer-channel closed label=${dc.label}`);
+      return;
+    }
     if (isServerEvents) {
       pc_log(LOG_LEVEL_INFO, "cloudflare: server-events closed");
       return;
@@ -1433,6 +1441,10 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   };
   dc.onerror = event => {
     if (pc.closing || pc.ignoredDataChannels[dcHnd]) return;
+    if (isPeerChannel) {
+      pc_log(LOG_LEVEL_WARN, `cloudflare: peer-channel error label=${dc.label}`);
+      return;
+    }
     if (isServerEvents) {
       pc_log(LOG_LEVEL_WARN, "cloudflare: server-events error");
       return;
@@ -1664,6 +1676,14 @@ function pc_Close(hnd: number) {
         }
       }
     });
+  }
+  if (pc.dataChannelHandles) {
+    pc.dataChannelHandles.forEach(handle => {
+      const dc = connectionsStore.getDataChannel(handle);
+      if (dc) dc.close();
+      connectionsStore.removeDataChannel(handle);
+    });
+    pc.dataChannelHandles = [];
   }
   worker.postMessage({op: 'destroy', self: pc.self});
 
@@ -2657,15 +2677,17 @@ function pc_CreateNegotiatedDataChannel(hnd: number, labelPtr: number, channelId
   const pc = connectionsStore.getPeerConnection(hnd);
   if (pc == null || pc.rtc == null || channelId < 0) return 0;
   const label = em_module.UTF8ToString(labelPtr);
-  if (pc.applicationDcHnd > 0) {
+  const additional = label.indexOf("calling-3.0/") === 0;
+  if (!additional && pc.applicationDcHnd > 0) {
     pc.ignoredDataChannels[pc.applicationDcHnd] = true;
     const oldDc = connectionsStore.getDataChannel(pc.applicationDcHnd);
     if (oldDc != null) oldDc.close();
   }
   const dc = pc.rtc.createDataChannel(label, { negotiated: true, id: channelId });
   if (dc == null) return 0;
-  pc.applicationDcHnd = setupDataChannel(pc, dc);
-  return pc.applicationDcHnd;
+  const dcHnd = setupDataChannel(pc, dc);
+  if (!additional || pc.applicationDcHnd === 0) pc.applicationDcHnd = dcHnd;
+  return dcHnd;
 }
 
 function pc_DataChannelId(hnd: number) {

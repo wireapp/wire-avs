@@ -599,3 +599,9 @@ struct odict *jzon_get_odict(struct json_object *jobj)
 
 	return jobj->entry.u.odict;
 }
+
+void jzon_del(struct json_object *obj, const char *key)
+{
+	if (obj && key && jzon_is_object(obj))
+		odict_entry_del(jzon_odict(obj), key);
+}

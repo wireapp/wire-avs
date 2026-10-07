@@ -321,13 +321,15 @@ static int jsflow_dce_create(struct iflow *flow, const char *label,
 	if (jsflow->handle == PC_INVALID_HANDLE ||
 	    !pc_CreateNegotiatedDataChannel)
 		return ENOTSUP;
-	if (jsflow->dc.handle != PC_INVALID_HANDLE)
+	bool additional = strncmp(label, "calling-3.0/", 12) == 0;
+	if (!additional && jsflow->dc.handle != PC_INVALID_HANDLE)
 		pc_DataChannelClose(jsflow->dc.handle);
 	handle = pc_CreateNegotiatedDataChannel(jsflow->handle, label,
 							 channel_id);
 	if (handle == PC_INVALID_HANDLE)
 		return ENOMEM;
-	jsflow->dc.handle = handle;
+	if (!additional || jsflow->dc.handle == PC_INVALID_HANDLE)
+		jsflow->dc.handle = handle;
 	return 0;
 }
 

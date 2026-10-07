@@ -39,6 +39,13 @@ struct cloudflare_retry {
 	unsigned attempt;
 };
 
+struct cloudflare_peer_channel {
+	struct le le;
+	char *participant_id;
+	char *session_id;
+	bool ready;
+};
+
 struct cloudflare_realtime {
 	struct ccall *ccall;
 	struct realtime_bridge *bridge;
@@ -69,6 +76,8 @@ struct cloudflare_realtime {
 	bool subscriber_answer_accepted;
 	bool subscriber_channel_registered;
 	char *joined_keyholder;
+	struct list peer_channels;
+	struct cloudflare_peer_channel *peer_opening;
 };
 
 static void request_response(struct cloudflare_realtime *adapter,
@@ -181,6 +190,7 @@ static int traced_request(struct cloudflare_realtime *adapter,
 }
 
 static int join_progress(struct cloudflare_realtime *adapter);
+static int peer_progress(struct cloudflare_realtime *adapter);
 static int send_catalog(struct cloudflare_realtime *adapter, enum ccall_ecall_role role, bool hello)
 {
 	struct ccall *ccall = adapter->ccall;
@@ -190,6 +200,11 @@ static int send_catalog(struct cloudflare_realtime *adapter, enum ccall_ecall_ro
 	if (!ccall->catalog_complete || !ecall || !ecall_get_econn(ecall)) return EAGAIN;
 	err = econn_message_init(&msg, ECONN_CONF_CATALOG, econn_sessid_local(ecall_get_econn(ecall)));
 	if (err) return err;
+	const struct userinfo *self = userlist_get_self(ccall->userl);
+	if (self) {
+		str_ncpy(msg.src_userid, self->userid_hash, ECONN_ID_LEN);
+		str_ncpy(msg.src_clientid, self->clientid_hash, ECONN_ID_LEN);
+	}
 	err = hello ? catalog_encode_hello(ccall->catalog, ccall->participant_id, &msg.u.catalog.json)
 	            : catalog_encode_snapshot(ccall->catalog, &msg.u.catalog.json);
 	if (!err) err = ecall_dce_sendmsg(ecall, &msg);
@@ -203,7 +218,7 @@ static int channel_request(struct cloudflare_realtime *adapter, bool update)
 	char *body = NULL;
 	char path[256];
 	int err;
-	const char *target = adapter->joined_keyholder;
+	const char *target = adapter->peer_opening ? adapter->peer_opening->session_id : adapter->joined_keyholder;
 	if (!target) return EINVAL;
 	struct json_object *root = jzon_alloc_object(), *channels = jzon_alloc_array(), *channel = jzon_alloc_object();
 	if (!root || !channels || !channel) {
@@ -213,7 +228,7 @@ static int channel_request(struct cloudflare_realtime *adapter, bool update)
 	err = jzon_add_str(channel, "location", "remote");
 	if (!err) err = jzon_add_str(channel, "sessionId", "%s", target);
 	if (!err) err = jzon_add_str(channel, "dataChannelName", "calling-3.0");
-	if (!err) err = jzon_add_bool(channel, "canReply", true);
+	if (!err) err = jzon_add_bool(channel, "canReply", adapter->peer_opening == NULL);
 	if (!err) {
 		json_object_array_add(channels, channel); channel = NULL;
 		json_object_object_add(root, "dataChannels", channels); channels = NULL;
@@ -247,7 +262,7 @@ static void join_timeout(void *arg)
 
 static void hello_send(struct cloudflare_realtime *adapter)
 {
-	if (adapter->ccall->catalog_join_confirmed || !adapter->subscriber_channel_registered) return;
+	if (!adapter->joined_keyholder || adapter->ccall->catalog_join_confirmed || !adapter->subscriber_channel_registered) return;
 	if (!adapter->ccall->transport[1].state.data_ready) return;
 	send_catalog(adapter, CCALL_ECALL_SUBSCRIBER, true);
 	tmr_start(&adapter->join_timer, 1000 + rand_u16() % 1000, join_timeout, adapter);
@@ -269,6 +284,158 @@ static int join_progress(struct cloudflare_realtime *adapter)
 	return err;
 }
 
+static void peer_destroy(void *arg)
+{
+	struct cloudflare_peer_channel *peer = arg;
+	list_unlink(&peer->le);
+	mem_deref(peer->participant_id);
+	mem_deref(peer->session_id);
+}
+
+static int peer_progress(struct cloudflare_realtime *adapter)
+{
+	struct le *le;
+	int err;
+	if (adapter->peer_opening || adapter->pending[1] != CLOUDFLARE_REALTIME_OP_NONE ||
+	    adapter->ccall->transport_ending) return 0;
+	LIST_FOREACH(&adapter->peer_channels, le) {
+		struct cloudflare_peer_channel *peer = le->data;
+		if (peer->ready) continue;
+		if (!session_id(adapter, CCALL_ECALL_SUBSCRIBER)) {
+			adapter->pending[1] = CLOUDFLARE_REALTIME_OP_CREATE_SESSION;
+			err = traced_request(adapter, CCALL_ECALL_SUBSCRIBER, "POST", "/sessions/new",
+				adapter->app_id, adapter->app_secret, NULL, request_response, adapter->arg);
+			if (err) adapter->pending[1] = CLOUDFLARE_REALTIME_OP_NONE;
+			return err;
+		}
+		if (!adapter->subscriber_answer_accepted || !adapter->ccall->transport[1].state.media_ready) return 0;
+		adapter->peer_opening = peer;
+		err = channel_request(adapter, false);
+		if (err) adapter->peer_opening = NULL;
+		return err;
+	}
+	return 0;
+}
+
+static int peer_enqueue(struct cloudflare_realtime *adapter, struct json_object *root)
+{
+	struct json_object *entry = NULL;
+	struct cloudflare_peer_channel *peer;
+	struct le *le;
+	int err = jzon_object(&entry, root, "participant");
+	if (err) return err;
+	const char *pid = jzon_str(entry, "participantId"), *sid = jzon_str(entry, "publisherSessionId");
+	if (!pid || !sid) return EINVAL;
+	if (streq(pid, adapter->ccall->participant_id)) return 0;
+	LIST_FOREACH(&adapter->peer_channels, le) {
+		peer = le->data;
+		if (streq(peer->participant_id, pid) && streq(peer->session_id, sid)) return 0;
+	}
+	peer = mem_zalloc(sizeof(*peer), peer_destroy);
+	if (!peer) return ENOMEM;
+	err = str_dup(&peer->participant_id, pid);
+	if (!err) err = str_dup(&peer->session_id, sid);
+	if (err) { mem_deref(peer); return err; }
+	list_append(&adapter->peer_channels, &peer->le, peer);
+	info("cloudflare: peer-channel queued participant=%s session=%s\n", pid, sid);
+	return peer_progress(adapter);
+}
+
+static void peer_refresh_user(struct cloudflare_realtime *adapter, struct cloudflare_peer_channel *peer)
+{
+	char *json = NULL;
+	struct json_object *entry = NULL, *tracks = NULL;
+	struct userinfo *user;
+	if (catalog_get_participant(adapter->ccall->catalog, peer->participant_id, &json)) return;
+	if (jzon_decode(&entry, json, strlen(json))) { mem_deref(json); return; }
+	user = userlist_find_by_real(adapter->ccall->userl, jzon_str(entry, "userId"), jzon_str(entry, "clientId"));
+	if (user && user->se_approved && peer->ready) {
+		user->incall_now = true;
+		user->video_state = ICALL_VIDEO_STATE_STOPPED;
+		if (!jzon_array(&tracks, entry, "tracks")) {
+			int i;
+			for (i = 0; i < json_object_array_length(tracks); ++i) {
+				struct json_object *track = json_object_array_get_idx(tracks, i);
+				if (streq(jzon_str(track, "kind"), "audio")) jzon_bool(&user->muted, track, "muted");
+				else if (streq(jzon_str(track, "kind"), "video"))
+					user->video_state = streq(jzon_str(track, "source"), "screen")
+						? ICALL_VIDEO_STATE_SCREENSHARE : ICALL_VIDEO_STATE_STARTED;
+			}
+		}
+	}
+	mem_deref(entry); mem_deref(json);
+}
+
+static int peer_request_catalog(struct cloudflare_realtime *adapter, struct cloudflare_peer_channel *peer)
+{
+	struct ccall *ccall = adapter->ccall;
+	struct ecall *publisher = ccall->ecall;
+	struct json_object *root = jzon_alloc_object();
+	struct econn_message msg;
+	int err;
+	if (!root) return ENOMEM;
+	if (!publisher || !ecall_get_econn(publisher)) { mem_deref(root); return EAGAIN; }
+	err = econn_message_init(&msg, ECONN_CONF_CATALOG, econn_sessid_local(ecall_get_econn(publisher)));
+	if (err) { mem_deref(root); return err; }
+	jzon_add_str(root, "type", "catalog_request");
+	jzon_add_str(root, "catalogId", "%s", ccall->convid_real);
+	jzon_add_str(root, "participantId", "%s", peer->participant_id);
+	jzon_add_str(root, "publisherSessionId", "%s", peer->session_id);
+	err = jzon_encode(&msg.u.catalog.json, root);
+	if (!err) err = ecall_dce_sendmsg(publisher, &msg);
+	info("cloudflare: peer-catalog requested participant=%s err=%d\n", peer->participant_id, err);
+	econn_message_reset(&msg);
+	mem_deref(root);
+	return err;
+}
+
+static bool catalog_request_received(struct cloudflare_realtime *adapter, const struct econn_message *msg)
+{
+	struct json_object *root = NULL;
+	struct ccall *ccall = adapter->ccall;
+	if (msg->msg_type != ECONN_CONF_CATALOG || !msg->u.catalog.json ||
+	    jzon_decode(&root, msg->u.catalog.json, strlen(msg->u.catalog.json))) return false;
+	bool request = streq(jzon_str(root, "type"), "catalog_request");
+	if (request && streq(jzon_str(root, "catalogId"), ccall->convid_real) &&
+	    streq(jzon_str(root, "participantId"), ccall->participant_id) &&
+	    streq(jzon_str(root, "publisherSessionId"), ccall->catalog_session))
+		send_catalog(adapter, CCALL_ECALL_PUBLISHER, false);
+	mem_deref(root);
+	return request;
+}
+
+static void peer_opened(struct cloudflare_realtime *adapter)
+{
+	struct cloudflare_peer_channel *peer = adapter->peer_opening;
+	if (!peer || adapter->pending[1] != CLOUDFLARE_REALTIME_OP_NONE) return;
+	peer->ready = true;
+	adapter->peer_opening = NULL;
+	/* Presence does not imply a subscribed audio/video track. */
+	peer_refresh_user(adapter, peer);
+	peer_request_catalog(adapter, peer);
+	info("cloudflare: peer-channel ready participant=%s session=%s\n", peer->participant_id, peer->session_id);
+	struct ccall *ccall = mem_ref(adapter->ccall);
+	peer_progress(adapter);
+	ICALL_CALL_CB(ccall->icall, group_changedh, &ccall->icall, ccall->icall.arg);
+	mem_deref(ccall);
+}
+
+static struct cloudflare_peer_channel *peer_sender(struct cloudflare_realtime *adapter,
+                                                   const struct econn_message *msg)
+{
+	struct userinfo *user = userlist_find_by_hash(adapter->ccall->userl, msg->src_userid, msg->src_clientid);
+	struct le *le;
+	char *pid = NULL;
+	struct cloudflare_peer_channel *found = NULL;
+	if (!user || re_sdprintf(&pid, "%s.%s", user->userid_real, user->clientid_real)) return NULL;
+	LIST_FOREACH(&adapter->peer_channels, le) {
+		struct cloudflare_peer_channel *peer = le->data;
+		if (peer->ready && streq(peer->participant_id, pid)) found = peer;
+	}
+	mem_deref(pid);
+	return found;
+}
+
 static void catalog_message(struct ccall *ccall, enum ccall_ecall_role role,
                             const struct econn_message *msg, void *arg)
 {
@@ -276,7 +443,28 @@ static void catalog_message(struct ccall *ccall, enum ccall_ecall_role role,
 	struct json_object *root = NULL;
 	const char *type;
 	int err;
-	if (msg->msg_type != ECONN_CONF_CATALOG || !msg->u.catalog.json || !ccall->catalog_complete) return;
+	if (!ccall->catalog_complete) return;
+	if (catalog_request_received(adapter, msg)) return;
+	if (role == CCALL_ECALL_SUBSCRIBER && !adapter->joined_keyholder) {
+		struct cloudflare_peer_channel *peer = peer_sender(adapter, msg);
+		if (!peer) return;
+		uint32_t before = catalog_participant_revision(ccall->catalog, peer->participant_id);
+		if (msg->msg_type == ECONN_CONF_CATALOG && msg->u.catalog.json)
+			err = catalog_apply_peer_snapshot(ccall->catalog, msg->u.catalog.json,
+				peer->participant_id, peer->session_id, ccall_catalog_participant_approved, ccall);
+		else if (msg->msg_type == ECONN_CATALOG_SYNC)
+			err = catalog_apply_peer_sync(ccall->catalog, peer->participant_id, peer->session_id,
+				msg->u.catalogsync.revision, msg->u.catalogsync.tracks, ccall_catalog_participant_approved, ccall);
+		else return;
+		if (!err && catalog_participant_revision(ccall->catalog, peer->participant_id) == before) return;
+		if (!err) peer_refresh_user(adapter, peer);
+		if (!err) err = ccall_catalog_refresh(ccall);
+		if (!err) err = send_catalog(adapter, CCALL_ECALL_PUBLISHER, false);
+		info("cloudflare: peer-catalog update participant=%s err=%d\n", peer->participant_id, err);
+		ICALL_CALL_CB(ccall->icall, group_changedh, &ccall->icall, ccall->icall.arg);
+		return;
+	}
+	if (msg->msg_type != ECONN_CONF_CATALOG || !msg->u.catalog.json) return;
 	err = jzon_decode(&root, msg->u.catalog.json, strlen(msg->u.catalog.json));
 	if (err) return;
 	type = jzon_str(root, "type");
@@ -284,6 +472,7 @@ static void catalog_message(struct ccall *ccall, enum ccall_ecall_role role,
 		err = catalog_apply_hello(ccall->catalog, msg->u.catalog.json, ccall_catalog_participant_approved, ccall);
 		if (!err) err = ccall_catalog_refresh(ccall);
 		if (!err) err = send_catalog(adapter, CCALL_ECALL_PUBLISHER, false);
+		if (!err) err = peer_enqueue(adapter, root);
 	}
 	else if (role == CCALL_ECALL_SUBSCRIBER && streq(type, "conf_catalog")) {
 		bool confirmed = false;
@@ -915,6 +1104,8 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 
 	if (event == CCALL_TRANSPORT_CLOSED) {
 		tmr_cancel(&adapter->join_timer);
+		adapter->peer_opening = NULL;
+		list_flush(&adapter->peer_channels);
 		adapter->joined_keyholder = mem_deref(adapter->joined_keyholder);
 		adapter->subscriber_channel_registered = false;
 		adapter->subscriber_negotiated = false;
@@ -964,10 +1155,12 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 	else if (event == CCALL_TRANSPORT_MEDIA_READY && role == CCALL_ECALL_SUBSCRIBER &&
 	         adapter->subscriber_answer_accepted && !adapter->subscriber_channel_registered &&
 	         adapter->pending[role] == CLOUDFLARE_REALTIME_OP_NONE) {
-		channel_request(adapter, false);
+		if (adapter->joined_keyholder) channel_request(adapter, false);
+		else peer_progress(adapter);
 	}
 	else if (event == CCALL_TRANSPORT_DATA_READY && role == CCALL_ECALL_SUBSCRIBER) {
-		hello_send(adapter);
+		if (adapter->peer_opening) peer_opened(adapter);
+		else hello_send(adapter);
 	}
 	else if (event == CCALL_TRANSPORT_CATALOG_READY ||
 	         (event == CCALL_TRANSPORT_MEDIA_READY && role == CCALL_ECALL_PUBLISHER)) {
@@ -1308,7 +1501,7 @@ int cloudflare_realtime_handle_response(
 		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
 		adapter->subscriber_answer_accepted = true;
 		if (adapter->ccall->transport[role].state.media_ready)
-			err = channel_request(adapter, false);
+			err = adapter->joined_keyholder ? channel_request(adapter, false) : peer_progress(adapter);
 		goto out;
 	}
 	if (role == CCALL_ECALL_SUBSCRIBER &&
@@ -1328,9 +1521,12 @@ int cloudflare_realtime_handle_response(
 			/* Readiness of the reserved transport channel does not mean
 			 * the new application channel is open. */
 			adapter->ccall->transport[role].state.data_ready = false;
-			err = ecall_dce_create(ccall_get_ecall(adapter->ccall, role), "calling-3.0", id);
+			char label[128];
+			re_snprintf(label, sizeof(label), adapter->peer_opening ? "calling-3.0/%s" : "calling-3.0",
+			            adapter->peer_opening ? adapter->peer_opening->session_id : "");
+			err = ecall_dce_create(ccall_get_ecall(adapter->ccall, role), label, id);
 		}
-		if (!err) hello_send(adapter);
+		if (!err && !adapter->peer_opening) hello_send(adapter);
 		else if (grant) tmr_start(&adapter->join_timer, 1000 + rand_u16() % 1000, join_timeout, adapter);
 		goto out;
 	}
@@ -1462,6 +1658,8 @@ void cloudflare_realtime_close(struct cloudflare_realtime *adapter)
 		return;
 
 	tmr_cancel(&adapter->join_timer);
+	adapter->peer_opening = NULL;
+	list_flush(&adapter->peer_channels);
 	mem_deref(adapter->joined_keyholder);
 	retry_clear(&adapter->retry[0]);
 	retry_clear(&adapter->retry[1]);

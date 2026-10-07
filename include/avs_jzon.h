@@ -27,6 +27,8 @@ struct json_object;
 typedef bool (jzon_apply_h)(const char *key, struct json_object *jobj,
 			    void *arg);
 
+void jzon_del(struct json_object *obj, const char *key);
+
 struct json_object *jzon_alloc_object(void);
 struct json_object *jzon_alloc_array(void);
 

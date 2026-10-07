@@ -61,6 +61,14 @@ typedef bool (catalog_participant_match_h)(const char *userid,
 bool catalog_participants_match(const struct catalog *catalog,
 				catalog_participant_match_h *matchh, void *arg);
 
+int catalog_get_participant(const struct catalog *catalog, const char *participant_id, char **jsonp);
+uint32_t catalog_participant_revision(const struct catalog *catalog, const char *participant_id);
+int catalog_apply_peer_snapshot(struct catalog *catalog, const char *json,
+	const char *participant_id, const char *session_id,
+	catalog_participant_match_h *approved, void *arg);
+int catalog_apply_peer_sync(struct catalog *catalog, const char *participant_id,
+	const char *session_id, uint32_t revision, struct json_object *tracks,
+	catalog_participant_match_h *approved, void *arg);
 int catalog_find_session(const char *json, const char *userid, const char *clientid, char **sessionp);
 int catalog_apply_snapshot(struct catalog *catalog, const char *json,
 	catalog_participant_match_h *approved, void *arg, bool *self_confirmed);

@@ -7,7 +7,7 @@ const ts = require('../../build/dist/wasm/node_modules/typescript');
 const {test} = require('node:test');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../src/avs_pc.ts'), 'utf8');
 const ast = ts.createSourceFile('avs_pc.ts', source, ts.ScriptTarget.Latest, true);
-const names = ['setupDataChannel', 'dataChannelHandler', 'pc_ReplaceTrack', 'requestPublisherVideoUpdate', 'createSdp', 'sdpMap', 'discardPublisherVideo', 'preparePublisherTracks', 'pc_SetRemoteDescription', 'pc_SetLocalDescription', 'gatheringComplete'];
+const names = ['pc_Close', 'pc_CreateNegotiatedDataChannel', 'setupDataChannel', 'dataChannelHandler', 'pc_ReplaceTrack', 'requestPublisherVideoUpdate', 'createSdp', 'sdpMap', 'discardPublisherVideo', 'preparePublisherTracks', 'pc_SetRemoteDescription', 'pc_SetLocalDescription', 'gatheringComplete'];
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) &&
   node.name && names.includes(node.name.text)).map(node => node.getText(ast)).join('\n');
 assert.equal(ast.statements.filter(node => ts.isFunctionDeclaration(node) &&
@@ -327,4 +327,73 @@ test('reserved server-events channel never reaches ECall message or lifecycle ha
   dc.onerror({});
   dc.onclose();
   assert.equal(callbacks, 0);
+});
+
+
+test('additional peer channels preserve existing subscriptions and forward messages', () => {
+  let closed = 0, stateChanges = 0;
+  const received = [];
+  const old = {close: () => ++closed};
+  const pc = {self: 1, applicationDcHnd: 1, closing: false, ignoredDataChannels: {},
+    rtc: {createDataChannel: (label, options) => ({label, id: options.id})}};
+  const channels = [];
+  const ctx = runtime({
+    CATALOG_DATA_CHANNEL_LABEL: 'catalog', DC_STATE_OPEN: 1, LOG_LEVEL_WARN: 2,
+    em_module: {UTF8ToString: () => 'calling-3.0/peer-b'},
+    connectionsStore: {getPeerConnection: () => pc, getDataChannel: () => old,
+      storeDataChannel: dc => {channels.push(dc); return 2;}},
+    ccallDcStateChangeHandler: () => ++stateChanges,
+    ccallDcDataHandler: (_, data) => received.push(data),
+  });
+  assert.equal(ctx.pc_CreateNegotiatedDataChannel(1, 1, 6), 2);
+  assert.equal(closed, 0);
+  assert.equal(pc.applicationDcHnd, 1);
+  channels[0].onopen();
+  channels[0].onmessage({data: 'peer-message'});
+  channels[0].onclose();
+  channels[0].onerror({});
+  assert.equal(stateChanges, 1);
+  assert.deepEqual(received, ['peer-message']);
+});
+
+test('primary negotiated channel still replaces its provisional predecessor', () => {
+  let closed = 0;
+  const pc = {self: 1, applicationDcHnd: 1, closing: false, ignoredDataChannels: {},
+    rtc: {createDataChannel: label => ({label})}};
+  const ctx = runtime({
+    CATALOG_DATA_CHANNEL_LABEL: 'catalog',
+    em_module: {UTF8ToString: () => 'calling-3.0'},
+    connectionsStore: {getPeerConnection: () => pc,
+      getDataChannel: () => ({close: () => ++closed}), storeDataChannel: () => 2},
+  });
+  assert.equal(ctx.pc_CreateNegotiatedDataChannel(1, 1, 2), 2);
+  assert.equal(closed, 1);
+  assert.equal(pc.applicationDcHnd, 2);
+  assert.equal(pc.ignoredDataChannels[1], true);
+});
+
+
+test('closing the owner releases every subscribed channel and suppresses late callbacks', () => {
+  const closed = [], removed = [];
+  let callbacks = 0, rtcClosed = 0;
+  const pc = {self: 1, convid: 'call', applicationDcHnd: 1, closing: false,
+    ignoredDataChannels: {}, rtc: {getTransceivers: () => [], close: () => ++rtcClosed}};
+  const channels = new Map();
+  const ctx = runtime({
+    CATALOG_DATA_CHANNEL_LABEL: 'catalog',
+    connectionsStore: {storeDataChannel: dc => {const id = channels.size + 1; channels.set(id, dc); return id;},
+      getPeerConnection: () => pc, getDataChannel: id => channels.get(id),
+      removeDataChannel: id => removed.push(id), removePeerConnection: () => {}},
+    worker: {postMessage: () => {}},
+    ccallDcStateChangeHandler: () => ++callbacks,
+  });
+  for (const label of ['calling-3.0/peer-b', 'calling-3.0/peer-c']) {
+    const dc = {label, close: () => {closed.push(label); dc.onclose();}};
+    ctx.setupDataChannel(pc, dc);
+  }
+  ctx.pc_Close(1);
+  assert.equal(closed.length, 2);
+  assert.deepEqual(removed, [1, 2]);
+  assert.equal(callbacks, 0);
+  assert.equal(rtcClosed, 1);
 });

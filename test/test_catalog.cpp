@@ -111,3 +111,36 @@ TEST(catalog, hello_merges_idempotently_and_snapshot_confirms_own_revision) {
  mem_deref(sid); mem_deref(hello); mem_deref(snapshot);
  catalog_close(a); catalog_close(b);
 }
+
+TEST(catalog, snapshots_preserve_entries_and_peer_updates_replace_revision) {
+ struct catalog *a = NULL, *b = NULL;
+ ASSERT_EQ(0, catalog_alloc(&a, "call", "self.one"));
+ ASSERT_EQ(0, catalog_alloc(&b, "call", "remote.two"));
+ ASSERT_EQ(0, catalog_set_publication(a, "{\"userId\":\"self\",\"clientId\":\"one\",\"publisherSessionId\":\"pub-a\",\"tracks\":[]}", 1, "reachable"));
+ const char *publication = "{\"userId\":\"remote\",\"clientId\":\"two\",\"publisherSessionId\":\"pub-b\",\"tracks\":[]}";
+ ASSERT_EQ(0, catalog_set_publication(b, publication, 2, "reachable"));
+ struct approved approved = {true};
+ char *json = NULL;
+ ASSERT_EQ(0, catalog_encode_hello(b, "join", &json));
+ ASSERT_EQ(0, catalog_apply_hello(a, json, match, &approved));
+ mem_deref(json); json = NULL;
+ for (unsigned i = 0; i < 3; ++i) {
+  ASSERT_EQ(0, catalog_encode_snapshot(a, &json));
+  EXPECT_EQ(2u, catalog_participant_revision(a, "remote.two"));
+  mem_deref(json); json = NULL;
+ }
+ ASSERT_EQ(0, catalog_set_publication(b, publication, 3, "reachable"));
+ ASSERT_EQ(0, catalog_encode_snapshot(b, &json));
+ EXPECT_EQ(EINVAL, catalog_apply_peer_snapshot(a, json, "remote.two", "wrong", match, &approved));
+ EXPECT_EQ(2u, catalog_participant_revision(a, "remote.two"));
+ ASSERT_EQ(0, catalog_apply_peer_snapshot(a, json, "remote.two", "pub-b", match, &approved));
+ EXPECT_EQ(3u, catalog_participant_revision(a, "remote.two"));
+ struct json_object *tracks = jzon_alloc_array();
+ ASSERT_NE(nullptr, tracks);
+ ASSERT_EQ(0, catalog_apply_peer_sync(a, "remote.two", "pub-b", 4, tracks, match, &approved));
+ EXPECT_EQ(4u, catalog_participant_revision(a, "remote.two"));
+ ASSERT_EQ(0, catalog_apply_peer_snapshot(a, json, "remote.two", "pub-b", match, &approved));
+ EXPECT_EQ(4u, catalog_participant_revision(a, "remote.two"));
+ EXPECT_EQ(0, json_object_array_length(tracks));
+ mem_deref(tracks); mem_deref(json); catalog_close(a); catalog_close(b);
+}
