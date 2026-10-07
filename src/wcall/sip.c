@@ -152,7 +152,7 @@ static int send_confpart_response(struct wsip_call *wsip)
 	char *str = NULL;
 	int err = 0;
 
-	if (!wsip)
+	if (!wsip || !wsip->ce)
 		return EINVAL;
 
 	wua = wsip->wua;
@@ -291,7 +291,7 @@ static void wsip_destructor(void *arg)
 	/* Do we have any more users in this conversation?
 	 * If not, remove the conversation
 	 */
-	if (userlist_get_count(wsip->ce->userl) == 0) {
+	if (wsip->ce && userlist_get_count(wsip->ce->userl) == 0) {
 		mem_deref(wsip->ce);
 	}
 }
