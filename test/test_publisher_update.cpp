@@ -23,6 +23,12 @@ struct FakeFlow {
 struct Request { std::string method, path, body; enum ccall_ecall_role role; };
 static unsigned allocations;
 static std::vector<std::string> frames;
+static std::vector<std::string> receive_bindings;
+static std::vector<std::string> published_video_states;
+static void published_video(struct icall *, const char *uid, const char *cid, enum icall_vstate state, void *) {
+ published_video_states.emplace_back(std::string(uid) + "." + cid + "=" + std::to_string(state));
+}
+static int receive_tracks(struct iflow *, const char *json) { receive_bindings.emplace_back(json); return 0; }
 static int video_state(struct iflow *flow, enum icall_vstate state) {
  auto *fake = reinterpret_cast<FakeFlow *>(flow);
  if (state != ICALL_VIDEO_STATE_STOPPED) {
@@ -33,6 +39,7 @@ static int video_state(struct iflow *flow, enum icall_vstate state) {
  return 0;
 }
 static bool gathered(const struct iflow *) { return false; }
+static bool already_gathered(const struct iflow *) { return true; }
 static int gather(struct iflow *flow, bool) {
  ++reinterpret_cast<FakeFlow *>(flow)->gathers;
  return 0;
@@ -76,6 +83,7 @@ static int allocate(struct iflow **flow, const char *, const char *, const char 
  fake->api.generate_answer = offer;
  fake->api.dce_send = send_frame;
  fake->api.dce_create = create_channel;
+ fake->api.set_receive_tracks = receive_tracks;
  *flow = &fake->api;
  return 0;
 }
@@ -89,10 +97,13 @@ class PublisherUpdate : public ::testing::Test {
 protected:
  void SetUp() override {
   allocations = 0;
+  receive_bindings.clear();
+  published_video_states.clear();
   frames.clear();
   iflow_set_alloc(allocate);
   ASSERT_EQ(0, msystem_get(&msys, "audummy", NULL, NULL, NULL));
   ASSERT_EQ(0, ccall_alloc(&call, NULL, "call", "self", "one", false, false));
+  call->icall.vstate_changedh = published_video;
   ASSERT_EQ(0, ccall_set_enable_publish_subscribe(call, true));
   ASSERT_EQ(0, ccall_prepare_ecalls(call));
   struct cloudflare_realtime_conf conf = {"app", "secret", "https://example.invalid", request};
@@ -648,6 +659,27 @@ TEST_F(PublisherUpdate, keyholder_subscribes_hello_sender_and_receives_publisher
  mem_deref(wire);
  EXPECT_EQ(8u, catalog_participant_revision(call->catalog, "remote.two"));
  EXPECT_TRUE(user->muted);
+ // Audio follows confirmed catalog presence, without any video request.
+ ASSERT_EQ("/sessions/sub-a/tracks/new", requests.back().path);
+ EXPECT_NE(std::string::npos, requests.back().body.find("mic-b"));
+ EXPECT_EQ(std::string::npos, requests.back().body.find("sessionDescription"));
+ const unsigned flows = allocations;
+ subflow->api.is_gathered = already_gathered;
+ const unsigned gathers_before_media = subflow->gathers;
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200,
+  "{\"requiresImmediateRenegotiation\":true,\"tracks\":[{\"sessionId\":\"remote-pub\",\"trackName\":\"mic-b\",\"mid\":\"1\"}],\"sessionDescription\":{\"type\":\"offer\",\"sdp\":\"v=0\\r\\nm=audio 9 UDP/TLS/RTP/SAVPF 111\\r\\na=sendonly\\r\\na=mid:1\\r\\n\"}}"));
+ EXPECT_EQ(flows, allocations); // Existing subscriber PeerConnection is retained.
+ EXPECT_EQ(gathers_before_media + 1, subflow->gathers); // Fresh answer even with complete ICE.
+ ASSERT_FALSE(receive_bindings.empty());
+ EXPECT_NE(std::string::npos, receive_bindings.back().find("remote"));
+ EXPECT_NE(std::string::npos, receive_bindings.back().find("\"mid\":\"1\""));
+ subflow->api.gatherh(&subflow->api, subflow->api.arg);
+ ASSERT_EQ("/sessions/sub-a/renegotiate", requests.back().path);
+ EXPECT_NE(std::string::npos, requests.back().body.find("\"type\":\"answer\""));
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{}"));
+ EXPECT_TRUE(user->audio_subscribed);
+ EXPECT_FALSE(user->video_subscribed);
+ const size_t after_audio = requests.size();
  econn_message_reset(&msg);
  ASSERT_EQ(0, econn_message_init(&msg, ECONN_CATALOG_SYNC, "remote-session"));
  str_ncpy(msg.src_userid, user->userid_hash, ECONN_ID_LEN);
@@ -660,11 +692,63 @@ TEST_F(PublisherUpdate, keyholder_subscribes_hello_sender_and_receives_publisher
  subflow->api.dce_recvh(&subflow->api, reinterpret_cast<const uint8_t *>(wire), strlen(wire), subflow->api.arg);
  EXPECT_EQ(9u, catalog_participant_revision(call->catalog, "remote.two"));
  EXPECT_FALSE(user->muted);
+ EXPECT_EQ(after_audio, requests.size()); // Mute preserves the subscribed audio publication.
  const size_t updates = frames.size();
  subflow->api.dce_recvh(&subflow->api, reinterpret_cast<const uint8_t *>(wire), strlen(wire), subflow->api.arg);
  EXPECT_EQ(updates, frames.size()); // Same revision must not rebroadcast in a loop.
  mem_deref(wire);
  econn_message_reset(&msg);
+
+ // Publishing video alone does not subscribe it until the client selects B.
+ ASSERT_EQ(0, catalog_set_publication(remote,
+  "{\"userId\":\"remote\",\"clientId\":\"two\",\"publisherSessionId\":\"remote-pub\",\"tracks\":[{\"sessionId\":\"remote-pub\",\"trackName\":\"mic-b\",\"kind\":\"audio\",\"muted\":false},{\"sessionId\":\"remote-pub\",\"trackName\":\"cam-b\",\"kind\":\"video\",\"source\":\"camera\"}]}", 10, "reachable"));
+ ASSERT_EQ(0, econn_message_init(&msg, ECONN_CONF_CATALOG, "remote-session"));
+ str_ncpy(msg.src_userid, user->userid_hash, ECONN_ID_LEN);
+ str_ncpy(msg.src_clientid, user->clientid_hash, ECONN_ID_LEN);
+ ASSERT_EQ(0, catalog_encode_snapshot(remote, &msg.u.catalog.json));
+ wire = NULL;
+ ASSERT_EQ(0, econn_message_encode(&wire, &msg));
+ subflow->api.dce_recvh(&subflow->api, reinterpret_cast<const uint8_t *>(wire), strlen(wire), subflow->api.arg);
+ mem_deref(wire); econn_message_reset(&msg);
+ EXPECT_EQ(after_audio, requests.size());
+ ASSERT_FALSE(published_video_states.empty());
+ EXPECT_EQ("remote.two=" + std::to_string(ICALL_VIDEO_STATE_STARTED), published_video_states.back());
+ EXPECT_FALSE(user->video_subscribed); // Published status reaches the client before subscription.
+ struct list selection = LIST_INIT;
+ auto *selected = icall_client_alloc("remote", "two");
+ list_append(&selection, &selected->le, selected);
+ ASSERT_EQ(0, ccall_request_video_streams(&call->icall, &selection, ICALL_STREAM_MODE_DEFAULT));
+ list_flush(&selection);
+ ASSERT_EQ("/sessions/sub-a/tracks/new", requests.back().path);
+ EXPECT_NE(std::string::npos, requests.back().body.find("cam-b"));
+ EXPECT_EQ(std::string::npos, requests.back().body.find("mic-b"));
+ // Deselecting during the offer exchange must wait for the answer acceptance.
+ const size_t during = requests.size();
+ ASSERT_EQ(0, ccall_request_video_streams(&call->icall, &selection, ICALL_STREAM_MODE_DEFAULT));
+ EXPECT_EQ(during, requests.size());
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200,
+  "{\"tracks\":[{\"sessionId\":\"remote-pub\",\"trackName\":\"cam-b\",\"mid\":\"2\"}],\"sessionDescription\":{\"type\":\"offer\",\"sdp\":\"v=0\\r\\nm=video 9 UDP/TLS/RTP/SAVPF 96\\r\\na=sendonly\\r\\na=mid:2\\r\\n\"}}"));
+ subflow->api.gatherh(&subflow->api, subflow->api.arg);
+ ASSERT_EQ("/sessions/sub-a/renegotiate", requests.back().path);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{}"));
+ ASSERT_EQ("/sessions/sub-a/tracks/close", requests.back().path);
+ EXPECT_NE(std::string::npos, requests.back().body.find("\"force\":true"));
+ EXPECT_NE(std::string::npos, requests.back().body.find("\"mid\":\"2\""));
+ EXPECT_EQ(std::string::npos, requests.back().body.find("\"mid\":\"1\""));
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{\"tracks\":[{\"mid\":\"2\"}]}"));
+ EXPECT_EQ(flows, allocations);
+ EXPECT_TRUE(user->audio_subscribed);
+ EXPECT_FALSE(user->video_subscribed);
+ // Stop while a new subscription is pending; a late offer must not restart it.
+ selected = icall_client_alloc("remote", "two");
+ list_append(&selection, &selected->le, selected);
+ ASSERT_EQ(0, ccall_request_video_streams(&call->icall, &selection, ICALL_STREAM_MODE_DEFAULT));
+ list_flush(&selection);
+ const size_t before_stop = requests.size();
+ ccall_end(&call->icall);
+ EXPECT_EQ(ECANCELED, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{}"));
+ EXPECT_EQ(before_stop, requests.size());
+ EXPECT_EQ(CCALL_STATE_IDLE, call->state);
  catalog_close(remote);
 }
 

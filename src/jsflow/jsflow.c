@@ -83,6 +83,9 @@ typedef int  (pc_IceGatheringState_t)(int handle);
 typedef int  (pc_SignallingState_t)(int handle);
 typedef int  (pc_ConnectionState_t)(int handle);
 typedef int  (pc_CreateDataChannel_t)(int handle, const char *label);
+typedef int (pc_SetReceiveTracks_t)(int handle, const char *json);
+static pc_SetReceiveTracks_t *pc_SetReceiveTracks;
+
 typedef int  (pc_CreateNegotiatedDataChannel_t)(int handle, const char *label,
 						 int channel_id);
 typedef void (pc_CreateOffer_t)(int handle, int call_type, int vstate,
@@ -308,6 +311,12 @@ int jsflow_dce_send(struct iflow *flow,
 	pc_DataChannelSend(jsflow->dc.handle, (const int8_t *)data, len);
 
 	return 0;
+}
+
+static int jsflow_set_receive_tracks(struct iflow *flow, const char *json)
+{
+	struct jsflow *jf = (struct jsflow *)flow;
+	return pc_SetReceiveTracks ? pc_SetReceiveTracks(jf->handle, json) : ENOSYS;
 }
 
 static int jsflow_dce_create(struct iflow *flow, const char *label,
@@ -631,6 +640,7 @@ int jsflow_alloc(struct iflow		**flowp,
 		goto out;
 	}
 
+	flow->iflow.set_receive_tracks = jsflow_set_receive_tracks;
 	iflow_set_functions(&flow->iflow,
 			    jsflow_set_video_state,
 			    jsflow_set_media_direction,
@@ -821,6 +831,7 @@ int  jsflow_gather_all_turn(struct iflow *flow, bool offer)
 	else {
 		jsflow->gather = true;
 		if (PC_SIG_STATE_REMOTE_OFFER == state) {
+			if (jsflow->media_direction == IFLOW_MEDIA_RECVONLY) jsflow->gather = false;
 			pc_CreateAnswer(jsflow->handle, jsflow->call_type, jsflow->vstate,
 				jsflow->media_direction);
 		}
@@ -1015,6 +1026,12 @@ static int jsflow_generate_offer_answer(struct iflow *flow,
 	isoffer = streq(type, "offer");
 	sdp_check(sdpstr, true, isoffer, local_acbr_handler, NULL, NULL, jsflow);
 	
+	if (jsflow->media_direction == IFLOW_MEDIA_RECVONLY) {
+		err = str_dup(&modsdp, sdpstr);
+		pc_HeapFree(sdpstr);
+		if (err) goto out;
+		goto copy_sdp;
+	}
 	if (jsflow->media_direction == IFLOW_MEDIA_SENDONLY) {
 		err = sdp_publisher_local(&modsdp, sdpstr, jsflow->audio.req_local_cbr);
 		pc_HeapFree(sdpstr);
@@ -1526,6 +1543,10 @@ void pc_local_sdp_handler(int self, int err,
 	isoffer = streq(type, "offer");
 	sdp_check(sdp, true, isoffer, NULL, jf_norelay_handler, NULL, flow);
 	
+	if (flow->media_direction == IFLOW_MEDIA_RECVONLY) {
+		pc_SetLocalDescription(flow->handle, type, sdp);
+		return;
+	}
 	if (flow->media_direction == IFLOW_MEDIA_SENDONLY) {
 		err = sdp_publisher_local((char **)&modsdp, sdp, flow->audio.req_local_cbr);
 		if (err) {
@@ -2021,6 +2042,7 @@ void pc_set_callbacks(
 	pc_ConnectionState_t *connectionState,
 	pc_CreateDataChannel_t *createDataChannel,
 	pc_CreateNegotiatedDataChannel_t *createNegotiatedDataChannel,
+	pc_SetReceiveTracks_t *setReceiveTracks,
 	pc_CreateOffer_t *createOffer,
 	pc_CreateAnswer_t *createAnswer,
 	pc_AddDecoderAnswer_t *addDecoderAnswer,
@@ -2058,6 +2080,7 @@ void pc_set_callbacks(
 	pc_ConnectionState_t *connectionState,
 	pc_CreateDataChannel_t *createDataChannel,
 	pc_CreateNegotiatedDataChannel_t *createNegotiatedDataChannel,
+	pc_SetReceiveTracks_t *setReceiveTracks,
 	pc_CreateOffer_t *createOffer,
 	pc_CreateAnswer_t *createAnswer,
 	pc_AddDecoderAnswer_t *addDecoderAnswer,
@@ -2093,6 +2116,7 @@ void pc_set_callbacks(
 	pc_ConnectionState = connectionState;
 	pc_CreateDataChannel = createDataChannel;
 	pc_CreateNegotiatedDataChannel = createNegotiatedDataChannel;
+	pc_SetReceiveTracks = setReceiveTracks;
 	pc_CreateOffer = createOffer;
 	pc_CreateAnswer = createAnswer;
 	pc_AddDecoderAnswer = addDecoderAnswer;

@@ -203,6 +203,8 @@ struct iflow {
 	/* Optional asynchronous SDP result, used by in-place publisher updates. */
 	iflow_sdp_applied_h             *sdp_appliedh;
 	iflow_video_update_h            *video_updateh;
+	/* Provider receive MID to participant bindings, installed before remote SDP. */
+	int (*set_receive_tracks)(struct iflow *, const char *);
 }__attribute__ ((aligned (8)));
 
 #define IFLOW_CALL(iflow, fn, ...) if(iflow && (iflow)->fn){iflow->fn(iflow, ##__VA_ARGS__);}

@@ -169,6 +169,11 @@ static void media_update_handler(struct ecall *ecall, int err,
 	struct ccall_ecall_context *ctx = current(ecall_get_icall(ecall), arg);
 	if (!ctx)
 		return;
+	if (ctx->role == CCALL_ECALL_SUBSCRIBER) {
+		ctx->state.error = err;
+		emit(ctx, CCALL_TRANSPORT_UPDATE_APPLIED);
+		return;
+	}
 	if (err) {
 		struct ccall *ccall = mem_ref(ctx->ccall);
 		const struct userinfo *self = userlist_get_self(ccall->userl);

@@ -838,10 +838,10 @@ int userlist_get_members(struct userlist *list,
 			assert(mm->membc < n);
 			str_dup(&memb->userid, u->userid_real);
 			str_dup(&memb->clientid, u->clientid_real);
-			memb->audio_state = u->ssrca > 0 ?
+			memb->audio_state = (u->ssrca > 0 || u->audio_subscribed) ?
 					    ICALL_AUDIO_STATE_ESTABLISHED :
 					    ICALL_AUDIO_STATE_CONNECTING;
-			memb->video_recv = u->ssrcv > 0 ?
+			memb->video_recv = (u->ssrcv > 0 || u->video_subscribed) ?
 					   u->video_state :
 					   ICALL_VIDEO_STATE_STOPPED;
 			memb->muted = (u->muted && !u->active_audio) ? 1 : 0;

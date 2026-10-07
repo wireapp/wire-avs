@@ -56,6 +56,7 @@ struct ccall_transport_handlers {
 	void (*qualityh)(struct ccall *, enum ccall_ecall_role, const struct stats_report *, void *);
 	void (*audio_levelh)(struct ccall *, enum ccall_ecall_role, struct list *, void *);
 	void (*confmsgh)(struct ccall *, enum ccall_ecall_role, const struct econn_message *, void *);
+	int (*streamsh)(struct ccall *, struct list *, enum icall_stream_mode, void *);
 	int (*can_updateh)(struct ccall *, enum ccall_ecall_role, void *);
 };
 

@@ -44,6 +44,9 @@ struct userinfo {
 	bool pstn;
 	int active_audio;
 	int active_prev;
+	/* Pub/Sub subscriptions use MID bindings instead of publisher SSRCs. */
+	bool audio_subscribed;
+	bool video_subscribed;
 };
 
 typedef void (userlist_add_user_h)(const struct userinfo *user,

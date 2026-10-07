@@ -103,6 +103,11 @@ static int mf_video_update_handler(struct iflow *flow, void *arg)
 static void mf_sdp_applied_handler(struct iflow *flow, bool local, int err, void *arg)
 {
 	struct ecall *ecall = arg;
+	if (flow == ecall->flow && ecall->media_direction == ECALL_MEDIA_RECVONLY && err) {
+		if (ecall->media_updateh)
+			ecall->media_updateh(ecall, err, ecall->vstate, ecall->media_update_arg);
+		return;
+	}
 	if (flow != ecall->flow || !ecall->publisher_update || (local && !err))
 		return;
 	if (!ecall->econn || econn_current_state(ecall->econn) == ECONN_TERMINATING ||
@@ -365,7 +370,7 @@ static int generate_or_gather_answer(struct ecall *ecall, struct econn *econn)
 		ecall->sdp.offer = mem_deref(ecall->sdp.offer);
 	}
 
-	if (IFLOW_CALLE(ecall->flow, is_gathered)) {
+	if (ecall->media_direction != ECALL_MEDIA_RECVONLY && IFLOW_CALLE(ecall->flow, is_gathered)) {
 		return generate_answer(ecall, econn);
 	}
 	else {
@@ -403,7 +408,10 @@ static void econn_update_req_handler(struct econn *econn,
 
 	muted = msystem_get_muted();
 	
-	if (ecall->flow && strm_chg) {
+	if (ecall->flow && ecall->media_direction == ECALL_MEDIA_RECVONLY) {
+		/* Provider updates renegotiate the existing subscriber transport. */
+	}
+	else if (ecall->flow && strm_chg) {
 		info("ecall(%p): update: x-streamchange\n", ecall);
 		IFLOW_CALL(ecall->flow, stop_media);
 	}
@@ -3561,7 +3569,7 @@ int ecall_add_decoders_for_user(struct ecall *ecall,
 		return EINVAL;
 	}
 
-	if (ssrca ==0 && ssrcv == 0) {
+	if (ssrca == 0 && ssrcv == 0 && ecall->media_direction != ECALL_MEDIA_RECVONLY) {
 		return EINVAL;
 	}
 

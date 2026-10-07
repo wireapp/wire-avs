@@ -85,6 +85,7 @@ interface PeerConnection {
   ignoredDataChannels: {[hnd: number]: boolean};
   applicationDcHnd: number;
   dataChannelHandles?: number[];
+  receiveTracks?: {[mid: string]: {userId: string; clientId: string; kind: string}};
 }
 
 const ENV_FIREFOX = 1;
@@ -415,7 +416,7 @@ function encryptFrame(coder, rtcFrame, controller) {
   });
 }
 
-function decryptFrame(track_id, coder, rtcFrame, controller) {
+function decryptFrame(track_id, coder, rtcFrame, controller, participant) {
   const dataBuf = rtcFrame.data;
   const data = new Uint8Array(dataBuf);
 
@@ -447,11 +448,15 @@ function decryptFrame(track_id, coder, rtcFrame, controller) {
       return;
   }
 
-  let uinfo = null;
-  if (isVideo) {
+  if (coder.receiverParticipants && Object.prototype.hasOwnProperty.call(coder.receiverParticipants, track_id)) {
+    participant = coder.receiverParticipants[track_id];
+    if (!participant) return;
+  }
+  let uinfo = participant && coder.participants ? coder.participants[participant] : null;
+  if (!participant && isVideo) {
      uinfo = coder.video.users[csrc];
   }
-  else {
+  else if (!participant) {
      uinfo = coder.audio.users[csrc];
   }
 
@@ -468,7 +473,7 @@ function decryptFrame(track_id, coder, rtcFrame, controller) {
       uinfo.first_succ_video = false;
 
       /* Only call videoStreamHandler for selective video */
-      if (uinfo.ssrcv != ssrc) {
+      if (!participant && uinfo.ssrcv != ssrc) {
           for (const [key, u] of Object.entries(coder.video.users)) {
               if (u.transp_ssrcv == ssrc) {
                   postMessage({
@@ -569,9 +574,13 @@ function setupSender(readableStream, writableStream, coder) {
           .pipeTo(writableStream);
 }
 
-function setupReceiver(readableStream, writableStream, coder, track_id) {
+function setupReceiver(readableStream, writableStream, coder, track_id, participant) {
+       if (participant) {
+         if (!coder.receiverParticipants) coder.receiverParticipants = {};
+         coder.receiverParticipants[track_id] = participant;
+       }
        const transformStream = new TransformStream({
-	   transform: (frame, controller) => {decryptFrame(track_id, coder, frame, controller);},
+	   transform: (frame, controller) => {decryptFrame(track_id, coder, frame, controller, participant);},
        });
        readableStream
          .pipeThrough(transformStream)
@@ -594,7 +603,7 @@ onrtctransform = (event) => {
     else if (event.transformer.options.name === 'receiverTransform') {
       const track_id = event.transformer.options.track_id;
       doLog("onrtctransform: receiver trackid=" + track_id);
-      setupReceiver(readableStream, writableStream, coder, track_id);
+      setupReceiver(readableStream, writableStream, coder, track_id, event.transformer.options.participant);
     }
 };
 
@@ -653,6 +662,8 @@ onmessage = async (event) => {
             return;
         }
         const {userInfo} = event.data;
+        if (!coder.participants) coder.participants = {};
+        coder.participants[JSON.stringify([userInfo.userid, userInfo.clientid])] = userInfo;
         
         doLog('addUser: adding audio ssrc: '+userInfo.ssrca);
         coder.audio.users[userInfo.ssrca] = userInfo;
@@ -665,6 +676,12 @@ onmessage = async (event) => {
 
 	setupSender(readableStream, writableStream, coder);
     }
+    else if (op === 'bindReceiver') {
+       if (coder) {
+          if (!coder.receiverParticipants) coder.receiverParticipants = {};
+          coder.receiverParticipants[event.data.track_id] = event.data.participant;
+       }
+    }
     else if (op === 'setupReceiver') {
        const {readableStream, writableStream} = event.data;
 
@@ -673,7 +690,7 @@ onmessage = async (event) => {
            return;
        }
 
-       setupReceiver(readableStream, writableStream, coder, null);
+       setupReceiver(readableStream, writableStream, coder, event.data.track_id, event.data.participant);
    }
    else if (op === 'setMediaKey') {
        const {index, current, key} = event.data;
@@ -1592,10 +1609,14 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
 
   let label: string = '';
   rtc.ontrack = event => {
+      const binding = pc.receiveTracks && event.transceiver.mid !== null ? pc.receiveTracks[event.transceiver.mid] : undefined;
+      const participant = binding ? JSON.stringify([binding.userId, binding.clientId]) : undefined;
+      const receivedStreams = event.streams.length ? event.streams : (binding ? [new MediaStream([event.track])] : event.streams);
+      if (binding && pc.conv_type === CONV_TYPE_CONFERENCE) setupReceiverTransform(pc, event.receiver, participant);
       pc_log(LOG_LEVEL_INFO, `onTrack: self=${pc.self} convid=${pc.convid.substring(0,8)} userid=${pc.remote_userid.substring(0,8)}/${pc.remote_clientid.substring(0,4)} streams=${event.streams.length}`);
 
-      if (event.streams && event.streams.length > 0) {
-          for (const stream of event.streams) {
+      if (receivedStreams && receivedStreams.length > 0) {
+          for (const stream of receivedStreams) {
               pc_log(LOG_LEVEL_INFO, `onTrack: convid=${pc.convid.substring(0,8)} stream=${stream}`);
               for (const track of stream.getTracks()) {
                   if (track) {
@@ -1605,7 +1626,7 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
                       if (!track.enabled)
                           track.enabled = true;
 
-                      if (pc.conv_type === CONV_TYPE_CONFERENCE) {
+                      if (!binding && pc.conv_type === CONV_TYPE_CONFERENCE) {
                           try {
                               setupReceiverTransform(pc, event.receiver);
                           } catch(err) {
@@ -1622,11 +1643,11 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
           audioStreamHandler(
               pc.convid,
               hnd.toString() + label,
-              event.streams);
+              receivedStreams);
       }
       if (event.track.kind == "video" && videoStreamHandler) {
-          let userid = pc.remote_userid;
-          let clientid = pc.remote_clientid;
+          let userid = binding ? binding.userId : pc.remote_userid;
+          let clientid = binding ? binding.clientId : pc.remote_clientid;
 
           // @TODO: Remove, because the `keys` from `pc.users[]` is are random strings and not track.id or track.label, so means `uinfo` will be `undefined` everytime!
           const uinfo: UserInfo = pc.users[label];
@@ -1641,7 +1662,7 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
               pc.convid,
               userid,
               clientid,
-              event.streams);
+              receivedStreams);
           }
       }
   };
@@ -2020,7 +2041,40 @@ function setupSenderTransform(pc: PeerConnection, sender: any) {
 }
 
 
-function setupReceiverTransform(pc: PeerConnection, receiver: any) {
+function pc_SetReceiveTracks(hnd: number, jsonPtr: number): number {
+  const pc = connectionsStore.getPeerConnection(hnd);
+  if (!pc) return 2;
+  const tracks = JSON.parse(em_module.UTF8ToString(jsonPtr));
+  const bindings: {[mid: string]: {userId: string; clientId: string; kind: string}} = {};
+  for (const track of tracks) {
+    if (typeof track.mid !== "string" || typeof track.userId !== "string" ||
+        typeof track.clientId !== "string" || (track.kind !== "audio" && track.kind !== "video")) return 22;
+    bindings[track.mid] = track;
+  }
+  if (pc.rtc && pc.receiveTracks) {
+    for (const transceiver of pc.rtc.getTransceivers()) {
+      const mid = transceiver.mid;
+      if (mid === null || !pc.receiveTracks[mid] || bindings[mid]) continue;
+      const old = pc.receiveTracks[mid];
+      transceiver.receiver.track.enabled = false;
+      if (old.kind === "video" && videoStreamHandler) videoStreamHandler(pc.convid, old.userId, old.clientId, []);
+      if (old.kind === "audio" && audioStreamHandler) audioStreamHandler(pc.convid, hnd.toString() + transceiver.receiver.track.id, []);
+    }
+  }
+  pc.receiveTracks = bindings;
+  if (pc.rtc) {
+    for (const transceiver of pc.rtc.getTransceivers()) {
+      if (transceiver.mid === null || !transceiver.receiver.track) continue;
+      const binding = bindings[transceiver.mid];
+      const participant = binding ? JSON.stringify([binding.userId, binding.clientId]) : null;
+      if (binding) transceiver.receiver.track.enabled = true;
+      worker.postMessage({op: 'bindReceiver', self: pc.self, track_id: transceiver.receiver.track.id, participant});
+    }
+  }
+  return 0;
+}
+
+function setupReceiverTransform(pc: PeerConnection, receiver: any, participant?: string) {
   if (!receiver || !receiver.track) {
       return;
   }
@@ -2031,7 +2085,7 @@ function setupReceiverTransform(pc: PeerConnection, receiver: any) {
   }
 
   if (pc_env == ENV_FIREFOX) {
-     receiver.transform = new RTCRtpScriptTransform(worker, { name: "receiverTransform", self: pc.self, track_id: receiver.track.id });
+     receiver.transform = new RTCRtpScriptTransform(worker, { name: "receiverTransform", self: pc.self, track_id: receiver.track.id, participant: participant });
      return;
   }
 
@@ -2050,6 +2104,8 @@ function setupReceiverTransform(pc: PeerConnection, receiver: any) {
   worker.postMessage({
     op: 'setupReceiver',
     self: pc.self,
+    track_id: receiver.track.id,
+    participant: participant,
     readableStream,
     writableStream,
   }, [readableStream, writableStream]);
@@ -2198,7 +2254,7 @@ function createSdp(
 
             pc_log(LOG_LEVEL_INFO, `createSdp: type=${typeStr} sdp=${sdpStr}`);
 
-            const modSdp = mediaDirection === PC_MEDIA_SENDONLY
+            const modSdp = mediaDirection !== PC_MEDIA_SENDRECV
                 ? sdpStr : sdpMap(sdpStr, true, false);
             ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
         }).catch((err: any) => {
@@ -2382,7 +2438,7 @@ function pc_SetRemoteDescription(hnd: number, typePtr: number, sdpPtr: number) {
   }
 
   let sdpStr = sdp;
-  if (pc_env === ENV_FIREFOX && pc.media_direction !== PC_MEDIA_SENDONLY) {
+  if (pc_env === ENV_FIREFOX && pc.media_direction === PC_MEDIA_SENDRECV) {
       sdpStr = sdp.replace(/ DTLS\/SCTP (5000|webrtc-datachannel)/, ' UDP/DTLS/SCTP webrtc-datachannel');
       sdpStr = sdpMap(sdpStr, false, false);
   }
@@ -2423,7 +2479,7 @@ function pc_SetRemoteDescription(hnd: number, typePtr: number, sdpPtr: number) {
     })
     .catch((err: any) => {
       pc_log(LOG_LEVEL_WARN, "setRemoteDescription failed: " + err, err);
-      if (pc.media_direction === PC_MEDIA_SENDONLY && type === "answer")
+      if ((pc.media_direction === PC_MEDIA_SENDONLY && type === "answer") || pc.media_direction === PC_MEDIA_RECVONLY)
         em_module.ccall("pc_sdp_applied_handler", null,
                         ["number", "number", "number"], [pc.self, 0, 1]);
     });
@@ -2450,7 +2506,7 @@ function pc_SetLocalDescription(hnd: number, typePtr: number, sdpPtr: number) {
 
   let sdpStr = '';
 
-    if (pc_env === ENV_FIREFOX && pc.media_direction !== PC_MEDIA_SENDONLY)
+    if (pc_env === ENV_FIREFOX && pc.media_direction === PC_MEDIA_SENDRECV)
 	sdpStr = sdpMap(sdp, true, false);
     else
 	sdpStr = sdp;
@@ -2465,12 +2521,15 @@ function pc_SetLocalDescription(hnd: number, typePtr: number, sdpPtr: number) {
 	  setupSenderTransform(pc, sender);
 	}
       // Reusing ICE may produce no new gathering-state event.
-      if (pc.media_direction === PC_MEDIA_SENDONLY && type === "offer" &&
+      if (((pc.media_direction === PC_MEDIA_SENDONLY && type === "offer") ||
+           (pc.media_direction === PC_MEDIA_RECVONLY && type === "answer")) &&
           rtc.iceGatheringState === "complete")
         gatheringComplete(pc);
     })
     .catch((err: any) => {
       pc_log(LOG_LEVEL_INFO, "setLocalDescription failed: " + err, err);
+      if (pc.media_direction === PC_MEDIA_RECVONLY)
+        em_module.ccall("pc_sdp_applied_handler", null, ["number", "number", "number"], [pc.self, 1, 1]);
       if (pc.media_direction === PC_MEDIA_SENDONLY) {
         const rollback = rtc.signalingState === "have-local-offer"
           ? rtc.setLocalDescription({type: "rollback"}) : Promise.resolve();
@@ -2516,7 +2575,7 @@ function pc_LocalDescription(hnd: number, typePtr: number) {
 
   pc_log(LOG_LEVEL_INFO, `pc_LocalDescription: env=${pc_env}`);
 
-  if (pc_env === ENV_FIREFOX && pc.media_direction !== PC_MEDIA_SENDONLY) {
+  if (pc_env === ENV_FIREFOX && pc.media_direction === PC_MEDIA_SENDRECV) {
       sdpStr = sdp.replace(' UDP/DTLS/SCTP', ' DTLS/SCTP');
       sdpStr = sdpMap(sdpStr, true, false);
   }
@@ -2782,6 +2841,7 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_ConnectionState, "ii"],
     [pc_CreateDataChannel, "iii"],
     [pc_CreateNegotiatedDataChannel, "iiii"],
+    [pc_SetReceiveTracks, "iii"],
     [pc_CreateOffer, "viiii"],
     [pc_CreateAnswer, "viiii"],
     [pc_AddDecoderAnswer, "vi"],

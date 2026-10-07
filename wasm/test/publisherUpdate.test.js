@@ -7,14 +7,14 @@ const ts = require('../../build/dist/wasm/node_modules/typescript');
 const {test} = require('node:test');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../src/avs_pc.ts'), 'utf8');
 const ast = ts.createSourceFile('avs_pc.ts', source, ts.ScriptTarget.Latest, true);
-const names = ['pc_Close', 'pc_CreateNegotiatedDataChannel', 'setupDataChannel', 'dataChannelHandler', 'pc_ReplaceTrack', 'requestPublisherVideoUpdate', 'createSdp', 'sdpMap', 'discardPublisherVideo', 'preparePublisherTracks', 'pc_SetRemoteDescription', 'pc_SetLocalDescription', 'gatheringComplete'];
+const names = ['pc_SetReceiveTracks', 'setupReceiverTransform', 'pc_Close', 'pc_CreateNegotiatedDataChannel', 'setupDataChannel', 'dataChannelHandler', 'pc_ReplaceTrack', 'requestPublisherVideoUpdate', 'createSdp', 'sdpMap', 'discardPublisherVideo', 'preparePublisherTracks', 'pc_SetRemoteDescription', 'pc_SetLocalDescription', 'gatheringComplete'];
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) &&
   node.name && names.includes(node.name.text)).map(node => node.getText(ast)).join('\n');
 assert.equal(ast.statements.filter(node => ts.isFunctionDeclaration(node) &&
   node.name && names.includes(node.name.text)).length, names.length);
 const code = ts.transpileModule(functions, {compilerOptions: {target: ts.ScriptTarget.ES2017}}).outputText;
 function runtime(globals) {
-  const context = vm.createContext({Promise, Error, pc_log: () => {}, LOG_LEVEL_INFO: 1, ...globals});
+  const context = vm.createContext({PC_MEDIA_SENDRECV: 0, PC_MEDIA_SENDONLY: 1, PC_MEDIA_RECVONLY: 2, Promise, Error, pc_log: () => {}, LOG_LEVEL_INFO: 1, ...globals});
   vm.runInContext(code, context);
   return context;
 }
@@ -396,4 +396,97 @@ test('closing the owner releases every subscribed channel and suppresses late ca
   assert.deepEqual(removed, [1, 2]);
   assert.equal(callbacks, 0);
   assert.equal(rtcClosed, 1);
+});
+
+
+test('receive MID bindings remove only deselected media without closing transport', () => {
+  const audio = track('audio', 'audio-b'), video = track('video', 'video-b');
+  const pc = {convid: 'call', receiveTracks: {'1': {userId: 'b', clientId: 'two', kind: 'audio'}, '2': {userId: 'b', clientId: 'two', kind: 'video'}},
+    rtc: {getTransceivers: () => [{mid: '1', receiver: {track: audio}}, {mid: '2', receiver: {track: video}}]}};
+  const removed = [];
+  const ctx = runtime({worker: {postMessage: () => {}}, connectionsStore: {getPeerConnection: () => pc},
+    em_module: {UTF8ToString: () => JSON.stringify([{mid: '1', userId: 'b', clientId: 'two', kind: 'audio'}])},
+    videoStreamHandler: (...args) => removed.push(args), audioStreamHandler: () => assert.fail('audio removed')});
+  assert.equal(ctx.pc_SetReceiveTracks(1, 1), 0);
+  assert.equal(audio.enabled, true);
+  assert.equal(video.enabled, false);
+  assert.equal(removed.length, 1);
+  assert.equal(removed[0][1], 'b');
+  assert.equal(Object.keys(pc.receiveTracks).length, 1);
+});
+
+test('receive transform carries participant binding and track ID to worker', () => {
+  const messages = [];
+  const readable = {}, writable = {};
+  const receiver = {track: {id: 'received-b', kind: 'audio'}, createEncodedStreams: () => ({readable, writable})};
+  const ctx = runtime({insertableLegacy: false, insertableStreams: true, pc_env: 1, ENV_FIREFOX: 2,
+    worker: {postMessage: (message) => messages.push(message)}});
+  ctx.setupReceiverTransform({self: 7}, receiver, '["b","two"]');
+  assert.equal(messages[0].participant, '["b","two"]');
+  assert.equal(messages[0].track_id, 'received-b');
+});
+
+test('worker script parses and associates bound frames with participant rather than SFU SSRC', async () => {
+  const declaration = ast.statements.find(node => ts.isVariableStatement(node) &&
+    node.declarationList.declarations.some(item => item.name.getText(ast) === 'workerContent'));
+  const template = declaration.declarationList.declarations[0].initializer.text;
+  const workerAst = ts.createSourceFile('worker.js', template, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const decrypt = workerAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name.text === 'decryptFrame').getText(workerAst);
+  new vm.Script(template); // Also validates the embedded script, which tsc treats as a string.
+  let selectedIv;
+  const ctx = vm.createContext({doLog: () => {}, postMessage: () => {},
+    xor_iv: (iv) => iv,
+    frameHeaderDecode: () => ({csrc: 'original-publisher-ssrc', frameId: 1, keyId: 1, len: 1}),
+    crypto: {subtle: {decrypt: (_options, _key, _data) => {selectedIv = _options.iv; return Promise.resolve(new ArrayBuffer(1));}}}});
+  vm.runInContext(decrypt, ctx);
+  // The chosen participant has no publisher SSRC mapping; only the MID-derived binding identifies it.
+  const user = {userid: 'b', clientid: 'two', iva: new Uint8Array(12), ivv: new Uint8Array(12), first_recv_audio: true};
+  const coder = {participants: {'["b","two"]': user}, audio: {users: {}}, video: {users: {}}, keys: [{id: 1, key: {}}]};
+  let frames = 0;
+  const frame = {data: new ArrayBuffer(4), getMetadata: () => ({synchronizationSource: 999})};
+  ctx.decryptFrame('track-b', coder, frame, {enqueue: () => ++frames}, '["b","two"]');
+  await Promise.resolve();
+  assert.equal(selectedIv, user.iva);
+  assert.equal(frames, 1);
+  coder.receiverParticipants = {'track-b': null};
+  ctx.decryptFrame('track-b', coder, frame, {enqueue: () => ++frames}, '["b","two"]');
+  await Promise.resolve();
+  assert.equal(frames, 1);
+  delete coder.receiverParticipants['track-b'];
+  // A supplied but unknown MID binding must not fall back to another participant's SSRC.
+  coder.audio.users['original-publisher-ssrc'] = user;
+  ctx.decryptFrame('track-b', coder, frame, {enqueue: () => ++frames}, '["unknown","client"]');
+  await Promise.resolve();
+  assert.equal(frames, 1);
+});
+
+
+test('subscriber answer preserves SDP and reports fresh gathering only after local application', async () => {
+  let complete, received, gathered = 0;
+  const pc = {self: 7, media_direction: 2, conv_type: 0, rtc: {iceGatheringState: 'complete',
+    setLocalDescription: description => {received = description; return new Promise(resolve => {complete = resolve;});}}};
+  const ctx = runtime({connectionsStore: {getPeerConnection: () => pc},
+    em_module: {UTF8ToString: value => value}, pc_env: 1, ENV_FIREFOX: 1, CONV_TYPE_CONFERENCE: 2,
+    sdpMap: () => assert.fail('Subscriber answer must stay intact')});
+  ctx.gatheringComplete = () => ++gathered;
+  ctx.pc_SetLocalDescription(1, 'answer', 'fresh-subscriber-answer');
+  assert.equal(received.sdp, 'fresh-subscriber-answer');
+  assert.equal(gathered, 0);
+  complete();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(gathered, 1);
+});
+
+test('subscriber offer application failure reaches native transport error handler', async () => {
+  const calls = [];
+  const pc = {self: 8, media_direction: 2, rtc: {getTransceivers: () => [],
+    setRemoteDescription: () => Promise.reject(Error('invalid offer'))}};
+  const ctx = runtime({connectionsStore: {getPeerConnection: () => pc},
+    em_module: {UTF8ToString: value => value, ccall: (...args) => calls.push(args)},
+    pc_env: 0, ENV_FIREFOX: 1, CONV_TYPE_CONFERENCE: 2, LOG_LEVEL_WARN: 2, sdpDirectionSummary: () => '', extractSSRCs: () => {}});
+  ctx.pc_SetRemoteDescription(1, 'offer', 'invalid-offer');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], 'pc_sdp_applied_handler');
+  assert.deepEqual(Array.from(calls[0][3]), [8, 0, 1]);
 });

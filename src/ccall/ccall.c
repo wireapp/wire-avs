@@ -1523,6 +1523,9 @@ int  ccall_request_video_streams(struct icall *icall,
 	if (!ccall)
 		return EINVAL;
 
+	if (ccall->enable_publish_subscribe && ccall->transport_handlers.streamsh)
+		return ccall->transport_handlers.streamsh(ccall, clientl, mode, ccall->transport_arg);
+
 	if (!clientl || NULL == clientl->head)
 		return EINVAL;
 
