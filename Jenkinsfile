@@ -29,7 +29,7 @@ pipeline {
                             filename 'Dockerfile'
                             // Explicitly force the path to look inside common cargo locations
                             //args '-v /home/jenkins/workspace:/workspace --env PATH=/usr/share/cargo/bin:/build/avs/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
-			    args '--dns=8.8.8.8 --dns=1.1.1.1'
+			    args '--dns=9.9.9.9 --dns-opt=use-vc'
 			    additionalBuildArgs '--no-cache'
                         }
                     }
@@ -203,10 +203,6 @@ pipeline {
             }	    
 
             steps {
-	    	echo "Digging..."
-  		sh 'dig github.com'
-		sh 'dig github.com @8.8.8.8'
-		sh 'cat /etc/resolv.conf'
                 echo "Tag as ${version}"
                 withCredentials([sshUserPrivateKey(credentialsId: 'wire-avs', keyFileVariable: 'sshPrivateKeyPath')]) {
                     sh(
@@ -230,11 +226,6 @@ pipeline {
                     // NOTE: creating an empty stub directory just to create the release
                     sh(
                         script: """
-			    echo "Digging..."
-			    dig github.com
-			    dig github.com @8.8.8.8
-			    cat /etc/resolv.conf
-			    python3 -c 'import socket; print(socket.gethostbyname(\"github.com\"))' || true
                             cd "${env.WORKSPACE}"
                             GITHUB_USER=${repoUser} \
                             GITHUB_TOKEN=${accessToken} \
@@ -272,7 +263,6 @@ pipeline {
                                 string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
                                 sh(
                                     script: """
-					python3 -c 'import socket; print(socket.gethostbyname(\"github.com\"))' || true
                                         sleep 5
                                         GITHUB_USER=${repoUser} \
                                         GITHUB_TOKEN=${accessToken} \
