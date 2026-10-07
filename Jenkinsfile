@@ -233,8 +233,7 @@ pipeline {
 			    echo "Digging..."
 			    dig github.com
 			    dig github.com @8.8.8.8
-			    cat -A /etc/resolv.conf
-			    cat /etc/nsswitch.conf
+			    cat /etc/resolv.conf
 			    python3 -c 'import socket; print(socket.gethostbyname(\"github.com\"))' || true
                             cd "${env.WORKSPACE}"
                             GITHUB_USER=${repoUser} \
@@ -273,11 +272,6 @@ pipeline {
                                 string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
                                 sh(
                                     script: """
-				    	echo "Digging..."
-					dig github.com
-					dig github.com @8.8.8.8
-					cat /etc/resolv.conf
-					cat /etc/nsswitch.conf
 					python3 -c 'import socket; print(socket.gethostbyname(\"github.com\"))' || true
                                         sleep 5
                                         GITHUB_USER=${repoUser} \
