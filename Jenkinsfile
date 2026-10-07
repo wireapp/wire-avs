@@ -229,6 +229,12 @@ pipeline {
                     // NOTE: creating an empty stub directory just to create the release
                     sh(
                         script: """
+			    echo "Digging..."
+			    dig github.com
+			    dig github.com @8.8.8.8
+			    cat -A /etc/resolv.conf
+			    cat /etc/nsswitch.conf
+			    python3 -c 'import socket; print(socket.gethostbyname(\"github.com\"))' || true
                             cd "${env.WORKSPACE}"
                             GITHUB_USER=${repoUser} \
                             GITHUB_TOKEN=${accessToken} \
@@ -271,7 +277,7 @@ pipeline {
 					dig github.com @8.8.8.8
 					cat -A /etc/resolv.conf
 					cat /etc/nsswitch.conf
-					python3 -c 'import socket; print(socket.gethostbyname(\"github.com\"))'
+					python3 -c 'import socket; print(socket.gethostbyname(\"github.com\"))' || true
                                         sleep 5
                                         GITHUB_USER=${repoUser} \
                                         GITHUB_TOKEN=${accessToken} \
