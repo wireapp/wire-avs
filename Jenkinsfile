@@ -266,6 +266,10 @@ pipeline {
                                 string( credentialsId: 'github-repo-access', variable: 'accessToken' ) ]) {
                                 sh(
                                     script: """
+				    	echo "Digging..."
+					dig github.com
+					dig github.com @8.8.8.8
+					cat /etc/resolv.conf
                                         sleep 5
                                         GITHUB_USER=${repoUser} \
                                         GITHUB_TOKEN=${accessToken} \
