@@ -463,3 +463,55 @@ TEST_F(PublisherUpdate, pending_video_state_is_cleared_on_stop) {
  EXPECT_FALSE(call->pending_vstate_valid);
  EXPECT_EQ(CCALL_STATE_IDLE, call->state);
 }
+
+namespace {
+static void finish_retry_wait(void *) { re_cancel(); }
+static void wait_for_retry(unsigned delay) {
+ struct tmr timer;
+ tmr_init(&timer);
+ tmr_start(&timer, delay, finish_retry_wait, NULL);
+ re_main(NULL);
+ tmr_cancel(&timer);
+}
+}
+
+TEST_F(PublisherUpdate, http_500_retries_identical_request_and_waits_for_sdp) {
+ camera_on();
+ const Request original = requests.back();
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 500, "{}"));
+ EXPECT_EQ(1u, requests.size());
+ EXPECT_EQ(EBUSY, call->transport_handlers.can_updateh(call, CCALL_ECALL_PUBLISHER, call->transport_arg));
+ wait_for_retry(600);
+ ASSERT_EQ(2u, requests.size());
+ EXPECT_EQ(original.path, requests.back().path);
+ EXPECT_EQ(original.method, requests.back().method);
+ EXPECT_EQ(original.body, requests.back().body);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 200,
+  "{\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"answer\"},\"tracks\":[{\"mid\":\"1\",\"trackName\":\"camera\"}]}"));
+ EXPECT_TRUE(ecall_media_update_pending(publisher));
+ fake->api.sdp_appliedh(&fake->api, false, 0, fake->api.arg);
+ EXPECT_FALSE(ecall_media_update_pending(publisher));
+ wait_for_retry(600);
+ EXPECT_EQ(2u, requests.size());
+}
+
+TEST_F(PublisherUpdate, http_500_stops_after_three_attempts) {
+ camera_on();
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 500, "{}"));
+ wait_for_retry(600);
+ ASSERT_EQ(2u, requests.size());
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 500, "{}"));
+ wait_for_retry(1100);
+ ASSERT_EQ(3u, requests.size());
+ EXPECT_EQ(EPROTO, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 500, "{}"));
+ wait_for_retry(1100);
+ EXPECT_EQ(3u, requests.size());
+}
+
+TEST_F(PublisherUpdate, stop_cancels_http_500_backoff) {
+ camera_on();
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_PUBLISHER, 500, "{}"));
+ ccall_end(&call->icall);
+ wait_for_retry(600);
+ EXPECT_EQ(1u, requests.size());
+}

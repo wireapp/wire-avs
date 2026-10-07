@@ -14,7 +14,7 @@ assert.equal(ast.statements.filter(node => ts.isFunctionDeclaration(node) &&
   node.name && names.includes(node.name.text)).length, names.length);
 const code = ts.transpileModule(functions, {compilerOptions: {target: ts.ScriptTarget.ES2017}}).outputText;
 function runtime(globals) {
-  const context = vm.createContext({Promise, Error, ...globals});
+  const context = vm.createContext({Promise, Error, pc_log: () => {}, LOG_LEVEL_INFO: 1, ...globals});
   vm.runInContext(code, context);
   return context;
 }

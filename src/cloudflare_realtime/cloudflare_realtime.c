@@ -28,6 +28,16 @@
 #include "../realtime_bridge/realtime_bridge.h"
 #include "../ccall/ccall.h"
 
+struct cloudflare_retry {
+	struct cloudflare_realtime *adapter;
+	enum ccall_ecall_role role;
+	struct tmr timer;
+	char *method;
+	char *path;
+	char *body;
+	unsigned attempt;
+};
+
 struct cloudflare_realtime {
 	struct ccall *ccall;
 	struct realtime_bridge *bridge;
@@ -52,6 +62,7 @@ struct cloudflare_realtime {
 	uint32_t request_sequence;
 	uint32_t request_id[2];
 	uint64_t request_started[2];
+	struct cloudflare_retry retry[2];
 };
 
 static void request_response(struct cloudflare_realtime *adapter,
@@ -74,27 +85,33 @@ static const char *session_id(const struct cloudflare_realtime *adapter, enum cc
 	return session->session_id;
 }
 
-/* Diagnostics only: do not log credentials or full SDP/candidates. */
-static int traced_request(struct cloudflare_realtime *adapter,
-                          enum ccall_ecall_role role,
-                          const char *method, const char *path,
-                          const char *app_id, const char *app_secret,
-                          const char *body,
-                          cloudflare_realtime_response_h *responseh,
-                          void *arg)
+static void retry_clear(struct cloudflare_retry *retry)
 {
-	struct json_object *root = NULL;
-	struct json_object *tracks = NULL;
+	tmr_cancel(&retry->timer);
+	retry->method = mem_deref(retry->method);
+	retry->path = mem_deref(retry->path);
+	retry->body = mem_deref(retry->body);
+	retry->attempt = 0;
+}
+
+/* Diagnostics only: do not log credentials or full SDP/candidates. */
+static int dispatch_request(struct cloudflare_retry *retry)
+{
+	struct cloudflare_realtime *adapter = retry->adapter;
+	enum ccall_ecall_role role = retry->role;
+	struct json_object *root = NULL, *tracks = NULL;
 	uint32_t id = ++adapter->request_sequence;
 	int err;
 
+	++retry->attempt;
 	adapter->request_id[role] = id;
 	adapter->request_started[role] = tmr_jiffies();
-	info("cloudflare(%p): request-start id=%u role=%d session=%s method=%s path=%s pending=%d awaiting-sdp=%d time=%llu\n",
-	     adapter, id, role, session_id(adapter, role) ? session_id(adapter, role) : "(new)",
-	     method, path, adapter->pending[role], adapter->awaiting_update_apply,
+	info("cloudflare(%p): request-start id=%u attempt=%u/3 role=%d session=%s method=%s path=%s pending=%d awaiting-sdp=%d time=%llu\n",
+	     adapter, id, retry->attempt, role,
+	     session_id(adapter, role) ? session_id(adapter, role) : "(new)",
+	     retry->method, retry->path, adapter->pending[role], adapter->awaiting_update_apply,
 	     (unsigned long long)adapter->request_started[role]);
-	if (body && !jzon_decode(&root, body, strlen(body)) &&
+	if (retry->body && !jzon_decode(&root, retry->body, strlen(retry->body)) &&
 	    !jzon_array(&tracks, root, "tracks")) {
 		int i;
 		for (i = 0; i < json_object_array_length(tracks); ++i) {
@@ -106,11 +123,55 @@ static int traced_request(struct cloudflare_realtime *adapter,
 		}
 	}
 	mem_deref(root);
-	err = adapter->requesth(adapter, role, method, path, app_id,
-	                        app_secret, body, responseh, arg);
+	err = adapter->requesth(adapter, role, retry->method, retry->path,
+	                        adapter->app_id, adapter->app_secret, retry->body,
+	                        request_response, adapter->arg);
 	if (err)
 		info("cloudflare(%p): request-dispatch-failed id=%u err=%d\n", adapter, id, err);
 	return err;
+}
+
+static void retry_timeout(void *arg)
+{
+	struct cloudflare_retry *retry = arg;
+	struct cloudflare_realtime *adapter = retry->adapter;
+	int err;
+
+	if (adapter->pending_cancelled[retry->role] ||
+	    adapter->ccall->state == CCALL_STATE_IDLE ||
+	    adapter->ccall->state == CCALL_STATE_TERMINATING ||
+	    adapter->ccall->transport_ending) {
+		retry_clear(retry);
+		return;
+	}
+	err = dispatch_request(retry);
+	if (err)
+		request_response(adapter, retry->role, 599, NULL, adapter->arg);
+}
+
+static int traced_request(struct cloudflare_realtime *adapter,
+                          enum ccall_ecall_role role,
+                          const char *method, const char *path,
+                          const char *app_id, const char *app_secret,
+                          const char *body,
+                          cloudflare_realtime_response_h *responseh,
+                          void *arg)
+{
+	struct cloudflare_retry *retry = &adapter->retry[role];
+	int err;
+	(void)app_id; (void)app_secret; (void)responseh; (void)arg;
+
+	retry_clear(retry);
+	retry->adapter = adapter;
+	retry->role = role;
+	err = str_dup(&retry->method, method);
+	if (!err) err = str_dup(&retry->path, path);
+	if (!err && body) err = str_dup(&retry->body, body);
+	if (err) {
+		retry_clear(retry);
+		return err;
+	}
+	return dispatch_request(retry);
 }
 
 static int make_request_body(char **bodyp, bool offer, const char *sdp, const char *tracks_json)
@@ -722,6 +783,7 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 	(void)state;
 
 	if (event == CCALL_TRANSPORT_CLOSED) {
+		retry_clear(&adapter->retry[role]);
 		adapter->pending_cancelled[role] =
 			adapter->pending[role] != CLOUDFLARE_REALTIME_OP_NONE;
 		realtime_bridge_stop_role(adapter->bridge, role);
@@ -911,6 +973,21 @@ int cloudflare_realtime_handle_response(
 		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
 		return ECANCELED;
 	}
+
+
+	/* POC policy: repeat only HTTP 500, at most twice, preserving the body.
+	 * Keep pending set across backoff and the subsequent SDP exchange. */
+	if (adapter && valid_role(role) && status == 500 &&
+	    adapter->retry[role].path && adapter->retry[role].attempt < 3) {
+		unsigned delay = 500 * adapter->retry[role].attempt;
+		info("cloudflare(%p): retry-scheduled id=%u role=%d next-attempt=%u/3 delay=%u status=500\n",
+		     adapter, adapter->request_id[role], role,
+		     adapter->retry[role].attempt + 1, delay);
+		tmr_start(&adapter->retry[role].timer, delay, retry_timeout, &adapter->retry[role]);
+		return 0;
+	}
+	if (adapter && valid_role(role))
+		retry_clear(&adapter->retry[role]);
 
 	if (status < 200 || status >= 300) {
 		warning("cloudflare: response status=%d body=%s\n",
@@ -1137,6 +1214,8 @@ void cloudflare_realtime_close(struct cloudflare_realtime *adapter)
 	if (!adapter)
 		return;
 
+	retry_clear(&adapter->retry[0]);
+	retry_clear(&adapter->retry[1]);
 	if (adapter->ccall)
 		ccall_set_transport_handlers(adapter->ccall, NULL, NULL);
 	realtime_bridge_close(adapter->bridge);

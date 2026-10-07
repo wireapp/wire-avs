@@ -2023,9 +2023,14 @@ function discardPublisherVideo(pc: PeerConnection) {
     pc.rtc.getTransceivers().forEach(transceiver => {
         const track = transceiver.sender.track;
         if (track && track.kind === "video") {
+            pc_log(LOG_LEVEL_INFO, `cloudflare: video-stop-before: self=${pc.self} mid=${transceiver.mid} track=${track.id} readyState=${track.readyState} enabled=${track.enabled} direction=${transceiver.direction} currentDirection=${transceiver.currentDirection} signaling=${pc.rtc!.signalingState} connection=${pc.rtc!.connectionState}`);
             track.stop();
+            pc_log(LOG_LEVEL_INFO, `cloudflare: video-track-stopped: self=${pc.self} mid=${transceiver.mid} track=${track.id} readyState=${track.readyState}`);
             pc.rtc!.removeTrack(transceiver.sender);
+            pc_log(LOG_LEVEL_INFO, `cloudflare: transceiver-stop-begin: time=${Date.now()} self=${pc.self} mid=${transceiver.mid} direction=${transceiver.direction} currentDirection=${transceiver.currentDirection}`);
             transceiver.stop();
+            pc_log(LOG_LEVEL_INFO, `cloudflare: transceiver-stop-end: time=${Date.now()} self=${pc.self} mid=${transceiver.mid} direction=${transceiver.direction} currentDirection=${transceiver.currentDirection}`);
+            pc_log(LOG_LEVEL_INFO, `cloudflare: video-stop-after: self=${pc.self} mid=${transceiver.mid} track=${track.id} readyState=${track.readyState} senderTrack=${transceiver.sender.track ? transceiver.sender.track.id : '(none)'} direction=${transceiver.direction} currentDirection=${transceiver.currentDirection} signaling=${pc.rtc!.signalingState} connection=${pc.rtc!.connectionState}`);
         }
     });
     pc.sending_video = false;
@@ -2082,7 +2087,9 @@ function preparePublisherTracks(pc: PeerConnection, useVideo: boolean,
                 return;
             }
             if (track.kind === "audio") track.enabled = !pc.muted;
+            pc_log(LOG_LEVEL_INFO, `cloudflare: transceiver-add-begin: time=${Date.now()} self=${pc.self} kind=${track.kind} track=${track.id} readyState=${track.readyState} source=${source}`);
             rtc.addTransceiver(track, {direction: "sendonly", streams: [stream]});
+            pc_log(LOG_LEVEL_INFO, `cloudflare: transceiver-add-end: time=${Date.now()} self=${pc.self} kind=${track.kind} track=${track.id} direction=sendonly`);
         });
         if (cameraTracks.length) pc.publisher_video_source = source;
     });
@@ -2143,7 +2150,12 @@ function createSdp(
 
 		ccallStartGatherHandler(pc);
 
+		const sdpStarted = Date.now();
+		if (mediaDirection === PC_MEDIA_SENDONLY)
+			pc_log(LOG_LEVEL_INFO, `cloudflare: create-${isOffer ? 'offer' : 'answer'}-begin: time=${sdpStarted} self=${pc.self} vstate=${vstate} signaling=${rtc.signalingState} connection=${rtc.connectionState}`);
 		doSdp.bind(rtc)(offerVideoRx).then(sdp => {
+            if (mediaDirection === PC_MEDIA_SENDONLY)
+                pc_log(LOG_LEVEL_INFO, `cloudflare: create-${isOffer ? 'offer' : 'answer'}-end: time=${Date.now()} self=${pc.self} elapsed=${Date.now() - sdpStarted} signaling=${rtc.signalingState} connection=${rtc.connectionState}`);
             const typeStr = sdp.type;
             const sdpStr = sdp.sdp || '';
 
@@ -2153,6 +2165,8 @@ function createSdp(
                 ? sdpStr : sdpMap(sdpStr, true, false);
             ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
         }).catch((err: any) => {
+            if (mediaDirection === PC_MEDIA_SENDONLY)
+                pc_log(LOG_LEVEL_WARN, `cloudflare: create-${isOffer ? 'offer' : 'answer'}-failed: time=${Date.now()} self=${pc.self} elapsed=${Date.now() - sdpStarted} error=${String(err)}`);
             pc_log(LOG_LEVEL_WARN, 'createSdp: doSdp failed: ' + err, err);
             if (mediaDirection === PC_MEDIA_SENDONLY) discardPublisherVideo(pc);
             ccallLocalSdpHandler(pc, 1, "sdp-error", err.toString());
