@@ -84,3 +84,30 @@ TEST(catalog, snapshot_exports_participant_array_with_shared_tracks) {
  mem_deref(encoded);
  catalog_close(c);
 }
+
+TEST(catalog, hello_merges_idempotently_and_snapshot_confirms_own_revision) {
+ struct catalog *a = NULL, *b = NULL;
+ ASSERT_EQ(0, catalog_alloc(&a, "call", "self.one"));
+ ASSERT_EQ(0, catalog_alloc(&b, "call", "remote.two"));
+ ASSERT_EQ(0, catalog_set_publication(a, "{\"userId\":\"self\",\"clientId\":\"one\",\"publisherSessionId\":\"pub-a\",\"tracks\":[]}", 1, "reachable"));
+ ASSERT_EQ(0, catalog_set_publication(b, "{\"userId\":\"remote\",\"clientId\":\"two\",\"publisherSessionId\":\"pub-b\",\"tracks\":[]}", 2, "reachable"));
+ char *hello = NULL, *snapshot = NULL;
+ ASSERT_EQ(0, catalog_encode_hello(b, "join", &hello));
+ struct approved approved = {false};
+ EXPECT_EQ(EACCES, catalog_apply_hello(a, hello, match, &approved));
+ approved.remote = true;
+ ASSERT_EQ(0, catalog_apply_hello(a, hello, match, &approved));
+ ASSERT_EQ(0, catalog_apply_hello(a, hello, match, &approved));
+ ASSERT_EQ(0, catalog_encode_snapshot(a, &snapshot));
+ bool confirmed = false;
+ ASSERT_EQ(0, catalog_apply_snapshot(b, snapshot, match, &approved, &confirmed));
+ EXPECT_TRUE(confirmed);
+ ASSERT_EQ(0, catalog_set_publication(b, "{\"userId\":\"remote\",\"clientId\":\"two\",\"publisherSessionId\":\"pub-b\",\"tracks\":[]}", 3, "reachable"));
+ ASSERT_EQ(0, catalog_apply_snapshot(b, snapshot, match, &approved, &confirmed));
+ EXPECT_FALSE(confirmed);
+ char *sid = NULL;
+ ASSERT_EQ(0, catalog_find_session(snapshot, "self", "one", &sid));
+ EXPECT_STREQ("pub-a", sid);
+ mem_deref(sid); mem_deref(hello); mem_deref(snapshot);
+ catalog_close(a); catalog_close(b);
+}

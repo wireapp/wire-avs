@@ -616,6 +616,7 @@ TEST(econn_fmt, econn_confstart)
 	ASSERT_EQ(str_dup(&smsg->u.confstart.sft_tuple, "sft_tuple"), 0);
 	ASSERT_EQ(str_dup((char**)(&smsg->u.confstart.secret), "secret"), 0);
 	smsg->u.confstart.secretlen = 7;
+	ASSERT_EQ(0, str_dup(&smsg->u.confstart.catalog, "{\"type\":\"conf_catalog\",\"participants\":[]}"));
 	smsg->u.confstart.timestamp = 12345;
 	smsg->u.confstart.seqno = 24680;
 	init_stringlist(&smsg->u.confstart.sftl);
@@ -629,6 +630,7 @@ TEST(econn_fmt, econn_confstart)
 	ASSERT_EQ(memcmp(smsg->u.confstart.secret,
 			 dmsg->u.confstart.secret,
 			 smsg->u.confstart.secretlen), 0);
+	ASSERT_STREQ(smsg->u.confstart.catalog, dmsg->u.confstart.catalog);
 	ASSERT_EQ(smsg->u.confstart.timestamp, dmsg->u.confstart.timestamp);
 	ASSERT_EQ(smsg->u.confstart.seqno, dmsg->u.confstart.seqno);
 	check_stringlist(&smsg->u.confstart.sftl, &dmsg->u.confstart.sftl);
@@ -650,6 +652,7 @@ TEST(econn_fmt, econn_confcheck)
 	ASSERT_EQ(str_dup(&smsg->u.confcheck.sft_tuple, "sft_tuple"), 0);
 	ASSERT_EQ(str_dup((char**)(&smsg->u.confcheck.secret), secret), 0);
 	smsg->u.confcheck.secretlen = strlen(secret)+1;
+	ASSERT_EQ(0, str_dup(&smsg->u.confcheck.catalog, "{\"type\":\"conf_catalog\",\"participants\":[]}"));
 	smsg->u.confcheck.timestamp = 12345;
 	smsg->u.confcheck.seqno = 24680;
 	init_stringlist(&smsg->u.confcheck.sftl);
@@ -662,6 +665,7 @@ TEST(econn_fmt, econn_confcheck)
 	ASSERT_EQ(memcmp(smsg->u.confcheck.secret,
 			 dmsg->u.confcheck.secret,
 			 smsg->u.confcheck.secretlen), 0);
+	ASSERT_STREQ(smsg->u.confcheck.catalog, dmsg->u.confcheck.catalog);
 	ASSERT_EQ(smsg->u.confcheck.timestamp, dmsg->u.confcheck.timestamp);
 	ASSERT_EQ(smsg->u.confcheck.seqno, dmsg->u.confcheck.seqno);
 	check_stringlist(&smsg->u.confcheck.sftl, &dmsg->u.confcheck.sftl);

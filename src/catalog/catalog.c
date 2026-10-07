@@ -157,7 +157,8 @@ static int encode_message(struct catalog *catalog, const char *type, const char 
 	if (request_id)
 		jzon_add_str(message, "requestId", "%s", request_id);
 
-	if (strcmp(type, "catalog_update") == 0 ||
+	if (strcmp(type, "catalog_hello") == 0 ||
+	    strcmp(type, "catalog_update") == 0 ||
 	    strcmp(type, "catalog_welcome") == 0) {
 		err = make_entry(catalog, &entry);
 		if (err)
@@ -439,6 +440,106 @@ const char *catalog_participant_id(const struct catalog *catalog)
 uint32_t catalog_version(const struct catalog *catalog)
 {
 	return catalog ? catalog->version : 0;
+}
+
+static int validate_participant(struct json_object *entry,
+                               catalog_participant_match_h *approved, void *arg)
+{
+	const char *uid = jzon_str(entry, "userId"), *cid = jzon_str(entry, "clientId");
+	const char *pid = jzon_str(entry, "participantId");
+	struct json_object *tracks = NULL;
+	char *expected = NULL;
+	int revision, err;
+	if (!str_isset(uid) || !str_isset(cid) || !str_isset(pid) ||
+	    !str_isset(jzon_str(entry, "publisherSessionId"))) return EINVAL;
+	err = re_sdprintf(&expected, "%s.%s", uid, cid);
+	if (!err && !streq(expected, pid)) err = EINVAL;
+	mem_deref(expected);
+	if (!err) err = jzon_int(&revision, entry, "revision");
+	if (!err && revision < 1) err = EINVAL;
+	if (!err) err = jzon_array(&tracks, entry, "tracks");
+	if (!err) err = catalog_tracks_validate(tracks);
+	if (!err && approved && !approved(uid, cid, arg)) err = EACCES;
+	return err;
+}
+
+static int merge_participant(struct catalog *catalog, struct json_object *entry)
+{
+	struct json_object *msg = jzon_alloc_object();
+	char *json = NULL;
+	int err;
+	if (!msg) return ENOMEM;
+	jzon_add_str(msg, "type", "catalog_update");
+	jzon_add_str(msg, "catalogId", "%s", catalog->catalog_id);
+	json_object_object_add(msg, "participant", mem_ref(entry));
+	err = jzon_encode(&json, msg);
+	if (!err) err = catalog_apply_message(catalog, json, strlen(json));
+	mem_deref(json); mem_deref(msg);
+	return err;
+}
+
+int catalog_apply_hello(struct catalog *catalog, const char *json,
+                       catalog_participant_match_h *approved, void *arg)
+{
+	struct json_object *root = NULL, *entry = NULL;
+	int err = jzon_decode(&root, json, strlen(json));
+	if (!err && (!streq(jzon_str(root, "type"), "catalog_hello") ||
+	    !streq(jzon_str(root, "catalogId"), catalog->catalog_id))) err = EINVAL;
+	if (!err) err = jzon_object(&entry, root, "participant");
+	if (!err) err = validate_participant(entry, approved, arg);
+	if (!err) err = merge_participant(catalog, entry);
+	mem_deref(root);
+	return err;
+}
+
+int catalog_apply_snapshot(struct catalog *catalog, const char *json,
+                           catalog_participant_match_h *approved, void *arg,
+                           bool *self_confirmed)
+{
+	struct json_object *root = NULL, *entries = NULL;
+	int i, err = jzon_decode(&root, json, strlen(json));
+	if (self_confirmed) *self_confirmed = false;
+	if (!err && (!streq(jzon_str(root, "type"), "conf_catalog") ||
+	    !streq(jzon_str(root, "catalogId"), catalog->catalog_id))) err = EINVAL;
+	if (!err) err = jzon_array(&entries, root, "participants");
+	/* Validate the full snapshot before merging any participant. */
+	for (i = 0; !err && i < json_object_array_length(entries); ++i)
+		err = validate_participant(json_object_array_get_idx(entries, i), approved, arg);
+	for (i = 0; !err && i < json_object_array_length(entries); ++i) {
+		struct json_object *entry = json_object_array_get_idx(entries, i);
+		if (streq(jzon_str(entry, "participantId"), catalog->participant_id)) {
+			int revision = 0;
+			jzon_int(&revision, entry, "revision");
+			if (self_confirmed && (uint32_t)revision == catalog->version && catalog->publication &&
+			    streq(jzon_str(entry, "publisherSessionId"), jzon_str(catalog->publication, "publisherSessionId")))
+				*self_confirmed = true;
+		}
+		else err = merge_participant(catalog, entry);
+	}
+	mem_deref(root);
+	return err;
+}
+
+int catalog_find_session(const char *json, const char *userid,
+                         const char *clientid, char **sessionp)
+{
+	struct json_object *root = NULL, *entries = NULL;
+	int i, err = jzon_decode(&root, json, strlen(json));
+	if (!err) err = jzon_array(&entries, root, "participants");
+	if (!err) {
+		err = ENOENT;
+		for (i = 0; i < json_object_array_length(entries); ++i) {
+			struct json_object *entry = json_object_array_get_idx(entries, i);
+			if (streq(jzon_str(entry, "userId"), userid) &&
+			    streq(jzon_str(entry, "clientId"), clientid) &&
+			    str_isset(jzon_str(entry, "publisherSessionId"))) {
+				err = str_dup(sessionp, jzon_str(entry, "publisherSessionId"));
+				break;
+			}
+		}
+	}
+	mem_deref(root);
+	return err;
 }
 
 void catalog_close(struct catalog *catalog)

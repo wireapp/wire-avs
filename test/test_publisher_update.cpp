@@ -7,6 +7,7 @@
 extern "C" {
 #include "../src/ccall/ccall.h"
 #include "../src/ecall/ecall.h"
+#include "../src/catalog/catalog.h"
 #include "../src/cloudflare_realtime/cloudflare_realtime.h"
 }
 
@@ -19,7 +20,7 @@ struct FakeFlow {
  unsigned video_mid;
  const char *video_name;
 };
-struct Request { std::string method, path, body; };
+struct Request { std::string method, path, body; enum ccall_ecall_role role; };
 static unsigned allocations;
 static std::vector<std::string> frames;
 static int video_state(struct iflow *flow, enum icall_vstate state) {
@@ -50,6 +51,7 @@ static int offer(struct iflow *flow, char *sdp, size_t size) {
  str_ncpy(sdp, result.c_str(), size);
  return 0;
 }
+static int receive_offer(struct iflow *, const char *) { return 0; }
 static int answer(struct iflow *flow, const char *) {
  ++reinterpret_cast<FakeFlow *>(flow)->answers;
  return 0; // SDP application completes separately, as in the browser.
@@ -70,15 +72,17 @@ static int allocate(struct iflow **flow, const char *, const char *, const char 
  fake->api.gather_all_turn = gather;
  fake->api.generate_offer = offer;
  fake->api.handle_answer = answer;
+ fake->api.handle_offer = receive_offer;
+ fake->api.generate_answer = offer;
  fake->api.dce_send = send_frame;
  fake->api.dce_create = create_channel;
  *flow = &fake->api;
  return 0;
 }
-static int request(struct cloudflare_realtime *, enum ccall_ecall_role,
+static int request(struct cloudflare_realtime *, enum ccall_ecall_role role,
  const char *method, const char *path, const char *, const char *, const char *body,
  cloudflare_realtime_response_h *, void *arg) {
- static_cast<std::vector<Request> *>(arg)->push_back({method, path, body ? body : ""});
+ static_cast<std::vector<Request> *>(arg)->push_back({method, path, body ? body : "", role});
  return 0;
 }
 class PublisherUpdate : public ::testing::Test {
@@ -514,4 +518,195 @@ TEST_F(PublisherUpdate, stop_cancels_http_500_backoff) {
  ccall_end(&call->icall);
  wait_for_retry(600);
  EXPECT_EQ(1u, requests.size());
+}
+
+TEST_F(PublisherUpdate, join_negotiates_subscriber_channel_before_hello) {
+ ASSERT_EQ(0, str_dup(&call->keyholder_session, "keyholder-session"));
+ ASSERT_EQ(0, ccall_catalog_refresh(call));
+ ASSERT_EQ(1u, requests.size());
+ EXPECT_EQ(CCALL_ECALL_SUBSCRIBER, requests.back().role);
+ EXPECT_EQ("/sessions/new", requests.back().path);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 201,
+  "{\"sessionId\":\"sub\"}"));
+ ASSERT_EQ(2u, requests.size());
+ EXPECT_EQ("/sessions/sub/datachannels/establish", requests.back().path);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200,
+  "{\"requiresImmediateRenegotiation\":true,\"sessionDescription\":{\"type\":\"offer\",\"sdp\":\"v=0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\na=mid:0\\r\\na=sctp-port:5000\\r\\n\"}}"));
+ auto *sub = ccall_get_ecall(call, CCALL_ECALL_SUBSCRIBER);
+ ASSERT_NE(nullptr, sub);
+ ASSERT_NE(nullptr, sub->flow);
+ auto *subflow = reinterpret_cast<FakeFlow *>(sub->flow);
+ subflow->api.gatherh(&subflow->api, subflow->api.arg);
+ ASSERT_EQ(3u, requests.size());
+ EXPECT_EQ("/sessions/sub/renegotiate", requests.back().path);
+ EXPECT_NE(std::string::npos, requests.back().body.find("answer"));
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{}"));
+ EXPECT_EQ(3u, requests.size()); // Wait for transport connectivity as well as API acceptance.
+ subflow->api.estabh(&subflow->api, "DTLS", "", subflow->api.arg);
+ ASSERT_EQ(4u, requests.size());
+ EXPECT_EQ("/sessions/sub/datachannels/new", requests.back().path);
+ EXPECT_NE(std::string::npos, requests.back().body.find("keyholder-session"));
+ EXPECT_NE(std::string::npos, requests.back().body.find("\"canReply\":true"));
+ subflow->api.dce_estabh(&subflow->api, subflow->api.arg); // Reserved transport channel.
+ frames.clear();
+ const Request subscription = requests.back();
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200,
+  "{\"dataChannels\":[{\"errorCode\":\"transport_unavailable_error\",\"errorDescription\":\"Try again later\"}]}"));
+ EXPECT_EQ(4u, requests.size());
+ EXPECT_TRUE(frames.empty());
+ wait_for_retry(600);
+ ASSERT_EQ(5u, requests.size());
+ EXPECT_EQ(subscription.body, requests.back().body);
+ EXPECT_EQ(subscription.path, requests.back().path);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200,
+  "{\"dataChannels\":[{\"id\":4}]}"));
+ EXPECT_TRUE(frames.empty());
+ subflow->api.dce_estabh(&subflow->api, subflow->api.arg);
+ bool found = false;
+ for (const auto &frame : frames) if (frame.find("catalog_hello") != std::string::npos) found = true;
+ EXPECT_TRUE(found);
+ EXPECT_FALSE(call->catalog_join_confirmed);
+ const size_t previous = requests.size();
+ wait_for_retry(2100);
+ ASSERT_EQ(previous + 1, requests.size());
+ EXPECT_EQ("/sessions/sub/datachannels/update", requests.back().path);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200,
+  "{\"dataChannels\":[{\"id\":4}]}"));
+ struct econn_message msg;
+ ASSERT_EQ(0, econn_message_init(&msg, ECONN_CONF_CATALOG, "keyholder"));
+ ASSERT_EQ(0, catalog_encode_snapshot(call->catalog, &msg.u.catalog.json));
+ char *wire = NULL;
+ ASSERT_EQ(0, econn_message_encode(&wire, &msg));
+ subflow->api.dce_recvh(&subflow->api, reinterpret_cast<const uint8_t *>(wire), strlen(wire), subflow->api.arg);
+ mem_deref(wire);
+ EXPECT_TRUE(call->catalog_join_confirmed);
+ econn_message_reset(&msg);
+ wait_for_retry(2100);
+ EXPECT_EQ(previous + 1, requests.size()); // No further grants or other channel subscriptions.
+}
+
+TEST_F(PublisherUpdate, keyholder_merges_hello_and_broadcasts_current_catalog_without_subscribing) {
+ struct list clients = LIST_INIT;
+ auto *client = icall_client_alloc("remote", "two");
+ ASSERT_NE(nullptr, client);
+ list_append(&clients, &client->le, client);
+ ccall_set_clients(&call->icall, &clients, 2);
+ list_flush(&clients);
+ struct catalog *remote = NULL;
+ ASSERT_EQ(0, catalog_alloc(&remote, "call", "remote.two"));
+ ASSERT_EQ(0, catalog_set_publication(remote,
+  "{\"userId\":\"remote\",\"clientId\":\"two\",\"publisherSessionId\":\"remote-pub\",\"tracks\":[]}", 7, "reachable"));
+ struct econn_message msg;
+ ASSERT_EQ(0, econn_message_init(&msg, ECONN_CONF_CATALOG, "remote-session"));
+ ASSERT_EQ(0, catalog_encode_hello(remote, "remote.two", &msg.u.catalog.json));
+ frames.clear();
+ const size_t before = requests.size();
+ char *wire = NULL;
+ ASSERT_EQ(0, econn_message_encode(&wire, &msg));
+ fake->api.dce_recvh(&fake->api, reinterpret_cast<const uint8_t *>(wire), strlen(wire), fake->api.arg);
+ ASSERT_EQ(1u, frames.size());
+ EXPECT_NE(std::string::npos, frames.back().find("conf_catalog"));
+ EXPECT_NE(std::string::npos, frames.back().find("remote-pub"));
+ EXPECT_NE(std::string::npos, frames.back().find("remote.two"));
+ fake->api.dce_recvh(&fake->api, reinterpret_cast<const uint8_t *>(wire), strlen(wire), fake->api.arg);
+ mem_deref(wire);
+ EXPECT_EQ(2u, frames.size()); // Repeat welcome, not a second participant.
+ EXPECT_EQ(before, requests.size()); // Keyholder reverse subscriptions are step two.
+ econn_message_reset(&msg);
+ catalog_close(remote);
+}
+
+TEST_F(PublisherUpdate, join_stop_cancels_hello_grant_retries) {
+ ASSERT_EQ(0, str_dup(&call->keyholder_session, "keyholder-session"));
+ ASSERT_EQ(0, ccall_catalog_refresh(call));
+ ccall_end(&call->icall);
+ EXPECT_EQ(ECANCELED, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 201,
+  "{\"sessionId\":\"late-sub\"}"));
+ wait_for_retry(2100);
+ EXPECT_EQ(1u, requests.size());
+ EXPECT_FALSE(call->catalog_join_confirmed);
+}
+
+static int capture_call_signaling(struct icall *, const char *, struct econn_message *msg,
+ struct list *, bool, void *) {
+ char *json = NULL;
+ int err = econn_message_encode(&json, msg);
+ if (!err) frames.emplace_back(json);
+ mem_deref(json);
+ return err;
+}
+
+TEST_F(PublisherUpdate, first_publisher_confstart_contains_ready_catalog) {
+ call->icall.sendh = capture_call_signaling;
+ call->is_caller = true;
+ call->sft_timestamp = 100;
+ call->sft_seqno = 3;
+ call->state = CCALL_STATE_CONNECTED;
+ call->publisher_media_notified = false;
+ frames.clear();
+ ccall_set_transport_active(call, CCALL_ECALL_PUBLISHER);
+ ASSERT_EQ(CCALL_STATE_ACTIVE, call->state);
+ ASSERT_EQ(1u, frames.size());
+ struct econn_message *msg = NULL;
+ ASSERT_EQ(0, econn_message_decode(&msg, 0, 0, frames.back().c_str(), frames.back().size()));
+ EXPECT_EQ(ECONN_CONF_START, msg->msg_type);
+ ASSERT_NE(nullptr, msg->u.confstart.catalog);
+ EXPECT_NE(std::string::npos, std::string(msg->u.confstart.catalog).find("publisherSessionId"));
+ EXPECT_EQ(100u, msg->u.confstart.timestamp);
+ mem_deref(msg);
+}
+
+TEST_F(PublisherUpdate, incoming_legacy_call_retains_bootstrap_for_provider_selection_before_answer) {
+ struct ccall *incoming = NULL;
+ ASSERT_EQ(0, ccall_alloc(&incoming, NULL, "late-call", "self", "one", true, false));
+ EXPECT_FALSE(incoming->enable_publish_subscribe);
+ struct econn_message msg;
+ ASSERT_EQ(0, econn_message_init(&msg, ECONN_CONF_START, "call-session"));
+ msg.u.confstart.timestamp = 1;
+ msg.u.confstart.seqno = 1;
+ uint8_t secret[16] = {1};
+ msg.u.confstart.secret = static_cast<uint8_t *>(mem_alloc(sizeof(secret), NULL));
+ memcpy(msg.u.confstart.secret, secret, sizeof(secret));
+ msg.u.confstart.secretlen = sizeof(secret);
+ ASSERT_EQ(0, str_dup(&msg.u.confstart.sft_url, "https://example.invalid"));
+ ASSERT_EQ(0, str_dup(&msg.u.confstart.catalog,
+  "{\"type\":\"conf_catalog\",\"catalogId\":\"late-call\",\"participants\":[{\"userId\":\"remote\",\"clientId\":\"two\",\"publisherSessionId\":\"keyholder-session\"}]}"));
+ ASSERT_EQ(0, ccall_msg_recv(&incoming->icall, 0, 0, "remote", "two", &msg));
+ ASSERT_EQ(CCALL_STATE_INCOMING, incoming->state);
+ EXPECT_STREQ("keyholder-session", incoming->keyholder_session);
+ EXPECT_TRUE(ccall_can_configure_incoming_transport(incoming));
+ ASSERT_EQ(0, ccall_set_enable_publish_subscribe(incoming, true));
+ ASSERT_EQ(0, ccall_prepare_ecalls(incoming));
+ EXPECT_FALSE(ccall_can_configure_incoming_transport(incoming));
+ EXPECT_STREQ("keyholder-session", incoming->keyholder_session);
+ EXPECT_EQ(EBUSY, ccall_set_enable_publish_subscribe(incoming, false));
+ econn_message_reset(&msg);
+ mem_deref(incoming);
+}
+
+TEST_F(PublisherUpdate, subscriber_transport_unavailable_stops_after_three_attempts) {
+ ASSERT_EQ(0, str_dup(&call->keyholder_session, "keyholder-session"));
+ ASSERT_EQ(0, ccall_catalog_refresh(call));
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 201,
+  "{\"sessionId\":\"sub\"}"));
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200,
+  "{\"sessionDescription\":{\"type\":\"offer\",\"sdp\":\"v=0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\na=mid:0\\r\\na=sctp-port:5000\\r\\n\"}}"));
+ auto *sub = ccall_get_ecall(call, CCALL_ECALL_SUBSCRIBER);
+ auto *subflow = reinterpret_cast<FakeFlow *>(sub->flow);
+ subflow->api.gatherh(&subflow->api, subflow->api.arg);
+ ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{}"));
+ subflow->api.estabh(&subflow->api, "DTLS", "", subflow->api.arg);
+ ASSERT_EQ(4u, requests.size());
+ const char *unavailable = "{\"dataChannels\":[{\"errorCode\":\"transport_unavailable_error\"}]}";
+ EXPECT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, unavailable));
+ wait_for_retry(600);
+ ASSERT_EQ(5u, requests.size());
+ EXPECT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, unavailable));
+ wait_for_retry(1100);
+ ASSERT_EQ(6u, requests.size());
+ EXPECT_EQ(EPROTO, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, unavailable));
+ EXPECT_EQ(CCALL_STATE_IDLE, call->state);
+ wait_for_retry(1100);
+ EXPECT_EQ(6u, requests.size());
+ EXPECT_FALSE(call->catalog_join_confirmed);
 }

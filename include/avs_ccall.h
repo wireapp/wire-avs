@@ -34,6 +34,7 @@ enum ccall_transport_event {
 	CCALL_TRANSPORT_MEDIA_STOPPED,
 	CCALL_TRANSPORT_CLOSED,
 	CCALL_TRANSPORT_UPDATE_APPLIED,
+	CCALL_TRANSPORT_CATALOG_READY,
 };
 
 struct ccall_transport_state {
@@ -54,6 +55,7 @@ struct ccall_transport_handlers {
 				const struct ccall_transport_state *, void *);
 	void (*qualityh)(struct ccall *, enum ccall_ecall_role, const struct stats_report *, void *);
 	void (*audio_levelh)(struct ccall *, enum ccall_ecall_role, struct list *, void *);
+	void (*confmsgh)(struct ccall *, enum ccall_ecall_role, const struct econn_message *, void *);
 	int (*can_updateh)(struct ccall *, enum ccall_ecall_role, void *);
 };
 
@@ -72,6 +74,8 @@ void ccall_set_transport_active(struct ccall *ccall,
 				enum ccall_ecall_role role);
 
 // Activate subscriber and publisher behavior
+bool ccall_can_configure_incoming_transport(const struct ccall *ccall);
+
 int ccall_set_enable_publish_subscribe(struct ccall *ccall, bool enable_publish_subscribe);
 
 int ccall_prepare_ecalls(struct ccall *ccall);

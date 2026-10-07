@@ -714,6 +714,7 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		break;
 
 	case ECONN_CONF_START:
+		if (msg->u.confstart.catalog) jzon_add_str(jobj, "catalog", "%s", msg->u.confstart.catalog);
 		jzon_add_str(jobj, "sft_url", "%s", msg->u.confstart.sft_url);
 		if (msg->u.confstart.sft_tuple) {
 			jzon_add_str(jobj, "sft_tuple", "%s", msg->u.confstart.sft_tuple);
@@ -732,6 +733,7 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		break;
 
 	case ECONN_CONF_CHECK:
+		if (msg->u.confcheck.catalog) jzon_add_str(jobj, "catalog", "%s", msg->u.confcheck.catalog);
 		jzon_add_str(jobj, "sft_url", "%s", msg->u.confcheck.sft_url);
 		if (msg->u.confcheck.sft_tuple) {
 			jzon_add_str(jobj, "sft_tuple", "%s", msg->u.confcheck.sft_tuple);
@@ -1054,6 +1056,7 @@ int econn_message_decode(struct econn_message **msgp,
 		const char *tuple;
 
 		msg->msg_type = ECONN_CONF_START;
+		if (jzon_str(jobj, "catalog")) str_dup(&msg->u.confstart.catalog, jzon_str(jobj, "catalog"));
 
 		err = jzon_strdup(&msg->u.confstart.sft_url, jobj, "sft_url");
 		if (err) {
@@ -1104,6 +1107,7 @@ int econn_message_decode(struct econn_message **msgp,
 		const char *tuple;
 
 		msg->msg_type = ECONN_CONF_CHECK;
+		if (jzon_str(jobj, "catalog")) str_dup(&msg->u.confcheck.catalog, jzon_str(jobj, "catalog"));
 
 		err = jzon_strdup(&msg->u.confcheck.sft_url, jobj, "sft_url");
 		if (err) {

@@ -1397,6 +1397,7 @@ function connectionHandler(pc: PeerConnection) {
 function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   const dcHnd = connectionsStore.storeDataChannel(dc);
   const isCatalog = dc.label === CATALOG_DATA_CHANNEL_LABEL;
+  const isServerEvents = dc.label === "server-events";
 
   if (isCatalog) {
     pc.catalogDc = dc;
@@ -1404,6 +1405,10 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
 
   dc.onopen = () => {
     if (pc.closing || pc.ignoredDataChannels[dcHnd]) return;
+    if (isServerEvents) {
+      pc_log(LOG_LEVEL_INFO, "cloudflare: server-events opened");
+      return;
+    }
     pc_log(LOG_LEVEL_INFO, "dc-opened");
     if (isCatalog) {
       if (catalogStateHandler) catalogStateHandler(pc.convid, DC_STATE_OPEN);
@@ -1415,6 +1420,10 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   dc.onclose = () => {
     pc_log(LOG_LEVEL_INFO, "dc-closed");
     if (pc.closing || pc.ignoredDataChannels[dcHnd]) return;
+    if (isServerEvents) {
+      pc_log(LOG_LEVEL_INFO, "cloudflare: server-events closed");
+      return;
+    }
     if (isCatalog) {
       if (catalogStateHandler) catalogStateHandler(pc.convid, DC_STATE_CLOSED);
     }
@@ -1424,6 +1433,10 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   };
   dc.onerror = event => {
     if (pc.closing || pc.ignoredDataChannels[dcHnd]) return;
+    if (isServerEvents) {
+      pc_log(LOG_LEVEL_WARN, "cloudflare: server-events error");
+      return;
+    }
     if (event instanceof RTCErrorEvent) {
       pc_log(LOG_LEVEL_INFO, `dc-error: ${event.error}`);
       if (isCatalog) {
@@ -1436,6 +1449,10 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   };
   dc.onmessage = event => {
     if (pc.closing || pc.ignoredDataChannels[dcHnd]) return;
+    if (isServerEvents) {
+      pc_log(LOG_LEVEL_INFO, `cloudflare: server-events message length=${event.data.toString().length}`);
+      return;
+    }
     pc_log(LOG_LEVEL_INFO, `dc-onmessage: data=${event.data.length}`);
     const data = event.data.toString();
     if (isCatalog) {
@@ -1457,7 +1474,7 @@ function dataChannelHandler(pc: PeerConnection, event: RTCDataChannelEvent) {
 
   /* The catalog channel has its own JS callback path.  Do not pass it to
    * dc_estab_handler, which belongs exclusively to the ECall channel. */
-  if (dc.label !== "catalog") {
+  if (dc.label !== "catalog" && dc.label !== "server-events") {
     ccallDcEstabHandler(pc, dcHnd);
   }
 }

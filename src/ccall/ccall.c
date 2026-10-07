@@ -146,6 +146,7 @@ static void destructor(void *arg)
 	catalog_close(ccall->catalog);
 	mem_deref(ccall->catalog_tracks);
 	mem_deref(ccall->catalog_session);
+	mem_deref(ccall->keyholder_session);
 	mem_deref(ccall->turnv);
 	mem_deref(ccall->userl);
 
@@ -283,6 +284,8 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 
 	switch (ccall->state) {
 	case CCALL_STATE_IDLE:
+		ccall->keyholder_session = mem_deref(ccall->keyholder_session);
+		ccall->catalog_join_confirmed = false;
 		catalog_close(ccall->catalog);
 		ccall->catalog = NULL;
 		ccall->catalog_tracks = mem_deref(ccall->catalog_tracks);
@@ -448,7 +451,8 @@ void ccall_set_transport_active(struct ccall *ccall,
 			&ccall->transport[CCALL_ECALL_PUBLISHER].state;
 		if (!ccall->publisher_channel_registered ||
 		    !transport->media_ready || !transport->data_ready ||
-		    !ccall->catalog_complete || !ccall->catalog_mls_matches)
+		    !ccall->catalog_complete || !ccall->catalog_mls_matches ||
+		    (ccall->keyholder_session && !ccall->catalog_join_confirmed))
 			return;
 	}
 	if (ccall->state == CCALL_STATE_CONNECTED) {
@@ -466,6 +470,11 @@ void ccall_set_transport_active(struct ccall *ccall,
 		    ccall->state == CCALL_STATE_ACTIVE &&
 		    !ccall->publisher_media_notified) {
 			ccall->publisher_media_notified = true;
+			if (ccall->is_caller && !ccall->keyholder_session) {
+				int err = ccall_send_msg(ccall, ECONN_CONF_START, false, NULL, false);
+				if (err) warning("cloudflare: initial CONF_START failed: %m\n", err);
+				tmr_start(&ccall->tmr_send_check, CCALL_SEND_CHECK_TIMEOUT, ccall_send_check_timeout, ccall);
+			}
 			ICALL_CALL_CB(ccall->icall, media_estabh,
 				&ccall->icall,
 				ecall_get_peer_userid(ccall->ecall),
@@ -2169,6 +2178,10 @@ static int alloc_message(struct econn_message **msgp,
 	}
 
 	if (type == ECONN_CONF_START) {
+		if (ccall->enable_publish_subscribe && ccall->catalog_complete) {
+			err = catalog_encode_snapshot(ccall->catalog, &msg->u.confstart.catalog);
+			if (err) goto out;
+		}
 		msg->u.confstart.timestamp = ccall->sft_timestamp;
 		msg->u.confstart.seqno = ccall->sft_seqno;
 		msg->u.confstart.secret = mem_zalloc(ccall->secret_len, NULL);
@@ -2209,6 +2222,10 @@ static int alloc_message(struct econn_message **msgp,
 			goto skipprops;
 	}
 	else if (type == ECONN_CONF_CHECK) {
+		if (ccall->enable_publish_subscribe && ccall->catalog_complete) {
+			err = catalog_encode_snapshot(ccall->catalog, &msg->u.confcheck.catalog);
+			if (err) goto out;
+		}
 		msg->u.confcheck.timestamp = ccall->sft_timestamp;
 		msg->u.confcheck.seqno = ccall->sft_seqno;
 		msg->u.confcheck.secret = mem_alloc(ccall->secret_len, NULL);
@@ -2629,6 +2646,12 @@ struct ecall *ccall_get_ecall(const struct ccall *ccall,
 	}
 }
 
+bool ccall_can_configure_incoming_transport(const struct ccall *ccall)
+{
+	return ccall && ccall->state == CCALL_STATE_INCOMING &&
+		!ccall->ecall && !ccall->ecall_subscriber && !ccall->transport_ending;
+}
+
 int ccall_set_enable_publish_subscribe(struct ccall *ccall,
 				       bool enable_publish_subscribe)
 {
@@ -2645,7 +2668,7 @@ int ccall_set_enable_publish_subscribe(struct ccall *ccall,
 	return 0;
 }
 
-static bool ccall_catalog_participant_approved(const char *userid,
+bool ccall_catalog_participant_approved(const char *userid,
                                                const char *clientid, void *arg)
 {
 	struct ccall *ccall = arg;
@@ -2659,7 +2682,7 @@ static bool ccall_catalog_participant_approved(const char *userid,
 	return user && user->se_approved;
 }
 
-static int ccall_catalog_refresh(struct ccall *ccall)
+int ccall_catalog_refresh(struct ccall *ccall)
 {
 	const struct userinfo *self = userlist_get_self(ccall->userl);
 	struct json_object *entry = NULL, *tracks = NULL;
@@ -2679,6 +2702,7 @@ static int ccall_catalog_refresh(struct ccall *ccall)
 	jzon_add_str(entry, "userId", "%s", self->userid_real);
 	jzon_add_str(entry, "clientId", "%s", self->clientid_real);
 	jzon_add_str(entry, "publisherSessionId", "%s", ccall->catalog_session);
+	jzon_add_str(entry, "dataChannelName", "calling-3.0");
 	json_object_object_add(entry, "joinedMlsEpoch",
 			       json_object_new_int(ccall->catalog_join_epoch));
 	json_object_object_add(entry, "mlsEpoch",
@@ -2704,6 +2728,9 @@ out:
 	mem_deref(entry);
 	if (!err)
 		ccall_set_transport_active(ccall, CCALL_ECALL_PUBLISHER);
+	if (!err && ccall->catalog_complete && ccall->transport_handlers.eventh)
+		ccall->transport_handlers.eventh(ccall, CCALL_ECALL_PUBLISHER,
+			CCALL_TRANSPORT_CATALOG_READY, &ccall->transport[0].state, ccall->transport_arg);
 	return err;
 }
 
@@ -3881,7 +3908,7 @@ void ccall_set_clients(struct icall* icall,
 	}
 	
 	if (CCALL_STATE_ACTIVE == ccall->state) {
-		if (list_changed) {
+		if (list_changed && !ccall->enable_publish_subscribe) {
 			info("ccall(%p): set_clients sending confpart "
 			     " for new clients\n",
 			     ccall);
@@ -4024,6 +4051,22 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		ccall_set_secret(ccall, msg_secret, msg_secretlen);
 		ccall->is_caller = false;
 		userlist_reset_keygenerator(ccall->userl);
+	}
+
+
+	/* Retain the optional bootstrap before the application chooses its
+	 * transport in answerCall(). Legacy calls never use this locator. */
+	if (ts_cmp >= 0 &&
+	    !(strcaseeq(userid_sender, self->userid_real) &&
+	      strcaseeq(clientid_sender, self->clientid_real))) {
+		const char *json = msg->msg_type == ECONN_CONF_START
+			? msg->u.confstart.catalog : msg->u.confcheck.catalog;
+		char *sid = NULL;
+		if (json && !catalog_find_session(json, userid_sender, clientid_sender, &sid)) {
+			/* Bootstrap only; the authoritative welcome must arrive on the channel. */
+			ccall->keyholder_session = mem_deref(ccall->keyholder_session);
+			ccall->keyholder_session = sid;
+		}
 	}
 
 	switch (ccall->state) {

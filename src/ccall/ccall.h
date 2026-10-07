@@ -93,6 +93,8 @@ struct ccall {
 	struct catalog *catalog;
 	char *catalog_tracks;
 	char *catalog_session;
+	char *keyholder_session;
+	bool catalog_join_confirmed;
 	bool catalog_epoch_known;
 	bool catalog_mls_matches;
 	bool catalog_complete;
@@ -198,6 +200,8 @@ void ccall_pubsub_bind(struct ccall *ccall, struct ecall *ecall,
 void ccall_pubsub_release(struct ccall *ccall, enum ccall_ecall_role role);
 void ccall_pubsub_end(struct ccall *ccall);
 
+bool ccall_catalog_participant_approved(const char *userid, const char *clientid, void *arg);
+int ccall_catalog_refresh(struct ccall *ccall);
 int ccall_catalog_set_tracks(struct ccall *ccall, const char *session,
 			     const char *tracks);
 int ccall_catalog_publish_media_update(struct ccall *ccall, const char *session,

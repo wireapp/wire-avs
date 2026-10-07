@@ -262,6 +262,16 @@ static void level_handler(struct icall *icall, struct list *levels, void *arg)
 						      levels, ctx->ccall->transport_arg);
 }
 
+static void confmsg_handler(struct ecall *ecall, const struct econn_message *msg, void *arg)
+{
+	struct ccall_ecall_context *ctx = current(ecall_get_icall(ecall), arg);
+	if (ctx && ctx->ccall->transport_handlers.confmsgh) {
+		struct ccall *ccall = mem_ref(ctx->ccall);
+		ccall->transport_handlers.confmsgh(ccall, ctx->role, msg, ccall->transport_arg);
+		mem_deref(ccall);
+	}
+}
+
 void ccall_pubsub_bind(struct ccall *ccall, struct ecall *ecall,
 		       enum ccall_ecall_role role)
 {
@@ -279,6 +289,7 @@ void ccall_pubsub_bind(struct ccall *ccall, struct ecall *ecall,
 		NULL, NULL, NULL, NULL, quality_handler, NULL, NULL,
 		level_handler, NULL, ctx);
 	ecall_set_media_update_handler(ecall, media_update_handler, ctx);
+	ecall_set_confmsg_handler(ecall, confmsg_handler);
 }
 
 void ccall_pubsub_end(struct ccall *ccall)

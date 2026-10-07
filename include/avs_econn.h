@@ -188,6 +188,7 @@ struct econn_message {
 		} confconn;
 
 		struct confstart {
+			char *catalog;
 			struct econn_props *props;
 			char *sft_url;
 			char *sft_tuple;
@@ -199,6 +200,7 @@ struct econn_message {
 		} confstart;
 
 		struct confcheck {
+			char *catalog;
 			char *sft_url;
 			char *sft_tuple;
 			uint8_t *secret;

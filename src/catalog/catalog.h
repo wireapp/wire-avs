@@ -61,6 +61,12 @@ typedef bool (catalog_participant_match_h)(const char *userid,
 bool catalog_participants_match(const struct catalog *catalog,
 				catalog_participant_match_h *matchh, void *arg);
 
+int catalog_find_session(const char *json, const char *userid, const char *clientid, char **sessionp);
+int catalog_apply_snapshot(struct catalog *catalog, const char *json,
+	catalog_participant_match_h *approved, void *arg, bool *self_confirmed);
+int catalog_apply_hello(struct catalog *catalog, const char *json,
+	catalog_participant_match_h *approved, void *arg);
+
 void catalog_close(struct catalog *catalog);
 
 #endif

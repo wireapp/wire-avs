@@ -7,7 +7,7 @@ const ts = require('../../build/dist/wasm/node_modules/typescript');
 const {test} = require('node:test');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../src/avs_pc.ts'), 'utf8');
 const ast = ts.createSourceFile('avs_pc.ts', source, ts.ScriptTarget.Latest, true);
-const names = ['pc_ReplaceTrack', 'requestPublisherVideoUpdate', 'createSdp', 'sdpMap', 'discardPublisherVideo', 'preparePublisherTracks', 'pc_SetRemoteDescription', 'pc_SetLocalDescription', 'gatheringComplete'];
+const names = ['setupDataChannel', 'dataChannelHandler', 'pc_ReplaceTrack', 'requestPublisherVideoUpdate', 'createSdp', 'sdpMap', 'discardPublisherVideo', 'preparePublisherTracks', 'pc_SetRemoteDescription', 'pc_SetLocalDescription', 'gatheringComplete'];
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) &&
   node.name && names.includes(node.name.text)).map(node => node.getText(ast)).join('\n');
 assert.equal(ast.statements.filter(node => ts.isFunctionDeclaration(node) &&
@@ -307,4 +307,24 @@ test('turning video off discards a queued camera track rather than keeping captu
   assert.equal(pc.pending_video_track, undefined);
   assert.equal(pending.stops, 1);
   assert.equal(audio.stops, 0);
+});
+
+
+test('reserved server-events channel never reaches ECall message or lifecycle handlers', () => {
+  let callbacks = 0;
+  const pc = {self: 1, convid: 'call', closing: false, ignoredDataChannels: {}};
+  const dc = {label: 'server-events'};
+  const ctx = runtime({
+    LOG_LEVEL_WARN: 2, CATALOG_DATA_CHANNEL_LABEL: 'catalog',
+    connectionsStore: {storeDataChannel: () => 7},
+    ccallDcEstabHandler: () => ++callbacks,
+    ccallDcStateChangeHandler: () => ++callbacks,
+    ccallDcDataHandler: () => ++callbacks,
+  });
+  ctx.dataChannelHandler(pc, {channel: dc});
+  dc.onopen();
+  dc.onmessage({data: '{"event":"transport-ready"}'});
+  dc.onerror({});
+  dc.onclose();
+  assert.equal(callbacks, 0);
 });

@@ -113,6 +113,7 @@ void econn_message_reset(struct econn_message *msg)
 		break;
 
 	case ECONN_CONF_START:
+		msg->u.confstart.catalog = mem_deref(msg->u.confstart.catalog);
 		msg->u.confstart.props = mem_deref(msg->u.confstart.props);
 		msg->u.confstart.sft_url = mem_deref(msg->u.confstart.sft_url);
 		msg->u.confstart.sft_tuple = mem_deref(msg->u.confstart.sft_tuple);
@@ -121,6 +122,7 @@ void econn_message_reset(struct econn_message *msg)
 		break;
 
 	case ECONN_CONF_CHECK:
+		msg->u.confcheck.catalog = mem_deref(msg->u.confcheck.catalog);
 		msg->u.confcheck.sft_url = mem_deref(msg->u.confcheck.sft_url);
 		msg->u.confcheck.sft_tuple = mem_deref(msg->u.confcheck.sft_tuple);
 		msg->u.confcheck.secret = mem_deref(msg->u.confcheck.secret);

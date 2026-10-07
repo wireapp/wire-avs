@@ -365,6 +365,9 @@ int wcall_start(WUSER_HANDLE wuser, const char *convid,
  * calls. Must be called before wcall_start()/wcall_answer(). */
 int wcall_set_enable_publish_subscribe(WUSER_HANDLE wuser, int enabled);
 
+/* Configure before start, or configure an incoming conference before answer.
+ * Use the exact same qualified conversation ID as recv_msg/answer.
+ * Calls whose transports have started cannot change provider. */
 int wcall_enable_cloudflare_realtime(WUSER_HANDLE wuser,
 					 const char *convid,
 					 const char *app_id,

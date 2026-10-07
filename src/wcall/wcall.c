@@ -301,12 +301,27 @@ int wcall_enable_cloudflare_realtime(WUSER_HANDLE wuser,
 					     wcall_cloudflare_request_h *requesth)
 {
 	struct calling_instance *inst = wuser2inst(wuser);
+	struct wcall *wcall;
+	struct ccall *ccall = NULL;
 	int err;
 
 	if (!inst || !convid || !app_id || !app_secret || !api_base || !requesth)
 		return EINVAL;
-	if (wcall_lookup(inst, convid))
-		return EBUSY;
+	wcall = wcall_lookup(inst, convid);
+	if (wcall) {
+		/* An incoming conference has no transport yet. The application may
+		 * choose the provider immediately before answer(), without having
+		 * configured every conversation before receiving notifications. */
+		if ((wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE &&
+		     wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE_MLS) ||
+		    wcall->state != WCALL_STATE_INCOMING)
+			return EBUSY;
+		ccall = (struct ccall *)wcall->icall;
+		if (!ccall_can_configure_incoming_transport(ccall))
+			return EBUSY;
+		if (wcall->cloudflare)
+			return 0;
+	}
 	/* A Cloudflare publisher/subscriber transport requires the two-ECall
 	 * conference mode. Enable it together with the adapter configuration. */
 	inst->enable_publish_subscribe = true;
@@ -323,6 +338,24 @@ int wcall_enable_cloudflare_realtime(WUSER_HANDLE wuser,
 		return err;
 
 	inst->cloudflare_requesth = requesth;
+	if (ccall) {
+		struct cloudflare_realtime_conf conf = {
+			.app_id = inst->cloudflare_app_id,
+			.app_secret = inst->cloudflare_app_secret,
+			.api_base = inst->cloudflare_api_base,
+			.requesth = cloudflare_request_bridge,
+		};
+		err = ccall_set_enable_publish_subscribe(ccall, true);
+		if (!err) err = cloudflare_realtime_alloc(&wcall->cloudflare, ccall, &conf, wcall);
+		if (!err) err = cloudflare_realtime_enable(wcall->cloudflare, true);
+		if (err) {
+			if (wcall->cloudflare) cloudflare_realtime_close(wcall->cloudflare);
+			wcall->cloudflare = NULL;
+			ccall_set_enable_publish_subscribe(ccall, false);
+			return err;
+		}
+		info("cloudflare: incoming conference configured before answer convid=%s\n", convid);
+	}
 	return 0;
 }
 

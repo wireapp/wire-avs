@@ -27,6 +27,7 @@
 #include "cloudflare_realtime.h"
 #include "../realtime_bridge/realtime_bridge.h"
 #include "../ccall/ccall.h"
+#include "../catalog/catalog.h"
 
 struct cloudflare_retry {
 	struct cloudflare_realtime *adapter;
@@ -63,6 +64,11 @@ struct cloudflare_realtime {
 	uint32_t request_id[2];
 	uint64_t request_started[2];
 	struct cloudflare_retry retry[2];
+	struct tmr join_timer;
+	bool subscriber_negotiated;
+	bool subscriber_answer_accepted;
+	bool subscriber_channel_registered;
+	char *joined_keyholder;
 };
 
 static void request_response(struct cloudflare_realtime *adapter,
@@ -172,6 +178,129 @@ static int traced_request(struct cloudflare_realtime *adapter,
 		return err;
 	}
 	return dispatch_request(retry);
+}
+
+static int join_progress(struct cloudflare_realtime *adapter);
+static int send_catalog(struct cloudflare_realtime *adapter, enum ccall_ecall_role role, bool hello)
+{
+	struct ccall *ccall = adapter->ccall;
+	struct ecall *ecall = ccall_get_ecall(ccall, role);
+	struct econn_message msg;
+	int err;
+	if (!ccall->catalog_complete || !ecall || !ecall_get_econn(ecall)) return EAGAIN;
+	err = econn_message_init(&msg, ECONN_CONF_CATALOG, econn_sessid_local(ecall_get_econn(ecall)));
+	if (err) return err;
+	err = hello ? catalog_encode_hello(ccall->catalog, ccall->participant_id, &msg.u.catalog.json)
+	            : catalog_encode_snapshot(ccall->catalog, &msg.u.catalog.json);
+	if (!err) err = ecall_dce_sendmsg(ecall, &msg);
+	econn_message_reset(&msg);
+	info("cloudflare: catalog-%s role=%d revision=%u err=%d\n", hello ? "hello" : "broadcast", role, ccall->catalog_revision, err);
+	return err;
+}
+
+static int channel_request(struct cloudflare_realtime *adapter, bool update)
+{
+	char *body = NULL;
+	char path[256];
+	int err;
+	const char *target = adapter->joined_keyholder;
+	if (!target) return EINVAL;
+	struct json_object *root = jzon_alloc_object(), *channels = jzon_alloc_array(), *channel = jzon_alloc_object();
+	if (!root || !channels || !channel) {
+		mem_deref(root); mem_deref(channels); mem_deref(channel);
+		return ENOMEM;
+	}
+	err = jzon_add_str(channel, "location", "remote");
+	if (!err) err = jzon_add_str(channel, "sessionId", "%s", target);
+	if (!err) err = jzon_add_str(channel, "dataChannelName", "calling-3.0");
+	if (!err) err = jzon_add_bool(channel, "canReply", true);
+	if (!err) {
+		json_object_array_add(channels, channel); channel = NULL;
+		json_object_object_add(root, "dataChannels", channels); channels = NULL;
+		err = jzon_encode(&body, root);
+	}
+	mem_deref(root); mem_deref(channels); mem_deref(channel);
+	if (err) return err;
+	re_snprintf(path, sizeof(path), "/sessions/%s/datachannels/%s",
+	            session_id(adapter, CCALL_ECALL_SUBSCRIBER), update ? "update" : "new");
+	adapter->pending[1] = update ? CLOUDFLARE_REALTIME_OP_GRANT_REPLY : CLOUDFLARE_REALTIME_OP_SUBSCRIBE_DATACHANNEL;
+	err = traced_request(adapter, CCALL_ECALL_SUBSCRIBER, update ? "PUT" : "POST", path,
+	                     adapter->app_id, adapter->app_secret, body, request_response, adapter->arg);
+	mem_deref(body);
+	if (err) adapter->pending[1] = CLOUDFLARE_REALTIME_OP_NONE;
+	return err;
+}
+
+static void join_timeout(void *arg)
+{
+	struct cloudflare_realtime *adapter = arg;
+	struct ccall *ccall = adapter->ccall;
+	if (ccall->transport_ending || ccall->state == CCALL_STATE_IDLE || ccall->catalog_join_confirmed) return;
+	if (adapter->pending[1] != CLOUDFLARE_REALTIME_OP_NONE) {
+		tmr_start(&adapter->join_timer, 500, join_timeout, adapter);
+		return;
+	}
+	info("cloudflare: catalog-join retry participant=%s revision=%u\n", ccall->participant_id, ccall->catalog_revision);
+	if (channel_request(adapter, true))
+		tmr_start(&adapter->join_timer, 1000 + rand_u16() % 1000, join_timeout, adapter);
+}
+
+static void hello_send(struct cloudflare_realtime *adapter)
+{
+	if (adapter->ccall->catalog_join_confirmed || !adapter->subscriber_channel_registered) return;
+	if (!adapter->ccall->transport[1].state.data_ready) return;
+	send_catalog(adapter, CCALL_ECALL_SUBSCRIBER, true);
+	tmr_start(&adapter->join_timer, 1000 + rand_u16() % 1000, join_timeout, adapter);
+}
+
+static int join_progress(struct cloudflare_realtime *adapter)
+{
+	struct ccall *ccall = adapter->ccall;
+	int err;
+	if (!ccall->keyholder_session || !ccall->catalog_complete ||
+	    !ccall->publisher_channel_registered || !ccall->transport[0].state.data_ready ||
+	    adapter->joined_keyholder || ccall->transport_ending) return 0;
+	err = str_dup(&adapter->joined_keyholder, ccall->keyholder_session);
+	if (err) return err;
+	adapter->pending[1] = CLOUDFLARE_REALTIME_OP_CREATE_SESSION;
+	err = traced_request(adapter, CCALL_ECALL_SUBSCRIBER, "POST", "/sessions/new",
+	                     adapter->app_id, adapter->app_secret, NULL, request_response, adapter->arg);
+	if (err) adapter->pending[1] = CLOUDFLARE_REALTIME_OP_NONE;
+	return err;
+}
+
+static void catalog_message(struct ccall *ccall, enum ccall_ecall_role role,
+                            const struct econn_message *msg, void *arg)
+{
+	struct cloudflare_realtime *adapter = arg;
+	struct json_object *root = NULL;
+	const char *type;
+	int err;
+	if (msg->msg_type != ECONN_CONF_CATALOG || !msg->u.catalog.json || !ccall->catalog_complete) return;
+	err = jzon_decode(&root, msg->u.catalog.json, strlen(msg->u.catalog.json));
+	if (err) return;
+	type = jzon_str(root, "type");
+	if (role == CCALL_ECALL_PUBLISHER && streq(type, "catalog_hello") && !ccall->keyholder_session) {
+		err = catalog_apply_hello(ccall->catalog, msg->u.catalog.json, ccall_catalog_participant_approved, ccall);
+		if (!err) err = ccall_catalog_refresh(ccall);
+		if (!err) err = send_catalog(adapter, CCALL_ECALL_PUBLISHER, false);
+	}
+	else if (role == CCALL_ECALL_SUBSCRIBER && streq(type, "conf_catalog")) {
+		bool confirmed = false;
+		err = catalog_apply_snapshot(ccall->catalog, msg->u.catalog.json,
+		                             ccall_catalog_participant_approved, ccall, &confirmed);
+		if (!err) err = ccall_catalog_refresh(ccall);
+		if (!err && confirmed) {
+			ccall->catalog_join_confirmed = true;
+			tmr_cancel(&adapter->join_timer);
+			info("cloudflare: catalog-join confirmed participant=%s revision=%u\n", ccall->participant_id, ccall->catalog_revision);
+			ccall_set_transport_active(ccall, CCALL_ECALL_PUBLISHER);
+			if (!ccall->transport_ending && ccall->state == CCALL_STATE_ACTIVE)
+				ICALL_CALL_CB(ccall->icall, group_changedh, &ccall->icall, ccall->icall.arg);
+		}
+	}
+	if (err) warning("cloudflare: catalog receive failed: %m\n", err);
+	mem_deref(root);
 }
 
 static int make_request_body(char **bodyp, bool offer, const char *sdp, const char *tracks_json)
@@ -503,6 +632,8 @@ static int request_role(struct cloudflare_realtime *adapter, enum ccall_ecall_ro
 	if (!sid && (role == CCALL_ECALL_SUBSCRIBER || msg->msg_type == ECONN_UPDATE))
 		return ENOTCONN;
 
+	if (role == CCALL_ECALL_SUBSCRIBER && msg->resp)
+		operation = CLOUDFLARE_REALTIME_OP_RENEGOTIATE;
 	if (role == CCALL_ECALL_SUBSCRIBER) {
 		tracks_json = adapter->tracks_json;
 	}
@@ -783,6 +914,11 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 	(void)state;
 
 	if (event == CCALL_TRANSPORT_CLOSED) {
+		tmr_cancel(&adapter->join_timer);
+		adapter->joined_keyholder = mem_deref(adapter->joined_keyholder);
+		adapter->subscriber_channel_registered = false;
+		adapter->subscriber_negotiated = false;
+		adapter->subscriber_answer_accepted = false;
 		retry_clear(&adapter->retry[role]);
 		adapter->pending_cancelled[role] =
 			adapter->pending[role] != CLOUDFLARE_REALTIME_OP_NONE;
@@ -822,6 +958,21 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 		if (err)
 			warning("cloudflare: publisher media update failed: %m\n", err);
 	}
+	else if (event == CCALL_TRANSPORT_OFFER_RECEIVED && role == CCALL_ECALL_SUBSCRIBER) {
+		ecall_answer(ccall_get_ecall(ccall, role), ccall->call_type, false);
+	}
+	else if (event == CCALL_TRANSPORT_MEDIA_READY && role == CCALL_ECALL_SUBSCRIBER &&
+	         adapter->subscriber_answer_accepted && !adapter->subscriber_channel_registered &&
+	         adapter->pending[role] == CLOUDFLARE_REALTIME_OP_NONE) {
+		channel_request(adapter, false);
+	}
+	else if (event == CCALL_TRANSPORT_DATA_READY && role == CCALL_ECALL_SUBSCRIBER) {
+		hello_send(adapter);
+	}
+	else if (event == CCALL_TRANSPORT_CATALOG_READY ||
+	         (event == CCALL_TRANSPORT_MEDIA_READY && role == CCALL_ECALL_PUBLISHER)) {
+		join_progress(adapter);
+	}
 	else if (event == CCALL_TRANSPORT_DATA_READY &&
 		 role == CCALL_ECALL_PUBLISHER) {
 		int err = cloudflare_realtime_send_datachannel(adapter);
@@ -830,6 +981,7 @@ static void ccall_eventh(struct ccall *ccall, enum ccall_ecall_role role,
 			if (ccall->recovery_in_progress)
 				ccall_pubsub_recovery_failed(ccall, err);
 		}
+		else join_progress(adapter);
 	}
 }
 
@@ -854,6 +1006,7 @@ int cloudflare_realtime_alloc(struct cloudflare_realtime **adapterp,
 		.sendh = ccall_sendh,
 		.eventh = ccall_eventh,
 		.can_updateh = can_update,
+		.confmsgh = catalog_message,
 	};
 	int err;
 
@@ -918,8 +1071,12 @@ int cloudflare_realtime_set_session(struct cloudflare_realtime *adapter,
 {
 	if (!adapter || !valid_role(role) || !session_id)
 		return EINVAL;
-	return realtime_bridge_set_session(adapter->bridge, role, session_id,
-					   adapter->api_base);
+	int err = realtime_bridge_set_session(adapter->bridge, role, session_id, adapter->api_base);
+	/* Keep the legacy signaling envelope's required URL field populated;
+	 * the actual rendezvous locator lives in the embedded catalog. */
+	if (!err && role == CCALL_ECALL_PUBLISHER && !adapter->ccall->primary_sft_url)
+		err = str_dup(&adapter->ccall->primary_sft_url, adapter->api_base);
+	return err;
 }
 
 int cloudflare_realtime_set_subscribe_tracks(
@@ -952,6 +1109,8 @@ int cloudflare_realtime_handle_response(
 	const char *type;
 	struct econn_message msg;
 	int err;
+	enum cloudflare_realtime_operation response_op = adapter && valid_role(role)
+		? adapter->pending[role] : CLOUDFLARE_REALTIME_OP_NONE;
 
 	if (adapter && valid_role(role))
 		info("cloudflare(%p): http-response id=%u role=%d session=%s status=%d elapsed=%llu pending=%d awaiting-sdp=%d cancelled=%d\n",
@@ -986,10 +1145,40 @@ int cloudflare_realtime_handle_response(
 		tmr_start(&adapter->retry[role].timer, delay, retry_timeout, &adapter->retry[role]);
 		return 0;
 	}
+	/* This single-channel operation reports allocation failure explicitly.
+	 * Retry the failed item, not a successful or ambiguous allocation. */
+	if (adapter && role == CCALL_ECALL_SUBSCRIBER && status >= 200 && status < 300 &&
+	    adapter->pending[role] == CLOUDFLARE_REALTIME_OP_SUBSCRIBE_DATACHANNEL && body) {
+		struct json_object *probe = NULL, *channels = NULL;
+		if (!jzon_decode(&probe, body, strlen(body)) &&
+		    !jzon_array(&channels, probe, "dataChannels") && json_object_array_length(channels) == 1) {
+			struct json_object *channel = json_object_array_get_idx(channels, 0), *id = NULL;
+			const char *code = jzon_str(channel, "errorCode");
+			if (code) warning("cloudflare: channel-subscribe item error=%s description=%s\n",
+			                  code, jzon_str(channel, "errorDescription") ? jzon_str(channel, "errorDescription") : "(none)");
+			if (streq(code, "transport_unavailable_error") &&
+			    !json_object_object_get_ex(channel, "id", &id) &&
+			    adapter->ccall->transport[role].state.media_ready &&
+			    adapter->retry[role].path && adapter->retry[role].attempt < 3) {
+				unsigned delay = 500 * adapter->retry[role].attempt;
+				info("cloudflare(%p): retry-scheduled id=%u role=%d next-attempt=%u/3 delay=%u reason=transport_unavailable_error\n",
+				     adapter, adapter->request_id[role], role, adapter->retry[role].attempt + 1, delay);
+				tmr_start(&adapter->retry[role].timer, delay, retry_timeout, &adapter->retry[role]);
+				mem_deref(probe);
+				return 0;
+			}
+		}
+		mem_deref(probe);
+	}
 	if (adapter && valid_role(role))
 		retry_clear(&adapter->retry[role]);
 
 	if (status < 200 || status >= 300) {
+		if (adapter && role == CCALL_ECALL_SUBSCRIBER &&
+		    adapter->pending[role] == CLOUDFLARE_REALTIME_OP_GRANT_REPLY) {
+			adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+			tmr_start(&adapter->join_timer, 1000 + rand_u16() % 1000, join_timeout, adapter);
+		}
 		warning("cloudflare: response status=%d body=%s\n",
 			status, body ? body : "(empty)");
 		if (adapter && adapter->ccall->recovery_in_progress)
@@ -1057,8 +1246,15 @@ int cloudflare_realtime_handle_response(
 			if (err == EALREADY)
 				err = 0;
 		}
-		if (!err)
-			adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+
+		if (!err) adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+		if (!err && role == CCALL_ECALL_SUBSCRIBER) {
+			char path[256];
+			re_snprintf(path, sizeof(path), "/sessions/%s/datachannels/establish", session_id(adapter, role));
+			adapter->pending[role] = CLOUDFLARE_REALTIME_OP_ESTABLISH_DATACHANNEL;
+			err = traced_request(adapter, role, "POST", path, adapter->app_id, adapter->app_secret,
+				"{\"dataChannel\":{\"location\":\"remote\",\"dataChannelName\":\"server-events\"}}", request_response, adapter->arg);
+		}
 		goto out;
 	}
 
@@ -1084,6 +1280,9 @@ int cloudflare_realtime_handle_response(
 		}
 	if (channel_id < 0)
 		channel_id = atoi(channel_id_str);
+	/* The application channel must report its own Open, independently of
+	 * the provisional channel used to negotiate SCTP. */
+	adapter->ccall->transport[CCALL_ECALL_PUBLISHER].state.data_ready = false;
 	err = ecall_dce_create(ccall_get_ecall(adapter->ccall,
 						CCALL_ECALL_PUBLISHER),
 					"calling-3.0", channel_id);
@@ -1099,6 +1298,40 @@ int cloudflare_realtime_handle_response(
 			     channel_id);
 		mem_deref(channels);
 		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+		if (!err) err = join_progress(adapter);
+		goto out;
+	}
+
+
+	if (role == CCALL_ECALL_SUBSCRIBER && adapter->subscriber_negotiated &&
+	    adapter->pending[role] == CLOUDFLARE_REALTIME_OP_RENEGOTIATE) {
+		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+		adapter->subscriber_answer_accepted = true;
+		if (adapter->ccall->transport[role].state.media_ready)
+			err = channel_request(adapter, false);
+		goto out;
+	}
+	if (role == CCALL_ECALL_SUBSCRIBER &&
+	    (adapter->pending[role] == CLOUDFLARE_REALTIME_OP_SUBSCRIBE_DATACHANNEL ||
+	     adapter->pending[role] == CLOUDFLARE_REALTIME_OP_GRANT_REPLY)) {
+		struct json_object *channels = NULL, *channel;
+		bool grant = adapter->pending[role] == CLOUDFLARE_REALTIME_OP_GRANT_REPLY;
+		int id;
+		err = jzon_array(&channels, root, "dataChannels");
+		if (!err && json_object_array_length(channels) != 1) err = EPROTO;
+		channel = !err ? json_object_array_get_idx(channels, 0) : NULL;
+		if (!err && jzon_str(channel, "errorCode")) err = EPROTO;
+		if (!err && !grant) err = jzon_int(&id, channel, "id");
+		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+		if (!err && !grant) {
+			adapter->subscriber_channel_registered = true;
+			/* Readiness of the reserved transport channel does not mean
+			 * the new application channel is open. */
+			adapter->ccall->transport[role].state.data_ready = false;
+			err = ecall_dce_create(ccall_get_ecall(adapter->ccall, role), "calling-3.0", id);
+		}
+		if (!err) hello_send(adapter);
+		else if (grant) tmr_start(&adapter->join_timer, 1000 + rand_u16() % 1000, join_timeout, adapter);
 		goto out;
 	}
 
@@ -1190,18 +1423,32 @@ int cloudflare_realtime_handle_response(
 		}
 		adapter->awaiting_update_apply = true;
 	}
+	if (role == CCALL_ECALL_SUBSCRIBER && adapter->pending[role] == CLOUDFLARE_REALTIME_OP_ESTABLISH_DATACHANNEL) {
+		adapter->subscriber_negotiated = true;
+		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
+	}
 	err = str_dup(&msg.u.setup.sdp_msg, sdp);
 	if (!err)
 		err = ecall_msg_recv(ecall, 0, 0, "cloudflare", "realtime", &msg);
 	econn_message_reset(&msg);
-	if (!adapter->awaiting_update_apply)
+	if (!adapter->awaiting_update_apply && role == CCALL_ECALL_PUBLISHER)
 		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
 
 out:
+	if (err && role == CCALL_ECALL_SUBSCRIBER &&
+	    adapter->pending[role] == CLOUDFLARE_REALTIME_OP_GRANT_REPLY)
+		tmr_start(&adapter->join_timer, 1000 + rand_u16() % 1000, join_timeout, adapter);
 	if (err)
 		adapter->pending[role] = CLOUDFLARE_REALTIME_OP_NONE;
 	mem_deref(description);
 	mem_deref(root);
+	if (err && role == CCALL_ECALL_SUBSCRIBER &&
+	    (response_op == CLOUDFLARE_REALTIME_OP_SUBSCRIBE_DATACHANNEL ||
+	     response_op == CLOUDFLARE_REALTIME_OP_ESTABLISH_DATACHANNEL ||
+	     response_op == CLOUDFLARE_REALTIME_OP_RENEGOTIATE)) {
+		ccall_pubsub_recovery_failed(adapter->ccall, err);
+		return err;
+	}
 	if (err && adapter->ccall->recovery_in_progress)
 		ccall_pubsub_recovery_failed(adapter->ccall, err);
 	else if (err && adapter->pending_message[role] == ECONN_UPDATE)
@@ -1214,6 +1461,8 @@ void cloudflare_realtime_close(struct cloudflare_realtime *adapter)
 	if (!adapter)
 		return;
 
+	tmr_cancel(&adapter->join_timer);
+	mem_deref(adapter->joined_keyholder);
 	retry_clear(&adapter->retry[0]);
 	retry_clear(&adapter->retry[1]);
 	if (adapter->ccall)
