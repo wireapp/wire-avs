@@ -29,7 +29,6 @@ pipeline {
                             filename 'Dockerfile'
                             // Explicitly force the path to look inside common cargo locations
                             //args '-v /home/jenkins/workspace:/workspace --env PATH=/usr/share/cargo/bin:/build/avs/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
-			    args '--dns=9.9.9.9 --dns-opt=use-vc'
 			    additionalBuildArgs '--no-cache'
                         }
                     }
