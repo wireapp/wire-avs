@@ -59,7 +59,6 @@ static void *rec_thread(void *arg) {
 audio_io_ios::audio_io_ios(void) :
         audioCallback_(nullptr),
         au_(nullptr),
-        initialized_(false),
         is_shut_down_(false),
         is_recording_initialized_(false),
         is_playing_initialized_(false),
@@ -73,9 +72,7 @@ audio_io_ios::audio_io_ios(void) :
         rec_tid_(0),
         dig_mic_gain_(0),
         want_stereo_playout_(false),
-        using_stereo_playout_(false),
-	want_rec_(false),
-	want_play_(false)
+        using_stereo_playout_(false)
 {
 	rec_buffer_size_ = 0;
 	rec_buffer_ = (uint8_t *)mem_zalloc(MAX_AUBUF_SIZE, NULL);
@@ -96,7 +93,6 @@ audio_io_ios::audio_io_ios(void) :
 
 	pthread_mutex_init(&cond_mutex_,NULL);
 	pthread_mutex_init(&lock_, NULL);
-	pthread_mutex_init(&reset_lock_, NULL);
 
 }
 
@@ -109,7 +105,6 @@ audio_io_ios::~audio_io_ios(void)
         
 	pthread_mutex_destroy(&cond_mutex_);
 	pthread_mutex_destroy(&lock_);
-	pthread_mutex_destroy(&reset_lock_);
 
 	rec_buffer_ = (uint8_t *)mem_deref(rec_buffer_);
 	play_buffer_ = (int16_t *)mem_deref(play_buffer_);
@@ -131,35 +126,16 @@ int32_t audio_io_ios::Init(void)
     
 int32_t audio_io_ios::InitInternal(void)
 {
-        int ret = 0;
-        if (initialized_) {
-            goto out;
-        }
-        
+    return control_.initialize([this] {
         is_shut_down_ = false;
-        initialized_ = true;
-        
-        ret = init_play_or_record();
-	if (ret < 0) {
-		warning("audio_io_ios: init_play_or_record failed\n");
-		return ret;
-	}
-	if (want_play_) {
-		ret = StartPlayoutInternal();
-		if (ret < 0) {
-			warning("audio_io_ios: init_play_or_record failed\n");
-			return ret;
-		}
-	}
-	if (want_rec_) {
-		ret = StartRecordingInternal();
-		if (ret < 0) {
-			warning("audio_io_ios: init_play_or_record failed\n");
-			return ret;
-		}
-	}
-out:
-        return ret;
+        int result = init_play_or_record();
+        if (result < 0) {
+            warning("audio_io_ios: init_play_or_record failed\n");
+            shutdown_play_or_record();
+        }
+        return result;
+    }, [this] { return StartPlayoutInternal(); },
+       [this] { return StartRecordingInternal(); });
 }
     
 bool audio_io_ios::PlayoutIsInitialized(void) const
@@ -175,16 +151,15 @@ bool audio_io_ios::RecordingIsInitialized(void) const
 int32_t audio_io_ios::StartPlayoutInternal(void)
 {
         info("audio_io_ios: StartPlayoutInternal "
-	     "initialized=%d play_init=%d want_play=%d want_rec=%d\n",
-	     initialized_, is_playing_initialized_, want_play_, want_rec_);
+	     "play_init=%d rec_init=%d\n",
+	     is_playing_initialized_, is_recording_initialized_);
 
         if(!is_playing_initialized_){
             goto out;
         }
 
-        assert(!is_playing_.load());
+        if (is_playing_.load()) return 0;
 
-	want_play_ = false;
 
 	play_buffer_size_ = AUBUF_FRAME_SIZE(play_fs_hz_);
         info("audio_io_ios: StartPlayoutInternal "
@@ -217,16 +192,8 @@ out:
 
 int32_t audio_io_ios::StartPlayout(void)
 {
-        info("audio_io_ios: StartPlayout initialized=%d\n", initialized_);
-
-	if (!initialized_) {
-		want_play_ = true;
-		return 0;
-	}
-
-	StartPlayoutInternal();
-	
-	return 0;
+    info("audio_io_ios: StartPlayout requested\n");
+    return control_.start_playout([this] { return StartPlayoutInternal(); });
 }
     
 bool audio_io_ios::Playing(void) const
@@ -237,8 +204,8 @@ bool audio_io_ios::Playing(void) const
 int32_t audio_io_ios::StartRecordingInternal(void)
 {
         info("audio_io_ios: StartRecordingInternal "
-	     "initialized=%d play_init=%d want_play=%d want_rec=%d\n",
-	     initialized_, is_playing_initialized_, want_play_, want_rec_);
+	     "play_init=%d rec_init=%d\n",
+	     is_playing_initialized_, is_recording_initialized_);
 
         if(!is_playing_initialized_) {
             goto out;
@@ -256,7 +223,6 @@ int32_t audio_io_ios::StartRecordingInternal(void)
 
 	memset(rec_buffer_, 0, MAX_AUBUF_SIZE);
 
-	want_rec_ = false;
         rec_avail_ = 0;
 	rec_in_pos_ = 0;
 	rec_out_pos_ = 0;
@@ -308,16 +274,8 @@ int32_t audio_io_ios::StartRecordingInternal(void)
     
 int32_t audio_io_ios::StartRecording(void)
 {
-	info("audio_io_ios: StartRecording initialized=%d\n", initialized_);
-	
-	if (!initialized_) {
-		want_rec_ = true;
-		return 0;
-	}
-
-	StartRecordingInternal();
-
-        return 0;
+    info("audio_io_ios: StartRecording requested\n");
+    return control_.start_recording([this] { return StartRecordingInternal(); });
 }
     
 bool audio_io_ios::Recording(void) const
@@ -375,13 +333,8 @@ int32_t audio_io_ios::StopRecordingInternal(void)
     
 int32_t audio_io_ios::StopRecording(void)
 {
-        info("audio_io_ios: StopRecording\n");
-
-	int32_t err;
-	
-	err = StopRecordingInternal();
-	
-        return err;
+    info("audio_io_ios: StopRecording\n");
+    return control_.stop_recording([this] { return StopRecordingInternal(); });
 }
     
 int32_t audio_io_ios::StopPlayoutInternal(void)
@@ -413,13 +366,8 @@ int32_t audio_io_ios::StopPlayoutInternal(void)
     
 int32_t audio_io_ios::StopPlayout(void)
 {
-        info("audio_io_ios: StopPlayout tid=%p\n", pthread_self());
-
-	int32_t err;
-
-	err = StopPlayoutInternal();
-
-        return err;
+    info("audio_io_ios: StopPlayout tid=%p\n", pthread_self());
+    return control_.stop_playout([this] { return StopPlayoutInternal(); });
 }
 
 int32_t audio_io_ios::Terminate(void)
@@ -429,18 +377,14 @@ int32_t audio_io_ios::Terminate(void)
     
 int32_t audio_io_ios::TerminateInternal(void)
 {
+    return control_.terminate([this] {
         info("audio_io_ios: Terminate\n");
-        if (!initialized_) {
-		return 0;
-        }
         shutdown_play_or_record();
-        
         AVAudioSession* session = [AVAudioSession sharedInstance];
         [session setPreferredSampleRate:used_sample_rate_ error:nil];
-        
         is_shut_down_ = true;
-        initialized_ = false;
         return 0;
+    });
 }
 
 int32_t audio_io_ios::ResetAudioDevice(void)
@@ -454,32 +398,22 @@ int32_t audio_io_ios::ResetAudioDevice(void)
     
 int32_t audio_io_ios::ResetAudioDeviceInternal(void)
 {
+    return control_.reset([this] {
         info("audio_io_ios: ResetAudioDeviceInternal\n");
-
-	pthread_mutex_lock(&reset_lock_);
-
-        if (!is_playing_initialized_ && !is_recording_initialized_) {
-            info("audio_io_ios: Playout or recording not initialized\n");
-        }
-        
-        int res(0);
-
-        // Stop playout and recording
-        res += StopPlayoutInternal();
-        res += StopRecordingInternal();
-        
+        int result = StopPlayoutInternal();
+        result += StopRecordingInternal();
+        if (result < 0) return result;
         shutdown_play_or_record();
-        init_play_or_record();
-        
-        // Restart
-        res += InitPlayout();
-        res += InitRecording();
-        res += StartPlayoutInternal();
-        res += StartRecordingInternal();
-
-	pthread_mutex_unlock(&reset_lock_);
-
-	return res;
+        result = init_play_or_record();
+        if (result < 0) {
+            shutdown_play_or_record();
+            return result;
+        }
+        // Preserve reset's existing behavior: restart both audio directions.
+        result = StartPlayoutInternal();
+        if (result < 0) return result;
+        return StartRecordingInternal();
+    });
 }
     
 int32_t audio_io_ios::StereoPlayoutIsAvailable(bool* available) const
