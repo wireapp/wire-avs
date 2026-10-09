@@ -393,7 +393,7 @@ pipeline {
                             script: """
                                 mkdir -p ./build/artifacts/maven/com/wire
                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToMavenLocal --no-configuration-cache
-                                cp -r ~/.m2/repository/com/wire/avs-kmp ./build/artifacts/maven/com/wire/
+                                cp -r ~/.m2/repository/com/wire/avs-kmp ~/.m2/repository/com/wire/avs-kmp-* ./build/artifacts/maven/com/wire/
                             """
                         )
                     }
