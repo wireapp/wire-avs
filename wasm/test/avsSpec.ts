@@ -86,8 +86,11 @@ describe("avs", () => {
         convid,
         msg_time,
         userid,
+        clientid,
+        caller_id,
         video_call,
-        should_ring
+        should_ring,
+        conv_type
       ) {
         console.log("incoming_handler: wuser: " + wuser);
         wcall.answer(wuser, convid, 0, 0);
