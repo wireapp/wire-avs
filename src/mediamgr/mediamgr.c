@@ -118,6 +118,7 @@ struct mm_message {
 			char *convid;
 			char *userid;
 			char *clientid;
+            char *caller_id;
 			uint32_t msg_time;
 			int video_call;
 			int should_ring;
@@ -1852,6 +1853,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 						 msg->incomingh.msg_time,
 						 msg->incomingh.userid,
 						 msg->incomingh.clientid,
+                         msg->incomingh.caller_id,
 						 msg->incomingh.video_call,
 						 msg->incomingh.should_ring,
 						 msg->incomingh.conv_type,
@@ -1964,6 +1966,7 @@ static void invoke_destructor(void *arg)
 	mem_deref(elem->incomingh.convid);
 	mem_deref(elem->incomingh.userid);
 	mem_deref(elem->incomingh.clientid);
+    mem_deref(elem->incomingh.caller_id);
 }
 
 
@@ -1971,6 +1974,7 @@ int mediamgr_invoke_incomingh(struct mediamgr *mediamgr,
 			      mediamgr_incoming_h *incomingh,
 			      const char *convid, uint32_t msg_time,
 			      const char *userid, const char *clientid,
+                  const char *caller_id,
 			      int video_call,
 			      int should_ring,
 			      int conv_type,
@@ -1986,6 +1990,8 @@ int mediamgr_invoke_incomingh(struct mediamgr *mediamgr,
 	str_dup(&elem->incomingh.convid, convid);
 	str_dup(&elem->incomingh.userid, userid);
 	str_dup(&elem->incomingh.clientid, clientid);
+    if (caller_id)
+        str_dup(&elem->incomingh.caller_id, caller_id);
 	elem->incomingh.incomingh = incomingh;
 	elem->incomingh.msg_time = msg_time;
 	elem->incomingh.video_call = video_call;

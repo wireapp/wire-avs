@@ -141,6 +141,7 @@ static void destructor(void *arg)
 	mem_deref(ccall->ecall);
 	mem_deref(ccall->secret);
 	mem_deref(ccall->keystore);
+    mem_deref(ccall->caller_id);
 
 	list_flush(&ccall->sftl);
 	list_flush(&ccall->saved_partl);
@@ -195,6 +196,32 @@ int ccall_set_config(struct ccall *ccall, struct config *cfg)
 	ccall->cfg = cfg;
 
 	return 0;
+}
+
+int ccall_set_caller_id(struct ccall *ccall, const char *caller_id)
+{
+    char *tmp = NULL;
+    int err = 0;
+
+    if (!ccall)
+        return EINVAL;
+
+    if (caller_id) {
+        err = str_dup(&tmp, caller_id);
+        if (err)
+            return err;
+    }
+
+    mem_deref(ccall->caller_id);
+    ccall->caller_id = tmp;
+
+    return 0;
+}
+
+const char *ccall_get_caller_id(const struct ccall *ccall)
+{
+    info("ccall(%p): ccall_get_caller_id: caller_id:%s\n", ccall, ccall && ccall->caller_id ? ccall->caller_id : "NULL");
+    return ccall ? ccall->caller_id : NULL;
 }
 
 const char *ccall_state_name(enum ccall_state state)
@@ -2067,6 +2094,16 @@ static int alloc_message(struct econn_message **msgp,
 				goto out;
 			}
 		}
+
+        info("ccall(%p): alloc_message: send CONFSTART with caller_id: %s\n",
+             ccall, ccall->caller_id ? ccall->caller_id : "NULL");
+        if (ccall->caller_id) {
+            err = str_dup(&msg->u.confstart.caller_id, ccall->caller_id);
+            if (err) {
+                goto out;
+            }
+        }
+
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
 
 		if (list_count(&ccall->sftl) > 0) {
@@ -2107,6 +2144,16 @@ static int alloc_message(struct econn_message **msgp,
 				goto out;
 			}
 		}
+
+        info("ccall(%p): alloc_message: send CONFCHECK with caller_id: %s\n",
+             ccall, ccall->caller_id ? ccall->caller_id : "NULL");
+        if (ccall->caller_id) {
+            err = str_dup(&msg->u.confcheck.caller_id, ccall->caller_id);
+            if (err) {
+                goto out;
+            }
+        }
+
 		if (list_count(&ccall->sftl) > 0) {
 			stringlist_clone(&ccall->sftl, &msg->u.confcheck.sftl);
 		}
@@ -2174,6 +2221,15 @@ static int alloc_message(struct econn_message **msgp,
 	}
 	else if (type == ECONN_CONF_END) {
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
+
+        info("ccall(%p): alloc_message: send CONFEND with caller_id: %s\n",
+             ccall, ccall->caller_id ? ccall->caller_id : "NULL");
+        if (ccall->caller_id) {
+            err = str_dup(&msg->u.confend.caller_id, ccall->caller_id);
+            if (err) {
+                goto out;
+            }
+        }
 	}
 	else if (type == ECONN_CONF_STREAMS) {
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
@@ -3399,6 +3455,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 	uint32_t msg_seqno, msg_secretlen;
 	const char *msg_sft_url;
 	const char *msg_sft_tuple;
+    const char *msg_caller_id;
 	const uint8_t *msg_secret;
 	bool valid_call, should_ring;
 	char userid_anon[ANON_ID_LEN];
@@ -3420,6 +3477,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		msg_seqno = msg->u.confstart.seqno;
 		msg_sft_url = msg->u.confstart.sft_url;
 		msg_sft_tuple = msg->u.confstart.sft_tuple;
+        msg_caller_id = msg->u.confstart.caller_id;
 		msg_secret = msg->u.confstart.secret;
 		msg_secretlen = msg->u.confstart.secretlen;
 		sftl = &msg->u.confstart.sftl;
@@ -3431,6 +3489,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		msg_seqno = msg->u.confcheck.seqno;
 		msg_sft_url = msg->u.confcheck.sft_url;
 		msg_sft_tuple = msg->u.confcheck.sft_tuple;
+        msg_caller_id = msg->u.confcheck.caller_id;
 		msg_secret = msg->u.confcheck.secret;
 		msg_secretlen = msg->u.confcheck.secretlen;
 		sftl = &msg->u.confcheck.sftl;
@@ -3487,8 +3546,14 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		ccall->sft_timestamp = msg_ts;
 		ccall->sft_seqno = msg_seqno;
 		info("ccall(%p) set_secret from confstart\n", ccall);
+        info("ccall(%p) msg_caller_id: %s\n", ccall, msg_caller_id ? msg_caller_id : "none");
 		keystore_reset(ccall->keystore);
 		ccall_set_secret(ccall, msg_secret, msg_secretlen);
+        if (msg_caller_id) {
+            err = ccall_set_caller_id(ccall, msg_caller_id);
+            if (err)
+                return err;
+        }
 		ccall->is_caller = false;
 		userlist_reset_keygenerator(ccall->userl);
 	}
@@ -3620,6 +3685,11 @@ int  ccall_msg_recv(struct icall* icall,
 		break;
 
 	case ECONN_CONF_END:
+        if (msg->u.confend.caller_id) {
+            err = ccall_set_caller_id(ccall, msg->u.confend.caller_id);
+            if (err)
+                return err;
+        }
 		switch (ccall->state) {
 		case CCALL_STATE_INCOMING:
 			if (strncmp(msg->sessid_sender, ccall->convid_hash,

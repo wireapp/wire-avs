@@ -129,6 +129,7 @@ struct mq_data {
 			uint32_t msg_time;
 			char *userid;
 			char *clientid;
+            char *caller_id;
 			int video_call;
 			int should_ring;
 			int conv_type;
@@ -211,6 +212,7 @@ static void md_destructor(void *arg)
 	case WCALL_MEV_INCOMING:
 		mem_deref(md->u.incoming.userid);
 		mem_deref(md->u.incoming.clientid);
+        mem_deref(md->u.incoming.caller_id);
 		break;
 
 	case WCALL_MEV_DCE_SEND:
@@ -381,7 +383,8 @@ static void mqueue_handler(int id, void *data, void *arg)
 					&wcall,
 					md->convid,
 					md->u.start.conv_type,
-					md->u.start.meeting);
+					md->u.start.meeting,
+                    wcall_self_userid(md->inst));
 			if (err || !wcall)
 				goto out;
 		}
@@ -468,6 +471,7 @@ static void mqueue_handler(int id, void *data, void *arg)
 						md->u.incoming.msg_time,
 						md->u.incoming.userid,
 						md->u.incoming.clientid,
+                        md->u.incoming.caller_id,
 						md->u.incoming.video_call,
 						md->u.incoming.should_ring,
 						md->u.incoming.conv_type,
@@ -1099,6 +1103,7 @@ void wcall_invoke_incoming_handler(const char *convid,
 			           uint32_t msg_time,
 			           const char *userid,
 			           const char *clientid,
+                       const char *caller_id,
 			           int video_call,
 			           int should_ring,
 				   int conv_type,
@@ -1121,6 +1126,8 @@ void wcall_invoke_incoming_handler(const char *convid,
 	md->u.incoming.conv_type = conv_type;
 	err = str_dup(&md->u.incoming.userid, userid);
 	err |= str_dup(&md->u.incoming.clientid, clientid);
+    if (caller_id)
+        err |= str_dup(&md->u.incoming.caller_id, caller_id);
 
 	if (err)
 		goto out;

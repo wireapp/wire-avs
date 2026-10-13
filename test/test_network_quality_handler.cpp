@@ -144,11 +144,13 @@ static int send_handler(void *ctx, const char *convid,
 }
 
 static void incoming_handler(const char *convid, uint32_t msg_time,
-			     const char *userid, const char *clientid, int video_call /*bool*/,
+			     const char *userid, const char *clientid,
+                 const char *caller_id, int video_call /*bool*/,
 			     int should_ring /*bool*/, int conv_type, /*WCALL_CONV_TYPE...*/
 			     void *arg)
 {
 	auto cli = (Client *)arg;
+    (void)caller_id;
 
 	info("[ %s.%s ] {%s} Incoming call from %s\n",
 		  cli->userId.c_str(), cli->clientId.c_str(),
@@ -178,10 +180,12 @@ static void estab_handler(const char *convid,
 
 
 static void close_handler(int reason, const char *convid, uint32_t msg_time,
-			  const char *userid, const char *clientid, void *arg)
+			  const char *userid, const char *clientid,
+              const char *caller_id, void *arg)
 {
 	auto cli = (Client *)arg;
 	auto closeReason = std::string(wcall_reason_name(reason));
+    (void)caller_id;
 
 	info("[ %s.%s ] {%s} Closed handler (%s)\n",
 		cli->userId.c_str(), cli->clientId.c_str(),

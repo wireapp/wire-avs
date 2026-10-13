@@ -114,6 +114,7 @@ static const char *conv_type_name(int conv_type)
 
 static void wcall_incoming_handler(const char *convid, uint32_t msg_time,
 				   const char *userid, const char *clientid,
+                   const char *caller_id,
 				   int video_call, int should_ring,
 				   int conv_type, /*WCALL_CONV_TYPE...*/
 				   void *arg)
@@ -124,6 +125,7 @@ static void wcall_incoming_handler(const char *convid, uint32_t msg_time,
 	int err;
 
 	(void)arg;
+    (void)caller_id;
 
 	err = engine_lookup_conv(&conv, zcall_engine, convid);
 	if (err) {
@@ -218,6 +220,8 @@ static void wcall_close_handler(int reason,
 {
 	struct engine_conv *conv;
 	int err;
+
+    (void)caller_id;
 
 	output("calling: call in convid=%s closed reason=\"%s\" time=%u\n",
 	       convid, wcall_reason_name(reason), msg_time);
