@@ -83,7 +83,6 @@ public class MediaManager implements OnAudioFocusChangeListener {
     private AudioManager audioManager = null;
     
     private int prev_mode = AudioManager.MODE_INVALID;
-    private volatile boolean loudSpeakerRequested = false;
     
     private String convId = null;
     private IntensityLevel _intensity = IntensityLevel.FULL;
@@ -299,28 +298,13 @@ public class MediaManager implements OnAudioFocusChangeListener {
     public void turnLoudSpeakerOn ( ) {
         DoLog("turnLoudSpeakerOn");
         
-        loudSpeakerRequested = true;
         this.EnableSpeaker(true);
     }
     
     public void turnLoudSpeakerOff ( ) {
         DoLog("turnLoudSpeakerOff");
         
-        loudSpeakerRequested = false;
         this.EnableSpeaker(false);
-    }
-
-    /** Explicit speaker choice, independent of temporary platform route changes. */
-    public boolean isLoudSpeakerRequested() {
-        return loudSpeakerRequested;
-    }
-
-    /** Match native routing when a wired or USB headset takes over. */
-    public static void onWiredHeadsetConnected(Context context) {
-        // The router can report its initial devices while MediaManager is attaching.
-        // Do not create another manager recursively from that callback.
-        MediaManager manager = _instance;
-        if (manager != null && manager.ctx == context) manager.loudSpeakerRequested = false;
     }
 
     public boolean isWiredHsOn(){
@@ -433,7 +417,6 @@ public class MediaManager implements OnAudioFocusChangeListener {
 	*/
     }
     public void onExitCall(){
-        loudSpeakerRequested = false;
 	abandonAudioFocus();
 	DoLog("onExitCall prev_mode=" + this.prev_mode);
         if(this.prev_mode != AudioManager.MODE_INVALID){

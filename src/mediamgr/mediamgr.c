@@ -29,6 +29,12 @@
 
 #define MM_USE_THREAD   1
 
+/* Bounds restoring a call route that the platform keeps dropping */
+#define MM_ROUTE_RESTORE_MAX_ATTEMPTS  3
+#define MM_ROUTE_RESTORE_RETRY_MS      1000
+#define MM_ROUTE_RESTORE_TIMEOUT_MS    30000
+#define MM_ROUTE_RESTORE_COOLDOWN_MS   30000
+
 enum mm_sys_state {
 	MM_SYS_STATE_UNKNOWN,
 	MM_SYS_STATE_NORMAL,
@@ -44,6 +50,8 @@ enum mm_route_update_event {
 	MM_BT_DEVICE_CONNECTED,
 	MM_BT_DEVICE_DISCONNECTED,
 	MM_DEVICE_CHANGED,
+	MM_PLATFORM_ROUTE_CHANGED,
+	MM_ROUTE_RESTORE_CHECK,
 	MM_SPEAKER_ENABLE_REQUEST,
 	MM_SPEAKER_DISABLE_REQUEST,
  };
@@ -53,6 +61,8 @@ struct mm_route_state_machine {
 	bool bt_device_is_connected;
 	bool wired_hs_is_connected;
 	enum mediamgr_auplay cur_route;
+	int restore_attempts;   /* restores since the last cooldown */
+	struct tmr restore_tmr; /* re-check after a restore, or cool down */
 };
 
 typedef enum {
@@ -86,6 +96,8 @@ typedef enum {
 	MM_MARSHAL_INVOKE_INCOMINGH,
 	MM_MARSHAL_START_RECORDING,
 	MM_MARSHAL_STOP_RECORDING,
+	MM_MARSHAL_PLATFORM_ROUTE_CHANGED,
+	MM_MARSHAL_PLATFORM_DEVICES_CHANGED,
 } mm_marshal_id;
 
 struct mm_message {
@@ -175,6 +187,7 @@ static void *mediamgr_thread(void *arg);
 static void enter_call(struct mm *mm);
 static void exit_call(struct mm *mm);
 static void enable_speaker(struct mm *mm, bool enable);
+static void update_route(struct mm *mm, enum mm_route_update_event event);
 
 
 
@@ -269,6 +282,12 @@ static const char *event_name(enum mm_route_update_event event)
 		
 	case MM_DEVICE_CHANGED:
 		return "System-DeviceChange";
+
+	case MM_PLATFORM_ROUTE_CHANGED:
+		return "Platform-RouteChange";
+
+	case MM_ROUTE_RESTORE_CHECK:
+		return "Restore-Check";
 		
 	case MM_SPEAKER_ENABLE_REQUEST:
 		return "Speaker-On";
@@ -473,19 +492,26 @@ static int mediamgr_post_media_cmd(struct mm *mm,
 	return mqueue_push(mm->mq, cmd, elem);
 }
 
+/* Video calls use the loudspeaker, unless a headset is connected.
+ * Starting video keeps an explicit speaker choice; a device change
+ * replaces it, as plugging in a headset does.
+ */
+static void set_video_speaker(struct mm *mm)
+{
+#ifdef __ANDROID__
+	mm->router.prefer_loudspeaker = !mm->router.bt_device_is_connected
+		&& !mm->router.wired_hs_is_connected;
+#else
+	mm->router.prefer_loudspeaker = true;
+#endif
+}
+
 static void set_video_route(struct mm *mm)
 {
 	enum mediamgr_auplay route;
 
-#ifdef __ANDROID__
-	if (mm->router.bt_device_is_connected
-	    || mm->router.wired_hs_is_connected)
-		mm->router.prefer_loudspeaker = false;
-	else
-		mm->router.prefer_loudspeaker = true;
-#else
-	mm->router.prefer_loudspeaker = true;
-#endif
+	if (!mm->speaker_override)
+		set_video_speaker(mm);
 	
 	route = mm_platform_get_route();
 	switch(route) {
@@ -529,8 +555,9 @@ static void handle_incall(struct mm *mm, bool hold)
 	     mmstate_name(mm->call_state), mm_sys_state_name(mm->sys_state),
 	     hold);
 
-	if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
-		mm->router.prefer_loudspeaker = true;
+	if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL
+	    && !mm->speaker_override)
+		set_video_speaker(mm);
 
 	if (hold) {
 		enter_call(mm);
@@ -600,6 +627,8 @@ static int mm_alloc(struct mm **mmp)
 	mm = mem_zalloc(sizeof(*mm), mm_destructor);
 	if (!mm)
 		return ENOMEM;
+
+	tmr_init(&mm->router.restore_tmr);
 
 	err = dict_alloc(&mm->sounds);
 	if (err)
@@ -695,29 +724,85 @@ static enum mediamgr_auplay get_wanted_route(struct mm *mm)
 	return wanted_route;
 }
 
-static void satisfy_route(enum mediamgr_auplay route)
+static int satisfy_route(enum mediamgr_auplay route)
 {
 	switch (route) {
 	case MEDIAMGR_AUPLAY_HEADSET:
-		mm_platform_enable_headset();
-		break;
+		return mm_platform_enable_headset();
 
 	case MEDIAMGR_AUPLAY_EARPIECE:
-		mm_platform_enable_earpiece();
-		break;
+		return mm_platform_enable_earpiece();
 
 	case MEDIAMGR_AUPLAY_SPEAKER:
-		mm_platform_enable_speaker();
-		break;
+		return mm_platform_enable_speaker();
 
 	case MEDIAMGR_AUPLAY_BT:
-		mm_platform_enable_bt_sco();
-		break;
+		return mm_platform_enable_bt_sco();
 
 	default:
 		warning("mediamgr: satisfy_route: unsupported route: %s\n",
 			mediamgr_route_name(route));
-		break;
+		return -1;
+	}
+}
+
+
+static bool platform_in_call(const struct mm *mm)
+{
+	return mm->sys_state == MM_SYS_STATE_ENTERING_CALL
+		|| mm->sys_state == MM_SYS_STATE_INCALL;
+}
+
+
+static void reset_route_restore(struct mm *mm)
+{
+	mm->router.restore_attempts = 0;
+	tmr_cancel(&mm->router.restore_tmr);
+}
+
+
+static void route_check_handler(void *arg)
+{
+	struct mm *mm = arg;
+
+	update_route(mm, MM_ROUTE_RESTORE_CHECK);
+}
+
+
+static void route_cooldown_handler(void *arg)
+{
+	struct mm *mm = arg;
+
+	/* E.g. a headset that was taken off may be worn again */
+	mm->router.restore_attempts = 0;
+	update_route(mm, MM_ROUTE_RESTORE_CHECK);
+}
+
+
+static void restore_route(struct mm *mm, enum mediamgr_auplay route)
+{
+	int err;
+
+	mm->router.restore_attempts++;
+
+	info("mediamgr: restore_route: %s attempt=%d\n",
+	     mediamgr_route_name(route), mm->router.restore_attempts);
+
+	err = satisfy_route(route);
+
+	/* Check again if the platform rejects or never applies the route.
+	 * After the last attempt there is nothing to check, so cool down.
+	 */
+	if (mm->router.restore_attempts >= MM_ROUTE_RESTORE_MAX_ATTEMPTS) {
+		tmr_start(&mm->router.restore_tmr,
+			  MM_ROUTE_RESTORE_COOLDOWN_MS,
+			  route_cooldown_handler, mm);
+	}
+	else {
+		tmr_start(&mm->router.restore_tmr,
+			  err < 0 ? MM_ROUTE_RESTORE_RETRY_MS
+				  : MM_ROUTE_RESTORE_TIMEOUT_MS,
+			  route_check_handler, mm);
 	}
 }
 
@@ -735,6 +820,7 @@ static void enable_speaker(struct mm *mm, bool enable)
 	info("enable_speaker: enable=%d\n", enable);
 
 	mm->router.prefer_loudspeaker = enable;
+	reset_route_restore(mm);
 	
 	wanted_route = get_wanted_route(mm);
 
@@ -753,6 +839,9 @@ static void update_route(struct mm *mm, enum mm_route_update_event event)
 {
 	enum mediamgr_auplay cur_route = mm_platform_get_route(); 
 	enum mediamgr_auplay wanted_route = MEDIAMGR_AUPLAY_UNKNOWN;
+	enum mediamgr_auplay prev_route;
+	bool route_check;
+	bool restore = false;
 	struct le *le;
 	
 	if (!mm) {
@@ -766,6 +855,14 @@ static void update_route(struct mm *mm, enum mm_route_update_event event)
 	     mm->router.prefer_loudspeaker ? "yes" : "no",
 	     mm->router.wired_hs_is_connected,
 	     mm->router.bt_device_is_connected);
+
+	/* Checks of the platform's route, rather than device changes */
+	route_check = event == MM_PLATFORM_ROUTE_CHANGED
+		|| event == MM_ROUTE_RESTORE_CHECK;
+
+	/* A device change gives restoring the route a fresh start */
+	if (event != MM_DEVICE_CHANGED && !route_check)
+		reset_route_restore(mm);
 	
 	switch (event) {
 	case MM_HEADSET_PLUGGED:
@@ -781,7 +878,7 @@ static void update_route(struct mm *mm, enum mm_route_update_event event)
 			wanted_route = MEDIAMGR_AUPLAY_BT;
 		}
 		if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
-			mm->router.prefer_loudspeaker = true;
+			set_video_speaker(mm);
 		break;
 
 	case MM_BT_DEVICE_CONNECTED:
@@ -802,7 +899,7 @@ static void update_route(struct mm *mm, enum mm_route_update_event event)
 			wanted_route = MEDIAMGR_AUPLAY_HEADSET;
 		}
 		if (mm->call_state == MEDIAMGR_STATE_INVIDEOCALL)
-			mm->router.prefer_loudspeaker = true;
+			set_video_speaker(mm);
 		break;
 
 	case MM_DEVICE_CHANGED:
@@ -818,31 +915,72 @@ static void update_route(struct mm *mm, enum mm_route_update_event event)
 			wanted_route = cur_route;
 		break;
 
+	case MM_PLATFORM_ROUTE_CHANGED:
+	case MM_ROUTE_RESTORE_CHECK:
+		/* The platform changed the route by itself. Follow it to
+		 * a device it selected. If it fell back to a built-in route
+		 * during a call, e.g. because a Bluetooth headset dropped
+		 * its audio link, restore the headset or speaker we want.
+		 * The platform knows when it cannot use the earpiece,
+		 * e.g. on tablets, so do not insist on that.
+		 */
+		wanted_route = get_wanted_route(mm);
+		restore = cur_route != wanted_route
+			&& platform_in_call(mm)
+			&& (cur_route == MEDIAMGR_AUPLAY_EARPIECE
+			    || cur_route == MEDIAMGR_AUPLAY_SPEAKER)
+			&& wanted_route != MEDIAMGR_AUPLAY_EARPIECE;
+		if (restore && mm->router.restore_attempts
+		    >= MM_ROUTE_RESTORE_MAX_ATTEMPTS) {
+			/* Until the last attempt's cooldown ends */
+			warning("mediamgr: update_route: keeping %s after %d "
+				"restore attempts\n",
+				mediamgr_route_name(cur_route),
+				mm->router.restore_attempts);
+			restore = false;
+		}
+		if (!restore)
+			wanted_route = cur_route;
+		break;
+
 	default:
 		warning("mediamgr: illegal event: %d for system route\n",
 			event);
 		break;
 	}
 
+	prev_route = mm->router.cur_route;
 	mm->router.cur_route = cur_route;
 	
 	if (wanted_route == MEDIAMGR_AUPLAY_UNKNOWN)
 		wanted_route = get_wanted_route(mm);
 
-	if (cur_route != wanted_route)
+	if (restore)
+		restore_route(mm, wanted_route);
+	else if (cur_route != wanted_route) {
 		satisfy_route(wanted_route);
-	else {
-		LIST_FOREACH(&g_mm->mml, le) {
-			struct mediamgr *mgr = le->data;
-			enum mediamgr_auplay route = cur_route;
-
-			if (mgr->route_changed_h) {
-				mgr->route_changed_h(route,
-						     mgr->route_changed_arg);
-			}
-		}
-		mm_platform_confirm_route(cur_route);
+		return;
 	}
+
+	/* Report the route in use, also while restoring another one.
+	 * Timer checks only report a changed route.
+	 */
+	if (event == MM_ROUTE_RESTORE_CHECK && cur_route == prev_route)
+		return;
+
+	LIST_FOREACH(&g_mm->mml, le) {
+		struct mediamgr *mgr = le->data;
+		enum mediamgr_auplay route = cur_route;
+
+		if (mgr->route_changed_h) {
+			mgr->route_changed_h(route,
+					     mgr->route_changed_arg);
+		}
+	}
+
+	/* A check is already of the platform's route */
+	if (!route_check)
+		mm_platform_confirm_route(cur_route);
 }
 
 
@@ -910,6 +1048,7 @@ static void exit_call(struct mm *mm)
 	case MM_SYS_STATE_ENTERING_CALL:
 		set_sys_state(mm, MM_SYS_STATE_EXITING_CALL);
 		mm->speaker_override = false;
+		reset_route_restore(mm);
 		mm_platform_exit_call();
 		break;
 
@@ -1121,6 +1260,25 @@ void mediamgr_device_changed(struct mm *mm)
 	if (mqueue_push(mm->mq, MM_MARSHAL_DEVICE_CHANGED, NULL) != 0) {
 		error("mediamgr_device_changed failed \n");
 	}
+}
+
+void mediamgr_platform_route_changed(struct mm *mm)
+{
+	if (!mm)
+		return;
+
+	if (mqueue_push(mm->mq, MM_MARSHAL_PLATFORM_ROUTE_CHANGED, NULL) != 0)
+		error("mediamgr_platform_route_changed failed\n");
+}
+
+void mediamgr_platform_devices_changed(struct mm *mm)
+{
+	if (!mm)
+		return;
+
+	if (mqueue_push(mm->mq, MM_MARSHAL_PLATFORM_DEVICES_CHANGED,
+			NULL) != 0)
+		error("mediamgr_platform_devices_changed failed\n");
 }
 
 void mediamgr_register_media(struct mediamgr *mediamgr,
@@ -1595,7 +1753,8 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 		break;
 				
 	case MEDIAMGR_STATE_OUTGOING_VIDEO_CALL:
-		mm->router.prefer_loudspeaker = true;
+		if (!mm->speaker_override)
+			set_video_speaker(mm);
 		switch(old_state) {
 		case MEDIAMGR_STATE_NORMAL:
 			set_state(mm, new_state);
@@ -1722,6 +1881,8 @@ static void mqueue_handler(int id, void *data, void *arg)
 	switch ((mm_marshal_id)id) {
             
 	case MM_MARSHAL_EXIT:
+		/* Timers must be cancelled on this thread */
+		reset_route_restore(mm);
 		re_cancel();
 		break;
 
@@ -1791,6 +1952,16 @@ static void mqueue_handler(int id, void *data, void *arg)
 		update_route(g_mm, MM_DEVICE_CHANGED);
 	}
 	break;
+
+	case MM_MARSHAL_PLATFORM_DEVICES_CHANGED:
+		/* A route that could not be restored may work now */
+		reset_route_restore(g_mm);
+		update_route(g_mm, MM_PLATFORM_ROUTE_CHANGED);
+		break;
+
+	case MM_MARSHAL_PLATFORM_ROUTE_CHANGED:
+		update_route(g_mm, MM_PLATFORM_ROUTE_CHANGED);
+		break;
             
 	case MM_MARSHAL_REGISTER_MEDIA: {
 		register_media(g_mm, msg);

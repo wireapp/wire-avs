@@ -218,10 +218,20 @@ static void nativeBTDeviceConnected(JNIEnv* env, jobject obj, jboolean connected
     mediamgr_bt_device_connected(mm, connected);
 }
 
+static void nativeRouteChanged(JNIEnv* env, jobject obj, jlong nativeMM) {
+    mediamgr_platform_route_changed((struct mm *)nativeMM);
+}
+
+static void nativeDevicesChanged(JNIEnv* env, jobject obj, jlong nativeMM) {
+    mediamgr_platform_devices_changed((struct mm *)nativeMM);
+}
+
 static JNINativeMethod methods[] = {
     {"nativeUpdateRoute", "(IJ)V", (void*)nativeUpdateRoute },
     {"nativeHeadsetConnected", "(ZJ)V", (void*)nativeHeadsetConnected },
     {"nativeBTDeviceConnected", "(ZJ)V", (void*)nativeBTDeviceConnected },
+    {"nativeRouteChanged", "(J)V", (void*)nativeRouteChanged },
+    {"nativeDevicesChanged", "(J)V", (void*)nativeDevicesChanged },
 };
 
 int mm_android_jni_init(JNIEnv *env, jobject jobj, jobject ctx)
@@ -567,6 +577,10 @@ bool mm_platform_is_sound_playing(struct sound *snd)
 }
 
 
+/* The router's Enable methods return a positive value when Android
+ * applies the route asynchronously and reports it once done, 0 when
+ * the route was applied, and a negative value on failure.
+ */
 static int mm_platform_enable_speaker_internal(bool notify)
 {
     struct jni_env jni_env;
@@ -587,10 +601,10 @@ static int mm_platform_enable_speaker_internal(bool notify)
     
     jni_detach(&jni_env);
 
-    if (notify)
+    if (notify && ret == 0)
 	    mediamgr_device_changed(java.mediamgr);
     
-    return ret;
+    return ret < 0 ? -1 : 0;
 }
 
 int mm_platform_enable_speaker(void)
@@ -618,9 +632,10 @@ int mm_platform_enable_headset(void){
     
     jni_detach(&jni_env);
 
-    mediamgr_device_changed(java.mediamgr);
+    if (ret == 0)
+	    mediamgr_device_changed(java.mediamgr);
     
-    return ret;
+    return ret < 0 ? -1 : 0;
 }
 
 int mm_platform_enable_earpiece(void){
@@ -645,6 +660,9 @@ int mm_platform_enable_earpiece(void){
     ret = callIntMethodHelper(jni_env.env, java.router, java.arEnableEarpiece);
     
     jni_detach(&jni_env);
+
+    if (ret > 0)
+	    return 0;
     
     route = mm_platform_get_route();
     if (ret == 0 && route != old_route)
@@ -659,19 +677,21 @@ int mm_platform_enable_earpiece(void){
 }
 
 
-static void enable_bt_handler(void *arg)
+int mm_platform_enable_bt_sco(void)
 {
 	struct jni_env jni_env;
 
+	debug("mm: mm_platform_enable_bt_sco() \n");
+
 	if (!java.router) {
-		info("mm_platform_android: enable_bt_handler: no router\n");
-		return;
+		info("mm_platform_android: enable_bt_sco: no router\n");
+		return -1;
 	}
 	
 	if(jni_attach(&jni_env)){
 		error("mm_platform_android: %s jni_attach failed\n",
 		      __FUNCTION__);
-		return;
+		return -1;
 	}
 	int ret = callIntMethodHelper(jni_env.env, java.router,
 				      java.arEnableBTSco);
@@ -680,18 +700,8 @@ static void enable_bt_handler(void *arg)
     
 	if (ret == 0)
 		mediamgr_device_changed(java.mediamgr);
-}
 
-int mm_platform_enable_bt_sco(void)
-{
-    debug("mm: mm_platform_enable_bt_sco() \n");
-
-    enable_bt_handler(NULL);
-
-    /* Moved timer to Android Java code */
-    //tmr_start(&java.tmr_delay, 1000, enable_bt_handler, NULL);
-
-    return 0;
+	return ret < 0 ? -1 : 0;
 }
 
 void mm_android_jni_on_playback_route_changed(enum mediamgr_auplay new_route, void *arg){

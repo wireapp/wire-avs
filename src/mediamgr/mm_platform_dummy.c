@@ -23,10 +23,74 @@
 static struct {
 	struct mm *mm;
 	enum mediamgr_auplay current_route;
+	enum mediamgr_auplay fallback_route;
+	bool reject_routes;
+	int route_requests;
 } dummy = {
 	.mm = NULL,
 	.current_route = MEDIAMGR_AUPLAY_EARPIECE,
+	.fallback_route = MEDIAMGR_AUPLAY_UNKNOWN,
+	.reject_routes = false,
+	.route_requests = 0,
 };
+
+
+/* Applies a route and reports it back, like the Android platform.
+ * Tests change routes through the media manager's queue, but the
+ * rejection flag and request count are read across threads without
+ * it, e.g. while a restore check is pending, so they are atomic. The
+ * request is counted after deciding its outcome, so a test that sees
+ * the count can change the behaviour for the next request only.
+ */
+static int request_route(enum mediamgr_auplay route)
+{
+	bool reject = __atomic_load_n(&dummy.reject_routes, __ATOMIC_SEQ_CST);
+	enum mediamgr_auplay fallback = dummy.fallback_route;
+
+	__atomic_add_fetch(&dummy.route_requests, 1, __ATOMIC_SEQ_CST);
+	if (reject)
+		return -1;
+
+	if (fallback != MEDIAMGR_AUPLAY_UNKNOWN)
+		dummy.current_route = fallback;
+	else
+		dummy.current_route = route;
+
+	mediamgr_platform_route_changed(dummy.mm);
+
+	return 0;
+}
+
+
+/* Test hooks emulating platform routing */
+void mm_platform_dummy_reset(void)
+{
+	dummy.current_route = MEDIAMGR_AUPLAY_EARPIECE;
+	dummy.fallback_route = MEDIAMGR_AUPLAY_UNKNOWN;
+	dummy.reject_routes = false;
+	dummy.route_requests = 0;
+}
+
+void mm_platform_dummy_change_route(enum mediamgr_auplay route)
+{
+	dummy.current_route = route;
+	mediamgr_platform_route_changed(dummy.mm);
+}
+
+void mm_platform_dummy_set_fallback(enum mediamgr_auplay route)
+{
+	dummy.fallback_route = route;
+}
+
+void mm_platform_dummy_reject_routes(bool reject)
+{
+	__atomic_store_n(&dummy.reject_routes, reject, __ATOMIC_SEQ_CST);
+}
+
+int mm_platform_dummy_route_requests(void)
+{
+	return __atomic_load_n(&dummy.route_requests, __ATOMIC_SEQ_CST);
+}
 
 
 int mm_platform_init(struct mm *mm, struct dict *sounds)
@@ -39,6 +103,8 @@ int mm_platform_init(struct mm *mm, struct dict *sounds)
 
 int mm_platform_free(struct mm *mm)
 {
+	dummy.mm = NULL;
+
 	return 0;
 }
 
@@ -70,30 +136,22 @@ bool mm_platform_is_sound_playing(struct sound *snd)
 
 int mm_platform_enable_speaker(void)
 {
-    dummy.current_route = MEDIAMGR_AUPLAY_SPEAKER;
-
-    return 0;
+    return request_route(MEDIAMGR_AUPLAY_SPEAKER);
 }
 
 int mm_platform_enable_bt_sco(void)
 {
-    dummy.current_route = MEDIAMGR_AUPLAY_BT;
-
-    return 0;
+    return request_route(MEDIAMGR_AUPLAY_BT);
 }
 
 int mm_platform_enable_earpiece(void)
 {
-    dummy.current_route = MEDIAMGR_AUPLAY_EARPIECE;
-
-    return 0;
+    return request_route(MEDIAMGR_AUPLAY_EARPIECE);
 }
 
 int mm_platform_enable_headset(void)
 {
-    dummy.current_route = MEDIAMGR_AUPLAY_HEADSET;
-
-    return 0;
+    return request_route(MEDIAMGR_AUPLAY_HEADSET);
 }
 
 enum mediamgr_auplay mm_platform_get_route(void)

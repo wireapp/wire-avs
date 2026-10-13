@@ -19,6 +19,10 @@
 #include <avs.h>
 #include <gtest/gtest.h>
 #include <sys/time.h>
+#include <errno.h>
+#include <time.h>
+#include <unistd.h>
+#include <vector>
 #include "complexity_check.h"
 
 struct sync_state{
@@ -132,6 +136,272 @@ public:
 protected:
 	struct mediamgr *mm = nullptr;
 };
+
+#if !TARGET_OS_IPHONE
+
+/* Test hooks of the dummy platform, see mm_platform_dummy.c */
+extern "C" {
+void mm_platform_dummy_reset(void);
+void mm_platform_dummy_change_route(enum mediamgr_auplay route);
+void mm_platform_dummy_set_fallback(enum mediamgr_auplay route);
+void mm_platform_dummy_reject_routes(bool reject);
+int mm_platform_dummy_route_requests(void);
+}
+
+/* The platform reports its route changes, as Android's AudioRouter does,
+ * and the media manager decides which route the call uses.
+ */
+class MediamgrRouteTest : public ::testing::Test {
+
+public:
+	virtual void SetUp() override
+	{
+		mm_platform_dummy_reset();
+		pthread_mutex_init(&mutex, NULL);
+		pthread_cond_init(&cond, NULL);
+
+		ASSERT_EQ(0, mediamgr_alloc(&mm, on_mcat_changed, this));
+		mediamgr_register_route_change_h(mm, on_route_changed, this);
+	}
+
+	virtual void TearDown() override
+	{
+		mem_deref(mm);
+		pthread_cond_destroy(&cond);
+		pthread_mutex_destroy(&mutex);
+	}
+
+	static void on_mcat_changed(enum mediamgr_state state, void *arg)
+	{
+		(void)state;
+		(void)arg;
+	}
+
+	static void on_route_changed(enum mediamgr_auplay route, void *arg)
+	{
+		MediamgrRouteTest *test = (MediamgrRouteTest *)arg;
+
+		pthread_mutex_lock(&test->mutex);
+		test->routes.push_back(route);
+		pthread_cond_signal(&test->cond);
+		pthread_mutex_unlock(&test->mutex);
+	}
+
+	/* Waits for the media manager to report a route, and to be on it */
+	bool wait_for_route(enum mediamgr_auplay route, int times = 1)
+	{
+		struct timespec deadline;
+		int err = 0;
+
+		clock_gettime(CLOCK_REALTIME, &deadline);
+		deadline.tv_sec += 5;
+
+		pthread_mutex_lock(&mutex);
+		while (times > 0) {
+			while (times > 0 && seen < routes.size()) {
+				if (routes[seen++] == route)
+					--times;
+			}
+			if (times == 0 || err == ETIMEDOUT)
+				break;
+			err = pthread_cond_timedwait(&cond, &mutex, &deadline);
+		}
+		pthread_mutex_unlock(&mutex);
+
+		return times == 0 && mediamgr_get_route(mm) == route;
+	}
+
+	bool wait_for_route_requests(int count)
+	{
+		for (int i = 0; i < 500; ++i) {
+			if (mm_platform_dummy_route_requests() >= count)
+				return true;
+			usleep(10000);
+		}
+		return false;
+	}
+
+	bool enter_call_with_bluetooth()
+	{
+		mediamgr_set_call_state(mm, MEDIAMGR_STATE_INCALL);
+		mediamgr_bt_device_connected(mediamgr_get(mm), true);
+
+		return wait_for_route(MEDIAMGR_AUPLAY_BT);
+	}
+
+protected:
+	struct mediamgr *mm = nullptr;
+	pthread_mutex_t mutex;
+	pthread_cond_t cond;
+	std::vector<enum mediamgr_auplay> routes;
+	size_t seen = 0;
+};
+
+TEST_F(MediamgrRouteTest, restores_bluetooth_after_platform_fallback)
+{
+	ASSERT_TRUE(enter_call_with_bluetooth());
+	int requests = mm_platform_dummy_route_requests();
+
+	mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_EARPIECE);
+
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_BT));
+	ASSERT_EQ(requests + 1, mm_platform_dummy_route_requests());
+}
+
+TEST_F(MediamgrRouteTest, restores_speaker_choice_after_platform_fallback)
+{
+	ASSERT_TRUE(enter_call_with_bluetooth());
+	mediamgr_enable_speaker(mm, true);
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_SPEAKER));
+
+	mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_EARPIECE);
+
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_SPEAKER));
+}
+
+TEST_F(MediamgrRouteTest, keeps_earpiece_after_speaker_is_turned_off)
+{
+	mediamgr_set_call_state(mm, MEDIAMGR_STATE_INCALL);
+	mediamgr_enable_speaker(mm, true);
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_SPEAKER));
+	mediamgr_enable_speaker(mm, false);
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_EARPIECE));
+	int requests = mm_platform_dummy_route_requests();
+
+	mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_EARPIECE);
+
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_EARPIECE));
+	ASSERT_EQ(requests, mm_platform_dummy_route_requests());
+}
+
+TEST_F(MediamgrRouteTest, follows_platform_speaker_instead_of_earpiece)
+{
+	/* E.g. a tablet without an earpiece */
+	mediamgr_set_call_state(mm, MEDIAMGR_STATE_INCALL);
+	int requests = mm_platform_dummy_route_requests();
+
+	mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_SPEAKER);
+
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_SPEAKER));
+	ASSERT_EQ(requests, mm_platform_dummy_route_requests());
+}
+
+TEST_F(MediamgrRouteTest, video_keeps_explicit_speaker_choice)
+{
+	mediamgr_set_call_state(mm, MEDIAMGR_STATE_INCALL);
+	mediamgr_enable_speaker(mm, true);
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_SPEAKER));
+	mediamgr_enable_speaker(mm, false);
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_EARPIECE));
+	mediamgr_set_call_state(mm, MEDIAMGR_STATE_INVIDEOCALL);
+	int requests = mm_platform_dummy_route_requests();
+
+	mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_EARPIECE);
+
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_EARPIECE));
+	ASSERT_EQ(requests, mm_platform_dummy_route_requests());
+}
+
+TEST_F(MediamgrRouteTest, bluetooth_reconnect_replaces_speaker_choice)
+{
+	ASSERT_TRUE(enter_call_with_bluetooth());
+	mediamgr_enable_speaker(mm, true);
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_SPEAKER));
+	mediamgr_bt_device_connected(mediamgr_get(mm), false);
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_SPEAKER));
+	mediamgr_bt_device_connected(mediamgr_get(mm), true);
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_BT));
+
+	mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_EARPIECE);
+
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_BT));
+}
+
+TEST_F(MediamgrRouteTest, wired_headset_replaces_speaker_choice)
+{
+	ASSERT_TRUE(enter_call_with_bluetooth());
+	mediamgr_enable_speaker(mm, true);
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_SPEAKER));
+	mediamgr_headset_connected(mediamgr_get(mm), true);
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_HEADSET));
+
+	mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_EARPIECE);
+
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_HEADSET));
+}
+
+TEST_F(MediamgrRouteTest, follows_device_selected_by_platform)
+{
+	ASSERT_TRUE(enter_call_with_bluetooth());
+	int requests = mm_platform_dummy_route_requests();
+
+	mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_HEADSET);
+
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_HEADSET));
+	ASSERT_EQ(requests, mm_platform_dummy_route_requests());
+}
+
+TEST_F(MediamgrRouteTest, stops_restoring_a_route_the_platform_keeps_dropping)
+{
+	ASSERT_TRUE(enter_call_with_bluetooth());
+	int requests = mm_platform_dummy_route_requests();
+	mm_platform_dummy_set_fallback(MEDIAMGR_AUPLAY_EARPIECE);
+
+	mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_EARPIECE);
+
+	/* Reported once for the fallback and once per attempt */
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_EARPIECE, 4));
+	ASSERT_EQ(requests + 3, mm_platform_dummy_route_requests());
+
+	/* New devices may accept the route again */
+	mm_platform_dummy_set_fallback(MEDIAMGR_AUPLAY_UNKNOWN);
+	mediamgr_platform_devices_changed(mediamgr_get(mm));
+
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_BT));
+}
+
+TEST_F(MediamgrRouteTest, stops_restoring_a_route_that_does_not_hold)
+{
+	ASSERT_TRUE(enter_call_with_bluetooth());
+	int requests = mm_platform_dummy_route_requests();
+	for (int i = 0; i < 3; ++i) {
+		mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_EARPIECE);
+		ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_BT));
+	}
+
+	mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_EARPIECE);
+
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_EARPIECE));
+	ASSERT_EQ(requests + 3, mm_platform_dummy_route_requests());
+}
+
+TEST_F(MediamgrRouteTest, retries_a_rejected_restore)
+{
+	ASSERT_TRUE(enter_call_with_bluetooth());
+	int requests = mm_platform_dummy_route_requests();
+	mm_platform_dummy_reject_routes(true);
+
+	mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_EARPIECE);
+	ASSERT_TRUE(wait_for_route_requests(requests + 1));
+	mm_platform_dummy_reject_routes(false);
+
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_BT));
+	ASSERT_EQ(requests + 2, mm_platform_dummy_route_requests());
+}
+
+TEST_F(MediamgrRouteTest, follows_platform_outside_a_call)
+{
+	mediamgr_enable_speaker(mm, true);
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_SPEAKER));
+	int requests = mm_platform_dummy_route_requests();
+
+	mm_platform_dummy_change_route(MEDIAMGR_AUPLAY_EARPIECE);
+
+	ASSERT_TRUE(wait_for_route(MEDIAMGR_AUPLAY_EARPIECE));
+	ASSERT_EQ(requests, mm_platform_dummy_route_requests());
+}
+
+#endif
 
 #if 0
 TEST_F(MediamgrTest, allocate)

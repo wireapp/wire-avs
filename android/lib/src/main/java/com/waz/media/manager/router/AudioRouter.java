@@ -23,7 +23,6 @@ import android.os.Build;
 import android.media.AudioManager;
 import android.media.AudioDeviceCallback;
 import android.media.AudioDeviceInfo;
-import com.waz.media.manager.MediaManager;
 
 import android.media.AudioManager.OnAudioFocusChangeListener;
 
@@ -90,7 +89,8 @@ public class AudioRouter
     private static BluetoothDevice bluetoothDevice = null;
      
     private volatile AudioDeviceInfo bluetoothCurrentDevice = null;
-    private CommunicationRouteRecovery communicationRouteRecovery;
+    // Headset carrying the call, so the native router's Bluetooth route keeps using it
+    private volatile AudioDeviceInfo callBluetoothDevice = null;
 
     private boolean headsetAvailable = false;
     private boolean btScoConnected = false;
@@ -118,8 +118,7 @@ public class AudioRouter
 	    @Override
 	    public void onCommunicationDeviceChanged(AudioDeviceInfo device) {
 		    DoLog("onCommunicationDeviceChanged: dev=" + (device == null ? "null" : device.getType()));
-		    this.router.communicationRouteRecovery.onRouteChanged(device);
-		    this.router.UpdateRoute();
+		    this.router.onCommunicationDeviceChanged(device);
 	    }
     }
 
@@ -151,12 +150,6 @@ public class AudioRouter
       _audio_manager = (AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
     }
       
-    if (hasApi31()) {
-        communicationRouteRecovery = new CommunicationRouteRecovery(
-            _audio_manager, new Handler(Looper.getMainLooper()),
-            () -> MediaManager.getInstance(_context).isLoudSpeakerRequested());
-    }
-
     this.subscribeToRouteUpdates();
 
     if (hasApi31()) {
@@ -220,7 +213,7 @@ public class AudioRouter
 			    break;
 
 		    case AudioDeviceInfo.TYPE_WIRED_HEADSET:
-            case AudioDeviceInfo.TYPE_USB_HEADSET:
+		    case AudioDeviceInfo.TYPE_USB_HEADSET:
 			    DoLog("(api31) has Headset");
 			    hasHeadset = true;
 			    break;
@@ -231,15 +224,16 @@ public class AudioRouter
 		    }
 	    }
 
-        // Only report selectable call devices, never A2DP or broadcast-only outputs.
-        AudioDeviceInfo previousBluetoothDevice = bluetoothCurrentDevice;
-        bluetoothCurrentDevice = btDev;
-        if (previousBluetoothDevice != null && btDev == null) {
-            nativeBTDeviceConnected(false, _nativeMM);
-        } else if (btDev != null && (previousBluetoothDevice == null
-                || btDev.getId() != previousBluetoothDevice.getId())) {
-            nativeBTDeviceConnected(true, _nativeMM);
-        }
+	    /* Notify of any bluetooth changes, only for devices that can carry a call */
+	    AudioDeviceInfo previousBluetoothDevice = bluetoothCurrentDevice;
+	    bluetoothCurrentDevice = btDev;
+	    if (previousBluetoothDevice != null && btDev == null) {
+		    nativeBTDeviceConnected(false, _nativeMM);
+	    }
+	    else if (btDev != null && (previousBluetoothDevice == null
+				       || btDev.getId() != previousBluetoothDevice.getId())) {
+		    nativeBTDeviceConnected(true, _nativeMM);
+	    }
 
 	    /* Notify of any headset changes */
 	    if (headsetAvailable && !hasHeadset) {
@@ -248,9 +242,53 @@ public class AudioRouter
 	    }
 	    else if (!headsetAvailable && hasHeadset) {
 		    headsetAvailable = true;
-            MediaManager.onWiredHeadsetConnected(_context);
 		    nativeHeadsetConnected(true, _nativeMM);
 	    }
+  }
+
+  private static boolean isBluetoothCallDevice(AudioDeviceInfo device) {
+      if (device == null)
+          return false;
+
+      switch (device.getType()) {
+      case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
+      case AudioDeviceInfo.TYPE_BLE_HEADSET:
+      case AudioDeviceInfo.TYPE_BLE_SPEAKER:
+          return true;
+
+      default:
+          return false;
+      }
+  }
+
+  /** The call's headset, which may have reconnected with a new ID, or else the latest one. */
+  private AudioDeviceInfo findBluetoothCallDevice() {
+      AudioDeviceInfo callDevice = callBluetoothDevice;
+      if (callDevice == null)
+          return bluetoothCurrentDevice;
+
+      // An exact match wins over a profile of the same headset, e.g. LE Audio and SCO
+      List<AudioDeviceInfo> devices = _audio_manager.getAvailableCommunicationDevices();
+      for (AudioDeviceInfo device : devices) {
+          if (isBluetoothCallDevice(device) && device.getId() == callDevice.getId())
+              return device;
+      }
+      String address = callDevice.getAddress();
+      if (!address.isEmpty()) {
+          for (AudioDeviceInfo device : devices) {
+              if (isBluetoothCallDevice(device) && address.equals(device.getAddress()))
+                  return device;
+          }
+      }
+      return bluetoothCurrentDevice;
+  }
+
+  private void onCommunicationDeviceChanged(AudioDeviceInfo device) {
+      if (_inCall && isBluetoothCallDevice(device))
+          callBluetoothDevice = device;
+
+      // The native router decides whether to keep this route
+      nativeRouteChanged(_nativeMM);
   }
 
   private void btHeadsetService(BluetoothHeadset btHeadset) {
@@ -424,12 +462,13 @@ public class AudioRouter
 			    break;
 		    }
 	    }
-	    if (speakerDevice == null)
+	    if (speakerDevice == null) {
 		    DoLog("EnableSpeaker(): no speaker device");
-	    else {
-		    DoLog("EnableSpeaker: setting speaker device");
-		    _audio_manager.setCommunicationDevice(speakerDevice);
+		    return -1;
 	    }
+	    DoLog("EnableSpeaker: setting speaker device");
+	    // Android applies the route asynchronously and reports it when done
+	    return _audio_manager.setCommunicationDevice(speakerDevice) ? 1 : -1;
     }
     else {
 	    if (route == ROUTE_BT)
@@ -450,16 +489,22 @@ public class AudioRouter
 	    List<AudioDeviceInfo> devices = _audio_manager.getAvailableCommunicationDevices();
 	    for (AudioDeviceInfo device : devices) {
 		    if (device.getType() == AudioDeviceInfo.TYPE_WIRED_HEADSET
-                    || device.getType() == AudioDeviceInfo.TYPE_USB_HEADSET) {
+			|| device.getType() == AudioDeviceInfo.TYPE_USB_HEADSET) {
 			    seldev = device;
 			    break;
 		    }
 	    }
-	    if (seldev == null)
+	    if (seldev == null) {
 		    DoLog("EnableHeadset(): no headset");
-	    else {
-		    DoLog("EnableHeadset: setting communication device");
-		    _audio_manager.setCommunicationDevice(seldev);
+		    return -1;
+	    }
+	    DoLog("EnableHeadset: setting communication device");
+	    try {
+		    return _audio_manager.setCommunicationDevice(seldev) ? 1 : -1;
+	    }
+	    catch (IllegalArgumentException exception) {
+		    // The headset can be unplugged between enumeration and selection
+		    return -1;
 	    }
     }
     else {
@@ -489,10 +534,8 @@ public class AudioRouter
 		    DoLog("EnableEarpiece(): no earpiece");
 		    return -1;
 	    }
-	    else {
-		    DoLog("EnableEarpiece: setting communication device");
-		    _audio_manager.setCommunicationDevice(seldev);
-	    }
+	    DoLog("EnableEarpiece: setting communication device");
+	    return _audio_manager.setCommunicationDevice(seldev) ? 1 : -1;
     }
     else {
 	    if(!hasEarpiece())
@@ -519,13 +562,17 @@ public class AudioRouter
 	    return -1;
 	    
     if (hasApi31()) {
-        if (bluetoothCurrentDevice == null
-                || MediaManager.getInstance(_context).isLoudSpeakerRequested()) return -1;
-        try {
-            return _audio_manager.setCommunicationDevice(bluetoothCurrentDevice) ? 1 : -1;
-        } catch (IllegalArgumentException exception) {
-            return -1;
-        }
+	    AudioDeviceInfo device = findBluetoothCallDevice();
+	    if (device == null)
+		    return -1;
+
+	    try {
+		    return _audio_manager.setCommunicationDevice(device) ? 1 : -1;
+	    }
+	    catch (IllegalArgumentException exception) {
+		    // The device can disappear between enumeration and selection
+		    return -1;
+	    }
     }
     else {
 	    Handler handler = new Handler(Looper.getMainLooper());
@@ -550,7 +597,9 @@ public class AudioRouter
 	  }
 
 	  updateDevices();
-      communicationRouteRecovery.onDevicesChanged();
+	  // Also after a connection change, so the native router re-checks
+	  // a route the platform accepted but never applied
+	  nativeDevicesChanged(_nativeMM);
   }
 
   @Override 
@@ -560,7 +609,7 @@ public class AudioRouter
 		  DoLog("   dev=" + device.getType() + " sink/source=" + device.isSink() + "/" + device.isSource());
 	  }
 	  updateDevices();
-      communicationRouteRecovery.onDevicesChanged();
+	  nativeDevicesChanged(_nativeMM);
   }
 	
 	  
@@ -569,7 +618,9 @@ public class AudioRouter
 
 	  if (hasApi31()) {
 		  AudioDeviceInfo di = _audio_manager.getCommunicationDevice();
-          if (di == null) return ROUTE_INVALID;
+		  // The native router treats an invalid route as the earpiece
+		  if (di == null)
+			  return ROUTE_INVALID;
 
 		  switch(di.getType()) {
 		  case AudioDeviceInfo.TYPE_BLE_BROADCAST:
@@ -597,6 +648,11 @@ public class AudioRouter
 			  route = ROUTE_BT;
 			  break;
 
+		  case AudioDeviceInfo.TYPE_HEARING_AID:
+			  DoLog("GetAudioRoute(api31) Hearing aid");
+			  route = ROUTE_BT;
+			  break;
+
 		  case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE:
 			  DoLog("GetAudioRoute(api31) Earpiece");
 			  route = ROUTE_EARPIECE;
@@ -608,8 +664,18 @@ public class AudioRouter
 			  break;
 
 		  case AudioDeviceInfo.TYPE_WIRED_HEADSET:
-          case AudioDeviceInfo.TYPE_USB_HEADSET:
+		  case AudioDeviceInfo.TYPE_USB_HEADSET:
 			  DoLog("GetAudioRoute(api31) Headset");
+			  route = ROUTE_HEADSET;
+			  break;
+
+		  // Other wired outputs Android can pick for a call
+		  case AudioDeviceInfo.TYPE_WIRED_HEADPHONES:
+		  case AudioDeviceInfo.TYPE_USB_DEVICE:
+		  case AudioDeviceInfo.TYPE_LINE_ANALOG:
+		  case AudioDeviceInfo.TYPE_HDMI:
+		  case AudioDeviceInfo.TYPE_AUX_LINE:
+			  DoLog("GetAudioRoute(api31) Wired output");
 			  route = ROUTE_HEADSET;
 			  break;
 
@@ -662,10 +728,10 @@ public class AudioRouter
 	  
 	  _inCall = true;
 	  if (hasApi31()) {
-          AudioDeviceInfo selected = _audio_manager.getCommunicationDevice();
-          AudioDeviceInfo startingHeadset = CommunicationRouteRecovery.isBluetoothHeadset(selected)
-                  ? selected : bluetoothCurrentDevice;
-          communicationRouteRecovery.onCallStarted(startingHeadset);
+		  AudioDeviceInfo selected = _audio_manager.getCommunicationDevice();
+		  callBluetoothDevice = isBluetoothCallDevice(selected) ? selected : null;
+		  // Let the native router pick the call route
+		  nativeDevicesChanged(_nativeMM);
 	  }
 	  else {
 		  Log.i(logTag, "OnStartingCall btdev=" + bluetoothDevice);
@@ -683,7 +749,7 @@ public class AudioRouter
 	  Log.i(logTag, "OnStoppingCall incall=" + _inCall);
 	  
 	  _inCall = false;
-      if (hasApi31()) communicationRouteRecovery.onCallStopped();
+	  callBluetoothDevice = null;
 	  if(_audio_manager.getMode() != AudioManager.MODE_NORMAL){
 		  _audio_manager.setMode(AudioManager.MODE_NORMAL);
 	  }
@@ -702,8 +768,6 @@ public class AudioRouter
 	  DoLog("running in API31 mode, subscribing to communication device changes");
 
 	  _audio_manager.addOnCommunicationDeviceChangedListener(this.executor, new DeviceChangedListener(this));
-      _audio_manager.addOnModeChangedListener(this.executor,
-              mode -> communicationRouteRecovery.onAudioModeChanged());
 	  _audio_manager.registerAudioDeviceCallback(this, null);
   }
 
@@ -843,4 +907,6 @@ public class AudioRouter
   private native void nativeUpdateRoute(int route, long nativeMM);
   private native void nativeHeadsetConnected(boolean connected, long nativeMM);
   private native void nativeBTDeviceConnected(boolean connected, long nativeMM);
+  private native void nativeRouteChanged(long nativeMM);
+  private native void nativeDevicesChanged(long nativeMM);
 }
