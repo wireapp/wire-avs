@@ -23,6 +23,7 @@ import android.os.Build;
 import android.media.AudioManager;
 import android.media.AudioDeviceCallback;
 import android.media.AudioDeviceInfo;
+import com.waz.media.manager.MediaManager;
 
 import android.media.AudioManager.OnAudioFocusChangeListener;
 
@@ -88,7 +89,8 @@ public class AudioRouter
     private BluetoothA2dp  bluetoothA2dp = null;
     private static BluetoothDevice bluetoothDevice = null;
      
-    private AudioDeviceInfo bluetoothCurrentDevice = null;
+    private volatile AudioDeviceInfo bluetoothCurrentDevice = null;
+    private CommunicationRouteRecovery communicationRouteRecovery;
 
     private boolean headsetAvailable = false;
     private boolean btScoConnected = false;
@@ -116,6 +118,7 @@ public class AudioRouter
 	    @Override
 	    public void onCommunicationDeviceChanged(AudioDeviceInfo device) {
 		    DoLog("onCommunicationDeviceChanged: dev=" + (device == null ? "null" : device.getType()));
+		    this.router.communicationRouteRecovery.onRouteChanged(device);
 		    this.router.UpdateRoute();
 	    }
     }
@@ -134,7 +137,7 @@ public class AudioRouter
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2;
     }
     
-    private boolean _inCall = false;
+    private volatile boolean _inCall = false;
     
   public AudioRouter ( Context context, long nativeMM ) {
     this._context = context;
@@ -148,6 +151,12 @@ public class AudioRouter
       _audio_manager = (AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
     }
       
+    if (hasApi31()) {
+        communicationRouteRecovery = new CommunicationRouteRecovery(
+            _audio_manager, new Handler(Looper.getMainLooper()),
+            () -> MediaManager.getInstance(_context).isLoudSpeakerRequested());
+    }
+
     this.subscribeToRouteUpdates();
 
     if (hasApi31()) {
@@ -172,36 +181,33 @@ public class AudioRouter
 
   private void updateDevices() {
 	  DoLog("updateDevices: ");
-	    boolean hasBluetooth = false;
+
 	    boolean hasHeadset = false;
 	    AudioDeviceInfo btDev = null;
 	    List<AudioDeviceInfo> devices = _audio_manager.getAvailableCommunicationDevices();
 	    for (AudioDeviceInfo device : devices) {
-		    DoLog("    dev=" + device.getProductName() + " sink/source=" + device.isSink() + "/" + device.isSource());
+		    DoLog("    dev=" + device.getType() + " sink/source=" + device.isSink() + "/" + device.isSource());
 		    switch(device.getType()) {
 		    case AudioDeviceInfo.TYPE_BLE_BROADCAST:
 			    DoLog("(api31) has BT_BCAST");
-			    hasBluetooth = true;
 			    break;
 
 		    case AudioDeviceInfo.TYPE_BLE_HEADSET:
 			    DoLog("(api31) has BT_HS");
-			    hasBluetooth = true;
+			    btDev = device;
 			    break;
 
 		    case AudioDeviceInfo.TYPE_BLE_SPEAKER:
 			    DoLog("(api31) has BT_SPEAKER");
-			    hasBluetooth = true;
+			    btDev = device;
 			    break;
 			    
 		    case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
 			    DoLog("(api31) has BT_A2DP");
-			    hasBluetooth = true;
 			    break;
 			    
 		    case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
 			    DoLog("(api31) has BT_SCO");
-			    hasBluetooth = true;
 			    btDev = device;
 			    break;
 
@@ -224,22 +230,15 @@ public class AudioRouter
 		    }
 	    }
 
-	    /* Notify of any bluetooth changes */
-	    if (bluetoothCurrentDevice != null) {
-		    if (!hasBluetooth) {
-			    bluetoothCurrentDevice = null;
-			    nativeBTDeviceConnected(false, _nativeMM);
-		    }
-		    else if (!btDev.equals(bluetoothCurrentDevice)) {
-			    bluetoothCurrentDevice = btDev;
-			    nativeBTDeviceConnected(true, _nativeMM);			    
-		    }
-	    }
-	    else if (bluetoothCurrentDevice == null && hasBluetooth) {
-		    bluetoothCurrentDevice = btDev;
-		    nativeBTDeviceConnected(true, _nativeMM);
-	    }
-		    
+        // Only report selectable call devices, never A2DP or broadcast-only outputs.
+        AudioDeviceInfo previousBluetoothDevice = bluetoothCurrentDevice;
+        bluetoothCurrentDevice = btDev;
+        if (previousBluetoothDevice != null && btDev == null) {
+            nativeBTDeviceConnected(false, _nativeMM);
+        } else if (btDev != null && (previousBluetoothDevice == null
+                || btDev.getId() != previousBluetoothDevice.getId())) {
+            nativeBTDeviceConnected(true, _nativeMM);
+        }
 
 	    /* Notify of any headset changes */
 	    if (headsetAvailable && !hasHeadset) {
@@ -517,8 +516,13 @@ public class AudioRouter
 	    return -1;
 	    
     if (hasApi31()) {
-	    _audio_manager.setCommunicationDevice(bluetoothCurrentDevice);
-	    return 1;
+        if (bluetoothCurrentDevice == null
+                || MediaManager.getInstance(_context).isLoudSpeakerRequested()) return -1;
+        try {
+            return _audio_manager.setCommunicationDevice(bluetoothCurrentDevice) ? 1 : -1;
+        } catch (IllegalArgumentException exception) {
+            return -1;
+        }
     }
     else {
 	    Handler handler = new Handler(Looper.getMainLooper());
@@ -539,19 +543,21 @@ public class AudioRouter
   public void onAudioDevicesAdded(AudioDeviceInfo[] devices) {
 	  DoLog("onAudioDevicesAdded: ");
 	  for (AudioDeviceInfo device : devices) {
-		  DoLog("   dev=" + device.getType() + " sink/source=" + device.isSink() + "/" + device.isSource() + " name=" + device.getProductName());
+		  DoLog("   dev=" + device.getType() + " sink/source=" + device.isSink() + "/" + device.isSource());
 	  }
 
 	  updateDevices();
+      communicationRouteRecovery.onDevicesChanged();
   }
 
   @Override 
   public void onAudioDevicesRemoved(AudioDeviceInfo[] devices) {
 	  DoLog("onAudioDevicesRemoved: ");
 	  for (AudioDeviceInfo device : devices) {
-		  DoLog("   dev=" + device.getType() + " sink/source=" + device.isSink() + "/" + device.isSource() + " name=" + device.getProductName());
+		  DoLog("   dev=" + device.getType() + " sink/source=" + device.isSink() + "/" + device.isSource());
 	  }
 	  updateDevices();
+      communicationRouteRecovery.onDevicesChanged();
   }
 	
 	  
@@ -560,6 +566,7 @@ public class AudioRouter
 
 	  if (hasApi31()) {
 		  AudioDeviceInfo di = _audio_manager.getCommunicationDevice();
+          if (di == null) return ROUTE_INVALID;
 
 		  switch(di.getType()) {
 		  case AudioDeviceInfo.TYPE_BLE_BROADCAST:
@@ -651,7 +658,7 @@ public class AudioRouter
 	  
 	  _inCall = true;
 	  if (hasApi31()) {
-		  Log.i(logTag, "OnStartingCall bluetoothCurrentDevice: " + bluetoothCurrentDevice);
+          communicationRouteRecovery.onCallStarted();
 		  if (bluetoothCurrentDevice != null) {
 			  EnableBTSco();
 		  }
@@ -672,6 +679,7 @@ public class AudioRouter
 	  Log.i(logTag, "OnStoppingCall incall=" + _inCall);
 	  
 	  _inCall = false;
+      if (hasApi31()) communicationRouteRecovery.onCallStopped();
 	  if(_audio_manager.getMode() != AudioManager.MODE_NORMAL){
 		  _audio_manager.setMode(AudioManager.MODE_NORMAL);
 	  }
