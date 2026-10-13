@@ -315,6 +315,14 @@ public class MediaManager implements OnAudioFocusChangeListener {
         return loudSpeakerRequested;
     }
 
+    /** Match native routing when a wired or USB headset takes over. */
+    public static void onWiredHeadsetConnected(Context context) {
+        // The router can report its initial devices while MediaManager is attaching.
+        // Do not create another manager recursively from that callback.
+        MediaManager manager = _instance;
+        if (manager != null && manager.ctx == context) manager.loudSpeakerRequested = false;
+    }
+
     public boolean isWiredHsOn(){
         return this.audioManager.isWiredHeadsetOn();
     }

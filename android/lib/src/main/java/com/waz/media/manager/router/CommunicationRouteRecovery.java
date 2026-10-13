@@ -56,12 +56,21 @@ final class CommunicationRouteRecovery {
     }
 
     void onCallStarted() {
+        onCallStarted(audioManager.getCommunicationDevice());
+    }
+
+    void onCallStarted(AudioDeviceInfo startingHeadset) {
+        // Capture the router's choice before communication-mode startup can change it.
         handler.post(() -> {
             if (inCall) return;
             inCall = true;
-            rememberHeadset(audioManager.getCommunicationDevice());
+            rememberHeadset(startingHeadset);
             updateRoute();
         });
+    }
+
+    void onAudioModeChanged() {
+        handler.post(this::updateRoute);
     }
 
     void onCallStopped() {
@@ -111,6 +120,12 @@ final class CommunicationRouteRecovery {
 
         AudioDeviceInfo current = audioManager.getCommunicationDevice();
         List<AudioDeviceInfo> devices = audioManager.getAvailableCommunicationDevices();
+        if (current != null && isWiredHeadset(current)) {
+            // Native routing owns headset insertion. A queued speaker recovery must
+            // not undo its selection; a later speaker request still goes through AVS.
+            cancelRequest();
+            return;
+        }
         if (speakerRequested) {
             if (current != null && current.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
                 cancelRequest();
@@ -134,8 +149,7 @@ final class CommunicationRouteRecovery {
         if (current != null && current.getType() != AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
                 && current.getType() != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) return false;
         for (AudioDeviceInfo device : devices) {
-            if (device.getType() == AudioDeviceInfo.TYPE_WIRED_HEADSET
-                    || device.getType() == AudioDeviceInfo.TYPE_USB_HEADSET) return false;
+            if (isWiredHeadset(device)) return false;
         }
         return true;
     }
@@ -191,8 +205,14 @@ final class CommunicationRouteRecovery {
         attempts = 0;
     }
 
-    private boolean isBluetoothHeadset(AudioDeviceInfo device) {
-        return device.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
-                || device.getType() == AudioDeviceInfo.TYPE_BLE_HEADSET;
+    private boolean isWiredHeadset(AudioDeviceInfo device) {
+        return device.getType() == AudioDeviceInfo.TYPE_WIRED_HEADSET
+                || device.getType() == AudioDeviceInfo.TYPE_USB_HEADSET;
+    }
+
+    static boolean isBluetoothHeadset(AudioDeviceInfo device) {
+        return device != null && (device.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                || device.getType() == AudioDeviceInfo.TYPE_BLE_HEADSET
+                || device.getType() == AudioDeviceInfo.TYPE_BLE_SPEAKER);
     }
 }

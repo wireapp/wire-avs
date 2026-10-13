@@ -220,6 +220,7 @@ public class AudioRouter
 			    break;
 
 		    case AudioDeviceInfo.TYPE_WIRED_HEADSET:
+            case AudioDeviceInfo.TYPE_USB_HEADSET:
 			    DoLog("(api31) has Headset");
 			    hasHeadset = true;
 			    break;
@@ -247,6 +248,7 @@ public class AudioRouter
 	    }
 	    else if (!headsetAvailable && hasHeadset) {
 		    headsetAvailable = true;
+            MediaManager.onWiredHeadsetConnected(_context);
 		    nativeHeadsetConnected(true, _nativeMM);
 	    }
   }
@@ -447,7 +449,8 @@ public class AudioRouter
 	    AudioDeviceInfo seldev = null;
 	    List<AudioDeviceInfo> devices = _audio_manager.getAvailableCommunicationDevices();
 	    for (AudioDeviceInfo device : devices) {
-		    if (device.getType() == AudioDeviceInfo.TYPE_WIRED_HEADSET) {
+		    if (device.getType() == AudioDeviceInfo.TYPE_WIRED_HEADSET
+                    || device.getType() == AudioDeviceInfo.TYPE_USB_HEADSET) {
 			    seldev = device;
 			    break;
 		    }
@@ -605,6 +608,7 @@ public class AudioRouter
 			  break;
 
 		  case AudioDeviceInfo.TYPE_WIRED_HEADSET:
+          case AudioDeviceInfo.TYPE_USB_HEADSET:
 			  DoLog("GetAudioRoute(api31) Headset");
 			  route = ROUTE_HEADSET;
 			  break;
@@ -658,10 +662,10 @@ public class AudioRouter
 	  
 	  _inCall = true;
 	  if (hasApi31()) {
-          communicationRouteRecovery.onCallStarted();
-		  if (bluetoothCurrentDevice != null) {
-			  EnableBTSco();
-		  }
+          AudioDeviceInfo selected = _audio_manager.getCommunicationDevice();
+          AudioDeviceInfo startingHeadset = CommunicationRouteRecovery.isBluetoothHeadset(selected)
+                  ? selected : bluetoothCurrentDevice;
+          communicationRouteRecovery.onCallStarted(startingHeadset);
 	  }
 	  else {
 		  Log.i(logTag, "OnStartingCall btdev=" + bluetoothDevice);
@@ -698,6 +702,8 @@ public class AudioRouter
 	  DoLog("running in API31 mode, subscribing to communication device changes");
 
 	  _audio_manager.addOnCommunicationDeviceChangedListener(this.executor, new DeviceChangedListener(this));
+      _audio_manager.addOnModeChangedListener(this.executor,
+              mode -> communicationRouteRecovery.onAudioModeChanged());
 	  _audio_manager.registerAudioDeviceCallback(this, null);
   }
 

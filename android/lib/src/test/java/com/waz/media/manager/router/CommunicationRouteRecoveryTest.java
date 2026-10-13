@@ -205,6 +205,70 @@ public class CommunicationRouteRecoveryTest {
         assertRoute(headset);
     }
 
+    @Test public void preservesWiredSelectionDespiteAnOlderSpeakerRequest() {
+        assertInsertedHeadsetWins(AudioDeviceInfo.TYPE_WIRED_HEADSET);
+    }
+
+    @Test public void preservesUsbSelectionDespiteAnOlderSpeakerRequest() {
+        assertInsertedHeadsetWins(AudioDeviceInfo.TYPE_USB_HEADSET);
+    }
+
+    private void assertInsertedHeadsetWins(int type) {
+        startCall();
+        speakerRequested = true;
+        changeRoute(speaker);
+        AudioDeviceInfo wired = device(type, 5, "");
+        available(earpiece, speaker, headset, wired);
+        audioManager.setCommunicationDevice(wired);
+        recovery.onDevicesChanged();
+        recovery.onRouteChanged(wired);
+        idle();
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMinutes(2));
+        assertRoute(wired);
+    }
+
+    @Test public void capturesStartingHeadsetBeforeTheMainQueueDrains() {
+        AudioDeviceInfo other = device(AudioDeviceInfo.TYPE_BLUETOOTH_SCO, 4, "other");
+        available(earpiece, speaker, other, headset);
+        audioManager.setMode(AudioManager.MODE_NORMAL);
+        recovery.onCallStarted();
+        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+        audioManager.setCommunicationDevice(earpiece);
+        recovery.onRouteChanged(earpiece);
+        idle();
+        assertRoute(headset);
+    }
+
+    @Test public void usesTheRouterChoiceWhenThePlatformAlreadyReportsEarpiece() {
+        AudioDeviceInfo other = device(AudioDeviceInfo.TYPE_BLUETOOTH_SCO, 4, "other");
+        available(earpiece, speaker, other, headset);
+        audioManager.setCommunicationDevice(earpiece);
+        recovery.onCallStarted(headset);
+        idle();
+        assertRoute(headset);
+    }
+
+    @Test public void startsRecoveryWhenCommunicationModeArrivesLater() {
+        audioManager.setMode(AudioManager.MODE_NORMAL);
+        audioManager.setCommunicationDevice(earpiece);
+        recovery.onCallStarted(headset);
+        idle();
+        assertRoute(earpiece);
+        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+        recovery.onAudioModeChanged();
+        idle();
+        assertRoute(headset);
+    }
+
+    @Test public void retainsBleSpeakerRoutingAtCallStartup() {
+        AudioDeviceInfo ble = device(AudioDeviceInfo.TYPE_BLE_SPEAKER, 4, "ble");
+        available(earpiece, speaker, ble);
+        audioManager.setCommunicationDevice(earpiece);
+        recovery.onCallStarted(ble);
+        idle();
+        assertRoute(ble);
+    }
+
     private void startCall() {
         recovery.onCallStarted();
         idle();
