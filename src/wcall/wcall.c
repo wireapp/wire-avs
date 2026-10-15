@@ -2473,14 +2473,14 @@ void wcall_close(void)
 	if (!calling.initialized)
 		return;
 
-	calling.running = false;
-
-	debug("wcall: close: joining AVS thread\n");
-	pthread_join(calling.tid, NULL);
-	debug("wcall: close: detaching AVS thread\n");
-	pthread_detach(calling.tid);
-	debug("wcall: close: thread done\n");
-
+	if (calling.running) {
+		calling.running = false;
+		debug("wcall: close: joining AVS thread\n");
+		pthread_join(calling.tid, NULL);
+		debug("wcall: close: detaching AVS thread\n");
+		pthread_detach(calling.tid);
+		debug("wcall: close: thread done\n");
+	}
 	lock_write_get(calling.lock);
 	LIST_FOREACH(&calling.logl, le) {
 		struct log_entry *loge = le->data;
@@ -4344,6 +4344,7 @@ void wcall_thread_main(int *err, int *initialized)
 	tmr_cancel(&calling.tmr_cancel);
 
 out:
+	calling.running = false;
 	flowmgr_close();
 	avs_close();
 
