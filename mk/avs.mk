@@ -37,9 +37,6 @@ AVS_MODULES += cert
 AVS_MODULES += conf_pos
 AVS_MODULES += conf_member
 AVS_MODULES += config
-ifneq ($(HAVE_CRYPTOBOX),)
-AVS_MODULES += cryptobox
-endif
 AVS_MODULES += dce
 AVS_MODULES += dict
 AVS_MODULES += ecall
@@ -51,9 +48,6 @@ AVS_MODULES += frame_hdr
 AVS_MODULES += frame_enc
 AVS_MODULES += jzon
 AVS_MODULES += kalium
-ifneq ($(HAVE_CRYPTOBOX),)
-AVS_MODULES += kase
-endif
 AVS_MODULES += keystore
 AVS_MODULES += log
 AVS_MODULES += mediamgr
@@ -68,9 +62,6 @@ endif
 ifeq ($(USE_REFLOW),1)
 AVS_MODULES += reflow
 endif
-endif
-ifneq ($(HAVE_PROTOBUF),)
-AVS_MODULES += protobuf
 endif
 AVS_MODULES += queue
 AVS_MODULES += rest
@@ -139,12 +130,6 @@ AVS_CPPFLAGS += \
 	-Wno-deprecated-declarations \
 	-Wno-deprecated
 
-ifneq ($(HAVE_PROTOBUF),)
-AVS_CPPFLAGS += -DHAVE_PROTOBUF=1
-endif
-ifneq ($(HAVE_CRYPTOBOX),)
-AVS_CPPFLAGS += -DHAVE_CRYPTOBOX=1
-endif
 
 ifeq ($(HAVE_WEBRTC),1)
 AVS_CPPFLAGS += -DHAVE_WEBRTC=1 -DENABLE_AUDIO_IO=1 -DENABLE_PEERFLOW=1
@@ -167,16 +152,6 @@ AVS_LIB_FILES += $(CONTRIB_WEBRTC_LIB_FILES) \
 	$(CONTRIB_LIBREM_LIB_FILES)
 else
 ABS_LIBS += $(CONTRIB_OPENSSL_LIBS)
-endif
-
-ifneq ($(HAVE_CRYPTOBOX),)
-AVS_DEPS += $(CONTRIB_CRYPTOBOX_TARGET)
-AVS_LIBS += $(CONTRIB_CRYPTOBOX_LIBS)
-endif
-
-ifneq ($(HAVE_PROTOBUF),)
-AVS_DEPS += $(CONTRIB_PROTOBUF_TARGET)
-AVS_LIBS += $(CONTRIB_PROTOBUF_LIBS)
 endif
 
 AVS_LIBS += \
