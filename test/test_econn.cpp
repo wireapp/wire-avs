@@ -154,8 +154,8 @@ public:
 	virtual void SetUp() override
 	{
 #if 1
-		log_set_min_level(LOG_LEVEL_WARN);
-		log_enable_stderr(true);
+		avs_log_set_min_level(LOG_LEVEL_WARN);
+		avs_log_enable_stderr(true);
 #endif
 
 		/* Create a global BACKEND mock first */
@@ -1247,7 +1247,7 @@ TEST_F(Econn, transport_error)
 	int err;
 
 	/* we dont want to see the warnings.. */
-	log_set_min_level(LOG_LEVEL_ERROR);
+	avs_log_set_min_level(LOG_LEVEL_ERROR);
 
 	/* Set a simulated Transport-Error */
 	transp_err = EIO;

@@ -847,7 +847,7 @@ static void start_timeout(void *arg)
 #endif
 }
 
-static const char *level_prefix(enum log_level level)
+static const char *level_prefix(enum avs_log_level level)
 {
 	switch (level) {
 

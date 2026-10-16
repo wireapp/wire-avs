@@ -214,12 +214,14 @@ void iflow_set_alloc(iflow_allocf *allocf)
 
 
 int iflow_alloc(struct iflow		**flowp,
+		const char              *msys_name,
 		const char		*convid,
 		const char		*userid_self,
 		const char		*clientid_self,
 		enum icall_conv_type	conv_type,
 		enum icall_call_type	call_type,
 		enum icall_vstate	vstate,
+		const char              *rec_path,
 		void			*extarg)
 {
 	if (!statics.alloc) {
@@ -227,12 +229,14 @@ int iflow_alloc(struct iflow		**flowp,
 		return ENOMEM;
 	}
 	return statics.alloc(flowp,
+			     msys_name,
 			     convid,
 			     userid_self,
 			     clientid_self,
 			     conv_type,
 			     call_type,
 			     vstate,
+			     rec_path,
 			     extarg);
 }
 

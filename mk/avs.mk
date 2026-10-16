@@ -37,9 +37,6 @@ AVS_MODULES += cert
 AVS_MODULES += conf_pos
 AVS_MODULES += conf_member
 AVS_MODULES += config
-ifneq ($(HAVE_CRYPTOBOX),)
-AVS_MODULES += cryptobox
-endif
 AVS_MODULES += dce
 AVS_MODULES += dict
 AVS_MODULES += ecall
@@ -51,9 +48,6 @@ AVS_MODULES += frame_hdr
 AVS_MODULES += frame_enc
 AVS_MODULES += jzon
 AVS_MODULES += kalium
-ifneq ($(HAVE_CRYPTOBOX),)
-AVS_MODULES += kase
-endif
 AVS_MODULES += keystore
 AVS_MODULES += log
 AVS_MODULES += mediamgr
@@ -68,9 +62,6 @@ endif
 ifeq ($(USE_REFLOW),1)
 AVS_MODULES += reflow
 endif
-endif
-ifneq ($(HAVE_PROTOBUF),)
-AVS_MODULES += protobuf
 endif
 AVS_MODULES += queue
 AVS_MODULES += rest
@@ -132,18 +123,13 @@ AVS_CPPFLAGS += \
 	-I$(BUILD_TARGET)/include/re \
 	-I$(BUILD_TARGET)/include/rem \
 	-I$(BUILD_TARGET)/include/rew \
+	-I$(BUILD_TARGET)/include/baresip \
 	-Iinclude \
 	-Werror \
 	-Wno-unknown-attributes \
 	-Wno-deprecated-declarations \
 	-Wno-deprecated
 
-ifneq ($(HAVE_PROTOBUF),)
-AVS_CPPFLAGS += -DHAVE_PROTOBUF=1
-endif
-ifneq ($(HAVE_CRYPTOBOX),)
-AVS_CPPFLAGS += -DHAVE_CRYPTOBOX=1
-endif
 
 ifeq ($(HAVE_WEBRTC),1)
 AVS_CPPFLAGS += -DHAVE_WEBRTC=1 -DENABLE_AUDIO_IO=1 -DENABLE_PEERFLOW=1
@@ -162,24 +148,27 @@ AVS_LIBS += $(CONTRIB_LIBRE_LIBS) \
 ifeq ($(HAVE_WEBRTC),1)
 AVS_DEPS += $(CONTRIB_LIBREM_TARGET)
 AVS_LIBS += $(CONTRIB_WEBRTC_LIBS) $(CONTRIB_LIBREM_LIBS)
-AVS_LIB_FILES += $(CONTRIB_WEBRTC_LIB_FILES) $(CONTRIB_LIBREM_LIB_FILES)
+AVS_LIB_FILES += $(CONTRIB_WEBRTC_LIB_FILES) \
+	$(CONTRIB_LIBREM_LIB_FILES)
 else
 ABS_LIBS += $(CONTRIB_OPENSSL_LIBS)
-endif
-
-ifneq ($(HAVE_CRYPTOBOX),)
-AVS_DEPS += $(CONTRIB_CRYPTOBOX_TARGET)
-AVS_LIBS += $(CONTRIB_CRYPTOBOX_LIBS)
-endif
-
-ifneq ($(HAVE_PROTOBUF),)
-AVS_DEPS += $(CONTRIB_PROTOBUF_TARGET)
-AVS_LIBS += $(CONTRIB_PROTOBUF_LIBS)
 endif
 
 AVS_LIBS += \
 	$(CONTRIB_SODIUM_LIBS)
 
+
+ifeq ($(AVS_OS),linux)
+AVS_DEPS      += $(CONTRIB_BARESIP_TARGET)
+AVS_LIBS      += $(CONTRIB_BARESIP_LIBS)
+AVS_LIB_FILES += $(CONTRIB_BARESIP_LIB_FILES)
+endif
+
+ifeq ($(AVS_OS),osx)
+AVS_DEPS      += $(CONTRIB_BARESIP_TARGET)
+AVS_LIBS      += $(CONTRIB_BARESIP_LIBS)
+AVS_LIB_FILES += $(CONTRIB_BARESIP_LIB_FILES)
+endif
 
 ifeq ($(AVS_OS),android)
 AVS_LIBS += $(CONTRIB_AND_IFADDRS_LIBS)
@@ -252,7 +241,7 @@ $(AVS_MM_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.mm
 $(AVS_STATIC): $(AVS_OBJS)
 	@echo "  AR   $(AVS_OS)-$(AVS_ARCH) $@"
 	@mkdir -p $(dir $@)
-	$(AR) $(AFLAGS) $@ $(filter %.o,$^)
+	@$(AR) $(AFLAGS) $@ $(filter %.o,$^)
 ifneq ($(RANLIB),)
 	@$(RANLIB) $@
 endif

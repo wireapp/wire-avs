@@ -38,10 +38,11 @@ struct media_entry {
 };
 
 struct egcall {
-	struct icall icall;
+	struct icall icall;	
 	struct list ecalll;
 	struct list media_startl;
 	enum egcall_state state;
+	char *msys_name;
 	char *convid;
 	char *userid_self;
 	char *clientid_self;
@@ -329,6 +330,7 @@ static void destructor(void *arg)
 	mem_deref(egcall->convid);
 	mem_deref(egcall->userid_self);
 	mem_deref(egcall->clientid_self);
+	mem_deref(egcall->msys_name);
 
 	dict_flush(egcall->roster);
 	mem_deref(egcall->roster);
@@ -551,7 +553,8 @@ static void egcall_start_active_roster_timer(struct egcall *egcall)
 }
 
 int egcall_alloc(struct egcall **egcallp,
-		 const struct ecall_conf *conf,		 
+		 const struct ecall_conf *conf,
+		 const char *msys_name,
 		 const char *convid,
 		 const char *userid_self,
 		 const char *clientid)
@@ -573,8 +576,9 @@ int egcall_alloc(struct egcall **egcallp,
 		goto out;
 
 	list_init(&egcall->conf_pos.partl);
-	
-	err = str_dup(&egcall->convid, convid);
+
+	err = str_dup(&egcall->msys_name, msys_name);
+	err |= str_dup(&egcall->convid, convid);
 	err |= str_dup(&egcall->userid_self, userid_self);
 	err |= str_dup(&egcall->clientid_self, clientid);
 	if (err)
@@ -1211,6 +1215,7 @@ static int add_ecall(struct ecall **ecallp, struct egcall *egcall,
 			  ICALL_CONV_TYPE_GROUP,
 			  ICALL_CALL_TYPE_NORMAL,
 			  egcall->conf,
+			  egcall->msys_name,
 			  msys,
 			  egcall->convid,
 			  egcall->userid_self,

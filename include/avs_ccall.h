@@ -34,7 +34,8 @@ enum ccall_state {
 };
 
 int ccall_alloc(struct ccall **ccallp,
-		const struct ecall_conf *conf,		 
+		const struct ecall_conf *conf,
+		const char *msys_name,
 		const char *convid,
 		const char *userid_self,
 		const char *clientid,
@@ -107,3 +108,6 @@ int  ccall_restart(struct icall *icall);
 const char *ccall_state_name(enum ccall_state state);
 
 struct keystore *ccall_get_keystore(struct ccall *ccall);
+
+int ccall_audio_record(struct icall* icall,
+		       const char *path);

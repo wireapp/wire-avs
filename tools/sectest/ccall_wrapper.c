@@ -346,7 +346,8 @@ struct ccall_wrapper *init_ccall(const char *name,
 		goto out;
 
 	err = ccall_alloc(&ccall, 
-			  NULL,		 
+			  NULL,
+			  "sectest",
 			  convid,
 			  name,
 			  name,

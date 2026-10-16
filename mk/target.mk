@@ -623,7 +623,7 @@ AR	   := /usr/bin/ar
 RANLIB	   := /usr/bin/ranlib
 SYSROOT	   := /usr
 LIB_SUFFIX := .so
-JNI_SUFFIX := .so
+LINUX_JNI_SUFFIX := .so
 
 # Settings
 #

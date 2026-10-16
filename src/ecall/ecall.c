@@ -647,6 +647,9 @@ static void ecall_destructor(void *data)
 	mem_deref(ecall->sdp.offer);
 	mem_deref(ecall->media_laddr);
 
+	mem_deref(ecall->record.path);
+	mem_deref(ecall->msys_name);
+
 	//list_flush(&ecall->audio.level.l);
 	
 	list_flush(&ecall->tracel);
@@ -1043,6 +1046,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 		enum icall_conv_type conv_type,
 		enum icall_call_type call_type,
 		const struct ecall_conf *conf,
+		const char *msys_name,
 		struct msystem *msys,
 		const char *convid,
 		const char *userid_self,
@@ -1111,6 +1115,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 	if (err)
 		goto out;
 
+	err += str_dup(&ecall->msys_name, msys_name);
 	err |= str_dup(&ecall->convid, convid);
 	err |= str_dup(&ecall->userid_self, userid_self);
 	err |= str_dup(&ecall->clientid_self, clientid);
@@ -2117,12 +2122,14 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 	ecall->established = false;
 
 	err = iflow_alloc(&ecall->flow,
+			  ecall->msys_name,
 			  ecall->convid,
 			  ecall->userid_self,
 			  ecall->clientid_self,
 			  ecall->conv_type,
 			  call_type,
 			  ecall->vstate,
+			  ecall->record.path,
 			  ecall->icall.arg);
 
 	if (err) {
@@ -3505,5 +3512,15 @@ int ecall_set_ping_handler(struct ecall *ecall,
 	}
 
 	ecall->pingh = pingh;
+	return 0;
+}
+
+int ecall_audio_record(struct ecall *ecall, const char *path)
+{
+	if (!ecall)
+		return EINVAL;
+
+	str_dup(&ecall->record.path, path);
+
 	return 0;
 }

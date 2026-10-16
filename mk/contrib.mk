@@ -51,9 +51,10 @@ CONTRIB_PARTS_iossim := \
 	GTEST LIBRE LIBREW SODIUM
 CONTRIB_PARTS_linux := \
 	GTEST LIBRE LIBREM LIBREW \
-	CRYPTOBOX SODIUM
+	CRYPTOBOX SODIUM BARESIP
 CONTRIB_PARTS_osx := \
-	GTEST LIBRE LIBREM LIBREW CRYPTOBOX SODIUM
+	GTEST LIBRE LIBREM LIBREW \
+	CRYPTOBOX SODIUM BARESIP
 CONTRIB_PARTS_wasm := \
 	LIBRE SODIUM
 
@@ -144,7 +145,7 @@ $(CONTRIB_OPENSSL_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_OPENSSL_FILES)
 	@mkdir -p $(CONTRIB_OPENSSL_BUILD_PATH)
 	@rsync -aq $(CONTRIB_OPENSSL_PATH)/ $(CONTRIB_OPENSSL_BUILD_PATH)/
 	@$(MAKE) -C $(CONTRIB_OPENSSL_BUILD_PATH) clean || echo ""
-	cd $(CONTRIB_OPENSSL_BUILD_PATH) && \
+	@cd $(CONTRIB_OPENSSL_BUILD_PATH) && \
 	        $(CONTRIB_OPENSSL_CC) ./Configure --prefix="$(BUILD_TARGET)" \
 		$(CONTRIB_OPENSSL_OPTIONS) \
 		$(CONTRIB_OPENSSL_OPTIONS_$(AVS_OS)) \
@@ -181,7 +182,7 @@ CONTRIB_BREAKPAD_LIB_FILES := $(CONTRIB_BREAKPAD_TARGET)
 $(CONTRIB_BREAKPAD_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_BREAKPAD_FILES)
 	@rm -rf $(CONTRIB_BREAKPAD_BUILD_PATH)
 	@mkdir -p $(CONTRIB_BREAKPAD_BUILD_PATH)
-	cd $(CONTRIB_BREAKPAD_BUILD_PATH) && \
+	@cd $(CONTRIB_BREAKPAD_BUILD_PATH) && \
 		PATH=$(TOOLCHAIN_PATH)/bin:$(PATH) \
 		CC="$(CC)" \
 		CXX="$(CXX)" \
@@ -221,7 +222,7 @@ $(CONTRIB_GTEST_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_GTEST_FILES)
 	@mkdir -p $(CONTRIB_GTEST_BUILD_PATH)
 	@rsync -aq $(CONTRIB_GTEST_PATH)/ $(CONTRIB_GTEST_BUILD_PATH)/
 	rm -f $(CONTRIB_GTEST_BUILD_PATH)/gtest-all.o
-	cd $(CONTRIB_GTEST_BUILD_PATH) && \
+	@cd $(CONTRIB_GTEST_BUILD_PATH) && \
 		$(CXX) \
 		-isystem include \
 		-I. \
@@ -321,6 +322,7 @@ CONTRIB_LIBRE_OS_OPTIONS_iossim := \
 	USE_APPLE_COMMONCRYPTO=1
 
 CONTRIB_LIBRE_OS_OPTIONS_osx := \
+	HAVE_FS=1 \
 	USE_OPENSSL=1 \
 	USE_OPENSSL_DTLS=1 \
 	USE_OPENSSL_SRTP=1 \
@@ -330,6 +332,7 @@ CONTRIB_LIBRE_OS_OPTIONS_osx := \
 
 CONTRIB_LIBRE_OS_OPTIONS_linux := \
 	HAVE_EPOLL=1 \
+	HAVE_FS=1 \
 	USE_OPENSSL=1 \
 	USE_OPENSSL_DTLS=1 \
 	USE_OPENSSL_SRTP=1 \
@@ -372,7 +375,7 @@ $(CONTRIB_LIBRE_TARGET): $(TOOLCHAIN_MASTER) \
 			 $(CONTRIB_LIBRE_FILES) \
 			 $(CONTRIB_WEBRTC_TARGET) \
 			 $(CONTRIB_OPENSSL_TARGET)
-	cd $(CONTRIB_LIBRE_PATH) && \
+	@cd $(CONTRIB_LIBRE_PATH) && \
 		rm -rf build-$(AVS_OS)-$(AVS_ARCH) && \
 		rm -f libre.a && \
 		make libre.a $(JOBS) \
@@ -428,6 +431,7 @@ CONTRIB_LIBREM_LIB_FILES := \
 $(CONTRIB_LIBREM_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 			  $(CONTRIB_LIBREM_FILES)
 	@cd $(CONTRIB_LIBREM_PATH) && \
+		( git apply ../../patches/rem.patch || true ) && \
 		rm -f librem.a && \
 		make librem.a $(JOBS) \
 		BUILD=build-$(AVS_OS)-$(AVS_ARCH) \
@@ -453,6 +457,57 @@ $(CONTRIB_LIBREM_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 	install -m 0644 $(CONTRIB_LIBREM_PATH)/librem.a $(BUILD_TARGET)/lib
 
 contrib_librem: $(CONTRIB_LIBREM_TARGET)
+
+# --- baresip ---
+
+CONTRIB_BARESIP_PATH := contrib/baresip
+CONTRIB_BARESIP_TARGET := $(BUILD_TARGET)/lib/libbaresip.a
+CONTRIB_BARESIP_FILES := $(shell git ls-files $(CONTRIB_BARESIP_PATH))
+
+CONTRIB_BARESIP_LIBS := -lrem $(CONTRIB_LIBRE_LIBS) -lbaresip
+CONTRIB_BARESIP_LIB_FILES := \
+	$(CONTRIB_BARESIP_TARGET) \
+	$(CONTRIB_LIBREM_LIB_FILES)
+CONTRIB_BARESIP_AVS_PATH := $(PWD)
+
+$(CONTRIB_BARESIP_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
+	                   $(CONTRIB_LIBREM_TARGET) \
+			   $(CONTRIB_BARESIP_FILES)
+	@rm -rf $(CONTRIB_BARESIP_PATH)/modules/wireaudio && \
+		ln -s $(CONTRIB_BARESIP_AVS_PATH)/src/wireaudio \
+		$(CONTRIB_BARESIP_PATH)/modules/wireaudio || true
+	@cd $(CONTRIB_BARESIP_PATH) && \
+		( git apply ../../patches/baresip_sipmsg.patch || true ) && \
+		rm -f libbaresip.a && \
+		make STATIC=yes \
+		USE_G711=yes \
+		USE_ALSA= USE_PULSE= \
+		EXTRA_MODULES=wireaudio libbaresip.a $(JOBS) \
+		BUILD=build-$(AVS_OS)-$(AVS_ARCH) \
+		CC="$(CC)" \
+		AR="$(AR)" \
+		RANLIB="$(RANLIB)" \
+		EXTRA_CFLAGS="-DAVS_HEADER="$(CONTRIB_BARESIP_AVS_PATH)/include/avs.h" \
+			$(CPPFLAGS) $(CFLAGS)" \
+		EXTRA_LFLAGS="$(LFLAGS) $(LIBS)" \
+		SYSROOT="$(SYSROOT)" \
+		SYSROOT_ALT="$(BUILD_TARGET)" \
+		PREFIX= USE_OPENSSL=yes USE_OPENSSL_DTLS=1 \
+		USE_OPENSSL_SRTP=1 USE_ZLIB=yes \
+		DESTDIR=$(BUILD_TARGET) \
+		$(CONTRIB_LIBRE_FAMILY_OPTIONS_$(AVS_FAMILY)) \
+		$(CONTRIB_LIBRE_OS_OPTIONS_$(AVS_OS)) \
+		$(CONTRIB_LIBREM_OS_OPTIONS_$(AVS_OS)) \
+		$(CONTRIB_LIBBARESIP_OS_OPTIONS_$(AVS_OS))
+	mkdir -p \
+		$(BUILD_TARGET)/include/baresip \
+		$(BUILD_TARGET)/lib
+	install -m 0644 \
+		$(shell find $(CONTRIB_BARESIP_PATH)/include -name "*.h") \
+		$(BUILD_TARGET)/include/baresip
+	install -m 0644 $(CONTRIB_BARESIP_PATH)/libbaresip.a $(BUILD_TARGET)/lib
+
+contrib_baresip: $(CONTRIB_BARESIP_TARGET)
 
 
 #--- librew ---
@@ -500,81 +555,6 @@ $(CONTRIB_LIBREW_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 contrib_librew: $(CONTRIB_LIBREW_TARGET)
 
 
-#--- Protobuf ---
-
-HOST_PROTOC	:= protoc-c
-
-CONTRIB_PROTOBUF_PATH := contrib/generic-message-proto
-
-CONTRIB_PROTOBUF_TARGET_PATH := \
-	src/protobuf
-CONTRIB_PROTOBUF_TARGET := \
-	src/protobuf/proto/messages.pb-c.c
-
-CONTRIB_PROTOBUF_FILES := $(shell git ls-files $(CONTRIB_PROTOBUF_PATH))
-
-# NOTE: we depend on a system install protoc-c for now
-CONTRIB_PROTOBUF_LIBS := $(shell pkg-config --libs 'libprotobuf-c >= 1.0.0')
-
-PROTO_INPUT	:= $(CONTRIB_PROTOBUF_PATH)/proto/messages.proto
-
-
-$(CONTRIB_PROTOBUF_TARGET): $(PROTO_INPUT)
-	$(HOST_PROTOC) \
-		-I$(CONTRIB_PROTOBUF_PATH) \
-		--c_out=$(CONTRIB_PROTOBUF_TARGET_PATH) \
-		$(PROTO_INPUT)
-
-
-$(BUILD_TARGET)/include/proto/messages.pb-c.h: \
-	$(CONTRIB_PROTOBUF_TARGET_PATH)/proto/messages.pb-c.c
-	mkdir -p $(BUILD_TARGET)/include/proto
-	cp $(CONTRIB_PROTOBUF_TARGET_PATH)/proto/messages.pb-c.h \
-		$(BUILD_TARGET)/include/proto/.
-
-
-.PHONY: contrib_protobuf
-contrib_protobuf: $(CONTRIB_PROTOBUF_TARGET)
-
-contrib_protobuf_clean:
-	rm -f $(BUILD_TARGET)/include/proto/messages.pb-c.h
-	rm -f $(CONTRIB_PROTOBUF_TARGET_PATH)/proto/messages.pb-c.[hc]
-
-
-#--- Cryptobox ---
-
-CONTRIB_CRYPTOBOX_PATH := contrib/cryptobox-c
-CONTRIB_CRYPTOBOX_TARGET := $(BUILD_TARGET)/lib/libcryptobox.a
-CONTRIB_CRYPTOBOX_DEPS := $(CONTRIB_CRYPTOBOX_TARGET)
-CONTRIB_CRYPTOBOX_FILES := $(shell git ls-files $(CONTRIB_CRYPTOBOX_PATH))
-
-CONTRIB_CRYPTOBOX_LIBS := -lcryptobox
-#CONTRIB_CRYPTOBOX_LIBS += $(shell pkg-config --libs libsodium)
-
-CONTRIB_CRYPTOBOX_LIB_FILES := $(CONTRIB_CRYPTOBOX_TARGET)
-
-$(CONTRIB_CRYPTOBOX_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_CRYPTOBOX_FILES) $(BUILD_TARGET)/lib/libsodium.a
-	sed -i.bak s/cdylib/staticlib/g $(CONTRIB_CRYPTOBOX_PATH)/Cargo.toml
-	$(MAKE) -C $(CONTRIB_CRYPTOBOX_PATH) clean
-	SODIUM_LIB_DIR=$(BUILD_TARGET)/lib $(MAKE) -C $(CONTRIB_CRYPTOBOX_PATH) compile
-	mkdir -p $(BUILD_TARGET)/include $(BUILD_TARGET)/lib
-	cp $(CONTRIB_CRYPTOBOX_PATH)/src/cbox.h \
-		$(BUILD_TARGET)/include/.
-	cp $(CONTRIB_CRYPTOBOX_PATH)/target/debug/libcryptobox.a \
-		$(BUILD_TARGET)/lib/.
-#	sed -i.bak s/staticlib/cdylib/g $(CONTRIB_CRYPTOBOX_PATH)/Cargo.toml
-#	rm -f $(CONTRIB_CRYPTOBOX_PATH)/*.bak
-
-
-.PHONY: contrib_cryptobox
-contrib_cryptobox: $(CONTRIB_CRYPTOBOX_TARGET)
-
-
-contrib_cryptobox_clean:
-	rm -f $(CONTRIB_CRYPTOBOX_TARGET)
-	$(MAKE) -C $(CONTRIB_CRYPTOBOX_PATH) clean
-
-
 #--- sodium ---
 
 #ifneq ($(AVS_OS),linux)
@@ -597,7 +577,7 @@ endif
 
 
 $(CONTRIB_SODIUM_CONFIG_TARGET):	$(CONTRIB_SODIUM_PATH)/autogen.sh
-	cd $(CONTRIB_SODIUM_PATH) && \
+	@cd $(CONTRIB_SODIUM_PATH) && \
 	./autogen.sh
 
 
@@ -639,7 +619,7 @@ $(CONTRIB_SODIUM_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_SODIUM_CONFIG_TARGET) \
 	$(CONTRIB_SODIUM_DEPS) $(CONTRIB_SODIUM_FILES)
 	@rm -rf $(CONTRIB_SODIUM_BUILD_PATH)
 	@mkdir -p $(CONTRIB_SODIUM_BUILD_PATH)
-	cd $(CONTRIB_SODIUM_BUILD_PATH) && \
+	@cd $(CONTRIB_SODIUM_BUILD_PATH) && \
 		CC="$(CC)" \
 		CXX="$(CXX)" \
 		RANLIB="$(RANLIB)" \

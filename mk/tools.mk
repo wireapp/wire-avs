@@ -2,8 +2,7 @@
 # tools.mk
 #
 
-TOOLS_ALL += zcall verifyd sectest sftloader
-#TOOLS_ALL += netprobe
+TOOLS_ALL += sectest sftloader siptest
 
 TOOLS_MKS := $(patsubst %,tools/%/tool.mk,$(TOOLS_ALL))
 TOOLS_OBJ_PATH := $(BUILD_OBJ)/tools

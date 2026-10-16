@@ -116,6 +116,7 @@ struct ecall {
 	enum icall_vstate vstate;
         enum icall_vstate glare_vstate;
 	struct ecall_conf conf;
+	char *msys_name;
 	struct msystem *msys;
 	struct econn *econn;
 
@@ -149,6 +150,10 @@ struct ecall {
 		enum async_sdp async;
 		char *offer;
 	} sdp;
+
+	struct {
+		char *path;
+	} record;
 
 	struct econn *econn_pending;
 	bool answered;

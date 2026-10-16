@@ -18,12 +18,14 @@ typedef void (peerflow_tool_h)(const char *tool, void *arg);
 void peerflow_start_log(void);
 
 int peerflow_alloc(struct iflow		**flowp,
+		   const char           *msys_name,
 		   const char		*convid,
 		   const char		*userid_self,
 		   const char		*clientid_self,
 		   enum icall_conv_type	conv_type,
 		   enum icall_call_type	call_type,
 		   enum icall_vstate	vstate,
+		   const char           *rec_path,
 		   void			*extarg);
 
 void capture_source_handle_frame(struct avs_vidframe *frame);

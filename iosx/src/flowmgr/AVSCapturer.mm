@@ -39,6 +39,10 @@
 #include <avs.h>
 #include <avs_wcall.h>
 
+#ifdef error
+#undef error
+#endif
+
 #if TARGET_OS_IPHONE
 
 enum AVSDeviceOrientation {
@@ -147,7 +151,7 @@ static const char *avscapture_state_name(AVSCapturerState s) {
 			[_captureSession addOutput:captureOutput];
 		}
 		else {
-			error("%s: failed to set captureSessions output\n", __FUNCTION__);
+			avs_error("%s: failed to set captureSessions output\n", __FUNCTION__);
 			return nil;
 		}
 
@@ -177,13 +181,13 @@ static const char *avscapture_state_name(AVSCapturerState s) {
 {
 	info("%s: capsize: %ux%u fps: %u\n", __FUNCTION__, width, height, max_fps);
 	if (!_captureSession) {
-		error("%s: no capture session\n", __FUNCTION__);
+		avs_error("%s: no capture session\n", __FUNCTION__);
 		return ENODEV;
 	}
 
 	// check limits of the resolution
 	if (max_fps > 60) {
-		error("%s: bad parameters\n", __FUNCTION__);
+		avs_error("%s: bad parameters\n", __FUNCTION__);
 		return EINVAL;
 	}
 
@@ -332,7 +336,7 @@ static const char *avscapture_state_name(AVSCapturerState s) {
 	}
 
 	if (!captureDevice) {
-		error("%s: counldnt find device with id %s\n", __FUNCTION__, [devid UTF8String]);
+		avs_error("%s: counldnt find device with id %s\n", __FUNCTION__, [devid UTF8String]);
 		return ENODEV;
 	}
 
@@ -343,7 +347,7 @@ static const char *avscapture_state_name(AVSCapturerState s) {
 
 	if (!newCaptureInput) {
 		const char* errorMessage = [[deviceError localizedDescription] UTF8String];
-		error("%s: error selecting input: %s\n", __FUNCTION__, errorMessage);
+		avs_error("%s: error selecting input: %s\n", __FUNCTION__, errorMessage);
 		return EINVAL;
 	}
 
@@ -354,7 +358,7 @@ static const char *avscapture_state_name(AVSCapturerState s) {
 		[_captureSession addInput:newCaptureInput];
 	}
 	else {
-		error("%s: couldnt add input\n", __FUNCTION__);
+		avs_error("%s: couldnt add input\n", __FUNCTION__);
 		err = EINVAL;
 	}
 

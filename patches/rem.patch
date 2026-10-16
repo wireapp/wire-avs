@@ -1,0 +1,29 @@
+diff --git a/src/aumix/aumix.c b/src/aumix/aumix.c
+index 5a63bf3..66d5833 100644
+--- a/src/aumix/aumix.c
++++ b/src/aumix/aumix.c
+@@ -40,6 +40,12 @@ struct aumix_source {
+ 	void *arg;
+ };
+ 
++static inline int16_t saturate_add_int16(int16_t a, int16_t b) {
++    int32_t sum = (int32_t)a + (int32_t)b;
++    if (sum > 32767)  return 32767;
++    if (sum < -32768) return -32768;
++    return (int16_t)sum;
++}
+ 
+ static void dummy_frame_handler(const int16_t *sampv, size_t sampc, void *arg)
+ {
+@@ -167,8 +173,9 @@ static void *aumix_thread(void *arg)
+ 				if (csrc == src)
+ 					continue;
+ #endif
+-				for (i=0; i<mix->frame_size; i++)
+-					mix_frame[i] += csrc->frame[i];
++				for (i=0; i<mix->frame_size; i++) {
++					mix_frame[i] = saturate_add_int16(mix_frame[i], csrc->frame[i]);
++				}
+ 			}
+ 
+ 			src->fh(mix_frame, mix->frame_size, src->arg);

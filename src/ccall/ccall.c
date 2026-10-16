@@ -142,6 +142,9 @@ static void destructor(void *arg)
 	mem_deref(ccall->secret);
 	mem_deref(ccall->keystore);
 
+	mem_deref(ccall->rec_path);
+	mem_deref(ccall->msys_name);
+
 	list_flush(&ccall->sftl);
 	list_flush(&ccall->saved_partl);
 	list_flush(&ccall->videol);
@@ -2411,6 +2414,7 @@ static int create_ecall(struct ccall *ccall)
 			  ICALL_CONV_TYPE_CONFERENCE,
 			  ccall->call_type,
 			  ccall->conf,
+			  ccall->msys_name,			  
 			  msys,
 			  ccall->convid_real,
 			  self->userid_hash,
@@ -2463,6 +2467,9 @@ static int create_ecall(struct ccall *ccall)
 
 	if (ccall->convid_hash)
 		ecall_set_sessid(ecall, ccall->convid_hash);
+
+	if (ccall->rec_path)
+		ecall_audio_record(ecall, ccall->rec_path);
 
 	ccall->ecall = ecall;
 	tmr_start(&ccall->tmr_vstate,
@@ -2639,7 +2646,8 @@ static void userlist_vstate_handler(const struct userinfo *user,
 }
 
 int ccall_alloc(struct ccall **ccallp,
-		const struct ecall_conf *conf,		 
+		const struct ecall_conf *conf,
+		const char *msys_name,
 		const char *convid,
 		const char *userid_self,
 		const char *clientid,
@@ -2664,9 +2672,10 @@ int ccall_alloc(struct ccall **ccallp,
 		return ENOMEM;
 	}
 
-	info("ccall(%p): alloc convid: %s userid: %s"
+	info("ccall(%p): alloc msys: %s convid: %s userid: %s"
 	     " clientid: %s is_mls: %s\n",
 	     ccall,
+	     msys_name,
 	     anon_id(convid_anon, convid),
 	     anon_id(userid_anon, userid_self),
 	     anon_client(clientid_anon, clientid),
@@ -2681,6 +2690,10 @@ int ccall_alloc(struct ccall **ccallp,
 			     userlist_kg_change_handler,
 			     userlist_vstate_handler,
 			     ccall);
+	if (err)
+		goto out;
+	
+	err = str_dup(&ccall->msys_name, msys_name);
 	if (err)
 		goto out;
 
@@ -4166,3 +4179,19 @@ struct keystore *ccall_get_keystore(struct ccall *ccall)
 	return ccall->keystore;
 }
 
+int ccall_audio_record(struct icall *icall, const char *path)
+{
+	struct ccall *ccall = (struct ccall *)icall;
+
+	if (!icall || !path)
+		return EINVAL;
+
+	if (ccall->rec_path)
+		ccall->rec_path = mem_deref(ccall->rec_path);
+	str_dup(&ccall->rec_path, path);
+
+	if (!ccall->ecall)
+		return ENOSYS;
+
+	return ecall_audio_record(ccall->ecall, path);
+}

@@ -44,7 +44,10 @@ extern "C" {
 }
 #endif
     
-    
+#ifdef error
+#undef error
+#endif
+
 #define AUBUF_FRAME_SIZE(x) ((MAX_FS_HZ * 2 * 100 / (x)) * (x) / 100)
 
 
@@ -172,7 +175,7 @@ int32_t audio_io_ios::StartPlayoutInternal(void)
 		if (nullptr != au_) {
 			result = AudioOutputUnitStart(au_);
 			if (result != noErr) {
-				error("audio_io_ios: AudioOutputUnitStart failed:0x%08x\n", result);
+				avs_error("audio_io_ios: AudioOutputUnitStart failed:0x%08x\n", result);
 				is_playing_.store(false);
 				is_au_started_.store(false);
 			}
@@ -243,7 +246,7 @@ int32_t audio_io_ios::StartRecordingInternal(void)
                 info("audio_io_ios: Setting thread prio to %d\n", max_prio);
                 int ret = pthread_setschedparam(rec_tid_, SCHED_RR, &param);
                 if(ret != 0){
-                    error("audio_io_ios: Failed to set thread priority\n");
+                    avs_error("audio_io_ios: Failed to set thread priority\n");
                 }
             }
         }
@@ -260,8 +263,8 @@ int32_t audio_io_ios::StartRecordingInternal(void)
 				is_au_started_.store(true);
 			}
 			else {
-				error("audio_io_ios: AudioOutputUnitStart "
-				      "failed: %d\n", result);
+				avs_error("audio_io_ios: AudioOutputUnitStart "
+					  "failed: %d\n", result);
 			}
 		}
         }
@@ -315,8 +318,8 @@ int32_t audio_io_ios::StopRecordingInternal(void)
 					info("audio_io_ios: AudioOutputUnitStop success\n");
 				}
 				else {
-					error("audio_io_ios: AudioOutputUnitStop failed: %d\n",
-					      result);
+					avs_error("audio_io_ios: AudioOutputUnitStop failed: %d\n",
+						  result);
 				}
 				is_au_started_.store(false);
 			}
@@ -348,8 +351,8 @@ int32_t audio_io_ios::StopPlayoutInternal(void)
 					info("audio_io_ios: AudioOutputUnitStop: success\n");
 				}
 				else {
-					error("audio_io_ios: AudioOutputUnitStop: %d\n",
-					      result);
+					avs_error("audio_io_ios: AudioOutputUnitStop: %d\n",
+						  result);
 				}
 				is_au_started_.store(false);
 			}
@@ -527,12 +530,12 @@ int32_t audio_io_ios::init_play_or_record(void)
         NSString *cat = [AVAudioSession sharedInstance].category;
 	info("audio_io_ios: category=%s\n", [cat UTF8String]);
         if (cat != AVAudioSessionCategoryPlayAndRecord){
-		error("audio_io_ios: catagory not "
-		      "AVAudioSessionCategoryPlayAndRecord\n");
+		avs_error("audio_io_ios: catagory not "
+			  "AVAudioSessionCategoryPlayAndRecord\n");
         }
 	else {
-		info("audio_io_ios: catagory okay "
-		     "AVAudioSessionCategoryPlayAndRecord\n");
+		avs_info("audio_io_ios: catagory okay "
+			 "AVAudioSessionCategoryPlayAndRecord\n");
         }
         
         // Create Voice Processing Audio Unit
@@ -557,13 +560,13 @@ int32_t audio_io_ios::init_play_or_record(void)
 
         comp = AudioComponentFindNext(nullptr, &desc);
         if (nullptr == comp) {
-		error("Could not find audio component for Audio Unit\n");
+		avs_error("Could not find audio component for Audio Unit\n");
 		return -1;
         }
         
         result = AudioComponentInstanceNew(comp, &au_);
         if (0 != result) {
-		error("audio_io_ios: AudioUnit failed: %d\n", result);
+		avs_error("audio_io_ios: AudioUnit failed: %d\n", result);
 		return -1;
         }
         
@@ -577,16 +580,16 @@ int32_t audio_io_ios::init_play_or_record(void)
 	err = nil;
         [session setPreferredSampleRate:preferredSampleRate error:&err];	
         if (err != nil) {
-		error("audio_io_ios: setPreferredSampleRate failed %s\n",
-		      [[err localizedDescription] UTF8String]);
+		avs_error("audio_io_ios: setPreferredSampleRate failed %s\n",
+			  [[err localizedDescription] UTF8String]);
         }
 
 	err = nil;
 	success = [session setPreferredIOBufferDuration:AUDIO_IO_BUF_DUR
 		   error:&err];
 	if (!success || err != nil) {
-		error("audio_io_ios: setPreferredIOBUfferDuration failed %s\n",
-		      [[err localizedDescription] UTF8String]);
+		avs_error("audio_io_ios: setPreferredIOBUfferDuration failed %s\n",	
+			      [[err localizedDescription] UTF8String]);
 	}
 	info("mm_platform_ios: IOBufferDuration=%dms\n",
 	     (int)(session.IOBufferDuration * 1000.0));
@@ -598,7 +601,7 @@ int32_t audio_io_ios::init_play_or_record(void)
                                       1,  // input bus
                                       &enableIO, sizeof(enableIO));
         if (0 != result) {
-            error("audio_io_ios: Failed to enable IO on input: %d\n", result);
+		avs_error("audio_io_ios: Failed to enable IO on input: %d\n", result);
         }
         
         result = AudioUnitSetProperty(au_,
@@ -607,8 +610,8 @@ int32_t audio_io_ios::init_play_or_record(void)
                                       0,  // output bus
                                       &enableIO, sizeof(enableIO));
         if (0 != result) {
-		error("audio_io_ios: Failed to enable IO on output: %d\n",
-		      result);
+		avs_error("audio_io_ios: Failed to enable IO on output: %d\n",
+			  result);
         }
         
         // Disable AU buffer allocation for the recorder, we allocate our own.
@@ -636,7 +639,7 @@ int32_t audio_io_ios::init_play_or_record(void)
 			  &auCbS,
 			  sizeof(auCbS));
         if (0 != result) {
-            error("audio_io_ios: Failed to set AU record callback\n");
+            avs_error("audio_io_ios: Failed to set AU record callback\n");
         }
         
         // Set playout callback.
@@ -649,8 +652,8 @@ int32_t audio_io_ios::init_play_or_record(void)
 			  kAudioUnitScope_Global,
 			  0, &auCbS, sizeof(auCbS));
         if (0 != result) {
-		error("audio_io_ios: Failed to set AU output callback: %d\n",
-		      result);
+		avs_error("audio_io_ios: Failed to set AU output callback: %d\n",
+			  result);
         }
         
         // Get stream format for out/0
@@ -660,7 +663,7 @@ int32_t audio_io_ios::init_play_or_record(void)
         AudioUnitGetProperty(au_, kAudioUnitProperty_StreamFormat,
                              kAudioUnitScope_Output, 0, &playoutDesc, &size);
         if (0 != result) {
-		error("audio_io_ios: Failed to get AU output stream format: %d\n", result);
+		avs_error("audio_io_ios: Failed to get AU output stream format: %d\n", result);
         }
         
         // Get hardware sample rate for logging (see if we get what we asked for).
@@ -689,7 +692,7 @@ int32_t audio_io_ios::init_play_or_record(void)
         AudioUnitSetProperty(au_, kAudioUnitProperty_StreamFormat,
                              kAudioUnitScope_Input, 0, &playoutDesc, size);
         if (0 != result) {
-            error("audio_io_ios: Failed to set AU stream format for out/0\n");
+		avs_error("audio_io_ios: Failed to set AU stream format for out/0\n");
         }
         
         // Get stream format for in/1.
@@ -699,7 +702,7 @@ int32_t audio_io_ios::init_play_or_record(void)
         AudioUnitGetProperty(au_, kAudioUnitProperty_StreamFormat,
                              kAudioUnitScope_Input, 1, &recordingDesc, &size);
         if (0 != result) {
-            error("audio_io_ios: Failed to get AU stream format for in/1\n");
+            avs_error("audio_io_ios: Failed to get AU stream format for in/1\n");
         }
         
         recordingDesc.mSampleRate = (Float64)sampleRate;
@@ -717,13 +720,13 @@ int32_t audio_io_ios::init_play_or_record(void)
         AudioUnitSetProperty(au_, kAudioUnitProperty_StreamFormat,
                              kAudioUnitScope_Output, 1, &recordingDesc, size);
         if (0 != result) {
-            error("audio_io_ios: Failed to set AU stream format for out/1\n");
+            avs_error("audio_io_ios: Failed to set AU stream format for out/1\n");
         }
         
         // Initialize here already to be able to get/set stream properties.
         result = AudioUnitInitialize(au_);
         if (0 != result) {
-            error("audio_io_ios: AudioUnitInitialize failed: 0x%08x\n", result);
+            avs_error("audio_io_ios: AudioUnitInitialize failed: 0x%08x\n", result);
             return -1;
         }
         
@@ -745,8 +748,8 @@ int32_t audio_io_ios::shutdown_play_or_record(void) {
 				info("audio_io_ios: ShutdownPlayAndRecord: AudioOutputUnitStop success\n");
 			}
 			else {
-				error("audio_io_ios: ShutdownPlayAndRecord: AudioOutputUnitStop failed: %d\n",
-				      result);
+				avs_error("audio_io_ios: ShutdownPlayAndRecord: AudioOutputUnitStop failed: %d\n",
+					  result);
 			}
 			is_au_started_.store(false);
 		}
@@ -754,7 +757,7 @@ int32_t audio_io_ios::shutdown_play_or_record(void) {
 		au_ = nullptr;
 		result = AudioComponentInstanceDispose(au);
 		if (0 != result) {
-			error("audio_io_ios: AudioComponentInstanceDispose failed: %d\n", result);
+			avs_error("audio_io_ios: AudioComponentInstanceDispose failed: %d\n", result);
 		}
 	}
         

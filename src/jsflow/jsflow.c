@@ -573,17 +573,22 @@ static struct jsflow *self2pc(int self)
 }
 
 int jsflow_alloc(struct iflow		**flowp,
+		 const char             *msys_name,
 		 const char		*convid,
 		 const char		*userid_self,
 		 const char             *clientid_self,
 		 enum icall_conv_type	conv_type,
 		 enum icall_call_type	call_type,
 		 enum icall_vstate	vstate,
+		 const char             *rec_path,
 		 void			*extarg)
 {
 	struct jsflow *flow;
 	int err = 0;
 
+	(void)msys_name;
+	(void)rec_path;
+	
 	info("jsflow_alloc: initialized=%d call_type=%d vstate=%s\n",
 	     g_jf.initialized, call_type, icall_vstate_name(vstate));
 	if (!g_jf.initialized) {
@@ -1421,7 +1426,7 @@ void pc_log(int level, const char *msg);
 EMSCRIPTEN_KEEPALIVE
 void pc_log(int level, const char *msg)
 {
-	loglv((enum log_level)level, msg);
+	avs_loglv((enum avs_log_level)level, msg);
 }
 
 

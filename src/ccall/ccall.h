@@ -76,6 +76,7 @@ struct join_elem {
 struct ccall {
 	struct icall icall;
 
+	char *msys_name;
 	struct zapi_ice_server *turnv;
 	size_t turnc;
 
@@ -156,4 +157,6 @@ struct ccall {
 	        struct tmr tmr_duration;
 	        struct tmr tmr_term;
 	} meeting;
+
+	char *rec_path;
 };
