@@ -1,9 +1,3 @@
-[submodule "contrib/generic-message-proto"]
-	path = contrib/generic-message-proto
-	url = https://github.com/wireapp/generic-message-proto.git
-[submodule "contrib/cryptobox-c"]
-	path = contrib/cryptobox-c
-	url = https://github.com/wireapp/cryptobox-c.git
 [submodule "contrib/googletest"]
 	path = contrib/googletest
 	url = https://github.com/google/googletest.git
