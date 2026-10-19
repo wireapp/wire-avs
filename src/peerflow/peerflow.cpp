@@ -2042,7 +2042,9 @@ static int create_pf(struct peerflow *pf)
 
 #if DOUBLE_ENCRYPTION
 	if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
-		webrtc::CryptoOptions crypto = webrtc::CryptoOptions::NoGcm();
+		webrtc::CryptoOptions crypto;
+
+		crypto.srtp.enable_gcm_crypto_suites = true; 
 		crypto.sframe.require_frame_encryption = true;
 		pf->config->crypto_options = crypto;
 	}
