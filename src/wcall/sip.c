@@ -283,7 +283,7 @@ static void wsip_destructor(void *arg)
 		 * de-register its adm handlers
 		 */
 		if (NULL == wua->wsipl.head) {
-			adm_handler(wsip->convid, wua->adm, false, wua);
+			adm_handler(wsip->convid, NULL, false, wua);
 		}
 	}
 
@@ -681,14 +681,15 @@ static void adm_handler(const char *convid, void *adm, bool added, void *arg)
 	     wua->sip_inst, convid, adm,
 	     added ? "ADDED" : "REMOVED", wua);
 
-	wua->adm = adm;
 
 	if (added) {
+		wua->adm = adm;
 		wireaudio_set_handlers(convid,
 				       adm_play_handler, adm_rec_handler,
 				       wua);
 	}
 	else {
+		wua->adm = NULL;
 		wireaudio_set_handlers(convid, NULL, NULL, wua);
 	}
 }
