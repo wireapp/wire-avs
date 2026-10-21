@@ -24,6 +24,7 @@
 #include <time.h>
 #include <re.h>
 #include <avs.h>
+#include "../../src/msystem/msystem.h"
 
 
 /* Defaults for arguments
@@ -439,6 +440,8 @@ int main(int argc, char *argv[])
 		(void)re_fprintf(stderr, "engine init failed: %m\n", err);
 		goto out;
 	}
+
+	msystem_set_mute_owner();
 
 	err = engine_alloc(&engine, request_uri, notification_uri, email,
 			   password, NULL, false, false,
