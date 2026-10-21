@@ -2218,6 +2218,10 @@ static void pf_destructor(void *arg)
 
 	debug("pf(%p): destructor\n", pf);
 
+	if (streq(pf->msys_name, "pstn")) {
+		pstn_adm_unregister(pf->convid);
+	}
+
 	pf->netStatsCb->setActive(false);
 	tmr_cancel(&pf->tmr_stats);
 	tmr_cancel(&pf->tmr_gather);
