@@ -32,6 +32,7 @@
 #include <re/re.h>
 #include <avs.h>
 #include <avs_wcall.h>
+#include "../../../src/msystem/msystem.h"
 
 #import "AVSMediaManager.h"
 
@@ -271,6 +272,8 @@ static void *avs_thread(void *arg)
 	}
 
 	err = flowmgr_init("voe");
+	if (!err)
+		msystem_set_mute_owner();
 	fmw.initialized = err == 0;
 	fmw.err = err;
 	if (err) {

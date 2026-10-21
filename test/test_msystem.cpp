@@ -36,7 +36,13 @@ TEST(msystem, 1)
 	mem_deref(msys);
 }
 
+#ifndef __EMSCRIPTEN__
 #include <pthread.h>
+#include <chrono>
+#include <condition_variable>
+#include <cstdlib>
+#include <mutex>
+#include <thread>
 #include <cstring>
 #include <ctime>
 #include <avs_wcall.h>
@@ -45,6 +51,31 @@ TEST(msystem, 1)
 #include "../src/msystem/msystem.h"
 
 namespace {
+/* Independent of libre's loop/timers and the workers being joined.
+ * Exit 124 is a failed process deadline, never a successful test result. */
+class ProcessDeadline {
+	std::mutex mutex;
+	std::condition_variable changed;
+	bool finished = false;
+	std::thread watcher;
+public:
+	ProcessDeadline() : watcher([this] {
+		std::unique_lock<std::mutex> lock(mutex);
+		if (!changed.wait_for(lock, std::chrono::seconds(30),
+		                     [this] { return finished; }))
+			std::_Exit(124);
+	}) {}
+	~ProcessDeadline()
+	{
+		{
+			std::lock_guard<std::mutex> lock(mutex);
+			finished = true;
+		}
+		changed.notify_one();
+		watcher.join();
+	}
+};
+
 bool backend_muted;
 int reset_during_close;
 
@@ -54,6 +85,7 @@ void closing_backend() { reset_during_close = msystem_request_mute_reset(); }
 
 class MuteReset : public ::testing::Test {
 protected:
+	ProcessDeadline deadline;
 	struct msystem *msys = NULL;
 	std::vector<bool> events;
 	pthread_t callback_thread;
@@ -147,6 +179,27 @@ protected:
 		return NULL;
 	}
 #if ENABLE_PEERFLOW
+	static void *cold_loop(void *arg)
+	{
+		auto *self = static_cast<MuteReset *>(arg);
+		msystem_set_mute_owner();
+		self->loop_error = re_main_wait(1000);
+		return NULL;
+	}
+
+	static void cold_gate(int, void *, void *arg)
+	{
+		auto *self = static_cast<MuteReset *>(arg);
+		pthread_mutex_lock(&self->gate_lock);
+		self->runtime_ready = true;
+		pthread_cond_signal(&self->gate_changed);
+		while (!self->runtime_release)
+			pthread_cond_wait(&self->gate_changed, &self->gate_lock);
+		pthread_mutex_unlock(&self->gate_lock);
+		msystem_set_muted(true);
+		re_cancel();
+	}
+
 	static void *actual_runtime(void *arg)
 	{
 		auto *self = static_cast<MuteReset *>(arg);
@@ -240,6 +293,36 @@ TEST_F(MuteReset, full_wake_pipe_still_delivers_reset)
 	EXPECT_FALSE(events.front());
 }
 
+#if ENABLE_PEERFLOW
+TEST_F(MuteReset, first_reset_cannot_override_newer_cold_loop_mute)
+{
+	/* No msystem wake has run: bootstrap must precede ordinary B commands. */
+	struct mqueue *control = NULL;
+	ASSERT_EQ(0, mqueue_alloc(&control, cold_gate, this));
+	ASSERT_EQ(0, mqueue_push(control, 0, NULL));
+	pthread_t owner;
+	ASSERT_EQ(0, pthread_create(&owner, NULL, cold_loop, this));
+	pthread_mutex_lock(&gate_lock);
+	const bool ready = wait_for(runtime_ready);
+	pthread_mutex_unlock(&gate_lock);
+	EXPECT_TRUE(ready);
+	if (ready)
+		request_reset();
+	pthread_mutex_lock(&gate_lock);
+	runtime_release = true;
+	pthread_cond_signal(&gate_changed);
+	pthread_mutex_unlock(&gate_lock);
+	EXPECT_EQ(0, pthread_join(owner, NULL));
+	mem_deref(control);
+	EXPECT_EQ(0, loop_error);
+	EXPECT_EQ(ETIMEDOUT, re_main_wait(20));
+	ASSERT_EQ(2u, events.size());
+	EXPECT_FALSE(events.front());
+	EXPECT_TRUE(events.back());
+	EXPECT_TRUE(msystem_get_muted());
+}
+#endif
+
 TEST_F(MuteReset, raw_release_cancels_old_reset_before_next_generation)
 {
 	request_reset();
@@ -264,6 +347,7 @@ TEST_F(MuteReset, closing_rejects_reset_without_reanimating_queue)
 	EXPECT_EQ(ENOSYS, msystem_request_mute_reset());
 }
 
+#ifdef __APPLE__
 namespace {
 void ignore_category(enum mediamgr_state, void *) {}
 }
@@ -283,8 +367,9 @@ TEST_F(MuteReset, real_media_thread_can_join_without_calling_listeners)
 	ASSERT_EQ(1u, events.size());
 	EXPECT_FALSE(events.front());
 }
+#endif
 
-#if ENABLE_PEERFLOW
+#if ENABLE_PEERFLOW && defined(__APPLE__)
 namespace {
 void read_mute_from_backend_log(uint32_t, const char *msg, void *arg)
 {
@@ -371,3 +456,4 @@ TEST_F(MuteReset, foreign_synchronous_setter_does_not_consume_reset)
 	EXPECT_FALSE(events.back());
 	EXPECT_TRUE(pthread_equal(pthread_self(), callback_thread));
 }
+#endif // native concurrency tests; wasm intentionally uses the inline setter
