@@ -39,6 +39,7 @@
 #include <re/re_dbg.h>
 #include <avs.h>
 #include <avs_wcall.h>
+#include "../../src/msystem/msystem.h"
 #include <avs_peerflow.h>
 #include <avs_conf_pos.h>
 #include <avs_network.h>
@@ -337,6 +338,7 @@ void *flowmgr_thread(void *arg)
 		goto out;
 	}
 
+	msystem_set_mute_owner();
 	java.initialized = true;
 
 	re_main(NULL);

@@ -25,6 +25,7 @@
 #include "mediamgr.h"
 #include "mm_platform.h"
 #include "avs_flowmgr.h"
+#include "../msystem/msystem.h"
 #include <unistd.h>
 
 #define MM_USE_THREAD   1
@@ -1551,7 +1552,11 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 		set_state(mm, new_state);
 		stop_all_media(mm);
 		audio_release(mm);
-		msystem_set_muted(false);
+		{
+			int err = msystem_request_mute_reset();
+			if (err)
+				warning("mediamgr: mute reset handoff failed (%m)\n", err);
+		}
 		mm->audio_started = false;
 		switch (mm->sys_state) {
 		case MM_SYS_STATE_NORMAL:

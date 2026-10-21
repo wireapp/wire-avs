@@ -33,6 +33,7 @@
 
 
 #include "wcall.h"
+#include "../msystem/msystem.h"
 
 #ifdef __APPLE__
 #       include <TargetConditionals.h>
@@ -4283,6 +4284,8 @@ void wcall_thread_main(int *err, int *initialized)
 		error("wcall_main: failed to init wcall\n");
 		goto out;
 	}
+
+	msystem_set_mute_owner();
 
 	*initialized = e == 0;
 	*err = e;

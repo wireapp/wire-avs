@@ -37,6 +37,7 @@
 #include <avs.h>
 #include <avs_wcall.h>
 #include <avs_kcall.h>
+#include "../../src/msystem/msystem.h"
 #include "cli.h"
 #include "options.h"
 
@@ -667,6 +668,8 @@ int main(int argc, char *argv[])
 		(void)re_fprintf(stderr, "Engine init failed: %m\n", err);
 		goto out;
 	}
+
+	msystem_set_mute_owner();
 
 	err = msystem_enable_datachannel(flowmgr_msystem(), true);
 	if (err) {
