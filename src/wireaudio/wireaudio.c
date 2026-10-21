@@ -183,7 +183,7 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 		int err = auresamp(&wdev->wa.src_resamp,
 				   wdev->wa.src_sampv, &wdev->wa.src_sampc,
 				   sampv, sampc);
-#if 1
+#if 0
 		re_printf("wdev-rh: err=%d insampc=%d out_sampc=%d sin=%w sout=%w\n",
 			  err,
 			  sampc, wdev->wa.src_sampc,
@@ -204,7 +204,7 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 				   wdev->wa.play_sampv, &wdev->wa.play_sampc,
 				   wdev->wa.sampv, wdev->wa.sampc);
 
-#if 1
+#if 0
 		re_printf("wdev-wh: err=%d insampc=%d out_sampc=%d wframe=%w\n",
 			  err,
 			  wdev->wa.sampc, wdev->wa.play_sampc,

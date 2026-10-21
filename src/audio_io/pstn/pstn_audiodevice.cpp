@@ -192,7 +192,7 @@ void pstn_audiodevice::play_read(int16_t *sampv, size_t sampc)
 	int64_t elapsed_time_ms;
 	int64_t ntp_time_ms;
 
-#if 1
+#if 0
 	info("pstn(%p): play_read of size=%zu playing=%d ac=%p\n",
 	     this, sampc, is_playing_, audioCallback_);
 #endif
@@ -215,7 +215,7 @@ void pstn_audiodevice::rec_write(const int16_t *sampv, size_t sampc)
 	uint32_t currentMicLevel = 10;
 	uint32_t newMicLevel = 0;
 
-#if 1
+#if 0
 	info("pstn(%p): rec_write of size=%zu rec=%d ac=%p sampv=%w\n",
 	     this, sampc, is_recording_, audioCallback_, sampv, 6);
 #endif
