@@ -51,14 +51,6 @@ else
 TEST_SRCS	+= test_mediamgr.cpp
 endif
 
-ifneq ($(HAVE_PROTOBUF),)
-TEST_SRCS	+= test_protobuf.cpp
-endif
-ifneq ($(HAVE_CRYPTOBOX),)
-TEST_SRCS	+= test_cryptobox.cpp
-endif
-
-
 # Fakes/mocks in alphabetical order
 TEST_SRCS	+= fake_backend.cpp
 TEST_SRCS	+= fake_cert.c
