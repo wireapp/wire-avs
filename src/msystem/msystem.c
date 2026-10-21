@@ -38,6 +38,10 @@ struct msystem {
 	struct dnsc *dnsc;
 	struct tls *dtls;
 	struct mqueue *mq;
+	bool mute_reset_pending;
+	bool mute_owner_set;
+	pthread_t mute_owner;
+	bool closing;
 	struct tmr vol_tmr;
 	char *name;
 	bool using_voe;
@@ -78,6 +82,30 @@ struct mute_elem {
 };
 
 static struct msystem *g_msys = NULL;
+/* Protect only the media-thread reset handoff, never backend calls/listeners. */
+static pthread_mutex_t mute_reset_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void apply_muted(bool muted);
+
+static bool take_mute_reset(struct msystem *target, bool on_loop)
+{
+	bool pending = false;
+
+	pthread_mutex_lock(&mute_reset_lock);
+	if (g_msys && (!target || g_msys == target) && !g_msys->closing) {
+		if (on_loop) {
+			g_msys->mute_owner = pthread_self();
+			g_msys->mute_owner_set = true;
+		}
+		if (g_msys->mute_owner_set &&
+		    pthread_equal(pthread_self(), g_msys->mute_owner)) {
+			pending = g_msys->mute_reset_pending;
+			g_msys->mute_reset_pending = false;
+		}
+	}
+	pthread_mutex_unlock(&mute_reset_lock);
+	return pending;
+}
 
 static int msys_env = 0;
 
@@ -129,6 +157,11 @@ static void msystem_destructor(void *data)
 {
 	struct msystem *msys = data;
 
+	pthread_mutex_lock(&mute_reset_lock);
+	msys->closing = true;
+	msys->mute_reset_pending = false;
+	pthread_mutex_unlock(&mute_reset_lock);
+
 	if (msys->name) {
 		if (streq(msys->name, "audummy")) {
 		}
@@ -149,17 +182,20 @@ static void msystem_destructor(void *data)
 
 	msys->inited = false;
 
+	pthread_mutex_lock(&mute_reset_lock);
 	if (g_msys == msys)
 		g_msys = NULL;
+	pthread_mutex_unlock(&mute_reset_lock);
 }
 
 
-/* This is just a dummy handler fo waking up re_main() */
+/* Run media-thread resets on the loop that owns calling state. */
 static void wakeup_handler(int id, void *data, void *arg)
 {
 	(void)id;
 	(void)data;
-	(void)arg;
+	if (take_mute_reset(arg, true))
+		apply_muted(false);
 }
 
 
@@ -176,7 +212,7 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 	if (!msys)
 		return ENOMEM;
 
-	err = mqueue_alloc(&msys->mq, wakeup_handler, NULL);
+	err = mqueue_alloc(&msys->mq, wakeup_handler, msys);
 	if (err) {
 		warning("flowmgr: failed to create mqueue (%m)\n", err);
 		goto out;
@@ -221,7 +257,9 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 		}
 	}
 	
+	pthread_mutex_lock(&mute_reset_lock);
 	g_msys = msys;
+	pthread_mutex_unlock(&mute_reset_lock);
 
  out:
 	if (err)
@@ -580,7 +618,7 @@ static void call_muteh(bool muted)
 	}
 }
 
-void msystem_set_muted(bool muted)
+static void apply_muted(bool muted)
 {
 	bool mute_state = false;
 
@@ -596,6 +634,53 @@ void msystem_set_muted(bool muted)
 			call_muteh(iflow_get_mute());
 		}
 	}
+}
+
+
+void msystem_set_muted(bool muted)
+{
+	/* Only the calling loop may consume an already accepted media reset. */
+	if (take_mute_reset(NULL, false))
+		apply_muted(false);
+	apply_muted(muted);
+}
+
+int msystem_request_mute_reset(void)
+{
+#ifdef __EMSCRIPTEN__
+	/* No media thread: the wasm mqueue invokes its handler inline. */
+	msystem_set_muted(false);
+	return 0;
+#else
+	int err = 0;
+
+	pthread_mutex_lock(&mute_reset_lock);
+	if (!g_msys)
+		err = ENOSYS;
+	else if (g_msys->closing)
+		err = ECANCELED;
+	else if (!g_msys->mute_reset_pending) {
+		g_msys->mute_reset_pending = true;
+		err = mqueue_push(g_msys->mq, 0, NULL);
+		/* A full pipe already has a wakeup. Every wake consumes the flag. */
+		if (err == EAGAIN || err == EWOULDBLOCK)
+			err = 0;
+		if (err)
+			g_msys->mute_reset_pending = false;
+	}
+	pthread_mutex_unlock(&mute_reset_lock);
+	return err;
+#endif
+}
+
+void msystem_set_mute_owner(void)
+{
+	pthread_mutex_lock(&mute_reset_lock);
+	if (g_msys && !g_msys->closing) {
+		g_msys->mute_owner = pthread_self();
+		g_msys->mute_owner_set = true;
+	}
+	pthread_mutex_unlock(&mute_reset_lock);
 }
 
 
