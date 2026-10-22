@@ -448,7 +448,7 @@ static void ccall_ongoing_call_timeout(void *arg)
 		set_state(ccall, CCALL_STATE_IDLE);
 		ICALL_CALL_CB(ccall->icall, closeh, 
 			      &ccall->icall, 0, &ccall->metrics, time(NULL),
-			      NULL, NULL, ccall->icall.arg);
+			      NULL, NULL, ccall->caller_id, ccall->icall.arg);
 	}
 }
 
@@ -1048,7 +1048,7 @@ static void durterm_timeout_handler(void *arg)
 	ICALL_CALL_CB(ccall->icall, closeh,
 		      &ccall->icall, ccall->error, &ccall->metrics,
               time(NULL),
-		      NULL, NULL, ccall->icall.arg);
+		      NULL, NULL, ccall->caller_id, ccall->icall.arg);
 }
 
 static void ecall_close_handler(struct icall *icall,
@@ -1057,11 +1057,13 @@ static void ecall_close_handler(struct icall *icall,
 				uint32_t msg_time,
 				const char *userid,
 				const char *clientid,
+				const char *caller_id,
 				void *arg)
 {
 	struct ecall *ecall = (struct ecall*)icall;
 	struct ccall *ccall = arg;
 	bool should_end = false;
+	(void)caller_id;
 
 	should_end = userlist_incall_count(ccall->userl) == 0;
 	info("ccall(%p): ecall_close_handler err=%d ecall=%p should_end=%s parts=%u\n",
@@ -1138,7 +1140,7 @@ static void ecall_close_handler(struct icall *icall,
 			// Do not make any operations on ccall / ecall after this callback
 			ICALL_CALL_CB(ccall->icall, closeh,
 				&ccall->icall, ccall->error, &ccall->metrics, msg_time,
-				NULL, NULL, ccall->icall.arg);
+				NULL, NULL, ccall->caller_id, ccall->icall.arg);
 			return;
 		} 
 	}
@@ -3685,7 +3687,9 @@ int  ccall_msg_recv(struct icall* icall,
 		break;
 
 	case ECONN_CONF_END:
-        if (msg->u.confend.caller_id) {
+        if (msg->u.confend.caller_id && ccall->convid_hash &&
+            strncmp(msg->sessid_sender, ccall->convid_hash,
+                    ECONN_ID_LEN) == 0) {
             err = ccall_set_caller_id(ccall, msg->u.confend.caller_id);
             if (err)
                 return err;
@@ -3698,7 +3702,8 @@ int  ccall_msg_recv(struct icall* icall,
 				ICALL_CALL_CB(ccall->icall, closeh, 
 					      &ccall->icall, 0, &ccall->metrics,
                           msg_time,
-					      NULL, NULL, ccall->icall.arg);
+					      NULL, NULL, ccall->caller_id,
+					      ccall->icall.arg);
 			}
 			else {
 				info("ccall(%p): msg_recv ignoring CONFEND "

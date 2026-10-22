@@ -1990,8 +1990,9 @@ int mediamgr_invoke_incomingh(struct mediamgr *mediamgr,
 	str_dup(&elem->incomingh.convid, convid);
 	str_dup(&elem->incomingh.userid, userid);
 	str_dup(&elem->incomingh.clientid, clientid);
-    if (caller_id)
-        str_dup(&elem->incomingh.caller_id, caller_id);
+	if (caller_id) {
+		str_dup(&elem->incomingh.caller_id, caller_id);
+	}
 	elem->incomingh.incomingh = incomingh;
 	elem->incomingh.msg_time = msg_time;
 	elem->incomingh.video_call = video_call;

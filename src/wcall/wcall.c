@@ -1225,6 +1225,7 @@ static void icall_close_handler(struct icall *icall, int err,
 				struct icall_metrics *metrics,
 				uint32_t msg_time,
 				const char *userid, const char *clientid,
+				const char *caller_id,
 				void *arg)
 {
 	struct wcall *wcall = arg;
@@ -1267,7 +1268,8 @@ static void icall_close_handler(struct icall *icall, int err,
 	if (!ignore_close && inst->closeh) {
 		uint64_t now = tmr_jiffies();
 		inst->closeh(reason, wcall->convid,
-			     msg_time, userid, clientid, inst->arg);
+			     msg_time, userid, clientid,
+			     caller_id, inst->arg);
 		info(APITAG "wcall(%p): closeh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
 	}
@@ -1371,7 +1373,8 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 		     wcall_reason_name(reason));
 
 		inst->closeh(wreason, wcall->convid, msg_time,
-			     inst->userid, inst->clientid, inst->arg);
+			     inst->userid, inst->clientid,
+			     wcall_get_caller_id(wcall), inst->arg);
 		info(APITAG "wcall(%p): icall_leave_handler: "
 		     "closeh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
@@ -3596,7 +3599,8 @@ int wcall_i_reject(struct wcall *wcall)
 
 			inst->closeh(reason, wcall->convid,
 				ECONN_MESSAGE_TIME_UNKNOWN, inst->userid,
-				inst->clientid, inst->arg);
+				inst->clientid, wcall_get_caller_id(wcall),
+				inst->arg);
 			info(APITAG "wcall(%p): wcall_reject: closeh took %llu ms\n",
 			     wcall, tmr_jiffies() - now);
 		}

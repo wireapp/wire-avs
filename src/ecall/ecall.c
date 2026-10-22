@@ -159,7 +159,8 @@ void ecall_close(struct ecall *ecall, int err, uint32_t msg_time)
 		}
 		ecall->icall.closeh = NULL;
 		closeh(&ecall->icall, err, metrics, msg_time,
-		       ecall->userid_peer, ecall->clientid_peer, ecall->icall.arg);
+		       ecall->userid_peer, ecall->clientid_peer,
+		       NULL, ecall->icall.arg);
 	}
 
 	/* NOTE here the app should have destroyed the econn */
@@ -3195,6 +3196,7 @@ int ecall_restart(struct ecall *ecall,
 			      0,
 			      NULL,
 			      NULL, 
+			      NULL,
 			      ecall->icall.arg);
 			
 		return 0;

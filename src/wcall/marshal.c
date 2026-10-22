@@ -1126,8 +1126,9 @@ void wcall_invoke_incoming_handler(const char *convid,
 	md->u.incoming.conv_type = conv_type;
 	err = str_dup(&md->u.incoming.userid, userid);
 	err |= str_dup(&md->u.incoming.clientid, clientid);
-    if (caller_id)
-        err |= str_dup(&md->u.incoming.caller_id, caller_id);
+	if (caller_id) {
+		err |= str_dup(&md->u.incoming.caller_id, caller_id);
+	}
 
 	if (err)
 		goto out;

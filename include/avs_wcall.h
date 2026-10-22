@@ -194,6 +194,7 @@ typedef void (wcall_close_h)(int reason,
 			     uint32_t msg_time,
 			     const char *userid,
 			     const char *clientid,
+			     const char *caller_id,
 			     void *arg);
 /* Call metrics */
 typedef void (wcall_metrics_h)(const char *convid,

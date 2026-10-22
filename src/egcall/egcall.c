@@ -538,7 +538,7 @@ static void egcall_passive_roster_timeout(void *arg)
 	set_state(egcall, EGCALL_STATE_IDLE);
 	ICALL_CALL_CB(egcall->icall, closeh, 
 		&egcall->icall, 0, NULL, ECONN_MESSAGE_TIME_UNKNOWN,
-		NULL, NULL, egcall->icall.arg);
+		NULL, NULL, NULL, egcall->icall.arg);
 }
 
 static void egcall_start_active_roster_timer(struct egcall *egcall)
@@ -730,7 +730,7 @@ static void send_leave(struct egcall *egcall, uint32_t msg_time, int err)
 		     egcall);
 		ICALL_CALL_CB(egcall->icall, closeh, 
 			&egcall->icall, 0, NULL, ECONN_MESSAGE_TIME_UNKNOWN,
-			NULL, NULL, egcall->icall.arg);
+			NULL, NULL, NULL, egcall->icall.arg);
 	}
 	else {
 		info("egcall(%p): send_leave %u ecalls in list, leaving\n",
@@ -1083,10 +1083,12 @@ static void ecall_close_handler(struct icall *icall,
 				uint32_t msg_time,
 				const char *userid,
 				const char *clientid,
+				const char *caller_id,
 				void *arg)
 {
 	struct ecall *ecall = (struct ecall*)icall;
 	struct egcall *egcall = arg;
+	(void)caller_id;
 
 	info("egcall(%p): ecall_close_handler err=%d ecall=%p\n",
 	     egcall, err, ecall);
@@ -1433,7 +1435,8 @@ static void recv_leave(struct egcall* egcall,
 			egcall->is_call_answered ? 0 : ECANCELED,
 			NULL, 
 			msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN,
-			userid_sender, clientid_sender, egcall->icall.arg);
+			userid_sender, clientid_sender, NULL,
+			egcall->icall.arg);
 	}	
 }
 		

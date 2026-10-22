@@ -152,8 +152,9 @@ static void queue_event(struct call_event_instance *inst,
 	str_dup(&ev->convid, convid);
 	str_dup(&ev->userid, userid);
 	str_dup(&ev->clientid, clientid);
-    if (caller_id)
-        str_dup(&ev->caller_id, caller_id);
+	if (caller_id) {
+		str_dup(&ev->caller_id, caller_id);
+	}
 	ev->state = state;
 	ev->msg_time = msg_time;
 	ev->conv_type = conv_type;
@@ -197,6 +198,9 @@ static const char *event_caller_id(const struct econn_message *msg)
     switch (msg->msg_type) {
     case ECONN_CONF_START:
         return msg->u.confstart.caller_id;
+
+    case ECONN_CONF_CHECK:
+        return msg->u.confcheck.caller_id;
 
     case ECONN_CONF_END:
         return msg->u.confend.caller_id;
@@ -489,6 +493,7 @@ void wcall_event_end(WUSER_HANDLE wuser)
 					     ev->msg_time,
 					     ev->userid,
 					     ev->clientid,
+					     ev->caller_id,
 					     inst->arg);
 			}
 			info("event(%p): end wuser=%p calling closeh "
