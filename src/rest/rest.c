@@ -33,7 +33,6 @@ struct rest_cli {
 	struct http_cli *http_cli;
 	char *server_uri;
 	struct login_token login_token;
-	struct cookie_jar *jar;
 	struct list openl;
 	size_t maxopen;
 	char *user_agent;
@@ -102,7 +101,6 @@ static void cli_destructor(void *arg)
 	flush_requests(&rest->openl);
 	flush_requests(&rest->reql);
 
-	mem_deref(rest->jar);
 	mem_deref(rest->http_cli);
 	mem_deref(rest->server_uri);
 	mem_deref(rest->user_agent);
@@ -128,12 +126,6 @@ int rest_client_alloc(struct rest_cli **restp, struct http_cli *http_cli,
 		goto out;
 	}
 	rest->http_cli = mem_ref(http_cli);
-
-	err = cookie_jar_alloc(&rest->jar, store);
-	if (err) {
-		warning("Cookie jar init failed: %m.\n", err);
-		goto out;
-	}
 
 	rest->maxopen = maxopen;
 
@@ -336,9 +328,6 @@ static void http_resp_handler(int err, const struct http_msg *msg, void *arg)
 		goto out;
 	}
 
-	cookie_jar_handle_response(req->rest_cli->jar, req->uri,
-				   msg);
-
 	req->json =
 		(0 == pl_strcasecmp(&msg->ctyp.type, "application")) &&
 		(0 == pl_strcasecmp(&msg->ctyp.subtype, "json"));
@@ -403,14 +392,6 @@ static int auth_print(struct re_printf *pf, void *arg)
 	}
 
 	return 0;
-}
-
-
-static int cookie_print(struct re_printf *pf, void *arg)
-{
-	struct rest_req *rr = arg;
-
-	return cookie_jar_print_to_request(rr->rest_cli->jar, pf, rr->uri);
 }
 
 
@@ -624,7 +605,6 @@ int rest_req_start(struct rest_req **rrp, struct rest_req *rr,
 			goto out;
 	}
 
-	/* Assign this early, cookie_print needs it.  */
 	rr->rest_cli = rest_cli;
 
 	rr->prio = prio;
@@ -634,9 +614,9 @@ int rest_req_start(struct rest_req **rrp, struct rest_req *rr,
 		      rr->uri, rr->header ? rr->header : "");
 	}
 	else {
-		debug("rest_req_start: %s\n\t%H\n\t%H%s\n",
+		debug("rest_req_start: %s\n\t%H\n\t%s\n",
 		      rr->uri, auth_print, &rest_cli->login_token,
-		      cookie_print, rr, rr->header ? rr->header : "");
+		      rr->header ? rr->header : "");
 	}
 
 	list_append(&rest_cli->reql, &rr->le, rr);
@@ -671,7 +651,6 @@ static void wake_request(struct rest_req *rr)
 				   "%H"
 				   "Accept: application/json\r\n"
 				   "%s"
-				   "%H"
 				   "Content-Type: %s\r\n"
 				   "Content-Length: %zu\r\n"
 				   "User-Agent: %s\r\n"
@@ -681,7 +660,6 @@ static void wake_request(struct rest_req *rr)
 				   rr->raw ? null_print : auth_print,
 				   rr->raw ? NULL : &rr->rest_cli->login_token,
 				   rr->header ? rr->header : "",
-				   cookie_print, rr,
 				   rr->ctype, rr->req_body->end,
 				   rr->rest_cli->user_agent,
 				   rr->req_body->buf, rr->req_body->end);
@@ -693,7 +671,6 @@ static void wake_request(struct rest_req *rr)
 				   "%H"
 				   "Accept: application/json\r\n"
 				   "%s"
-				   "%H"
 				   "Content-Length: 0\r\n"
 				   "User-Agent: %s\r\n"
 				   "\r\n"
@@ -701,7 +678,6 @@ static void wake_request(struct rest_req *rr)
 				   rr->raw ? null_print : auth_print,
 				   rr->raw ? NULL : &rr->rest_cli->login_token,
 				   rr->header ? rr->header : "",
-				   cookie_print, rr,
 				   rr->rest_cli->user_agent);
 	}
 	if (err) {
