@@ -118,6 +118,7 @@ static void ecall_close_handler(struct icall *icall, int err,
 				struct icall_metrics *metrics,
 				uint32_t msg_time,
 				const char *userid, const char *clientid,
+				const char *caller_id,
 				void *arg)
 {
 }
@@ -347,5 +348,4 @@ void ecall_wrapper_join_call(struct ecall_wrapper *wrapper,
 out:
 	mem_deref(msg);
 }
-
 

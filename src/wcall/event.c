@@ -83,6 +83,7 @@ struct call_event {
 	char *convid;
 	char *userid;
 	char *clientid;
+    char *caller_id;
 	
 	enum call_event_state state;
 	uint32_t msg_time;
@@ -124,6 +125,7 @@ static void event_destructor(void *arg)
 	mem_deref(ev->convid);
 	mem_deref(ev->userid);
 	mem_deref(ev->clientid);
+    mem_deref(ev->caller_id);
 
 	list_unlink(&ev->le);
 }
@@ -132,6 +134,7 @@ static void queue_event(struct call_event_instance *inst,
 			const char *convid,
 			const char *userid,
 			const char *clientid,
+            const char *caller_id,
 			uint32_t msg_time,
 			int conv_type,
 			enum call_event_state state,
@@ -148,7 +151,10 @@ static void queue_event(struct call_event_instance *inst,
 
 	str_dup(&ev->convid, convid);
 	str_dup(&ev->userid, userid);
-	str_dup(&ev->clientid, clientid);	
+	str_dup(&ev->clientid, clientid);
+	if (caller_id) {
+		str_dup(&ev->caller_id, caller_id);
+	}
 	ev->state = state;
 	ev->msg_time = msg_time;
 	ev->conv_type = conv_type;
@@ -182,6 +188,26 @@ static struct call_event *queue_find(struct call_event_instance *inst,
 	}
 
 	return found ? ev : NULL;
+}
+
+static const char *event_caller_id(const struct econn_message *msg)
+{
+    if (!msg)
+        return NULL;
+
+    switch (msg->msg_type) {
+    case ECONN_CONF_START:
+        return msg->u.confstart.caller_id;
+
+    case ECONN_CONF_CHECK:
+        return msg->u.confcheck.caller_id;
+
+    case ECONN_CONF_END:
+        return msg->u.confend.caller_id;
+
+    default:
+        return NULL;
+    }
 }
 
 
@@ -327,6 +353,7 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 		if (econn_message_isrequest(msg)) {
 			queue_event(inst, convid,
 				    userid, clientid,
+                    event_caller_id(msg),
 				    msg->time,
 				    conv_type,
 				    CALL_EVENT_STATE_INCOMING,
@@ -337,6 +364,7 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 			 && streq(inst->clientid, clientid)) {
 				queue_event(inst, convid,
 					    userid, clientid,
+                        event_caller_id(msg),
 					    msg->time,
 					    conv_type,
 					    CALL_EVENT_STATE_CLOSED,
@@ -362,6 +390,7 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 				queue_event(inst,
 					    convid,
 					    userid, clientid,
+                        event_caller_id(msg),
 					    msg->time,
 					    conv_type,
 					    CALL_EVENT_STATE_CLOSED,
@@ -376,6 +405,7 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 			queue_event(inst,
 				    convid,
 				    userid, clientid,
+                    NULL,
 				    msg->time,
 				    conv_type,
 				    CALL_EVENT_STATE_CLOSED,
@@ -427,6 +457,7 @@ void wcall_event_end(WUSER_HANDLE wuser)
 			if (inst->incomingh) {
 				inst->incomingh(ev->convid, ev->msg_time,
 						ev->userid, ev->clientid,
+                        ev->caller_id,
 						false, /* video-call */
 						true,  /* should_ring */
 						ev->conv_type,
@@ -462,6 +493,7 @@ void wcall_event_end(WUSER_HANDLE wuser)
 					     ev->msg_time,
 					     ev->userid,
 					     ev->clientid,
+					     ev->caller_id,
 					     inst->arg);
 			}
 			info("event(%p): end wuser=%p calling closeh "
