@@ -216,8 +216,8 @@ void pstn_audiodevice::rec_write(const int16_t *sampv, size_t sampc)
 	uint32_t newMicLevel = 0;
 
 #if 0
-	re_printf("rec_write: rec=%d ac=%p sampv=%w\n",
-		  is_recording_, audioCallback_, sampv, 6);
+	info("pstn(%p): rec_write of size=%zu rec=%d ac=%p sampv=%w\n",
+	     this, sampc, is_recording_, audioCallback_, sampv, 6);
 #endif
 	if (is_recording_ && audioCallback_) {
 		audioCallback_->RecordedDataIsAvailable(
@@ -345,9 +345,11 @@ int pstn_adm_register(const char *convid, void *adm)
 	struct le *le;
 
 	info("pstn_adm_register: convid=%s adm=%p\n", convid, adm);
-	
-	if (ae)
+
+	if (ae) {
+		warning("pstn_adm_register: adm for convid=%s already exists\n", convid);
 		return EALREADY;
+	}
 
 	ae = (struct adm_entry *)mem_zalloc(sizeof(*ae), ae_destructor);
 	if (!ae)
@@ -356,7 +358,6 @@ int pstn_adm_register(const char *convid, void *adm)
 	ae->adm = adm;
 	str_dup(&ae->convid, convid);
 
-	
 	list_append(&pstn.adml, &ae->le, ae);
 
 	LIST_FOREACH(&pstn.handlerl, le) {

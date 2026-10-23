@@ -431,7 +431,7 @@ CONTRIB_LIBREM_LIB_FILES := \
 $(CONTRIB_LIBREM_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 			  $(CONTRIB_LIBREM_FILES)
 	@cd $(CONTRIB_LIBREM_PATH) && \
-		( git apply ../../patches/rem.patch || true ) && \
+		( git apply ../../patches/rem_aumix.patch || true ) && \
 		rm -f librem.a && \
 		make librem.a $(JOBS) \
 		BUILD=build-$(AVS_OS)-$(AVS_ARCH) \

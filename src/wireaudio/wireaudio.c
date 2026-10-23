@@ -184,7 +184,7 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 				   wdev->wa.src_sampv, &wdev->wa.src_sampc,
 				   sampv, sampc);
 #if 0
-		re_printf("err=%d insampc=%d out_sampc=%d sin=%w sout=%w\n",
+		re_printf("wdev-rh: err=%d insampc=%d out_sampc=%d sin=%w sout=%w\n",
 			  err,
 			  sampc, wdev->wa.src_sampc,
 			  sampv, 6,
@@ -205,7 +205,7 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 				   wdev->wa.sampv, wdev->wa.sampc);
 
 #if 0
-		re_printf("err=%d insampc=%d out_sampc=%d wframe=%w\n",
+		re_printf("wdev-wh: err=%d insampc=%d out_sampc=%d wframe=%w\n",
 			  err,
 			  wdev->wa.sampc, wdev->wa.play_sampc,
 			  wdev->wa.play_sampv, 10);
@@ -451,10 +451,11 @@ int wireaudio_set_handlers(const char *convid,
 	if (!convid)
 		return EINVAL;
 
+	wdev = find_device(convid);
+	
 	info("wireaudio: set_handlers: convid=%s rh=%p wh=%p arg=%p wdev=%p\n",
 	     convid, rh, wh, arg, wdev);
-
-	wdev = find_device(convid);
+	
 	if (!wdev) {
 		if (rh == NULL || wh == NULL)
 			return 0;
