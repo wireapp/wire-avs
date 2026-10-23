@@ -34,6 +34,7 @@
 #include <pthread.h>
 #include <re.h>
 #include <atomic>
+#include "audio_io_control.h"
 
 #define FRAME_LEN_MS 10
 
@@ -273,7 +274,7 @@ private:
 	bool input_device_specified_;
 	bool output_device_specified_;
 
-	bool initialized_;
+	audio_io_control control_;
 	bool is_shut_down_;
 	bool rec_is_initialized_;
 	bool play_is_initialized_;
@@ -289,7 +290,6 @@ private:
 	pthread_mutex_t cond_mutex_;
 	pthread_cond_t cond_;
 	pthread_mutex_t lock_;
-	pthread_mutex_t reset_lock_;
 	bool is_running_;
 	bool can_rec_;
 
@@ -303,7 +303,5 @@ private:
 	bool want_stereo_playout_;
 	bool using_stereo_playout_;
 
-	bool want_rec_;
-	bool want_play_;
 };
 } // namespace webrtc
