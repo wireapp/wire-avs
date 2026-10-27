@@ -139,6 +139,119 @@ protected:
   ASSERT_EQ(0, ccall_set_vstate(&call->icall, ICALL_VIDEO_STATE_STARTED));
   complete_offer();
  }
+ void remote_sync(uint32_t revision, const std::string &tracks) {
+  auto *user = userlist_find_by_real(call->userl, "remote", "two");
+  ASSERT_NE(nullptr, user);
+  struct econn_message msg;
+  ASSERT_EQ(0, econn_message_init(&msg, ECONN_CATALOG_SYNC, "remote-session"));
+  str_ncpy(msg.src_userid, user->userid_hash, ECONN_ID_LEN);
+  str_ncpy(msg.src_clientid, user->clientid_hash, ECONN_ID_LEN);
+  msg.u.catalogsync.revision = revision;
+  ASSERT_EQ(0, jzon_decode(&msg.u.catalogsync.tracks, tracks.c_str(), tracks.size()));
+  char *wire = NULL;
+  ASSERT_EQ(0, econn_message_encode(&wire, &msg));
+  auto *flow = ccall_get_ecall(call, CCALL_ECALL_SUBSCRIBER)->flow;
+  flow->dce_recvh(flow, reinterpret_cast<const uint8_t *>(wire), strlen(wire), flow->arg);
+  mem_deref(wire); econn_message_reset(&msg);
+ }
+ void subscribe_answer(const char *name, const char *mid) {
+  std::string response = "{\"tracks\":[{\"sessionId\":\"remote-pub\",\"trackName\":\"" + std::string(name) + "\",\"mid\":\"" + mid + "\"}],\"sessionDescription\":{\"type\":\"offer\",\"sdp\":\"v=0\\r\\nm=video 9 UDP/TLS/RTP/SAVPF 96\\r\\na=sendonly\\r\\na=mid:" + mid + "\\r\\n\"}}";
+  ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, response.c_str()));
+  auto *flow = ccall_get_ecall(call, CCALL_ECALL_SUBSCRIBER)->flow;
+  flow->gatherh(flow, flow->arg);
+  ASSERT_EQ("/sessions/sub-media/renegotiate", requests.back().path);
+  ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{}"));
+ }
+ void media_changes(bool joining) {
+  struct list clients = LIST_INIT;
+  auto *client = icall_client_alloc("remote", "two");
+  list_append(&clients, &client->le, client);
+  ccall_set_clients(&call->icall, &clients, 2); list_flush(&clients);
+  struct catalog *remote = NULL;
+  ASSERT_EQ(0, catalog_alloc(&remote, "call", "remote.two"));
+  ASSERT_EQ(0, catalog_set_publication(remote, "{\"userId\":\"remote\",\"clientId\":\"two\",\"publisherSessionId\":\"remote-pub\",\"tracks\":[]}", 1, "reachable"));
+  char *hello = NULL;
+  ASSERT_EQ(0, catalog_encode_hello(remote, "remote.two", &hello));
+  if (joining) {
+   ASSERT_EQ(0, catalog_apply_hello(call->catalog, hello, ccall_catalog_participant_approved, call));
+   ASSERT_EQ(0, str_dup(&call->keyholder_session, "remote-pub"));
+   ASSERT_EQ(0, ccall_catalog_refresh(call));
+  }
+  else {
+   struct econn_message msg;
+   ASSERT_EQ(0, econn_message_init(&msg, ECONN_CONF_CATALOG, "remote-session"));
+   msg.u.catalog.json = static_cast<char *>(mem_ref(hello));
+   char *wire = NULL;
+   ASSERT_EQ(0, econn_message_encode(&wire, &msg));
+   fake->api.dce_recvh(&fake->api, reinterpret_cast<const uint8_t *>(wire), strlen(wire), fake->api.arg);
+   mem_deref(wire); econn_message_reset(&msg);
+  }
+  mem_deref(hello); catalog_close(remote);
+  ASSERT_EQ("/sessions/new", requests.back().path);
+  ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 201, "{\"sessionId\":\"sub-media\"}"));
+  ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200,
+   "{\"sessionDescription\":{\"type\":\"offer\",\"sdp\":\"v=0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\na=mid:0\\r\\na=sctp-port:5000\\r\\n\"}}"));
+  auto *sub = ccall_get_ecall(call, CCALL_ECALL_SUBSCRIBER);
+  auto *subflow = reinterpret_cast<FakeFlow *>(sub->flow);
+  subflow->api.gatherh(&subflow->api, subflow->api.arg);
+  ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{}"));
+  subflow->api.estabh(&subflow->api, "DTLS", "", subflow->api.arg);
+  ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{\"dataChannels\":[{\"id\":6}]}"));
+  subflow->api.dce_estabh(&subflow->api, subflow->api.arg);
+  if (joining) {
+   struct econn_message msg;
+   ASSERT_EQ(0, econn_message_init(&msg, ECONN_CONF_CATALOG, "remote-session"));
+   ASSERT_EQ(0, catalog_encode_snapshot(call->catalog, &msg.u.catalog.json));
+   char *wire = NULL;
+   ASSERT_EQ(0, econn_message_encode(&wire, &msg));
+   subflow->api.dce_recvh(&subflow->api, reinterpret_cast<const uint8_t *>(wire), strlen(wire), subflow->api.arg);
+   mem_deref(wire); econn_message_reset(&msg);
+   ASSERT_TRUE(call->catalog_join_confirmed);
+  }
+  const unsigned flows = allocations;
+  const std::string audio = "{\"sessionId\":\"remote-pub\",\"trackName\":\"mic\",\"kind\":\"audio\",\"muted\":false}";
+  ASSERT_NO_FATAL_FAILURE(remote_sync(2, "[" + audio + "]"));
+  ASSERT_EQ("/sessions/sub-media/tracks/new", requests.back().path);
+  ASSERT_NO_FATAL_FAILURE(subscribe_answer("mic", "1"));
+  struct list selection = LIST_INIT;
+  auto *selected = icall_client_alloc("remote", "two");
+  list_append(&selection, &selected->le, selected);
+  ASSERT_EQ(0, ccall_request_video_streams(&call->icall, &selection, ICALL_STREAM_MODE_DEFAULT));
+  list_flush(&selection);
+  const std::string camera = "{\"sessionId\":\"remote-pub\",\"trackName\":\"camera\",\"kind\":\"video\",\"source\":\"camera\"}";
+  const std::string screen = "{\"sessionId\":\"remote-pub\",\"trackName\":\"screen\",\"kind\":\"video\",\"source\":\"screen\"}";
+  ASSERT_NO_FATAL_FAILURE(remote_sync(3, "[" + audio + "," + camera + "]"));
+  ASSERT_EQ("/sessions/sub-media/tracks/new", requests.back().path);
+  EXPECT_NE(std::string::npos, requests.back().body.find("camera"));
+  EXPECT_EQ(std::string::npos, requests.back().body.find("mic"));
+  ASSERT_NO_FATAL_FAILURE(subscribe_answer("camera", "2"));
+  // Source replacement is close-old, add-new, on the same receiving transport.
+  ASSERT_NO_FATAL_FAILURE(remote_sync(4, "[" + audio + "," + screen + "]"));
+  ASSERT_EQ("/sessions/sub-media/tracks/close", requests.back().path);
+  EXPECT_NE(std::string::npos, requests.back().body.find("\"mid\":\"2\""));
+  ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{\"tracks\":[{\"mid\":\"2\"}]}"));
+  ASSERT_EQ("/sessions/sub-media/tracks/new", requests.back().path);
+  EXPECT_NE(std::string::npos, requests.back().body.find("screen"));
+  ASSERT_NO_FATAL_FAILURE(subscribe_answer("screen", "3"));
+  ASSERT_NO_FATAL_FAILURE(remote_sync(5, "[" + audio + "," + camera + "]"));
+  ASSERT_EQ("/sessions/sub-media/tracks/close", requests.back().path);
+  ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{\"tracks\":[{\"mid\":\"3\"}]}"));
+  ASSERT_NO_FATAL_FAILURE(subscribe_answer("camera", "4"));
+  ASSERT_NO_FATAL_FAILURE(remote_sync(6, "[" + audio + "]"));
+  ASSERT_EQ("/sessions/sub-media/tracks/close", requests.back().path);
+  ASSERT_EQ(0, cloudflare_realtime_handle_response(adapter, CCALL_ECALL_SUBSCRIBER, 200, "{\"tracks\":[{\"mid\":\"4\"}]}"));
+  const size_t settled = requests.size();
+  ASSERT_NO_FATAL_FAILURE(remote_sync(6, "[" + audio + "," + screen + "]"));
+  EXPECT_EQ(settled, requests.size()); // Duplicate revision cannot resurrect removed media.
+  EXPECT_EQ(flows, allocations);
+  auto *user = userlist_find_by_real(call->userl, "remote", "two");
+  EXPECT_TRUE(user->audio_subscribed);
+  EXPECT_FALSE(user->video_subscribed);
+  EXPECT_EQ(ICALL_VIDEO_STATE_STOPPED, user->video_state);
+  // The chosen participant remains selected: re-enabling camera needs no new client request.
+  ASSERT_NO_FATAL_FAILURE(remote_sync(7, "[" + audio + "," + camera + "]"));
+  ASSERT_EQ("/sessions/sub-media/tracks/new", requests.back().path);
+ }
  struct ccall *call = NULL;
  struct msystem *msys = NULL;
  struct ecall *publisher = NULL;
@@ -845,4 +958,11 @@ TEST_F(PublisherUpdate, subscriber_transport_unavailable_stops_after_three_attem
  wait_for_retry(1100);
  EXPECT_EQ(6u, requests.size());
  EXPECT_FALSE(call->catalog_join_confirmed);
+}
+
+TEST_F(PublisherUpdate, keyholder_updates_subscriptions_when_peer_changes_media) {
+ ASSERT_NO_FATAL_FAILURE(media_changes(false));
+}
+TEST_F(PublisherUpdate, joiner_updates_subscriptions_when_keyholder_changes_media) {
+ ASSERT_NO_FATAL_FAILURE(media_changes(true));
 }

@@ -712,6 +712,34 @@ static void catalog_message(struct ccall *ccall, enum ccall_ecall_role role,
 		ICALL_CALL_CB(ccall->icall, group_changedh, &ccall->icall, ccall->icall.arg);
 		return;
 	}
+	if (role == CCALL_ECALL_SUBSCRIBER && adapter->joined_keyholder &&
+	    ccall->catalog_join_confirmed && msg->msg_type == ECONN_CATALOG_SYNC) {
+		struct userinfo *user = userlist_find_by_hash(ccall->userl, msg->src_userid, msg->src_clientid);
+		char *pid = NULL, *entry_json = NULL;
+		struct json_object *entry = NULL;
+		if (!user || !user->se_approved) return;
+		err = re_sdprintf(&pid, "%s.%s", user->userid_real, user->clientid_real);
+		if (!err) err = catalog_get_participant(ccall->catalog, pid, &entry_json);
+		if (!err) err = jzon_decode(&entry, entry_json, strlen(entry_json));
+		/* A subscriber receives direct sync only from its known keyholder.
+		 * Updates from other publishers arrive in the keyholder's snapshot. */
+		if (!err && !streq(jzon_str(entry, "publisherSessionId"), adapter->joined_keyholder)) err = EACCES;
+		uint32_t before = catalog_participant_revision(ccall->catalog, pid);
+		if (!err) err = catalog_apply_peer_sync(ccall->catalog, pid, adapter->joined_keyholder,
+			msg->u.catalogsync.revision, msg->u.catalogsync.tracks, ccall_catalog_participant_approved, ccall);
+		bool changed = !err && catalog_participant_revision(ccall->catalog, pid) != before;
+		mem_deref(pid); mem_deref(entry_json); mem_deref(entry);
+		if (changed) {
+			err = ccall_catalog_refresh(ccall);
+			if (!err) catalog_refresh_participants(adapter);
+			if (!err) err = media_progress(adapter);
+			if (!ccall->transport_ending)
+				ICALL_CALL_CB(ccall->icall, group_changedh, &ccall->icall, ccall->icall.arg);
+		}
+		info("cloudflare: keyholder-media-sync revision=%u changed=%d err=%d\n",
+		     msg->u.catalogsync.revision, changed, err);
+		return;
+	}
 	if (msg->msg_type != ECONN_CONF_CATALOG || !msg->u.catalog.json) return;
 	err = jzon_decode(&root, msg->u.catalog.json, strlen(msg->u.catalog.json));
 	if (err) return;
