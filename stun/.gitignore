@@ -1,0 +1,81 @@
+# ==========================================
+# Rust / Cargo
+# ==========================================
+/target/
+**/target/
+
+# Rust backup files
+**/*.rs.bk
+
+# Debug symbols
+*.pdb
+
+# Keep Cargo.lock for applications
+# For libraries, uncomment:
+# Cargo.lock
+
+# ==========================================
+# IntelliJ IDEA / RustRover / JetBrains
+# ==========================================
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# JetBrains local caches
+.gradle/
+
+# ==========================================
+# macOS
+# ==========================================
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# ==========================================
+# Windows
+# ==========================================
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ==========================================
+# Linux
+# ==========================================
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ==========================================
+# Logs / Temporary Files
+# ==========================================
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+
+# ==========================================
+# Environment / Local Configuration
+# ==========================================
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ==========================================
+# Coverage / Profiling
+# ==========================================
+coverage/
+*.profraw
+*.profdata
+lcov.info

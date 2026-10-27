@@ -1,0 +1,13 @@
+[package]
+name = "secure-stun-cli"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+stun = "=0.17.1"
+clap = { version = "4", features = ["derive", "env"] }
+rpassword = "7"
+base64 = "0.22"
+ring = "0.17"
+
