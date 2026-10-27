@@ -252,6 +252,7 @@ struct adm_entry {
 };
 
 struct adm_handler {
+	char *convid;
 	pstn_adm_h *admh;
 	void *arg;
 
@@ -289,32 +290,38 @@ static void ah_destructor(void *arg)
 	struct adm_handler *ah = (struct adm_handler *)arg;
 
 	list_unlink(&ah->le);
+	mem_deref(ah->convid);
 }
 
-int pstn_adm_handler_register(pstn_adm_h *admh, void *arg)
+int pstn_adm_handler_register(const char *convid,
+			      pstn_adm_h *admh, void *arg)
 {
 	struct adm_handler *ah;
-	struct le *le;
+	struct adm_entry *ae;
+	int err;
 	
-	if (!admh)
+	if (!convid || !admh)
 		return EINVAL;
 
 	ah = (struct adm_handler *)mem_zalloc(sizeof(*ah), ah_destructor);
 	if (!ah)
 		return ENOMEM;
 
+	err = str_dup(&ah->convid, convid);
+	if (err) {
+		mem_deref(ah);
+		return err;
+	}
+
 	ah->admh = admh;
 	ah->arg = arg;
 
 	list_append(&pstn.handlerl, &ah->le, ah);
 
-	/* Call this adm handler if there are adms in the list */
-	LIST_FOREACH(&pstn.adml, le) {
-		struct adm_entry *ae = (struct adm_entry *)le->data;
-
-		if (ae && ah->admh) {
-			ah->admh(ae->convid, ae->adm, true, ah->arg);
-		}
+	/* Call this adm handler if the conversation already has an adm */
+	ae = adm_find(convid);
+	if (ae) {
+		ah->admh(ae->adm, true, ah->arg);
 	}
 
 	return 0;
@@ -363,11 +370,11 @@ int pstn_adm_register(const char *convid, void *adm)
 	LIST_FOREACH(&pstn.handlerl, le) {
 		struct adm_handler *ah = (struct adm_handler *)le->data;
 
-		if (!ah)
+		if (!ah || !streq(ah->convid, ae->convid))
 			continue;
 
 		if (ah->admh) {
-			ah->admh(ae->convid, ae->adm, true, ah->arg);
+			ah->admh(ae->adm, true, ah->arg);
 		}
 	}
 
@@ -377,9 +384,22 @@ int pstn_adm_register(const char *convid, void *adm)
 int pstn_adm_unregister(const char *convid)
 {
 	struct adm_entry *ae = adm_find(convid);
+	struct le *le;
 
 	if (!ae)
 		return ENOENT;
+
+	/* Let handlers detach from the adm before it goes away */
+	LIST_FOREACH(&pstn.handlerl, le) {
+		struct adm_handler *ah = (struct adm_handler *)le->data;
+
+		if (!ah || !streq(ah->convid, ae->convid))
+			continue;
+
+		if (ah->admh) {
+			ah->admh(ae->adm, false, ah->arg);
+		}
+	}
 
 	mem_deref((void *)ae);
 

@@ -29,6 +29,8 @@ struct {
 struct wdev {
 	char *convid;
 
+	struct lock *lock;
+
 	struct aumix *ausrc_mix;
 	
 	struct list ausrcl;
@@ -106,6 +108,7 @@ static void wdev_destructor(void *arg)
 	mem_deref(wdev->convid);
 
 	mem_deref(wdev->wa.aumix_src);
+	mem_deref(wdev->lock);
 }
 
 static int alloc_wdevs(struct hash **wdevs)
@@ -148,6 +151,7 @@ static void ausrc_mix_frame_handler(const int16_t *sampv,
 	info("ausrc(%p): mix frame with size: %lld buf=%w\n",
 	     st, sampc, sampv, 10);
 #endif
+
 	if (st->rh) {
 		st->rh(sampv, sampc, st->arg);
 	}
@@ -179,6 +183,7 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 {
 	struct wdev *wdev = arg;
 
+	lock_write_get(wdev->lock);
 	if (wdev->wa.rh) {
 		int err = auresamp(&wdev->wa.src_resamp,
 				   wdev->wa.src_sampv, &wdev->wa.src_sampc,
@@ -216,6 +221,7 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 		aumix_source_put(wdev->wa.aumix_src,
 				 wdev->wa.play_sampv, wdev->wa.play_sampc);
 	}
+	lock_rel(wdev->lock);
 }
 
 
@@ -232,6 +238,10 @@ static int alloc_device(struct wdev **wdevp,
 	wdev = mem_zalloc(sizeof(*wdev), wdev_destructor);
 	if (!wdev)
 		return ENOMEM;
+
+	err = lock_alloc(&wdev->lock);
+	if (err)
+		goto out;
 
 	err = aumix_alloc(&wdev->ausrc_mix, srate, ch, ptime);
 	if (err)
@@ -466,9 +476,11 @@ int wireaudio_set_handlers(const char *convid,
 			goto out;
 	}
 
+	lock_write_get(wdev->lock);
 	wdev->wa.rh = rh;
 	wdev->wa.wh = wh;
 	wdev->wa.arg = arg;
+	lock_rel(wdev->lock);
 
  out:
 	return err;

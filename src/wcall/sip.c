@@ -61,8 +61,9 @@ struct wsip_ua {
 
 	char *userid;
 	char *clientid;
+	char *convid;
 
-	void *adm;
+	bool adm_registered;
 
 	struct le le;
 };
@@ -96,7 +97,7 @@ struct pin_entry {
 	struct le le;
 };
 
-static void adm_handler(const char *convid, void *adm, bool added, void *arg);
+static void adm_handler(void *adm, bool added, void *arg);
 
 
 static int alloc_message(struct econn_message **msgp,
@@ -283,7 +284,7 @@ static void wsip_destructor(void *arg)
 		 * de-register its adm handlers
 		 */
 		if (NULL == wua->wsipl.head) {
-			adm_handler(wsip->convid, NULL, false, wua);
+			adm_handler(NULL, false, wua);
 		}
 	}
 
@@ -655,42 +656,37 @@ static void ua_event_handler(struct ua *ua, enum ua_event ev,
 	}
 }
 
+/* The handler arg is the adm of the conversation the wireaudio
+ * device belongs to, so each conversation uses its own adm.
+ */
 static void adm_rec_handler(void *sampv, size_t sampc, void *arg)
 {
-	struct wsip_ua *wua = arg;
-	
-	pstn_play_read(wua->adm, (int16_t *)sampv, sampc);
+	pstn_play_read(arg, (int16_t *)sampv, sampc);
 }
 
 static void adm_play_handler(const void *sampv, size_t sampc, void *arg)
 {
-	struct wsip_ua *wua = arg;
-	
-	pstn_rec_write(wua->adm, (const int16_t *)sampv, sampc);
+	pstn_rec_write(arg, (const int16_t *)sampv, sampc);
 }
 
-
-static void adm_handler(const char *convid, void *adm, bool added, void *arg)
+static void adm_handler(void *adm, bool added, void *arg)
 {
 	struct wsip_ua *wua = arg;
 
-	if (!wua)
+	if (!wua || !wua->convid)
 		return;
 
 	info("sip(%p): adm_handler: convid=%s adm=%p %s on wua=%p\n",
-	     wua->sip_inst, convid, adm,
+	     wua->sip_inst, wua->convid, adm,
 	     added ? "ADDED" : "REMOVED", wua);
 
-
 	if (added) {
-		wua->adm = adm;
-		wireaudio_set_handlers(convid,
+		wireaudio_set_handlers(wua->convid,
 				       adm_play_handler, adm_rec_handler,
-				       wua);
+				       adm);
 	}
 	else {
-		wua->adm = NULL;
-		wireaudio_set_handlers(convid, NULL, NULL, wua);
+		wireaudio_set_handlers(wua->convid, NULL, NULL, NULL);
 	}
 }
 
@@ -811,6 +807,11 @@ static void wua_destructor(void *arg)
 
 	list_unlink(&wua->le);
 
+	if (wua->adm_registered) {
+		pstn_adm_handler_unregister(adm_handler, wua);
+		wua->adm_registered = false;
+	}
+
 	mem_deref(wua->userid);
 	mem_deref(wua->clientid);
 
@@ -818,6 +819,9 @@ static void wua_destructor(void *arg)
 
 	list_flush(&wua->convl);
 	list_flush(&wua->wsipl);
+
+	/* Freed last, wsip destructors use it to detach audio */
+	mem_deref(wua->convid);
 }
 
 int wcall_i_sip_create(struct calling_instance *inst,
@@ -937,12 +941,19 @@ int wcall_i_sip_answer(struct calling_instance *inst,
 	/* Assign convid to this call */
 	str_dup(&wsip->convid, convid);
 
-	if (!wua->adm) {
-		err = pstn_adm_handler_register(adm_handler, wua);
+	if (!wua->convid) {
+		err = str_dup(&wua->convid, convid);
+		if (err)
+			goto out;
+	}
+
+	if (!wua->adm_registered) {
+		err = pstn_adm_handler_register(wua->convid, adm_handler, wua);
 		if (err) {
 			warning("sip(%p): answer: could not register handler\n", inst);
 			goto out;
 		}
+		wua->adm_registered = true;
 	}
 
 	/* If any adms already exist, the adm_handler will be called by
