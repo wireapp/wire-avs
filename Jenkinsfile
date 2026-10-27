@@ -77,7 +77,7 @@ pipeline {
 
                         // build
                         sh 'make avs_clean dist_clean'
-                        sh 'make zcall sectest AVS_VERSION=' + version
+                        sh 'make sectest AVS_VERSION=' + version
                         script {
                             def exitStatus = sh returnStatus: true, script: './sectest https://sft.calling-staging-v01.zinfra.io:443 > ./build/artifacts/avs-' + version + '-sectest.log'
                             if (exitStatus != 0) {
@@ -90,7 +90,6 @@ pipeline {
                         '''
                         sh 'cp ./build/dist/linux/avscore.tar.bz2 ./build/artifacts/avs.linux.' + version + '.tar.bz2'
                         sh 'zip -9j ./build/artifacts/avs.android.' + version + '.zip ./build/dist/android/avs.aar'
-                        sh 'zip -9j ./build/artifacts/zcall_linux_' + version + '.zip ./zcall'
                         sh 'if [ -e ./build/dist/android/debug/ ]; then cd ./build/dist/android/debug; zip -9r ./../../../artifacts/avs.android.' + version + '.debug.zip *; cd -; fi'
 
                         archiveArtifacts artifacts: 'build/artifacts/*', followSymlinks: false
@@ -155,7 +154,6 @@ pipeline {
 
                         // build
                         sh 'make avs_clean dist_clean'
-                        sh 'make zcall AVS_VERSION=' + version
                         sh '''#!/bin/bash
                             . ./scripts/android_devenv.sh && echo "sdk.dir=${ANDROID_SDK_ROOT}\nndk.dir=${ANDROID_NDK_ROOT}" > local.properties
                             . ./scripts/wasm_devenv.sh && make dist_xc dist_wasm AVS_VERSION=''' + version + '  BUILDVERSION=' + version + '''
@@ -165,7 +163,6 @@ pipeline {
                         sh 'mkdir -p ./build/artifacts'
                         sh 'cp ./build/dist/osx/avs.framework.zip ./build/artifacts/avs.framework.osx.' + version + '.zip'
                         sh 'cp ./build/dist/xc/avs.xcframework.zip ./build/artifacts/avs.xcframework.zip'
-                        sh 'zip -9j ./build/artifacts/zcall_osx_' + version + '.zip ./zcall'
                         sh 'mkdir -p ./osx'
                         sh 'cp ./build/dist/osx/avscore.tar.bz2 ./osx'
                         sh 'cp ./build/dist/wasm/wireapp-avs-' + version + '.tgz ./build/artifacts/'
@@ -197,6 +194,9 @@ pipeline {
                     expression { return "${branchName}".contains('release') || "${branchName}".contains('main') }
                 }
             }
+	    options {
+	            skipDefaultCheckout()
+            }	    
 
             steps {
                 echo "Tag as ${version}"
@@ -393,7 +393,7 @@ pipeline {
                             script: """
                                 mkdir -p ./build/artifacts/maven/com/wire
                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToMavenLocal --no-configuration-cache
-                                cp -r ~/.m2/repository/com/wire/avs-kmp ./build/artifacts/maven/com/wire/
+                                cp -r ~/.m2/repository/com/wire/avs-kmp ~/.m2/repository/com/wire/avs-kmp-* ./build/artifacts/maven/com/wire/
                             """
                         )
                     }
@@ -498,6 +498,10 @@ pipeline {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
                     wireSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:**\n${changelog}\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
+                withCredentials([ string( credentialsId: 'wire-mls-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
+                    wireMlsSend secret: "$jenkinsbot_secret", message: "✅ ${JOB_NAME} #${BUILD_ID} succeeded\n**Changelog:**\n${changelog}\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
+                }
+		
             }
         }
 
@@ -506,6 +510,10 @@ pipeline {
                 withCredentials([ string( credentialsId: 'wire-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
                     wireSend secret: "$jenkinsbot_secret", message: "❌ ${JOB_NAME} #${BUILD_ID} failed\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
                 }
+                withCredentials([ string( credentialsId: 'wire-mls-jenkinsbot', variable: 'jenkinsbot_secret' ) ]) {
+                    wireMlsSend secret: "$jenkinsbot_secret", message: "❌ ${JOB_NAME} #${BUILD_ID} failed\n${BUILD_URL}console\nhttps://github.com/wireapp/wire-avs/commit/${commitId}"
+                }
+		
             }
         }
     }

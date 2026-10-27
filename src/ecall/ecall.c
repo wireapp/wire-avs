@@ -1937,7 +1937,7 @@ static void data_channel_handler(struct iflow *iflow,
 	}
 
 	/* Check that message was received via correct transport */
-	if (ECONN_TRANSP_DIRECT != econn_transp_resolve(msg->msg_type)) {
+	if (!(econn_transp_resolve(msg->msg_type) & ECONN_TRANSP_DIRECT)) {
 		warning("ecall: dc_recv: wrong transport for type %s\n",
 			econn_msg_name(msg->msg_type));
 	}
@@ -2450,7 +2450,7 @@ int ecall_msg_recv(struct ecall *ecall,
 	}
 
 	/* Check that message was received via correct transport */
-	if (ECONN_TRANSP_BACKEND != econn_transp_resolve(msg->msg_type)) {
+	if (!(econn_transp_resolve(msg->msg_type) & ECONN_TRANSP_BACKEND)) {
 		warning("ecall: recv: wrong transport for type %s\n",
 			econn_msg_name(msg->msg_type));
 	}

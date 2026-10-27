@@ -426,7 +426,7 @@ bool msystem_is_started(struct msystem *msys)
 
 int msystem_push(struct msystem *msys, int op, void *arg)
 {
-	if (!msys->mq)
+	if (!msys || !msys->mq)
 		return ENOSYS;
 
 	return mqueue_push(msys->mq, op, arg);	

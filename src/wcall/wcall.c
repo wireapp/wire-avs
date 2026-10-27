@@ -48,6 +48,8 @@
 
 #define WCALL_VALID(_wcall) ((_wcall) && (_wcall)->inst && wcall_valid(_wcall))
 
+#define TIMEOUT_CANCEL_POLL 500
+
 static const char* peer_to_str(enum icall_conv_type call_type)
 {
 	switch (call_type) {
@@ -66,6 +68,7 @@ static const char* peer_to_str(enum icall_conv_type call_type)
 static struct {
 	bool initialized;
 	bool needs_setup;
+	bool running;
 	int env;
 	int flags;
 	struct list instances;
@@ -80,9 +83,11 @@ static struct {
 		void *arg;
 	} mute;
 	int mode;
+	struct tmr tmr_cancel;
 } calling = {
 	.initialized = false,
 	.needs_setup = true,
+	.running = false,
 	.instances = LIST_INIT,
 	.logl = LIST_INIT,
 	.lock = NULL,
@@ -2466,8 +2471,16 @@ void wcall_close(void)
 	debug("wcall: close: initialized=%d\n", calling.initialized);
 	
 	if (!calling.initialized)
-		return;	
+		return;
 
+	if (calling.running) {
+		calling.running = false;
+		debug("wcall: close: joining AVS thread\n");
+		pthread_join(calling.tid, NULL);
+		debug("wcall: close: detaching AVS thread\n");
+		pthread_detach(calling.tid);
+		debug("wcall: close: thread done\n");
+	}
 	lock_write_get(calling.lock);
 	LIST_FOREACH(&calling.logl, le) {
 		struct log_entry *loge = le->data;
@@ -3966,7 +3979,6 @@ void wcall_set_participant_changed_handler(WUSER_HANDLE wuser,
 	inst->group.json.arg = arg;
 }
 
-
 AVS_EXPORT
 struct wcall_members *wcall_get_members(WUSER_HANDLE wuser, const char *convid)
 {
@@ -4288,6 +4300,17 @@ int wcall_i_dce_send(struct wcall *wcall, struct mbuf *mb)
 	return ICALL_CALLE(wcall->icall, dce_send, mb);
 }
 
+static void timeout_cancel_handler(void *arg)
+{
+	if (calling.running) {
+		tmr_start(&calling.tmr_cancel, TIMEOUT_CANCEL_POLL,
+			  timeout_cancel_handler, NULL);
+	}
+	else {
+		re_cancel();
+	}
+}
+
 AVS_EXPORT
 void wcall_thread_main(int *err, int *initialized)
 {
@@ -4295,6 +4318,8 @@ void wcall_thread_main(int *err, int *initialized)
 
 	*err = 0;
 	*initialized = 0;
+
+	tmr_init(&calling.tmr_cancel);
 
 	if (calling.needs_setup) {
 		wcall_setup();
@@ -4308,9 +4333,18 @@ void wcall_thread_main(int *err, int *initialized)
 	*initialized = e == 0;
 	*err = e;
 
+	calling.running = true;
+
+	tmr_start(&calling.tmr_cancel, TIMEOUT_CANCEL_POLL,
+		  timeout_cancel_handler, NULL);
+
 	re_main(NULL);
+	info("wcall_main: re_main terminated\n");
+
+	tmr_cancel(&calling.tmr_cancel);
 
 out:
+	calling.running = false;
 	flowmgr_close();
 	avs_close();
 
@@ -4778,4 +4812,48 @@ void wcall_unregister_sip_instance(struct calling_instance *inst,
 struct sip_instance *wcall_get_sip_instance(struct calling_instance *inst)
 {
 	return inst ? inst->sip_inst : NULL;
+}
+
+const char *wcall_get_userid(struct calling_instance *inst)
+{
+	return inst ? inst->userid : NULL;
+}
+
+const char *wcall_get_clientid(struct calling_instance *inst)
+{
+	return inst ? inst->clientid : NULL;
+}
+
+int wcall_send_msg(struct calling_instance *inst,
+		   const char *convid,
+		   struct econn_message *msg,
+		   void *arg)
+{
+	struct wcall_ctx *ctx = NULL;
+	char *str = NULL;
+	int err;
+	
+	err = ctx_alloc(&ctx, inst, arg);
+	if (err)
+		return err;
+
+	err = econn_message_encode(&str, msg);
+	if (err)
+		goto out;
+
+	err = inst->sendh(ctx, convid,
+			  inst->userid, inst->clientid,
+			  NULL, NULL,
+			  (uint8_t *)str, strlen(str),
+			  msg->transient ? 1 : 0,
+			  0,
+			  inst->arg);
+
+ out:
+	mem_deref(str);
+	if (err) {
+		mem_deref(ctx);
+	}
+
+	return err;
 }

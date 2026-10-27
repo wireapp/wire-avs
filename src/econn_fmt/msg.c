@@ -174,19 +174,22 @@ static bool part_decode_handler(const char *key, struct json_object *jobj,
 			muted ? MUTED_STATE_MUTED : MUTED_STATE_UNMUTED;
 	}
 
-	ssrc = jzon_str(jobj, "ssrc_audio");
-	if (ssrc)
-		sscanf(ssrc, "%u", &part->ssrca);
-	else {
-		err = EINVAL;
-		goto out;
-	}
-	ssrc = jzon_str(jobj, "ssrc_video");
-	if (ssrc)
-		sscanf(ssrc, "%u", &part->ssrcv);
-	else {
-		err = EINVAL;
-		goto out;
+	/* Only non-PSTN participants have a ssrc */
+	if (!part->pstn) {
+		ssrc = jzon_str(jobj, "ssrc_audio");
+		if (ssrc)
+			sscanf(ssrc, "%u", &part->ssrca);
+		else {
+			err = EINVAL;
+			goto out;
+		}
+		ssrc = jzon_str(jobj, "ssrc_video");
+		if (ssrc)
+			sscanf(ssrc, "%u", &part->ssrcv);
+		else {
+			err = EINVAL;
+			goto out;
+		}
 	}
 
  out:	

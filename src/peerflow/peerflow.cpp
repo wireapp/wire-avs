@@ -911,15 +911,17 @@ int peerflow_init(void)
 	g_pf.thread = webrtc::Thread::Create();
 	g_pf.thread->Start();
 	g_pf.thread->BlockingCall([] {
-		info("pf: starting runnable\n");
+		info("pf: init: starting runnable\n");
 		pc_platform_init();
-		info("pf: platform initialized\n");
+		info("pf: init: platform initialized\n");
 	});
 
 	// Regardless of whether we need them, we create a global PeerConnection factory.
 	// This gives us the ability to use it for general calls or to create dedicated factories for
 	// audio recording or PSTN forwarding.
+	info("pf: init: create_pc_deps\n");
 	create_pc_deps(NULL, pc_deps);
+	info("pf: init: create mpf\n");
 	g_pf.pc_factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
 
 	if (!g_pf.pc_factory) {
@@ -927,7 +929,9 @@ int peerflow_init(void)
 		goto out;
 	}
 
+	info("pf: init: capture source\n");
 	g_pf.video.src = webrtc::make_ref_counted<wire::CaptureSource>();
+	info("pf: init: done\n");
 	g_pf.initialized = true;
 
  out:
@@ -939,12 +943,15 @@ void peerflow_destroy(void)
 	info("peerflow_destroy: initialized=%d\n", g_pf.initialized);
 
 	//wire::CaptureSource::ReleaseInstance();
+	g_pf.video.src = nullptr;
 
 	if (!g_pf.initialized)
 		return;
 
 	// This seems to hang forever
 	//g_pf.thread->Stop();
+
+	g_pf.pc_factory = nullptr;
 
 	g_pf.mq.q = (struct mqueue *)mem_deref(g_pf.mq.q);
 	list_flush(&g_pf.mq.l);
@@ -2053,7 +2060,9 @@ static int create_pf(struct peerflow *pf)
 
 #if DOUBLE_ENCRYPTION
 	if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE) {
-		webrtc::CryptoOptions crypto = webrtc::CryptoOptions::NoGcm();
+		webrtc::CryptoOptions crypto;
+
+		crypto.srtp.enable_gcm_crypto_suites = true; 
 		crypto.sframe.require_frame_encryption = true;
 		pf->config->crypto_options = crypto;
 	}
@@ -2210,6 +2219,10 @@ static void pf_destructor(void *arg)
 	struct peerflow *pf = (struct peerflow *)arg;
 
 	debug("pf(%p): destructor\n", pf);
+
+	if (streq(pf->msys_name, "pstn")) {
+		pstn_adm_unregister(pf->convid);
+	}
 
 	pf->netStatsCb->setActive(false);
 	tmr_cancel(&pf->tmr_stats);

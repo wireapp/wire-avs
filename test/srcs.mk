@@ -14,18 +14,15 @@ TEST_SRCS	+= test_audio_io_control.cpp
 TEST_SRCS	+= test_cert.cpp
 TEST_SRCS	+= test_chunk.cpp
 TEST_SRCS	+= test_confpos.cpp
-TEST_SRCS	+= test_cookie.cpp
 TEST_SRCS	+= test_dict.cpp
 #TEST_SRCS	+= test_ecall.cpp
 TEST_SRCS	+= test_econn.cpp
 TEST_SRCS	+= test_econn_fmt.cpp
-TEST_SRCS	+= test_engine.cpp
 TEST_SRCS	+= test_frame_hdr.cpp
 TEST_SRCS	+= test_http.cpp
 TEST_SRCS	+= test_jzon.cpp
 TEST_SRCS	+= test_keystore.cpp
 TEST_SRCS	+= test_libre.cpp
-TEST_SRCS	+= test_login.cpp
 TEST_SRCS	+= test_msystem.cpp
 TEST_SRCS	+= test_network.cpp
 TEST_SRCS	+= test_nevent.cpp
@@ -54,14 +51,6 @@ TEST_SRCS	+= test_android.cpp
 else
 TEST_SRCS	+= test_mediamgr.cpp
 endif
-
-ifneq ($(HAVE_PROTOBUF),)
-TEST_SRCS	+= test_protobuf.cpp
-endif
-ifneq ($(HAVE_CRYPTOBOX),)
-TEST_SRCS	+= test_cryptobox.cpp
-endif
-
 
 # Fakes/mocks in alphabetical order
 TEST_SRCS	+= fake_backend.cpp

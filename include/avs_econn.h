@@ -73,8 +73,9 @@ enum econn_dir {
 };
 
 enum econn_transport {
-	ECONN_TRANSP_BACKEND = 0,
-	ECONN_TRANSP_DIRECT
+	ECONN_TRANSP_BACKEND = 1,
+	ECONN_TRANSP_DIRECT  = 2,
+	ECONN_TRANSP_ANY     = 3, /* This is a mask for backend & direct */
 };
 
 enum econn_alert_level {

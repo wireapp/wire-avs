@@ -5,6 +5,7 @@ int wcall_i_sip_create(struct calling_instance *inst,
 		       wcall_sip_ready_h *readyh,	       
 		       wcall_sip_incoming_h *incomingh,
 		       wcall_sip_close_h *closeh,
+		     wcall_sip_parts_h *partsh,
 		       wcall_sip_err_h *errh,
 		       void *arg);
 int  wcall_i_sip_destroy(struct calling_instance *inst,
