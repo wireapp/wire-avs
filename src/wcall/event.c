@@ -336,7 +336,8 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 	case ECONN_CONF_START:
 		if (msg->age > EVENT_AGE_VALID) {
 			warning("event(%p): message is too old. age=%d\n", inst, msg->age);
-			return ETIMEDOUT;
+			err = ETIMEDOUT;
+			goto out;
 		}
 		
 		if (econn_message_isrequest(msg)) {
@@ -403,7 +404,10 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 		
 	}
 
-	return 0;
+ out:
+	mem_deref(msg);
+
+	return err;
 }
 
 AVS_EXPORT
