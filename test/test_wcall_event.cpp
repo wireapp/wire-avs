@@ -59,7 +59,13 @@ protected:
 	void process(const char *type, const char *conversation)
 	{
 		std::string message = std::string("{\"version\":\"3.0\",\"type\":\"")
-			+ type + "\",\"sessid\":\"queue-test\",\"resp\":false}";
+			+ type + "\",\"sessid\":\"queue-test\",\"resp\":false";
+		if (std::string(type) == "CONFSTART") {
+			// Required conference payload; no SFT connection is made by this API.
+			message += ",\"sft_url\":\"https://sft.example.invalid\","
+				"\"secret\":\"c2VjcmV0\",\"timestamp\":\"100\",\"seqno\":\"1\"";
+		}
+		message += "}";
 		ASSERT_EQ(0, wcall_event_process(user,
 			reinterpret_cast<const uint8_t *>(message.data()), message.size(),
 			100, 100, conversation, "remote-user", "remote-client",
@@ -78,7 +84,7 @@ TEST_F(WcallEventQueue, emptyQueueClosesUnknownCall)
 
 TEST_F(WcallEventQueue, unmatchedTailPreservesIncomingCall)
 {
-	process("GROUPSTART", "other");
+	process("CONFSTART", "other");
 	process("CONFEND", "absent");
 	finish();
 	EXPECT_EQ((std::vector<std::string>{"other"}), events.incoming);
@@ -88,8 +94,8 @@ TEST_F(WcallEventQueue, unmatchedTailPreservesIncomingCall)
 
 TEST_F(WcallEventQueue, findsSecondQueuedCall)
 {
-	process("GROUPSTART", "first");
-	process("GROUPSTART", "second");
+	process("CONFSTART", "first");
+	process("CONFSTART", "second");
 	process("CONFEND", "second");
 	finish();
 	EXPECT_EQ((std::vector<std::string>{"first"}), events.incoming);
@@ -99,7 +105,7 @@ TEST_F(WcallEventQueue, findsSecondQueuedCall)
 
 TEST_F(WcallEventQueue, matchesFirstAndSkipsAlreadyMissedState)
 {
-	process("GROUPSTART", "first");
+	process("CONFSTART", "first");
 	process("CONFEND", "first");
 	process("CONFEND", "first");
 	finish();
