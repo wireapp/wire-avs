@@ -177,8 +177,6 @@ static struct call_event *queue_find(struct call_event_instance *inst,
 			found = found && streq(ev->userid, userid);
 		if (clientid)
 			found = found && streq(ev->clientid, clientid);
-		if (!found)
-			le = le->next;
 	}
 
 	return found ? ev : NULL;
