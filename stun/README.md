@@ -28,6 +28,9 @@ cargo run -- --zrest stun:turn.example.com:3478 -u my-user-id --shared-secret 'm
 
 # Help
 cargo run -- --help
+
+# Only generate and display one-hour credentials; no server request
+cargo run -- --zrest --generate-only -u my-user-id --shared-secret 'my-secret'
 ```
 
 Accepted server formats:
@@ -44,6 +47,7 @@ The default port is `3478` when no port is specified.
 
 | Option | Description |
 | --- | --- |
+| `--generate-only` | Print ZREST username/password and exit; no server required |
 | `--zrest` | Generate one-hour ZREST credentials; `-u` is the user ID |
 | `--shared-secret SECRET` | Shared secret for ZREST; otherwise prompt without echo |
 | `-v`, `--verbose` | Show sent/received STUN messages, attributes, transaction ID, timing and local socket |

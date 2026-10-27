@@ -17,6 +17,9 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 #[derive(Parser)]
 #[command(about = "UDP STUN Binding request, optionally authenticated for coturn secure-stun")]
 struct Args {
+    /// Print ZREST credentials and exit without contacting a server
+    #[arg(long, requires = "z_rest")]
+    generate_only: bool,
     /// Generate one-hour ZREST credentials; -u becomes the user ID
     #[arg(long = "zrest", requires = "username", conflicts_with = "password")]
     z_rest: bool,
@@ -38,7 +41,8 @@ struct Args {
     #[arg(short = '6', long, conflicts_with = "ipv4")]
     ipv6: bool,
     /// STUN URL, hostname, IP, or host:port
-    host: String,
+    #[arg(required_unless_present = "generate_only")]
+    host: Option<String>,
     /// Override URL port (default: 3478)
     #[arg(short, long)]
     port: Option<u16>,
@@ -213,7 +217,10 @@ fn run(args: Args) -> Result<()> {
             return Err("This minimal CLI supports printable ASCII credentials only".into());
         }
     }
-    let (host, port) = endpoint(&args.host, args.port)?;
+    if args.generate_only {
+        return Ok(());
+    }
+    let (host, port) = endpoint(args.host.as_deref().ok_or("Server is required")?, args.port)?;
     let addresses: Vec<_> = (host.as_str(), port).to_socket_addrs()?.collect();
     let server = select_address(&addresses, args.ipv4, args.ipv6)?;
     let socket = UdpSocket::bind(if server.is_ipv4() {
@@ -324,6 +331,19 @@ mod tests {
 
     #[test]
     fn generates_one_hour_rest_credentials() {
+        let args = Args::try_parse_from([
+            "stun",
+            "--zrest",
+            "--generate-only",
+            "-u",
+            "alice",
+            "--shared-secret",
+            "test-secret",
+        ])
+        .unwrap();
+        assert!(args.host.is_none());
+        run(args).unwrap();
+        assert!(Args::try_parse_from(["stun", "--generate-only", "-u", "alice"]).is_err());
         let (username, password) = rest_credentials("alice", "test-secret", 1000);
         assert_eq!(username, "4600:alice");
         // Independently computed with openssl dgst -sha1 -hmac.
@@ -403,12 +423,13 @@ mod tests {
             server.send_to(&reply.raw, addr).unwrap();
         });
         let result = run(Args {
+            generate_only: false,
             z_rest: false,
             shared_secret: None,
             verbose: false,
             ipv4: false,
             ipv6: false,
-            host: format!("stun:127.0.0.1:{port}"),
+            host: Some(format!("stun:127.0.0.1:{port}")),
             port: None,
             username: None,
             password: None,
@@ -485,12 +506,13 @@ mod tests {
             server.send_to(&success.raw, addr).unwrap();
         });
         let result = run(Args {
+            generate_only: false,
             z_rest: false,
             shared_secret: None,
             verbose: false,
             ipv4: false,
             ipv6: false,
-            host: "127.0.0.1".into(),
+            host: Some("127.0.0.1".into()),
             port: Some(port),
             username: Some("test-user".into()),
             password: Some("test-password".into()),
