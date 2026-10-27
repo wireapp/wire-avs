@@ -55,7 +55,7 @@ protected:
 		ASSERT_NE(WUSER_INVALID_HANDLE, user);
 		wcall_event_start(user);
 	}
-	void TearDown() override { wcall_event_end(user); }
+	void TearDown() override { wcall_event_destroy(user); }
 	void process(const char *type, const char *conversation)
 	{
 		std::string message = std::string("{\"version\":\"3.0\",\"type\":\"")
