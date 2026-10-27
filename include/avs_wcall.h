@@ -587,6 +587,7 @@ WUSER_HANDLE wcall_event_create(const char *userid,
 				wcall_missed_h *missedh,
 				wcall_close_h *closeh,
 				void *arg);
+void wcall_event_destroy(WUSER_HANDLE wuser);
 void wcall_event_start(WUSER_HANDLE wuser);
 int  wcall_event_process(WUSER_HANDLE wuser, 
 			 const uint8_t *buf, size_t len,

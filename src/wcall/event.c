@@ -187,6 +187,8 @@ static void inst_destructor(void *arg)
 {
 	struct call_event_instance *inst = arg;
 
+	list_unlink(&inst->le);
+
 	mem_deref(inst->userid);
 	mem_deref(inst->clientid);
 }
@@ -247,10 +249,25 @@ WUSER_HANDLE wcall_event_create(const char *userid,
 }
 
 AVS_EXPORT
-void wcall_event_start(WUSER_HANDLE wuser)
+void wcall_event_destroy(WUSER_HANDLE wuser)
 {
 	struct call_event_instance *inst;
 
+	inst = wuser2evinst(wuser);
+
+	if (inst) {
+		mem_deref(inst);
+	}
+	else {
+		warning("event: user=%p not found\n", wuser);
+	}
+}
+
+
+AVS_EXPORT
+void wcall_event_start(WUSER_HANDLE wuser)
+{
+	struct call_event_instance *inst;
 
 	inst = wuser2evinst(wuser);
 	info("event(%p): start for wuser=%p\n", inst, wuser);
