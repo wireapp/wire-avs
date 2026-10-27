@@ -86,7 +86,6 @@ extern "C" {
 
 #define DOUBLE_ENCRYPTION 1
 
-#define GROUP_PTIME 40
 
 #define SCALABILITY_MODE "L1T1"
 
@@ -2549,28 +2548,6 @@ bool peerflow_is_gathered(const struct iflow *iflow)
 	return pf->gathered;	
 }
 
-#if 0
-static void set_group_audio_params(struct peerflow *pf)
-{
-	std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
-
-	trxs = pf->peerConn->GetTransceivers();
-
-	for(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
-		webrtc::scoped_refptr<webrtc::RtpSenderInterface> tx = trx->sender();
-		if (tx->media_type() != webrtc::MediaType::AUDIO)
-			continue;
-		
-		webrtc::RtpParameters params = tx->GetParameters();
-		std::vector<webrtc::RtpEncodingParameters> encs = params.encodings;
-		for(webrtc::RtpEncodingParameters enc: encs)  {
-			enc.dtx = webrtc::DtxStatus::ENABLED;
-			enc.ptime = GROUP_PTIME;
-		}
-		tx->SetParameters(params);
-	}
-}
-#endif
 
 
 int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
@@ -2608,12 +2585,6 @@ int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
 			warning("pf(%p): no data channel\n", pf);
 		}
 
-#if 0 /* Don't set audio parameters until they are supported by webrtc */
-		if (pc->group_mode != MEDIAFLOW_MODE_ONEONONE) {
-			set_group_audio_params(pc);
-		}
-#endif
-		
 		pf->peerConn->CreateOffer(pf->sdpObserver, *pf->offerOptions);
 	}
 	else if (state == webrtc::PeerConnectionInterface::kHaveRemoteOffer)
@@ -2766,28 +2737,22 @@ int peerflow_handle_offer(struct iflow *iflow,
 	sdp_check(sdp_in, false, true, pf_acbr_handler,
 		  pf_norelay_handler, pf_tool_handler, pf);
 
-	if (!pf->sdp_needs_munging) {
-		sdp_str = (char *)sdp_in;
+	/* Remote SDP drives our encoder's ptime and bitrate */
+	err = sdp_munge_audio(&sdp_str, sdp_in, pf->conv_type, true,
+			      false, pf->sdp_needs_munging);
+	if (err) {
+		warning("peerflow_handle_offer: failed to munge SDP: %m\n", err);
+		return err;
 	}
-	else {
-		err = sdp_munge(&sdp_str, sdp_in, pf->conv_type, true);
-		if (err) {
-			warning("peerflow_handle_offer: failed to munge SDP: %m\n", err);
-			return err;
-		}
-		info("peerflow(%p): handle SDP-offer-munged:\n"
-		     "%s\n",
-		     pf, sdp_str);
-	}
-
+	info("peerflow(%p): handle SDP-offer-munged:\n"
+	     "%s\n",
+	     pf, sdp_str);
 
 	webrtc::SdpParseError parse_err;
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
 		webrtc::CreateSessionDescription(webrtc::SdpType::kOffer,
 						 sdp_str, &parse_err);
-	if (pf->sdp_needs_munging) {
-		mem_deref(sdp_str);
-	}
+	mem_deref(sdp_str);
 
 	if (sdp == nullptr) {
 		warning("peerflow_handle_offer: failed to parse SDP: "
@@ -2812,26 +2777,38 @@ out:
 }
 
 int peerflow_handle_answer(struct iflow *iflow,
-			   const char *sdp_str)
+			   const char *sdp_in)
 {
 	struct peerflow *pf = (struct peerflow*)iflow;
-	char *tool = NULL;
+	char *sdp_str = NULL;
 	int err = 0;
 	
-	if (!pf || !sdp_str)
+	if (!pf || !sdp_in)
 		return EINVAL;
 
 	info("peerflow(%p): handle SDP-answer:\n"
 	     "%s\n",
-	     pf, sdp_str);
+	     pf, sdp_in);
 	
-	sdp_check(sdp_str, false, false, pf_acbr_handler,
+	sdp_check(sdp_in, false, false, pf_acbr_handler,
 		  pf_norelay_handler, pf_tool_handler, pf);
+
+	/* Remote SDP drives our encoder's ptime and bitrate */
+	err = sdp_munge_audio(&sdp_str, sdp_in, pf->conv_type, false,
+			      false, false);
+	if (err) {
+		warning("peerflow_handle_answer: failed to munge SDP: %m\n", err);
+		return err;
+	}
+	info("peerflow(%p): handle SDP-answer-munged:\n"
+	     "%s\n",
+	     pf, sdp_str);
 
 	webrtc::SdpParseError parse_err;
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
 		webrtc::CreateSessionDescription(webrtc::SdpType::kAnswer,
 						 sdp_str, &parse_err);
+	mem_deref(sdp_str);
 
 	if (sdp == nullptr) {
 		warning("peerflow_handle_answer: failed to parse SDP: "
