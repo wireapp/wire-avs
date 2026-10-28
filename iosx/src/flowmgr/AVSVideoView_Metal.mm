@@ -19,6 +19,7 @@
 	BOOL _running;
 	BOOL _paused;
 	int _newFrame;
+	BOOL _frameInFlight;
 	
 	UIView *view;
 
@@ -241,7 +242,7 @@
 
 - (BOOL)setupTexturesForFrame:(struct avs_vidframe *)frame
 {
-	BOOL needsUpdate = NO;
+	BOOL sizeChanged = frame->w != _oldWidth || frame->h != _oldHeight;
 	
 	if (!_vertexBuffer) {
 		warning("AVSVideoView_metal: setupTexturesFromFrame: no vertex buffer\n");
@@ -250,8 +251,7 @@
 
 	// Recompute the texture cropping and recreate vertexBuffer if necessary.
 	if (frame->rotation != _oldRotation
-	  || frame->w != _oldWidth
-	  || frame->h != _oldHeight
+	  || sizeChanged
 	  || _forceRecalc) {
 		[self getVertexData:frame
 			     buffer:(float *)_vertexBuffer.contents];
@@ -259,11 +259,10 @@
 		_oldWidth = frame->w;
 		_oldHeight = frame->h;
 		_forceRecalc = NO;
-		needsUpdate = YES;
 	}
 	
 	// Luma (y) texture.
-	if (!_lumaDescriptor || needsUpdate) {
+	if (!_yTexture || sizeChanged) {
 		_lumaDescriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
 										     width:frame->w
 										    height:frame->h
@@ -278,7 +277,7 @@
 		     bytesPerRow:frame->ys];
 
 	// Chroma (u,v) textures
-	if (!_chromaDescriptor || needsUpdate) {
+	if (!_uTexture || !_vTexture || sizeChanged) {
 		_chromaWidth = frame->w / 2;
 		_chromaHeight = frame->h / 2;
 		_chromaDescriptor =
@@ -306,85 +305,89 @@
 	return _yTexture != nil && _uTexture != nil &&  _vTexture != nil;
 }
 
+- (BOOL)canRenderFrame
+{
+	// The caller holds _lock. The GPU owns submitted resources until its
+	// command buffer completes, even after commit returns.
+	return _running && !_paused && !_frameInFlight &&
+	       (_newFrame > 0 || _forceRecalc) && _renderPassDescriptor &&
+	       _viewFrame.width > 0 && _viewFrame.height > 0 &&
+	       _yTexture && _uTexture && _vTexture && _vertexBuffer && _pipelineState;
+}
+
 - (void)render:(CADisplayLink*)displayLink
 {
 	[_lock lock];
-	if (!_running || _paused) {
-		[_lock unlock];
-		return;
-	}
-
-	if (_newFrame == 0 && !_forceRecalc) {
-		[_lock unlock];
-		return;
-	}
+	BOOL ready = [self canRenderFrame];
 	[_lock unlock];
-	
-	//__block dispatch_semaphore_t blockSem = _gpuSemaphore;
-
-	if (!_renderPassDescriptor || _viewFrame.width == 0 || _viewFrame.height == 0) {
-		//dispatch_semaphore_signal(blockSem);
+	if (!ready)
 		return;
-	}
 
+	// nextDrawable may block. Do not hold the frame lock while waiting.
 	id<CAMetalDrawable> currentDrawable = [_metalLayer nextDrawable];
-	if (!currentDrawable) {
-		//dispatch_semaphore_signal(blockSem);
+	if (!currentDrawable)
+		return;
+	id<MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
+	if (!commandBuffer)
+		return;
+	commandBuffer.label = @"AVSCommandBuffer";
+
+	[_lock lock];
+	// Recheck after obtaining the drawable: lifecycle, layout and decoder
+	// callbacks may have changed the frame while the lock was released.
+	if (![self canRenderFrame]) {
+		[_lock unlock];
 		return;
 	}
-
-	id<MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
-
-	commandBuffer.label = @"AVSCommandBuffer";
-	[commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull) {
-			// GPU work has completed.
-			[_lock lock];
-			if (_newFrame > 0)
-				_newFrame--;
-			[_lock unlock];
-			//dispatch_semaphore_signal(blockSem);
-		}];
-	
 	_renderPassDescriptor.colorAttachments[0].texture = currentDrawable.texture;
-		
 	id<MTLRenderCommandEncoder> renderEncoder =
 		[commandBuffer renderCommandEncoderWithDescriptor:_renderPassDescriptor];
+	if (!renderEncoder) {
+		[_lock unlock];
+		return;
+	}
+	if (_forceRecalc) {
+		struct avs_vidframe frame = {};
+		frame.w = _oldWidth;
+		frame.h = _oldHeight;
+		frame.rotation = _oldRotation;
+		[self getVertexData:&frame buffer:(float *)_vertexBuffer.contents];
+		_forceRecalc = NO;
+	}
 	renderEncoder.label = @"AVSEncoder";
-
-	// Set context state.
-	//[renderEncoder pushDebugGroup:renderEncoderDebugGroup];
 	[renderEncoder setRenderPipelineState:_pipelineState];
 	[renderEncoder setVertexBuffer:_vertexBuffer offset:0 atIndex:0];
-
 	[renderEncoder setFragmentTexture:_yTexture atIndex:0];
 	[renderEncoder setFragmentTexture:_uTexture atIndex:1];
 	[renderEncoder setFragmentTexture:_vTexture atIndex:2];
-
 	[renderEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
-			  vertexStart:0
-			  vertexCount:4
-			instanceCount:1];
-		
-	//[renderEncoder popDebugGroup];
+			  vertexStart:0 vertexCount:4 instanceCount:1];
 	[renderEncoder endEncoding];
-
 	[commandBuffer presentDrawable:currentDrawable];
+
+	_newFrame = 0;
+	_frameInFlight = YES;
+	[commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull completed) {
+		[_lock lock];
+		_frameInFlight = NO;
+		[_lock unlock];
+	}];
+	[_lock unlock];
 	[commandBuffer commit];
 }
-
 
  - (BOOL)handleFrame:(struct avs_vidframe *)frame
 {
 	//NSLog(@"handleFrame: frame=%dx%d\n", frame->w, frame->h);
 	@autoreleasepool {
-		// Wait until any pending GPU work is done
-		//_block dispatch_semaphore_t blockSem = _gpuSemaphore;		
-		//dispatch_semaphore_wait(blockSem, DISPATCH_TIME_FOREVER);
 		[_lock lock];
+		// Drop instead of blocking the decoder or overwriting GPU-owned data.
+		if (_frameInFlight) {
+			[_lock unlock];
+			return NO;
+		}
 		if ([self setupTexturesForFrame:frame]) {
-			_newFrame++;
-		} else {
-			//dispatch_semaphore_signal(blockSem);
+			_newFrame = 1;
 		}
 		[_lock unlock];
 	}
@@ -408,7 +411,9 @@
 
 - (void)stopRunning
 {
+	[_lock lock];
 	_running = NO;
+	[_lock unlock];
 	[_displayLink invalidate];
 	_displayLink = nil;
 }
@@ -448,7 +453,9 @@
 		[self stopRunning];
 	}
 
+	[_lock lock];
 	_forceRecalc = YES;
+	[_lock unlock];
 }
 
 - (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)interfaceOrientation
@@ -459,14 +466,19 @@
 - (void) setShouldFill:(BOOL)fill
 {
 	[_lock lock];
-	_shouldFill = fill;
-	_forceRecalc = YES;
+	if (_shouldFill != fill) {
+		_shouldFill = fill;
+		_forceRecalc = YES;
+	}
 	[_lock unlock];
 }
 
 - (BOOL) shouldFill
 {
-	return _shouldFill;
+	[_lock lock];
+	BOOL fill = _shouldFill;
+	[_lock unlock];
+	return fill;
 }
 
 - (void)layoutSubviews

@@ -456,7 +456,7 @@ int main(void)
                       started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC))
                 == 0;
             // Original source permits the writer here. The fixed renderer holds
-            // its lock until submission; the blocked writer then sees GPU
+            // its lock until GPU ownership is reserved; the blocked writer sees
             // ownership.
             if (writerAttempted && writerCanFinishDuringBinding)
             {
