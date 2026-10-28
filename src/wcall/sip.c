@@ -273,26 +273,19 @@ static int answer_call(struct wsip_call *wsip)
 static void wsip_destructor(void *arg)
 {
 	struct wsip_call *wsip = arg;
-	struct wsip_ua *wua = wsip->wua;
 
 	info("wsip(%p): convid=%s destructor\n", wsip, wsip->convid);
 
 	list_unlink(&wsip->le);
 
-	if (wsip->adm_registered) {
-		pstn_adm_handler_unregister(adm_handler, wsip);
-		wsip->adm_registered = false;
-	}
+	/* The pstn handler is registered on answer, regardless of
+	 * whether an adm ever showed up, so always unregister it
+	 * to avoid a dangling wsip pointer.
+	 */
+	pstn_adm_handler_unregister(adm_handler, wsip);
 
-	
-	if (wua && wsip->convid) {
-		/* If we have no more calls on this ua's list,
-		 * de-register its adm handlers
-		 */
-		if (NULL == wua->wsipl.head) {
-			adm_handler(NULL, false, wsip);
-		}
-	}
+	/* Release this call's reference on the wireaudio handlers */
+	adm_handler(NULL, false, wsip);
 
 	mem_deref(wsip->from);
 	mem_deref(wsip->pin_code);
@@ -680,9 +673,9 @@ static void adm_handler(void *adm, bool added, void *arg)
 	struct wsip_ua *wua;
 	struct wsip_call *wsip = arg;
 
-	if (!wsip || !wsip->convid)
+	if (!wsip || !wsip->wua || !wsip->convid)
 		return;
-	
+
 	wua = wsip->wua;
 	info("sip(%p): adm_handler: convid=%s adm=%p %s on wsip=%p\n",
 	     wua->sip_inst, wsip->convid, adm,
@@ -696,8 +689,9 @@ static void adm_handler(void *adm, bool added, void *arg)
 			wsip->adm_registered = true;
 		}
 	}
-	else {
-		wireaudio_set_handlers(wua->convid, NULL, NULL, NULL);
+	else if (wsip->adm_registered) {
+		wireaudio_set_handlers(wsip->convid, NULL, NULL, NULL);
+		wsip->adm_registered = false;
 	}
 }
 

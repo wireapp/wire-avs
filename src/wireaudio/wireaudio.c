@@ -29,7 +29,7 @@ struct {
 struct wdev {
 	char *convid;
 
-	size_t cnt;
+	size_t handler_cnt;
 
 	struct lock *lock;
 
@@ -473,10 +473,19 @@ int wireaudio_set_handlers(const char *convid,
 	if (wdev) {
 		lock_write_get(wdev->lock);
 		if (rh || wh) {
-			wdev->cnt++;
+			/* The device may already exist because baresip
+			 * allocated it (ausrc/auplay) before the adm
+			 * appeared, so install handlers if not there already.
+			 */
+			if (0 == wdev->handler_cnt) {
+				wdev->wa.rh = rh;
+				wdev->wa.wh = wh;
+				wdev->wa.arg = arg;
+			}
+			wdev->handler_cnt++;
 		}
-		else {
-			wdev->cnt--;
+		else if (wdev->handler_cnt > 0) {
+			wdev->handler_cnt--;
 			if (0 == wdev->cnt) {
 				wdev->wa.rh = NULL;
 				wdev->wa.wh = NULL;
@@ -497,7 +506,7 @@ int wireaudio_set_handlers(const char *convid,
 			goto out;
 
 		lock_write_get(wdev->lock);
-		wdev->cnt = 1;
+		wdev->handler_cnt = 1;
 		wdev->wa.rh = rh;
 		wdev->wa.wh = wh;
 		wdev->wa.arg = arg;
