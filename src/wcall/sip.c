@@ -63,8 +63,6 @@ struct wsip_ua {
 	char *clientid;
 	char *convid;
 
-	bool adm_registered;
-
 	struct le le;
 };
 
@@ -79,6 +77,8 @@ struct wsip_call {
 	struct conv_entry *ce;
 	bool estab;
 
+	bool adm_registered;
+	
 	struct le le;
 };
 
@@ -279,12 +279,18 @@ static void wsip_destructor(void *arg)
 
 	list_unlink(&wsip->le);
 
+	if (wsip->adm_registered) {
+		pstn_adm_handler_unregister(adm_handler, wsip);
+		wsip->adm_registered = false;
+	}
+
+	
 	if (wua && wsip->convid) {
 		/* If we have no more calls on this ua's list,
 		 * de-register its adm handlers
 		 */
 		if (NULL == wua->wsipl.head) {
-			adm_handler(NULL, false, wua);
+			adm_handler(NULL, false, wsip);
 		}
 	}
 
@@ -671,19 +677,24 @@ static void adm_play_handler(const void *sampv, size_t sampc, void *arg)
 
 static void adm_handler(void *adm, bool added, void *arg)
 {
-	struct wsip_ua *wua = arg;
+	struct wsip_ua *wua;
+	struct wsip_call *wsip = arg;
 
-	if (!wua || !wua->convid)
+	if (!wsip || !wsip->convid)
 		return;
-
-	info("sip(%p): adm_handler: convid=%s adm=%p %s on wua=%p\n",
-	     wua->sip_inst, wua->convid, adm,
-	     added ? "ADDED" : "REMOVED", wua);
+	
+	wua = wsip->wua;
+	info("sip(%p): adm_handler: convid=%s adm=%p %s on wsip=%p\n",
+	     wua->sip_inst, wsip->convid, adm,
+	     added ? "ADDED" : "REMOVED", wsip);
 
 	if (added) {
-		wireaudio_set_handlers(wua->convid,
-				       adm_play_handler, adm_rec_handler,
-				       adm);
+		if (!wsip->adm_registered) {
+			wireaudio_set_handlers(wsip->convid,
+					       adm_play_handler, adm_rec_handler,
+					       adm);
+			wsip->adm_registered = true;
+		}
 	}
 	else {
 		wireaudio_set_handlers(wua->convid, NULL, NULL, NULL);
@@ -806,11 +817,6 @@ static void wua_destructor(void *arg)
 	mem_deref(wua->aor);
 
 	list_unlink(&wua->le);
-
-	if (wua->adm_registered) {
-		pstn_adm_handler_unregister(adm_handler, wua);
-		wua->adm_registered = false;
-	}
 
 	mem_deref(wua->userid);
 	mem_deref(wua->clientid);
@@ -941,19 +947,10 @@ int wcall_i_sip_answer(struct calling_instance *inst,
 	/* Assign convid to this call */
 	str_dup(&wsip->convid, convid);
 
-	if (!wua->convid) {
-		err = str_dup(&wua->convid, convid);
-		if (err)
-			goto out;
-	}
-
-	if (!wua->adm_registered) {
-		err = pstn_adm_handler_register(wua->convid, adm_handler, wua);
-		if (err) {
-			warning("sip(%p): answer: could not register handler\n", inst);
-			goto out;
-		}
-		wua->adm_registered = true;
+	err = pstn_adm_handler_register(wsip->convid, adm_handler, wsip);
+	if (err) {
+		warning("sip(%p): answer: could not register handler\n", inst);
+		goto out;
 	}
 
 	/* If any adms already exist, the adm_handler will be called by

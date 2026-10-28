@@ -299,7 +299,7 @@ int pstn_adm_handler_register(const char *convid,
 	struct adm_handler *ah;
 	struct adm_entry *ae;
 	int err;
-	
+
 	if (!convid || !admh)
 		return EINVAL;
 
@@ -337,6 +337,7 @@ void pstn_adm_handler_unregister(pstn_adm_h *admh, void *arg)
 		ah = (struct adm_handler *)le->data;
 		if (!ah)
 			continue;
+
 		found = ah->admh == admh && ah->arg == arg;
 	}
 

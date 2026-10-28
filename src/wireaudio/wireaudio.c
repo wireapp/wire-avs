@@ -29,6 +29,8 @@ struct {
 struct wdev {
 	char *convid;
 
+	size_t cnt;
+
 	struct lock *lock;
 
 	struct aumix *ausrc_mix;
@@ -308,6 +310,7 @@ static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 {
 	struct ausrc_st *st;
 	struct wdev *wdev;
+	bool allocated = false;
 	int err = 0;
 
 	info("wa_src_alloc: convid=%s srate=%d ch=%d ptime=%d fmt=%d\n",
@@ -320,6 +323,7 @@ static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 		if (err) {
 			return err;
 		}
+		allocated = true;
 	}
 
 	st = mem_zalloc(sizeof(*st), ausrc_destructor);
@@ -334,7 +338,7 @@ static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 	}
 
 	st->as = as;
-	st->wdev = mem_ref(wdev);
+	st->wdev = allocated ? wdev : mem_ref(wdev);
 	st->rh = rh;
 	st->errh = errh;
 	st->arg = arg;
@@ -462,11 +466,28 @@ int wireaudio_set_handlers(const char *convid,
 		return EINVAL;
 
 	wdev = find_device(convid);
-	
+
 	info("wireaudio: set_handlers: convid=%s rh=%p wh=%p arg=%p wdev=%p\n",
 	     convid, rh, wh, arg, wdev);
-	
-	if (!wdev) {
+
+	if (wdev) {
+		lock_write_get(wdev->lock);
+		if (rh || wh) {
+			wdev->cnt++;
+		}
+		else {
+			wdev->cnt--;
+			if (0 == wdev->cnt) {
+				wdev->wa.rh = NULL;
+				wdev->wa.wh = NULL;
+				wdev->wa.arg = NULL;
+			}
+		}
+		lock_rel(wdev->lock);
+
+		return 0;
+	}
+	else {
 		if (rh == NULL || wh == NULL)
 			return 0;
 		
@@ -474,13 +495,14 @@ int wireaudio_set_handlers(const char *convid,
 				   PSTN_SRATE, PSTN_PTIME, PSTN_CHAN);
 		if (err)
 			goto out;
-	}
 
-	lock_write_get(wdev->lock);
-	wdev->wa.rh = rh;
-	wdev->wa.wh = wh;
-	wdev->wa.arg = arg;
-	lock_rel(wdev->lock);
+		lock_write_get(wdev->lock);
+		wdev->cnt = 1;
+		wdev->wa.rh = rh;
+		wdev->wa.wh = wh;
+		wdev->wa.arg = arg;
+		lock_rel(wdev->lock);
+	}
 
  out:
 	return err;
