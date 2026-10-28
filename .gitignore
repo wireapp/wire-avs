@@ -63,3 +63,6 @@ devtools/
 
 /kmp/build
 /test/kmp/build
+
+/doc/connection_test.md
+/doc/shig.md

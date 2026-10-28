@@ -72,6 +72,7 @@ struct mq_data {
 			int conv_type;
 			bool audio_cbr;
 		        bool meeting;
+			bool is_test;
 		} start;
 
 		struct {
@@ -381,7 +382,8 @@ static void mqueue_handler(int id, void *data, void *arg)
 					&wcall,
 					md->convid,
 					md->u.start.conv_type,
-					md->u.start.meeting);
+					md->u.start.meeting,
+					md->u.start.is_test);
 			if (err || !wcall)
 				goto out;
 		}
@@ -854,6 +856,7 @@ int wcall_start(WUSER_HANDLE wuser,
 	md->u.start.conv_type = conv_type;
 	md->u.start.audio_cbr = (bool)audio_cbr;
 	md->u.start.meeting = meeting == 1;
+	md->u.start.is_test = false;
 
 	err = md_enqueue(md);
 	if (err)
@@ -864,7 +867,17 @@ int wcall_start(WUSER_HANDLE wuser,
 }
 
 
-AVS_EXPORT 
+AVS_EXPORT
+int wcall_start_test(WUSER_HANDLE wuser, int video)
+{
+	/* API placeholder; connection-test behavior will be added separately. */
+	(void)wuser;
+	(void)video;
+	return 0;
+}
+
+
+AVS_EXPORT
 int wcall_answer(WUSER_HANDLE wuser,
 		 const char *convid,
 		 int call_type,

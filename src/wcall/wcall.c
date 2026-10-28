@@ -189,6 +189,7 @@ struct wcall {
 	char *convid;
 	int conv_type;
         int duration;
+	bool is_test; /* Connection-test session; independent of conversation ID. */
 
 	struct icall *icall;
 
@@ -1891,11 +1892,18 @@ static void icall_req_new_epoch_handler(struct icall *icall, void *arg)
 }
 
 
+bool wcall_is_test(const struct wcall *wcall)
+{
+	return wcall && wcall->is_test;
+}
+
+
 int wcall_add(struct calling_instance *inst,
 	      struct wcall **wcallp,
 	      const char *convid,
 	      int conv_type,
-	      bool meeting)
+	      bool meeting,
+	      bool is_test)
 {	
 	struct wcall *wcall;
 	struct zapi_ice_server *turnv = NULL;
@@ -1923,6 +1931,7 @@ int wcall_add(struct calling_instance *inst,
 
 	wcall->inst = inst;
 	wcall->conv_type = conv_type;
+	wcall->is_test = is_test;
 
 	info(APITAG "wcall(%p): added for convid=%s inst=%p\n", wcall,
 	     anon_id(convid_anon, convid), inst);
@@ -2510,32 +2519,32 @@ static int add_wcall(struct wcall **wcall,
 	    && econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				WCALL_CONV_TYPE_GROUP,
-				meeting);
+				meeting, false);
 	}
 	else if (msg->msg_type == ECONN_GROUP_CHECK
 		 && !econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				WCALL_CONV_TYPE_GROUP,
-				meeting);
+				meeting, false);
 	}
 	else if (msg->msg_type == ECONN_CONF_START
 		 && econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
 				WCALL_CONV_TYPE_CONFERENCE,
-				meeting);
+				meeting, false);
 	}
 	else if (msg->msg_type == ECONN_CONF_CHECK
 		 && !econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
 				WCALL_CONV_TYPE_CONFERENCE,
-				meeting);
+				meeting, false);
 	}
 	else if (econn_is_creator(inst->userid, userid, msg)) {
 		err = wcall_add(inst, wcall, convid,
 				WCALL_CONV_TYPE_ONEONONE,
-				meeting);
+				meeting, false);
 		if (err) {
 			warning("wcall(%p): wcall_add failed: %m\n", inst, err);
 		}

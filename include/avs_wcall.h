@@ -350,6 +350,11 @@ int wcall_start(WUSER_HANDLE wuser, const char *convid,
 		int audio_cbr /*bool*/,
                 int meeting /*bool*/);
 
+/* Connection-test placeholder: performs no work and returns 0.
+ * Audio is mandatory; set video to 0 for audio only, 1 for audio and video.
+ */
+int wcall_start_test(WUSER_HANDLE wuser, int video);
+
 /* Returns 0 if successfull
  * Set call_type from defines above.
  * Set audio_cbr to 0 for false, non-zero for true.

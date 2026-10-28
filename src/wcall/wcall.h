@@ -28,7 +28,9 @@ struct wcall_marshal *wcall_get_marshal(struct calling_instance *inst);
 struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid);
 int  wcall_add(struct calling_instance *inst,
 	       struct wcall **wcallp, const char *convid,
-	       int conv_type, bool meeting);
+	       int conv_type, bool meeting, bool is_test);
+/* Connection-test identity is fixed when the call is allocated. */
+bool wcall_is_test(const struct wcall *wcall);
 void wcall_mcat_changed(struct calling_instance *inst,
 			enum mediamgr_state state);
 void wcall_audio_route_changed(struct calling_instance *inst,

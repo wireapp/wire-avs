@@ -455,7 +455,7 @@ $(DIST_WASM_PC_TARGET):
 $(DIST_WASM_PKG_TARGET):
 	(rm -f $@ && jq '.version = "$(DIST_WASM_PKG_VERSION)"' > $@) < $@
 
-$(DIST_WASM_WC_TARGET):
+$(DIST_WASM_WC_TARGET): include/avs_wcall.h wasm/avs_wcall.template wasm/wcall2ts.py
 	@mkdir -p $(BUILD_DIST_WASM)
 	@./wasm/wcall2ts.py include/avs_wcall.h wasm/avs_wcall.template $@
 
