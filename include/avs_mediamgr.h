@@ -135,6 +135,12 @@ void mediamgr_bt_device_connected(struct mm *mm, bool connected);
 
 void mediamgr_device_changed(struct mm *mm);	
 
+/* The platform changed the call route, or its devices, by itself.
+ * The media manager decides whether to keep or restore the route.
+ */
+void mediamgr_platform_route_changed(struct mm *mm);
+void mediamgr_platform_devices_changed(struct mm *mm);
+
 	
 #ifdef __cplusplus
 }
