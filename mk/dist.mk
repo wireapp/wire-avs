@@ -438,7 +438,7 @@ $(DIST_WASM_JS_TARGET): mk/dist.mk
 		$(BUILD_BASE)/wasm-generic/lib/libsodium.a \
 		$(BUILD_BASE)/wasm-generic/lib/libssl.a \
 		$(BUILD_BASE)/wasm-generic/lib/libcrypto.a \
-		-s EXPORTED_RUNTIME_METHODS='["ccall", "cwrap", "addFunction", "UTF8ToString", "lengthBytesUTF8", "stringToUTF8"]' \
+		-s EXPORTED_RUNTIME_METHODS='["ccall", "cwrap", "addFunction", "UTF8ToString", "lengthBytesUTF8", "stringToUTF8", "HEAPU8"]' \
 		-s EXPORTED_FUNCTIONS='["_wcall_init", "_malloc", "_free"]' \
                 -s TOTAL_MEMORY=134217728 \
 		-s RESERVED_FUNCTION_POINTERS=128 \
