@@ -429,7 +429,7 @@ else
 DIST_WASM_WITH_SOURCE_MAP :=
 endif
 
-$(DIST_WASM_JS_TARGET):
+$(DIST_WASM_JS_TARGET): mk/dist.mk
 	$(MAKE) AVS_OS=wasm AVS_ARCH=generic avs
 	@mkdir -p $(BUILD_DIST_WASM)/src
 	$(EMCC) $(DIST_WASM_WITH_SOURCE_MAP) -o $(DIST_WASM_JS_TARGET) \
@@ -444,6 +444,7 @@ $(DIST_WASM_JS_TARGET):
 		-s RESERVED_FUNCTION_POINTERS=128 \
 		-s SINGLE_FILE=1 \
 		-s MODULARIZE=1 \
+		-s ENVIRONMENT='web,worker' \
 		-s EXPORT_NAME='avs_core'
 
 $(DIST_WASM_PC_TARGET):
