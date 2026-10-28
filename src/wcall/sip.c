@@ -141,7 +141,7 @@ static struct conv_entry *get_conv_entry(struct wsip_ua *wua,
 	for(le = wua->convl.head; le && !found; le = le->next) {
 		ce = le->data;
 
-		found = ce->convid == convid;
+		found = streq(ce->convid, convid);
 	}
 
 	return found ? ce : NULL;
