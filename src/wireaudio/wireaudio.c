@@ -486,7 +486,7 @@ int wireaudio_set_handlers(const char *convid,
 		}
 		else if (wdev->handler_cnt > 0) {
 			wdev->handler_cnt--;
-			if (0 == wdev->cnt) {
+			if (0 == wdev->handler_cnt) {
 				wdev->wa.rh = NULL;
 				wdev->wa.wh = NULL;
 				wdev->wa.arg = NULL;
