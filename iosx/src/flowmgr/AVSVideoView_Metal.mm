@@ -241,7 +241,7 @@
 
 - (BOOL)setupTexturesForFrame:(struct avs_vidframe *)frame
 {
-	BOOL needsUpdate = NO;
+	BOOL sizeChanged = frame->w != _oldWidth || frame->h != _oldHeight;
 	
 	if (!_vertexBuffer) {
 		warning("AVSVideoView_metal: setupTexturesFromFrame: no vertex buffer\n");
@@ -250,8 +250,7 @@
 
 	// Recompute the texture cropping and recreate vertexBuffer if necessary.
 	if (frame->rotation != _oldRotation
-	  || frame->w != _oldWidth
-	  || frame->h != _oldHeight
+	  || sizeChanged
 	  || _forceRecalc) {
 		[self getVertexData:frame
 			     buffer:(float *)_vertexBuffer.contents];
@@ -259,11 +258,12 @@
 		_oldWidth = frame->w;
 		_oldHeight = frame->h;
 		_forceRecalc = NO;
-		needsUpdate = YES;
 	}
 	
+	// Only a new frame size needs new textures; rotation, scaling and
+	// layout changes are handled by the vertex data above.
 	// Luma (y) texture.
-	if (!_lumaDescriptor || needsUpdate) {
+	if (!_yTexture || sizeChanged) {
 		_lumaDescriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
 										     width:frame->w
 										    height:frame->h
@@ -278,7 +278,7 @@
 		     bytesPerRow:frame->ys];
 
 	// Chroma (u,v) textures
-	if (!_chromaDescriptor || needsUpdate) {
+	if (!_uTexture || !_vTexture || sizeChanged) {
 		_chromaWidth = frame->w / 2;
 		_chromaHeight = frame->h / 2;
 		_chromaDescriptor =
@@ -308,6 +308,10 @@
 
 - (void)render:(CADisplayLink*)displayLink
 {
+	id<MTLTexture> yTexture;
+	id<MTLTexture> uTexture;
+	id<MTLTexture> vTexture;
+
 	[_lock lock];
 	if (!_running || _paused) {
 		[_lock unlock];
@@ -318,6 +322,12 @@
 		[_lock unlock];
 		return;
 	}
+
+	// handleFrame: replaces (and releases) the textures under _lock on the
+	// decoder thread, so take our own references before dropping it.
+	yTexture = _yTexture;
+	uTexture = _uTexture;
+	vTexture = _vTexture;
 	[_lock unlock];
 	
 	//__block dispatch_semaphore_t blockSem = _gpuSemaphore;
@@ -356,9 +366,9 @@
 	[renderEncoder setRenderPipelineState:_pipelineState];
 	[renderEncoder setVertexBuffer:_vertexBuffer offset:0 atIndex:0];
 
-	[renderEncoder setFragmentTexture:_yTexture atIndex:0];
-	[renderEncoder setFragmentTexture:_uTexture atIndex:1];
-	[renderEncoder setFragmentTexture:_vTexture atIndex:2];
+	[renderEncoder setFragmentTexture:yTexture atIndex:0];
+	[renderEncoder setFragmentTexture:uTexture atIndex:1];
+	[renderEncoder setFragmentTexture:vTexture atIndex:2];
 
 	[renderEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
 			  vertexStart:0
