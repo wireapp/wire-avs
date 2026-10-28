@@ -152,6 +152,9 @@ pipeline {
                         // run slow tests
                         sh './ztest-slow'
 
+                        // Exercise the iOS Metal renderer with controlled GPU completion.
+                        sh 'bash test/iosx/metal-renderer/run.sh'
+
                         // build
                         sh 'make avs_clean dist_clean'
                         sh '''#!/bin/bash
