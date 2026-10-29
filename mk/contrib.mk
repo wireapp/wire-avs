@@ -264,19 +264,26 @@ $(CONTRIB_WEBRTC_ZIP_FILES):
 CONTRIB_WEBRTC_TARGET := \
 	$(CONTRIB_WEBRTC_ROOT)/$(WEBRTC_VER)/lib/$(AVS_PAIR)/libwebrtc.a
 
-$(CONTRIB_WEBRTC_TARGET): $(CONTRIB_WEBRTC_ZIP_FILES)
-	@if [ ! -f "$@" ]; then \
-		mkdir -p $(CONTRIB_WEBRTC_ROOT) && \
-		cd $(CONTRIB_WEBRTC_ROOT) && \
-		for zip in $(CONTRIB_WEBRTC_ZIP_FILES); do \
-			echo Unpacking `basename $$zip`; \
-			unzip -oq $$zip; \
-		done; \
-		mkdir -p $(CONTRIB_WEBRTC_ROOT)/$(WEBRTC_VER)/lib/wasm-generic; \
-		touch $(CONTRIB_WEBRTC_ROOT)/$(WEBRTC_VER)/lib/wasm-generic/libwebrtc.a; \
-	fi
+# unzip restores the archive's timestamps, which are older than the
+# downloaded zips, so track unpacking with a stamp file instead.
+#
+CONTRIB_WEBRTC_STAMP := $(CONTRIB_WEBRTC_ROOT)/$(WEBRTC_VER)/.unpacked
 
-contrib_webrtc: $(CONTRIB_WEBRT_TARGET)
+$(CONTRIB_WEBRTC_STAMP): $(CONTRIB_WEBRTC_ZIP_FILES)
+	@mkdir -p $(CONTRIB_WEBRTC_ROOT) && \
+	cd $(CONTRIB_WEBRTC_ROOT) && \
+	for zip in $(CONTRIB_WEBRTC_ZIP_FILES); do \
+		echo Unpacking `basename $$zip`; \
+		unzip -oq $$zip || exit 1; \
+	done
+	@mkdir -p $(CONTRIB_WEBRTC_ROOT)/$(WEBRTC_VER)/lib/wasm-generic
+	@touch $(CONTRIB_WEBRTC_ROOT)/$(WEBRTC_VER)/lib/wasm-generic/libwebrtc.a
+	@touch $@
+
+$(CONTRIB_WEBRTC_TARGET): $(CONTRIB_WEBRTC_STAMP)
+	@touch -c $@
+
+contrib_webrtc: $(CONTRIB_WEBRTC_TARGET)
 
 contrib_webrtc_clean:
 	@rm -rf $(CONTRIB_WEBRTC_ROOT)
@@ -370,9 +377,9 @@ endif
 
 $(CONTRIB_LIBRE_TARGET): $(TOOLCHAIN_MASTER) \
 			 $(CONTRIB_LIBRE_FILES) \
-			 $(CONTRIB_WEBRTC_TARGET) \
-			 $(CONTRIB_OPENSSL_TARGET)
-	cd $(CONTRIB_LIBRE_PATH) && \
+			 $(CONTRIB_OPENSSL_TARGET) \
+			 | $(CONTRIB_WEBRTC_TARGET)
+	@cd $(CONTRIB_LIBRE_PATH) && \
 		rm -rf build-$(AVS_OS)-$(AVS_ARCH) && \
 		rm -f libre.a && \
 		make libre.a $(JOBS) \
