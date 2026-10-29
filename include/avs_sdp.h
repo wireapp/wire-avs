@@ -24,11 +24,33 @@ int sdp_dup(struct sdp_session **sessp,
 const char *sdp_sess2str(struct sdp_session *sess);	
 
 /* Opus ptime (ms) and maxaveragebitrate (bps) for the SDPs negotiated from
- * now on (default 20 and 32000): put in the local offers and answers (what
+ * now on (default 20 and 24000): put in the local offers and answers (what
  * the remote side should send) and in the remote ones before they are
  * applied (what our encoder sends); 0 leaves one out.
  */
 void sdp_set_audio_params(int ptime, int max_bitrate);
+
+/* Protection against packet loss for the calls set up from now on; 0 turns
+ * one off (all 0 is the plain WebRTC behaviour):
+ *  red          opus RED (RFC 2198) with this many earlier frames in each
+ *               packet (1..9, default 1); RED is negotiated (kept in the
+ *               SDPs) only when set
+ *  fec_loss_pct lowest packet loss (%) the opus encoder assumes, so that its
+ *               in-band FEC is on from the start (1..100, default 15)
+ *  max_bitrate  bandwidth estimate cap (bps) while there is no video; limits
+ *               the probing padding (default 100000)
+ *  jb_min_ms    jitter buffer minimum delay (ms) of the received audio
+ *               (default 60)
+ */
+struct sdp_loss_params {
+	int red;
+	int fec_loss_pct;
+	int max_bitrate;
+	int jb_min_ms;
+};
+
+void sdp_set_loss_params(const struct sdp_loss_params *lp);
+void sdp_get_loss_params(struct sdp_loss_params *lp);
 
 const char *sdp_modify_offer(struct sdp_session *sess,
 			     enum icall_conv_type conv_type,
