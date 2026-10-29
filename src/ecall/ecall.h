@@ -152,6 +152,7 @@ struct ecall {
 
 	struct {
 		char *path;
+		char *play_path;
 	} record;
 
 	struct econn *econn_pending;

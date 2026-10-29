@@ -16,6 +16,7 @@ int jsflow_alloc(struct iflow		**flowp,
 		 enum icall_call_type	call_type,
 		 enum icall_vstate	vstate,
 		 const char             *rec_path,
+		 const char             *play_path,
 		 void			*extarg);
 
 #ifdef __cplusplus

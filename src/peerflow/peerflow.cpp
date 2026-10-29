@@ -221,6 +221,7 @@ struct peerflow {
 	bool sdp_needs_munging;
 
 	char *rec_path;
+	char *play_path;
 };
 
 
@@ -856,8 +857,9 @@ static void create_pc_deps(struct peerflow *pf,
 				 *pc_deps.env,
 				 webrtc::AudioDeviceModule::AudioLayer::kAndroidOpenSLESAudio);
 #else
-	if (pf && pf->rec_path) {
-		pc_deps.adm = new webrtc::record_audiodevice(pf->rec_path);
+	if (pf && (pf->rec_path || pf->play_path)) {
+		pc_deps.adm = new webrtc::record_audiodevice(pf->rec_path,
+							     pf->play_path);
 	}
 	else if (msystem_is_pstn()) {
 		pc_deps.adm = new webrtc::pstn_audiodevice(true);
@@ -2099,8 +2101,8 @@ static int create_pf(struct peerflow *pf)
 	webrtc::PeerConnectionFactoryDependencies pc_deps;
 	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
 
-	if (pf->rec_path) {
-		// we will create a new PeerConnectionFactory for each call in case of audio recording
+	if (pf->rec_path || pf->play_path) {
+		// we will create a new PeerConnectionFactory for each call in case of audio recording or playback
 		create_pc_deps(pf, pc_deps);
 		factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
 	} else {
@@ -2255,6 +2257,7 @@ static void pf_destructor(void *arg)
 	mem_deref(pf->clientid_self);
 	mem_deref(pf->clientid_remote);
 	mem_deref(pf->rec_path);
+	mem_deref(pf->play_path);
 	mem_deref(pf->cm);
 	mem_deref(pf->stats);
 
@@ -2435,6 +2438,7 @@ int peerflow_alloc(struct iflow		**flowp,
 		   enum icall_call_type	call_type,
 		   enum icall_vstate	vstate,
 		   const char           *rec_path,
+		   const char           *play_path,
 		   void			*extarg)
 {
 	struct peerflow *pf;
@@ -2487,6 +2491,7 @@ int peerflow_alloc(struct iflow		**flowp,
 	str_dup(&pf->userid_self, userid_self);
 	str_dup(&pf->clientid_self, clientid_self);
 	str_dup(&pf->rec_path, rec_path);
+	str_dup(&pf->play_path, play_path);
 	pf->conv_type = conv_type;
 	pf->call_type = call_type;
 	pf->vstate = vstate;

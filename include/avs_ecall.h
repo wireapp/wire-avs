@@ -183,3 +183,4 @@ int ecall_set_ping_handler(struct ecall *ecall,
 			   ecall_ping_h *pingh);
 
 int ecall_audio_record(struct ecall *ecall, const char *path);
+int ecall_audio_play(struct ecall *ecall, const char *path);

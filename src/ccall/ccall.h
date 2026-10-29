@@ -158,4 +158,5 @@ struct ccall {
 	} meeting;
 
 	char *rec_path;
+	char *play_path;
 };

@@ -648,6 +648,7 @@ static void ecall_destructor(void *data)
 	mem_deref(ecall->media_laddr);
 
 	mem_deref(ecall->record.path);
+	mem_deref(ecall->record.play_path);
 
 	//list_flush(&ecall->audio.level.l);
 	
@@ -2126,6 +2127,7 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 			  call_type,
 			  ecall->vstate,
 			  ecall->record.path,
+			  ecall->record.play_path,
 			  ecall->icall.arg);
 
 	if (err) {
@@ -3517,6 +3519,16 @@ int ecall_audio_record(struct ecall *ecall, const char *path)
 		return EINVAL;
 
 	str_dup(&ecall->record.path, path);
+
+	return 0;
+}
+
+int ecall_audio_play(struct ecall *ecall, const char *path)
+{
+	if (!ecall)
+		return EINVAL;
+
+	str_dup(&ecall->record.play_path, path);
 
 	return 0;
 }

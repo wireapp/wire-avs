@@ -110,3 +110,5 @@ struct keystore *ccall_get_keystore(struct ccall *ccall);
 
 int ccall_audio_record(struct icall* icall,
 		       const char *path);
+int ccall_audio_play(struct icall* icall,
+		     const char *path);
