@@ -4632,6 +4632,12 @@ void wcall_i_set_audio_files(struct calling_instance *inst,
 }
 
 AVS_EXPORT
+void wcall_set_audio_params(int ptime, int max_bitrate)
+{
+	sdp_set_audio_params(ptime, max_bitrate);
+}
+
+AVS_EXPORT
 int wcall_set_proxy(const char *host, int port)
 {
 	return msystem_set_proxy(host, port);

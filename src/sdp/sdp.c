@@ -33,10 +33,17 @@ enum {
       VIDEO_GROUP_BANDWIDTH = 800,
 };
 
-/* Opus frame length (ms) and max average bitrate (bps) */
-#define AUDIO_PTIME            60
-#define AUDIO_MAX_AVG_BITRATE  16000
-      
+/* Opus ptime (ms) and maxaveragebitrate (bps) put in the local SDP (asking
+ * the remote side to send with them) and in the remote SDP (so our encoder
+ * uses them); 0 leaves one out. See sdp_set_audio_params.
+ */
+static struct {
+	int ptime;
+	int max_bitrate;
+} audio_params = {
+	.ptime = 20,
+	.max_bitrate = 32000,
+};
 
 struct norelay_elem {
 	peerflow_norelay_h *h;
@@ -390,28 +397,50 @@ static void sdp_set_bandwidth(struct sdp_media *sdpm, bool screenshare)
 }
 #endif
 
-static void sdp_set_audio_params(struct sdp_media *sdpm)
+void sdp_set_audio_params(int ptime, int max_bitrate)
+{
+	audio_params.ptime = ptime > 0 ? ptime : 0;
+	audio_params.max_bitrate = max_bitrate > 0 ? max_bitrate : 0;
+
+	info("sdp: audio params: ptime=%d maxaveragebitrate=%d\n",
+	     audio_params.ptime, audio_params.max_bitrate);
+}
+
+static void set_audio_params(struct sdp_media *sdpm)
 {
 	const struct list *fmtl;
 	struct le *fle;
 
-	sdp_media_set_lattr(sdpm, true, "ptime", "%d", AUDIO_PTIME);
-	sdp_media_set_lattr(sdpm, true, "maxptime", "%d", AUDIO_PTIME);
+	if (audio_params.ptime > 0) {
+		sdp_media_set_lattr(sdpm, true, "ptime", "%d",
+				    audio_params.ptime);
+		sdp_media_set_lattr(sdpm, true, "maxptime", "%d",
+				    audio_params.ptime);
+	}
+
+	if (audio_params.max_bitrate <= 0)
+		return;
 
 	fmtl = sdp_media_format_lst(sdpm, true);
 	LIST_FOREACH(fmtl, fle) {
 		struct sdp_format *fmt = (struct sdp_format *)fle->data;
-		char *params;
+		char *params = NULL;
 
 		if (!strcaseeq(fmt->name, "opus"))
 			continue;
 		if (fmt->params && strstr(fmt->params, "maxaveragebitrate="))
 			continue;
 
-		str_dup(&params, fmt->params);
-		sdp_format_set_params(fmt, "%s;maxaveragebitrate=%d",
-				      params, AUDIO_MAX_AVG_BITRATE);
-		mem_deref(params);
+		if (str_isset(fmt->params)) {
+			str_dup(&params, fmt->params);
+			sdp_format_set_params(fmt, "%s;maxaveragebitrate=%d",
+					      params, audio_params.max_bitrate);
+			mem_deref(params);
+		}
+		else {
+			sdp_format_set_params(fmt, "maxaveragebitrate=%d",
+					      audio_params.max_bitrate);
+		}
 	}
 }
 
@@ -425,7 +454,7 @@ static void sdp_sess_set_audio_params(struct sdp_session *sess)
 		struct sdp_media *sdpm = (struct sdp_media *)le->data;
 
 		if (streq(sdp_media_name(sdpm), "audio"))
-			sdp_set_audio_params(sdpm);
+			set_audio_params(sdpm);
 	}
 }
 
@@ -451,7 +480,7 @@ const char *sdp_modify_offer(struct sdp_session *sess,
 
 		if (streq(sdp_media_name(sdpm), "audio")) {
 			debug("sdp_modify_offer: audio_cbr=%d\n", audio_cbr);
-			sdp_set_audio_params(sdpm);
+			set_audio_params(sdpm);
 			if (audio_cbr) {
 				const struct list *fmtl;
 				struct le *fle;
@@ -507,7 +536,8 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 		}
 
 		if (streq(sdp_media_name(sdpm), "audio")) {
-			sdp_set_audio_params(sdpm);
+			set_audio_params(sdpm);
+
 			if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
 				const struct list *fmtl;
 				struct le *fle;

@@ -23,6 +23,13 @@ int sdp_dup(struct sdp_session **sessp,
 
 const char *sdp_sess2str(struct sdp_session *sess);	
 
+/* Opus ptime (ms) and maxaveragebitrate (bps) for the SDPs negotiated from
+ * now on (default 20 and 32000): put in the local offers and answers (what
+ * the remote side should send) and in the remote ones before they are
+ * applied (what our encoder sends); 0 leaves one out.
+ */
+void sdp_set_audio_params(int ptime, int max_bitrate);
+
 const char *sdp_modify_offer(struct sdp_session *sess,
 			     enum icall_conv_type conv_type,
 			     bool screenshare,

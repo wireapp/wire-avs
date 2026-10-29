@@ -511,6 +511,15 @@ void wcall_handle_frame(struct avs_vidframe *frame);
 int wcall_set_proxy(const char *host, int port);
 
 /**
+ * Opus ptime (ms) and maxaveragebitrate (bps) for all instances and the calls
+ * negotiated from now on (a=ptime/maxptime and the opus fmtp): the local SDP
+ * asks the remote side to send with them, and the remote SDP is changed to
+ * them before it is applied, so our encoder uses them too (a remote
+ * maxaveragebitrate is kept). Defaults: 20 and 32000; 0 leaves one out.
+ */
+void wcall_set_audio_params(int ptime, int max_bitrate);
+
+/**
  * Client list management (conference calls).
  */
 typedef void (wcall_req_clients_h)(WUSER_HANDLE wuser,
