@@ -515,7 +515,7 @@ int wcall_set_proxy(const char *host, int port);
  * negotiated from now on (a=ptime/maxptime and the opus fmtp): the local SDP
  * asks the remote side to send with them, and the remote SDP is changed to
  * them before it is applied, so our encoder uses them too (a remote
- * maxaveragebitrate is kept). Defaults: 20 and 24000; 0 leaves one out.
+ * maxaveragebitrate is kept). Defaults: 40 and 24000; 0 leaves one out.
  */
 void wcall_set_audio_params(int ptime, int max_bitrate);
 

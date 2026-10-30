@@ -24,7 +24,7 @@ int sdp_dup(struct sdp_session **sessp,
 const char *sdp_sess2str(struct sdp_session *sess);	
 
 /* Opus ptime (ms) and maxaveragebitrate (bps) for the SDPs negotiated from
- * now on (default 20 and 24000): put in the local offers and answers (what
+ * now on (default 40 and 24000): put in the local offers and answers (what
  * the remote side should send) and in the remote ones before they are
  * applied (what our encoder sends); 0 leaves one out.
  */
