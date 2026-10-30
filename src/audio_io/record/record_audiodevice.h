@@ -27,7 +27,10 @@
 namespace webrtc {
     class record_audiodevice : public audio_io_class {
     public:
-	    record_audiodevice(bool realtime = false);
+	    /* rec_path: playout written as raw 16-bit mono PCM at FS_KHZ (or NULL);
+	     * play_path: raw PCM in the same format sent instead of the microphone,
+	     * looped (or NULL: silence). */
+	    record_audiodevice(const char *rec_path, const char *play_path);
 	    ~record_audiodevice();
 	    void AddRef() const {};
 	    RefCountReleaseStatus Release() const {
@@ -189,6 +192,7 @@ namespace webrtc {
 	    void* record_thread();
 	    void* playout_thread();
     private:
+	    void read_play_frame(FILE *fp, int16_t *buf);
 	    AudioTransport* audioCallback_;
 	    pthread_t rec_tid_ = 0;
 	    pthread_t play_tid_ = 0;
@@ -201,6 +205,9 @@ namespace webrtc {
 	    float omega_;
 	    bool muted_;
 	    bool noise_;
+	    char *rec_path_;
             FILE *fp_;
+	    bool rec_opened_;
+	    char *play_path_;
     };
 }

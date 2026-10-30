@@ -73,6 +73,7 @@ extern "C" {
 #include "stats.h"
 
 #include "src/audio_io/pstn/pstn_audiodevice.h"
+#include "src/audio_io/record/record_audiodevice.h"
 
 #include <avs_peerflow.h>
 
@@ -86,7 +87,6 @@ extern "C" {
 
 #define DOUBLE_ENCRYPTION 1
 
-#define GROUP_PTIME 40
 
 #define SCALABILITY_MODE "L1T1"
 
@@ -219,6 +219,9 @@ struct peerflow {
 	bool selective_audio;
 	bool selective_video;
 	bool sdp_needs_munging;
+
+	char *rec_path;
+	char *play_path;
 };
 
 
@@ -825,9 +828,53 @@ int peerflow_set_funcs(void)
 	return 0;
 }
 
+void peerflow_set_adm(void *adm)
+{
+	(void)adm;
+}
+
+static void create_pc_deps(struct peerflow *pf,
+			   webrtc::PeerConnectionFactoryDependencies &pc_deps)
+{
+	pc_deps.env = webrtc::CreateEnvironment(WireFieldTrials().CreateCopy());
+	pc_deps.signaling_thread = g_pf.thread.get();
+	pc_deps.network_thread = webrtc::Thread::Current();
+	pc_deps.worker_thread = webrtc::Thread::Current();
+	pc_deps.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
+
+	/* Audio */
+	pc_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
+	pc_deps.audio_decoder_factory =	webrtc::CreateBuiltinAudioDecoderFactory();
+
+	/* Video */
+	pc_deps.video_encoder_factory =
+		std::make_unique<webrtc::VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter>>();
+	pc_deps.video_decoder_factory =
+		std::make_unique<webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter>>();
+
+#ifdef ANDROID
+	pc_deps.adm = webrtc::CreateAndroidAudioDeviceModule(
+				 *pc_deps.env,
+				 webrtc::AudioDeviceModule::AudioLayer::kAndroidOpenSLESAudio);
+#else
+	if (pf && (pf->rec_path || pf->play_path)) {
+		pc_deps.adm = new webrtc::record_audiodevice(pf->rec_path,
+							     pf->play_path);
+	}
+	else if (msystem_is_pstn()) {
+		pc_deps.adm = new webrtc::pstn_audiodevice(true);
+	}
+	else {
+		pc_deps.adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
+	}
+#endif
+
+	/* Media must be explicilty enabled */
+	webrtc::EnableMedia(pc_deps);
+}
+
 int peerflow_init(void)
 {
-	webrtc::AudioDeviceModule *adm;
 	webrtc::PeerConnectionFactoryDependencies pc_deps;
 	int err;
 
@@ -865,45 +912,10 @@ int peerflow_init(void)
 		info("pf: platform initialized\n");		
 	});
 
-	pc_deps.env = webrtc::CreateEnvironment(WireFieldTrials().CreateCopy());
-
-#ifdef ANDROID
-	pc_deps.adm = webrtc::CreateAndroidAudioDeviceModule(
-				 *pc_deps.env,
-				 webrtc::AudioDeviceModule::AudioLayer::kAndroidOpenSLESAudio);
-#else
-	if (msystem_is_pstn()) {
-		pc_deps.adm = new webrtc::pstn_audiodevice(true);
-	}
-	else {
-		adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
-		if (adm)
-			pc_deps.adm = adm;
-	}
-#endif
-
-	pc_deps.signaling_thread = g_pf.thread.get();
-	//pc_deps.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
-	pc_deps.network_thread = webrtc::Thread::Current();
-	pc_deps.worker_thread = webrtc::Thread::Current();
-	pc_deps.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
-
-	/* Media dependencies */
-
-	/* Audio */
-	pc_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
-	pc_deps.audio_decoder_factory =	webrtc::CreateBuiltinAudioDecoderFactory();
-	//pc_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();
-
-	/* Video */
-	pc_deps.video_encoder_factory =
-		std::make_unique<webrtc::VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter>>();
-	pc_deps.video_decoder_factory =
-		std::make_unique<webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter>>();
-
-	/* Media must be explicilty enabled */
-	webrtc::EnableMedia(pc_deps);
-
+	// Regardless of whether we need them, we create a global PeerConnection factory.
+	// This gives us the ability to use it for general calls or to create dedicated
+	// factories for audio recording.
+	create_pc_deps(NULL, pc_deps);
 	g_pf.pc_factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
 
 	if (!g_pf.pc_factory) {
@@ -912,7 +924,6 @@ int peerflow_init(void)
 	}
 
 	g_pf.video.src = webrtc::make_ref_counted<wire::CaptureSource>();
-
 	g_pf.initialized = true;
 
  out:
@@ -924,12 +935,15 @@ void peerflow_destroy(void)
 	info("peerflow_destroy: initialized=%d\n", g_pf.initialized);
 
 	//wire::CaptureSource::ReleaseInstance();
+	g_pf.video.src = nullptr;
 
 	if (!g_pf.initialized)
 		return;
 
 	// This seems to hang forever
 	//g_pf.thread->Stop();
+
+	g_pf.pc_factory = nullptr;
 
 	g_pf.mq.q = (struct mqueue *)mem_deref(g_pf.mq.q);
 	list_flush(&g_pf.mq.l);
@@ -2084,9 +2098,25 @@ static int create_pf(struct peerflow *pf)
 	webrtc::PeerConnectionDependencies deps(pf->observer);
 	deps.allocator = std::move(port_allocator);
 	webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::PeerConnectionInterface>> pcorerr;
-	pcorerr = g_pf.pc_factory->CreatePeerConnectionOrError(
-					*pf->config,
-					std::move(deps));
+	webrtc::PeerConnectionFactoryDependencies pc_deps;
+	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
+
+	if (pf->rec_path || pf->play_path) {
+		// we will create a new PeerConnectionFactory for each call in case of audio recording or playback
+		create_pc_deps(pf, pc_deps);
+		factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
+	} else {
+		// reuse the global PeerConnectionFactory for regular calls to avoid system conflicts
+		factory = g_pf.pc_factory;
+	}
+
+	if (!factory) {
+		err = ENOSYS;
+		return err;
+	}
+
+	pcorerr = factory->CreatePeerConnectionOrError(*pf->config,
+						       std::move(deps));
 	if (!pcorerr.ok()) {
 		warning("peerflow(%p): failed to create PC\n", pf);
 		err = ENOENT;
@@ -2100,8 +2130,8 @@ static int create_pf(struct peerflow *pf)
 	auopts.auto_gain_control = true;
 	auopts.noise_suppression = true;
 	
-	pf->audio.source = g_pf.pc_factory->CreateAudioSource(auopts);
-	pf->audio.track = g_pf.pc_factory->CreateAudioTrack("audio", pf->audio.source.get());
+	pf->audio.source = factory->CreateAudioSource(auopts);
+	pf->audio.track = factory->CreateAudioTrack("audio", pf->audio.source.get());
 	if (g_pf.audio.muted)
 		pf->audio.track->set_enabled(false);
 
@@ -2147,7 +2177,7 @@ static int create_pf(struct peerflow *pf)
 	if (pf->call_type == ICALL_CALL_TYPE_VIDEO ||
 	    pf->vstate != ICALL_VIDEO_STATE_STOPPED) {
 
-		pf->video.track = g_pf.pc_factory->CreateVideoTrack(
+		pf->video.track = factory->CreateVideoTrack(
 			 g_pf.video.src,
 			 "vtrack");
 
@@ -2226,6 +2256,8 @@ static void pf_destructor(void *arg)
 	mem_deref(pf->userid_remote);
 	mem_deref(pf->clientid_self);
 	mem_deref(pf->clientid_remote);
+	mem_deref(pf->rec_path);
+	mem_deref(pf->play_path);
 	mem_deref(pf->cm);
 	mem_deref(pf->stats);
 
@@ -2405,6 +2437,8 @@ int peerflow_alloc(struct iflow		**flowp,
 		   enum icall_conv_type	conv_type,
 		   enum icall_call_type	call_type,
 		   enum icall_vstate	vstate,
+		   const char           *rec_path,
+		   const char           *play_path,
 		   void			*extarg)
 {
 	struct peerflow *pf;
@@ -2456,6 +2490,8 @@ int peerflow_alloc(struct iflow		**flowp,
 	str_dup(&pf->convid, convid);
 	str_dup(&pf->userid_self, userid_self);
 	str_dup(&pf->clientid_self, clientid_self);
+	str_dup(&pf->rec_path, rec_path);
+	str_dup(&pf->play_path, play_path);
 	pf->conv_type = conv_type;
 	pf->call_type = call_type;
 	pf->vstate = vstate;
@@ -2549,28 +2585,6 @@ bool peerflow_is_gathered(const struct iflow *iflow)
 	return pf->gathered;	
 }
 
-#if 0
-static void set_group_audio_params(struct peerflow *pf)
-{
-	std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
-
-	trxs = pf->peerConn->GetTransceivers();
-
-	for(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
-		webrtc::scoped_refptr<webrtc::RtpSenderInterface> tx = trx->sender();
-		if (tx->media_type() != webrtc::MediaType::AUDIO)
-			continue;
-		
-		webrtc::RtpParameters params = tx->GetParameters();
-		std::vector<webrtc::RtpEncodingParameters> encs = params.encodings;
-		for(webrtc::RtpEncodingParameters enc: encs)  {
-			enc.dtx = webrtc::DtxStatus::ENABLED;
-			enc.ptime = GROUP_PTIME;
-		}
-		tx->SetParameters(params);
-	}
-}
-#endif
 
 
 int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
@@ -2608,12 +2622,6 @@ int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
 			warning("pf(%p): no data channel\n", pf);
 		}
 
-#if 0 /* Don't set audio parameters until they are supported by webrtc */
-		if (pc->group_mode != MEDIAFLOW_MODE_ONEONONE) {
-			set_group_audio_params(pc);
-		}
-#endif
-		
 		pf->peerConn->CreateOffer(pf->sdpObserver, *pf->offerOptions);
 	}
 	else if (state == webrtc::PeerConnectionInterface::kHaveRemoteOffer)
@@ -2766,28 +2774,22 @@ int peerflow_handle_offer(struct iflow *iflow,
 	sdp_check(sdp_in, false, true, pf_acbr_handler,
 		  pf_norelay_handler, pf_tool_handler, pf);
 
-	if (!pf->sdp_needs_munging) {
-		sdp_str = (char *)sdp_in;
+	/* Remote SDP drives our encoder's ptime and bitrate */
+	err = sdp_munge_audio(&sdp_str, sdp_in, pf->conv_type, true,
+			      false, pf->sdp_needs_munging);
+	if (err) {
+		warning("peerflow_handle_offer: failed to munge SDP: %m\n", err);
+		return err;
 	}
-	else {
-		err = sdp_munge(&sdp_str, sdp_in, pf->conv_type, true);
-		if (err) {
-			warning("peerflow_handle_offer: failed to munge SDP: %m\n", err);
-			return err;
-		}
-		info("peerflow(%p): handle SDP-offer-munged:\n"
-		     "%s\n",
-		     pf, sdp_str);
-	}
-
+	info("peerflow(%p): handle SDP-offer-munged:\n"
+	     "%s\n",
+	     pf, sdp_str);
 
 	webrtc::SdpParseError parse_err;
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
 		webrtc::CreateSessionDescription(webrtc::SdpType::kOffer,
 						 sdp_str, &parse_err);
-	if (pf->sdp_needs_munging) {
-		mem_deref(sdp_str);
-	}
+	mem_deref(sdp_str);
 
 	if (sdp == nullptr) {
 		warning("peerflow_handle_offer: failed to parse SDP: "
@@ -2812,26 +2814,38 @@ out:
 }
 
 int peerflow_handle_answer(struct iflow *iflow,
-			   const char *sdp_str)
+			   const char *sdp_in)
 {
 	struct peerflow *pf = (struct peerflow*)iflow;
-	char *tool = NULL;
+	char *sdp_str = NULL;
 	int err = 0;
 	
-	if (!pf || !sdp_str)
+	if (!pf || !sdp_in)
 		return EINVAL;
 
 	info("peerflow(%p): handle SDP-answer:\n"
 	     "%s\n",
-	     pf, sdp_str);
+	     pf, sdp_in);
 	
-	sdp_check(sdp_str, false, false, pf_acbr_handler,
+	sdp_check(sdp_in, false, false, pf_acbr_handler,
 		  pf_norelay_handler, pf_tool_handler, pf);
+
+	/* Remote SDP drives our encoder's ptime and bitrate */
+	err = sdp_munge_audio(&sdp_str, sdp_in, pf->conv_type, false,
+			      false, false);
+	if (err) {
+		warning("peerflow_handle_answer: failed to munge SDP: %m\n", err);
+		return err;
+	}
+	info("peerflow(%p): handle SDP-answer-munged:\n"
+	     "%s\n",
+	     pf, sdp_str);
 
 	webrtc::SdpParseError parse_err;
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
 		webrtc::CreateSessionDescription(webrtc::SdpType::kAnswer,
 						 sdp_str, &parse_err);
+	mem_deref(sdp_str);
 
 	if (sdp == nullptr) {
 		warning("peerflow_handle_answer: failed to parse SDP: "

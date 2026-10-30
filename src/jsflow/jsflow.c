@@ -579,11 +579,16 @@ int jsflow_alloc(struct iflow		**flowp,
 		 enum icall_conv_type	conv_type,
 		 enum icall_call_type	call_type,
 		 enum icall_vstate	vstate,
+		 const char             *rec_path,
+		 const char             *play_path,
 		 void			*extarg)
 {
 	struct jsflow *flow;
 	int err = 0;
 
+	(void)rec_path;
+	(void)play_path;
+	
 	info("jsflow_alloc: initialized=%d call_type=%d vstate=%s\n",
 	     g_jf.initialized, call_type, icall_vstate_name(vstate));
 	if (!g_jf.initialized) {
@@ -872,6 +877,7 @@ int jsflow_handle_offer(struct iflow *flow,
 			const char *sdp_str)
 {
 	struct jsflow *jsflow = (struct jsflow*)flow;
+	int err;
 
 	if (!jsflow)
 		return EINVAL;
@@ -891,9 +897,21 @@ int jsflow_handle_offer(struct iflow *flow,
 		  remote_acbr_handler, jf_norelay_handler,
 		  jsflow_tool_handler, jsflow);
 
+	/* Remote SDP drives our encoder's ptime and bitrate */
 	jsflow->remote_sdp = mem_deref(jsflow->remote_sdp);
-	str_dup(&jsflow->remote_sdp, sdp_str);
-	pc_SetRemoteDescription(jsflow->handle, SDP_TYPE_OFFER, sdp_str);
+	err = sdp_munge_audio(&jsflow->remote_sdp, sdp_str,
+			      jsflow->conv_type, true, false, false);
+	if (err) {
+		warning("jsflow(%p): handle_offer: failed to munge SDP: %m\n",
+			jsflow, err);
+		return err;
+	}
+
+	info("jsflow(%p): handle_offer: SDP-offer-munged %s\n",
+	     jsflow, jsflow->remote_sdp);
+
+	pc_SetRemoteDescription(jsflow->handle, SDP_TYPE_OFFER,
+				jsflow->remote_sdp);
 
 	return 0;
 }
@@ -904,6 +922,7 @@ int jsflow_handle_answer(struct iflow *flow,
 {
 	struct jsflow *jsflow = (struct jsflow*)flow;
 	bool has_video;
+	int err;
 	
 	if (!flow)
 		return EINVAL;
@@ -914,11 +933,15 @@ int jsflow_handle_answer(struct iflow *flow,
 	
 	has_video = pc_HasVideo(jsflow->handle);
 
+	/* Remote SDP drives our encoder's ptime and bitrate */
 	jsflow->remote_sdp = mem_deref(jsflow->remote_sdp);
-	if (has_video)
-		str_dup(&jsflow->remote_sdp, sdp_str);
-	else
-		sdp_strip_video(&jsflow->remote_sdp, jsflow->conv_type, sdp_str);
+	err = sdp_munge_audio(&jsflow->remote_sdp, sdp_str,
+			      jsflow->conv_type, false, !has_video, false);
+	if (err) {
+		warning("jsflow(%p): handle_answer: failed to munge SDP: %m\n",
+			jsflow, err);
+		return err;
+	}
 
 	info("jsflow(%p): handle_answer: has_video=%d SDP-answer %s\n",
 	     jsflow, has_video, jsflow->remote_sdp);

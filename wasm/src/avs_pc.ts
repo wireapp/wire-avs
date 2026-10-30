@@ -1722,7 +1722,9 @@ function sdpCbrMap(sdp: string): string {
 
       outline = sdpLine;
 
-      if(sdpLine.endsWith('sprop-stereo=0;useinbandfec=1')) {
+      // match the opus fmtp regardless of param order or appended params
+      // (e.g. maxaveragebitrate)
+      if (/^a=fmtp:\d+ .*useinbandfec=1/.test(sdpLine) && !sdpLine.includes('cbr=1')) {
         outline = sdpLine + ";cbr=1";
       }
       else if (sdpLine.startsWith('a=ssrc-group:')) {

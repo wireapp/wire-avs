@@ -555,7 +555,19 @@ int wcall_process_notifications(WUSER_HANDLE wuser, int processing);
 /**
  * Record audio API
  */
-int wcall_audio_record(WUSER_HANDLE wuser, const char *path);
+int wcall_audio_record(WUSER_HANDLE wuser, const char *convid, const char *path);
+
+/**
+ * Audio files for the calls created after this (1:1 and conference, incoming and
+ * outgoing), replacing the audio device: play_path is sent instead of the microphone
+ * (raw 16-bit native-endian mono PCM at 16 kHz, looped), the call's audio is written to
+ * record_path in the same format instead of the speaker. Either one gives the call the
+ * file device, so nothing is captured from the microphone or played out. NULL clears
+ * a path; both NULL restores the audio device. Calls in progress are not affected.
+ */
+int wcall_set_audio_files(WUSER_HANDLE wuser,
+			  const char *play_path,
+			  const char *record_path);
 
  
 
