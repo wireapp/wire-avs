@@ -1506,6 +1506,21 @@ void pc_local_sdp_handler(int self, int err,
 	mem_deref((void *)modsdp);
 }
 
+int pc_audio_jb_min_ms(void);
+
+/* Jitter buffer minimum (ms) for the received audio, see
+ * sdp_set_loss_params; 0 when off.
+ */
+EMSCRIPTEN_KEEPALIVE
+int pc_audio_jb_min_ms(void)
+{
+	struct sdp_loss_params lp;
+
+	sdp_get_loss_params(&lp);
+
+	return lp.jb_min_ms;
+}
+
 void pc_start_gather_handler(int self);
 
 EMSCRIPTEN_KEEPALIVE
