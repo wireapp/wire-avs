@@ -1153,6 +1153,37 @@ function ccallStartGatherHandler(
 }
 
 
+function ccallAudioJbMinMs(): number {
+  return em_module.ccall("pc_audio_jb_min_ms", "number", [], []);
+}
+
+/* Give the received audio the same jitter buffer minimum as the native
+ * clients (wcall_set_loss_params jb_min_ms), so the packet carrying the RED /
+ * FEC copy of a lost one arrives in time.
+ */
+function setAudioJitterBufferMin(pc: PeerConnection, receiver: RTCRtpReceiver) {
+  const ms = ccallAudioJbMinMs();
+  if (ms <= 0)
+    return;
+
+  const r = receiver as any;
+  try {
+    if ('jitterBufferTarget' in r) {
+      r.jitterBufferTarget = ms;
+    }
+    else if ('playoutDelayHint' in r) {
+      r.playoutDelayHint = ms / 1000;
+    }
+    else {
+      pc_log(LOG_LEVEL_INFO, `setAudioJitterBufferMin: self=${pc.self} not supported`);
+      return;
+    }
+    pc_log(LOG_LEVEL_INFO, `setAudioJitterBufferMin: self=${pc.self} ${ms} ms`);
+  } catch(err) {
+    pc_log(LOG_LEVEL_WARN, "setAudioJitterBufferMin failed: " + err, err);
+  }
+}
+
 function ccallSignallingHandler(pc: PeerConnection, state: number) {
   em_module.ccall(
     "pc_signalling_handler",
@@ -1504,6 +1535,9 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
               }
           }
       }
+
+      if (event.track.kind == "audio")
+          setAudioJitterBufferMin(pc, event.receiver);
 
       if (event.track.kind == "audio" && audioStreamHandler) {
           pc_log(LOG_LEVEL_INFO, `onTrack: calling ash(${pc.convid.substring(0,8)}, ${label}) with ${event.streams.length} streams`);
