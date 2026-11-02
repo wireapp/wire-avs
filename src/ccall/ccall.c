@@ -2879,6 +2879,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	if (!urlv || !urlc) {
 		warning("ccall(%p): no SFT server configured\n", ccall);
 		ccall_end_with_err(ccall, ENOTSUP);
+		err = ENOTSUP;
 		goto out;
 	}
 
@@ -3096,6 +3097,7 @@ int  ccall_start(struct icall *icall,
 		 bool meeting)
 {
 	struct ccall *ccall = (struct ccall*)icall;
+	uint8_t secret[CCALL_SECRET_LEN];
 	int err;
 
 	ccall->error = 0;
@@ -3108,6 +3110,18 @@ int  ccall_start(struct icall *icall,
 		return ccall_answer(icall, call_type, audio_cbr);
 
 	case CCALL_STATE_IDLE:
+		/* A new call gets a new secret. The ccall outlives an
+		 * ended call, and the keystore reset on IDLE cleared the
+		 * salt derived from the old secret: the media keys would
+		 * not match those of the members joining with it.
+		 */
+		randombytes_buf(&secret, CCALL_SECRET_LEN);
+		info("ccall(%p) set_secret from start\n", ccall);
+		err = ccall_set_secret(ccall, secret, CCALL_SECRET_LEN);
+		sodium_memzero(secret, sizeof(secret));
+		if (err)
+			break;
+
 		ccall->is_caller = true;
 		err = ccall_req_cfg_join(ccall, call_type, audio_cbr, false, true);
 		break;
