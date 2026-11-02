@@ -44,6 +44,7 @@
 #endif
 
 #define AUDIO_CBR_STATE_UNSET (-1)
+#define WCALL_TEST_DURATION_MS 20000
 
 #define APITAG "WAPI "
 
@@ -191,6 +192,8 @@ struct wcall {
 	int conv_type;
         int duration;
 	bool is_test; /* Connection-test session; independent of conversation ID. */
+	bool test_connected;
+	struct tmr test_tmr;
 
 	struct icall *icall;
 
@@ -427,6 +430,30 @@ static const char *wcall_vstate_name(int vstate)
 	}
 }
 
+static void test_timeout_handler(void *arg)
+{
+	struct wcall *wcall = arg;
+
+	info("wcall(%p): test duration complete\n", wcall);
+	wcall_i_end(wcall);
+}
+
+
+void wcall_i_test_connected(struct wcall *wcall)
+{
+	if (!wcall_is_test(wcall) || wcall->test_connected ||
+	    wcall->state == WCALL_STATE_TERM_LOCAL ||
+	    wcall->state == WCALL_STATE_TERM_REMOTE)
+		return;
+
+	wcall->test_connected = true;
+	info("wcall(%p): test connected, ending in %u ms\n",
+	     wcall, (unsigned)WCALL_TEST_DURATION_MS);
+	tmr_start(&wcall->test_tmr, WCALL_TEST_DURATION_MS,
+		  test_timeout_handler, wcall);
+}
+
+
 static void set_state(struct wcall *wcall, int st)
 {
 	bool trigger;
@@ -442,6 +469,11 @@ static void set_state(struct wcall *wcall, int st)
 	     wcall, wcall_state_name(wcall->state), wcall_state_name(st));
 
 	wcall->state = st;
+	if (st == WCALL_STATE_MEDIA_ESTAB)
+		wcall_i_test_connected(wcall);
+	else if (st == WCALL_STATE_TERM_LOCAL ||
+		 st == WCALL_STATE_TERM_REMOTE || st == WCALL_STATE_NONE)
+		tmr_cancel(&wcall->test_tmr);
 
 	if (trigger && inst && inst->stateh) {
 		inst->stateh(wcall->convid, wcall->state, inst->arg);
@@ -1261,6 +1293,7 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 		return;
 	}
 
+	tmr_cancel(&wcall->test_tmr);
 	set_state(wcall, WCALL_STATE_INCOMING);
 
 	switch (reason) {
@@ -1628,6 +1661,7 @@ static void destructor(void *arg)
 	bool has_calls;
 
 	info("wcall(%p): dtor -- started\n", wcall);
+	tmr_cancel(&wcall->test_tmr);
 	
 	lock_write_get(inst->lock);
 	if (wcall->is_test) {
@@ -1994,6 +2028,7 @@ int wcall_add(struct calling_instance *inst,
 	wcall->inst = inst;
 	wcall->conv_type = conv_type;
 	wcall->is_test = is_test;
+	tmr_init(&wcall->test_tmr);
 
 	info(APITAG "wcall(%p): added for convid=%s inst=%p\n", wcall,
 	     anon_id(convid_anon, convid), inst);

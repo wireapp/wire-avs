@@ -356,7 +356,9 @@ int wcall_start(WUSER_HANDLE wuser, const char *convid,
  * EALREADY if the test conversation is already present or its start is queued.
  * A concurrent duplicate may also be rejected during asynchronous processing.
  * Connection events use the existing callbacks and an internal conversation ID.
- * Measurement results and automatic test completion are not implemented yet.
+ * Ends automatically 20 seconds after the first established-media event.
+ * Earlier manual termination and normal call errors still end the test.
+ * Measurement results are not implemented yet.
  */
 int wcall_start_test(WUSER_HANDLE wuser, int video);
 

@@ -33,6 +33,8 @@ int  wcall_add(struct calling_instance *inst,
 bool wcall_is_test(const struct wcall *wcall);
 int wcall_alloc_test_convid(struct calling_instance *inst, char **convidp);
 int wcall_i_prepare_test(struct wcall *wcall);
+/* First established-media notification starts the fixed test duration. */
+void wcall_i_test_connected(struct wcall *wcall);
 void wcall_mcat_changed(struct calling_instance *inst,
 			enum mediamgr_state state);
 void wcall_audio_route_changed(struct calling_instance *inst,
