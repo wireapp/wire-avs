@@ -395,11 +395,11 @@ static void mqueue_handler(int id, void *data, void *arg)
 		if (md->u.start.is_test) {
 			err = wcall_i_prepare_test(wcall);
 			if (err) {
-				mem_deref(wcall);
+				wcall_i_end(wcall);
 				goto out;
 			}
 		}
-		{
+		if (!md->u.start.is_test) {
 		       struct duration_entry *dent;
 		       dent = wcall_duration_lookup(md->inst, md->convid);
 		       if (dent) {

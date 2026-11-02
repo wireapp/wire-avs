@@ -19,6 +19,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <math.h>
+#include <sodium.h>
 
 #include <re/re.h>
 #include <avs.h>
@@ -1494,6 +1495,10 @@ static int icall_send_handler(struct icall *icall,
 			"inst=%p\n", wcall, inst);
 		return ENODEV;
 	}
+
+	/* Tests signal to the SFT through sfth, never to a real conversation. */
+	if (wcall_is_test(wcall))
+		return 0;
 	
 	if (inst->sendh == NULL)
 		return ENOSYS;
@@ -1625,6 +1630,17 @@ static void destructor(void *arg)
 	info("wcall(%p): dtor -- started\n", wcall);
 	
 	lock_write_get(inst->lock);
+	if (wcall->is_test) {
+		struct le *le;
+
+		/* Outstanding SFT replies must not reach a later test at this ID. */
+		LIST_FOREACH(&inst->ctxl, le) {
+			struct wcall_ctx *ctx = le->data;
+
+			if (ctx->context == wcall)
+				ctx->context = NULL;
+		}
+	}
 	list_unlink(&wcall->le);
 	has_calls = wcall_has_calls();
 	lock_rel(inst->lock);
@@ -1812,7 +1828,7 @@ static  void icall_req_clients_handler(struct icall *icall, void *arg)
 		return;
 	}
 
-	if (!inst->clients_reqh)
+	if (wcall_is_test(wcall) || !inst->clients_reqh)
 		return;
 
 	info(APITAG "wcall(%p): calling clients_reqh:%p \n",
@@ -1880,7 +1896,7 @@ static void icall_req_new_epoch_handler(struct icall *icall, void *arg)
 		return;
 	}
 
-	if (!inst->req_new_epochh)
+	if (wcall_is_test(wcall) || !inst->req_new_epochh)
 		return;
 
 	info(APITAG "wcall(%p): calling req_new_epochh:%p\n",
@@ -1895,6 +1911,50 @@ static void icall_req_new_epoch_handler(struct icall *icall, void *arg)
 bool wcall_is_test(const struct wcall *wcall)
 {
 	return wcall && wcall->is_test;
+}
+
+
+int wcall_alloc_test_convid(struct calling_instance *inst, char **convidp)
+{
+	if (!inst || !convidp || !str_isset(inst->userid) ||
+	    !str_isset(inst->clientid))
+		return EINVAL;
+
+	return re_sdprintf(convidp, "avs-connection-test:%s:%s",
+			   inst->userid, inst->clientid);
+}
+
+
+int wcall_i_prepare_test(struct wcall *wcall)
+{
+	struct list clients = LIST_INIT;
+	struct icall_client *self;
+	uint8_t key[E2EE_SESSIONKEY_SIZE];
+	const uint32_t epoch = 1;
+	int err;
+
+	if (!wcall_is_test(wcall) || !wcall->icall ||
+	    wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE_MLS)
+		return EINVAL;
+	if (!wcall->icall->set_clients || !wcall->icall->set_media_key)
+		return ENOTSUP;
+
+	self = icall_client_alloc(wcall->inst->userid, wcall->inst->clientid);
+	if (!self)
+		return ENOMEM;
+	if (!self->userid || !self->clientid) {
+		mem_deref(self);
+		return ENOMEM;
+	}
+	self->in_subconv = true;
+	list_append(&clients, &self->le, self);
+	ICALL_CALL(wcall->icall, set_clients, &clients, epoch);
+	list_flush(&clients);
+
+	randombytes_buf(key, sizeof(key));
+	err = ICALL_CALLE(wcall->icall, set_media_key, epoch, key, sizeof(key));
+	sodium_memzero(key, sizeof(key));
+	return err;
 }
 
 
@@ -1915,6 +1975,8 @@ int wcall_add(struct calling_instance *inst,
 	char convid_anon[ANON_ID_LEN];
 
 	if (!inst || !wcallp || !convid)
+		return EINVAL;
+	if (is_test && conv_type != WCALL_CONV_TYPE_CONFERENCE_MLS)
 		return EINVAL;
 
 	wcall = wcall_lookup(inst, convid);
@@ -1947,6 +2009,10 @@ int wcall_add(struct calling_instance *inst,
 	sftv = config_get_sftservers(inst->cfg, &sftc);
 	if (sftc == 0) {
 		info("wcall(%p): no sft servers\n", wcall);
+		if (is_test) {
+			err = ENOTSUP;
+			goto out;
+		}
 		if (WCALL_CONV_TYPE_CONFERENCE == conv_type ||
 		    WCALL_CONV_TYPE_CONFERENCE_MLS == conv_type) {
 			info("wcall(%p): reverting conference to legacy "
@@ -2055,6 +2121,7 @@ int wcall_add(struct calling_instance *inst,
 		}
 
 		wcall->icall = ccall_get_icall(ccall);
+		ccall_set_test_mode(ccall, is_test);
 		icall_set_callbacks(wcall->icall,
 				    icall_send_handler,
 				    icall_sft_handler,
@@ -3262,6 +3329,11 @@ void wcall_i_sft_resp(struct calling_instance *inst,
 
 	if (!ctx) {
 		warning("wcall(%p): sft_resp: ctx:%p not valid\n", wcall, ctx);
+		return;
+	}
+	if (!wcall) {
+		/* The test ended while this transport request was outstanding. */
+		wcall_i_resp(inst, status, "call ended", ctx);
 		return;
 	}
 
