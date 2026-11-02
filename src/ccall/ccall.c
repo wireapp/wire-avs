@@ -2879,6 +2879,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	if (!urlv || !urlc) {
 		warning("ccall(%p): no SFT server configured\n", ccall);
 		ccall_end_with_err(ccall, ENOTSUP);
+		err = ENOTSUP;
 		goto out;
 	}
 
