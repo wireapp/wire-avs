@@ -2,12 +2,12 @@
 extern "C" {
 #endif
 
-typedef void (pstn_adm_h)(const char *convid,
-			  void *adm,
+typedef void (pstn_adm_h)(void *adm,
 			  bool added,
 			  void *arg);
 	
-int   pstn_adm_handler_register(pstn_adm_h *admh, void *arg);
+int   pstn_adm_handler_register(const char *convid,
+				pstn_adm_h *admh, void *arg);
 void  pstn_adm_handler_unregister(pstn_adm_h *admh, void *arg);
 int   pstn_adm_register(const char *convid, void *adm);
 int   pstn_adm_unregister(const char *convid);

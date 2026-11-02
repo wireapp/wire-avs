@@ -29,6 +29,10 @@ struct {
 struct wdev {
 	char *convid;
 
+	size_t handler_cnt;
+
+	struct lock *lock;
+
 	struct aumix *ausrc_mix;
 	
 	struct list ausrcl;
@@ -106,6 +110,7 @@ static void wdev_destructor(void *arg)
 	mem_deref(wdev->convid);
 
 	mem_deref(wdev->wa.aumix_src);
+	mem_deref(wdev->lock);
 }
 
 static int alloc_wdevs(struct hash **wdevs)
@@ -148,6 +153,7 @@ static void ausrc_mix_frame_handler(const int16_t *sampv,
 	info("ausrc(%p): mix frame with size: %lld buf=%w\n",
 	     st, sampc, sampv, 10);
 #endif
+
 	if (st->rh) {
 		st->rh(sampv, sampc, st->arg);
 	}
@@ -179,6 +185,7 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 {
 	struct wdev *wdev = arg;
 
+	lock_write_get(wdev->lock);
 	if (wdev->wa.rh) {
 		int err = auresamp(&wdev->wa.src_resamp,
 				   wdev->wa.src_sampv, &wdev->wa.src_sampc,
@@ -216,6 +223,7 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 		aumix_source_put(wdev->wa.aumix_src,
 				 wdev->wa.play_sampv, wdev->wa.play_sampc);
 	}
+	lock_rel(wdev->lock);
 }
 
 
@@ -232,6 +240,10 @@ static int alloc_device(struct wdev **wdevp,
 	wdev = mem_zalloc(sizeof(*wdev), wdev_destructor);
 	if (!wdev)
 		return ENOMEM;
+
+	err = lock_alloc(&wdev->lock);
+	if (err)
+		goto out;
 
 	err = aumix_alloc(&wdev->ausrc_mix, srate, ch, ptime);
 	if (err)
@@ -298,6 +310,7 @@ static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 {
 	struct ausrc_st *st;
 	struct wdev *wdev;
+	bool allocated = false;
 	int err = 0;
 
 	info("wa_src_alloc: convid=%s srate=%d ch=%d ptime=%d fmt=%d\n",
@@ -310,6 +323,7 @@ static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 		if (err) {
 			return err;
 		}
+		allocated = true;
 	}
 
 	st = mem_zalloc(sizeof(*st), ausrc_destructor);
@@ -324,7 +338,7 @@ static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 	}
 
 	st->as = as;
-	st->wdev = mem_ref(wdev);
+	st->wdev = allocated ? wdev : mem_ref(wdev);
 	st->rh = rh;
 	st->errh = errh;
 	st->arg = arg;
@@ -452,11 +466,37 @@ int wireaudio_set_handlers(const char *convid,
 		return EINVAL;
 
 	wdev = find_device(convid);
-	
+
 	info("wireaudio: set_handlers: convid=%s rh=%p wh=%p arg=%p wdev=%p\n",
 	     convid, rh, wh, arg, wdev);
-	
-	if (!wdev) {
+
+	if (wdev) {
+		lock_write_get(wdev->lock);
+		if (rh || wh) {
+			/* The device may already exist because baresip
+			 * allocated it (ausrc/auplay) before the adm
+			 * appeared, so install handlers if not there already.
+			 */
+			if (0 == wdev->handler_cnt) {
+				wdev->wa.rh = rh;
+				wdev->wa.wh = wh;
+				wdev->wa.arg = arg;
+			}
+			wdev->handler_cnt++;
+		}
+		else if (wdev->handler_cnt > 0) {
+			wdev->handler_cnt--;
+			if (0 == wdev->handler_cnt) {
+				wdev->wa.rh = NULL;
+				wdev->wa.wh = NULL;
+				wdev->wa.arg = NULL;
+			}
+		}
+		lock_rel(wdev->lock);
+
+		return 0;
+	}
+	else {
 		if (rh == NULL || wh == NULL)
 			return 0;
 		
@@ -464,11 +504,14 @@ int wireaudio_set_handlers(const char *convid,
 				   PSTN_SRATE, PSTN_PTIME, PSTN_CHAN);
 		if (err)
 			goto out;
-	}
 
-	wdev->wa.rh = rh;
-	wdev->wa.wh = wh;
-	wdev->wa.arg = arg;
+		lock_write_get(wdev->lock);
+		wdev->handler_cnt = 1;
+		wdev->wa.rh = rh;
+		wdev->wa.wh = wh;
+		wdev->wa.arg = arg;
+		lock_rel(wdev->lock);
+	}
 
  out:
 	return err;
