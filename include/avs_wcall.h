@@ -350,8 +350,13 @@ int wcall_start(WUSER_HANDLE wuser, const char *convid,
 		int audio_cbr /*bool*/,
                 int meeting /*bool*/);
 
-/* Connection-test placeholder: performs no work and returns 0.
+/* Start an SFT connection test using a local epoch and this client as sole member.
  * Audio is mandatory; set video to 0 for audio only, 1 for audio and video.
+ * Returns 0 when the start is submitted, EINVAL for invalid parameters, or
+ * EALREADY if the test conversation is already present or its start is queued.
+ * A concurrent duplicate may also be rejected during asynchronous processing.
+ * Connection events use the existing callbacks and an internal conversation ID.
+ * Measurement results and automatic test completion are not implemented yet.
  */
 int wcall_start_test(WUSER_HANDLE wuser, int video);
 

@@ -364,6 +364,11 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case WCALL_MEV_START:
+		/* Never restart or repurpose an existing call for a test. */
+		if (wcall && (md->u.start.is_test || wcall_is_test(wcall))) {
+			err = EALREADY;
+			goto out;
+		}
 	        if (!wcall_is_ready(md->inst, md->u.start.conv_type)) {
 		        warning("wcall(%p): AVS not ready queueing start\n",
 				md->inst);
@@ -386,6 +391,13 @@ static void mqueue_handler(int id, void *data, void *arg)
 					md->u.start.is_test);
 			if (err || !wcall)
 				goto out;
+		}
+		if (md->u.start.is_test) {
+			err = wcall_i_prepare_test(wcall);
+			if (err) {
+				mem_deref(wcall);
+				goto out;
+			}
 		}
 		{
 		       struct duration_entry *dent;
@@ -635,6 +647,20 @@ static int md_enqueue(struct mq_data *md)
 	}
 
 	lock_write_get(wm->lock);
+	if (md->event == WCALL_MEV_START && md->u.start.is_test) {
+		struct le *le;
+
+		/* Include queued starts and starts waiting for AVS readiness. */
+		LIST_FOREACH(&wm->mdl, le) {
+			struct mq_data *pending = le->data;
+
+			if (pending->event == WCALL_MEV_START &&
+			    streq(pending->convid, md->convid)) {
+				lock_rel(wm->lock);
+				return EALREADY;
+			}
+		}
+	}
 	list_append(&wm->mdl, &md->le, md);
 	lock_rel(wm->lock);
 
@@ -824,13 +850,13 @@ void wcall_sft_resp(WUSER_HANDLE wuser,
 }
 
 
-AVS_EXPORT
-int wcall_start(WUSER_HANDLE wuser,
+static int enqueue_start(WUSER_HANDLE wuser,
 		const char *convid,
 		int call_type,
 		int conv_type,
 		int audio_cbr /*bool */,
-		int meeting /*bool */)
+		int meeting /*bool */,
+		bool is_test)
 {
 	struct calling_instance *inst;
 	struct mq_data *md = NULL;
@@ -846,6 +872,9 @@ int wcall_start(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 
+	if (is_test && wcall_lookup(inst, convid))
+		return EALREADY;
+
 	md = md_new(inst, convid, WCALL_MEV_START);
 	if (!md) {
 		err = ENOMEM;
@@ -856,7 +885,7 @@ int wcall_start(WUSER_HANDLE wuser,
 	md->u.start.conv_type = conv_type;
 	md->u.start.audio_cbr = (bool)audio_cbr;
 	md->u.start.meeting = meeting == 1;
-	md->u.start.is_test = false;
+	md->u.start.is_test = is_test;
 
 	err = md_enqueue(md);
 	if (err)
@@ -868,12 +897,41 @@ int wcall_start(WUSER_HANDLE wuser,
 
 
 AVS_EXPORT
+int wcall_start(WUSER_HANDLE wuser,
+		const char *convid,
+		int call_type,
+		int conv_type,
+		int audio_cbr,
+		int meeting)
+{
+	return enqueue_start(wuser, convid, call_type, conv_type,
+			     audio_cbr, meeting, false);
+}
+
+
+AVS_EXPORT
 int wcall_start_test(WUSER_HANDLE wuser, int video)
 {
-	/* API placeholder; connection-test behavior will be added separately. */
-	(void)wuser;
-	(void)video;
-	return 0;
+	struct calling_instance *inst;
+	char *convid = NULL;
+	int err;
+
+	if (video != 0 && video != 1)
+		return EINVAL;
+
+	inst = wuser2inst(wuser);
+	if (!inst)
+		return EINVAL;
+
+	err = wcall_alloc_test_convid(inst, &convid);
+	if (err)
+		return err;
+
+	err = enqueue_start(wuser, convid,
+			    video ? WCALL_CALL_TYPE_VIDEO : WCALL_CALL_TYPE_NORMAL,
+			    WCALL_CONV_TYPE_CONFERENCE_MLS, 0, 0, true);
+	mem_deref(convid);
+	return err;
 }
 
 
