@@ -81,7 +81,12 @@ extern "C" {
 
 #define TMR_STATS_INTERVAL       1000
 #define TMR_CBR_INTERVAL         2500
-#define TMR_RESTART_INTERVAL    10000
+/* After the connection failed, wait this long for it to come back before
+ * restarting. On a congested link it did come back ~11 s after failing,
+ * while a restart can't finish there: its UPDATE and the answer go over
+ * the same link, and the call ends when it times out.
+ */
+#define TMR_RESTART_INTERVAL    15000
 #define TMR_GATHER_TIMEOUT       2000
 #define TMR_NOCAND_TIMEOUT       1500
 
@@ -731,6 +736,9 @@ static void handle_mq(struct peerflow *pf, struct mq_data *md, int id)
 			break;
 
 		case MQ_PC_RESTART_CANCEL:
+			if (tmr_isrunning(&pf->tmr_restart))
+				info("pf(%p): restart cancelled, "
+				     "connection is back\n", pf);
 			tmr_cancel(&pf->tmr_restart);
 			break;
 
@@ -1463,12 +1471,22 @@ public:
 
 		switch (state) {
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:
+			SendMQMessage(MQ_PC_RESTART_CANCEL);
 			SendMQMessage(MQ_PC_ESTAB);
 			break;
 
+		/* Not terminal in libwebrtc, unlike the standard: failed
+		 * means no candidate pair got a ping response for 15 s
+		 * (ice_inactive_timeout), but the pairs live on until 30 s
+		 * without receiving anything, and any packet or response
+		 * makes them work again (P2PTransportChannel::
+		 * ComputeIceTransportState, Connection::dead). On a
+		 * congested link the responses are only late, so wait.
+		 */
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
-		        warning("pf(%p): connection failed, restarting...\n", pf_);
-			SendMQMessage(MQ_PC_RESTART_NOW);
+		        warning("pf(%p): connection failed, restarting unless "
+				"it comes back\n", pf_);
+			SendMQMessage(MQ_PC_RESTART_DELAY);
 			break;
 			
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
