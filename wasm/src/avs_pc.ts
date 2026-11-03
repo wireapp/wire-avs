@@ -1051,6 +1051,11 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
             }
         }
     });
+    for (const sender of rtc.getSenders()) {
+        if (sender.track && sender.track.kind === 'audio')
+            setAudioAdaptivePtime(pc, sender);
+    }
+
     // Either the codecs did not need to be adjusted because we are in a 1:1 call, or we are not sending a video track.
     // In that case, there is no need to wait for the asynchronous process
     if (videoSenderUpdates.length === 0) {
@@ -1060,6 +1065,30 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
     return Promise.all(videoSenderUpdates).catch(e => {
         pc_log(LOG_LEVEL_ERROR, `update_tracks: error=${e}`)
     }).then();
+}
+
+/* Adaptive ptime, as in the native clients: the browser's opus lengthens the
+ * frames (up to the SDP maxptime) when the bandwidth is short, and the audio
+ * bitrate can go down to 16 kbps. Only Chromium has adaptivePtime; other
+ * browsers ignore it, which the read back shows in the log. Set before
+ * negotiation, it is applied once the sender has its SSRC.
+ */
+function setAudioAdaptivePtime(pc: PeerConnection, sender: RTCRtpSender) {
+    const params = sender.getParameters();
+    const enc = params.encodings && params.encodings[0] as any;
+
+    if (!enc || enc.adaptivePtime)
+        return;
+
+    enc.adaptivePtime = true;
+    sender.setParameters(params)
+        .then(() => {
+            const rb = sender.getParameters().encodings;
+            const on = !!(rb && rb[0] && (rb[0] as any).adaptivePtime);
+
+            pc_log(LOG_LEVEL_INFO, `setAudioAdaptivePtime: self=${pc.self} ${on ? 'on' : 'not supported'}`);
+        })
+        .catch((e) => pc_log(LOG_LEVEL_WARN, `setAudioAdaptivePtime: self=${pc.self} failed: ${e}`));
 }
 
 function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {

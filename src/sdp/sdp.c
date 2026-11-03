@@ -16,6 +16,7 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <strings.h>
 #include <re.h>
 #include <avs.h>
 #include <avs_version.h>
@@ -36,7 +37,14 @@ enum {
 /* Opus ptime (ms) and maxaveragebitrate (bps) put in the local SDP (asking
  * the remote side to send with them) and in the remote SDP (so our encoder
  * uses them); 0 leaves one out. See sdp_set_audio_params.
+ *
+ * With a ptime the frame length range for adaptive ptime goes in too: from
+ * the ptime (opus fmtp minptime) to AUDIO_MAXPTIME (a=maxptime). The
+ * encoder starts at the ptime and lengthens the frames only when the
+ * bandwidth is short.
  */
+#define AUDIO_MAXPTIME 120
+
 static struct {
 	int ptime;
 	int max_bitrate;
@@ -478,22 +486,67 @@ void sdp_get_loss_params(struct sdp_loss_params *lp)
 		*lp = loss_params;
 }
 
+/* Set name=val in a format's fmtp parameters, replacing the value there. */
+static void set_fmt_param(struct sdp_format *fmt, const char *name, int val)
+{
+	struct mbuf *mb;
+	char *params = NULL;
+	char *res = NULL;
+	char *tok, *save = NULL;
+	size_t nlen = strlen(name);
+
+	mb = mbuf_alloc(64);
+	if (!mb)
+		return;
+
+	mbuf_printf(mb, "%s=%d", name, val);
+	if (str_isset(fmt->params)) {
+		str_dup(&params, fmt->params);
+		for (tok = strtok_r(params, ";", &save); tok;
+		     tok = strtok_r(NULL, ";", &save)) {
+			while (*tok == ' ')
+				++tok;
+			if (0 == strncasecmp(tok, name, nlen)
+			    && tok[nlen] == '=')
+				continue;
+			mbuf_printf(mb, ";%s", tok);
+		}
+		mem_deref(params);
+	}
+
+	mb->pos = 0;
+	if (0 == mbuf_strdup(mb, &res, mb->end))
+		sdp_format_set_params(fmt, "%s", res);
+
+	mem_deref(res);
+	mem_deref(mb);
+}
+
 static void set_audio_params(struct sdp_media *sdpm)
 {
 	const struct list *fmtl;
 	struct le *fle;
 
+	fmtl = sdp_media_format_lst(sdpm, true);
+
 	if (audio_params.ptime > 0) {
 		sdp_media_set_lattr(sdpm, true, "ptime", "%d",
 				    audio_params.ptime);
 		sdp_media_set_lattr(sdpm, true, "maxptime", "%d",
-				    audio_params.ptime);
+				    MAX(audio_params.ptime, AUDIO_MAXPTIME));
+
+		LIST_FOREACH(fmtl, fle) {
+			struct sdp_format *fmt = (struct sdp_format *)fle->data;
+
+			if (strcaseeq(fmt->name, "opus"))
+				set_fmt_param(fmt, "minptime",
+					      audio_params.ptime);
+		}
 	}
 
 	if (audio_params.max_bitrate <= 0)
 		return;
 
-	fmtl = sdp_media_format_lst(sdpm, true);
 	LIST_FOREACH(fmtl, fle) {
 		struct sdp_format *fmt = (struct sdp_format *)fle->data;
 		char *params = NULL;

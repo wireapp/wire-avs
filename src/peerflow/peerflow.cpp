@@ -432,6 +432,13 @@ public:
 		// min = max = maxaveragebitrate, so opus never adapts. Only
 		// the min is set; the max stays maxaveragebitrate.
 		trials_["WebRTC-Audio-Allocation"] = "min:6kbps";
+
+		// Adaptive ptime: opus's audio network adaptor lengthens
+		// the frames (up to the SDP maxptime) when the bandwidth
+		// estimate leaves less than 16 kbps of payload after the
+		// headers, so a narrow link spends less on headers. The
+		// shortest frame is the SDP minptime (see sdp.c).
+		trials_["WebRTC-Audio-AdaptivePtime"] = "enabled:true";
 	}
 
 	std::string Lookup(absl::string_view key_view) const override {
