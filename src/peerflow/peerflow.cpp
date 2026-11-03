@@ -426,6 +426,12 @@ public:
 		trials_["WebRTC-GenericDescriptor"] = "Enabled";
 		trials_["WebRTC-DependencyDescriptorAdvertised"] = "Enabled";
 		trials_["WebRTC-DependencyDescriptor"] = "Enabled";
+
+		// Let the bandwidth estimate bring opus down to its 6 kbps
+		// floor. Without this the audio stream's allowed range is
+		// min = max = maxaveragebitrate, so opus never adapts. Only
+		// the min is set; the max stays maxaveragebitrate.
+		trials_["WebRTC-Audio-Allocation"] = "min:6kbps";
 	}
 
 	std::string Lookup(absl::string_view key_view) const override {
