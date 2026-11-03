@@ -193,6 +193,8 @@ struct wcall {
         int duration;
 	bool is_test; /* Connection-test session; independent of conversation ID. */
 	bool test_connected;
+	bool test_failed;
+	int test_failure_reason;
 	struct tmr test_tmr;
 
 	struct icall *icall;
@@ -430,18 +432,18 @@ static const char *wcall_vstate_name(int vstate)
 	}
 }
 
-static void test_timeout_handler(void *arg)
+static void test_end_handler(void *arg)
 {
 	struct wcall *wcall = arg;
 
-	info("wcall(%p): test duration complete\n", wcall);
+	info("wcall(%p): ending test\n", wcall);
 	wcall_i_end(wcall);
 }
 
 
 void wcall_i_test_connected(struct wcall *wcall)
 {
-	if (!wcall_is_test(wcall) || wcall->test_connected ||
+	if (!wcall_is_test(wcall) || wcall->test_connected || wcall->test_failed ||
 	    wcall->state == WCALL_STATE_TERM_LOCAL ||
 	    wcall->state == WCALL_STATE_TERM_REMOTE)
 		return;
@@ -450,7 +452,7 @@ void wcall_i_test_connected(struct wcall *wcall)
 	info("wcall(%p): test connected, ending in %u ms\n",
 	     wcall, (unsigned)WCALL_TEST_DURATION_MS);
 	tmr_start(&wcall->test_tmr, WCALL_TEST_DURATION_MS,
-		  test_timeout_handler, wcall);
+		  test_end_handler, wcall);
 }
 
 
@@ -1231,6 +1233,8 @@ static void icall_close_handler(struct icall *icall, int err,
 	}
 	
 	reason = err2reason(err);
+	if (wcall_is_test(wcall) && wcall->test_failed)
+		reason = wcall->test_failure_reason;
 
 	info(APITAG "wcall(%p): closeh(%p) group=no state=%s reason=%s\n",
 	     wcall, inst->closeh, wcall_state_name(wcall->state),
@@ -1294,7 +1298,8 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 	}
 
 	tmr_cancel(&wcall->test_tmr);
-	set_state(wcall, WCALL_STATE_INCOMING);
+	if (!wcall_is_test(wcall))
+		set_state(wcall, WCALL_STATE_INCOMING);
 
 	switch (reason) {
 	case ICALL_REASON_STILL_ONGOING:
@@ -1340,6 +1345,24 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 	default:
 		wreason = WCALL_REASON_NORMAL;
 		break;
+	}
+
+	if (wcall_is_test(wcall)) {
+		if (wcall->state == WCALL_STATE_TERM_LOCAL ||
+		    wcall->state == WCALL_STATE_TERM_REMOTE)
+			return;
+
+		if (!wcall->test_failed) {
+			wcall->test_failed = true;
+			wcall->test_failure_reason = reason == ICALL_REASON_ERROR ?
+				WCALL_REASON_ERROR : wreason;
+		}
+		/* Leave callbacks can run inside configuration processing. Defer end
+		 * so cancelling the join cannot free its currently executing handler.
+		 * The final close callback reports the error and releases the call.
+		 */
+		tmr_start(&wcall->test_tmr, 0, test_end_handler, wcall);
+		return;
 	}
 
 	if (inst->processing_notifications) {
