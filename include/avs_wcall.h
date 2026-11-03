@@ -517,7 +517,7 @@ int wcall_set_proxy(const char *host, int port);
  * it is applied, so our encoder uses them too (a remote maxaveragebitrate is
  * kept). The ptime is where the frames start and the shortest they get
  * (opus minptime); with a short bandwidth they grow up to a=maxptime 120.
- * Defaults: 40 and 24000; 0 leaves one out.
+ * Defaults: 40 and 32000; 0 leaves one out.
  */
 void wcall_set_audio_params(int ptime, int max_bitrate);
 
