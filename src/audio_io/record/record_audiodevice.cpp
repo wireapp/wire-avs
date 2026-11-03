@@ -43,7 +43,8 @@ static void *play_thread(void *arg)
 	return static_cast<record_audiodevice*>(arg)->playout_thread();
 }
     
-record_audiodevice::record_audiodevice(bool realtime)
+record_audiodevice::record_audiodevice(const char *rec_path,
+				       const char *play_path)
 {
 	audioCallback_ = NULL;
 	is_recording_ = false;
@@ -52,17 +53,27 @@ record_audiodevice::record_audiodevice(bool realtime)
 	play_is_initialized_ = false;
 	rec_tid_ = 0;
 	play_tid_ = 0;
-	realtime_ = realtime;
+	realtime_ = true;
 	delta_omega_ = 0.0f;
 	omega_ = 0.0f;
 	muted_ = false;
 	noise_ = false;
 	fp_ = NULL;
+	rec_opened_ = false;
+	rec_path_ = NULL;
+	play_path_ = NULL;
+
+	if (rec_path)
+		str_dup(&rec_path_, rec_path);
+	if (play_path)
+		str_dup(&play_path_, play_path);
 }
 
 record_audiodevice::~record_audiodevice()
 {
 	Terminate();
+	mem_deref(rec_path_);
+	mem_deref(play_path_);
 }
     
 int32_t record_audiodevice::RegisterAudioCallback(AudioTransport* audioCallback)
@@ -121,10 +132,10 @@ int32_t record_audiodevice::StartPlayout()
 	info("audio_io_record: StartPlayout\n");
 	
 	if(!is_playing_) {
+		is_playing_ = true;
 		pthread_create(&play_tid_, NULL, play_thread, this);
 	}
 
-	is_playing_ = true;
 	return 0;
 }
     
@@ -227,8 +238,18 @@ void *record_audiodevice::record_thread()
 	uint32_t currentMicLevel = 10;
 	uint32_t newMicLevel = 0;
 	struct timeval now, next_io_time, delta, sleep_time;
+	FILE *play_fp = NULL;
 
-	info("audio_io_record: record_thread: started\n");
+	if (play_path_) {
+		play_fp = fopen(play_path_, "rb");
+		if (!play_fp) {
+			warning("audio_io_record: record_thread: "
+				"cannot open: %s\n", play_path_);
+		}
+	}
+
+	info("audio_io_record: record_thread: started play_path=%s\n",
+	     play_path_);
 	
 	memset(audio_buf, 0, sizeof(audio_buf));
 
@@ -238,6 +259,13 @@ void *record_audiodevice::record_thread()
 	gettimeofday(&next_io_time, NULL);
         
 	while(is_recording_) {
+		timeradd(&next_io_time, &delta, &next_io_time);
+
+		if (play_fp)
+			read_play_frame(play_fp, audio_buf);
+		if (play_fp && muted_)
+			memset(audio_buf, 0, sizeof(audio_buf));
+
 		if(audioCallback_) {
 			audioCallback_->RecordedDataIsAvailable(
 					(void*)audio_buf,
@@ -265,7 +293,23 @@ void *record_audiodevice::record_thread()
 		}
 	}
 
+	if (play_fp)
+		fclose(play_fp);
+
 	return NULL;
+}
+
+/* One frame from the play file, wrapping around at its end (silence if it is empty). */
+void record_audiodevice::read_play_frame(FILE *fp, int16_t *buf)
+{
+	size_t n = fread(buf, sizeof(int16_t), FRAME_LEN, fp);
+
+	if (n < FRAME_LEN) {
+		rewind(fp);
+		n += fread(buf + n, sizeof(int16_t), FRAME_LEN - n, fp);
+	}
+	if (n < FRAME_LEN)
+		memset(buf + n, 0, (FRAME_LEN - n) * sizeof(int16_t));
 }
     
 void *record_audiodevice::playout_thread()
@@ -274,19 +318,23 @@ void *record_audiodevice::playout_thread()
 	size_t nSamplesOut;
 	int64_t elapsed_time_ms, ntp_time_ms;
 	struct timeval now, next_io_time, delta, sleep_time;
-	const char *path;
 
-	path = avs_get_audio_record();
-	if (path) {
+	if (rec_path_) {
 	  if (fp_) {
 	    FILE *fp = fp_;
 	    fp_ = NULL;
 	    fclose(fp);
 	  }
-	  fp_ = fopen(path, "wb");
+	  /* A restarted playout continues the file of this call. */
+	  fp_ = fopen(rec_path_, rec_opened_ ? "ab" : "wb");
+	  rec_opened_ = true;
+	  if (!fp_) {
+		  warning("audio_io_record: playout thread: cannot open: %s\n",
+			  rec_path_);
+	  }
 	}
 
-	info("audio_io_record: playout_thread: started path=%s\n", path);
+	info("audio_io_record: playout_thread: started path=%s\n", rec_path_);
 
 	delta.tv_sec = 0;
 	delta.tv_usec = FRAME_LEN_MS * 1000;

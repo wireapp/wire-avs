@@ -56,6 +56,8 @@ enum mq_event {
 	WCALL_MEV_SET_EPOCH_INFO,
 	WCALL_MEV_PROCESS_NOTIFICATIONS,
 	WCALL_MEV_SET_DURATION,
+	WCALL_MEV_AUDIO_RECORD,
+	WCALL_MEV_SET_AUDIO_FILES,
 };
 
 
@@ -165,6 +167,15 @@ struct mq_data {
 	        struct {
 		        int duration;
 	        } set_duration;
+
+		struct {
+			char *path;
+		} audio_record;
+
+		struct {
+			char *play_path;
+			char *record_path;
+		} audio_files;
 	} u;
 };
 
@@ -228,6 +239,15 @@ static void md_destructor(void *arg)
 	case WCALL_MEV_SET_EPOCH_INFO:
 		mem_deref(md->u.set_epoch_info.clients_json);
 		mem_deref(md->u.set_epoch_info.key_data);
+		break;
+
+	case WCALL_MEV_AUDIO_RECORD:
+		mem_deref(md->u.audio_record.path);
+		break;
+
+	case WCALL_MEV_SET_AUDIO_FILES:
+		mem_deref(md->u.audio_files.play_path);
+		mem_deref(md->u.audio_files.record_path);
 		break;
 
 	default:
@@ -312,6 +332,10 @@ static char *mev_name(int id)
 		return "SET_EPOCH_INFO";
 	case WCALL_MEV_PROCESS_NOTIFICATIONS:
 		return "PROCESS_NOTIFICATIONS";
+	case WCALL_MEV_AUDIO_RECORD:
+		return "AUDIO_RECORD";
+	case WCALL_MEV_SET_AUDIO_FILES:
+		return "SET_AUDIO_FILES";
 	default:
 		return "???";
 	}
@@ -533,6 +557,21 @@ static void mqueue_handler(int id, void *data, void *arg)
 	case WCALL_MEV_PROCESS_NOTIFICATIONS:
 		wcall_i_process_notifications(md->inst,
 					      md->u.process_notifications.processing);
+		break;
+
+	case WCALL_MEV_AUDIO_RECORD:
+		if (!wcall) {
+			err = ENOENT;
+			goto out;
+		}
+		wcall_i_audio_record(wcall,
+				     md->u.audio_record.path);
+		break;
+
+	case WCALL_MEV_SET_AUDIO_FILES:
+		wcall_i_set_audio_files(md->inst,
+					md->u.audio_files.play_path,
+					md->u.audio_files.record_path);
 		break;
 
 	default:
@@ -1404,6 +1443,73 @@ int wcall_process_notifications(WUSER_HANDLE wuser, int processing)
 
 	return err;
 }
+
+AVS_EXPORT
+int wcall_audio_record(WUSER_HANDLE wuser,
+		       const char *convid,
+		       const char *path)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: audio_record: invalid wuser: 0x%08X\n", wuser);
+		return EINVAL;
+	}
+
+	md = md_new(inst, convid, WCALL_MEV_AUDIO_RECORD);
+	if (!md)
+		return ENOMEM;
+
+	str_dup(&md->u.audio_record.path, path);
+
+	info("wcall_audio_record: inst=%p convid=%s path=%sn", inst, convid, path);
+
+	err = md_enqueue(md);
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
+AVS_EXPORT
+int wcall_set_audio_files(WUSER_HANDLE wuser,
+			  const char *play_path,
+			  const char *record_path)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: set_audio_files: invalid wuser: 0x%08X\n",
+			wuser);
+		return EINVAL;
+	}
+
+	md = md_new(inst, NULL, WCALL_MEV_SET_AUDIO_FILES);
+	if (!md)
+		return ENOMEM;
+
+	if (play_path)
+		str_dup(&md->u.audio_files.play_path, play_path);
+	if (record_path)
+		str_dup(&md->u.audio_files.record_path, record_path);
+
+	info("wcall_set_audio_files: inst=%p play=%s record=%s\n",
+	     inst, play_path, record_path);
+
+	err = md_enqueue(md);
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
+
 
 
 void wcall_marshal_destroy(struct calling_instance *inst)

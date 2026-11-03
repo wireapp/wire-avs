@@ -32,6 +32,10 @@ enum {
       AUDIO_GROUP_BANDWIDTH = 32,
       VIDEO_GROUP_BANDWIDTH = 800,
 };
+
+/* Opus frame length (ms) and max average bitrate (bps) */
+#define AUDIO_PTIME            60
+#define AUDIO_MAX_AVG_BITRATE  16000
       
 
 struct norelay_elem {
@@ -386,6 +390,45 @@ static void sdp_set_bandwidth(struct sdp_media *sdpm, bool screenshare)
 }
 #endif
 
+static void sdp_set_audio_params(struct sdp_media *sdpm)
+{
+	const struct list *fmtl;
+	struct le *fle;
+
+	sdp_media_set_lattr(sdpm, true, "ptime", "%d", AUDIO_PTIME);
+	sdp_media_set_lattr(sdpm, true, "maxptime", "%d", AUDIO_PTIME);
+
+	fmtl = sdp_media_format_lst(sdpm, true);
+	LIST_FOREACH(fmtl, fle) {
+		struct sdp_format *fmt = (struct sdp_format *)fle->data;
+		char *params;
+
+		if (!strcaseeq(fmt->name, "opus"))
+			continue;
+		if (fmt->params && strstr(fmt->params, "maxaveragebitrate="))
+			continue;
+
+		str_dup(&params, fmt->params);
+		sdp_format_set_params(fmt, "%s;maxaveragebitrate=%d",
+				      params, AUDIO_MAX_AVG_BITRATE);
+		mem_deref(params);
+	}
+}
+
+static void sdp_sess_set_audio_params(struct sdp_session *sess)
+{
+	const struct list *medial;
+	struct le *le;
+
+	medial = sdp_session_medial(sess, false);
+	LIST_FOREACH(medial, le) {
+		struct sdp_media *sdpm = (struct sdp_media *)le->data;
+
+		if (streq(sdp_media_name(sdpm), "audio"))
+			sdp_set_audio_params(sdpm);
+	}
+}
+
 const char *sdp_modify_offer(struct sdp_session *sess,
 			     enum icall_conv_type conv_type,
 			     bool screenshare,
@@ -408,6 +451,7 @@ const char *sdp_modify_offer(struct sdp_session *sess,
 
 		if (streq(sdp_media_name(sdpm), "audio")) {
 			debug("sdp_modify_offer: audio_cbr=%d\n", audio_cbr);
+			sdp_set_audio_params(sdpm);
 			if (audio_cbr) {
 				const struct list *fmtl;
 				struct le *fle;
@@ -463,6 +507,7 @@ const char *sdp_modify_answer(struct sdp_session *sess,
 		}
 
 		if (streq(sdp_media_name(sdpm), "audio")) {
+			sdp_set_audio_params(sdpm);
 			if (conv_type != ICALL_CONV_TYPE_ONEONONE) {
 				const struct list *fmtl;
 				struct le *fle;
@@ -605,6 +650,29 @@ int sdp_munge(char **sdp_out, const char *sdp,
 	err = sdp_dup_int(&sess, conv_type, sdp, offer, false, true);
 	if (!err) {
 		*sdp_out = (char *)sdp_sess2str(sess);
+	}
+	mem_deref(sess);
+
+	return err;
+}
+
+
+int sdp_munge_audio(char **sdp_out, const char *sdp,
+		    enum icall_conv_type conv_type, bool offer,
+		    bool strip_video, bool munge)
+{
+	struct sdp_session *sess = NULL;
+	int err = 0;
+
+	if (!sdp || !sdp_out)
+		return EINVAL;
+
+	err = sdp_dup_int(&sess, conv_type, sdp, offer, strip_video, munge);
+	if (!err) {
+		sdp_sess_set_audio_params(sess);
+		*sdp_out = (char *)sdp_sess2str(sess);
+		if (!*sdp_out)
+			err = ENOMEM;
 	}
 	mem_deref(sess);
 

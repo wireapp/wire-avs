@@ -104,6 +104,9 @@ void wcall_i_process_notifications(struct calling_instance *inst,
 				   bool processing);
 
 void wcall_i_set_duration(struct wcall *wcall, int duration);
+void wcall_i_set_audio_files(struct calling_instance *inst,
+			     const char *play_path,
+			     const char *record_path);
 
 void wcall_marshal_destroy(struct calling_instance *inst);
 int wcall_duration_add(struct calling_instance *inst,
@@ -113,3 +116,5 @@ struct duration_entry *wcall_duration_lookup(struct calling_instance *inst,
 					     const char *convid);
 WUSER_HANDLE wcall_create_wuser(uint32_t *idx);
 struct calling_instance *wcall_get_instance(void);
+void wcall_i_audio_record(struct wcall *wcall, const char *path);
+

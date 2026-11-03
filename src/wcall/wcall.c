@@ -176,6 +176,12 @@ struct calling_instance {
 
 	struct sa *media_laddr;
 
+	/* wcall_set_audio_files: for the calls created from now on */
+	struct {
+		char *play_path;
+		char *record_path;
+	} audio_files;
+
 	uint32_t wuser;
 
 	bool processing_notifications;
@@ -1961,6 +1967,11 @@ int wcall_add(struct calling_instance *inst,
 				"failed: %m\n", wcall, err);
 			goto out;
 		}
+		if (inst->audio_files.play_path)
+			ecall_audio_play(ecall, inst->audio_files.play_path);
+		if (inst->audio_files.record_path)
+			ecall_audio_record(ecall,
+					   inst->audio_files.record_path);
 
 		wcall->icall = ecall_get_icall(ecall);
 		icall_set_callbacks(wcall->icall,
@@ -2070,6 +2081,13 @@ int wcall_add(struct calling_instance *inst,
 				    wcall);
 
 		ccall_set_config(ccall, inst->cfg);
+
+		if (inst->audio_files.play_path)
+			ccall_audio_play(wcall->icall,
+					 inst->audio_files.play_path);
+		if (inst->audio_files.record_path)
+			ccall_audio_record(wcall->icall,
+					   inst->audio_files.record_path);
 
 		}
 		break;
@@ -2746,6 +2764,9 @@ static void instance_destroy(struct calling_instance *inst)
 	inst->msys = mem_deref(inst->msys);
 	inst->cfg = mem_deref(inst->cfg);
 	inst->media_laddr = mem_deref(inst->media_laddr);
+	inst->audio_files.play_path = mem_deref(inst->audio_files.play_path);
+	inst->audio_files.record_path =
+		mem_deref(inst->audio_files.record_path);
 
 	inst->readyh = NULL;
 	inst->sendh = NULL;
@@ -4566,11 +4587,48 @@ void wcall_set_mute_handler(WUSER_HANDLE wuser, wcall_mute_h *muteh, void *arg)
 	inst->mute.arg = arg;
 }
 
-AVS_EXPORT
-int wcall_audio_record(WUSER_HANDLE wuser, const char *path)
+void wcall_i_audio_record(struct wcall *wcall,			 
+			  const char *path)
 {
-        (void)wuser;
-        return avs_set_audio_record(path);
+	if (!wcall || !path)
+		return;
+	
+	switch (wcall->conv_type) {
+	case ICALL_CONV_TYPE_CONFERENCE:
+	case ICALL_CONV_TYPE_CONFERENCE_MLS:
+		if (!wcall->icall) {
+			warning("wcall(%p): does not have an icall\n", wcall);
+		}
+		else {
+			ccall_audio_record(wcall->icall, path);
+		}
+		break;
+
+	default:
+		warning("wcall(%p): recording not supported for "
+			"non-conference calls\n", wcall);
+		break;
+	}
+}
+
+void wcall_i_set_audio_files(struct calling_instance *inst,
+			     const char *play_path,
+			     const char *record_path)
+{
+	if (!inst)
+		return;
+
+	inst->audio_files.play_path = mem_deref(inst->audio_files.play_path);
+	inst->audio_files.record_path =
+		mem_deref(inst->audio_files.record_path);
+	if (play_path)
+		str_dup(&inst->audio_files.play_path, play_path);
+	if (record_path)
+		str_dup(&inst->audio_files.record_path, record_path);
+
+	info("wcall(%p): audio files for new calls: play=%s record=%s\n",
+	     inst, inst->audio_files.play_path,
+	     inst->audio_files.record_path);
 }
 
 AVS_EXPORT

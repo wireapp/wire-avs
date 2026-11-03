@@ -51,6 +51,9 @@ void sdp_safe_media_set_lattr(struct sdp_media *sdpm, bool replace,
 
 int sdp_munge(char **sdp_out, const char *sdp,
 	      enum icall_conv_type conv_type, bool offer);
+int sdp_munge_audio(char **sdp_out, const char *sdp,
+		    enum icall_conv_type conv_type, bool offer,
+		    bool strip_video, bool munge);
 
 /* bundle */
 
