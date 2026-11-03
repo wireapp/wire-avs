@@ -511,6 +511,34 @@ void wcall_handle_frame(struct avs_vidframe *frame);
 int wcall_set_proxy(const char *host, int port);
 
 /**
+ * Opus ptime (ms) and maxaveragebitrate (bps) for all instances and the calls
+ * negotiated from now on (a=ptime/maxptime and the opus fmtp): the local SDP
+ * asks the remote side to send with them, and the remote SDP is changed to
+ * them before it is applied, so our encoder uses them too (a remote
+ * maxaveragebitrate is kept). Defaults: 40 and 24000; 0 leaves one out.
+ */
+void wcall_set_audio_params(int ptime, int max_bitrate);
+
+/**
+ * Protection against packet loss for all instances and the calls set up from
+ * now on; 0 turns one off (all 0 is the plain WebRTC behaviour):
+ *  red          opus RED (RFC 2198) with this many earlier frames in each
+ *               packet (1..9, default 1), negotiated only when set (both
+ *               sides need it)
+ *  fec_loss_pct lowest packet loss (%) the opus encoder assumes, so that its
+ *               in-band FEC is on from the start instead of after the loss
+ *               reports (1..100, default 15)
+ *  max_bitrate  bandwidth estimate cap (bps) while the call has no video,
+ *               which limits the padding of the bandwidth probing (default
+ *               100000)
+ *  jb_min_ms    jitter buffer minimum delay (ms) of the received audio, so
+ *               the next packet (carrying the FEC / RED copy) is there in time
+ *               (default 60)
+ */
+void wcall_set_loss_params(int red, int fec_loss_pct, int max_bitrate,
+			   int jb_min_ms);
+
+/**
  * Client list management (conference calls).
  */
 typedef void (wcall_req_clients_h)(WUSER_HANDLE wuser,

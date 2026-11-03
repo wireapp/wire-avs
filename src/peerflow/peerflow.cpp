@@ -151,6 +151,9 @@ struct peerflow {
 	enum icall_vstate vstate;
 	size_t ncands;
 
+	int bwe_cap;       /* wcall_set_loss_params max_bitrate at creation */
+	bool bwe_capped;   /* the cap is applied (no video) */
+
 	webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConn;
 
 	webrtc::PeerConnectionInterface::RTCConfiguration *config;
@@ -417,6 +420,21 @@ public:
 
 	std::string Lookup(absl::string_view key_view) const override {
 		std::string key = std::string(key_view);
+
+		// Read when the RED encoder is made, so the redundancy
+		// follows wcall_set_loss_params also with the shared
+		// factory. Always enabled: whether RED is used at all is
+		// up to the SDP (see sdp_set_loss_params).
+		if (key == "WebRTC-Audio-Red-For-Opus") {
+			struct sdp_loss_params lp;
+			std::string val;
+
+			sdp_get_loss_params(&lp);
+			val = "Enabled-" + std::to_string(MAX(lp.red, 1));
+			info("pf: field trial %s -> %s\n", key.c_str(), val.c_str());
+			return val;
+		}
+
 		auto it = trials_.find(key);
 		std::string val = it != trials_.end() ? it->second : "";
 		//info("WireFieldTrials::Lookup: %s -> %s\n", key.c_str(), val.c_str());
@@ -431,6 +449,142 @@ public:
 	}
 private:
 	std::map<std::string, std::string> trials_;
+};
+
+
+/* Opus encoder whose assumed packet loss does not go below a floor, so its
+ * in-band FEC is on from the start rather than after the (with a long RTT,
+ * late) loss reports.
+ */
+class LossFloorEncoder : public webrtc::AudioEncoder {
+public:
+	LossFloorEncoder(std::unique_ptr<webrtc::AudioEncoder> enc, float floor)
+		: enc_(std::move(enc)), floor_(floor)
+	{
+		enc_->OnReceivedUplinkPacketLossFraction(floor_);
+	}
+
+	int SampleRateHz() const override { return enc_->SampleRateHz(); }
+	size_t NumChannels() const override { return enc_->NumChannels(); }
+	int RtpTimestampRateHz() const override {
+		return enc_->RtpTimestampRateHz();
+	}
+	size_t Num10MsFramesInNextPacket() const override {
+		return enc_->Num10MsFramesInNextPacket();
+	}
+	size_t Max10MsFramesInAPacket() const override {
+		return enc_->Max10MsFramesInAPacket();
+	}
+	int GetTargetBitrate() const override {
+		return enc_->GetTargetBitrate();
+	}
+	void Reset() override { enc_->Reset(); }
+	bool SetFec(bool enable) override { return enc_->SetFec(enable); }
+	bool SetDtx(bool enable) override { return enc_->SetDtx(enable); }
+	bool GetDtx() const override { return enc_->GetDtx(); }
+	bool SetApplication(Application app) override {
+		return enc_->SetApplication(app);
+	}
+	void SetMaxPlaybackRate(int hz) override {
+		enc_->SetMaxPlaybackRate(hz);
+	}
+	std::span<std::unique_ptr<webrtc::AudioEncoder>>
+	ReclaimContainedEncoders() override {
+		return std::span<std::unique_ptr<webrtc::AudioEncoder>>(&enc_, 1);
+	}
+	bool EnableAudioNetworkAdaptor(absl::string_view config) override {
+		return enc_->EnableAudioNetworkAdaptor(config);
+	}
+	void DisableAudioNetworkAdaptor() override {
+		enc_->DisableAudioNetworkAdaptor();
+	}
+	void OnReceivedUplinkPacketLossFraction(float fraction) override {
+		enc_->OnReceivedUplinkPacketLossFraction(
+			std::max(fraction, floor_));
+	}
+	void OnReceivedTargetAudioBitrate(int bps) override {
+		enc_->OnReceivedTargetAudioBitrate(bps);
+	}
+	void OnReceivedUplinkBandwidth(int bps,
+				       std::optional<int64_t> period_ms) override {
+		enc_->OnReceivedUplinkBandwidth(bps, period_ms);
+	}
+	void OnReceivedUplinkAllocation(
+		webrtc::BitrateAllocationUpdate update) override {
+		enc_->OnReceivedUplinkAllocation(update);
+	}
+	void OnReceivedRtt(int rtt_ms) override { enc_->OnReceivedRtt(rtt_ms); }
+	void OnReceivedOverhead(size_t bytes) override {
+		enc_->OnReceivedOverhead(bytes);
+	}
+	void SetReceiverFrameLengthRange(int min_ms, int max_ms) override {
+		enc_->SetReceiverFrameLengthRange(min_ms, max_ms);
+	}
+	webrtc::ANAStats GetANAStats() const override {
+		return enc_->GetANAStats();
+	}
+	std::optional<std::pair<webrtc::TimeDelta, webrtc::TimeDelta>>
+	GetFrameLengthRange() const override {
+		return enc_->GetFrameLengthRange();
+	}
+	std::optional<std::pair<webrtc::DataRate, webrtc::DataRate>>
+	GetBitrateRange() const override {
+		return enc_->GetBitrateRange();
+	}
+
+protected:
+	EncodedInfo EncodeImpl(uint32_t rtp_timestamp,
+			       std::span<const int16_t> audio,
+			       webrtc::Buffer *encoded) override {
+		return enc_->Encode(rtp_timestamp, audio, encoded);
+	}
+
+private:
+	std::unique_ptr<webrtc::AudioEncoder> enc_;
+	float floor_;
+};
+
+/* The builtin encoders, with opus wrapped in LossFloorEncoder while
+ * wcall_set_loss_params has a FEC loss floor (read per encoder, so it also
+ * works with the shared factory).
+ */
+class WireAudioEncoderFactory : public webrtc::AudioEncoderFactory {
+public:
+	WireAudioEncoderFactory()
+		: base_(webrtc::CreateBuiltinAudioEncoderFactory())
+	{
+	}
+
+	std::vector<webrtc::AudioCodecSpec> GetSupportedEncoders() override {
+		return base_->GetSupportedEncoders();
+	}
+
+	std::optional<webrtc::AudioCodecInfo> QueryAudioEncoder(
+		const webrtc::SdpAudioFormat& format) override {
+		return base_->QueryAudioEncoder(format);
+	}
+
+	std::unique_ptr<webrtc::AudioEncoder> Create(
+		const webrtc::Environment& env,
+		const webrtc::SdpAudioFormat& format,
+		Options options) override {
+		std::unique_ptr<webrtc::AudioEncoder> enc;
+		struct sdp_loss_params lp;
+
+		enc = base_->Create(env, format, options);
+		sdp_get_loss_params(&lp);
+		if (!enc || lp.fec_loss_pct <= 0
+		    || !strcaseeq(format.name.c_str(), "opus"))
+			return enc;
+
+		info("pf: opus encoder with FEC, loss floor %d%%\n",
+		     lp.fec_loss_pct);
+		return std::make_unique<LossFloorEncoder>(std::move(enc),
+			(float)lp.fec_loss_pct / 100.0f);
+	}
+
+private:
+	webrtc::scoped_refptr<webrtc::AudioEncoderFactory> base_;
 };
 
 class PeerConnectionThread : public webrtc::Thread {
@@ -833,6 +987,31 @@ void peerflow_set_adm(void *adm)
 	(void)adm;
 }
 
+/* Apply (no video) or lift the bandwidth estimate cap of the call; it bounds
+ * what the bandwidth probing pads up to.
+ */
+static void pf_set_bwe_capped(struct peerflow *pf, bool capped)
+{
+	webrtc::BitrateSettings bs;
+	webrtc::RTCError rerr;
+
+	if (!pf->peerConn || pf->bwe_cap <= 0 || pf->bwe_capped == capped)
+		return;
+
+	if (capped) {
+		bs.start_bitrate_bps = pf->bwe_cap;
+		bs.max_bitrate_bps = pf->bwe_cap;
+	}
+	rerr = pf->peerConn->SetBitrate(bs);
+	if (!rerr.ok()) {
+		warning("pf(%p): SetBitrate failed: %s\n", pf, rerr.message());
+		return;
+	}
+	pf->bwe_capped = capped;
+	info("pf(%p): bandwidth cap %s (%d bps)\n",
+	     pf, capped ? "applied" : "lifted", pf->bwe_cap);
+}
+
 static void create_pc_deps(struct peerflow *pf,
 			   webrtc::PeerConnectionFactoryDependencies &pc_deps)
 {
@@ -843,7 +1022,8 @@ static void create_pc_deps(struct peerflow *pf,
 	pc_deps.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
 
 	/* Audio */
-	pc_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
+	pc_deps.audio_encoder_factory =
+		webrtc::make_ref_counted<WireAudioEncoderFactory>();
 	pc_deps.audio_decoder_factory =	webrtc::CreateBuiltinAudioDecoderFactory();
 
 	/* Video */
@@ -1451,6 +1631,18 @@ public:
 		info("pf(%p): OnAddTrack %s track added id=%s\n", pf_, kind, label);
 
 		track->set_enabled(true);
+
+		if (streq(kind, webrtc::MediaStreamTrackInterface::kAudioKind)) {
+			struct sdp_loss_params lp;
+
+			sdp_get_loss_params(&lp);
+			if (lp.jb_min_ms > 0) {
+				info("pf(%p): audio jitter buffer minimum %d ms\n",
+				     pf_, lp.jb_min_ms);
+				rx->SetJitterBufferMinimumDelay(
+					lp.jb_min_ms / 1000.0);
+			}
+		}
 
 		struct conf_member *cm;
 
@@ -2125,6 +2317,15 @@ static int create_pf(struct peerflow *pf)
 
 	pf->peerConn = pcorerr.value();
 	info("pf(%p): created PC=%p\n", pf, pf->peerConn.get());
+
+	{
+		struct sdp_loss_params lp;
+
+		sdp_get_loss_params(&lp);
+		pf->bwe_cap = lp.max_bitrate;
+		pf_set_bwe_capped(pf, pf->call_type != ICALL_CALL_TYPE_VIDEO &&
+				  pf->vstate == ICALL_VIDEO_STATE_STOPPED);
+	}
 
 	auopts.echo_cancellation = true;
 	auopts.auto_gain_control = true;
@@ -3164,6 +3365,8 @@ int peerflow_set_video_state(struct iflow *iflow, enum icall_vstate vstate)
 	
 	if (pf && pf->video.track)
 		pf->video.track->set_enabled(active);
+
+	pf_set_bwe_capped(pf, !active);
 
 
 	return 0;

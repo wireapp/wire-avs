@@ -4632,6 +4632,26 @@ void wcall_i_set_audio_files(struct calling_instance *inst,
 }
 
 AVS_EXPORT
+void wcall_set_audio_params(int ptime, int max_bitrate)
+{
+	sdp_set_audio_params(ptime, max_bitrate);
+}
+
+AVS_EXPORT
+void wcall_set_loss_params(int red, int fec_loss_pct, int max_bitrate,
+			   int jb_min_ms)
+{
+	struct sdp_loss_params lp = {
+		.red = red,
+		.fec_loss_pct = fec_loss_pct,
+		.max_bitrate = max_bitrate,
+		.jb_min_ms = jb_min_ms,
+	};
+
+	sdp_set_loss_params(&lp);
+}
+
+AVS_EXPORT
 int wcall_set_proxy(const char *host, int port)
 {
 	return msystem_set_proxy(host, port);
