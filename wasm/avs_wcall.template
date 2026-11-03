@@ -6,6 +6,8 @@
 
 import avs_core = require('./avs_core');
 import avs_pc, {UserMediaHandler, AudioStreamHandler, VideoStreamHandler} from './avs_pc';
+import {installScanDriver, ScanReport} from './avs_scan';
+export type {ScanCandidate, ScanReport, ScanRun} from './avs_scan';
 
 
 %CONSTANTS%
@@ -28,9 +30,16 @@ const logHandler: WcallLogHandler = (level, msg, err) => {
 
 export class Wcall {
   private em_module: any;
+  private runScan?: (wuser: number) => Promise<ScanReport>;
 
   constructor(em_module: any) {
     this.em_module = em_module;
+  }
+
+  async scanTest(wuser: number): Promise<ScanReport> {
+    if (!this.runScan)
+      this.runScan = installScanDriver(this.em_module);
+    return this.runScan(wuser);
   }
 
 %FUNCTIONS%

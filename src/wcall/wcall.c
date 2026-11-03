@@ -107,6 +107,7 @@ struct log_entry {
 
 
 struct calling_instance {
+	uint32_t scan_id;
 	struct wcall_marshal *marshal;
 	struct mediamgr *mm;
 	char *userid;
@@ -185,6 +186,17 @@ struct calling_instance {
         struct list durationl;
 	struct list config_updatel;
 };
+
+/* Platform bridge. The driver copies the configuration before returning.
+ * A NULL configuration cancels the matching scan.
+ */
+typedef void (scan_run_h)(WUSER_HANDLE wuser, uint32_t id, const char *config);
+typedef void (scan_result_h)(WUSER_HANDLE wuser, int err, const char *json);
+void wcall_scan_set_driver(scan_run_h *run, scan_result_h *result);
+void wcall_scan_complete(WUSER_HANDLE wuser, uint32_t id, const char *json);
+static scan_run_h *scan_run;
+static scan_result_h *scan_result;
+static uint32_t next_scan_id;
 
 struct wcall {
 	struct calling_instance *inst;
@@ -2838,9 +2850,65 @@ static void ide_handler(void *arg)
 }
 
 
+AVS_EXPORT
+void wcall_scan_set_driver(scan_run_h *run, scan_result_h *result)
+{
+	scan_run = run;
+	scan_result = result;
+}
+
+
+AVS_EXPORT
+int wcall_start_scan(WUSER_HANDLE wuser)
+{
+	struct calling_instance *inst = wuser2inst(wuser);
+
+	if (!inst)
+		return EINVAL;
+	if (!scan_run || !scan_result)
+		return ENOSYS;
+	if (inst->scan_id)
+		return EALREADY;
+	if (!inst->call_config)
+		return EAGAIN;
+
+	if (++next_scan_id == 0)
+		++next_scan_id;
+	inst->scan_id = next_scan_id;
+	scan_run(wuser, inst->scan_id, config_get_scan_ice_servers(inst->cfg));
+	return 0;
+}
+
+
+AVS_EXPORT
+void wcall_scan_complete(WUSER_HANDLE wuser, uint32_t id, const char *json)
+{
+	struct calling_instance *inst = wuser2inst(wuser);
+
+	if (!inst || !id || inst->scan_id != id)
+		return;
+	inst->scan_id = 0;
+	scan_result(wuser, json ? 0 : EIO, json);
+}
+
+
+static void scan_cancel(struct calling_instance *inst)
+{
+	uint32_t scan_id = inst->scan_id;
+
+	if (scan_id) {
+		inst->scan_id = 0;
+		scan_run(inst->wuser, scan_id, NULL);
+		scan_result(inst->wuser, ECANCELED, NULL);
+	}
+}
+
+
 static void instance_destroy(struct calling_instance *inst)
 {
 	struct le *le;
+
+	scan_cancel(inst);
 
 	if (inst->thread_run) {
 		inst->thread_run = false;
@@ -2920,6 +2988,8 @@ static void instance_destroy(struct calling_instance *inst)
 static void instance_destructor(void *arg)
 {
 	struct calling_instance *inst = arg;
+
+	scan_cancel(inst);
 	
 	info("instance_destructor(%p)\n", inst);
 }

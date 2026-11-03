@@ -362,6 +362,12 @@ int wcall_start(WUSER_HANDLE wuser, const char *convid,
  */
 int wcall_start_test(WUSER_HANDLE wuser, int video);
 
+/* Start a local ICE scan with the calling instance's ICE configuration.
+ * Returns EAGAIN until configuration arrives, EALREADY while scanning,
+ * or ENOSYS when the platform has no scan driver. Results are asynchronous.
+ */
+int wcall_start_scan(WUSER_HANDLE wuser);
+
 /* Returns 0 if successfull
  * Set call_type from defines above.
  * Set audio_cbr to 0 for false, non-zero for true.

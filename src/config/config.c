@@ -34,6 +34,7 @@ struct config {
 	bool is_updating;
 
 	struct call_config config;
+	char *scan_ice_servers;
 
 	struct list updl; /* list of update handlers */
 };
@@ -75,6 +76,7 @@ static void cfg_destructor(void *arg)
 	struct config *cfg = arg;
 
 	tmr_cancel(&cfg->tmr);
+	mem_deref(cfg->scan_ice_servers);
 	mem_deref(cfg->config.iceserverv);	
 	mem_deref(cfg->config.sftserverv);	
 	mem_deref(cfg->config.sftservers_allv);	
@@ -113,7 +115,7 @@ int config_update(struct config *cfg, int err,
 		  const char *conf_json, size_t len)
 {
 	struct json_object *jobj;
-	struct json_object *jices;
+	struct json_object *jices = NULL;
 	struct json_object *jsfts;
 	uint32_t ttl = 0;
 
@@ -275,6 +277,15 @@ int config_update(struct config *cfg, int err,
 	}
 	
  out:
+	if (!err && jices) {
+		char *scan_ice_servers = NULL;
+
+		err = jzon_encode(&scan_ice_servers, jices);
+		if (!err) {
+			mem_deref(cfg->scan_ice_servers);
+			cfg->scan_ice_servers = scan_ice_servers;
+		}
+	}
 	if (err) {
 		warning("config(%p): config error (%m)\n", cfg, err);
 		tmr_start(&cfg->tmr, 60 * 1000, tmr_handler, cfg);
@@ -316,6 +327,11 @@ void config_stop(struct config *cfg)
 		return;
 
 	tmr_cancel(&cfg->tmr);
+}
+
+const char *config_get_scan_ice_servers(const struct config *cfg)
+{
+	return cfg && cfg->scan_ice_servers ? cfg->scan_ice_servers : "[]";
 }
 
 struct zapi_ice_server *config_get_iceservers(struct config *cfg,
