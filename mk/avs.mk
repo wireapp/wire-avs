@@ -164,15 +164,19 @@ AVS_LIB_FILES += $(CONTRIB_LIBRE_LIB_FILES) \
 #--- Dependency Targets ---
 #
 
+# Contrib libs are order-only: they must exist before compiling, but
+# header changes are tracked via the generated .d files, so a relinked
+# library doesn't force recompiling every object.
+#
 ifeq ($(HAVE_WEBRTC),1)
 $(AVS_OBJS): $(TOOLCHAIN_MASTER) \
-	     $(CONTRIB_LIBRE_TARGET) \
+	     | $(CONTRIB_LIBRE_TARGET) \
 	     $(CONTRIB_LIBREM_TARGET) \
 	     $(CONTRIB_LIBREW_TARGET) \
 	     $(CONTRIB_SODIUM_TARGET)
 else
 $(AVS_OBJS): $(TOOLCHAIN_MASTER) \
-	     $(CONTRIB_LIBRE_TARGET) \
+	     | $(CONTRIB_LIBRE_TARGET) \
 	     $(CONTRIB_LIBREW_TARGET) \
 	     $(CONTRIB_SODIUM_TARGET)
 endif
@@ -221,7 +225,11 @@ $(AVS_MM_OBJS): $(AVS_OBJ_PATH)/%.o: src/%.mm
 		-c $< -o $@ $(DFLAGS)
 
 
-$(AVS_STATIC): $(AVS_OBJS)
+# The contrib libs are listed so that anything linking against
+# libavscore.a gets relinked when one of them changes (the objects only
+# depend on them order-only).
+#
+$(AVS_STATIC): $(AVS_OBJS) $(AVS_DEPS) $(AVS_LIB_FILES)
 	@echo "  AR   $(AVS_OS)-$(AVS_ARCH) $@"
 	@mkdir -p $(dir $@)
 	$(AR) $(AFLAGS) $@ $(filter %.o,$^)

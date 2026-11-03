@@ -23,6 +23,10 @@ TEST_SLOW_CC_OBJS := $(patsubst %.cpp,$(TEST_OBJ_PATH)/%.o,\
 			$(filter %.cpp,$(TEST_SLOW_SRCS)))
 TEST_SLOW_OBJS := $(TEST_SLOW_C_OBJS) $(TEST_SLOW_CC_OBJS)
 
+# Objects shared with TEST_OBJS (main, util) already have a rule below.
+TEST_SLOW_ONLY_C_OBJS := $(filter-out $(TEST_OBJS),$(TEST_SLOW_C_OBJS))
+TEST_SLOW_ONLY_CC_OBJS := $(filter-out $(TEST_OBJS),$(TEST_SLOW_CC_OBJS))
+
 TEST_DEPS += $(CONTRIB_GTEST_TARGET) $(AVS_DEPS) $(MENG_DEPS)
 TEST_LIBS += $(CONTRIB_GTEST_LIBS) $(AVS_LIBS) $(MENG_LIBS)
 
@@ -67,7 +71,7 @@ $(TEST_CC_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.cpp
 		$(TEST_CPPFLAGS) $(TEST_CXXFLAGS) \
 		-c $< -o $@ $(DFLAGS)
 
-$(TEST_SLOW_C_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.c
+$(TEST_SLOW_ONLY_C_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.c
 	@echo "  CC   $(AVS_OS)-$(AVS_ARCH) test/$*.c"
 	@mkdir -p $(dir $@)
 	@$(CC)  $(CPPFLAGS) $(CFLAGS) \
@@ -75,7 +79,7 @@ $(TEST_SLOW_C_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.c
 		$(TEST_CPPFLAGS) $(TEST_CFLAGS) \
 		-c $< -o $@ $(DFLAGS)
 
-$(TEST_SLOW_CC_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.cpp
+$(TEST_SLOW_ONLY_CC_OBJS): $(TEST_OBJ_PATH)/%.o: test/%.cpp
 	@echo "  CXX  $(AVS_OS)-$(AVS_ARCH) test/$*.cpp"
 	@mkdir -p $(dir $@)
 	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) \
