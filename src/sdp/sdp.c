@@ -50,7 +50,7 @@ static struct {
 	int max_bitrate;
 } audio_params = {
 	.ptime = 40,
-	.max_bitrate = 24000,
+	.max_bitrate = 32000,
 };
 
 /* See sdp_set_loss_params; the SDP munging only uses red, the rest is for
