@@ -161,6 +161,7 @@ struct peerflow {
 
 	int bwe_cap;       /* wcall_set_loss_params max_bitrate at creation */
 	bool bwe_capped;   /* the cap is applied (no video) */
+	bool plain;        /* sdp_audio_plain at creation: as release-10.5 */
 
 	webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConn;
 
@@ -456,6 +457,17 @@ public:
 			val = "Enabled-" + std::to_string(MAX(lp.red, 1));
 			info("pf: field trial %s -> %s\n", key.c_str(), val.c_str());
 			return val;
+		}
+
+		// Read when the call's audio send stream is made: without
+		// any audio or loss params, opus doesn't adapt, as in
+		// release-10.5 (see sdp_audio_plain).
+		if ((key == "WebRTC-Audio-Allocation"
+		     || key == "WebRTC-Audio-AdaptivePtime")
+		    && sdp_audio_plain()) {
+			info("pf: field trial %s off (plain audio)\n",
+			     key.c_str());
+			return "";
 		}
 
 		auto it = trials_.find(key);
@@ -1523,7 +1535,8 @@ public:
 
 		switch (state) {
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:
-			SendMQMessage(MQ_PC_RESTART_CANCEL);
+			if (!pf_->plain)
+				SendMQMessage(MQ_PC_RESTART_CANCEL);
 			SendMQMessage(MQ_PC_ESTAB);
 			break;
 
@@ -1534,8 +1547,15 @@ public:
 		 * makes them work again (P2PTransportChannel::
 		 * ComputeIceTransportState, Connection::dead). On a
 		 * congested link the responses are only late, so wait.
+		 * Plain audio restarts at once, as release-10.5 did.
 		 */
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
+			if (pf_->plain) {
+				warning("pf(%p): connection failed, "
+					"restarting...\n", pf_);
+				SendMQMessage(MQ_PC_RESTART_NOW);
+				break;
+			}
 		        warning("pf(%p): connection failed, restarting unless "
 				"it comes back\n", pf_);
 			SendMQMessage(MQ_PC_RESTART_DELAY);
@@ -1544,7 +1564,8 @@ public:
 		/* After failed: a pair works again, so the link is alive */
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kDisconnected:
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kConnecting:
-			SendMQMessage(MQ_PC_RESTART_HOLD);
+			if (!pf_->plain)
+				SendMQMessage(MQ_PC_RESTART_HOLD);
 			break;
 
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
@@ -2300,7 +2321,7 @@ static int create_pf(struct peerflow *pf)
 	int err = 0;
 
 	recv_video = pf->call_type != ICALL_CALL_TYPE_FORCED_AUDIO;
-	
+
 	pf->offerOptions =
 		new webrtc::PeerConnectionInterface::RTCOfferAnswerOptions(
 				recv_video, 1, false, true, true);
@@ -2803,7 +2824,10 @@ int peerflow_alloc(struct iflow		**flowp,
 	pf->conv_type = conv_type;
 	pf->call_type = call_type;
 	pf->vstate = vstate;
-	
+	pf->plain = sdp_audio_plain();
+	if (pf->plain)
+		info("pf(%p): plain audio (as release-10.5)\n", pf);
+
 	pf->config = new webrtc::PeerConnectionInterface::RTCConfiguration();
 	pf->observer = new AvsPeerConnectionObserver(pf);
 
@@ -3082,16 +3106,28 @@ int peerflow_handle_offer(struct iflow *iflow,
 	sdp_check(sdp_in, false, true, pf_acbr_handler,
 		  pf_norelay_handler, pf_tool_handler, pf);
 
-	/* Remote SDP drives our encoder's ptime and bitrate */
-	err = sdp_munge_audio(&sdp_str, sdp_in, pf->conv_type, true,
-			      false, pf->sdp_needs_munging);
-	if (err) {
-		warning("peerflow_handle_offer: failed to munge SDP: %m\n", err);
-		return err;
+	/* Remote SDP drives our encoder's ptime and bitrate. Plain audio
+	 * takes it as it came, as release-10.5 did.
+	 */
+	if (pf->plain && !pf->sdp_needs_munging) {
+		str_dup(&sdp_str, sdp_in);
 	}
-	info("peerflow(%p): handle SDP-offer-munged:\n"
-	     "%s\n",
-	     pf, sdp_str);
+	else {
+		if (pf->plain)
+			err = sdp_munge(&sdp_str, sdp_in, pf->conv_type, true);
+		else
+			err = sdp_munge_audio(&sdp_str, sdp_in, pf->conv_type,
+					      true, false,
+					      pf->sdp_needs_munging);
+		if (err) {
+			warning("peerflow_handle_offer: failed to munge SDP: "
+				"%m\n", err);
+			return err;
+		}
+		info("peerflow(%p): handle SDP-offer-munged:\n"
+		     "%s\n",
+		     pf, sdp_str);
+	}
 
 	webrtc::SdpParseError parse_err;
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
@@ -3138,16 +3174,24 @@ int peerflow_handle_answer(struct iflow *iflow,
 	sdp_check(sdp_in, false, false, pf_acbr_handler,
 		  pf_norelay_handler, pf_tool_handler, pf);
 
-	/* Remote SDP drives our encoder's ptime and bitrate */
-	err = sdp_munge_audio(&sdp_str, sdp_in, pf->conv_type, false,
-			      false, false);
-	if (err) {
-		warning("peerflow_handle_answer: failed to munge SDP: %m\n", err);
-		return err;
+	/* Remote SDP drives our encoder's ptime and bitrate. Plain audio
+	 * takes it as it came, as release-10.5 did.
+	 */
+	if (pf->plain) {
+		str_dup(&sdp_str, sdp_in);
 	}
-	info("peerflow(%p): handle SDP-answer-munged:\n"
-	     "%s\n",
-	     pf, sdp_str);
+	else {
+		err = sdp_munge_audio(&sdp_str, sdp_in, pf->conv_type, false,
+				      false, false);
+		if (err) {
+			warning("peerflow_handle_answer: failed to munge SDP: "
+				"%m\n", err);
+			return err;
+		}
+		info("peerflow(%p): handle SDP-answer-munged:\n"
+		     "%s\n",
+		     pf, sdp_str);
+	}
 
 	webrtc::SdpParseError parse_err;
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
