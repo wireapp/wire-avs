@@ -17,6 +17,9 @@ typedef void (peerflow_tool_h)(const char *tool, void *arg);
 
 void peerflow_start_log(void);
 
+/* See wcall_set_stats_log */
+void peerflow_set_stats_log(bool enable);
+
 int peerflow_alloc(struct iflow		**flowp,
 		   const char		*convid,
 		   const char		*userid_self,

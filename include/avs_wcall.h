@@ -541,6 +541,13 @@ void wcall_set_loss_params(int red, int fec_loss_pct, int max_bitrate,
 			   int jb_min_ms);
 
 /**
+ * Whether each call logs a line of audio stats (pf: stats5s:) every 5 s:
+ * bitrates, bandwidth estimate, RTT, loss, concealment and jitter buffer.
+ * Off by default. For all calls; takes effect at the next stats report.
+ */
+void wcall_set_stats_log(int enable);
+
+/**
  * Client list management (conference calls).
  */
 typedef void (wcall_req_clients_h)(WUSER_HANDLE wuser,
