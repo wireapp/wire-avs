@@ -445,6 +445,14 @@ public:
 		// while the queue built on a collapsing link.
 		trials_["WebRTC-Audio-AdaptivePtime"] =
 			"enabled:true,use_slow_adaptation:false";
+
+		// When the selected pair moves to another network (e.g.
+		// Wi-Fi <-> wired or cellular) the bandwidth estimate is
+		// reset. By default it restarts from the start bitrate,
+		// which on a narrow link sends far more than it carries
+		// until the estimate collapses again. With this it
+		// restarts from no more than the current target.
+		trials_["WebRTC-Bwe-SafeResetOnRouteChange"] = "Enabled";
 	}
 
 	std::string Lookup(absl::string_view key_view) const override {
@@ -464,11 +472,14 @@ public:
 			return val;
 		}
 
-		// Read when the call's audio send stream is made: without
-		// any audio or loss params, opus doesn't adapt, as in
-		// release-10.5 (see sdp_audio_plain).
+		// Read when the call's audio send stream (and, for the
+		// BWE, its congestion controller) is made: without any
+		// audio or loss params, opus doesn't adapt and a network
+		// change resets the estimate fully, as in release-10.5
+		// (see sdp_audio_plain).
 		if ((key == "WebRTC-Audio-Allocation"
-		     || key == "WebRTC-Audio-AdaptivePtime")
+		     || key == "WebRTC-Audio-AdaptivePtime"
+		     || key == "WebRTC-Bwe-SafeResetOnRouteChange")
 		    && sdp_audio_plain()) {
 			info("pf: field trial %s off (plain audio)\n",
 			     key.c_str());
@@ -477,6 +488,8 @@ public:
 
 		auto it = trials_.find(key);
 		std::string val = it != trials_.end() ? it->second : "";
+		if (key == "WebRTC-Bwe-SafeResetOnRouteChange")
+			info("pf: field trial %s -> %s\n", key.c_str(), val.c_str());
 		//info("WireFieldTrials::Lookup: %s -> %s\n", key.c_str(), val.c_str());
 
 		return val;
