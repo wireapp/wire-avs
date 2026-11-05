@@ -1706,6 +1706,35 @@ public:
 	virtual void OnIceConnectionReceivingChange(bool receiving) {
 	}
 
+	// Called when the selected candidate pair changes. A switch to
+	// another network (network id) resets the bandwidth estimate.
+	virtual void OnIceSelectedCandidatePairChanged(
+		const webrtc::CandidatePairChangeEvent& event) {
+		const webrtc::Candidate& lc =
+			event.selected_candidate_pair.local_candidate();
+		const webrtc::Candidate& rc =
+			event.selected_candidate_pair.remote_candidate();
+
+		info("pf(%p): selected pair: reason=\"%s\" "
+		     "local=%s %s %s%s%s net=%s/%u/%s cost=%u "
+		     "remote=%s %s %s net=%u cost=%u "
+		     "disconnected=%lld ms\n",
+		     pf_, event.reason.c_str(),
+		     std::string(lc.type_name()).c_str(),
+		     lc.protocol().c_str(),
+		     lc.address().ToString().c_str(),
+		     lc.relay_protocol().empty() ? "" : " relay=",
+		     lc.relay_protocol().c_str(),
+		     lc.network_name().c_str(), lc.network_id(),
+		     webrtc::AdapterTypeToString(lc.network_type()).c_str(),
+		     lc.network_cost(),
+		     std::string(rc.type_name()).c_str(),
+		     rc.protocol().c_str(),
+		     rc.address().ToString().c_str(),
+		     rc.network_id(), rc.network_cost(),
+		     (long long)event.estimated_disconnected_time_ms);
+	}
+
 	// This is called when a receiver and its track are created.
 	// Note: This is called with both Plan B and Unified Plan semantics.
 	// Unified Plan users should prefer OnTrack,
