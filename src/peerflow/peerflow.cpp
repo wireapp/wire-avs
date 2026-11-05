@@ -439,7 +439,12 @@ public:
 		// estimate leaves less than 16 kbps of payload after the
 		// headers, so a narrow link spends less on headers. The
 		// shortest frame is the SDP minptime (see sdp.c).
-		trials_["WebRTC-Audio-AdaptivePtime"] = "enabled:true";
+		// use_slow_adaptation:false makes it follow the target
+		// itself, not the target smoothed over 4 x the BWE period
+		// (8-200 s), which kept short frames for tens of seconds
+		// while the queue built on a collapsing link.
+		trials_["WebRTC-Audio-AdaptivePtime"] =
+			"enabled:true,use_slow_adaptation:false";
 	}
 
 	std::string Lookup(absl::string_view key_view) const override {

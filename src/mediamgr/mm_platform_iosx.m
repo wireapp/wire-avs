@@ -486,6 +486,35 @@ static const char *reason_name(NSInteger reason)
 	}	
 }
 
+static const char *mic_mode_name(NSInteger mode)
+{
+	switch (mode) {
+	case 0: /* AVCaptureMicrophoneModeStandard */
+		return "Standard";
+
+	case 1: /* AVCaptureMicrophoneModeWideSpectrum */
+		return "WideSpectrum";
+
+	case 2: /* AVCaptureMicrophoneModeVoiceIsolation */
+		return "VoiceIsolation";
+
+	default:
+		return "???";
+	}
+}
+
+/* The Mic Mode the user picked in Control Center changes what voice
+ * processing does to the captured audio.
+ */
+static void log_mic_mode(void)
+{
+	if (@available(iOS 15.0, *)) {
+		info("mm_platform_ios: mic mode: active=%s preferred=%s\n",
+		     mic_mode_name(AVCaptureDevice.activeMicrophoneMode),
+		     mic_mode_name(AVCaptureDevice.preferredMicrophoneMode));
+	}
+}
+
 static void interrupt_action(bool interrupted)
 {
 	if (interrupted) {
@@ -686,6 +715,7 @@ static void handle_audio_notification(NSNotification *notification)
 
 	debug("mediamgr: output latency: %f\n", sess.outputLatency);
 	debug("mediamgr: input latency: %f\n", sess.inputLatency);
+	log_mic_mode();
 
 	switch (reason) {
 	case AVAudioSessionRouteChangeReasonRouteConfigurationChange:
