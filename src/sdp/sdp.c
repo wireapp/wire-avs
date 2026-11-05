@@ -49,17 +49,18 @@ static struct {
 	int ptime;
 	int max_bitrate;
 } audio_params = {
-	.ptime = 40,
+	.ptime = 20,
 	.max_bitrate = 32000,
 };
 
 /* See sdp_set_loss_params; the SDP munging only uses red, the rest is for
  * peerflow. The defaults were picked from PESQ tests at ~10% loss and ~1 s
  * RTT: RED 1 cut the concealed audio about tenfold and fixed the start of
- * the call; RED 2 was not worth its extra bandwidth. Opus at 40 ms instead
- * of 20 ms halves the packet rate (~14% less bandwidth on a clean network)
- * with the same quality; a 60 ms jitter buffer minimum is still enough for
- * the RED copy, which arrives one packet (40 ms) later.
+ * the call; RED 2 was not worth its extra bandwidth. Opus starts at 20 ms,
+ * which scored better than 40 ms on a clean network; adaptive ptime
+ * lengthens the frames (up to 120 ms) when the bandwidth is short. A 60 ms
+ * jitter buffer minimum is enough for the RED copy, which arrives one
+ * packet later.
  */
 static struct sdp_loss_params loss_params = {
 	.red = 1,
