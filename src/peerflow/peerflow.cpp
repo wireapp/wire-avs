@@ -2406,6 +2406,13 @@ static int create_pf(struct peerflow *pf)
 	else 
 		pf->config->type = webrtc::PeerConnectionInterface::kAll; 
 
+	// Keep only the first TURN port that gets ready on each network.
+	// The others never pair, so they have no permissions to refresh
+	// (all at once, 4 minutes into the call) and their relay
+	// candidates are not offered (see turn_use in ecall.c). This
+	// applies also without any audio or loss params (plain).
+	pf->config->turn_port_prune_policy = webrtc::KEEP_FIRST_READY;
+
 	std::unique_ptr<webrtc::PortAllocator> port_allocator = nullptr;
 	
 	struct msystem_proxy *proxy = msystem_get_proxy();
