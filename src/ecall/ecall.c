@@ -1175,6 +1175,37 @@ struct icall *ecall_get_icall(struct ecall *ecall)
 }
 
 
+/* TURN servers given to a flow: the first 2 over UDP and the first one
+ * over TCP. Each side keeps an allocation on every server it is given and
+ * a permission per remote address on each, and libwebrtc refreshes all of
+ * them at once 4 minutes into the call, resending each every 250 ms and
+ * doubling until answered. With all servers (4 x UDP/TCP) that is tens of
+ * requests per side, which on a narrow link with a long RTT blocks the
+ * audio for 20-50 s. Fewer servers also mean fewer relay candidates, so
+ * fewer permissions on the other side. This applies also without any
+ * audio or loss params (sdp_audio_plain), where the rest of the call is as
+ * in release-10.5.
+ */
+#define TURN_MAX_UDP 2
+#define TURN_MAX_TCP 1
+
+static bool turn_use(struct ecall *ecall, const char *url,
+		     int *nudp, int *ntcp)
+{
+	bool tcp = strstr(url, "transport=tcp") != NULL;
+	int *n = tcp ? ntcp : nudp;
+
+	if (*n >= (tcp ? TURN_MAX_TCP : TURN_MAX_UDP)) {
+		info("ecall(%p): alloc_flow: not using turnserver: %s\n",
+		     ecall, url);
+		return false;
+	}
+
+	++*n;
+	return true;
+}
+
+
 int ecall_add_turnserver(struct ecall *ecall,
 			 struct zapi_ice_server *srv)
 {
@@ -2111,6 +2142,8 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 	//struct sa laddr;
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
+	int nudp = 0;
+	int ntcp = 0;
 	size_t i;
 	int err;
 
@@ -2168,10 +2201,12 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 	for(i = 0; i < ecall->turnc; ++i) {
 		struct zapi_ice_server *t = &ecall->turnv[i];
 
-		IFLOW_CALL(ecall->flow, add_turnserver,
-			t->url,
-			t->username,
-			t->credential);
+		if (turn_use(ecall, t->url, &nudp, &ntcp)) {
+			IFLOW_CALL(ecall->flow, add_turnserver,
+				   t->url,
+				   t->username,
+				   t->credential);
+		}
 	}
 
 	if (ecall->keystore) {
