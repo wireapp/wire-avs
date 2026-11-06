@@ -942,8 +942,10 @@ void peerflow_destroy(void)
 {
 	info("peerflow_destroy: initialized=%d\n", g_pf.initialized);
 
-	//wire::CaptureSource::ReleaseInstance();
-	g_pf.video.src = nullptr;
+	/* CaptureSource doesn't reference count itself (no-op AddRef/Release),
+	 * so dropping the scoped_refptr never frees it; delete it explicitly.
+	 */
+	delete g_pf.video.src.release();
 
 	if (!g_pf.initialized)
 		return;
