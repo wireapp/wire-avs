@@ -1246,6 +1246,19 @@ out:
 }
 
 
+/* Reset the mute state here rather than on the mediamgr thread,
+ * as the mute handlers access wcall state.
+ */
+static void enter_normal_state(struct calling_instance *inst)
+{
+	if (inst->mm) {
+		mediamgr_set_call_state(inst->mm,
+					MEDIAMGR_STATE_NORMAL);
+	}
+	msystem_set_muted(false);
+}
+
+
 static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_time, void *arg)
 {
 	struct wcall *wcall = arg;
@@ -1335,10 +1348,8 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 	}
 
 	wcall->disable_audio = true;
-	if (!wcall_has_calls() && inst->mm) {
-		mediamgr_set_call_state(inst->mm,
-					MEDIAMGR_STATE_NORMAL);
-	}
+	if (!wcall_has_calls())
+		enter_normal_state(inst);
 }
 
 
@@ -1628,15 +1639,8 @@ static void destructor(void *arg)
 	has_calls = wcall_has_calls();
 	lock_rel(inst->lock);
 
-	if (!has_calls) {
-		if (inst->mm) {
-			mediamgr_set_call_state(inst->mm,
-						MEDIAMGR_STATE_NORMAL);
-		}
-		else {
-			msystem_set_muted(false);		
-		}
-	}
+	if (!has_calls)
+		enter_normal_state(inst);
 
 	mem_deref(wcall->icall);
 	mem_deref(wcall->convid);
@@ -3458,12 +3462,8 @@ static void wcall_end_internal(struct wcall *wcall)
 	ICALL_CALL(wcall->icall, end);
 	
 	wcall->disable_audio = true;
-	if (!wcall_has_calls()) {
-		if (wcall->inst->mm) {
-			mediamgr_set_call_state(wcall->inst->mm,
-						MEDIAMGR_STATE_NORMAL);
-		}
-	}
+	if (!wcall_has_calls())
+		enter_normal_state(wcall->inst);
 }
 
 
@@ -3497,12 +3497,8 @@ int wcall_i_reject(struct wcall *wcall)
 	}
 
 	wcall->disable_audio = true;
-	if (!wcall_has_calls()) {
-		if (wcall->inst->mm) {
-			mediamgr_set_call_state(wcall->inst->mm,
-						MEDIAMGR_STATE_NORMAL);
-		}
-	}
+	if (!wcall_has_calls())
+		enter_normal_state(wcall->inst);
 
 	if (wcall->state == WCALL_STATE_INCOMING) {
 		ICALL_CALL(wcall->icall, reject);
