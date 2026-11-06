@@ -502,11 +502,13 @@ static void set_state(struct wcall *wcall, int st)
 	     wcall, wcall_state_name(wcall->state), wcall_state_name(st));
 
 	wcall->state = st;
-	if (st == WCALL_STATE_MEDIA_ESTAB)
-		wcall_i_test_connected(wcall);
-	else if (st == WCALL_STATE_TERM_LOCAL ||
-		 st == WCALL_STATE_TERM_REMOTE || st == WCALL_STATE_NONE)
-		tmr_cancel(&wcall->test_tmr);
+	if (wcall_is_test(wcall)) {
+		if (st == WCALL_STATE_MEDIA_ESTAB)
+			wcall_i_test_connected(wcall);
+		else if (st == WCALL_STATE_TERM_LOCAL ||
+			 st == WCALL_STATE_TERM_REMOTE || st == WCALL_STATE_NONE)
+			tmr_cancel(&wcall->test_tmr);
+	}
 
 	if (trigger && inst && inst->stateh) {
 		inst->stateh(wcall->convid, wcall->state, inst->arg);
