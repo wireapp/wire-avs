@@ -558,6 +558,12 @@ out:
 	if (err) {
 		char convid_anon[ANON_ID_LEN];
 
+#ifdef __EMSCRIPTEN__
+		if (id == WCALL_MEV_START && md->u.start.is_test && md->convid)
+			wcall_web_test_event(md->inst, md->convid,
+					     WCALL_WEB_TEST_CLOSE,
+					     WCALL_REASON_ERROR);
+#endif
 		warning("wcall: mqueue_handler error (%m) handling event: %s convid=%s\n",
 			err, mev_name(id),
 			md->convid ? anon_id(convid_anon, md->convid) : "???");
@@ -909,8 +915,7 @@ int wcall_start(WUSER_HANDLE wuser,
 }
 
 
-AVS_EXPORT
-int wcall_start_test(WUSER_HANDLE wuser, int video)
+static int start_test(WUSER_HANDLE wuser, int video, bool web)
 {
 	struct calling_instance *inst;
 	char *convid = NULL;
@@ -922,17 +927,36 @@ int wcall_start_test(WUSER_HANDLE wuser, int video)
 	inst = wuser2inst(wuser);
 	if (!inst)
 		return EINVAL;
-
 	err = wcall_alloc_test_convid(inst, &convid);
 	if (err)
 		return err;
 
+#ifdef __EMSCRIPTEN__
+	if (web && !wcall_web_test_event(inst, convid, WCALL_WEB_TEST_START, 0)) {
+		mem_deref(convid);
+		return EALREADY;
+	}
+#endif
 	err = enqueue_start(wuser, convid,
 			    video ? WCALL_CALL_TYPE_VIDEO : WCALL_CALL_TYPE_NORMAL,
 			    WCALL_CONV_TYPE_CONFERENCE_MLS, 0, 0, true);
 	mem_deref(convid);
 	return err;
 }
+
+AVS_EXPORT
+int wcall_start_test(WUSER_HANDLE wuser, int video)
+{
+	return start_test(wuser, video, false);
+}
+
+#ifdef __EMSCRIPTEN__
+AVS_EXPORT
+int wcall_web_test_start(WUSER_HANDLE wuser, int video)
+{
+	return start_test(wuser, video, true);
+}
+#endif
 
 
 AVS_EXPORT

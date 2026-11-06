@@ -8,6 +8,8 @@ import avs_core = require('./avs_core');
 import avs_pc, {UserMediaHandler, AudioStreamHandler, VideoStreamHandler} from './avs_pc';
 import {installScanDriver, ScanReport} from './avs_scan';
 export type {ScanCandidate, ScanReport, ScanRun} from './avs_scan';
+import {installConnectionTest, ConnectionTestProgress, ConnectionTestResult} from './avs_connection_test';
+export type {ConnectionTestProgress, ConnectionTestResult} from './avs_connection_test';
 
 
 %CONSTANTS%
@@ -31,6 +33,7 @@ const logHandler: WcallLogHandler = (level, msg, err) => {
 export class Wcall {
   private em_module: any;
   private runScan?: (wuser: number) => Promise<ScanReport>;
+  private runWebTest?: ReturnType<typeof installConnectionTest>;
 
   constructor(em_module: any) {
     this.em_module = em_module;
@@ -40,6 +43,12 @@ export class Wcall {
     if (!this.runScan)
       this.runScan = installScanDriver(this.em_module);
     return this.runScan(wuser);
+  }
+
+  async runConnectionTest(wuser: number, onProgress?: (progress: ConnectionTestProgress) => void): Promise<ConnectionTestResult> {
+    if (!this.runWebTest)
+      this.runWebTest = installConnectionTest(this.em_module);
+    return this.runWebTest(wuser, 0, onProgress);
   }
 
 %FUNCTIONS%

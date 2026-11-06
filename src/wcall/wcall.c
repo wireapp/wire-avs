@@ -453,6 +453,18 @@ static void test_end_handler(void *arg)
 	wcall_i_end(wcall);
 }
 
+#ifdef __EMSCRIPTEN__
+int wcall_web_test_event(struct calling_instance *inst, const char *convid,
+			 int event, int reason)
+{
+	return EM_ASM_INT({
+		return Module.avsWebTestEvent
+			? Module.avsWebTestEvent($0, UTF8ToString($1), $2, $3)
+			: 0;
+	}, inst->wuser, convid, event, reason);
+}
+#endif
+
 
 void wcall_i_test_connected(struct wcall *wcall)
 {
@@ -462,6 +474,12 @@ void wcall_i_test_connected(struct wcall *wcall)
 		return;
 
 	wcall->test_connected = true;
+#ifdef __EMSCRIPTEN__
+	/* The Web test measures from the first observed audio packets. */
+	if (wcall_web_test_event(wcall->inst, wcall->convid,
+				 WCALL_WEB_TEST_MEDIA, 0))
+		return;
+#endif
 	info("wcall(%p): test connected, ending in %u ms\n",
 	     wcall, (unsigned)WCALL_TEST_DURATION_MS);
 	tmr_start(&wcall->test_tmr, WCALL_TEST_DURATION_MS,
@@ -1248,6 +1266,11 @@ static void icall_close_handler(struct icall *icall, int err,
 	reason = err2reason(err);
 	if (wcall_is_test(wcall) && wcall->test_failed)
 		reason = wcall->test_failure_reason;
+#ifdef __EMSCRIPTEN__
+	if (wcall_is_test(wcall))
+		wcall_web_test_event(inst, wcall->convid,
+				     WCALL_WEB_TEST_CLOSE, reason);
+#endif
 
 	info(APITAG "wcall(%p): closeh(%p) group=no state=%s reason=%s\n",
 	     wcall, inst->closeh, wcall_state_name(wcall->state),
