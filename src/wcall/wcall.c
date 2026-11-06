@@ -1335,8 +1335,9 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 		return;
 	}
 
-	tmr_cancel(&wcall->test_tmr);
-	if (!wcall_is_test(wcall))
+	if (wcall_is_test(wcall))
+		tmr_cancel(&wcall->test_tmr);
+	else
 		set_state(wcall, WCALL_STATE_INCOMING);
 
 	switch (reason) {
@@ -1722,7 +1723,8 @@ static void destructor(void *arg)
 	bool has_calls;
 
 	info("wcall(%p): dtor -- started\n", wcall);
-	tmr_cancel(&wcall->test_tmr);
+	if (wcall->is_test)
+		tmr_cancel(&wcall->test_tmr);
 	
 	lock_write_get(inst->lock);
 	if (wcall->is_test) {
