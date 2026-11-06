@@ -1018,7 +1018,7 @@ static void ecall_aulevel_handler(struct icall *icall, struct list *levell, void
 		      icall, levell, ccall->icall.arg);
 }
 
-static void close_timeout_handler(void *arg)
+static void durterm_timeout_handler(void *arg)
 {
         struct ccall *ccall = arg;
 
@@ -1125,7 +1125,7 @@ static void ecall_close_handler(struct icall *icall,
 	else {
 	        if (ccall->error == EDURATION) {
 		        tmr_start(&ccall->meeting.tmr_term, CCALL_DURATION_TERM_TIMEOUT,
-				  close_timeout_handler, ccall);
+				  durterm_timeout_handler, ccall);
 		}
 		else {
 		        set_state(ccall, CCALL_STATE_INCOMING);
@@ -3170,7 +3170,7 @@ void ccall_end(struct icall *icall)
 		ccall->je = mem_deref(ccall->je);
 		set_state(ccall, CCALL_STATE_IDLE);
 		/* closeh may destroy ccall and wcall; run it after the end call returns. */
-		tmr_start(&ccall->tmr_call, 0, close_timeout_handler, ccall);
+		tmr_start(&ccall->tmr_call, 0, durterm_timeout_handler, ccall);
 	}
 }
 

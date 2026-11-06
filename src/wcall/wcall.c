@@ -2787,11 +2787,6 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 		mem_deref(cuent);
 	}
 
-	if (inst->scan_waiting_config) {
-		inst->scan_waiting_config = false;
-		scan_run(inst->wuser, inst->scan_id,
-			 config_get_scan_json(inst->cfg));
-	}
 }
 
 
@@ -2892,23 +2887,24 @@ AVS_EXPORT
 int wcall_start_scan(WUSER_HANDLE wuser)
 {
 	struct calling_instance *inst = wuser2inst(wuser);
+	int err;
 
 	if (!inst)
 		return EINVAL;
-	if (!scan_run || !scan_result)
+	if (!scan_run || !scan_result || !inst->cfg_reqh)
 		return ENOSYS;
 	if (inst->scan_id)
 		return EALREADY;
 	if (++next_scan_id == 0)
 		++next_scan_id;
 	inst->scan_id = next_scan_id;
-	if (!inst->call_config) {
-		inst->scan_waiting_config = true;
-		return 0;
+	inst->scan_waiting_config = true;
+	err = config_request_if_idle(inst->cfg);
+	if (err) {
+		inst->scan_waiting_config = false;
+		inst->scan_id = 0;
 	}
-
-	scan_run(wuser, inst->scan_id, config_get_scan_json(inst->cfg));
-	return 0;
+	return err;
 }
 
 
@@ -3449,6 +3445,7 @@ void wcall_i_resp(struct calling_instance *inst,
 void wcall_i_config_update(struct calling_instance *inst,
 			   int err, const char *json_str)
 {
+	uint32_t scan_id;
 	int update_err;
 
 	info("wcall(%p): config_update: err=%d json=%zu bytes\n",
@@ -3457,14 +3454,20 @@ void wcall_i_config_update(struct calling_instance *inst,
 	if (!inst)
 		return;
 
+	scan_id = inst->scan_waiting_config ? inst->scan_id : 0;
 	update_err = config_update(inst->cfg, err, json_str, str_len(json_str));
 	if (update_err)
 		warning("wcall(%p): config_update failed: %m\n", inst, update_err);
 
-	if (inst->scan_waiting_config && (err || update_err)) {
+	if (scan_id && inst->scan_id == scan_id && inst->scan_waiting_config) {
 		inst->scan_waiting_config = false;
-		inst->scan_id = 0;
-		scan_result(inst->wuser, err ? err : update_err, NULL);
+		if (err || update_err) {
+			inst->scan_id = 0;
+			scan_result(inst->wuser, err ? err : update_err, NULL);
+		}
+		else {
+			scan_run(inst->wuser, scan_id, json_str);
+		}
 	}
 }
 

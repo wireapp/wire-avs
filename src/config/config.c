@@ -16,7 +16,6 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <string.h>
 #include <re/re.h>
 #include "avs.h"
 #include "avs_wcall.h"
@@ -35,11 +34,12 @@ struct config {
 	bool is_updating;
 
 	struct call_config config;
-	char *scan_json;
 
 	struct list updl; /* list of update handlers */
 };
 
+
+static void tmr_handler(void *arg);
 
 static int do_request(struct config *cfg)
 {
@@ -52,6 +52,10 @@ static int do_request(struct config *cfg)
 	if (cfg->reqh) {
 		cfg->is_updating = true;
 		err = cfg->reqh(cfg->arg);
+		if (err) {
+			cfg->is_updating = false;
+			tmr_start(&cfg->tmr, 60 * 1000, tmr_handler, cfg);
+		}
 	}
 
 	return err;
@@ -77,7 +81,6 @@ static void cfg_destructor(void *arg)
 	struct config *cfg = arg;
 
 	tmr_cancel(&cfg->tmr);
-	mem_deref(cfg->scan_json);
 	mem_deref(cfg->config.iceserverv);	
 	mem_deref(cfg->config.sftserverv);	
 	mem_deref(cfg->config.sftservers_allv);	
@@ -120,7 +123,7 @@ int config_update(struct config *cfg, int err,
 	struct json_object *jsfts;
 	uint32_t ttl = 0;
 
-	if (!cfg || !conf_json)
+	if (!cfg)
 		return EINVAL;
 
 	cfg->is_updating = false;
@@ -131,6 +134,8 @@ int config_update(struct config *cfg, int err,
 
 		return 0;
 	}
+	if (!conf_json)
+		return EINVAL;
 	
 	err = jzon_decode(&jobj, conf_json, len);
 	if (err)
@@ -278,18 +283,6 @@ int config_update(struct config *cfg, int err,
 	}
 	
  out:
-	if (!err) {
-		/* Preserve the original ICE URL arrays for the scan. */
-		char *scan_json = mem_zalloc(len + 1, NULL);
-
-		if (!scan_json)
-			err = ENOMEM;
-		else {
-			memcpy(scan_json, conf_json, len);
-			mem_deref(cfg->scan_json);
-			cfg->scan_json = scan_json;
-		}
-	}
 	if (err) {
 		warning("config(%p): config error (%m)\n", cfg, err);
 		tmr_start(&cfg->tmr, 60 * 1000, tmr_handler, cfg);
@@ -331,11 +324,6 @@ void config_stop(struct config *cfg)
 		return;
 
 	tmr_cancel(&cfg->tmr);
-}
-
-const char *config_get_scan_json(const struct config *cfg)
-{
-	return cfg ? cfg->scan_json : NULL;
 }
 
 struct zapi_ice_server *config_get_iceservers(struct config *cfg,
@@ -400,6 +388,14 @@ int config_request(struct config *cfg)
 	err = do_request(cfg);
 
 	return err;
+}
+
+int config_request_if_idle(struct config *cfg)
+{
+	if (!cfg)
+		return EINVAL;
+
+	return cfg->is_updating ? 0 : config_request(cfg);
 }
 
 int config_register_update_handler(struct config_update_elem *upe, struct config *cfg)

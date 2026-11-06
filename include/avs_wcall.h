@@ -350,22 +350,16 @@ int wcall_start(WUSER_HANDLE wuser, const char *convid,
 		int audio_cbr /*bool*/,
                 int meeting /*bool*/);
 
-/* Start an SFT connection test using a local epoch and this client as sole member.
- * Audio is mandatory; set video to 0 for audio only, 1 for audio and video.
- * Returns 0 when the start is submitted, EINVAL for invalid parameters, or
- * EALREADY if the test conversation is already present or its start is queued.
- * A concurrent duplicate may also be rejected during asynchronous processing.
- * Connection events use the existing callbacks and an internal conversation ID.
- * Ends automatically 20 seconds after the first established-media event.
- * Earlier manual termination and normal call errors still end the test.
- * Measurement results are not implemented yet.
+/* Start an SFT connection test with a local epoch and this client as sole member.
+ * video: 0 for audio only, 1 for audio and video.
+ * Returns 0 on submission, EINVAL for invalid input, or EALREADY for a duplicate.
+ * Uses existing call callbacks and ends 20 seconds after media is established,
+ * unless stopped earlier.
  */
 int wcall_start_test(WUSER_HANDLE wuser, int video);
 
-/* Start a local ICE scan with the calling instance's ICE configuration.
- * If configuration is pending, the scan starts after the configuration update.
- * Returns EALREADY while waiting or scanning, or ENOSYS when the platform
- * has no scan driver. Results are asynchronous.
+/* Start an async local ICE scan once the calling instance has its ICE config.
+ * Returns EALREADY if a scan is pending or running, or ENOSYS without a driver.
  */
 int wcall_start_scan(WUSER_HANDLE wuser);
 
