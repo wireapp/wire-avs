@@ -2605,17 +2605,17 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	le = inst->config_updatel.head;
 	while(le) {
 		struct config_update_entry *cuent = le->data;
-		struct wcall *wcall = NULL;
+		struct wcall *wcall;
 
 		le = le->next;
-
-		err = add_wcall(&wcall,
-				cuent->inst,
-				cuent->msg,
-				cuent->convid,
-				cuent->userid,
-				cuent->conv_type,
-				cuent->meeting);
+		wcall = wcall_lookup(cuent->inst, cuent->convid);
+		err = wcall ? 0 : add_wcall(&wcall,
+					     cuent->inst,
+					     cuent->msg,
+					     cuent->convid,
+					     cuent->userid,
+					     cuent->conv_type,
+					     cuent->meeting);
 		if (err) {
 			warning("wcall(%p): config_update failed to add wcall: %m\n", inst, err);
 		}
