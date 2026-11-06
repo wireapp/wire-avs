@@ -104,6 +104,10 @@ protected:
 
 	void TearDown() override
 	{
+		if (test.caller.handle != WUSER_INVALID_HANDLE)
+			wcall_destroy(test.caller.handle);
+		if (test.callee.handle != WUSER_INVALID_HANDLE)
+			wcall_destroy(test.callee.handle);
 		wcall_close();
 		flowmgr_close();
 	}
