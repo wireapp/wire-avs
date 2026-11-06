@@ -16,6 +16,7 @@
 * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <string.h>
 #include <re/re.h>
 #include "avs.h"
 #include "avs_wcall.h"
@@ -34,7 +35,7 @@ struct config {
 	bool is_updating;
 
 	struct call_config config;
-	char *scan_ice_servers;
+	char *scan_json;
 
 	struct list updl; /* list of update handlers */
 };
@@ -76,7 +77,7 @@ static void cfg_destructor(void *arg)
 	struct config *cfg = arg;
 
 	tmr_cancel(&cfg->tmr);
-	mem_deref(cfg->scan_ice_servers);
+	mem_deref(cfg->scan_json);
 	mem_deref(cfg->config.iceserverv);	
 	mem_deref(cfg->config.sftserverv);	
 	mem_deref(cfg->config.sftservers_allv);	
@@ -277,13 +278,16 @@ int config_update(struct config *cfg, int err,
 	}
 	
  out:
-	if (!err && jices) {
-		char *scan_ice_servers = NULL;
+	if (!err) {
+		/* Preserve the original ICE URL arrays for the scan. */
+		char *scan_json = mem_zalloc(len + 1, NULL);
 
-		err = jzon_encode(&scan_ice_servers, jices);
-		if (!err) {
-			mem_deref(cfg->scan_ice_servers);
-			cfg->scan_ice_servers = scan_ice_servers;
+		if (!scan_json)
+			err = ENOMEM;
+		else {
+			memcpy(scan_json, conf_json, len);
+			mem_deref(cfg->scan_json);
+			cfg->scan_json = scan_json;
 		}
 	}
 	if (err) {
@@ -329,9 +333,9 @@ void config_stop(struct config *cfg)
 	tmr_cancel(&cfg->tmr);
 }
 
-const char *config_get_scan_ice_servers(const struct config *cfg)
+const char *config_get_scan_json(const struct config *cfg)
 {
-	return cfg && cfg->scan_ice_servers ? cfg->scan_ice_servers : "[]";
+	return cfg ? cfg->scan_json : NULL;
 }
 
 struct zapi_ice_server *config_get_iceservers(struct config *cfg,

@@ -108,6 +108,7 @@ struct log_entry {
 
 struct calling_instance {
 	uint32_t scan_id;
+	bool scan_waiting_config;
 	struct wcall_marshal *marshal;
 	struct mediamgr *mm;
 	char *userid;
@@ -2762,6 +2763,12 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 
 		mem_deref(cuent);
 	}
+
+	if (inst->scan_waiting_config) {
+		inst->scan_waiting_config = false;
+		scan_run(inst->wuser, inst->scan_id,
+			 config_get_scan_json(inst->cfg));
+	}
 }
 
 
@@ -2869,13 +2876,15 @@ int wcall_start_scan(WUSER_HANDLE wuser)
 		return ENOSYS;
 	if (inst->scan_id)
 		return EALREADY;
-	if (!inst->call_config)
-		return EAGAIN;
-
 	if (++next_scan_id == 0)
 		++next_scan_id;
 	inst->scan_id = next_scan_id;
-	scan_run(wuser, inst->scan_id, config_get_scan_ice_servers(inst->cfg));
+	if (!inst->call_config) {
+		inst->scan_waiting_config = true;
+		return 0;
+	}
+
+	scan_run(wuser, inst->scan_id, config_get_scan_json(inst->cfg));
 	return 0;
 }
 
@@ -2885,7 +2894,7 @@ void wcall_scan_complete(WUSER_HANDLE wuser, uint32_t id, const char *json)
 {
 	struct calling_instance *inst = wuser2inst(wuser);
 
-	if (!inst || !id || inst->scan_id != id)
+	if (!inst || !id || inst->scan_id != id || inst->scan_waiting_config)
 		return;
 	inst->scan_id = 0;
 	scan_result(wuser, json ? 0 : EIO, json);
@@ -2898,7 +2907,9 @@ static void scan_cancel(struct calling_instance *inst)
 
 	if (scan_id) {
 		inst->scan_id = 0;
-		scan_run(inst->wuser, scan_id, NULL);
+		if (!inst->scan_waiting_config)
+			scan_run(inst->wuser, scan_id, NULL);
+		inst->scan_waiting_config = false;
 		scan_result(inst->wuser, ECANCELED, NULL);
 	}
 }
@@ -3415,15 +3426,23 @@ void wcall_i_resp(struct calling_instance *inst,
 void wcall_i_config_update(struct calling_instance *inst,
 			   int err, const char *json_str)
 {
+	int update_err;
+
 	info("wcall(%p): config_update: err=%d json=%zu bytes\n",
 	     inst, err, str_len(json_str));
 	
 	if (!inst)
 		return;
 
-	err = config_update(inst->cfg, err, json_str, str_len(json_str));
-	if (err)
-		warning("wcall(%p): config_update failed: %m\n", inst, err);
+	update_err = config_update(inst->cfg, err, json_str, str_len(json_str));
+	if (update_err)
+		warning("wcall(%p): config_update failed: %m\n", inst, update_err);
+
+	if (inst->scan_waiting_config && (err || update_err)) {
+		inst->scan_waiting_config = false;
+		inst->scan_id = 0;
+		scan_result(inst->wuser, err ? err : update_err, NULL);
+	}
 }
 
 struct sft_ctx_entry {

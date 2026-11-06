@@ -63,7 +63,7 @@ int  config_unregister_all_updates(struct config *cfg, void *arg);
 struct zapi_ice_server *config_get_iceservers(struct config *cfg,
 					      size_t *count);
 /* Full ICE server array, including all URLs. Borrowed until config changes. */
-const char *config_get_scan_ice_servers(const struct config *cfg);
+const char *config_get_scan_json(const struct config *cfg);
 
 struct zapi_ice_server *config_get_sftservers(struct config *cfg,
 					      size_t *count);

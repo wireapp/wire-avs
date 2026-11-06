@@ -363,8 +363,9 @@ int wcall_start(WUSER_HANDLE wuser, const char *convid,
 int wcall_start_test(WUSER_HANDLE wuser, int video);
 
 /* Start a local ICE scan with the calling instance's ICE configuration.
- * Returns EAGAIN until configuration arrives, EALREADY while scanning,
- * or ENOSYS when the platform has no scan driver. Results are asynchronous.
+ * If configuration is pending, the scan starts after the configuration update.
+ * Returns EALREADY while waiting or scanning, or ENOSYS when the platform
+ * has no scan driver. Results are asynchronous.
  */
 int wcall_start_scan(WUSER_HANDLE wuser);
 
