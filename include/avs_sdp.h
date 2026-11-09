@@ -53,6 +53,13 @@ struct sdp_loss_params {
 void sdp_set_loss_params(const struct sdp_loss_params *lp);
 void sdp_get_loss_params(struct sdp_loss_params *lp);
 
+/* All audio and loss params are 0: the calls set up from now on behave as
+ * in release-10.5 (opus at WebRTC's defaults with no bitrate or frame length
+ * adaptation, the remote SDP as it came, a restart as soon as the
+ * connection fails).
+ */
+bool sdp_audio_plain(void);
+
 const char *sdp_modify_offer(struct sdp_session *sess,
 			     enum icall_conv_type conv_type,
 			     bool screenshare,

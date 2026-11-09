@@ -486,6 +486,13 @@ void sdp_get_loss_params(struct sdp_loss_params *lp)
 		*lp = loss_params;
 }
 
+bool sdp_audio_plain(void)
+{
+	return audio_params.ptime == 0 && audio_params.max_bitrate == 0
+		&& loss_params.red == 0 && loss_params.fec_loss_pct == 0
+		&& loss_params.max_bitrate == 0 && loss_params.jb_min_ms == 0;
+}
+
 /* Set name=val in a format's fmtp parameters, replacing the value there. */
 static void set_fmt_param(struct sdp_format *fmt, const char *name, int val)
 {
