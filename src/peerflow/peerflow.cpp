@@ -445,6 +445,14 @@ public:
 		// while the queue built on a collapsing link.
 		trials_["WebRTC-Audio-AdaptivePtime"] =
 			"enabled:true,use_slow_adaptation:false";
+
+		// When the selected pair moves to another network (e.g.
+		// Wi-Fi <-> wired or cellular) the bandwidth estimate is
+		// reset. By default it restarts from the start bitrate,
+		// which on a narrow link sends far more than it carries
+		// until the estimate collapses again. With this it
+		// restarts from no more than the current target.
+		trials_["WebRTC-Bwe-SafeResetOnRouteChange"] = "Enabled";
 	}
 
 	std::string Lookup(absl::string_view key_view) const override {
@@ -464,11 +472,14 @@ public:
 			return val;
 		}
 
-		// Read when the call's audio send stream is made: without
-		// any audio or loss params, opus doesn't adapt, as in
-		// release-10.5 (see sdp_audio_plain).
+		// Read when the call's audio send stream (and, for the
+		// BWE, its congestion controller) is made: without any
+		// audio or loss params, opus doesn't adapt and a network
+		// change resets the estimate fully, as in release-10.5
+		// (see sdp_audio_plain).
 		if ((key == "WebRTC-Audio-Allocation"
-		     || key == "WebRTC-Audio-AdaptivePtime")
+		     || key == "WebRTC-Audio-AdaptivePtime"
+		     || key == "WebRTC-Bwe-SafeResetOnRouteChange")
 		    && sdp_audio_plain()) {
 			info("pf: field trial %s off (plain audio)\n",
 			     key.c_str());
@@ -477,6 +488,8 @@ public:
 
 		auto it = trials_.find(key);
 		std::string val = it != trials_.end() ? it->second : "";
+		if (key == "WebRTC-Bwe-SafeResetOnRouteChange")
+			info("pf: field trial %s -> %s\n", key.c_str(), val.c_str());
 		//info("WireFieldTrials::Lookup: %s -> %s\n", key.c_str(), val.c_str());
 
 		return val;
@@ -1704,6 +1717,35 @@ public:
 
 	// Called when the ICE connection receiving status changes.
 	virtual void OnIceConnectionReceivingChange(bool receiving) {
+	}
+
+	// Called when the selected candidate pair changes. A switch to
+	// another network (network id) resets the bandwidth estimate.
+	virtual void OnIceSelectedCandidatePairChanged(
+		const webrtc::CandidatePairChangeEvent& event) {
+		const webrtc::Candidate& lc =
+			event.selected_candidate_pair.local_candidate();
+		const webrtc::Candidate& rc =
+			event.selected_candidate_pair.remote_candidate();
+
+		info("pf(%p): selected pair: reason=\"%s\" "
+		     "local=%s %s %s%s%s net=%s/%u/%s cost=%u "
+		     "remote=%s %s %s net=%u cost=%u "
+		     "disconnected=%lld ms\n",
+		     pf_, event.reason.c_str(),
+		     std::string(lc.type_name()).c_str(),
+		     lc.protocol().c_str(),
+		     lc.address().ToString().c_str(),
+		     lc.relay_protocol().empty() ? "" : " relay=",
+		     lc.relay_protocol().c_str(),
+		     lc.network_name().c_str(), lc.network_id(),
+		     webrtc::AdapterTypeToString(lc.network_type()).c_str(),
+		     lc.network_cost(),
+		     std::string(rc.type_name()).c_str(),
+		     rc.protocol().c_str(),
+		     rc.address().ToString().c_str(),
+		     rc.network_id(), rc.network_cost(),
+		     (long long)event.estimated_disconnected_time_ms);
 	}
 
 	// This is called when a receiver and its track are created.
