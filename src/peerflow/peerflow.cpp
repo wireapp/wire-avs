@@ -984,6 +984,19 @@ void peerflow_start_log(void)
 	}
 }
 
+static bool stats_log = false;
+
+void peerflow_set_stats_log(bool enable)
+{
+	stats_log = enable;
+	info("pf: stats log: %s\n", enable ? "on" : "off");
+}
+
+bool peerflow_get_stats_log(void)
+{
+	return stats_log;
+}
+
 
 static void peerflow_set_mute(bool muted)
 {
@@ -2531,6 +2544,36 @@ static void pf_destructor(void *arg)
 	list_flush(&pf->video.renderl);
 }
 
+/* Whether the audio sender sends RED, by WebRTC's rule: a RED codec with
+ * its fmtp negotiated before the send codec (opus). The stats can't tell,
+ * as they give the send codec's payload type with RED on too.
+ * 1 = RED, 0 = no RED, -1 = no audio sender (yet).
+ */
+static int audio_send_red(
+	const std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>>& trxs)
+{
+	for (const auto& trx: trxs) {
+		webrtc::scoped_refptr<webrtc::RtpSenderInterface> tx = trx->sender();
+
+		if (!tx || tx->media_type() != webrtc::MediaType::AUDIO)
+			continue;
+
+		bool red = false;
+		for (const auto& codec: tx->GetParameters().codecs) {
+			if (codec.name == "opus")
+				return red ? 1 : 0;
+
+			auto it = codec.parameters.find("");
+			if (strcaseeq(codec.name.c_str(), "red")
+			    && it != codec.parameters.end()
+			    && !it->second.empty())
+				red = true;
+		}
+	}
+
+	return -1;
+}
+
 static void timer_stats(void *arg)
 {
 	struct peerflow *pf = (struct peerflow *)arg;
@@ -2563,6 +2606,7 @@ static void timer_stats(void *arg)
 		lock_rel(pf->cml.lock);
 	}
 
+	pf->netStatsCb->setSendRed(audio_send_red(trxs));
 	pf->peerConn->GetStats(pf->netStatsCb);
 
  out:

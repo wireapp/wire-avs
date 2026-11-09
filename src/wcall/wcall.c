@@ -4652,6 +4652,16 @@ void wcall_set_loss_params(int red, int fec_loss_pct, int max_bitrate,
 }
 
 AVS_EXPORT
+void wcall_set_stats_log(int enable)
+{
+#if ENABLE_PEERFLOW
+	peerflow_set_stats_log(enable != 0);
+#else
+	(void)enable;
+#endif
+}
+
+AVS_EXPORT
 int wcall_set_proxy(const char *host, int port)
 {
 	return msystem_set_proxy(host, port);

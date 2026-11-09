@@ -21,6 +21,8 @@ extern "C" {
 #endif
 
 struct iflow;
+
+bool peerflow_get_stats_log(void);
 	
 int pc_platform_init(void);
 void peerflow_destroy(void);
