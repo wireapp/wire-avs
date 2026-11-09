@@ -33,6 +33,7 @@ TEST_SRCS	+= test_string.cpp
 TEST_SRCS	+= test_uuid.cpp
 TEST_SRCS	+= test_userlist.cpp
 #TEST_SRCS	+= test_wcall.cpp
+TEST_SRCS	+= test_wcall_connection_test.cpp
 TEST_SRCS	+= test_wcall_event.cpp
 TEST_SRCS	+= test_wcall_config.cpp
 TEST_SRCS	+= test_zapi.cpp
