@@ -81,7 +81,15 @@ extern "C" {
 
 #define TMR_STATS_INTERVAL       1000
 #define TMR_CBR_INTERVAL         2500
-#define TMR_RESTART_INTERVAL    10000
+/* After the connection failed, wait this long for it to come back before
+ * restarting. On a congested link it did come back 11 to 27 s after
+ * failing, while a restart can't finish there: its UPDATE and the answer
+ * go over the same link, and the call ends when it times out. Leaving
+ * failed (a candidate pair works again) holds the restart off until it
+ * fails again, but not past TMR_RESTART_MAX after the first failure.
+ */
+#define TMR_RESTART_INTERVAL    15000
+#define TMR_RESTART_MAX         60000
 #define TMR_GATHER_TIMEOUT       2000
 #define TMR_NOCAND_TIMEOUT       1500
 
@@ -177,6 +185,7 @@ struct peerflow {
 	webrtc::scoped_refptr<wire::CbrDetectorRemote> cbr_det_remote;
 	struct tmr tmr_cbr;
 	struct tmr tmr_restart;
+	uint64_t restart_deadline; /* restart by then (jiffies), 0: none */
 	struct tmr tmr_nocand;
 
 	struct {
@@ -243,6 +252,7 @@ enum {
       MQ_PC_RESTART_DELAY  = 0x06,
       MQ_PC_RESTART_CANCEL = 0x07,
       MQ_PC_GATHER_DELAY   = 0x08,
+      MQ_PC_RESTART_HOLD   = 0x09,
 
       MQ_DC_ESTAB          = 0x10,
       MQ_DC_OPEN           = 0x11,
@@ -678,6 +688,7 @@ void timer_restart(void *arg)
 	struct peerflow *pf = (struct peerflow*)arg;
 	info("pf(%p): calling restarth due to network drop\n", pf);
 
+	pf->restart_deadline = 0;
 	IFLOW_CALL_CB(pf->iflow, restarth,
 		false, pf->iflow.arg);
 }
@@ -725,13 +736,36 @@ static void handle_mq(struct peerflow *pf, struct mq_data *md, int id)
 			break;
 
 		case MQ_PC_RESTART_DELAY:
-		  tmr_cancel(&pf->tmr_restart);
-		  info("pf(%p): restart delay: %dms at: %llu\n", pf, TMR_RESTART_INTERVAL, tmr_jiffies());
-			tmr_start(&pf->tmr_restart, TMR_RESTART_INTERVAL, timer_restart, pf);
+		case MQ_PC_RESTART_HOLD: {
+			const uint64_t now = tmr_jiffies();
+			uint64_t ms;
+
+			/* Failed: TMR_RESTART_INTERVAL from now. Out of
+			 * failed again: only at the deadline.
+			 */
+			if (!pf->restart_deadline) {
+				if (id == MQ_PC_RESTART_HOLD)
+					break; /* no restart pending */
+				pf->restart_deadline = now + TMR_RESTART_MAX;
+			}
+			ms = pf->restart_deadline > now ?
+				pf->restart_deadline - now : 1;
+			if (id == MQ_PC_RESTART_DELAY)
+				ms = std::min(ms, (uint64_t)TMR_RESTART_INTERVAL);
+
+			info("pf(%p): %s: restart in %llu ms\n", pf,
+			     id == MQ_PC_RESTART_DELAY ? "failed"
+			     : "out of failed, held", (unsigned long long)ms);
+			tmr_start(&pf->tmr_restart, ms, timer_restart, pf);
 			break;
+		}
 
 		case MQ_PC_RESTART_CANCEL:
+			if (tmr_isrunning(&pf->tmr_restart))
+				info("pf(%p): restart cancelled, "
+				     "connection is back\n", pf);
 			tmr_cancel(&pf->tmr_restart);
+			pf->restart_deadline = 0;
 			break;
 
 		case MQ_DC_OPEN:
@@ -1463,14 +1497,30 @@ public:
 
 		switch (state) {
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:
+			SendMQMessage(MQ_PC_RESTART_CANCEL);
 			SendMQMessage(MQ_PC_ESTAB);
 			break;
 
+		/* Not terminal in libwebrtc, unlike the standard: failed
+		 * means no candidate pair got a ping response for 15 s
+		 * (ice_inactive_timeout), but the pairs live on until 30 s
+		 * without receiving anything, and any packet or response
+		 * makes them work again (P2PTransportChannel::
+		 * ComputeIceTransportState, Connection::dead). On a
+		 * congested link the responses are only late, so wait.
+		 */
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
-		        warning("pf(%p): connection failed, restarting...\n", pf_);
-			SendMQMessage(MQ_PC_RESTART_NOW);
+		        warning("pf(%p): connection failed, restarting unless "
+				"it comes back\n", pf_);
+			SendMQMessage(MQ_PC_RESTART_DELAY);
 			break;
-			
+
+		/* After failed: a pair works again, so the link is alive */
+		case webrtc::PeerConnectionInterface::PeerConnectionState::kDisconnected:
+		case webrtc::PeerConnectionInterface::PeerConnectionState::kConnecting:
+			SendMQMessage(MQ_PC_RESTART_HOLD);
+			break;
+
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
 		{
 			wire::CallStatsCallback *cb = new wire::CallStatsCallback(pf_);
