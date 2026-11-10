@@ -64,6 +64,8 @@ void ecall_end(struct ecall *ecall);
 void ecall_reject(struct ecall *ecall);
 int ecall_set_sessid(struct ecall *ecall, const char *sessid);
 int ecall_set_media_direction(struct ecall *ecall, enum ecall_media_direction direction);
+/* Answer UPDATE offers on the existing flow instead of a new one */
+int ecall_set_update_inplace(struct ecall *ecall, bool inplace);
 void ecall_set_peer_userid(struct ecall *ecall, const char *userid);
 void ecall_set_peer_clientid(struct ecall *ecall, const char *clientid);
 int ecall_set_real_clientid(struct ecall *ecall, const char *clientid);

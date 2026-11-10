@@ -344,7 +344,10 @@ static void econn_update_req_handler(struct econn *econn,
 
 	muted = msystem_get_muted();
 	
-	if (ecall->flow && strm_chg) {
+	if (ecall->flow && ecall->update_inplace) {
+		info("ecall(%p): update: in place\n", ecall);
+	}
+	else if (ecall->flow && strm_chg) {
 		info("ecall(%p): update: x-streamchange\n", ecall);
 		IFLOW_CALL(ecall->flow, stop_media);
 	}
@@ -3203,6 +3206,16 @@ int ecall_set_media_direction(struct ecall *ecall,
 
 	return IFLOW_CALLE(ecall->flow, set_media_direction,
 			   (enum iflow_media_direction)direction);
+}
+
+int ecall_set_update_inplace(struct ecall *ecall, bool inplace)
+{
+	if (!ecall)
+		return EINVAL;
+
+	ecall->update_inplace = inplace;
+
+	return 0;
 }
 
 void ecall_set_peer_userid(struct ecall *ecall, const char *userid)

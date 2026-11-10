@@ -115,6 +115,7 @@ struct ecall {
 	enum icall_call_type call_type;
 	enum icall_vstate vstate;
 	enum ecall_media_direction media_direction;
+	bool update_inplace;
 	enum icall_vstate glare_vstate;
 	struct ecall_conf conf;
 	char *msys_name;
