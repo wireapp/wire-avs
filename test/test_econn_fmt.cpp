@@ -665,3 +665,28 @@ TEST(econn_fmt, econn_confstreams)
 	mem_deref(dmsg);
 }
 
+
+TEST(econn_fmt, econn_catalog)
+{
+	struct econn_message *smsg = NULL;
+	struct econn_message *dmsg = NULL;
+	char *mstr = NULL;
+
+	smsg = init_message(ECONN_CATALOG);
+	ASSERT_TRUE(smsg != NULL);
+
+	ASSERT_EQ(str_dup(&smsg->u.catalog.json,
+			  "{\"type\":\"hello\",\"catalog\":\"c1\"}"), 0);
+
+	encode_decode(smsg, &dmsg);
+
+	ASSERT_STREQ(smsg->u.catalog.json, dmsg->u.catalog.json);
+
+	/* missing payload must not encode */
+	smsg->u.catalog.json = (char *)mem_deref(smsg->u.catalog.json);
+	ASSERT_EQ(econn_message_encode(&mstr, smsg), EINVAL);
+	ASSERT_TRUE(mstr == NULL);
+
+	mem_deref(smsg);
+	mem_deref(dmsg);
+}

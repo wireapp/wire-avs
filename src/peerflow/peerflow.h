@@ -28,6 +28,8 @@ void peerflow_destroy(void);
 int peerflow_set_video_state(struct iflow *iflow,
 			     enum icall_vstate vstate);
 
+int peerflow_set_media_direction(struct iflow *iflow, enum iflow_media_direction direction);
+
 int peerflow_generate_offer(struct iflow *iflow,
 			    char *sdp, size_t sz);
 int peerflow_generate_answer(struct iflow *iflow,
@@ -91,4 +93,3 @@ int peerflow_get_stats(struct iflow *flow,
 #ifdef __cplusplus
 }
 #endif
-

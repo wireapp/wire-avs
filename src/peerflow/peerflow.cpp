@@ -2468,6 +2468,7 @@ int peerflow_alloc(struct iflow		**flowp,
 		return ENOMEM;
 	iflow_set_functions(&pf->iflow,
 			    peerflow_set_video_state,
+			    peerflow_set_media_direction,
 			    peerflow_generate_offer,
 			    peerflow_generate_answer,
 			    peerflow_handle_offer,
@@ -3201,6 +3202,12 @@ int peerflow_set_video_state(struct iflow *iflow, enum icall_vstate vstate)
 	return 0;
 }
 
+int peerflow_set_media_direction(struct iflow *iflow, enum iflow_media_direction direction)
+{
+	(void)direction;
+	return iflow ? 0 : EINVAL;
+}
+
 int peerflow_set_keystore(struct iflow *iflow,
 			  struct keystore *keystore)
 {
@@ -3411,5 +3418,4 @@ int peerflow_debug(struct re_printf *pf, const struct iflow *flow)
 out:
 	return err;
 }
-
 

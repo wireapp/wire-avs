@@ -50,6 +50,7 @@ const char *econn_msg_name(enum econn_msg msg)
 	case ECONN_CONF_CHECK:		return "CONFCHECK";
 	case ECONN_CONF_STREAMS:	return "CONFSTREAMS";
 	case ECONN_PING:		return "PING";
+	case ECONN_CATALOG:	return "CATALOG";
 	default:			return "???";
 	}
 }

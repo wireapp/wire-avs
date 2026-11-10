@@ -541,7 +541,12 @@ static void econn_confmsg_handler(struct econn *econn,
 
 	case ECONN_CONF_STREAMS:
 		info("ecall(%p): confstreams: streams: %u\n",
-		     ecall, list_count(&msg->u.confstreams.streaml));
+			 ecall, list_count(&msg->u.confstreams.streaml));
+		break;
+
+	case ECONN_CATALOG:
+		info("ecall(%p): catalog message: %zu bytes\n", ecall,
+		     msg->u.catalog.json ? str_len(msg->u.catalog.json) : 0);
 		break;
 
 	default:
@@ -1068,6 +1073,7 @@ int ecall_alloc(struct ecall **ecallp, struct list *ecalls,
 	ecall->conf = conf ? *conf : default_conf;
 	ecall->conv_type = conv_type;
 	ecall->call_type = call_type;
+	ecall->media_direction = ECALL_MEDIA_SENDRECV;
 	switch(conv_type) {
 	case ICALL_CONV_TYPE_CONFERENCE:
 	case ICALL_CONV_TYPE_GROUP:
@@ -2160,6 +2166,7 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 
 	ecall->audio_cbr = audio_cbr;
 	IFLOW_CALL(ecall->flow, set_audio_cbr, audio_cbr);
+	IFLOW_CALL(ecall->flow, set_media_direction, (enum iflow_media_direction)ecall->media_direction);
 
 	if (str_isset(ecall->userid_peer) || str_isset(ecall->clientid_peer)) {
 		IFLOW_CALL(ecall->flow, set_remote_userclientid,
@@ -2310,6 +2317,7 @@ int ecall_start(struct ecall *ecall, enum icall_call_type call_type,
 	update_mute_props(ecall);
 
 	if (ecall->props_local &&
+	    ecall->media_direction != ECALL_MEDIA_RECVONLY &&
 	    (call_type == ICALL_CALL_TYPE_VIDEO
 	     && ecall->vstate == ICALL_VIDEO_STATE_STARTED)) {
 		const char *vstate_string = "true";
@@ -2757,6 +2765,10 @@ int ecall_set_video_send_state(struct ecall *ecall, enum icall_vstate vstate)
 		sstate_string = "false";
 		break;
 	}
+	if (ecall->media_direction == ECALL_MEDIA_RECVONLY) {
+		vstate_string = "false";
+		sstate_string = "false";
+	}
 	err = econn_props_update(ecall->props_local, "videosend", vstate_string);
 	if (err) {
 		warning("ecall(%p): econn_props_update(videosend)",
@@ -3075,6 +3087,27 @@ int ecall_set_sessid(struct ecall *ecall, const char *sessid)
 	err = str_dup(&ecall->sessid, sessid);
 
 	return err;
+}
+
+int ecall_set_media_direction(struct ecall *ecall,
+				      enum ecall_media_direction direction)
+{
+	int err = 0;
+
+	if (!ecall)
+		return EINVAL;
+	if (direction < ECALL_MEDIA_SENDRECV ||
+	    direction > ECALL_MEDIA_RECVONLY)
+		return EINVAL;
+
+	ecall->media_direction = direction;
+	if (direction == ECALL_MEDIA_RECVONLY && ecall->props_local)
+		err = econn_props_update(ecall->props_local, "videosend", "false");
+	if (err)
+		return err;
+
+	return IFLOW_CALLE(ecall->flow, set_media_direction,
+			   (enum iflow_media_direction)direction);
 }
 
 void ecall_set_peer_userid(struct ecall *ecall, const char *userid)

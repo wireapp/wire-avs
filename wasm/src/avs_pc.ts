@@ -70,6 +70,7 @@ interface PeerConnection {
   conv_type: number,
   call_type: number;
   sending_video: boolean;
+  media_direction: number;
   muted: boolean;
   stats: LocalStats;
   users: any;
@@ -77,9 +78,14 @@ interface PeerConnection {
   ivv: Uint8Array;
   streams: {[ssrc: string]: string};
   gatherTimer: any;
+  catalogDc: RTCDataChannel | null;
 }
 
 const ENV_FIREFOX = 1;
+
+const PC_MEDIA_SENDRECV = 0;
+const PC_MEDIA_SENDONLY = 1;
+const PC_MEDIA_RECVONLY = 2;
 
 const TIMEOUT_GATHER = 2000;
 
@@ -88,6 +94,8 @@ let logFn: WcallLogHandler | null = null;
 let userMediaHandler: UserMediaHandler | null = null;
 let audioStreamHandler: AudioStreamHandler | null = null;
 let videoStreamHandler: VideoStreamHandler | null = null;
+let catalogStateHandler: ((convid: string, state: number) => void) | null = null;
+let catalogMessageHandler: ((convid: string, data: string) => void) | null = null;
 let insertableLegacy: boolean = false;
 let insertableStreams: boolean = false;
 
@@ -829,6 +837,8 @@ const DC_STATE_CLOSING             = 2;
 const DC_STATE_CLOSED              = 3;
 const DC_STATE_ERROR               = 4;
 
+const CATALOG_DATA_CHANNEL_LABEL   = "catalog";
+
 const LOG_LEVEL_DEBUG              = 0;
 const LOG_LEVEL_INFO               = 1;
 const LOG_LEVEL_WARN               = 2;
@@ -1353,23 +1363,50 @@ function connectionHandler(pc: PeerConnection) {
 
 function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   const dcHnd = connectionsStore.storeDataChannel(dc);
+  const isCatalog = dc.label === CATALOG_DATA_CHANNEL_LABEL;
+
+  if (isCatalog) {
+    pc.catalogDc = dc;
+  }
+
   dc.onopen = () => {
     pc_log(LOG_LEVEL_INFO, "dc-opened");
-    ccallDcStateChangeHandler(pc, DC_STATE_OPEN);
+    if (isCatalog) {
+      if (catalogStateHandler) catalogStateHandler(pc.convid, DC_STATE_OPEN);
+    }
+    else {
+      ccallDcStateChangeHandler(pc, DC_STATE_OPEN);
+    }
   };
   dc.onclose = () => {
     pc_log(LOG_LEVEL_INFO, "dc-closed");
-    ccallDcStateChangeHandler(pc, DC_STATE_CLOSED);
+    if (isCatalog) {
+      if (catalogStateHandler) catalogStateHandler(pc.convid, DC_STATE_CLOSED);
+    }
+    else {
+      ccallDcStateChangeHandler(pc, DC_STATE_CLOSED);
+    }
   };
   dc.onerror = event => {
     if (event instanceof RTCErrorEvent) {
       pc_log(LOG_LEVEL_INFO, `dc-error: ${event.error}`);
-      ccallDcStateChangeHandler(pc, DC_STATE_ERROR);
+      if (isCatalog) {
+        if (catalogStateHandler) catalogStateHandler(pc.convid, DC_STATE_ERROR);
+      }
+      else {
+        ccallDcStateChangeHandler(pc, DC_STATE_ERROR);
+      }
     }
   };
   dc.onmessage = event => {
     pc_log(LOG_LEVEL_INFO, `dc-onmessage: data=${event.data.length}`);
-        ccallDcDataHandler(pc, event.data.toString());
+    const data = event.data.toString();
+    if (isCatalog) {
+      if (catalogMessageHandler) catalogMessageHandler(pc.convid, data);
+    }
+    else {
+      ccallDcDataHandler(pc, data);
+    }
   };
 
   return dcHnd;
@@ -1381,7 +1418,11 @@ function dataChannelHandler(pc: PeerConnection, event: RTCDataChannelEvent) {
 
   const dcHnd = setupDataChannel(pc, dc);
 
-  ccallDcEstabHandler(pc, dcHnd);
+  /* The catalog channel has its own JS callback path.  Do not pass it to
+   * dc_estab_handler, which belongs exclusively to the ECall channel. */
+  if (dc.label !== "catalog") {
+    ccallDcEstabHandler(pc, dcHnd);
+  }
 }
 
 function pc_SetEnv(env: number) {
@@ -1413,6 +1454,7 @@ function pc_New(self: number, convidPtr: number,
     remote_clientid: "",
     vstate: PC_VIDEO_STATE_STOPPED,
     sending_video: false,
+    media_direction: PC_MEDIA_SENDRECV,
     call_type: CALL_TYPE_NORMAL,
     conv_type: CONV_TYPE_ONEONONE,
     muted: false,
@@ -1431,7 +1473,8 @@ function pc_New(self: number, convidPtr: number,
       rtt: 0
     },
     streams: {},
-    gatherTimer: null
+    gatherTimer: null,
+    catalogDc: null
   };
 
   worker.postMessage({op: 'create', self: pc.self, iva: iva8, ivv: ivv8});
@@ -1919,18 +1962,23 @@ function createSdp(
     pc.call_type = callType;
     pc.vstate = vstate;
 
+    const mediaDirection = pc.media_direction;
+
     const use_video = vstate === PC_VIDEO_STATE_STARTED;
     const use_ss = vstate === PC_VIDEO_STATE_SCREENSHARE;
 
     pc_log(LOG_LEVEL_INFO, `createSdp: calling umh(1, ${use_video}, ${use_ss})`);
 
-    pc.sending_video = use_video || use_ss;
+    pc.sending_video = mediaDirection !== PC_MEDIA_RECVONLY && (use_video || use_ss);
 
-    if (userMediaHandler) {
-	userMediaHandler(pc.convid, true, use_video, use_ss)
-        .then((stream: MediaStream) => {
-            return update_tracks(pc, stream).then(() => stream);
-        }).then((stream: MediaStream) => {
+    const mediaReady = mediaDirection === PC_MEDIA_RECVONLY || !userMediaHandler
+        ? Promise.resolve(null)
+        : userMediaHandler(pc.convid, true, use_video, use_ss)
+            .then((stream: MediaStream) => {
+                return update_tracks(pc, stream).then(() => stream);
+            });
+
+    mediaReady.then(() => {
 
 		const doSdp: (options: RTCOfferOptions) => Promise<RTCSessionDescriptionInit> = isOffer
 		      ? rtc.createOffer
@@ -1940,30 +1988,25 @@ function createSdp(
 
 		ccallStartGatherHandler(pc);
 
-		doSdp
-		    .bind(rtc)(offerVideoRx)
-		    .then(sdp => {
-			const typeStr = sdp.type;
-			const sdpStr = sdp.sdp || '';
+		doSdp.bind(rtc)(offerVideoRx).then(sdp => {
+            const typeStr = sdp.type;
+            const sdpStr = sdp.sdp || '';
 
-			pc_log(LOG_LEVEL_INFO, `createSdp: type=${typeStr} sdp=${sdpStr}`);
+            pc_log(LOG_LEVEL_INFO, `createSdp: type=${typeStr} sdp=${sdpStr}`);
 
-			const modSdp = sdpMap(sdpStr, true, false);
-			ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
-		    })
-		    .catch((err: any) => {
-		        pc_log(LOG_LEVEL_WARN, 'createSdp: doSdp failed: ' + err, err);
-			ccallLocalSdpHandler(pc, 1, "sdp-error", err.toString());
-		    })
-	    })
-	    .catch((err: any) => {
-	        pc_log(LOG_LEVEL_WARN, 'createSdp: userMedia failed: ' + err, err);
-		ccallLocalSdpHandler(pc, 1, "media-error", err.toString());
-	    });
-    }
+            const modSdp = sdpMap(sdpStr, true, false);
+            ccallLocalSdpHandler(pc, 0, typeStr, modSdp);
+        }).catch((err: any) => {
+            pc_log(LOG_LEVEL_WARN, 'createSdp: doSdp failed: ' + err, err);
+            ccallLocalSdpHandler(pc, 1, "sdp-error", err.toString());
+        });
+    }).catch((err: any) => {
+        pc_log(LOG_LEVEL_WARN, 'createSdp: userMedia failed: ' + err, err);
+        ccallLocalSdpHandler(pc, 1, "media-error", err.toString());
+    });
 }
 
-function pc_CreateOffer(hnd: number, callType: number, vstate: number) {
+function pc_CreateOffer(hnd: number, callType: number, vstate: number, mediaDirection: number) {
   const pc = connectionsStore.getPeerConnection(hnd);
 
   if (pc == null) {
@@ -1975,10 +2018,12 @@ function pc_CreateOffer(hnd: number, callType: number, vstate: number) {
     `pc_CreateOffer: hnd=${hnd} self=${pc.self.toString(16)} call_type=${callType}`
   );
 
+  pc.media_direction = mediaDirection;
+
   createSdp(pc, callType, vstate, true);
 }
 
-function pc_CreateAnswer(hnd: number, callType: number, vstate: number) {
+function pc_CreateAnswer(hnd: number, callType: number, vstate: number, mediaDirection: number) {
   pc_log(LOG_LEVEL_INFO, `pc_CreateAnswer: ${hnd} callType=${callType}`);
 
   const pc = connectionsStore.getPeerConnection(hnd);
@@ -1986,6 +2031,8 @@ function pc_CreateAnswer(hnd: number, callType: number, vstate: number) {
   if (pc == null) {
     return;
   }
+
+  pc.media_direction = mediaDirection;
 
   createSdp(pc, callType, vstate, false);
 }
@@ -2464,8 +2511,8 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_SignalingState, "ii"],
     [pc_ConnectionState, "ii"],
     [pc_CreateDataChannel, "iii"],
-    [pc_CreateOffer, "viii"],
-    [pc_CreateAnswer, "viii"],
+    [pc_CreateOffer, "viiii"],
+    [pc_CreateAnswer, "viiii"],
     [pc_AddDecoderAnswer, "vi"],
     [pc_AddUserInfo, "viiiiiiiii"],
     [pc_RemoveUserInfo, "vii"],
@@ -2508,6 +2555,23 @@ function pc_SetAudioStreamHandler(ash: AudioStreamHandler) {
 
 function pc_SetVideoStreamHandler(vsh: VideoStreamHandler) {
   videoStreamHandler = vsh;
+}
+
+function pc_SetCatalogStateHandler(handler: ((convid: string, state: number) => void) | null) {
+  catalogStateHandler = handler;
+}
+
+function pc_SetCatalogMessageHandler(handler: ((convid: string, data: string) => void) | null) {
+  catalogMessageHandler = handler;
+}
+
+function pc_SendCatalog(convid: string, data: string) {
+  const pcs = connectionsStore.getPeerConnectionByConvid(convid);
+  if (pcs.length === 0 || pcs[0].catalogDc == null) return false;
+  const dc = pcs[0].catalogDc;
+  if (dc.readyState !== "open") return false;
+  dc.send(data);
+  return true;
 }
 
 function pc_ReplaceTrack(convid: string, newTrack: MediaStreamTrack) {
@@ -2638,6 +2702,17 @@ export default {
   setUserMediaHandler: pc_SetUserMediaHandler,
   setAudioStreamHandler: pc_SetAudioStreamHandler,
   setVideoStreamHandler: pc_SetVideoStreamHandler,
+  setCatalogStateHandler: pc_SetCatalogStateHandler,
+  setCatalogMessageHandler: pc_SetCatalogMessageHandler,
+  sendCatalog: pc_SendCatalog,
+  catalogDataChannelLabel: CATALOG_DATA_CHANNEL_LABEL,
+  dataChannelState: {
+    connecting: DC_STATE_CONNECTING,
+    open: DC_STATE_OPEN,
+    closing: DC_STATE_CLOSING,
+    closed: DC_STATE_CLOSED,
+    error: DC_STATE_ERROR
+  },
   isConferenceCallingSupported: pc_IsConferenceCallingSupported,
   replaceTrack: pc_ReplaceTrack,
   getStats: pc_GetStats

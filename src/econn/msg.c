@@ -144,6 +144,10 @@ void econn_message_reset(struct econn_message *msg)
 	case ECONN_CONF_KEY:
 		list_flush(&msg->u.confkey.keyl);
 		break;
+
+	case ECONN_CATALOG:
+		msg->u.catalog.json = mem_deref(msg->u.catalog.json);
+		break;
 		
 
 	default:
@@ -192,6 +196,11 @@ int econn_message_print(struct re_printf *pf, const struct econn_message *msg)
 		err |= re_hprintf(pf, " ts: %u.%u\n",
 				  msg->u.confpart.timestamp,
 				  msg->u.confpart.seqno);
+		break;
+
+	case ECONN_CATALOG:
+		err |= re_hprintf(pf, " catalog-json: %zu bytes\n",
+				  msg->u.catalog.json ? str_len(msg->u.catalog.json) : 0);
 		break;
 
 	case ECONN_CONF_START:

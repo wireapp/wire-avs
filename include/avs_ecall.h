@@ -19,6 +19,12 @@
 
 struct ecall;
 
+enum ecall_media_direction {
+	ECALL_MEDIA_SENDRECV = 0,
+	ECALL_MEDIA_SENDONLY,
+	ECALL_MEDIA_RECVONLY,
+};
+
 struct ecall_conf {
 	struct econn_conf econf;
 	int trace;
@@ -57,6 +63,7 @@ int ecall_msg_recv(struct ecall *ecall,
 void ecall_end(struct ecall *ecall);
 void ecall_reject(struct ecall *ecall);
 int ecall_set_sessid(struct ecall *ecall, const char *sessid);
+int ecall_set_media_direction(struct ecall *ecall, enum ecall_media_direction direction);
 void ecall_set_peer_userid(struct ecall *ecall, const char *userid);
 void ecall_set_peer_clientid(struct ecall *ecall, const char *clientid);
 int ecall_set_real_clientid(struct ecall *ecall, const char *clientid);
