@@ -80,6 +80,7 @@ extern "C" {
 #include "avs_ecall.h"
 #include "avs_egcall.h"
 #include "avs_userlist.h"
+#include "avs_confsig.h"
 #include "avs_ccall.h"
 
 #include "avs_mediamgr.h"

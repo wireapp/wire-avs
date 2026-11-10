@@ -17,12 +17,7 @@
 */
 
 #define CCALL_CONNECT_TIMEOUT          (   15000)
-#define CCALL_SHOULD_RING_TIMEOUT      (   30000)
-#define CCALL_RINGER_TIMEOUT           (   30000)
 
-#define CCALL_CONFSTART_TIMEOUT_S      (     120)
-#define CCALL_SEND_CHECK_TIMEOUT       (   60000)
-#define CCALL_ONGOING_CALL_TIMEOUT     (   90000)
 #define CCALL_ROTATE_KEY_TIMEOUT       (   30000)
 #define CCALL_ROTATE_KEY_FIRST_TIMEOUT (    5000)
 #define CCALL_ROTATE_KEY_FAST_TIMEOUT  (    1000)
@@ -56,12 +51,6 @@
 struct sftconfig {
 	struct le le;
 	char *url;
-};
-
-enum sreason {
-	CCALL_STOP_RINGING_NONE     = 0,
-	CCALL_STOP_RINGING_ANSWERED = 1,
-	CCALL_STOP_RINGING_REJECTED = 2
 };
 
 struct join_elem {
@@ -98,16 +87,10 @@ struct ccall {
 	bool sft_resolved;
 	struct list sftl;
 
-	uint8_t *secret;
-	size_t  secret_len;
-
-	uint64_t sft_timestamp;
-	uint32_t sft_seqno;
+	struct confsig *sig;
 
 	struct ecall *ecall;
 	bool is_caller;
-	bool is_ringing;
-	enum sreason stop_ringing_reason;;
 	struct keystore *keystore;
 
 	enum icall_call_type call_type;
@@ -126,11 +109,8 @@ struct ccall {
 	uint64_t epoch_start_ts;
 	struct tmr tmr_connect;
 	struct tmr tmr_call;
-	struct tmr tmr_send_check;
-	struct tmr tmr_ongoing;
 	struct tmr tmr_rotate_key;
 	struct tmr tmr_rotate_mls;
-	struct tmr tmr_ring;
 	struct tmr tmr_sft_reject;
 	struct tmr tmr_vstate;
 	struct tmr tmr_decrypt_check;
