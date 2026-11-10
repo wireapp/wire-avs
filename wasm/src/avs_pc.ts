@@ -2494,6 +2494,7 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_DataChannelClose, "vi"],
     [pc_SetMediaKey, "viiiii"],
     [pc_UpdateSsrc, "viii"],
+    [pc_GetAudioLevels, "vi"],
   ].map(([callback, signature]) => em_module.addFunction(callback, signature));
 
   em_module.ccall(
@@ -2546,9 +2547,22 @@ function pc_GetStats(convid: string) : Promise<Array<{userid: string, stats: RTC
   return Promise.all(statsPromises) as Promise<Array<{userid: string, stats: RTCStatsReport}>>;
 }
 
-function pc_GetLocalStats(hnd: number) {
-    pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: hnd=${hnd}`);
+/* Sources linger in getSynchronizationSources() for up to 10 s after
+ * their last packet (e.g. no longer forwarded by the SFT), ignore those.
+ */
+const AULEVEL_SOURCE_MAX_AGE = 500;
 
+/* Browsers differ in the time base of RTCRtpContributingSource.timestamp:
+ * some use the performance timeline, others the wall clock.
+ */
+function source_age(timestamp: number) : number {
+  if (timestamp > 1e12)
+    return Date.now() - timestamp;
+  else
+    return performance.now() - timestamp;
+}
+
+function pc_GetAudioLevels(hnd: number) {
     const pc = connectionsStore.getPeerConnection(hnd);
     if (pc == null) {
 	return;
@@ -2562,43 +2576,64 @@ function pc_GetLocalStats(hnd: number) {
     const txrxs = rtc.getTransceivers();
     txrxs.forEach(txrx => {
 	const rx = txrx.receiver;
-	if (rx) {
-	    const ssrcs = rx.getSynchronizationSources();
-	    ssrcs.forEach(ssrc => {
-		let ssrca = "";
-		let aulevel = 0;
+	if (!rx || !rx.track || rx.track.kind !== 'audio')
+	    return;
 
-		if (typeof ssrc.audioLevel !== 'undefined')
-		    aulevel = ((ssrc.audioLevel * 512.0) | 0);
+	const ssrcs = rx.getSynchronizationSources();
+	ssrcs.forEach(ssrc => {
+	    let ssrca = "";
 
-		if (pc.conv_type != CONV_TYPE_ONEONONE) {
-		    const uinfo = uinfo_from_ssrca(pc, ssrc.source.toString());
-		    if (uinfo) {
-			uinfo.audio_level = aulevel;
-			ssrca = uinfo.ssrca;
-		    }
-		}
+	    if (typeof ssrc.audioLevel === 'undefined')
+		return;
+	    if (source_age(ssrc.timestamp) > AULEVEL_SOURCE_MAX_AGE)
+		return;
 
-		em_module.ccall(
-		    "pc_set_audio_level", null, ["number", "number", "number"], [pc.self, ssrca, aulevel]
-		);
-	    });
+	    const aulevel = ((ssrc.audioLevel * 512.0) | 0);
 
-	    const csrcs = rx.getContributingSources();
-	    csrcs.forEach(csrc => {
-		const uinfo = uinfo_from_ssrca(pc, csrc.source.toString());
-		if (uinfo) {
-		    uinfo.audio_level = 0;
-		    if (typeof csrc.audioLevel !== 'undefined')
-			uinfo.audio_level = ((csrc.audioLevel * 512.0) | 0);
+	    if (pc.conv_type != CONV_TYPE_ONEONONE) {
+		const uinfo = uinfo_from_ssrca(pc, ssrc.source.toString());
+		if (!uinfo)
+		    return;
+		uinfo.audio_level = aulevel;
+		ssrca = uinfo.ssrca;
+	    }
 
-		    em_module.ccall("pc_set_audio_level", null,
-				    ["number", "number", "number"],
-				    [pc.self, uinfo.ssrca, uinfo.audio_level]);
-		}
-	    });
-	}
+	    em_module.ccall(
+		"pc_set_audio_level", null, ["number", "number", "number"], [pc.self, ssrca, aulevel]
+	    );
+	});
+
+	const csrcs = rx.getContributingSources();
+	csrcs.forEach(csrc => {
+	    if (typeof csrc.audioLevel === 'undefined')
+		return;
+	    if (source_age(csrc.timestamp) > AULEVEL_SOURCE_MAX_AGE)
+		return;
+
+	    const uinfo = uinfo_from_ssrca(pc, csrc.source.toString());
+	    if (!uinfo)
+		return;
+
+	    uinfo.audio_level = ((csrc.audioLevel * 512.0) | 0);
+	    em_module.ccall("pc_set_audio_level", null,
+			    ["number", "number", "number"],
+			    [pc.self, uinfo.ssrca, uinfo.audio_level]);
+	});
     });
+}
+
+function pc_GetLocalStats(hnd: number) {
+    pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: hnd=${hnd}`);
+
+    const pc = connectionsStore.getPeerConnection(hnd);
+    if (pc == null) {
+	return;
+    }
+
+    const rtc = pc.rtc;
+    if (!rtc) {
+	return;
+    }
 
     rtc.getStats()
       .then((stats) => {
