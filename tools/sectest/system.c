@@ -18,6 +18,7 @@
 
 #include <re.h>
 #include <avs.h>
+#include <avs_audio_io.h>
 #include "system.h"
 
 struct config *config = NULL;
@@ -120,7 +121,12 @@ int init_system(const char *sft)
 
 	err = avs_init(AVS_FLAG_EXPERIMENTAL | AVS_FLAG_AUDIO_TEST);
 	if (err)
-		goto out;		
+		goto out;
+
+	/* Send a tone rather than silence, the SFT only forwards
+	 * audio from clients that are speaking
+	 */
+	audio_io_enable_sine();
 
 	err = config_alloc(&config,
 			   config_req_handler,
