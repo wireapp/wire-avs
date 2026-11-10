@@ -208,6 +208,11 @@ struct ecall {
 
 	ecall_confmsg_h *confmsgh;
 
+	struct {
+		ecall_catalog_state_h *stateh;
+		ecall_catalog_recv_h *recvh;
+	} catalog;
+
 	struct sa *media_laddr;
 	bool ifs_added;
 

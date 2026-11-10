@@ -572,6 +572,60 @@ int ecall_set_confmsg_handler(struct ecall *ecall,
 }
 
 
+int ecall_set_catalog_handlers(struct ecall *ecall,
+			       ecall_catalog_state_h *stateh,
+			       ecall_catalog_recv_h *recvh)
+{
+	if (!ecall) {
+		return EINVAL;
+	}
+
+	ecall->catalog.stateh = stateh;
+	ecall->catalog.recvh = recvh;
+	return 0;
+}
+
+
+int ecall_catalog_open(struct ecall *ecall, int id, const char *label)
+{
+	if (!ecall || id < 0 || !str_isset(label))
+		return EINVAL;
+	if (!ecall->flow)
+		return ENOENT;
+	if (!ecall->flow->catalog_open)
+		return ENOSYS;
+
+	return ecall->flow->catalog_open(ecall->flow, id, label);
+}
+
+
+int ecall_catalog_close(struct ecall *ecall, int id)
+{
+	if (!ecall)
+		return EINVAL;
+	if (!ecall->flow)
+		return ENOENT;
+	if (!ecall->flow->catalog_close)
+		return ENOSYS;
+
+	return ecall->flow->catalog_close(ecall->flow, id);
+}
+
+
+int ecall_catalog_send(struct ecall *ecall, int id,
+		       const uint8_t *data, size_t len)
+{
+	if (!ecall || !data)
+		return EINVAL;
+	if (!ecall->flow)
+		return ENOENT;
+	if (!ecall->flow->catalog_send)
+		return ENOSYS;
+
+	return ecall->flow->catalog_send(ecall->flow, id, data, len);
+}
+
+
 int ecall_set_propsync_handler(struct ecall *ecall,
 			       ecall_propsync_h propsynch)
 {
@@ -1983,6 +2037,44 @@ static void data_channel_handler(struct iflow *iflow,
 }
 
 
+static void catalog_state_handler(struct iflow *iflow,
+				  int id,
+				  bool open,
+				  void *arg)
+{
+	struct ecall *ecall = arg;
+
+	if (iflow != ecall->flow) {
+		info("ecall(%p): ignoring %s on wrong flow\n", ecall, __FUNCTION__);
+		return;
+	}
+
+	info("ecall(%p): catalog channel %d %s\n",
+	     ecall, id, open ? "open" : "closed");
+
+	if (ecall->catalog.stateh)
+		ecall->catalog.stateh(ecall, id, open, ecall->icall.arg);
+}
+
+
+static void catalog_recv_handler(struct iflow *iflow,
+				 int id,
+				 const uint8_t *data,
+				 size_t len,
+				 void *arg)
+{
+	struct ecall *ecall = arg;
+
+	if (iflow != ecall->flow) {
+		info("ecall(%p): ignoring %s on wrong flow\n", ecall, __FUNCTION__);
+		return;
+	}
+
+	if (ecall->catalog.recvh)
+		ecall->catalog.recvh(ecall, id, data, len, ecall->icall.arg);
+}
+
+
 static void channel_close_handler(struct iflow *iflow, void *arg)
 {
 	struct ecall *ecall = arg;
@@ -2157,6 +2249,9 @@ static int alloc_flow(struct ecall *ecall, enum async_sdp role,
 			    acbr_detect_handler,
 			    norelay_handler,
 			    ecall);
+	iflow_set_catalog_handlers(ecall->flow,
+				   catalog_state_handler,
+				   catalog_recv_handler);
 	info("ecall(%p): alloc_flow: user=%s client=%s mediaflow=%p "
 	     "call_type=%d audio_cbr=%d\n",
 	     ecall,

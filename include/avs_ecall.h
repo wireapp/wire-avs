@@ -125,6 +125,28 @@ int ecall_set_confmsg_handler(struct ecall *ecall,
 
 int ecall_dce_send(struct ecall *ecall, struct mbuf *mb);
 
+/* Catalog data channels on the ecall's current flow. Channels are
+ * negotiated with a backend-assigned id and are lost when the flow is
+ * replaced (restart); the owner must reopen them.
+ */
+typedef void (ecall_catalog_state_h)(struct ecall *ecall,
+				     int id,
+				     bool open,
+				     void *arg);
+typedef void (ecall_catalog_recv_h)(struct ecall *ecall,
+				    int id,
+				    const uint8_t *data,
+				    size_t len,
+				    void *arg);
+
+int ecall_set_catalog_handlers(struct ecall *ecall,
+			       ecall_catalog_state_h *stateh,
+			       ecall_catalog_recv_h *recvh);
+int ecall_catalog_open(struct ecall *ecall, int id, const char *label);
+int ecall_catalog_close(struct ecall *ecall, int id);
+int ecall_catalog_send(struct ecall *ecall, int id,
+		       const uint8_t *data, size_t len);
+
 int ecall_dce_sendmsg(struct ecall *ecall, struct econn_message *msg);
 
 int ecall_set_quality_interval(struct ecall *ecall,

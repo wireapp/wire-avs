@@ -30,6 +30,11 @@ int peerflow_set_video_state(struct iflow *iflow,
 
 int peerflow_set_media_direction(struct iflow *iflow, enum iflow_media_direction direction);
 
+int peerflow_catalog_open(struct iflow *flow, int id, const char *label);
+int peerflow_catalog_close(struct iflow *flow, int id);
+int peerflow_catalog_send(struct iflow *flow, int id,
+			  const uint8_t *data, size_t len);
+
 int peerflow_generate_offer(struct iflow *iflow,
 			    char *sdp, size_t sz);
 int peerflow_generate_answer(struct iflow *iflow,

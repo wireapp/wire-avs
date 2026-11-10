@@ -111,6 +111,32 @@ void iflow_set_callbacks(struct iflow *iflow,
 	iflow->arg			= arg;
 }
 
+void iflow_set_catalog_functions(struct iflow *iflow,
+				 iflow_catalog_open	*catalog_open,
+				 iflow_catalog_close	*catalog_close,
+				 iflow_catalog_send	*catalog_send)
+{
+	if (!iflow) {
+		warning("iflow_set_catalog_functions called on NULL iflow\n");
+		return;
+	}
+	iflow->catalog_open		= catalog_open;
+	iflow->catalog_close		= catalog_close;
+	iflow->catalog_send		= catalog_send;
+}
+
+void iflow_set_catalog_handlers(struct iflow *iflow,
+				iflow_catalog_state_h	*catalog_stateh,
+				iflow_catalog_recv_h	*catalog_recvh)
+{
+	if (!iflow) {
+		warning("iflow_set_catalog_handlers called on NULL iflow\n");
+		return;
+	}
+	iflow->catalog_stateh		= catalog_stateh;
+	iflow->catalog_recvh		= catalog_recvh;
+}
+
 static struct {
 	iflow_render_frame_h *render_frameh;
 	iflow_video_size_h *sizeh;

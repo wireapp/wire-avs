@@ -81,6 +81,19 @@ typedef int (iflow_dce_send)(struct iflow *flow,
 			     const uint8_t *data,
 			     size_t len);
 
+/* Catalog data channels: negotiated (out-of-band) channels whose
+ * stream ids are assigned by the backend. They are kept apart from
+ * the ecall data channel; a flow may have several of them.
+ */
+typedef int (iflow_catalog_open)(struct iflow *flow,
+				 int id,
+				 const char *label);
+typedef int (iflow_catalog_close)(struct iflow *flow, int id);
+typedef int (iflow_catalog_send)(struct iflow *flow,
+				 int id,
+				 const uint8_t *data,
+				 size_t len);
+
 typedef int  (iflow_get_stats)(struct iflow *flow,
 			       struct stats_report *stats);
 
@@ -143,6 +156,16 @@ typedef void (iflow_acbr_detect_h)(struct iflow *flow,
 				   int enabled,
 				   void *arg);
 
+typedef void (iflow_catalog_state_h)(struct iflow *flow,
+				     int id,
+				     bool open,
+				     void *arg);
+typedef void (iflow_catalog_recv_h)(struct iflow *flow,
+				    int id,
+				    const uint8_t *data,
+				    size_t len,
+				    void *arg);
+
 /* Static callbacks */
 typedef void (iflow_video_size_h)(int w,
 				  int h,
@@ -181,6 +204,9 @@ struct iflow {
 	iflow_get_audio_level           *get_audio_level;
 	iflow_update_ssrc               *update_ssrc;
 	iflow_debug			*debug;
+	iflow_catalog_open		*catalog_open;
+	iflow_catalog_close		*catalog_close;
+	iflow_catalog_send		*catalog_send;
 
 	iflow_estab_h			*estabh;
 	iflow_close_h			*closeh;
@@ -194,6 +220,8 @@ struct iflow {
 	iflow_dce_recv_h		*dce_recvh;
 	iflow_dce_close_h		*dce_closeh;
 	iflow_acbr_detect_h		*acbr_detecth;
+	iflow_catalog_state_h		*catalog_stateh;
+	iflow_catalog_recv_h		*catalog_recvh;
 	void				*arg;
 }__attribute__ ((aligned (8)));
 
@@ -245,6 +273,17 @@ void iflow_set_callbacks(struct iflow *iflow,
 			 iflow_acbr_detect_h		*acbr_detecth,
 			 iflow_norelay_h		*norelayh,
 			 void				*arg);
+
+/* Optional, flows without catalog support leave these NULL */
+void iflow_set_catalog_functions(struct iflow *iflow,
+				 iflow_catalog_open	*catalog_open,
+				 iflow_catalog_close	*catalog_close,
+				 iflow_catalog_send	*catalog_send);
+
+/* Uses the arg given to iflow_set_callbacks */
+void iflow_set_catalog_handlers(struct iflow *iflow,
+				iflow_catalog_state_h	*catalog_stateh,
+				iflow_catalog_recv_h	*catalog_recvh);
 
 void iflow_set_alloc(iflow_allocf *allocf);
 

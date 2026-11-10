@@ -202,6 +202,8 @@ struct peerflow {
 
 	} dc;
 
+	struct list catalogl; /* struct pf_catalog */
+
 	struct avs_stats *stats;
 
 	/* conf members */
@@ -227,6 +229,8 @@ struct peerflow {
 };
 
 
+#define DCE_LABEL "calling-3.0"
+
 static std::unique_ptr<webrtc::SessionDescriptionInterface> sdp_interface(const char *sdp,
 									  webrtc::SdpType type);
 
@@ -247,6 +251,9 @@ enum {
       MQ_DC_OPEN           = 0x11,
       MQ_DC_CLOSE          = 0x12,
       MQ_DC_DATA           = 0x13,
+      MQ_CATALOG_OPEN      = 0x14,
+      MQ_CATALOG_CLOSE     = 0x15,
+      MQ_CATALOG_DATA      = 0x16,
       
       MQ_HTTP_SEND         = 0x20,
 
@@ -458,10 +465,13 @@ static void md_destructor(void *arg)
 	case MQ_DC_ESTAB:
 	case MQ_DC_OPEN:
 	case MQ_DC_CLOSE:
+	case MQ_CATALOG_OPEN:
+	case MQ_CATALOG_CLOSE:
 		mem_deref(md->u.dcestab.label);
 		break;
 		
 	case MQ_DC_DATA:
+	case MQ_CATALOG_DATA:
 		mem_deref(md->u.dcdata.mb);
 		break;
 
@@ -531,6 +541,8 @@ void timer_restart(void *arg)
 }
 
 
+static bool catalog_exists(const struct peerflow *pf, int id);
+
 static void handle_mq(struct peerflow *pf, struct mq_data *md, int id)
 {
 	if (NULL == pf) {
@@ -599,6 +611,29 @@ static void handle_mq(struct peerflow *pf, struct mq_data *md, int id)
 
 		case MQ_DC_DATA:
 			IFLOW_CALL_CB(pf->iflow, dce_recvh,
+				      md->u.dcdata.mb->buf,
+				      md->u.dcdata.mb->end,
+				      pf->iflow.arg);
+			break;
+
+		/* A catalog channel closed by us may still have
+		 * queued events, drop them.
+		 */
+		case MQ_CATALOG_OPEN:
+		case MQ_CATALOG_CLOSE:
+			if (!catalog_exists(pf, md->u.dcestab.id))
+				break;
+			IFLOW_CALL_CB(pf->iflow, catalog_stateh,
+				      md->u.dcestab.id,
+				      id == MQ_CATALOG_OPEN,
+				      pf->iflow.arg);
+			break;
+
+		case MQ_CATALOG_DATA:
+			if (!catalog_exists(pf, md->u.dcdata.id))
+				break;
+			IFLOW_CALL_CB(pf->iflow, catalog_recvh,
+				      md->u.dcdata.id,
 				      md->u.dcdata.mb->buf,
 				      md->u.dcdata.mb->end,
 				      pf->iflow.arg);
@@ -1003,11 +1038,16 @@ static void send_sdp(const char *sdp, const char *type,
 
 class DataChanObserver : public webrtc::DataChannelObserver {
  public:
+	/* catalog_id >= 0 marks a catalog channel, which is never
+	 * treated as the ecall channel.
+	 */
 	DataChanObserver(struct peerflow *pf,
-			 webrtc::scoped_refptr<webrtc::DataChannelInterface> dc)
+			 webrtc::scoped_refptr<webrtc::DataChannelInterface> dc,
+			 int catalog_id = -1)
 	{
 		pf_ = pf;
 		dc_ = dc;
+		catalog_id_ = catalog_id;
 	}
 	
 	// The data channel sdtate have changed.
@@ -1024,8 +1064,15 @@ class DataChanObserver : public webrtc::DataChannelObserver {
 		md->id = MQ_DC_OPEN;
 		str_dup(&md->u.dcestab.label, dc_->label().c_str());
 				
+		if (catalog_id_ >= 0)
+			md->u.dcestab.id = catalog_id_;
+
 		switch (state) {
-		case webrtc::DataChannelInterface::kOpen:			
+		case webrtc::DataChannelInterface::kOpen:
+			if (catalog_id_ >= 0) {
+				md->id = MQ_CATALOG_OPEN;
+				break;
+			}
 			if (pf_->dc.ch == nullptr)
 				pf_->dc.ch = dc_;
 
@@ -1033,7 +1080,8 @@ class DataChanObserver : public webrtc::DataChannelObserver {
 			break;
 
 		case webrtc::DataChannelInterface::kClosed:
-			md->id = MQ_DC_CLOSE;
+			md->id = catalog_id_ >= 0 ? MQ_CATALOG_CLOSE
+						  : MQ_DC_CLOSE;
 			break;
 
 		default:
@@ -1063,9 +1111,14 @@ class DataChanObserver : public webrtc::DataChannelObserver {
 			       (const uint8_t *)buffer.data.cdata(),
 			       buffer.size());
 
-		md->u.dcdata.id = dc_->id();
-		
-		md->id = MQ_DC_DATA;
+		if (catalog_id_ >= 0) {
+			md->u.dcdata.id = catalog_id_;
+			md->id = MQ_CATALOG_DATA;
+		}
+		else {
+			md->u.dcdata.id = dc_->id();
+			md->id = MQ_DC_DATA;
+		}
 
 		push_mq(md);
 		//mqueue_push(g_pf.mq, md->id, md);
@@ -1079,8 +1132,50 @@ class DataChanObserver : public webrtc::DataChannelObserver {
 private:
 	struct peerflow *pf_;
 	webrtc::scoped_refptr<webrtc::DataChannelInterface> dc_;
-	
+	int catalog_id_;
 };
+
+
+/* Negotiated catalog data channel */
+struct pf_catalog {
+	struct le le;
+	int id;
+	webrtc::scoped_refptr<webrtc::DataChannelInterface> ch;
+	DataChanObserver *observer;
+};
+
+static void catalog_destructor(void *arg)
+{
+	struct pf_catalog *cat = (struct pf_catalog *)arg;
+
+	list_unlink(&cat->le);
+
+	/* Blocks until the signaling thread is done with the observer */
+	if (cat->ch)
+		cat->ch->UnregisterObserver();
+	delete cat->observer;
+	cat->observer = NULL;
+	cat->ch = nullptr;
+}
+
+static struct pf_catalog *catalog_find(const struct peerflow *pf, int id)
+{
+	struct le *le;
+
+	LIST_FOREACH(&pf->catalogl, le) {
+		struct pf_catalog *cat = (struct pf_catalog *)le->data;
+
+		if (cat->id == id)
+			return cat;
+	}
+
+	return NULL;
+}
+
+static bool catalog_exists(const struct peerflow *pf, int id)
+{
+	return catalog_find(pf, id) != NULL;
+}
 
 class RtpObserver : public webrtc::RtpReceiverObserverInterface {
 public:
@@ -1223,6 +1318,15 @@ public:
 		struct mq_data *md;
 
 		info("pf(%p): data channel %d opened\n", pf_, dc->id());
+
+		/* Only the ecall channel is opened in-band by the remote
+		 * side, catalog channels are negotiated.
+		 */
+		if (dc->label() != DCE_LABEL) {
+			warning("pf(%p): ignoring data channel: %s\n",
+				pf_, dc->label().c_str());
+			return;
+		}
 
 		webrtc::DataChannelObserver *observer;
 		
@@ -2240,6 +2344,7 @@ static void pf_destructor(void *arg)
 	pf->audio.track = NULL;
 	pf->audio.source = NULL;
 	pf->dc.ch = NULL;
+	list_flush(&pf->catalogl);
 
 	run_mq_on_pf(pf, false);
 	
@@ -2493,6 +2598,10 @@ int peerflow_alloc(struct iflow		**flowp,
 			    peerflow_get_aulevel,
 			    peerflow_update_ssrc,
 			    peerflow_debug);
+	iflow_set_catalog_functions(&pf->iflow,
+				    peerflow_catalog_open,
+				    peerflow_catalog_close,
+				    peerflow_catalog_send);
 
 	err = stats_alloc(&pf->stats, conv_type, pf);
 	if (err) {
@@ -2644,7 +2753,7 @@ int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
 
 	if (offer) {
 		webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::DataChannelInterface>> ch_or_err;
-		ch_or_err = pf->peerConn->CreateDataChannelOrError("calling-3.0",
+		ch_or_err = pf->peerConn->CreateDataChannelOrError(DCE_LABEL,
 								   nullptr);
 		if (ch_or_err.ok()) {
 			pf->dc.ch = ch_or_err.value();
@@ -2707,6 +2816,97 @@ int peerflow_dce_send(struct iflow *flow,
 	
 	std::string txt((const char *)data, len);
 	pf->dc.ch->Send(webrtc::DataBuffer(txt));
+
+	return 0;
+}
+
+int peerflow_catalog_open(struct iflow *flow, int id, const char *label)
+{
+	struct peerflow *pf = (struct peerflow*)flow;
+	webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::DataChannelInterface>> ch_or_err;
+	webrtc::DataChannelInit init;
+	struct pf_catalog *cat;
+
+	if (!pf || id < 0 || !str_isset(label))
+		return EINVAL;
+
+	if (!pf->peerConn) {
+		warning("pf(%p): catalog_open: no peerconnection\n", pf);
+		return ENOENT;
+	}
+
+	if (catalog_find(pf, id))
+		return EALREADY;
+
+	init.negotiated = true;
+	init.id = id;
+	ch_or_err = pf->peerConn->CreateDataChannelOrError(label, &init);
+	if (!ch_or_err.ok()) {
+		warning("pf(%p): catalog_open: id=%d label=%s failed: %s\n",
+			pf, id, label, ch_or_err.error().message());
+		return ENOSYS;
+	}
+
+	cat = (struct pf_catalog *)mem_zalloc(sizeof(*cat),
+					      catalog_destructor);
+	if (!cat) {
+		ch_or_err.value()->Close();
+		return ENOMEM;
+	}
+
+	cat->id = id;
+	cat->ch = ch_or_err.value();
+	cat->observer = new DataChanObserver(pf, cat->ch, id);
+	cat->ch->RegisterObserver(cat->observer);
+	list_append(&pf->catalogl, &cat->le, cat);
+
+	info("pf(%p): catalog_open: id=%d label=%s\n", pf, id, label);
+
+	return 0;
+}
+
+int peerflow_catalog_close(struct iflow *flow, int id)
+{
+	struct peerflow *pf = (struct peerflow*)flow;
+	struct pf_catalog *cat;
+
+	if (!pf)
+		return EINVAL;
+
+	cat = catalog_find(pf, id);
+	if (!cat)
+		return ENOENT;
+
+	info("pf(%p): catalog_close: id=%d\n", pf, id);
+
+	/* Unregister before closing: no state callback for a
+	 * channel we closed ourselves.
+	 */
+	cat->ch->UnregisterObserver();
+	cat->ch->Close();
+	mem_deref(cat);
+
+	return 0;
+}
+
+int peerflow_catalog_send(struct iflow *flow, int id,
+			  const uint8_t *data, size_t len)
+{
+	struct peerflow *pf = (struct peerflow*)flow;
+	struct pf_catalog *cat;
+
+	if (!pf || !data)
+		return EINVAL;
+
+	cat = catalog_find(pf, id);
+	if (!cat)
+		return ENOENT;
+
+	if (cat->ch->state() != webrtc::DataChannelInterface::kOpen)
+		return ENOTCONN;
+
+	std::string txt((const char *)data, len);
+	cat->ch->Send(webrtc::DataBuffer(txt));
 
 	return 0;
 }

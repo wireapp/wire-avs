@@ -30,6 +30,11 @@ int jsflow_set_video_state(struct iflow *iflow,
 
 int jsflow_set_media_direction(struct iflow *iflow, enum iflow_media_direction direction);
 
+int jsflow_catalog_open(struct iflow *iflow, int id, const char *label);
+int jsflow_catalog_close(struct iflow *iflow, int id);
+int jsflow_catalog_send(struct iflow *iflow, int id,
+			const uint8_t *data, size_t len);
+
 int jsflow_generate_offer(struct iflow *iflow,
 			    char *sdp, size_t sz);
 int jsflow_generate_answer(struct iflow *iflow,

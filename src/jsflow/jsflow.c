@@ -118,6 +118,7 @@ typedef int  (pc_DataChannelId_t)(int handle);
 typedef int  (pc_DataChannelState_t)(int handle);
 typedef void (pc_DataChannelSend_t)(int handle, const int8_t *data, int len);
 typedef void (pc_DataChannelClose_t)(int handle);
+typedef int  (pc_CreateCatalogChannel_t)(int handle, int id, const char *label);
 
 /* Frame enc/dec */
 typedef void (pc_SetMediaKey_t)(int handle, int index, int current, const uint8_t *key, int len);
@@ -132,7 +133,7 @@ static pc_HeapFree_t *pc_HeapFree = NULL;
 static pc_AddTurnServer_t *pc_AddTurnServer = NULL;
 static pc_IceGatheringState_t *pc_IceGatheringState = NULL;
 static pc_SignallingState_t *pc_SignallingState = NULL;
-static pc_ConnectionState_t *pc_ConnectionState = NULL;
+static pc_ConnectionState_t *pc_ConnectionState __attribute__((unused)) = NULL;
 static pc_CreateDataChannel_t *pc_CreateDataChannel = NULL;
 static pc_CreateOffer_t *pc_CreateOffer = NULL;
 static pc_CreateAnswer_t *pc_CreateAnswer = NULL;
@@ -143,17 +144,18 @@ static pc_SetRemoteDescription_t *pc_SetRemoteDescription = NULL;
 static pc_SetLocalDescription_t *pc_SetLocalDescription = NULL;
 static pc_LocalDescription_t *pc_LocalDescription = NULL;
 static pc_SetMute_t *pc_SetMute = NULL;
-static pc_GetMute_t *pc_GetMute = NULL;
+static pc_GetMute_t *pc_GetMute __attribute__((unused)) = NULL;
 static pc_GetLocalStats_t *pc_GetLocalStats = NULL;
 static pc_SetRemoteUserClientId_t *pc_SetRemoteUserClientId = NULL;
 static pc_HasVideo_t *pc_HasVideo = NULL;
 static pc_SetVideoState_t *pc_SetVideoState = NULL;
 
 /* DataChannel */
-static pc_DataChannelId_t *pc_DataChannelId = NULL;
+static pc_DataChannelId_t *pc_DataChannelId __attribute__((unused)) = NULL;
 static pc_DataChannelState_t *pc_DataChannelState = NULL;
 static pc_DataChannelSend_t *pc_DataChannelSend = NULL;
 static pc_DataChannelClose_t *pc_DataChannelClose = NULL;
+static pc_CreateCatalogChannel_t *pc_CreateCatalogChannel = NULL;
 
 /* Frame enc/dec */
 static pc_SetMediaKey_t *pc_SetMediaKey = NULL;
@@ -209,6 +211,8 @@ struct jsflow {
 		int id;
 	} dc;
 
+	struct list catalogl; /* struct jf_catalog */
+
 	struct {
 		bool negotiated;
 		uint32_t ssrc;
@@ -242,6 +246,37 @@ struct jsflow {
 	
 	struct le le;
 };
+
+
+/* Negotiated catalog data channel */
+struct jf_catalog {
+	struct le le;
+	int id;
+	int dc; /* JS data channel handle */
+};
+
+
+static struct jf_catalog *catalog_find(const struct jsflow *flow, int id)
+{
+	struct le *le;
+
+	LIST_FOREACH(&flow->catalogl, le) {
+		struct jf_catalog *cat = le->data;
+
+		if (cat->id == id)
+			return cat;
+	}
+
+	return NULL;
+}
+
+
+static void catalog_destructor(void *arg)
+{
+	struct jf_catalog *cat = arg;
+
+	list_unlink(&cat->le);
+}
 
 
 void jsflow_stop_media(struct iflow *iflow)
@@ -429,6 +464,7 @@ static void destructor(void *arg)
 	list_unlink(&flow->le);
 
 	list_flush(&flow->cml);
+	list_flush(&flow->catalogl);
 
 	mem_deref(flow->remote_sdp);
 	mem_deref(flow->bundle_sync);
@@ -639,6 +675,10 @@ int jsflow_alloc(struct iflow		**flowp,
 			    jsflow_get_aulevel,
 			    jsflow_update_ssrc,
 			    NULL); //jsflow_debug);
+	iflow_set_catalog_functions(&flow->iflow,
+				    jsflow_catalog_open,
+				    jsflow_catalog_close,
+				    jsflow_catalog_send);
 	pc2self(flow);
 
 	str_dup(&flow->convid, convid);
@@ -672,6 +712,8 @@ int jsflow_alloc(struct iflow		**flowp,
 void jsflow_close(struct iflow *flow)
 {
 	struct jsflow *jsflow = (struct jsflow*)flow;
+	struct le *le;
+
 	if (!jsflow)
 		return;
 
@@ -683,6 +725,13 @@ void jsflow_close(struct iflow *flow)
 
 	if (jsflow->dc.handle != PC_INVALID_HANDLE)
 		pc_DataChannelClose(jsflow->dc.handle);
+
+	LIST_FOREACH(&jsflow->catalogl, le) {
+		struct jf_catalog *cat = le->data;
+
+		pc_DataChannelClose(cat->dc);
+	}
+	list_flush(&jsflow->catalogl);
 	
 	pc_Close(jsflow->handle);
 
@@ -1342,6 +1391,98 @@ int jsflow_set_media_direction(struct iflow *iflow,
 	return 0;
 }
 
+int jsflow_catalog_open(struct iflow *iflow, int id, const char *label)
+{
+	struct jsflow *jsflow = (struct jsflow *)iflow;
+	struct jf_catalog *cat;
+	int dc;
+
+	if (!jsflow || id < 0 || !str_isset(label))
+		return EINVAL;
+
+	if (jsflow->handle == PC_INVALID_HANDLE) {
+		warning("jsflow(%p): catalog_open: no peerconnection\n",
+			jsflow);
+		return ENOENT;
+	}
+
+	if (catalog_find(jsflow, id))
+		return EALREADY;
+
+	dc = pc_CreateCatalogChannel(jsflow->handle, id, label);
+	if (dc == PC_INVALID_HANDLE) {
+		warning("jsflow(%p): catalog_open: id=%d label=%s failed\n",
+			jsflow, id, label);
+		return ENOSYS;
+	}
+
+	cat = mem_zalloc(sizeof(*cat), catalog_destructor);
+	if (!cat) {
+		pc_DataChannelClose(dc);
+		return ENOMEM;
+	}
+
+	cat->id = id;
+	cat->dc = dc;
+	list_append(&jsflow->catalogl, &cat->le, cat);
+
+	info("jsflow(%p): catalog_open: id=%d label=%s dc=%d\n",
+	     jsflow, id, label, dc);
+
+	return 0;
+}
+
+int jsflow_catalog_close(struct iflow *iflow, int id)
+{
+	struct jsflow *jsflow = (struct jsflow *)iflow;
+	struct jf_catalog *cat;
+
+	if (!jsflow)
+		return EINVAL;
+
+	cat = catalog_find(jsflow, id);
+	if (!cat)
+		return ENOENT;
+
+	info("jsflow(%p): catalog_close: id=%d\n", jsflow, id);
+
+	/* Unlink first, no state callback for a channel we closed */
+	list_unlink(&cat->le);
+	pc_DataChannelClose(cat->dc);
+	mem_deref(cat);
+
+	return 0;
+}
+
+int jsflow_catalog_send(struct iflow *iflow, int id,
+			const uint8_t *data, size_t len)
+{
+	struct jsflow *jsflow = (struct jsflow *)iflow;
+	struct jf_catalog *cat;
+	char *str = NULL;
+	int err;
+
+	if (!jsflow || !data)
+		return EINVAL;
+
+	cat = catalog_find(jsflow, id);
+	if (!cat)
+		return ENOENT;
+
+	if (pc_DataChannelState(cat->dc) != DC_STATE_OPEN)
+		return ENOTCONN;
+
+	/* pc_DataChannelSend reads a NUL-terminated string */
+	err = re_sdprintf(&str, "%b", data, len);
+	if (err)
+		return err;
+
+	pc_DataChannelSend(cat->dc, (const int8_t *)str, len);
+	mem_deref(str);
+
+	return 0;
+}
+
 int jsflow_get_stats(struct iflow *flow,
 		     struct stats_report *stats)
 {
@@ -1814,6 +1955,67 @@ void dc_data_handler(int self, const uint8_t *data, int len)
 }
 
 
+void catalog_state_handler(int self, int id, int state);
+
+EMSCRIPTEN_KEEPALIVE
+void catalog_state_handler(int self, int id, int state)
+{
+	struct jsflow *flow = self2pc(self);
+
+	if (!flow) {
+		warning("flow: catalog_state_handler: invalid handle: 0x%08X\n",
+			self);
+		return;
+	}
+
+	if (!catalog_find(flow, id)) {
+		info("flow(%p): catalog_state_handler: unknown id=%d\n",
+		     flow, id);
+		return;
+	}
+
+	info("flow(%p): catalog-state: id=%d state=%d\n", flow, id, state);
+
+	switch(state) {
+	case DC_STATE_OPEN:
+		IFLOW_CALL_CB(flow->iflow, catalog_stateh,
+			      id, true, flow->iflow.arg);
+		break;
+
+	case DC_STATE_ERROR:
+	case DC_STATE_CLOSED:
+		IFLOW_CALL_CB(flow->iflow, catalog_stateh,
+			      id, false, flow->iflow.arg);
+		break;
+
+	default:
+		break;
+	}
+}
+
+
+void catalog_data_handler(int self, int id, const char *data);
+
+EMSCRIPTEN_KEEPALIVE
+void catalog_data_handler(int self, int id, const char *data)
+{
+	struct jsflow *flow = self2pc(self);
+
+	if (!flow) {
+		warning("flow: catalog_data_handler: invalid handle: 0x%08X\n",
+			self);
+		return;
+	}
+
+	if (!data || !catalog_find(flow, id))
+		return;
+
+	IFLOW_CALL_CB(flow->iflow, catalog_recvh,
+		      id, (const uint8_t *)data, str_len(data),
+		      flow->iflow.arg);
+}
+
+
 void pc_get_media_key(int self, int index);
 
 EMSCRIPTEN_KEEPALIVE
@@ -1944,7 +2146,9 @@ void pc_set_callbacks(
 
 	pc_SetMediaKey_t *setMediaKey,
 
-	pc_UpdateSsrc_t *updateSsrc);
+	pc_UpdateSsrc_t *updateSsrc,
+
+	pc_CreateCatalogChannel_t *createCatalogChannel);
 
 EMSCRIPTEN_KEEPALIVE
 void pc_set_callbacks(
@@ -1980,7 +2184,9 @@ void pc_set_callbacks(
 
 	pc_SetMediaKey_t *setMediaKey,
 
-	pc_UpdateSsrc_t *updateSsrc)
+	pc_UpdateSsrc_t *updateSsrc,
+
+	pc_CreateCatalogChannel_t *createCatalogChannel)
 {
 	pc_SetEnv = setEnv;
 	pc_New = new;
@@ -2014,6 +2220,7 @@ void pc_set_callbacks(
 
 	pc_SetMediaKey = setMediaKey;
 	pc_UpdateSsrc = updateSsrc;
+	pc_CreateCatalogChannel = createCatalogChannel;
 
 	jsflow_init();
 }

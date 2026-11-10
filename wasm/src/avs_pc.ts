@@ -78,7 +78,6 @@ interface PeerConnection {
   ivv: Uint8Array;
   streams: {[ssrc: string]: string};
   gatherTimer: any;
-  catalogDc: RTCDataChannel | null;
 }
 
 const ENV_FIREFOX = 1;
@@ -94,8 +93,6 @@ let logFn: WcallLogHandler | null = null;
 let userMediaHandler: UserMediaHandler | null = null;
 let audioStreamHandler: AudioStreamHandler | null = null;
 let videoStreamHandler: VideoStreamHandler | null = null;
-let catalogStateHandler: ((convid: string, state: number) => void) | null = null;
-let catalogMessageHandler: ((convid: string, data: string) => void) | null = null;
 let insertableLegacy: boolean = false;
 let insertableStreams: boolean = false;
 
@@ -837,7 +834,7 @@ const DC_STATE_CLOSING             = 2;
 const DC_STATE_CLOSED              = 3;
 const DC_STATE_ERROR               = 4;
 
-const CATALOG_DATA_CHANNEL_LABEL   = "catalog";
+const DCE_LABEL                    = "calling-3.0";
 
 const LOG_LEVEL_DEBUG              = 0;
 const LOG_LEVEL_INFO               = 1;
@@ -1219,6 +1216,24 @@ function ccallDcDataHandler(pc: PeerConnection, data: string) {
   );
 }
 
+function ccallCatalogStateHandler(pc: PeerConnection, id: number, state: number) {
+  em_module.ccall(
+    "catalog_state_handler",
+    null,
+    ["number", "number", "number"],
+    [pc.self, id, state]
+  );
+}
+
+function ccallCatalogDataHandler(pc: PeerConnection, id: number, data: string) {
+  em_module.ccall(
+    "catalog_data_handler",
+    null,
+    ["number", "number", "string"],
+    [pc.self, id, data]
+  );
+}
+
 
 function ccallGetMediaKey(
   self: number,
@@ -1363,50 +1378,48 @@ function connectionHandler(pc: PeerConnection) {
 
 function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
   const dcHnd = connectionsStore.storeDataChannel(dc);
-  const isCatalog = dc.label === CATALOG_DATA_CHANNEL_LABEL;
-
-  if (isCatalog) {
-    pc.catalogDc = dc;
-  }
-
   dc.onopen = () => {
     pc_log(LOG_LEVEL_INFO, "dc-opened");
-    if (isCatalog) {
-      if (catalogStateHandler) catalogStateHandler(pc.convid, DC_STATE_OPEN);
-    }
-    else {
-      ccallDcStateChangeHandler(pc, DC_STATE_OPEN);
-    }
+    ccallDcStateChangeHandler(pc, DC_STATE_OPEN);
   };
   dc.onclose = () => {
     pc_log(LOG_LEVEL_INFO, "dc-closed");
-    if (isCatalog) {
-      if (catalogStateHandler) catalogStateHandler(pc.convid, DC_STATE_CLOSED);
-    }
-    else {
-      ccallDcStateChangeHandler(pc, DC_STATE_CLOSED);
-    }
+    ccallDcStateChangeHandler(pc, DC_STATE_CLOSED);
   };
   dc.onerror = event => {
     if (event instanceof RTCErrorEvent) {
       pc_log(LOG_LEVEL_INFO, `dc-error: ${event.error}`);
-      if (isCatalog) {
-        if (catalogStateHandler) catalogStateHandler(pc.convid, DC_STATE_ERROR);
-      }
-      else {
-        ccallDcStateChangeHandler(pc, DC_STATE_ERROR);
-      }
+      ccallDcStateChangeHandler(pc, DC_STATE_ERROR);
     }
   };
   dc.onmessage = event => {
     pc_log(LOG_LEVEL_INFO, `dc-onmessage: data=${event.data.length}`);
-    const data = event.data.toString();
-    if (isCatalog) {
-      if (catalogMessageHandler) catalogMessageHandler(pc.convid, data);
+        ccallDcDataHandler(pc, event.data.toString());
+  };
+
+  return dcHnd;
+}
+
+/* Catalog channels are negotiated with a backend-assigned id and
+ * are routed to the catalog handlers, never to the ECall channel. */
+function setupCatalogChannel(pc: PeerConnection, dc: RTCDataChannel, id: number) {
+  const dcHnd = connectionsStore.storeDataChannel(dc);
+  dc.onopen = () => {
+    pc_log(LOG_LEVEL_INFO, `catalog-dc-opened: id=${id}`);
+    ccallCatalogStateHandler(pc, id, DC_STATE_OPEN);
+  };
+  dc.onclose = () => {
+    pc_log(LOG_LEVEL_INFO, `catalog-dc-closed: id=${id}`);
+    ccallCatalogStateHandler(pc, id, DC_STATE_CLOSED);
+  };
+  dc.onerror = event => {
+    if (event instanceof RTCErrorEvent) {
+      pc_log(LOG_LEVEL_INFO, `catalog-dc-error: id=${id} ${event.error}`);
+      ccallCatalogStateHandler(pc, id, DC_STATE_ERROR);
     }
-    else {
-      ccallDcDataHandler(pc, data);
-    }
+  };
+  dc.onmessage = event => {
+    ccallCatalogDataHandler(pc, id, event.data.toString());
   };
 
   return dcHnd;
@@ -1414,15 +1427,17 @@ function setupDataChannel(pc: PeerConnection, dc: RTCDataChannel) {
 
 function dataChannelHandler(pc: PeerConnection, event: RTCDataChannelEvent) {
   const dc = event.channel;
-  pc_log(LOG_LEVEL_INFO, `dataChannelHandler: ${dc}`);
+  pc_log(LOG_LEVEL_INFO, `dataChannelHandler: ${dc.label}`);
+
+  /* Only the ECall channel is opened in-band by the remote side */
+  if (dc.label !== DCE_LABEL) {
+    pc_log(LOG_LEVEL_WARN, `dataChannelHandler: ignoring channel: ${dc.label}`);
+    return;
+  }
 
   const dcHnd = setupDataChannel(pc, dc);
 
-  /* The catalog channel has its own JS callback path.  Do not pass it to
-   * dc_estab_handler, which belongs exclusively to the ECall channel. */
-  if (dc.label !== "catalog") {
-    ccallDcEstabHandler(pc, dcHnd);
-  }
+  ccallDcEstabHandler(pc, dcHnd);
 }
 
 function pc_SetEnv(env: number) {
@@ -1473,8 +1488,7 @@ function pc_New(self: number, convidPtr: number,
       rtt: 0
     },
     streams: {},
-    gatherTimer: null,
-    catalogDc: null
+    gatherTimer: null
   };
 
   worker.postMessage({op: 'create', self: pc.self, iva: iva8, ivv: ivv8});
@@ -2420,6 +2434,28 @@ function pc_CreateDataChannel(hnd: number, labelPtr: number) {
   return dcHnd;
 }
 
+function pc_CreateCatalogChannel(hnd: number, id: number, labelPtr: number) {
+  pc_log(LOG_LEVEL_INFO, `pc_CreateCatalogChannel: hnd=${hnd} id=${id}`);
+  const pc = connectionsStore.getPeerConnection(hnd);
+  if (pc == null) {
+    return 0;
+  }
+
+  const rtc = pc.rtc;
+  if (!rtc) {
+    return 0;
+  }
+  const label = em_module.UTF8ToString(labelPtr);
+  try {
+    const dc = rtc.createDataChannel(label, {negotiated: true, id: id});
+    return setupCatalogChannel(pc, dc, id);
+  }
+  catch (err) {
+    pc_log(LOG_LEVEL_WARN, `pc_CreateCatalogChannel: id=${id} failed: ${err}`);
+    return 0;
+  }
+}
+
 function pc_DataChannelId(hnd: number) {
   pc_log(LOG_LEVEL_INFO, `pc_DataChannelId: hnd=${hnd}`);
 
@@ -2531,6 +2567,7 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_DataChannelClose, "vi"],
     [pc_SetMediaKey, "viiiii"],
     [pc_UpdateSsrc, "viii"],
+    [pc_CreateCatalogChannel, "iiii"],
   ].map(([callback, signature]) => em_module.addFunction(callback, signature));
 
   em_module.ccall(
@@ -2555,23 +2592,6 @@ function pc_SetAudioStreamHandler(ash: AudioStreamHandler) {
 
 function pc_SetVideoStreamHandler(vsh: VideoStreamHandler) {
   videoStreamHandler = vsh;
-}
-
-function pc_SetCatalogStateHandler(handler: ((convid: string, state: number) => void) | null) {
-  catalogStateHandler = handler;
-}
-
-function pc_SetCatalogMessageHandler(handler: ((convid: string, data: string) => void) | null) {
-  catalogMessageHandler = handler;
-}
-
-function pc_SendCatalog(convid: string, data: string) {
-  const pcs = connectionsStore.getPeerConnectionByConvid(convid);
-  if (pcs.length === 0 || pcs[0].catalogDc == null) return false;
-  const dc = pcs[0].catalogDc;
-  if (dc.readyState !== "open") return false;
-  dc.send(data);
-  return true;
 }
 
 function pc_ReplaceTrack(convid: string, newTrack: MediaStreamTrack) {
@@ -2702,17 +2722,6 @@ export default {
   setUserMediaHandler: pc_SetUserMediaHandler,
   setAudioStreamHandler: pc_SetAudioStreamHandler,
   setVideoStreamHandler: pc_SetVideoStreamHandler,
-  setCatalogStateHandler: pc_SetCatalogStateHandler,
-  setCatalogMessageHandler: pc_SetCatalogMessageHandler,
-  sendCatalog: pc_SendCatalog,
-  catalogDataChannelLabel: CATALOG_DATA_CHANNEL_LABEL,
-  dataChannelState: {
-    connecting: DC_STATE_CONNECTING,
-    open: DC_STATE_OPEN,
-    closing: DC_STATE_CLOSING,
-    closed: DC_STATE_CLOSED,
-    error: DC_STATE_ERROR
-  },
   isConferenceCallingSupported: pc_IsConferenceCallingSupported,
   replaceTrack: pc_ReplaceTrack,
   getStats: pc_GetStats
