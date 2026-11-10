@@ -26,269 +26,488 @@
 
 struct catalog {
 	char *catalog_id;
-	char *participant_id;
-	uint32_t version;
-	char *state;
-	struct json_object *publication;
-	struct json_object *participants;
+	struct catalog_entry *self;
+	struct list peers;
 };
 
-static int make_entry(const struct catalog *catalog, struct json_object **entryp)
+
+static void entry_destructor(void *arg)
 {
-	struct json_object *entry;
-	char *encoded = NULL;
+	struct catalog_entry *e = arg;
+
+	list_unlink(&e->le);
+	mem_deref(e->userid);
+	mem_deref(e->clientid);
+	mem_deref(e->session_id);
+	mem_deref(e->audio_track);
+	mem_deref(e->video_track);
+	mem_deref(e->dc_name);
+}
+
+
+int catalog_entry_alloc(struct catalog_entry **ep,
+			const char *userid,
+			const char *clientid)
+{
+	struct catalog_entry *e;
 	int err;
 
-	if (!catalog || !entryp || !catalog->publication)
+	if (!ep || !userid || !clientid)
 		return EINVAL;
 
-	err = jzon_encode(&encoded, catalog->publication);
-	if (err)
-		return err;
-	err = jzon_decode(&entry, encoded, strlen(encoded));
-	mem_deref(encoded);
-	if (err)
-		return err;
+	e = mem_zalloc(sizeof(*e), entry_destructor);
+	if (!e)
+		return ENOMEM;
 
-	jzon_add_str(entry, "participantId", "%s", catalog->participant_id);
-	jzon_add_int(entry, "publicationVersion", (int32_t)catalog->version);
-	jzon_add_str(entry, "state", "%s", catalog->state);
-	*entryp = entry;
+	err = str_dup(&e->userid, userid);
+	if (!err)
+		err = str_dup(&e->clientid, clientid);
+
+	if (err)
+		mem_deref(e);
+	else
+		*ep = e;
+
+	return err;
+}
+
+
+static int replace_str(char **dst, const char *src)
+{
+	char *s = NULL;
+	int err;
+
+	if (src) {
+		err = str_dup(&s, src);
+		if (err)
+			return err;
+	}
+	mem_deref(*dst);
+	*dst = s;
+
 	return 0;
 }
 
-static int encode_message(struct catalog *catalog, const char *type, const char *request_id, char **jsonp)
+
+int catalog_entry_set_session(struct catalog_entry *e,
+			      const char *session_id,
+			      const char *audio_track,
+			      const char *video_track,
+			      const char *dc_name)
 {
-	struct json_object *message = NULL;
-	struct json_object *entry = NULL;
 	int err;
 
-	if (!catalog || !type || !jsonp)
+	if (!e)
 		return EINVAL;
 
-	message = jzon_alloc_object();
-	if (!message)
-		return ENOMEM;
-	jzon_add_str(message, "type", "%s", type);
-	jzon_add_str(message, "catalogId", "%s", catalog->catalog_id);
-	if (request_id)
-		jzon_add_str(message, "requestId", "%s", request_id);
+	err = replace_str(&e->session_id, session_id);
+	if (!err)
+		err = replace_str(&e->audio_track, audio_track);
+	if (!err)
+		err = replace_str(&e->video_track, video_track);
+	if (!err)
+		err = replace_str(&e->dc_name, dc_name);
 
-	if (strcmp(type, "catalog_update") == 0 ||
-	    strcmp(type, "catalog_welcome") == 0) {
-		err = make_entry(catalog, &entry);
+	return err;
+}
+
+
+/* Copy everything except list membership and owner data */
+static int entry_copy(struct catalog_entry *dst,
+		      const struct catalog_entry *src)
+{
+	int err;
+
+	err = catalog_entry_set_session(dst, src->session_id,
+					src->audio_track, src->video_track,
+					src->dc_name);
+	if (err)
+		return err;
+
+	dst->joined  = src->joined;
+	dst->version = src->version;
+	dst->keysync = src->keysync;
+	dst->vstate  = src->vstate;
+	dst->muted   = src->muted;
+
+	return 0;
+}
+
+
+static const struct {
+	enum catalog_msg_type type;
+	const char *name;
+} msg_names[] = {
+	{CATALOG_MSG_HELLO,   "hello"},
+	{CATALOG_MSG_WELCOME, "welcome"},
+	{CATALOG_MSG_UPDATE,  "update"},
+	{CATALOG_MSG_BYE,     "bye"},
+};
+
+
+const char *catalog_msg_name(enum catalog_msg_type type)
+{
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(msg_names); ++i) {
+		if (msg_names[i].type == type)
+			return msg_names[i].name;
+	}
+
+	return "???";
+}
+
+
+static int msg_type_from_name(enum catalog_msg_type *typep, const char *name)
+{
+	size_t i;
+
+	if (!name)
+		return EPROTO;
+
+	for (i = 0; i < ARRAY_SIZE(msg_names); ++i) {
+		if (streq(msg_names[i].name, name)) {
+			*typep = msg_names[i].type;
+			return 0;
+		}
+	}
+
+	return EPROTO;
+}
+
+
+int catalog_encode(char **jsonp,
+		   enum catalog_msg_type type,
+		   const char *catalog_id,
+		   const struct catalog_entry *e)
+{
+	struct json_object *jobj;
+	int err = 0;
+
+	if (!jsonp || !catalog_id || !e)
+		return EINVAL;
+
+	jobj = jzon_alloc_object();
+	if (!jobj)
+		return ENOMEM;
+
+	err |= jzon_add_str(jobj, "type", "%s", catalog_msg_name(type));
+	err |= jzon_add_str(jobj, "catalogId", "%s", catalog_id);
+	err |= jzon_add_str(jobj, "userid", "%s", e->userid);
+	err |= jzon_add_str(jobj, "clientid", "%s", e->clientid);
+	err |= jzon_add_str(jobj, "joined", "%llu", (unsigned long long)e->joined);
+	err |= jzon_add_int(jobj, "version", (int32_t)e->version);
+
+	if (type != CATALOG_MSG_BYE) {
+		if (e->session_id)
+			err |= jzon_add_str(jobj, "sessionId", "%s", e->session_id);
+		if (e->audio_track)
+			err |= jzon_add_str(jobj, "audio", "%s", e->audio_track);
+		if (e->video_track)
+			err |= jzon_add_str(jobj, "video", "%s", e->video_track);
+		if (e->dc_name)
+			err |= jzon_add_str(jobj, "dc", "%s", e->dc_name);
+		err |= jzon_add_int(jobj, "keysync", (int32_t)e->keysync);
+		err |= jzon_add_int(jobj, "vstate", e->vstate);
+		err |= jzon_add_bool(jobj, "muted", e->muted);
+	}
+	if (err) {
+		err = ENOMEM;
+		goto out;
+	}
+
+	err = jzon_encode(jsonp, jobj);
+
+ out:
+	mem_deref(jobj);
+	return err;
+}
+
+
+int catalog_decode(enum catalog_msg_type *typep,
+		   struct catalog_entry **ep,
+		   const char *catalog_id,
+		   const char *json,
+		   size_t len)
+{
+	struct json_object *jobj = NULL;
+	struct catalog_entry *e = NULL;
+	enum catalog_msg_type type;
+	const char *cid;
+	const char *joined;
+	struct pl pl;
+	int v;
+	int err;
+
+	if (!typep || !ep || !catalog_id || !json)
+		return EINVAL;
+
+	err = jzon_decode(&jobj, json, len);
+	if (err)
+		return EPROTO;
+
+	err = msg_type_from_name(&type, jzon_str(jobj, "type"));
+	if (err)
+		goto out;
+
+	cid = jzon_str(jobj, "catalogId");
+	if (!cid) {
+		err = EPROTO;
+		goto out;
+	}
+	if (!streq(cid, catalog_id)) {
+		err = EBADMSG;
+		goto out;
+	}
+
+	err = catalog_entry_alloc(&e, jzon_str(jobj, "userid"),
+				  jzon_str(jobj, "clientid"));
+	if (err) {
+		err = err == EINVAL ? EPROTO : err;
+		goto out;
+	}
+
+	joined = jzon_str(jobj, "joined");
+	if (!joined) {
+		err = EPROTO;
+		goto out;
+	}
+	pl_set_str(&pl, joined);
+	e->joined = pl_u64(&pl);
+
+	err = jzon_int(&v, jobj, "version");
+	if (err) {
+		err = EPROTO;
+		goto out;
+	}
+	e->version = (uint32_t)v;
+
+	if (type != CATALOG_MSG_BYE) {
+		err = catalog_entry_set_session(e,
+						jzon_str(jobj, "sessionId"),
+						jzon_str(jobj, "audio"),
+						jzon_str(jobj, "video"),
+						jzon_str(jobj, "dc"));
 		if (err)
 			goto out;
-		json_object_object_add(message, "participant", entry);
-		entry = NULL;
-	}
 
-	err = jzon_encode(jsonp, message);
-
-out:
-	mem_deref(entry);
-	mem_deref(message);
-	return err;
-}
-
-int catalog_alloc(struct catalog **catalogp,
-			 const char *catalog_id,
-			 const char *participant_id)
-{
-	struct catalog *catalog;
-	int err;
-
-	if (!catalogp || !catalog_id || !participant_id)
-		return EINVAL;
-	catalog = mem_zalloc(sizeof(*catalog), NULL);
-	if (!catalog)
-		return ENOMEM;
-	err = str_dup(&catalog->catalog_id, catalog_id);
-	if (!err)
-		err = str_dup(&catalog->participant_id, participant_id);
-	if (!err)
-		err = str_dup(&catalog->state, "reachable");
-	if (!err)
-		catalog->participants = jzon_alloc_object();
-	if (!catalog->participants)
-		err = ENOMEM;
-	if (err)
-		goto out;
-	*catalogp = catalog;
-	return 0;
-out:
-	catalog_close(catalog);
-	return err;
-}
-
-int catalog_set_publication(struct catalog *catalog,
-				const char *publication_json,
-				uint32_t version,
-				const char *state)
-{
-	struct json_object *publication = NULL;
-	int err;
-
-	if (!catalog || !publication_json || !state)
-		return EINVAL;
-	err = jzon_decode(&publication, publication_json,
-				 strlen(publication_json));
-	if (err)
-		return err;
-	mem_deref(catalog->publication);
-	catalog->publication = publication;
-	catalog->version = version;
-	{
-		char *new_state = NULL;
-		err = str_dup(&new_state, state);
-		if (!err) {
-			mem_deref(catalog->state);
-			catalog->state = new_state;
-		}
-	}
-	return err;
-}
-
-int catalog_encode_hello(const struct catalog *catalog, const char *request_id, char **jsonp)
-{
-	if (!catalog || !request_id)
-		return EINVAL;
-	return encode_message((struct catalog *)catalog, "catalog_hello",
-				      request_id, jsonp);
-}
-
-int catalog_encode_update(const struct catalog *catalog, char **jsonp)
-{
-	return encode_message((struct catalog *)catalog, "catalog_update",
-				      NULL, jsonp);
-}
-
-int catalog_encode_welcome(const struct catalog *catalog, const char *request_id, char **jsonp)
-{
-	if (!catalog || !request_id)
-		return EINVAL;
-	return encode_message((struct catalog *)catalog, "catalog_welcome",
-				      request_id, jsonp);
-}
-
-int catalog_encode_snapshot(const struct catalog *catalog, char **jsonp)
-{
-	struct json_object *root;
-	struct json_object *participants = NULL;
-	char *encoded = NULL;
-	int err;
-
-	if (!catalog || !jsonp)
-		return EINVAL;
-	root = jzon_alloc_object();
-	if (!root)
-		return ENOMEM;
-	jzon_add_str(root, "catalogId", "%s", catalog->catalog_id);
-	err = jzon_encode(&encoded, catalog->participants);
-	if (err)
-		goto out;
-	err = jzon_decode(&participants, encoded, strlen(encoded));
-	if (err)
-		goto out;
-	json_object_object_add(root, "participants", participants);
-	participants = NULL;
-	err = jzon_encode(jsonp, root);
-
-out:
-	mem_deref(encoded);
-	mem_deref(participants);
-	mem_deref(root);
-	return err;
-}
-
-int catalog_apply_message(struct catalog *catalog,
-				 const char *json, size_t len)
-{
-	struct json_object *message = NULL;
-	struct json_object *entry = NULL;
-	const char *type;
-	const char *cid;
-	const char *pid;
-	int incoming_version;
-	int current_version;
-	char *encoded = NULL;
-	int err;
-
-	if (!catalog || !json)
-		return EINVAL;
-	err = jzon_decode(&message, json, len);
-	if (err)
-		goto out;
-	cid = jzon_str(message, "catalogId");
-	if (!cid || strcmp(cid, catalog->catalog_id) != 0)
-		goto out;
-	type = jzon_str(message, "type");
-	if (!type || (strcmp(type, "catalog_update") != 0 &&
-		      strcmp(type, "catalog_welcome") != 0))
-		goto out;
-	err = jzon_object(&entry, message, "participant");
-	if (err)
-		goto out;
-	pid = jzon_str(entry, "participantId");
-	if (!pid)
-		goto out;
-	if (strcmp(pid, catalog->participant_id) == 0)
-		goto out;
-	err = jzon_int_opt(&incoming_version, entry, "publicationVersion", -1);
-	if (err)
-		goto out;
-	if (incoming_version < 0)
-		goto out;
-	{
-		struct json_object *old = NULL;
-		current_version = -1;
-		if (!jzon_object(&old, catalog->participants, pid)) {
-			err = jzon_int_opt(&current_version, old,
-					   "publicationVersion", -1);
-			if (err)
-				goto out;
-		}
-		if (incoming_version <= current_version)
+		if (!e->session_id) {
+			err = EPROTO;
 			goto out;
+		}
+
+		jzon_int_opt(&v, jobj, "keysync", 0);
+		e->keysync = (uint32_t)v;
+		jzon_int_opt(&e->vstate, jobj, "vstate", 0);
+		e->muted = jzon_bool_opt(jobj, "muted", false);
 	}
-	err = jzon_encode(&encoded, entry);
-	if (err)
-		goto out;
-	{
-		struct json_object *copy = NULL;
-		err = jzon_decode(&copy, encoded, strlen(encoded));
-		if (!err)
-			json_object_object_add(catalog->participants, pid, copy);
-	}
-out:
-	mem_deref(encoded);
-	mem_deref(message);
+
+	*typep = type;
+	*ep = e;
+	e = NULL;
+
+ out:
+	mem_deref(e);
+	mem_deref(jobj);
 	return err;
 }
 
-const char *catalog_id(const struct catalog *catalog)
+
+static void destructor(void *arg)
 {
-	return catalog ? catalog->catalog_id : NULL;
+	struct catalog *cat = arg;
+
+	list_flush(&cat->peers);
+	mem_deref(cat->self);
+	mem_deref(cat->catalog_id);
 }
 
-const char *catalog_participant_id(const struct catalog *catalog)
+
+int catalog_alloc(struct catalog **catp, const char *catalog_id,
+		  const char *userid, const char *clientid)
 {
-	return catalog ? catalog->participant_id : NULL;
+	struct catalog *cat;
+	int err;
+
+	if (!catp || !catalog_id || !userid || !clientid)
+		return EINVAL;
+
+	cat = mem_zalloc(sizeof(*cat), destructor);
+	if (!cat)
+		return ENOMEM;
+
+	list_init(&cat->peers);
+	err = str_dup(&cat->catalog_id, catalog_id);
+	if (!err)
+		err = catalog_entry_alloc(&cat->self, userid, clientid);
+
+	if (err)
+		mem_deref(cat);
+	else
+		*catp = cat;
+
+	return err;
 }
 
-uint32_t catalog_version(const struct catalog *catalog)
+
+const char *catalog_id(const struct catalog *cat)
 {
-	return catalog ? catalog->version : 0;
+	return cat ? cat->catalog_id : NULL;
 }
 
-void catalog_close(struct catalog *catalog)
+
+struct catalog_entry *catalog_self(struct catalog *cat)
 {
-	if (!catalog)
-		return;
-	mem_deref(catalog->catalog_id);
-	mem_deref(catalog->participant_id);
-	mem_deref(catalog->state);
-	mem_deref(catalog->publication);
-	mem_deref(catalog->participants);
-	mem_deref(catalog);
+	return cat ? cat->self : NULL;
+}
+
+
+void catalog_self_changed(struct catalog *cat)
+{
+	if (cat)
+		cat->self->version++;
+}
+
+
+struct catalog_entry *catalog_find(const struct catalog *cat,
+				   const char *userid,
+				   const char *clientid)
+{
+	struct le *le;
+
+	if (!cat || !userid || !clientid)
+		return NULL;
+
+	LIST_FOREACH(&cat->peers, le) {
+		struct catalog_entry *e = le->data;
+
+		if (streq(e->userid, userid) && streq(e->clientid, clientid))
+			return e;
+	}
+
+	return NULL;
+}
+
+
+/* true if a is newer than b */
+static bool is_newer(const struct catalog_entry *a,
+		     const struct catalog_entry *b)
+{
+	if (a->joined != b->joined)
+		return a->joined > b->joined;
+
+	return a->version > b->version;
+}
+
+
+int catalog_apply(struct catalog *cat,
+		  enum catalog_msg_type type,
+		  const struct catalog_entry *e,
+		  bool *changedp,
+		  struct catalog_entry **entryp)
+{
+	struct catalog_entry *cur;
+	int err = 0;
+
+	if (!cat || !e || !changedp)
+		return EINVAL;
+
+	*changedp = false;
+	if (entryp)
+		*entryp = NULL;
+
+	if (streq(e->userid, cat->self->userid) &&
+	    streq(e->clientid, cat->self->clientid))
+		return 0;
+
+	cur = catalog_find(cat, e->userid, e->clientid);
+
+	if (type == CATALOG_MSG_BYE) {
+		/* A bye of an earlier join must not remove a rejoin */
+		if (cur && e->joined >= cur->joined) {
+			mem_deref(cur);
+			*changedp = true;
+		}
+		return 0;
+	}
+
+	if (cur) {
+		if (!is_newer(e, cur)) {
+			if (entryp)
+				*entryp = cur;
+			return 0;
+		}
+	}
+	else {
+		err = catalog_entry_alloc(&cur, e->userid, e->clientid);
+		if (err)
+			return err;
+		list_append(&cat->peers, &cur->le, cur);
+	}
+
+	err = entry_copy(cur, e);
+	if (err) {
+		mem_deref(cur);
+		return err;
+	}
+
+	*changedp = true;
+	if (entryp)
+		*entryp = cur;
+
+	return 0;
+}
+
+
+void catalog_remove(struct catalog *cat, struct catalog_entry *e)
+{
+	(void)cat;
+
+	mem_deref(e);
+}
+
+
+void catalog_flush(struct catalog *cat)
+{
+	if (cat)
+		list_flush(&cat->peers);
+}
+
+
+struct list *catalog_peers(struct catalog *cat)
+{
+	return cat ? &cat->peers : NULL;
+}
+
+
+static int entry_debug(struct re_printf *pf, const struct catalog_entry *e)
+{
+	return re_hprintf(pf, "%s.%s sess=%s a=%s v=%s dc=%s joined=%llu "
+			  "ver=%u keysync=%u vstate=%d muted=%d\n",
+			  e->userid, e->clientid,
+			  e->session_id ? e->session_id : "-",
+			  e->audio_track ? e->audio_track : "-",
+			  e->video_track ? e->video_track : "-",
+			  e->dc_name ? e->dc_name : "-",
+			  (unsigned long long)e->joined, e->version,
+			  e->keysync, e->vstate, e->muted);
+}
+
+
+int catalog_debug(struct re_printf *pf, const struct catalog *cat)
+{
+	struct le *le;
+	int err = 0;
+
+	if (!cat)
+		return 0;
+
+	err |= re_hprintf(pf, "catalog %s self: ", cat->catalog_id);
+	err |= entry_debug(pf, cat->self);
+	LIST_FOREACH(&cat->peers, le) {
+		err |= re_hprintf(pf, "\tpeer: ");
+		err |= entry_debug(pf, le->data);
+	}
+
+	return err;
 }
