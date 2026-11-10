@@ -152,6 +152,7 @@ struct peerflow {
 
 	bool gathered;
 	enum icall_vstate vstate;
+	enum iflow_media_direction media_direction;
 	size_t ncands;
 
 	webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConn;
@@ -1852,7 +1853,11 @@ public:
 		if (rsdp)
 			rsdp->ToString(&pf_->remoteSdp);
 
-		if (pf_->conv_type != ICALL_CONV_TYPE_CONFERENCE)
+		/* SFT conference video setup; pscall legs (sendonly /
+		 * recvonly) set up their transceivers in create_pf
+		 */
+		if (pf_->conv_type != ICALL_CONV_TYPE_CONFERENCE ||
+		    pf_->media_direction != IFLOW_MEDIA_SENDRECV)
 			return;
 
 		auto trxs = pf_->peerConn->GetTransceivers();
@@ -2134,21 +2139,148 @@ static void timer_cbr(void *arg)
 }
 
 
-static int create_pf(struct peerflow *pf)
+/* Pscall publisher leg: send-only transceiver for a local track */
+static void set_sendonly(struct peerflow *pf,
+			 webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
+{
+	if (pf->media_direction != IFLOW_MEDIA_SENDONLY || !sender)
+		return;
+
+	for (auto trx: pf->peerConn->GetTransceivers()) {
+		if (trx->sender() != sender)
+			continue;
+
+		webrtc::RTCError rerr = trx->SetDirectionWithError(
+			webrtc::RtpTransceiverDirection::kSendOnly);
+		if (!rerr.ok()) {
+			warning("pf(%p): failed to set sendonly: %s\n",
+				pf, rerr.message());
+		}
+		break;
+	}
+}
+
+
+static int add_local_tracks(struct peerflow *pf,
+			    webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory)
 {
 	webrtc::AudioOptions auopts;
-	webrtc::VideoSinkWants vsw;
-	bool recv_video;
 	int err = 0;
 
-	recv_video = pf->call_type != ICALL_CALL_TYPE_FORCED_AUDIO;
+	auopts.echo_cancellation = true;
+	auopts.auto_gain_control = true;
+	auopts.noise_suppression = true;
 	
+	pf->audio.source = factory->CreateAudioSource(auopts);
+	pf->audio.track = factory->CreateAudioTrack("audio", pf->audio.source.get());
+	if (g_pf.audio.muted)
+		pf->audio.track->set_enabled(false);
+
+	webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> aserr =
+		pf->peerConn->AddTrack(pf->audio.track,
+				       {webrtc::CreateRandomUuid()});
+	if (aserr.ok()) {
+		pf->rtpSender = aserr.value();
+		set_sendonly(pf, pf->rtpSender);
+	}
+	else {
+		warning("createPC: failed to create audio track: %s\n",
+			aserr.error().message());
+		return ENOSYS;
+	}
+
+#if DOUBLE_ENCRYPTION
+	if (pf->rtpSender && pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
+		webrtc::scoped_refptr<wire::FrameEncryptor> encryptor;
+		encryptor = new wire::FrameEncryptor(pf->userid_self,
+						     FRAME_MEDIA_AUDIO);
+		info("peerflow(%p): setting keystore on encryptor\n", pf);
+		err = encryptor->SetKeystore(pf->keystore);
+		if (err) {
+			warning("pf(%p): failed to set keystore for "
+				"encryptor (%m)\n",
+				pf, err);
+			return err;
+		}
+		info("peerflow(%p): setting frame encryptor on: %p\n", pf, pf->rtpSender.get());
+		pf->rtpSender->SetFrameEncryptor(encryptor);
+		info("peerflow(%p): setting frame encryptor on: %p done\n", pf, pf->rtpSender.get());
+	} else
+#endif
+	if (pf->rtpSender && pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
+		pf->rtpSender->SetFrameEncryptor(pf->cbr_det_local);
+	}
+	if (pf->call_type == ICALL_CALL_TYPE_VIDEO ||
+	    pf->vstate != ICALL_VIDEO_STATE_STOPPED) {
+		webrtc::scoped_refptr<webrtc::RtpSenderInterface> video_sender;
+
+		pf->video.track = factory->CreateVideoTrack(
+			 g_pf.video.src,
+			 "vtrack");
+
+		pf->video.track->set_enabled(true);
+		/* SFT conferences attach video to the SFT-offered
+		 * transceiver in OnSetRemoteDescriptionComplete
+		 */
+		if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE ||
+		    pf->media_direction == IFLOW_MEDIA_SENDONLY) {
+			webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> vserr =
+				pf->peerConn->AddTrack(pf->video.track,
+						       {webrtc::CreateRandomUuid()});
+			if (vserr.ok()) {
+				video_sender = vserr.value();
+				set_sendonly(pf, video_sender);
+			}
+			else {
+				warning("createPC: failed to add video track: %s\n",
+					vserr.error().message());
+			}
+		}
+
+#if DOUBLE_ENCRYPTION
+		if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
+			webrtc::scoped_refptr<wire::FrameEncryptor> encryptor;
+			encryptor = new wire::FrameEncryptor(pf->userid_self,
+							     FRAME_MEDIA_VIDEO);
+			err = encryptor->SetKeystore(pf->keystore);
+			if (err) {
+				warning("pf(%p): failed to set keystore for "
+					"encryptor (%m)\n",
+					pf, err);
+				goto out;
+			}
+			pf->video.encryptor = encryptor;
+			if (video_sender)
+				video_sender->SetFrameEncryptor(encryptor);
+		}
+#endif
+	}
+
+ out:
+	return err;
+}
+
+
+static int create_pf(struct peerflow *pf)
+{
+	webrtc::VideoSinkWants vsw;
+	bool recv_video;
+	int recv_audio;
+	int err = 0;
+
+	/* Sendonly offers no receive m-lines; with offer_to_receive_*
+	 * set to 0, unified plan also drops recv from our transceivers.
+	 */
+	recv_video = pf->call_type != ICALL_CALL_TYPE_FORCED_AUDIO &&
+		pf->media_direction != IFLOW_MEDIA_SENDONLY;
+	recv_audio = pf->media_direction != IFLOW_MEDIA_SENDONLY ? 1 : 0;
+
 	pf->offerOptions =
 		new webrtc::PeerConnectionInterface::RTCOfferAnswerOptions(
-				recv_video, 1, false, true, true);
+				recv_video, recv_audio, false, true, true);
 	pf->answerOptions =
 		new webrtc::PeerConnectionInterface::RTCOfferAnswerOptions(
-				recv_video, 1, false, true, true);
+				recv_video, recv_audio, false, true, true);
 	
 	pf->config->tcp_candidate_policy =
 		webrtc::PeerConnectionInterface::kTcpCandidatePolicyDisabled;
@@ -2236,87 +2368,21 @@ static int create_pf(struct peerflow *pf)
 	pf->peerConn = pcorerr.value();
 	info("pf(%p): created PC=%p\n", pf, pf->peerConn.get());
 
-	auopts.echo_cancellation = true;
-	auopts.auto_gain_control = true;
-	auopts.noise_suppression = true;
-	
-	pf->audio.source = factory->CreateAudioSource(auopts);
-	pf->audio.track = factory->CreateAudioTrack("audio", pf->audio.source.get());
-	if (g_pf.audio.muted)
-		pf->audio.track->set_enabled(false);
-
 	pf->cbr_det_local = new wire::CbrDetectorLocal();
 	pf->cbr_det_remote = new wire::CbrDetectorRemote();
 
 	if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
 		tmr_start(&pf->tmr_cbr, TMR_CBR_INTERVAL, timer_cbr, pf);
 	}
-	webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> aserr =
-		pf->peerConn->AddTrack(pf->audio.track,
-				       {webrtc::CreateRandomUuid()});
-	if (aserr.ok()) {
-		pf->rtpSender = aserr.value();
-	}
-	else {
-		warning("createPC: failed to create audio track: %s\n",
-			aserr.error().message());
-		return ENOSYS;
-	}
 
-#if DOUBLE_ENCRYPTION
-	if (pf->rtpSender && pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
-		webrtc::scoped_refptr<wire::FrameEncryptor> encryptor;
-		encryptor = new wire::FrameEncryptor(pf->userid_self,
-						     FRAME_MEDIA_AUDIO);
-		info("peerflow(%p): setting keystore on encryptor\n", pf);
-		err = encryptor->SetKeystore(pf->keystore);
-		if (err) {
-			warning("pf(%p): failed to set keystore for "
-				"encryptor (%m)\n",
-				pf, err);
-			return err;
-		}
-		info("peerflow(%p): setting frame encryptor on: %p\n", pf, pf->rtpSender.get());
-		pf->rtpSender->SetFrameEncryptor(encryptor);
-		info("peerflow(%p): setting frame encryptor on: %p done\n", pf, pf->rtpSender.get());
-	} else
-#endif
-	if (pf->rtpSender && pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
-		pf->rtpSender->SetFrameEncryptor(pf->cbr_det_local);
-	}
-	if (pf->call_type == ICALL_CALL_TYPE_VIDEO ||
-	    pf->vstate != ICALL_VIDEO_STATE_STOPPED) {
+	/* Recvonly: no local tracks, so mic and camera are never
+	 * opened. Receive transceivers come from offer_to_receive_*
+	 * when offering, or from the remote offer when answering.
+	 */
+	if (pf->media_direction == IFLOW_MEDIA_RECVONLY)
+		return 0;
 
-		pf->video.track = factory->CreateVideoTrack(
-			 g_pf.video.src,
-			 "vtrack");
-
-		pf->video.track->set_enabled(true);
-		if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
-			webrtc::scoped_refptr<webrtc::RtpSenderInterface> video_track =
-				pf->peerConn->AddTrack(pf->video.track,
-						       {webrtc::CreateRandomUuid()}).value();
-		}
-
-#if DOUBLE_ENCRYPTION
-		if (pf->conv_type == ICALL_CONV_TYPE_CONFERENCE && pf->keystore) {
-			webrtc::scoped_refptr<wire::FrameEncryptor> encryptor;
-			encryptor = new wire::FrameEncryptor(pf->userid_self,
-							     FRAME_MEDIA_VIDEO);
-			err = encryptor->SetKeystore(pf->keystore);
-			if (err) {
-				warning("pf(%p): failed to set keystore for "
-					"encryptor (%m)\n",
-					pf, err);
-				goto out;
-			}
-			pf->video.encryptor = encryptor;
-		}
-#endif
-	}
-
- out:
-	return err;
+	return add_local_tracks(pf, factory);
 }
 
 
@@ -3404,8 +3470,27 @@ int peerflow_set_video_state(struct iflow *iflow, enum icall_vstate vstate)
 
 int peerflow_set_media_direction(struct iflow *iflow, enum iflow_media_direction direction)
 {
-	(void)direction;
-	return iflow ? 0 : EINVAL;
+	struct peerflow *pf = (struct peerflow*)iflow;
+
+	if (!pf)
+		return EINVAL;
+	if (direction < IFLOW_MEDIA_SENDRECV ||
+	    direction > IFLOW_MEDIA_RECVONLY)
+		return EINVAL;
+
+	info("pf(%p): set_media_direction: %d\n", pf, direction);
+
+	/* Tracks and transceivers are set up from the direction
+	 * when the PC is created; it can't change afterwards.
+	 */
+	if (pf->peerConn && direction != pf->media_direction) {
+		warning("pf(%p): set_media_direction: PC exists\n", pf);
+		return EALREADY;
+	}
+
+	pf->media_direction = direction;
+
+	return 0;
 }
 
 int peerflow_set_keystore(struct iflow *iflow,
