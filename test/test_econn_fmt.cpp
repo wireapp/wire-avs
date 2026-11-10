@@ -548,6 +548,64 @@ TEST(econn_fmt, econn_confstart)
 	mem_deref(dmsg);
 }
 
+TEST(econn_fmt, econn_confstart_backend)
+{
+	struct econn_message *smsg = NULL;
+	struct econn_message *dmsg = NULL;
+	char *mstr = NULL;
+
+	smsg = init_message(ECONN_CONF_START);
+	ASSERT_TRUE(smsg != NULL);
+
+	/* non-SFT backend: no SFT url */
+	ASSERT_EQ(str_dup(&smsg->u.confstart.backend, "pscall"), 0);
+	ASSERT_EQ(str_dup((char**)(&smsg->u.confstart.secret), "secret"), 0);
+	smsg->u.confstart.secretlen = 7;
+	smsg->u.confstart.timestamp = 12345;
+	smsg->u.confstart.seqno = 1;
+
+	encode_decode(smsg, &dmsg);
+
+	ASSERT_STREQ("pscall", dmsg->u.confstart.backend);
+	ASSERT_TRUE(dmsg->u.confstart.sft_url == NULL);
+	ASSERT_EQ(smsg->u.confstart.timestamp, dmsg->u.confstart.timestamp);
+	dmsg = (struct econn_message *)mem_deref(dmsg);
+
+	/* without backend the SFT url is still required */
+	smsg->u.confstart.backend =
+		(char *)mem_deref(smsg->u.confstart.backend);
+	ASSERT_EQ(econn_message_encode(&mstr, smsg), 0);
+	ASSERT_TRUE(strstr(mstr, "sft_url") == NULL);
+	ASSERT_NE(econn_message_decode(&dmsg, TIME_NOW, TIME_MSG,
+				       mstr, strlen(mstr)), 0);
+
+	mem_deref(mstr);
+	mem_deref(smsg);
+	mem_deref(dmsg);
+}
+
+TEST(econn_fmt, econn_confcheck_backend)
+{
+	struct econn_message *smsg = NULL;
+	struct econn_message *dmsg = NULL;
+
+	smsg = init_message(ECONN_CONF_CHECK);
+	ASSERT_TRUE(smsg != NULL);
+
+	ASSERT_EQ(str_dup(&smsg->u.confcheck.backend, "pscall"), 0);
+	ASSERT_EQ(str_dup((char**)(&smsg->u.confcheck.secret), "secret"), 0);
+	smsg->u.confcheck.secretlen = 7;
+
+	encode_decode(smsg, &dmsg);
+
+	ASSERT_STREQ("pscall", dmsg->u.confcheck.backend);
+	ASSERT_TRUE(dmsg->u.confcheck.sft_url == NULL);
+	ASSERT_STREQ("pscall", confsig_msg_backend(dmsg));
+
+	mem_deref(smsg);
+	mem_deref(dmsg);
+}
+
 TEST(econn_fmt, econn_confcheck)
 {
 	struct econn_message *smsg = NULL;

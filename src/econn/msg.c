@@ -112,6 +112,7 @@ void econn_message_reset(struct econn_message *msg)
 	case ECONN_CONF_START:
 		msg->u.confstart.props = mem_deref(msg->u.confstart.props);
 		msg->u.confstart.sft_url = mem_deref(msg->u.confstart.sft_url);
+		msg->u.confstart.backend = mem_deref(msg->u.confstart.backend);
 		msg->u.confstart.sft_tuple = mem_deref(msg->u.confstart.sft_tuple);
 		msg->u.confstart.secret = mem_deref(msg->u.confstart.secret);
 		list_flush(&msg->u.confstart.sftl);
@@ -119,6 +120,7 @@ void econn_message_reset(struct econn_message *msg)
 
 	case ECONN_CONF_CHECK:
 		msg->u.confcheck.sft_url = mem_deref(msg->u.confcheck.sft_url);
+		msg->u.confcheck.backend = mem_deref(msg->u.confcheck.backend);
 		msg->u.confcheck.sft_tuple = mem_deref(msg->u.confcheck.sft_tuple);
 		msg->u.confcheck.secret = mem_deref(msg->u.confcheck.secret);
 		list_flush(&msg->u.confcheck.sftl);

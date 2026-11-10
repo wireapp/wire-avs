@@ -696,3 +696,21 @@ void confsig_stop_others_ringing(struct confsig *sig)
  out:
 	list_flush(&targets);
 }
+
+
+const char *confsig_msg_backend(const struct econn_message *msg)
+{
+	if (!msg)
+		return NULL;
+
+	switch (msg->msg_type) {
+	case ECONN_CONF_START:
+		return msg->u.confstart.backend;
+
+	case ECONN_CONF_CHECK:
+		return msg->u.confcheck.backend;
+
+	default:
+		return NULL;
+	}
+}

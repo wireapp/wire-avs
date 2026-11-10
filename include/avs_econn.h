@@ -184,6 +184,7 @@ struct econn_message {
 
 		struct confstart {
 			struct econn_props *props;
+			char *backend; /* NULL: SFT, else e.g. "pscall" */
 			char *sft_url;
 			char *sft_tuple;
 			uint8_t *secret;
@@ -194,6 +195,7 @@ struct econn_message {
 		} confstart;
 
 		struct confcheck {
+			char *backend; /* NULL: SFT, else e.g. "pscall" */
 			char *sft_url;
 			char *sft_tuple;
 			uint8_t *secret;

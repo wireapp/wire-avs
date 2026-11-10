@@ -161,3 +161,9 @@ bool confsig_stop_ringing_pending(const struct confsig *sig);
 void confsig_stop_others_ringing(struct confsig *sig);
 
 const char *confsig_phase_name(enum confsig_phase phase);
+
+/* Backend named by a CONFSTART/CONFCHECK (NULL: SFT, also for other
+ * types). Calls of different backends are separate calls: an owner
+ * only passes messages of its own backend to confsig_recv.
+ */
+const char *confsig_msg_backend(const struct econn_message *msg);

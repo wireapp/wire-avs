@@ -3489,6 +3489,13 @@ int  ccall_msg_recv(struct icall* icall,
 	switch (msg->msg_type) {
 	case ECONN_CONF_START:
 	case ECONN_CONF_CHECK:
+		if (confsig_msg_backend(msg)) {
+			info("ccall(%p): msg_recv ignoring %s for backend %s\n",
+			     ccall, econn_msg_name(msg->msg_type),
+			     confsig_msg_backend(msg));
+			return 0;
+		}
+		/* fall through */
 	case ECONN_CONF_END:
 	case ECONN_REJECT:
 		return confsig_recv(ccall->sig, msg_time,

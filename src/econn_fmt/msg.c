@@ -701,7 +701,10 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		break;
 
 	case ECONN_CONF_START:
-		jzon_add_str(jobj, "sft_url", "%s", msg->u.confstart.sft_url);
+		if (msg->u.confstart.sft_url)
+			jzon_add_str(jobj, "sft_url", "%s", msg->u.confstart.sft_url);
+		if (msg->u.confstart.backend)
+			jzon_add_str(jobj, "backend", "%s", msg->u.confstart.backend);
 		if (msg->u.confstart.sft_tuple) {
 			jzon_add_str(jobj, "sft_tuple", "%s", msg->u.confstart.sft_tuple);
 		}
@@ -719,7 +722,10 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		break;
 
 	case ECONN_CONF_CHECK:
-		jzon_add_str(jobj, "sft_url", "%s", msg->u.confcheck.sft_url);
+		if (msg->u.confcheck.sft_url)
+			jzon_add_str(jobj, "sft_url", "%s", msg->u.confcheck.sft_url);
+		if (msg->u.confcheck.backend)
+			jzon_add_str(jobj, "backend", "%s", msg->u.confcheck.backend);
 		if (msg->u.confcheck.sft_tuple) {
 			jzon_add_str(jobj, "sft_tuple", "%s", msg->u.confcheck.sft_tuple);
 		}
@@ -1025,10 +1031,19 @@ int econn_message_decode(struct econn_message **msgp,
 
 		msg->msg_type = ECONN_CONF_START;
 
-		err = jzon_strdup(&msg->u.confstart.sft_url, jobj, "sft_url");
-		if (err) {
-			warning("econn: decode CONFSTART: couldnt read SFT URL\n");
-			goto out;
+		/* backend is set for non-SFT calls, which have no SFT URL */
+		if (jzon_str(jobj, "backend")) {
+			err = jzon_strdup(&msg->u.confstart.backend, jobj, "backend");
+			if (err)
+				goto out;
+			jzon_strdup_opt(&msg->u.confstart.sft_url, jobj, "sft_url", NULL);
+		}
+		else {
+			err = jzon_strdup(&msg->u.confstart.sft_url, jobj, "sft_url");
+			if (err) {
+				warning("econn: decode CONFSTART: couldnt read SFT URL\n");
+				goto out;
+			}
 		}
 		tuple = jzon_str(jobj, "sft_tuple");
 		/* sft_tuple is optional for backwards compat */
@@ -1075,10 +1090,19 @@ int econn_message_decode(struct econn_message **msgp,
 
 		msg->msg_type = ECONN_CONF_CHECK;
 
-		err = jzon_strdup(&msg->u.confcheck.sft_url, jobj, "sft_url");
-		if (err) {
-			warning("econn: decode CONFCHECK: couldnt read SFT URL\n");
-			goto out;
+		/* backend is set for non-SFT calls, which have no SFT URL */
+		if (jzon_str(jobj, "backend")) {
+			err = jzon_strdup(&msg->u.confcheck.backend, jobj, "backend");
+			if (err)
+				goto out;
+			jzon_strdup_opt(&msg->u.confcheck.sft_url, jobj, "sft_url", NULL);
+		}
+		else {
+			err = jzon_strdup(&msg->u.confcheck.sft_url, jobj, "sft_url");
+			if (err) {
+				warning("econn: decode CONFCHECK: couldnt read SFT URL\n");
+				goto out;
+			}
 		}
 		tuple = jzon_str(jobj, "sft_tuple");
 		/* sft_tuple is optional for backwards compat */
