@@ -104,6 +104,12 @@ struct ccall {
 	uint64_t sft_timestamp;
 	uint32_t sft_seqno;
 
+	/* user/client that started the call (sent the first CONFSTART) */
+	char *starter_userid;
+	char *starter_clientid;
+	/* false if guessed from the sender of an older client's message */
+	bool starter_confirmed;
+
 	struct ecall *ecall;
 	bool is_caller;
 	bool is_ringing;

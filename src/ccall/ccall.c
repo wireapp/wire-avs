@@ -133,6 +133,8 @@ static void destructor(void *arg)
 	mem_deref(ccall->sft_url);
 	mem_deref(ccall->primary_sft_url);
  	mem_deref(ccall->sft_tuple);
+	mem_deref(ccall->starter_userid);
+	mem_deref(ccall->starter_clientid);
 	mem_deref(ccall->convid_real);
 	mem_deref(ccall->convid_hash);
 	mem_deref(ccall->turnv);
@@ -147,6 +149,39 @@ static void destructor(void *arg)
 	list_flush(&ccall->videol);
 
 	mbuf_reset(&ccall->confpart_data);
+}
+
+static int ccall_set_starter(struct ccall *ccall,
+			     const char *userid,
+			     const char *clientid,
+			     bool confirmed)
+{
+	char userid_anon[ANON_ID_LEN];
+	char clientid_anon[ANON_CLIENT_LEN];
+	int err = 0;
+
+	ccall->starter_userid = mem_deref(ccall->starter_userid);
+	ccall->starter_clientid = mem_deref(ccall->starter_clientid);
+	ccall->starter_confirmed = confirmed;
+
+	if (userid) {
+		err = str_dup(&ccall->starter_userid, userid);
+		if (err)
+			return err;
+	}
+	if (clientid) {
+		err = str_dup(&ccall->starter_clientid, clientid);
+		if (err)
+			return err;
+	}
+
+	info("ccall(%p): set_starter: %s.%s confirmed: %s\n",
+	     ccall,
+	     anon_id(userid_anon, userid),
+	     anon_client(clientid_anon, clientid),
+	     confirmed ? "YES" : "NO");
+
+	return 0;
 }
 
 static int ccall_set_secret(struct ccall *ccall,
@@ -270,6 +305,9 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 	case CCALL_STATE_IDLE:
 		ccall->sft_url = mem_deref(ccall->sft_url);
 		ccall->sft_timestamp = 0;
+		ccall->starter_userid = mem_deref(ccall->starter_userid);
+		ccall->starter_clientid = mem_deref(ccall->starter_clientid);
+		ccall->starter_confirmed = false;
 		userlist_reset_keygenerator(ccall->userl);
 		ccall->received_confpart = false;
 		keystore_reset(ccall->keystore);
@@ -1894,8 +1932,17 @@ static void ecall_confpart_handler(struct ecall *ecall,
 		ccall->metrics.initiator = true;
 
 	if (should_start && ccall->is_caller) {
+		const struct userinfo *self = userlist_get_self(ccall->userl);
+
 		ccall->sft_timestamp = timestamp;
 		ccall->sft_seqno = seqno;
+
+		if (self) {
+			ccall_set_starter(ccall,
+					  self->userid_real,
+					  self->clientid_real,
+					  true);
+		}
 
 		info("ccall(%p): sending CONFSTART from should_start\n", ccall);
 		ccall_send_msg(ccall, ECONN_CONF_START,
@@ -2083,6 +2130,19 @@ static int alloc_message(struct econn_message **msgp,
 			stringlist_append(&msg->u.confstart.sftl, ccall->primary_sft_url);
 		}
 
+		/* Only pass on a starter we know, not a guess */
+		if (ccall->starter_confirmed && ccall->starter_userid &&
+		    ccall->starter_clientid) {
+			err = str_dup(&msg->u.confstart.starter_userid,
+				      ccall->starter_userid);
+			if (err)
+				goto out;
+			err = str_dup(&msg->u.confstart.starter_clientid,
+				      ccall->starter_clientid);
+			if (err)
+				goto out;
+		}
+
 		/* Add videosend prop */
 		err = econn_props_alloc(&msg->u.confstart.props, NULL);
 		if (err)
@@ -2119,6 +2179,19 @@ static int alloc_message(struct econn_message **msgp,
 		}
 		else {
 			stringlist_append(&msg->u.confcheck.sftl, ccall->primary_sft_url);
+		}
+
+		/* Only pass on a starter we know, not a guess */
+		if (ccall->starter_confirmed && ccall->starter_userid &&
+		    ccall->starter_clientid) {
+			err = str_dup(&msg->u.confcheck.starter_userid,
+				      ccall->starter_userid);
+			if (err)
+				goto out;
+			err = str_dup(&msg->u.confcheck.starter_clientid,
+				      ccall->starter_clientid);
+			if (err)
+				goto out;
 		}
 
 		str_ncpy(msg->sessid_sender, ccall->convid_hash, ECONN_ID_LEN);
@@ -3414,9 +3487,14 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 	const char *msg_sft_url;
 	const char *msg_sft_tuple;
 	const uint8_t *msg_secret;
+	const char *starter_userid;
+	const char *starter_clientid;
+	bool starter_confirmed = true;
 	bool valid_call, should_ring;
 	char userid_anon[ANON_ID_LEN];
 	char clientid_anon[ANON_CLIENT_LEN];
+	char userid_anon2[ANON_ID_LEN];
+	char clientid_anon2[ANON_CLIENT_LEN];
 	struct list *sftl;
 	const struct userinfo *self = NULL;
 	int err = 0;
@@ -3437,6 +3515,8 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		msg_secret = msg->u.confstart.secret;
 		msg_secretlen = msg->u.confstart.secretlen;
 		sftl = &msg->u.confstart.sftl;
+		starter_userid = msg->u.confstart.starter_userid;
+		starter_clientid = msg->u.confstart.starter_clientid;
 
 		valid_call = msg->age < CCALL_CONFSTART_TIMEOUT_S;
 	}
@@ -3448,12 +3528,25 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 		msg_secret = msg->u.confcheck.secret;
 		msg_secretlen = msg->u.confcheck.secretlen;
 		sftl = &msg->u.confcheck.sftl;
+		starter_userid = msg->u.confcheck.starter_userid;
+		starter_clientid = msg->u.confcheck.starter_clientid;
 
 		valid_call = !econn_message_isrequest(msg) &&
 			(msg->age < CCALL_CONFSTART_TIMEOUT_S);
 	}
 	else {
 		return EINVAL;
+	}
+
+	/* Older clients dont send the starter, assume it is the sender.
+	 * Only the initial CONFSTART is a request, so in that case the
+	 * sender is known to be the starter, otherwise it is a guess.
+	 */
+	if (!starter_userid || !starter_clientid) {
+		starter_userid = userid_sender;
+		starter_clientid = clientid_sender;
+		starter_confirmed = ECONN_CONF_START == msg->msg_type &&
+			econn_message_isrequest(msg);
 	}
 
 	if (!valid_call) {
@@ -3474,12 +3567,14 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 	}
 
 	info("ccall(%p): handle_confstart_check %s "
-	     "from: %s.%s state: %s ts_cmp: %d "
+	     "from: %s.%s starter: %s.%s state: %s ts_cmp: %d "
 	     "(msg %llu.%u < local %llu.%u) is_keygenerator: %s\n",
 	     ccall,
 	     econn_msg_name(msg->msg_type),
 	     anon_id(userid_anon, userid_sender),
 	     anon_client(clientid_anon, clientid_sender),
+	     anon_id(userid_anon2, starter_userid),
+	     anon_client(clientid_anon2, starter_clientid),
 	     ccall_state_name(ccall->state),
 	     ts_cmp,
 	     msg_ts, msg_seqno,
@@ -3500,11 +3595,25 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
  		}
 		ccall->sft_timestamp = msg_ts;
 		ccall->sft_seqno = msg_seqno;
+		err = ccall_set_starter(ccall, starter_userid, starter_clientid,
+					starter_confirmed);
+		if (err) {
+			return err;
+		}
 		info("ccall(%p) set_secret from confstart\n", ccall);
 		keystore_reset(ccall->keystore);
 		ccall_set_secret(ccall, msg_secret, msg_secretlen);
 		ccall->is_caller = false;
 		userlist_reset_keygenerator(ccall->userl);
+	}
+	else if (ts_cmp == 0 && starter_confirmed &&
+		 !ccall->starter_confirmed) {
+		/* Same call, replace a guessed starter with the known one */
+		err = ccall_set_starter(ccall, starter_userid, starter_clientid,
+					true);
+		if (err) {
+			return err;
+		}
 	}
 
 	switch (ccall->state) {
@@ -3513,7 +3622,8 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 			should_ring = econn_message_isrequest(msg) &&
 				ECONN_CONF_START == msg->msg_type &&
 				((msg->age * 1000) < CCALL_SHOULD_RING_TIMEOUT);
-			if (strcaseeq(userid_sender, self->userid_real)) {
+			if (strcaseeq(userid_sender, self->userid_real) ||
+			    strcaseeq(starter_userid, self->userid_real)) {
 				should_ring = false;
 			}
 
@@ -3525,7 +3635,7 @@ static int ccall_handle_confstart_check(struct ccall* ccall,
 
 			ICALL_CALL_CB(ccall->icall, starth,
 				      &ccall->icall, msg->time,
-				      userid_sender, clientid_sender,
+				      starter_userid, starter_clientid,
 				      video, should_ring,
 				      ccall->is_mls_call ? ICALL_CONV_TYPE_CONFERENCE_MLS :
 							   ICALL_CONV_TYPE_CONFERENCE,

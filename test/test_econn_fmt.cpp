@@ -543,6 +543,8 @@ TEST(econn_fmt, econn_confstart)
 	ASSERT_EQ(smsg->u.confstart.timestamp, dmsg->u.confstart.timestamp);
 	ASSERT_EQ(smsg->u.confstart.seqno, dmsg->u.confstart.seqno);
 	check_stringlist(&smsg->u.confstart.sftl, &dmsg->u.confstart.sftl);
+	ASSERT_TRUE(dmsg->u.confstart.starter_userid == NULL);
+	ASSERT_TRUE(dmsg->u.confstart.starter_clientid == NULL);
 
 	mem_deref(smsg);
 	mem_deref(dmsg);
@@ -576,6 +578,66 @@ TEST(econn_fmt, econn_confcheck)
 	ASSERT_EQ(smsg->u.confcheck.timestamp, dmsg->u.confcheck.timestamp);
 	ASSERT_EQ(smsg->u.confcheck.seqno, dmsg->u.confcheck.seqno);
 	check_stringlist(&smsg->u.confcheck.sftl, &dmsg->u.confcheck.sftl);
+	ASSERT_TRUE(dmsg->u.confcheck.starter_userid == NULL);
+	ASSERT_TRUE(dmsg->u.confcheck.starter_clientid == NULL);
+
+	mem_deref(smsg);
+	mem_deref(dmsg);
+}
+
+TEST(econn_fmt, econn_confstart_starter)
+{
+	struct econn_message *smsg = NULL;
+	struct econn_message *dmsg = NULL;
+
+	smsg = init_message(ECONN_CONF_START);
+	ASSERT_TRUE(smsg != NULL);
+
+	ASSERT_EQ(str_dup(&smsg->u.confstart.sft_url, "sft_url"), 0);
+	ASSERT_EQ(str_dup((char**)(&smsg->u.confstart.secret), "secret"), 0);
+	smsg->u.confstart.secretlen = 7;
+	smsg->u.confstart.timestamp = 12345;
+	smsg->u.confstart.seqno = 24680;
+	ASSERT_EQ(str_dup(&smsg->u.confstart.starter_userid,
+			  "starter-user@domain"), 0);
+	ASSERT_EQ(str_dup(&smsg->u.confstart.starter_clientid,
+			  "starterclient"), 0);
+
+	encode_decode(smsg, &dmsg);
+
+	ASSERT_STREQ(smsg->u.confstart.starter_userid,
+		     dmsg->u.confstart.starter_userid);
+	ASSERT_STREQ(smsg->u.confstart.starter_clientid,
+		     dmsg->u.confstart.starter_clientid);
+
+	mem_deref(smsg);
+	mem_deref(dmsg);
+}
+
+TEST(econn_fmt, econn_confcheck_starter)
+{
+	struct econn_message *smsg = NULL;
+	struct econn_message *dmsg = NULL;
+
+	smsg = init_message(ECONN_CONF_CHECK);
+	ASSERT_TRUE(smsg != NULL);
+
+	ASSERT_EQ(str_dup(&smsg->u.confcheck.sft_url, "sft_url"), 0);
+	ASSERT_EQ(str_dup((char**)(&smsg->u.confcheck.secret), "secret"), 0);
+	smsg->u.confcheck.secretlen = 7;
+	smsg->u.confcheck.timestamp = 12345;
+	smsg->u.confcheck.seqno = 24680;
+	ASSERT_EQ(str_dup(&smsg->u.confcheck.starter_userid,
+			  "starter-user@domain"), 0);
+	ASSERT_EQ(str_dup(&smsg->u.confcheck.starter_clientid,
+			  "starterclient"), 0);
+
+	encode_decode(smsg, &dmsg);
+
+	ASSERT_STREQ(smsg->u.confcheck.starter_userid,
+		     dmsg->u.confcheck.starter_userid);
+	ASSERT_STREQ(smsg->u.confcheck.starter_clientid,
+		     dmsg->u.confcheck.starter_clientid);
 
 	mem_deref(smsg);
 	mem_deref(dmsg);
