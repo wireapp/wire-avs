@@ -369,6 +369,37 @@ void wcall_config_update(WUSER_HANDLE wuser, int err, const char *json_str);
 void wcall_sft_resp(WUSER_HANDLE wuser,
 		    int perr, const uint8_t *buf, size_t len, void *ctx);
 
+/* Publish/subscribe conference calls (pscall) on Cloudflare Realtime.
+ * MLS conferences only. When enabled, conference calls we start use
+ * pscall; incoming calls follow the backend of the received CONFSTART.
+ * Requires an HTTP handler (wcall_set_pscall_http_handler).
+ */
+int wcall_set_enable_publish_subscribe(WUSER_HANDLE wuser, int enabled);
+
+#define WCALL_PSCALL_LEG_PUB 0
+#define WCALL_PSCALL_LEG_SUB 1
+
+/* Start an asynchronous Cloudflare Realtime HTTP request for a call leg.
+ * path is relative to <api>/apps/<appId>; the app adds base URL and
+ * authentication. body may be NULL. One request per leg is in flight;
+ * complete it with wcall_pscall_http_response().
+ */
+typedef int (wcall_pscall_http_h)(const char *convid,
+				  int leg,
+				  const char *method,
+				  const char *path,
+				  const char *body,
+				  void *arg);
+
+void wcall_set_pscall_http_handler(WUSER_HANDLE wuser,
+				   wcall_pscall_http_h *httph);
+
+void wcall_pscall_http_response(WUSER_HANDLE wuser,
+				const char *convid,
+				int leg,
+				int status,
+				const char *body);
+
 /* An OTR call-type message has been received,
  * msg_time is the backend timestamp of when the message was received
  * curr_time is the timestamp (synced as close as possible)

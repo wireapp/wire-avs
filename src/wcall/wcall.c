@@ -126,6 +126,9 @@ struct calling_instance {
 	struct list wcalls;
 	struct list ctxl;
 
+	bool enable_pubsub;
+	wcall_pscall_http_h *pscall_httph;
+
 	pthread_t tid;
 	bool thread_run;
 
@@ -199,6 +202,7 @@ struct wcall {
         int duration;
 
 	struct icall *icall;
+	struct pscall *pscall; /* set if icall is a pscall */
 
 	struct {
 		bool video_call;
@@ -1899,11 +1903,116 @@ static void icall_req_new_epoch_handler(struct icall *icall, void *arg)
 }
 
 
+static int pscall_http_handler(struct pscall *psc,
+			       enum pscall_leg leg,
+			       const char *method,
+			       const char *path,
+			       const char *body,
+			       void *arg)
+{
+	struct wcall *wcall = arg;
+	struct calling_instance *inst;
+	uint64_t now;
+	int err;
+
+	if (!WCALL_VALID(wcall) || wcall->pscall != psc)
+		return EINVAL;
+
+	inst = wcall->inst;
+	if (!inst->pscall_httph)
+		return ENOSYS;
+
+	info(APITAG "wcall(%p): calling pscall_httph: leg=%d %s %s\n",
+	     wcall, leg, method, path);
+	now = tmr_jiffies();
+	err = inst->pscall_httph(wcall->convid, leg, method, path, body,
+				 inst->arg);
+	info(APITAG "wcall(%p): pscall_httph took %llu ms\n",
+	     wcall, tmr_jiffies() - now);
+
+	return err;
+}
+
+
+void wcall_i_pscall_http_response(struct wcall *wcall, int leg,
+				  int status, const char *body)
+{
+	int err;
+
+	if (!WCALL_VALID(wcall))
+		return;
+
+	if (!wcall->pscall) {
+		warning("wcall(%p): pscall_http_response: not a pscall\n",
+			wcall);
+		return;
+	}
+
+	err = pscall_http_response(wcall->pscall, (enum pscall_leg)leg,
+				   status, body);
+	if (err) {
+		warning("wcall(%p): pscall_http_response failed: %m\n",
+			wcall, err);
+	}
+}
+
+
+bool wcall_use_pubsub(struct calling_instance *inst)
+{
+	return inst ? inst->enable_pubsub : false;
+}
+
+
+AVS_EXPORT
+int wcall_set_enable_publish_subscribe(WUSER_HANDLE wuser, int enabled)
+{
+	struct calling_instance *inst;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: set_enable_publish_subscribe: "
+			"invalid wuser=0x%08X\n",
+			wuser);
+		return EINVAL;
+	}
+
+	info(APITAG "wcall: set_enable_publish_subscribe %d inst=%p\n",
+	     enabled, inst);
+
+	/* applies to calls started from now on */
+	inst->enable_pubsub = enabled != 0;
+
+	return 0;
+}
+
+
+AVS_EXPORT
+void wcall_set_pscall_http_handler(WUSER_HANDLE wuser,
+				   wcall_pscall_http_h *httph)
+{
+	struct calling_instance *inst;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: set_pscall_http_handler: "
+			"invalid wuser=0x%08X\n",
+			wuser);
+		return;
+	}
+
+	info(APITAG "wcall: set_pscall_http_handler %p inst=%p\n",
+	     httph, inst);
+
+	inst->pscall_httph = httph;
+}
+
+
 int wcall_add(struct calling_instance *inst,
 	      struct wcall **wcallp,
 	      const char *convid,
 	      int conv_type,
-	      bool meeting)
+	      bool meeting,
+	      bool pubsub)
 {	
 	struct wcall *wcall;
 	struct zapi_ice_server *turnv = NULL;
@@ -1943,11 +2052,24 @@ int wcall_add(struct calling_instance *inst,
 		info("wcall(%p): no turn servers\n", wcall);
 	}
 
+	/* pscall is MLS only and needs the app's HTTP bridge */
+	if (pubsub && conv_type != WCALL_CONV_TYPE_CONFERENCE_MLS) {
+		warning("wcall(%p): pubsub requires an MLS conference, "
+			"using SFT\n", wcall);
+		pubsub = false;
+	}
+	if (pubsub && !inst->pscall_httph) {
+		warning("wcall(%p): pubsub without pscall http handler, "
+			"using SFT\n", wcall);
+		pubsub = false;
+	}
+
 	sftv = config_get_sftservers(inst->cfg, &sftc);
 	if (sftc == 0) {
 		info("wcall(%p): no sft servers\n", wcall);
-		if (WCALL_CONV_TYPE_CONFERENCE == conv_type ||
-		    WCALL_CONV_TYPE_CONFERENCE_MLS == conv_type) {
+		if (!pubsub &&
+		    (WCALL_CONV_TYPE_CONFERENCE == conv_type ||
+		     WCALL_CONV_TYPE_CONFERENCE_MLS == conv_type)) {
 			info("wcall(%p): reverting conference to legacy "
 			     "group call due to no SFT servers\n", wcall);
 			conv_type = WCALL_CONV_TYPE_GROUP;
@@ -2039,8 +2161,56 @@ int wcall_add(struct calling_instance *inst,
 		}
 		break;
 
-	case WCALL_CONV_TYPE_CONFERENCE:
-	case WCALL_CONV_TYPE_CONFERENCE_MLS: {
+	case WCALL_CONV_TYPE_CONFERENCE_MLS:
+		if (pubsub) {
+			struct pscall_conf psconf = {
+				.httph = pscall_http_handler,
+				.arg = wcall,
+			};
+			struct pscall *pscall;
+
+			err = pscall_alloc(&pscall,
+					   &inst->conf_config,
+					   inst->msys_name,
+					   convid,
+					   inst->userid,
+					   inst->clientid,
+					   &psconf);
+			if (err) {
+				warning("wcall(%p): add: could not alloc "
+					"pscall: %m\n", wcall, err);
+				goto out;
+			}
+
+			wcall->pscall = pscall;
+			wcall->icall = pscall_get_icall(pscall);
+			icall_set_callbacks(wcall->icall,
+					    icall_send_handler,
+					    NULL, // icall_sft_handler,
+					    icall_start_handler,
+					    icall_answer_handler,
+					    icall_media_estab_handler,
+					    icall_audio_estab_handler,
+					    icall_datachan_estab_handler,
+					    icall_media_stopped_handler,
+					    icall_group_changed_handler,
+					    icall_leave_handler,
+					    icall_close_handler,
+					    icall_metrics_handler,
+					    icall_vstate_handler,
+					    icall_audiocbr_handler,
+					    NULL, // muted_changed_handler,
+					    icall_quality_handler,
+					    NULL, // no_relay_handler,
+					    icall_req_clients_handler,
+					    icall_aulevel_handler,
+					    icall_req_new_epoch_handler,
+					    wcall);
+			break;
+		}
+		/* fall through */
+
+	case WCALL_CONV_TYPE_CONFERENCE: {
 		struct ccall* ccall;
 		err = ccall_alloc(&ccall,
 				  &inst->conf_config,
@@ -2524,38 +2694,52 @@ static int add_wcall(struct wcall **wcall,
 		     int conv_type,
 		     bool meeting)
 {
+	const char *backend = confsig_msg_backend(msg);
+	bool pubsub = streq(backend, PSCALL_BACKEND);
 	int err = 0;
+
+	if (backend && !pubsub) {
+		info("wcall(%p): ignoring call with unknown backend: %s\n",
+		     inst, backend);
+		return EPROTO;
+	}
+	if (pubsub && (conv_type != WCALL_CONV_TYPE_CONFERENCE_MLS
+		       || !inst->pscall_httph)) {
+		info("wcall(%p): ignoring pscall: conv_type=%d httph=%p\n",
+		     inst, conv_type, inst->pscall_httph);
+		return EPROTO;
+	}
 	
 	if (msg->msg_type == ECONN_GROUP_START
 	    && econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				WCALL_CONV_TYPE_GROUP,
-				meeting);
+				meeting, false);
 	}
 	else if (msg->msg_type == ECONN_GROUP_CHECK
 		 && !econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				WCALL_CONV_TYPE_GROUP,
-				meeting);
+				meeting, false);
 	}
 	else if (msg->msg_type == ECONN_CONF_START
 		 && econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
 				WCALL_CONV_TYPE_CONFERENCE,
-				meeting);
+				meeting, pubsub);
 	}
 	else if (msg->msg_type == ECONN_CONF_CHECK
 		 && !econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
 				WCALL_CONV_TYPE_CONFERENCE,
-				meeting);
+				meeting, pubsub);
 	}
 	else if (econn_is_creator(inst->userid, userid, msg)) {
 		err = wcall_add(inst, wcall, convid,
 				WCALL_CONV_TYPE_ONEONONE,
-				meeting);
+				meeting, false);
 		if (err) {
 			warning("wcall(%p): wcall_add failed: %m\n", inst, err);
 		}
@@ -4633,6 +4817,10 @@ void wcall_i_audio_record(struct wcall *wcall,
 	case ICALL_CONV_TYPE_CONFERENCE_MLS:
 		if (!wcall->icall) {
 			warning("wcall(%p): does not have an icall\n", wcall);
+		}
+		else if (wcall->pscall) {
+			warning("wcall(%p): recording not supported for "
+				"pscall\n", wcall);
 		}
 		else {
 			ccall_audio_record(wcall->icall, path);

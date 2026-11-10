@@ -28,7 +28,10 @@ struct wcall_marshal *wcall_get_marshal(struct calling_instance *inst);
 struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid);
 int  wcall_add(struct calling_instance *inst,
 	       struct wcall **wcallp, const char *convid,
-	       int conv_type, bool meeting);
+	       int conv_type, bool meeting, bool pubsub);
+bool wcall_use_pubsub(struct calling_instance *inst);
+void wcall_i_pscall_http_response(struct wcall *wcall, int leg,
+				  int status, const char *body);
 void wcall_mcat_changed(struct calling_instance *inst,
 			enum mediamgr_state state);
 void wcall_audio_route_changed(struct calling_instance *inst,

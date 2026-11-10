@@ -58,6 +58,7 @@ enum mq_event {
 	WCALL_MEV_PROCESS_NOTIFICATIONS,
 	WCALL_MEV_SET_DURATION,
 	WCALL_MEV_AUDIO_RECORD,
+	WCALL_MEV_PSCALL_RESP,
 
 	WCALL_MEV_SIP_INIT,
 	WCALL_MEV_SIP_CLOSE,
@@ -180,6 +181,12 @@ struct mq_data {
 		} audio_record;
 
 		struct {
+			int leg;
+			int status;
+			char *body;
+		} pscall_resp;
+
+		struct {
 			char *path;
 		} sip_init;
 
@@ -274,6 +281,10 @@ static void md_destructor(void *arg)
 
 	case WCALL_MEV_AUDIO_RECORD:
 		mem_deref(md->u.audio_record.path);
+		break;
+
+	case WCALL_MEV_PSCALL_RESP:
+		mem_deref(md->u.pscall_resp.body);
 		break;
 
 	case WCALL_MEV_SIP_INIT:
@@ -380,6 +391,8 @@ static char *mev_name(int id)
 		return "PROCESS_NOTIFICATIONS";
 	case WCALL_MEV_AUDIO_RECORD:
 		return "AUDIO_RECORD";
+	case WCALL_MEV_PSCALL_RESP:
+		return "PSCALL_RESP";
 	case WCALL_MEV_SIP_INIT:
 		return "SIP_INIT";
 	case WCALL_MEV_SIP_CLOSE:
@@ -461,7 +474,8 @@ static void mqueue_handler(int id, void *data, void *arg)
 					&wcall,
 					md->convid,
 					md->u.start.conv_type,
-					md->u.start.meeting);
+					md->u.start.meeting,
+					wcall_use_pubsub(md->inst));
 			if (err || !wcall)
 				goto out;
 		}
@@ -569,6 +583,17 @@ static void mqueue_handler(int id, void *data, void *arg)
 		}
 		wcall_i_set_clients_for_conv(wcall,
 					     md->u.set_clients.json);
+		break;
+
+	case WCALL_MEV_PSCALL_RESP:
+		if (!wcall) {
+			err = ENOENT;
+			goto out;
+		}
+		wcall_i_pscall_http_response(wcall,
+					     md->u.pscall_resp.leg,
+					     md->u.pscall_resp.status,
+					     md->u.pscall_resp.body);
 		break;
 
 	case WCALL_MEV_DESTROY:
@@ -1250,6 +1275,52 @@ void wcall_invoke_incoming_handler(const char *convid,
 
 	if (err)
 		goto out;
+
+	err = md_enqueue(md);
+	if (err)
+		goto out;
+
+ out:
+	if (err)
+		mem_deref(md);
+}
+
+
+AVS_EXPORT
+void wcall_pscall_http_response(WUSER_HANDLE wuser,
+				const char *convid,
+				int leg,
+				int status,
+				const char *body)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	if (!convid) {
+		warning("wcall: pscall_http_response: no convid set\n");
+		return;
+	}
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: pscall_http_response: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return;
+	}
+
+	md = md_new(inst, convid, WCALL_MEV_PSCALL_RESP);
+	if (!md)
+		return;
+
+	md->u.pscall_resp.leg = leg;
+	md->u.pscall_resp.status = status;
+	if (body) {
+		err = str_dup(&md->u.pscall_resp.body, body);
+		if (err)
+			goto out;
+	}
 
 	err = md_enqueue(md);
 	if (err)
