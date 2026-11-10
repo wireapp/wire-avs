@@ -81,6 +81,7 @@ AVS_MODULES += egcall
 AVS_MODULES += audio_level
 AVS_MODULES += ccall
 AVS_MODULES += confsig
+AVS_MODULES += pscall
 AVS_MODULES += userlist
 AVS_MODULES += zapi
 AVS_MODULES += ztime

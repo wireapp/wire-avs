@@ -13,6 +13,7 @@ TEST_SRCS	+= test_version.cpp
 TEST_SRCS	+= test_audio_io_control.cpp
 TEST_SRCS	+= test_catalog.cpp
 TEST_SRCS	+= test_cert.cpp
+TEST_SRCS	+= test_cfrt.cpp
 TEST_SRCS	+= test_chunk.cpp
 TEST_SRCS	+= test_confpos.cpp
 TEST_SRCS	+= test_confsig.cpp
