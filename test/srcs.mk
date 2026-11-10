@@ -14,6 +14,7 @@ TEST_SRCS	+= test_audio_io_control.cpp
 TEST_SRCS	+= test_cert.cpp
 TEST_SRCS	+= test_chunk.cpp
 TEST_SRCS	+= test_confpos.cpp
+TEST_SRCS	+= test_confsig.cpp
 TEST_SRCS	+= test_dict.cpp
 #TEST_SRCS	+= test_ecall.cpp
 TEST_SRCS	+= test_econn.cpp
