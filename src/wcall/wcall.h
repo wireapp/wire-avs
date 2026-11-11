@@ -28,7 +28,19 @@ struct wcall_marshal *wcall_get_marshal(struct calling_instance *inst);
 struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid);
 int  wcall_add(struct calling_instance *inst,
 	       struct wcall **wcallp, const char *convid,
-	       int conv_type, bool meeting);
+	       int conv_type, bool meeting, bool is_test);
+/* Connection-test identity is fixed when the call is allocated. */
+bool wcall_is_test(const struct wcall *wcall);
+int wcall_alloc_test_convid(struct calling_instance *inst, char **convidp);
+#ifdef __EMSCRIPTEN__
+enum { WCALL_WEB_TEST_START, WCALL_WEB_TEST_MEDIA, WCALL_WEB_TEST_CLOSE };
+int wcall_web_test_start(WUSER_HANDLE wuser, int video);
+int wcall_web_test_event(struct calling_instance *inst, const char *convid,
+			 int event, int reason);
+#endif
+int wcall_i_prepare_test(struct wcall *wcall);
+/* First established-media notification starts the fixed test duration. */
+void wcall_i_test_connected(struct wcall *wcall);
 void wcall_mcat_changed(struct calling_instance *inst,
 			enum mediamgr_state state);
 void wcall_audio_route_changed(struct calling_instance *inst,

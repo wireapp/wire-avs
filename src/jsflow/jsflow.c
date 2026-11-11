@@ -130,7 +130,7 @@ static pc_HeapFree_t *pc_HeapFree = NULL;
 static pc_AddTurnServer_t *pc_AddTurnServer = NULL;
 static pc_IceGatheringState_t *pc_IceGatheringState = NULL;
 static pc_SignallingState_t *pc_SignallingState = NULL;
-static pc_ConnectionState_t *pc_ConnectionState = NULL;
+static pc_ConnectionState_t *pc_ConnectionState __attribute__((unused)) = NULL;
 static pc_CreateDataChannel_t *pc_CreateDataChannel = NULL;
 static pc_CreateOffer_t *pc_CreateOffer = NULL;
 static pc_CreateAnswer_t *pc_CreateAnswer = NULL;
@@ -141,15 +141,15 @@ static pc_SetRemoteDescription_t *pc_SetRemoteDescription = NULL;
 static pc_SetLocalDescription_t *pc_SetLocalDescription = NULL;
 static pc_LocalDescription_t *pc_LocalDescription = NULL;
 static pc_SetMute_t *pc_SetMute = NULL;
-static pc_GetMute_t *pc_GetMute = NULL;
+static pc_GetMute_t *pc_GetMute __attribute__((unused)) = NULL;
 static pc_GetLocalStats_t *pc_GetLocalStats = NULL;
 static pc_SetRemoteUserClientId_t *pc_SetRemoteUserClientId = NULL;
 static pc_HasVideo_t *pc_HasVideo = NULL;
 static pc_SetVideoState_t *pc_SetVideoState = NULL;
 
 /* DataChannel */
-static pc_DataChannelId_t *pc_DataChannelId = NULL;
-static pc_DataChannelState_t *pc_DataChannelState = NULL;
+static pc_DataChannelId_t *pc_DataChannelId __attribute__((unused)) = NULL;
+static pc_DataChannelState_t *pc_DataChannelState __attribute__((unused)) = NULL;
 static pc_DataChannelSend_t *pc_DataChannelSend = NULL;
 static pc_DataChannelClose_t *pc_DataChannelClose = NULL;
 

@@ -1,5 +1,6 @@
 /*eslint-disable sort-keys, no-console */
 import {WcallLogHandler} from "./avs_wcall";
+import {failTestPeer, observeTestCandidate, observeTestMicrophone, observeTestPeer} from "./avs_connection_test";
 
 declare var RTCRtpSender: any;
 declare var RTCRtpScriptTransform: any;
@@ -1382,6 +1383,7 @@ function candidateHandler(pc: PeerConnection, cand: RTCIceCandidate | null) {
 
         return;
     }
+    observeTestCandidate(pc.convid, pc.rtc, cand);
 
     /* As soon as we get the first relay, we start a gathering timer
      * this was we ensure that gathering never takes more than the
@@ -1531,6 +1533,7 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
   const rtc = new RTCPeerConnection(config);
 
   pc.rtc = rtc;
+  observeTestPeer(pc.convid, rtc);
   rtc.onicegatheringstatechange = () => gatheringHandler(pc);
   rtc.onconnectionstatechange = () => connectionHandler(pc);
   rtc.onicecandidate = (event) => candidateHandler(pc, event.candidate);
@@ -1994,6 +1997,7 @@ function createSdp(
     if (userMediaHandler) {
 	userMediaHandler(pc.convid, true, use_video, use_ss)
         .then((stream: MediaStream) => {
+            observeTestMicrophone(pc.convid, rtc, stream);
             return update_tracks(pc, stream).then(() => stream);
         }).then((stream: MediaStream) => {
 
@@ -2018,13 +2022,17 @@ function createSdp(
 		    })
 		    .catch((err: any) => {
 		        pc_log(LOG_LEVEL_WARN, 'createSdp: doSdp failed: ' + err, err);
+			failTestPeer(pc.convid, rtc, 'Could not create SDP');
 			ccallLocalSdpHandler(pc, 1, "sdp-error", err.toString());
 		    })
 	    })
 	    .catch((err: any) => {
 	        pc_log(LOG_LEVEL_WARN, 'createSdp: userMedia failed: ' + err, err);
+		failTestPeer(pc.convid, rtc, 'Could not open the microphone');
 		ccallLocalSdpHandler(pc, 1, "media-error", err.toString());
 	    });
+    } else {
+	failTestPeer(pc.convid, rtc, 'No microphone handler configured');
     }
 }
 
@@ -2209,6 +2217,7 @@ function pc_SetRemoteDescription(hnd: number, typePtr: number, sdpPtr: number) {
     .then(() => {})
     .catch((err: any) => {
       pc_log(LOG_LEVEL_WARN, "setRemoteDescription failed: " + err, err);
+      failTestPeer(pc.convid, rtc, 'Could not apply remote SDP');
     });
 
   if (pc_env != ENV_FIREFOX)
@@ -2250,6 +2259,7 @@ function pc_SetLocalDescription(hnd: number, typePtr: number, sdpPtr: number) {
     })
     .catch((err: any) => {
       pc_log(LOG_LEVEL_INFO, "setLocalDescription failed: " + err, err);
+      failTestPeer(pc.convid, rtc, 'Could not apply local SDP');
     });
 }
 

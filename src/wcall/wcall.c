@@ -19,6 +19,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <math.h>
+#include <sodium.h>
 
 #include <re/re.h>
 #include <avs.h>
@@ -43,6 +44,7 @@
 #endif
 
 #define AUDIO_CBR_STATE_UNSET (-1)
+#define WCALL_TEST_DURATION_MS 20000
 
 #define APITAG "WAPI "
 
@@ -105,6 +107,8 @@ struct log_entry {
 
 
 struct calling_instance {
+	uint32_t scan_id;
+	bool scan_waiting_config;
 	struct wcall_marshal *marshal;
 	struct mediamgr *mm;
 	char *userid;
@@ -190,11 +194,27 @@ struct calling_instance {
 	struct list config_updatel;
 };
 
+/* Platform bridge. The driver copies the configuration before returning.
+ * A NULL configuration cancels the matching scan.
+ */
+typedef void (scan_run_h)(WUSER_HANDLE wuser, uint32_t id, const char *config);
+typedef void (scan_result_h)(WUSER_HANDLE wuser, int err, const char *json);
+void wcall_scan_set_driver(scan_run_h *run, scan_result_h *result);
+void wcall_scan_complete(WUSER_HANDLE wuser, uint32_t id, const char *json);
+static scan_run_h *scan_run;
+static scan_result_h *scan_result;
+static uint32_t next_scan_id;
+
 struct wcall {
 	struct calling_instance *inst;
 	char *convid;
 	int conv_type;
         int duration;
+	bool is_test; /* Connection-test session; independent of conversation ID. */
+	bool test_connected;
+	bool test_failed;
+	int test_failure_reason;
+	struct tmr test_tmr;
 
 	struct icall *icall;
 
@@ -431,6 +451,48 @@ static const char *wcall_vstate_name(int vstate)
 	}
 }
 
+static void test_end_handler(void *arg)
+{
+	struct wcall *wcall = arg;
+
+	info("wcall(%p): ending test\n", wcall);
+	wcall_i_end(wcall);
+}
+
+#ifdef __EMSCRIPTEN__
+int wcall_web_test_event(struct calling_instance *inst, const char *convid,
+			 int event, int reason)
+{
+	return EM_ASM_INT({
+		return Module.avsWebTestEvent
+			? Module.avsWebTestEvent($0, UTF8ToString($1), $2, $3)
+			: 0;
+	}, inst->wuser, convid, event, reason);
+}
+#endif
+
+
+void wcall_i_test_connected(struct wcall *wcall)
+{
+	if (!wcall_is_test(wcall) || wcall->test_connected || wcall->test_failed ||
+	    wcall->state == WCALL_STATE_TERM_LOCAL ||
+	    wcall->state == WCALL_STATE_TERM_REMOTE)
+		return;
+
+	wcall->test_connected = true;
+#ifdef __EMSCRIPTEN__
+	/* The Web test measures from the first observed audio packets. */
+	if (wcall_web_test_event(wcall->inst, wcall->convid,
+				 WCALL_WEB_TEST_MEDIA, 0))
+		return;
+#endif
+	info("wcall(%p): test connected, ending in %u ms\n",
+	     wcall, (unsigned)WCALL_TEST_DURATION_MS);
+	tmr_start(&wcall->test_tmr, WCALL_TEST_DURATION_MS,
+		  test_end_handler, wcall);
+}
+
+
 static void set_state(struct wcall *wcall, int st)
 {
 	bool trigger;
@@ -446,6 +508,13 @@ static void set_state(struct wcall *wcall, int st)
 	     wcall, wcall_state_name(wcall->state), wcall_state_name(st));
 
 	wcall->state = st;
+	if (wcall_is_test(wcall)) {
+		if (st == WCALL_STATE_MEDIA_ESTAB)
+			wcall_i_test_connected(wcall);
+		else if (st == WCALL_STATE_TERM_LOCAL ||
+			 st == WCALL_STATE_TERM_REMOTE || st == WCALL_STATE_NONE)
+			tmr_cancel(&wcall->test_tmr);
+	}
 
 	if (trigger && inst && inst->stateh) {
 		inst->stateh(wcall->convid, wcall->state, inst->arg);
@@ -1203,6 +1272,13 @@ static void icall_close_handler(struct icall *icall, int err,
 	}
 	
 	reason = err2reason(err);
+	if (wcall_is_test(wcall) && wcall->test_failed)
+		reason = wcall->test_failure_reason;
+#ifdef __EMSCRIPTEN__
+	if (wcall_is_test(wcall))
+		wcall_web_test_event(inst, wcall->convid,
+				     WCALL_WEB_TEST_CLOSE, reason);
+#endif
 
 	info(APITAG "wcall(%p): closeh(%p) group=no state=%s reason=%s\n",
 	     wcall, inst->closeh, wcall_state_name(wcall->state),
@@ -1265,7 +1341,10 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 		return;
 	}
 
-	set_state(wcall, WCALL_STATE_INCOMING);
+	if (wcall_is_test(wcall))
+		tmr_cancel(&wcall->test_tmr);
+	else
+		set_state(wcall, WCALL_STATE_INCOMING);
 
 	switch (reason) {
 	case ICALL_REASON_STILL_ONGOING:
@@ -1311,6 +1390,24 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 	default:
 		wreason = WCALL_REASON_NORMAL;
 		break;
+	}
+
+	if (wcall_is_test(wcall)) {
+		if (wcall->state == WCALL_STATE_TERM_LOCAL ||
+		    wcall->state == WCALL_STATE_TERM_REMOTE)
+			return;
+
+		if (!wcall->test_failed) {
+			wcall->test_failed = true;
+			wcall->test_failure_reason = reason == ICALL_REASON_ERROR ?
+				WCALL_REASON_ERROR : wreason;
+		}
+		/* Leave callbacks can run inside configuration processing. Defer end
+		 * so cancelling the join cannot free its currently executing handler.
+		 * The final close callback reports the error and releases the call.
+		 */
+		tmr_start(&wcall->test_tmr, 0, test_end_handler, wcall);
+		return;
 	}
 
 	if (inst->processing_notifications) {
@@ -1499,6 +1596,10 @@ static int icall_send_handler(struct icall *icall,
 			"inst=%p\n", wcall, inst);
 		return ENODEV;
 	}
+
+	/* Tests signal to the SFT through sfth, never to a real conversation. */
+	if (wcall_is_test(wcall))
+		return 0;
 	
 	if (inst->sendh == NULL)
 		return ENOSYS;
@@ -1628,8 +1729,21 @@ static void destructor(void *arg)
 	bool has_calls;
 
 	info("wcall(%p): dtor -- started\n", wcall);
+	if (wcall->is_test)
+		tmr_cancel(&wcall->test_tmr);
 	
 	lock_write_get(inst->lock);
+	if (wcall->is_test) {
+		struct le *le;
+
+		/* Outstanding SFT replies must not reach a later test at this ID. */
+		LIST_FOREACH(&inst->ctxl, le) {
+			struct wcall_ctx *ctx = le->data;
+
+			if (ctx->context == wcall)
+				ctx->context = NULL;
+		}
+	}
 	list_unlink(&wcall->le);
 	has_calls = wcall_has_calls();
 	lock_rel(inst->lock);
@@ -1817,7 +1931,7 @@ static  void icall_req_clients_handler(struct icall *icall, void *arg)
 		return;
 	}
 
-	if (!inst->clients_reqh)
+	if (wcall_is_test(wcall) || !inst->clients_reqh)
 		return;
 
 	info(APITAG "wcall(%p): calling clients_reqh:%p \n",
@@ -1885,7 +1999,7 @@ static void icall_req_new_epoch_handler(struct icall *icall, void *arg)
 		return;
 	}
 
-	if (!inst->req_new_epochh)
+	if (wcall_is_test(wcall) || !inst->req_new_epochh)
 		return;
 
 	info(APITAG "wcall(%p): calling req_new_epochh:%p\n",
@@ -1897,11 +2011,62 @@ static void icall_req_new_epoch_handler(struct icall *icall, void *arg)
 }
 
 
+bool wcall_is_test(const struct wcall *wcall)
+{
+	return wcall && wcall->is_test;
+}
+
+
+int wcall_alloc_test_convid(struct calling_instance *inst, char **convidp)
+{
+	if (!inst || !convidp || !str_isset(inst->userid) ||
+	    !str_isset(inst->clientid))
+		return EINVAL;
+
+	return re_sdprintf(convidp, "avs-connection-test:%s:%s",
+			   inst->userid, inst->clientid);
+}
+
+
+int wcall_i_prepare_test(struct wcall *wcall)
+{
+	struct list clients = LIST_INIT;
+	struct icall_client *self;
+	uint8_t key[E2EE_SESSIONKEY_SIZE];
+	const uint32_t epoch = 1;
+	int err;
+
+	if (!wcall_is_test(wcall) || !wcall->icall ||
+	    wcall->conv_type != WCALL_CONV_TYPE_CONFERENCE_MLS)
+		return EINVAL;
+	if (!wcall->icall->set_clients || !wcall->icall->set_media_key)
+		return ENOTSUP;
+
+	self = icall_client_alloc(wcall->inst->userid, wcall->inst->clientid);
+	if (!self)
+		return ENOMEM;
+	if (!self->userid || !self->clientid) {
+		mem_deref(self);
+		return ENOMEM;
+	}
+	self->in_subconv = true;
+	list_append(&clients, &self->le, self);
+	ICALL_CALL(wcall->icall, set_clients, &clients, epoch);
+	list_flush(&clients);
+
+	randombytes_buf(key, sizeof(key));
+	err = ICALL_CALLE(wcall->icall, set_media_key, epoch, key, sizeof(key));
+	sodium_memzero(key, sizeof(key));
+	return err;
+}
+
+
 int wcall_add(struct calling_instance *inst,
 	      struct wcall **wcallp,
 	      const char *convid,
 	      int conv_type,
-	      bool meeting)
+	      bool meeting,
+	      bool is_test)
 {	
 	struct wcall *wcall;
 	struct zapi_ice_server *turnv = NULL;
@@ -1913,6 +2078,8 @@ int wcall_add(struct calling_instance *inst,
 	char convid_anon[ANON_ID_LEN];
 
 	if (!inst || !wcallp || !convid)
+		return EINVAL;
+	if (is_test && conv_type != WCALL_CONV_TYPE_CONFERENCE_MLS)
 		return EINVAL;
 
 	wcall = wcall_lookup(inst, convid);
@@ -1929,6 +2096,8 @@ int wcall_add(struct calling_instance *inst,
 
 	wcall->inst = inst;
 	wcall->conv_type = conv_type;
+	wcall->is_test = is_test;
+	tmr_init(&wcall->test_tmr);
 
 	info(APITAG "wcall(%p): added for convid=%s inst=%p\n", wcall,
 	     anon_id(convid_anon, convid), inst);
@@ -1944,6 +2113,10 @@ int wcall_add(struct calling_instance *inst,
 	sftv = config_get_sftservers(inst->cfg, &sftc);
 	if (sftc == 0) {
 		info("wcall(%p): no sft servers\n", wcall);
+		if (is_test) {
+			err = ENOTSUP;
+			goto out;
+		}
 		if (WCALL_CONV_TYPE_CONFERENCE == conv_type ||
 		    WCALL_CONV_TYPE_CONFERENCE_MLS == conv_type) {
 			info("wcall(%p): reverting conference to legacy "
@@ -2057,6 +2230,7 @@ int wcall_add(struct calling_instance *inst,
 		}
 
 		wcall->icall = ccall_get_icall(ccall);
+		ccall_set_test_mode(ccall, is_test);
 		icall_set_callbacks(wcall->icall,
 				    icall_send_handler,
 				    icall_sft_handler,
@@ -2528,32 +2702,32 @@ static int add_wcall(struct wcall **wcall,
 	    && econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				WCALL_CONV_TYPE_GROUP,
-				meeting);
+				meeting, false);
 	}
 	else if (msg->msg_type == ECONN_GROUP_CHECK
 		 && !econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				WCALL_CONV_TYPE_GROUP,
-				meeting);
+				meeting, false);
 	}
 	else if (msg->msg_type == ECONN_CONF_START
 		 && econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
 				WCALL_CONV_TYPE_CONFERENCE,
-				meeting);
+				meeting, false);
 	}
 	else if (msg->msg_type == ECONN_CONF_CHECK
 		 && !econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
 				WCALL_CONV_TYPE_CONFERENCE,
-				meeting);
+				meeting, false);
 	}
 	else if (econn_is_creator(inst->userid, userid, msg)) {
 		err = wcall_add(inst, wcall, convid,
 				WCALL_CONV_TYPE_ONEONONE,
-				meeting);
+				meeting, false);
 		if (err) {
 			warning("wcall(%p): wcall_add failed: %m\n", inst, err);
 		}
@@ -2634,6 +2808,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 
 		mem_deref(cuent);
 	}
+
 }
 
 
@@ -2722,9 +2897,70 @@ static void ide_handler(void *arg)
 }
 
 
+AVS_EXPORT
+void wcall_scan_set_driver(scan_run_h *run, scan_result_h *result)
+{
+	scan_run = run;
+	scan_result = result;
+}
+
+
+AVS_EXPORT
+int wcall_start_scan(WUSER_HANDLE wuser)
+{
+	struct calling_instance *inst = wuser2inst(wuser);
+	int err;
+
+	if (!inst)
+		return EINVAL;
+	if (!scan_run || !scan_result || !inst->cfg_reqh)
+		return ENOSYS;
+	if (inst->scan_id)
+		return EALREADY;
+	if (++next_scan_id == 0)
+		++next_scan_id;
+	inst->scan_id = next_scan_id;
+	inst->scan_waiting_config = true;
+	err = config_request_if_idle(inst->cfg);
+	if (err) {
+		inst->scan_waiting_config = false;
+		inst->scan_id = 0;
+	}
+	return err;
+}
+
+
+AVS_EXPORT
+void wcall_scan_complete(WUSER_HANDLE wuser, uint32_t id, const char *json)
+{
+	struct calling_instance *inst = wuser2inst(wuser);
+
+	if (!inst || !id || inst->scan_id != id || inst->scan_waiting_config)
+		return;
+	inst->scan_id = 0;
+	scan_result(wuser, json ? 0 : EIO, json);
+}
+
+
+static void scan_cancel(struct calling_instance *inst)
+{
+	uint32_t scan_id = inst->scan_id;
+
+	if (scan_id) {
+		inst->scan_id = 0;
+		if (!inst->scan_waiting_config)
+			scan_run(inst->wuser, scan_id, NULL);
+		inst->scan_waiting_config = false;
+		scan_result(inst->wuser, ECANCELED, NULL);
+	}
+}
+
+
 static void instance_destroy(struct calling_instance *inst)
 {
 	struct le *le;
+
+	scan_cancel(inst);
 
 	if (inst->thread_run) {
 		inst->thread_run = false;
@@ -2807,6 +3043,8 @@ static void instance_destroy(struct calling_instance *inst)
 static void instance_destructor(void *arg)
 {
 	struct calling_instance *inst = arg;
+
+	scan_cancel(inst);
 	
 	info("instance_destructor(%p)\n", inst);
 }
@@ -3232,15 +3470,30 @@ void wcall_i_resp(struct calling_instance *inst,
 void wcall_i_config_update(struct calling_instance *inst,
 			   int err, const char *json_str)
 {
+	uint32_t scan_id;
+	int update_err;
+
 	info("wcall(%p): config_update: err=%d json=%zu bytes\n",
 	     inst, err, str_len(json_str));
 	
 	if (!inst)
 		return;
 
-	err = config_update(inst->cfg, err, json_str, str_len(json_str));
-	if (err)
-		warning("wcall(%p): config_update failed: %m\n", inst, err);
+	scan_id = inst->scan_waiting_config ? inst->scan_id : 0;
+	update_err = config_update(inst->cfg, err, json_str, str_len(json_str));
+	if (update_err)
+		warning("wcall(%p): config_update failed: %m\n", inst, update_err);
+
+	if (scan_id && inst->scan_id == scan_id && inst->scan_waiting_config) {
+		inst->scan_waiting_config = false;
+		if (err || update_err) {
+			inst->scan_id = 0;
+			scan_result(inst->wuser, err ? err : update_err, NULL);
+		}
+		else {
+			scan_run(inst->wuser, scan_id, json_str);
+		}
+	}
 }
 
 struct sft_ctx_entry {
@@ -3274,6 +3527,11 @@ void wcall_i_sft_resp(struct calling_instance *inst,
 
 	if (!ctx) {
 		warning("wcall(%p): sft_resp: ctx:%p not valid\n", wcall, ctx);
+		return;
+	}
+	if (!wcall) {
+		/* The test ended while this transport request was outstanding. */
+		wcall_i_resp(inst, status, "call ended", ctx);
 		return;
 	}
 

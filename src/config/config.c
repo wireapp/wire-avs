@@ -39,6 +39,8 @@ struct config {
 };
 
 
+static void tmr_handler(void *arg);
+
 static int do_request(struct config *cfg)
 {
 	int err = 0;
@@ -50,6 +52,10 @@ static int do_request(struct config *cfg)
 	if (cfg->reqh) {
 		cfg->is_updating = true;
 		err = cfg->reqh(cfg->arg);
+		if (err) {
+			cfg->is_updating = false;
+			tmr_start(&cfg->tmr, 60 * 1000, tmr_handler, cfg);
+		}
 	}
 
 	return err;
@@ -113,11 +119,11 @@ int config_update(struct config *cfg, int err,
 		  const char *conf_json, size_t len)
 {
 	struct json_object *jobj;
-	struct json_object *jices;
+	struct json_object *jices = NULL;
 	struct json_object *jsfts;
 	uint32_t ttl = 0;
 
-	if (!cfg || !conf_json)
+	if (!cfg)
 		return EINVAL;
 
 	cfg->is_updating = false;
@@ -128,6 +134,8 @@ int config_update(struct config *cfg, int err,
 
 		return 0;
 	}
+	if (!conf_json)
+		return EINVAL;
 	
 	err = jzon_decode(&jobj, conf_json, len);
 	if (err)
@@ -380,6 +388,14 @@ int config_request(struct config *cfg)
 	err = do_request(cfg);
 
 	return err;
+}
+
+int config_request_if_idle(struct config *cfg)
+{
+	if (!cfg)
+		return EINVAL;
+
+	return cfg->is_updating ? 0 : config_request(cfg);
 }
 
 int config_register_update_handler(struct config_update_elem *upe, struct config *cfg)

@@ -350,6 +350,19 @@ int wcall_start(WUSER_HANDLE wuser, const char *convid,
 		int audio_cbr /*bool*/,
                 int meeting /*bool*/);
 
+/* Start an SFT connection test with a local epoch and this client as sole member.
+ * video: 0 for audio only, 1 for audio and video.
+ * Returns 0 on submission, EINVAL for invalid input, or EALREADY for a duplicate.
+ * Uses existing call callbacks and ends 20 seconds after media is established,
+ * unless stopped earlier.
+ */
+int wcall_start_test(WUSER_HANDLE wuser, int video);
+
+/* Start an async local ICE scan once the calling instance has its ICE config.
+ * Returns EALREADY if a scan is pending or running, or ENOSYS without a driver.
+ */
+int wcall_start_scan(WUSER_HANDLE wuser);
+
 /* Returns 0 if successfull
  * Set call_type from defines above.
  * Set audio_cbr to 0 for false, non-zero for true.

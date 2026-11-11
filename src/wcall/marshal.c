@@ -74,6 +74,7 @@ struct mq_data {
 			int conv_type;
 			bool audio_cbr;
 		        bool meeting;
+			bool is_test;
 		} start;
 
 		struct {
@@ -387,6 +388,11 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case WCALL_MEV_START:
+		/* Never restart or repurpose an existing call for a test. */
+		if (wcall && (md->u.start.is_test || wcall_is_test(wcall))) {
+			err = EALREADY;
+			goto out;
+		}
 	        if (!wcall_is_ready(md->inst, md->u.start.conv_type)) {
 		        warning("wcall(%p): AVS not ready queueing start\n",
 				md->inst);
@@ -405,11 +411,19 @@ static void mqueue_handler(int id, void *data, void *arg)
 					&wcall,
 					md->convid,
 					md->u.start.conv_type,
-					md->u.start.meeting);
+					md->u.start.meeting,
+					md->u.start.is_test);
 			if (err || !wcall)
 				goto out;
 		}
-		{
+		if (md->u.start.is_test) {
+			err = wcall_i_prepare_test(wcall);
+			if (err) {
+				wcall_i_end(wcall);
+				goto out;
+			}
+		}
+		if (!md->u.start.is_test) {
 		       struct duration_entry *dent;
 		       dent = wcall_duration_lookup(md->inst, md->convid);
 		       if (dent) {
@@ -583,6 +597,12 @@ out:
 	if (err) {
 		char convid_anon[ANON_ID_LEN];
 
+#ifdef __EMSCRIPTEN__
+		if (id == WCALL_MEV_START && md->u.start.is_test && md->convid)
+			wcall_web_test_event(md->inst, md->convid,
+					     WCALL_WEB_TEST_CLOSE,
+					     WCALL_REASON_ERROR);
+#endif
 		warning("wcall: mqueue_handler error (%m) handling event: %s convid=%s\n",
 			err, mev_name(id),
 			md->convid ? anon_id(convid_anon, md->convid) : "???");
@@ -672,6 +692,20 @@ static int md_enqueue(struct mq_data *md)
 	}
 
 	lock_write_get(wm->lock);
+	if (md->event == WCALL_MEV_START && md->u.start.is_test) {
+		struct le *le;
+
+		/* Include queued starts and starts waiting for AVS readiness. */
+		LIST_FOREACH(&wm->mdl, le) {
+			struct mq_data *pending = le->data;
+
+			if (pending->event == WCALL_MEV_START &&
+			    streq(pending->convid, md->convid)) {
+				lock_rel(wm->lock);
+				return EALREADY;
+			}
+		}
+	}
 	list_append(&wm->mdl, &md->le, md);
 	lock_rel(wm->lock);
 
@@ -861,13 +895,13 @@ void wcall_sft_resp(WUSER_HANDLE wuser,
 }
 
 
-AVS_EXPORT
-int wcall_start(WUSER_HANDLE wuser,
+static int enqueue_start(WUSER_HANDLE wuser,
 		const char *convid,
 		int call_type,
 		int conv_type,
 		int audio_cbr /*bool */,
-		int meeting /*bool */)
+		int meeting /*bool */,
+		bool is_test)
 {
 	struct calling_instance *inst;
 	struct mq_data *md = NULL;
@@ -883,6 +917,9 @@ int wcall_start(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 
+	if (is_test && wcall_lookup(inst, convid))
+		return EALREADY;
+
 	md = md_new(inst, convid, WCALL_MEV_START);
 	if (!md) {
 		err = ENOMEM;
@@ -893,6 +930,7 @@ int wcall_start(WUSER_HANDLE wuser,
 	md->u.start.conv_type = conv_type;
 	md->u.start.audio_cbr = (bool)audio_cbr;
 	md->u.start.meeting = meeting == 1;
+	md->u.start.is_test = is_test;
 
 	err = md_enqueue(md);
 	if (err)
@@ -903,7 +941,64 @@ int wcall_start(WUSER_HANDLE wuser,
 }
 
 
-AVS_EXPORT 
+AVS_EXPORT
+int wcall_start(WUSER_HANDLE wuser,
+		const char *convid,
+		int call_type,
+		int conv_type,
+		int audio_cbr,
+		int meeting)
+{
+	return enqueue_start(wuser, convid, call_type, conv_type,
+			     audio_cbr, meeting, false);
+}
+
+
+static int start_test(WUSER_HANDLE wuser, int video, bool web)
+{
+	struct calling_instance *inst;
+	char *convid = NULL;
+	int err;
+
+	if (video != 0 && video != 1)
+		return EINVAL;
+
+	inst = wuser2inst(wuser);
+	if (!inst)
+		return EINVAL;
+	err = wcall_alloc_test_convid(inst, &convid);
+	if (err)
+		return err;
+
+#ifdef __EMSCRIPTEN__
+	if (web && !wcall_web_test_event(inst, convid, WCALL_WEB_TEST_START, 0)) {
+		mem_deref(convid);
+		return EALREADY;
+	}
+#endif
+	err = enqueue_start(wuser, convid,
+			    video ? WCALL_CALL_TYPE_VIDEO : WCALL_CALL_TYPE_NORMAL,
+			    WCALL_CONV_TYPE_CONFERENCE_MLS, 0, 0, true);
+	mem_deref(convid);
+	return err;
+}
+
+AVS_EXPORT
+int wcall_start_test(WUSER_HANDLE wuser, int video)
+{
+	return start_test(wuser, video, false);
+}
+
+#ifdef __EMSCRIPTEN__
+AVS_EXPORT
+int wcall_web_test_start(WUSER_HANDLE wuser, int video)
+{
+	return start_test(wuser, video, true);
+}
+#endif
+
+
+AVS_EXPORT
 int wcall_answer(WUSER_HANDLE wuser,
 		 const char *convid,
 		 int call_type,
