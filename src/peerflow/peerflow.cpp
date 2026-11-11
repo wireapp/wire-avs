@@ -54,6 +54,7 @@ extern "C" {
 #include "rtc_base/logging.h"
 #include "rtc_base/physical_socket_server.h"
 #include "media/engine/webrtc_media_engine.h"
+#include "system_wrappers/include/clock.h"
 
 #include "modules/video_capture/video_capture_factory.h"
 
@@ -79,6 +80,8 @@ extern "C" {
 #include "peerflow.h"
 
 #define TMR_STATS_INTERVAL       1000
+#define TMR_AULEVEL_INTERVAL      200
+#define AULEVEL_SOURCE_MAX_AGE    500
 #define TMR_CBR_INTERVAL         2500
 #define TMR_RESTART_INTERVAL    10000
 #define TMR_GATHER_TIMEOUT       2000
@@ -213,6 +216,7 @@ struct peerflow {
 	struct le le;
 
 	struct tmr tmr_stats;
+	struct tmr tmr_aulevel;
 	struct tmr tmr_gather;
 	wire::NetStatsCallback *netStatsCb;
 	std::string remoteSdp;
@@ -2191,6 +2195,7 @@ static void pf_destructor(void *arg)
 
 	pf->netStatsCb->setActive(false);
 	tmr_cancel(&pf->tmr_stats);
+	tmr_cancel(&pf->tmr_aulevel);
 	tmr_cancel(&pf->tmr_gather);
 
 	delete pf->netStatsCb;
@@ -2242,33 +2247,8 @@ static void timer_stats(void *arg)
 {
 	struct peerflow *pf = (struct peerflow *)arg;
 
-	std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
-
 	if (!pf || !pf->peerConn)
 		goto out;
-
-	trxs = pf->peerConn->GetTransceivers();
-
-	for(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
-		webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rx = trx->receiver();
-		std::vector<webrtc::RtpSource> sources;
-
-		if (rx) {
-			sources = rx->GetSources();
-		}
-
-		lock_write_get(pf->cml.lock);
-		for(webrtc::RtpSource src: sources) {
-			uint32_t ssrc = src.source_id();
-			struct conf_member *cm = conf_member_find_by_ssrca(&pf->cml.list, ssrc);
-			uint8_t level = src.audio_level() ? *src.audio_level() : 127;
-			if (cm) {
-				float flevel = powf(10.0f, -level / 30.0f) * 255.0f;
-				conf_member_set_audio_level(cm, (uint8_t)flevel);
-			}
-		}
-		lock_rel(pf->cml.lock);
-	}
 
 	pf->peerConn->GetStats(pf->netStatsCb);
 
@@ -2276,46 +2256,95 @@ static void timer_stats(void *arg)
 	tmr_start(&pf->tmr_stats, TMR_STATS_INTERVAL, timer_stats, pf);
 }
 
-static int get_oneonone_aulevel(struct peerflow *pf,
-				struct list *levell)
+/* Sample the RFC 6464 levels of the received audio sources.
+ * GetSources() only reports the level of the last packet of each
+ * source, so sample often and let conf_member keep the peak.
+ * Sources stay in the list for a while after their last packet
+ * (e.g. when the SFT stops forwarding them), skip those.
+ */
+static void timer_aulevel(void *arg)
 {
+	struct peerflow *pf = (struct peerflow *)arg;
 	std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
-	int err = 0;
+	webrtc::Timestamp now = webrtc::Timestamp::Zero();
 
 	if (!pf || !pf->peerConn)
-		return ENOENT;
+		goto out;
 
 	trxs = pf->peerConn->GetTransceivers();
+	now = webrtc::Clock::GetRealTimeClock()->CurrentTime();
+
 	for(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
 		webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rx = trx->receiver();
 		std::vector<webrtc::RtpSource> sources;
 
-		if (rx) {
-			sources = rx->GetSources();
-		}
-		if (sources.empty())
+		if (!rx || rx->media_type() != webrtc::MediaType::AUDIO)
 			continue;
-		
-		webrtc::RtpSource src = sources[0]; 
-		uint8_t level = src.audio_level() ? *src.audio_level() : 127;
-		float flevel = powf(10.0f, -level / 30.0f) * 255.0f;
 
-		if (!pf->cm)
-			return ENOENT;
+		sources = rx->GetSources();
 
-		conf_member_set_audio_level(pf->cm, (uint8_t)flevel);
-		if (pf->cm->audio_level > AUDIO_LEVEL_FLOOR
-		     || pf->cm->audio_level_smooth > 0) {
-			struct audio_level *aulevel;
+		lock_write_get(pf->cml.lock);
+		for(webrtc::RtpSource src: sources) {
+			struct conf_member *cm;
+			uint8_t level;
+			float flevel;
 
-			err = audio_level_alloc(&aulevel, levell, false,
-						pf->cm->userid,
-						pf->cm->clientid,
-						pf->cm->audio_level,
-						pf->cm->audio_level_smooth);
+			if (src.source_type() != webrtc::RtpSourceType::SSRC)
+				continue;
+			if ((now - src.timestamp()).ms() > AULEVEL_SOURCE_MAX_AGE)
+				continue;
+			if (!src.audio_level())
+				continue;
+
+			if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE)
+				cm = pf->cm;
+			else
+				cm = conf_member_find_by_ssrca(&pf->cml.list,
+							       src.source_id());
+			if (!cm)
+				continue;
+
+			level = *src.audio_level();
+			flevel = powf(10.0f, -level / 30.0f) * 255.0f;
+			conf_member_set_audio_level(cm, (int)flevel);
 		}
+		lock_rel(pf->cml.lock);
 	}
-	
+
+ out:
+	tmr_start(&pf->tmr_aulevel, TMR_AULEVEL_INTERVAL, timer_aulevel, pf);
+}
+
+static int get_oneonone_aulevel(struct peerflow *pf,
+				struct list *levell)
+{
+	struct conf_member *cm;
+	struct audio_level *aulevel;
+	int err = 0;
+
+	if (!pf)
+		return ENOENT;
+
+	lock_write_get(pf->cml.lock);
+	cm = pf->cm;
+	if (!cm) {
+		err = ENOENT;
+		goto out;
+	}
+
+	conf_member_latch_audio_level(cm);
+	if (cm->audio_level > AUDIO_LEVEL_FLOOR
+	    || cm->audio_level_smooth > 0) {
+		err = audio_level_alloc(&aulevel, levell, false,
+					cm->userid,
+					cm->clientid,
+					cm->audio_level,
+					cm->audio_level_smooth);
+	}
+
+ out:
+	lock_rel(pf->cml.lock);
+
 	return err;
 }
 
@@ -2354,6 +2383,7 @@ static int peerflow_get_aulevel(struct iflow *iflow,
 			if (!cm || !cm->active)
 				continue;
 
+			conf_member_latch_audio_level(cm);
 			if (cm->userid && cm->clientid &&
 			    (cm->audio_level > AUDIO_LEVEL_FLOOR
 			     || cm->audio_level_smooth > 0)) {
@@ -2362,11 +2392,6 @@ static int peerflow_get_aulevel(struct iflow *iflow,
 							cm->clientid,
 							cm->audio_level,
 							cm->audio_level_smooth);
-				/* Make sure to count down the level if
-				 * the source is no longer in the list due to
-				 * selective audio.
-				 */
-				conf_member_set_audio_level(cm, 0);
 				if (err) {
 					lock_rel(pf->cml.lock);
 					goto out;
@@ -2495,6 +2520,7 @@ int peerflow_alloc(struct iflow		**flowp,
 	pf->netStatsCb = new wire::NetStatsCallback(pf, pf->stats);
 
 	tmr_start(&pf->tmr_stats, TMR_STATS_INTERVAL, timer_stats, pf);
+	tmr_start(&pf->tmr_aulevel, TMR_AULEVEL_INTERVAL, timer_aulevel, pf);
  out:
 	if (err)
 		mem_deref(pf);
@@ -3181,6 +3207,7 @@ void peerflow_close(struct iflow *iflow)
 		return;
 
 	tmr_cancel(&pf->tmr_stats);
+	tmr_cancel(&pf->tmr_aulevel);
 	pf->netStatsCb->setActive(false);
 	if (pf->peerConn) {
 		pf->peerConn->Close();

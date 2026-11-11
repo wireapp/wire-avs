@@ -37,6 +37,7 @@
 #define GATHER_TIMEOUT     10000
 #define DISCONNECT_TIMEOUT 10000
 #define TMR_STATS_INTERVAL  1000
+#define TMR_AULEVEL_INTERVAL 200
 #define TMR_CBR_INTERVAL    2500
 
 #define PC_INVALID_HANDLE 0
@@ -105,6 +106,7 @@ typedef char *(pc_LocalDescription_t)(int handle, const char *type);
 typedef void (pc_SetMute_t)(int handle, int muted);
 typedef int  (pc_GetMute_t)(int handle);
 typedef void (pc_GetLocalStats_t)(int handle);
+typedef void (pc_GetAudioLevels_t)(int handle);
 typedef void (pc_SetRemoteUserClientId_t)(int handle,
 					  const char *userid,
 					  const char *clientid);
@@ -143,6 +145,7 @@ static pc_LocalDescription_t *pc_LocalDescription = NULL;
 static pc_SetMute_t *pc_SetMute = NULL;
 static pc_GetMute_t *pc_GetMute __attribute__((unused)) = NULL;
 static pc_GetLocalStats_t *pc_GetLocalStats = NULL;
+static pc_GetAudioLevels_t *pc_GetAudioLevels = NULL;
 static pc_SetRemoteUserClientId_t *pc_SetRemoteUserClientId = NULL;
 static pc_HasVideo_t *pc_HasVideo = NULL;
 static pc_SetVideoState_t *pc_SetVideoState = NULL;
@@ -231,6 +234,7 @@ struct jsflow {
 	struct tmr tmr_gather;
 	struct tmr tmr_disconnect;
 	struct tmr tmr_stats;
+	struct tmr tmr_aulevel;
 	char *remote_sdp;	
 	bool selective_audio;
 	bool selective_video;
@@ -284,6 +288,17 @@ static void stats_timeout_handler(void *arg)
 	pc_GetLocalStats(flow->handle);
 
 	tmr_start(&flow->tmr_stats, TMR_STATS_INTERVAL, stats_timeout_handler, flow);
+}
+
+static void aulevel_timeout_handler(void *arg)
+{
+	struct jsflow *flow = arg;
+
+	if (pc_GetAudioLevels)
+		pc_GetAudioLevels(flow->handle);
+
+	tmr_start(&flow->tmr_aulevel, TMR_AULEVEL_INTERVAL,
+		  aulevel_timeout_handler, flow);
 }
 
 
@@ -421,6 +436,7 @@ static void destructor(void *arg)
 	tmr_cancel(&flow->tmr_gather);
 	tmr_cancel(&flow->tmr_disconnect);
 	tmr_cancel(&flow->tmr_stats);
+	tmr_cancel(&flow->tmr_aulevel);
 	tmr_cancel(&flow->tmr_cbr);
 
 	list_unlink(&flow->le);
@@ -528,6 +544,8 @@ static int create_pc(struct jsflow *flow)
 
 	tmr_start(&flow->tmr_stats, TMR_STATS_INTERVAL,
 		  stats_timeout_handler, flow);
+	tmr_start(&flow->tmr_aulevel, TMR_AULEVEL_INTERVAL,
+		  aulevel_timeout_handler, flow);
 
 	if (flow->conv_type == ICALL_CONV_TYPE_ONEONONE)
 		tmr_start(&flow->tmr_cbr, TMR_CBR_INTERVAL, timer_cbr, flow);
@@ -646,6 +664,7 @@ int jsflow_alloc(struct iflow		**flowp,
 	tmr_init(&flow->tmr_gather);
 	tmr_init(&flow->tmr_disconnect);
 	tmr_init(&flow->tmr_stats);
+	tmr_init(&flow->tmr_aulevel);
 	tmr_init(&flow->tmr_cbr);
 
  out:
@@ -668,6 +687,7 @@ void jsflow_close(struct iflow *flow)
 	jsflow->closed = true;
 	tmr_cancel(&jsflow->tmr_disconnect);
 	tmr_cancel(&jsflow->tmr_stats);
+	tmr_cancel(&jsflow->tmr_aulevel);
 	tmr_cancel(&jsflow->tmr_cbr);
 	tmr_cancel(&jsflow->tmr_gather);	
 
@@ -1334,7 +1354,8 @@ static int set_aulevel(struct conf_member *cm, struct list *levell)
 	
 	if (!cm || !cm->active)
 		return EINVAL;
-		
+
+	conf_member_latch_audio_level(cm);
 	if (cm->audio_level_smooth > 0
 	    || cm->audio_level > AUDIO_LEVEL_FLOOR) {
 
@@ -1342,11 +1363,6 @@ static int set_aulevel(struct conf_member *cm, struct list *levell)
 					cm->userid, cm->clientid,
 					cm->audio_level,
 					cm->audio_level_smooth);
-		/* Make sure to count down the level if
-		 * the source is no longer in the list due to
-		 * selective audio.
-		 */
-		conf_member_set_audio_level(cm, 0);
 	}
 
 	return err;
@@ -1915,7 +1931,9 @@ void pc_set_callbacks(
 
 	pc_SetMediaKey_t *setMediaKey,
 
-	pc_UpdateSsrc_t *updateSsrc);
+	pc_UpdateSsrc_t *updateSsrc,
+
+	pc_GetAudioLevels_t *getAudioLevels);
 
 EMSCRIPTEN_KEEPALIVE
 void pc_set_callbacks(
@@ -1951,7 +1969,9 @@ void pc_set_callbacks(
 
 	pc_SetMediaKey_t *setMediaKey,
 
-	pc_UpdateSsrc_t *updateSsrc)
+	pc_UpdateSsrc_t *updateSsrc,
+
+	pc_GetAudioLevels_t *getAudioLevels)
 {
 	pc_SetEnv = setEnv;
 	pc_New = new;
@@ -1985,6 +2005,7 @@ void pc_set_callbacks(
 
 	pc_SetMediaKey = setMediaKey;
 	pc_UpdateSsrc = updateSsrc;
+	pc_GetAudioLevels = getAudioLevels;
 
 	jsflow_init();
 }

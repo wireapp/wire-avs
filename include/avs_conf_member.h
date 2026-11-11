@@ -46,11 +46,12 @@ struct conf_member {
 
 	uint8_t audio_level;
 	uint8_t audio_level_smooth;
+	uint8_t audio_level_peak;
 
 	uint32_t audio_frames;
 	uint32_t video_frames;
 
-	uint64_t last_ts;
+	uint64_t last_active_ts;
 };
 
 int conf_member_alloc(struct conf_member **cmp,
@@ -81,6 +82,7 @@ struct conf_member *conf_member_find_by_ssrcv(struct list *membl,
 					      uint32_t ssrc);
 
 void conf_member_set_audio_level(struct conf_member *cm, int level);
+void conf_member_latch_audio_level(struct conf_member *cm);
 
 #ifdef __cplusplus
 }
