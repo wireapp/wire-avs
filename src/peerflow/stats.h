@@ -104,6 +104,19 @@ public:
 		return rtt;
 	}
 
+	/* The selected pair's bandwidth estimate from the last stats
+	 * (kbit/s, -1 none yet) */
+	int pairBweKbps()
+	{
+		int bwe;
+
+		lock_write_get(lock_);
+		bwe = pair_bwe_kbps_;
+		lock_rel(lock_);
+
+		return bwe;
+	}
+
 	/* The audio RTT from the remote's RTCP reports (ms, -1 none yet) */
 	int remoteRttMs()
 	{
@@ -163,8 +176,8 @@ private:
 
 	static const int64_t LOG_INTERVAL_US = 5000000;
 
-	/* Keeps the last RTT the selected pair had; none while there is
-	 * no pair (ICE down) */
+	/* Keeps the last RTT and bandwidth estimate the selected pair
+	 * had; none while there is no pair (ICE down) */
 	void updatePairRtt(
 		const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
 	{
@@ -181,6 +194,10 @@ private:
 
 			pair_rtt_ms_ = (int)(*cp->current_round_trip_time
 					     * 1000.0);
+			if (cp->available_outgoing_bitrate)
+				pair_bwe_kbps_ = (int)
+					(*cp->available_outgoing_bitrate
+					 / 1000.0);
 			break;
 		}
 	}
@@ -364,6 +381,7 @@ private:
 	struct lock *lock_;
 	int send_red_ = -1;
 	int pair_rtt_ms_ = -1;
+	int pair_bwe_kbps_ = -1;
 	int remote_rtt_ms_ = -1;
 	Counters prev_;
 };
