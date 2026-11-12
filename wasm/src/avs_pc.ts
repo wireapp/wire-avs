@@ -78,6 +78,18 @@ interface PeerConnection {
   ivv: Uint8Array;
   streams: {[ssrc: string]: string};
   gatherTimer: any;
+  audioRate: AudioRate;
+}
+
+/* State of adaptAudioBitrate for a connection */
+interface AudioRate {
+  ts: number;          /* stats time of the last outbound sample (ms) */
+  pkts: number;        /* packetsSent then */
+  hdrBytes: number;    /* headerBytesSent then */
+  maxBitrate: number;  /* maxBitrate we set (bps), 0: none */
+  riseSince: number;   /* a rise waits since then (ms), 0: none */
+  riseTo: number;      /* lowest value wanted since (bps), 0: none */
+  busy: boolean;       /* setParameters pending */
 }
 
 const ENV_FIREFOX = 1;
@@ -1214,6 +1226,172 @@ function setAudioJitterBufferMin(pc: PeerConnection, receiver: RTCRtpReceiver) {
   }
 }
 
+function ccallAudioAdaptMaxBps(): number {
+  return em_module.ccall("pc_audio_adapt_max_bps", "number", [], []);
+}
+
+function ccallAudioPtime(): number {
+  return em_module.ccall("pc_audio_ptime", "number", [], []);
+}
+
+const AUDIO_RISE_HOLD_MS = 3000;
+const AUDIO_OPUS_MIN_BPS = 6000;
+const AUDIO_RED_HDR_BYTES = 5; /* RED headers of a packet with one copy */
+const AUDIO_SRTP_UDP_BYTES = 18; /* SRTP auth tag 10 + UDP 8 */
+
+function perPacketBps(bytes: number, frameMs: number): number {
+  return bytes * 8 * 1000 / frameMs;
+}
+
+/* The native clients fit RED into the bandwidth estimate by giving opus its
+ * share of it, and hold rises of the opus target for 3 s (peerflow
+ * AdaptiveRedEncoder, LossFloorEncoder). The browser can do neither: RED,
+ * when negotiated, is on for the whole call with its copy on top of the
+ * bitrate allocated to the audio, and with adaptivePtime (Chromium) that
+ * allocation doesn't go below 16 kbps, so on a slow link it sends twice the
+ * estimate or more.
+ *
+ * The lever left is encodings[0].maxBitrate, which in libwebrtc sets both
+ * ends of the audio allocation: the minimum to it when below 16 kbps, the
+ * maximum to it plus the headers at the shortest frame length. So on each
+ * stats tick (1 s) this sets maxBitrate so that opus gets no more than its
+ * share at the current frame length: the estimate less the headers, halved
+ * with RED. At long frames that would need less than opus's 6 kbps, so the
+ * share then holds only where the estimate leaves room for it; below, what
+ * it gains is the lower minimum (6 kbps instead of 16). A drop goes through
+ * at once, a rise after it has been wanted for 3 s, to the lowest value of
+ * that time. Needs the estimate (availableOutgoingBitrate, not in Firefox);
+ * off while sending video (which shares the estimate), with plain audio and
+ * with adaptive RED off (pc_audio_adapt_max_bps).
+ */
+function adaptAudioBitrate(pc: PeerConnection, stats: any) {
+  const rtc = pc.rtc;
+  const ar = pc.audioRate;
+
+  if (!rtc || ar.busy)
+    return;
+
+  const sender = rtc.getSenders().find(s => !!s.track && s.track.kind === 'audio');
+  if (!sender)
+    return;
+
+  const maxBps = ccallAudioAdaptMaxBps();
+  if (!maxBps || pc.sending_video) {
+    if (ar.maxBitrate)
+      setAudioMaxBitrate(pc, sender, 0, pc.sending_video ? 'video' : 'off');
+    ar.riseSince = 0;
+    return;
+  }
+
+  let out: any = null;
+  let pair: any = null;
+  stats.forEach((s: any) => {
+    if (s.type === 'outbound-rtp' && s.kind === 'audio')
+      out = s;
+    else if (s.type === 'transport' && s.selectedCandidatePairId)
+      pair = stats.get(s.selectedCandidatePairId);
+  });
+  if (!out || !pair || !pair.availableOutgoingBitrate)
+    return;
+
+  const dt = out.timestamp - ar.ts;
+  const pkts = out.packetsSent - ar.pkts;
+  const hdrBytes = (out.headerBytesSent || 0) - ar.hdrBytes;
+  const first = ar.ts === 0;
+
+  ar.ts = out.timestamp;
+  ar.pkts = out.packetsSent;
+  ar.hdrBytes = out.headerBytesSent || 0;
+  if (first || dt <= 0 || pkts <= 0)
+    return;
+
+  /* Headers per packet as libwebrtc counts them for the allocation: RTP
+   * with its extensions, SRTP, UDP, IP, and TURN's on a relay.
+   */
+  const local: any = stats.get(pair.localCandidateId);
+  const ipv6 = !!(local && local.address && local.address.indexOf(':') >= 0);
+  let relay = 0;
+  if (local && local.candidateType === 'relay')
+    relay = local.relayProtocol === 'udp' ? 4 : 16;
+  const rtpHdr = hdrBytes > 0 ? hdrBytes / pkts : 24;
+  const hdr = rtpHdr + AUDIO_SRTP_UDP_BYTES + (ipv6 ? 40 : 20) + relay;
+
+  const codec: any = out.codecId ? stats.get(out.codecId) : null;
+  const red = !!(codec && /\/red$/i.test(codec.mimeType));
+  const enc: any = sender.getParameters().encodings[0];
+  const adaptive = !!(enc && enc.adaptivePtime);
+
+  const frameMs = Math.min(120, Math.max(10, Math.round(dt / pkts / 10) * 10));
+  const minFrameMs = adaptive ? Math.max(ccallAudioPtime(), 20) : frameMs;
+  const bwe = pair.availableOutgoingBitrate;
+
+  let share = bwe - perPacketBps(hdr + (red ? AUDIO_RED_HDR_BYTES : 0), frameMs);
+  if (red)
+    share /= 2;
+
+  /* The allocation's maximum has the headers at the shortest frame */
+  let want = share - (perPacketBps(hdr, minFrameMs) - perPacketBps(hdr, frameMs));
+  want = Math.max(Math.floor(want / 1000) * 1000, AUDIO_OPUS_MIN_BPS);
+  if (want >= maxBps)
+    want = 0;
+
+  const cur = ar.maxBitrate || Infinity;
+  const w = want || Infinity;
+  const why = `bwe ${(bwe / 1000).toFixed(1)} kbps, ${frameMs} ms frames, `
+	+ `${Math.round(hdr)} B headers, red ${red ? 'on' : 'off'}`;
+
+  if (w < cur) {
+    ar.riseSince = 0;
+    setAudioMaxBitrate(pc, sender, want, why);
+  }
+  else if (w > cur) {
+    if (!ar.riseSince) {
+      ar.riseSince = out.timestamp;
+      ar.riseTo = w;
+    }
+    else {
+      ar.riseTo = Math.min(ar.riseTo, w);
+    }
+    if (out.timestamp - ar.riseSince >= AUDIO_RISE_HOLD_MS) {
+      ar.riseSince = 0;
+      setAudioMaxBitrate(pc, sender,
+			 ar.riseTo === Infinity ? 0 : ar.riseTo, why);
+    }
+  }
+  else {
+    ar.riseSince = 0;
+  }
+}
+
+function setAudioMaxBitrate(pc: PeerConnection, sender: RTCRtpSender,
+			    bps: number, why: string) {
+  const ar = pc.audioRate;
+  const params = sender.getParameters();
+  const enc = params.encodings && params.encodings[0];
+  const kbps = (b: number) => b ? `${b / 1000} kbps` : 'none';
+
+  if (!enc)
+    return;
+
+  if (bps)
+    enc.maxBitrate = bps;
+  else
+    delete enc.maxBitrate;
+
+  ar.busy = true;
+  sender.setParameters(params)
+    .then(() => {
+      pc_log(LOG_LEVEL_INFO, `adaptAudioBitrate: self=${pc.self} maxBitrate `
+	     + `${kbps(bps)} (was ${kbps(ar.maxBitrate)}); ${why}`);
+      ar.maxBitrate = bps;
+      ar.busy = false;
+    }, (e) => {
+      /* Keep busy: don't try again on this connection */
+      pc_log(LOG_LEVEL_WARN, `adaptAudioBitrate: self=${pc.self} maxBitrate `
+	     + `${kbps(bps)} failed: ${e}`);
+    });
+}
+
 function ccallSignallingHandler(pc: PeerConnection, state: number) {
   em_module.ccall(
     "pc_signalling_handler",
@@ -1493,7 +1671,16 @@ function pc_New(self: number, convidPtr: number,
       rtt: 0
     },
     streams: {},
-    gatherTimer: null
+    gatherTimer: null,
+    audioRate: {
+      ts: 0,
+      pkts: 0,
+      hdrBytes: 0,
+      maxBitrate: 0,
+      riseSince: 0,
+      riseTo: 0,
+      busy: false
+    }
   };
 
   worker.postMessage({op: 'create', self: pc.self, iva: iva8, ivv: ivv8});
@@ -2667,6 +2854,12 @@ function pc_GetLocalStats(hnd: number) {
 
     rtc.getStats()
       .then((stats) => {
+        try {
+          adaptAudioBitrate(pc, stats);
+        } catch (err) {
+          pc_log(LOG_LEVEL_WARN, `adaptAudioBitrate: self=${pc.self} failed: ${err}`, err);
+        }
+
         // !This does not work --> let report_json = JSON.stringify(stats);
         // We need to create json from individual items
         let report = '[';

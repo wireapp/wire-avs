@@ -1576,6 +1576,39 @@ int pc_audio_jb_min_ms(void)
 	return lp.jb_min_ms;
 }
 
+int pc_audio_adapt_max_bps(void);
+
+/* Opus's bitrate from the SDP (maxaveragebitrate, else opus's default) for
+ * the browser's audio bitrate loop (avs_pc.ts adaptAudioBitrate), or 0 when
+ * it is off: with plain audio, and with adaptive RED off
+ * (wcall_set_adaptive_red), which leaves it all to the browser.
+ */
+EMSCRIPTEN_KEEPALIVE
+int pc_audio_adapt_max_bps(void)
+{
+	int max_bitrate;
+
+	if (sdp_audio_plain() || !sdp_get_adaptive_red())
+		return 0;
+
+	sdp_get_audio_params(NULL, &max_bitrate);
+
+	return max_bitrate > 0 ? max_bitrate : 32000;
+}
+
+int pc_audio_ptime(void);
+
+/* The opus ptime from the SDP (the shortest frame length), 0 when unset */
+EMSCRIPTEN_KEEPALIVE
+int pc_audio_ptime(void)
+{
+	int ptime;
+
+	sdp_get_audio_params(&ptime, NULL);
+
+	return ptime;
+}
+
 void pc_start_gather_handler(int self);
 
 EMSCRIPTEN_KEEPALIVE
