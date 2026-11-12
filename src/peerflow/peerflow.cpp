@@ -509,14 +509,29 @@ private:
  * in-band FEC is on from the start rather than after the (with a long RTT,
  * late) loss reports. With a floor of 0 the loss passes through unchanged.
  *
+ * With hold, a drop of the target from the bandwidth estimate reaches opus
+ * at once, but a rise only after the target has stayed above the current
+ * one for TARGET_RISE_HOLD_MS, and then only to the lowest target seen in
+ * that time. Adaptive ptime picks the shortest frame length that leaves
+ * 16 kbps of payload from every target it gets; on a link that holds the
+ * estimate near one of those steps the frames flipped every 2 s, and each
+ * shorter frame (more headers, and RED on top) overfilled the link. Opus's
+ * bitrate follows the held target too. The hold is checked on every
+ * encoded frame as well, so a rise is let through once its time is up even
+ * when the estimate stops changing (as it does at the allocation cap).
+ *
  * It also logs what drives adaptive ptime: the target bitrate from the
- * bandwidth estimate (when it moves by 1 kbps or more), the per-packet
- * overhead, and each change of the frame length.
+ * bandwidth estimate and the one passed to opus (when either moves by
+ * 1 kbps or more), the per-packet overhead, and each change of the frame
+ * length.
  */
+#define TARGET_RISE_HOLD_MS 3000
+
 class LossFloorEncoder : public webrtc::AudioEncoder {
 public:
-	LossFloorEncoder(std::unique_ptr<webrtc::AudioEncoder> enc, float floor)
-		: enc_(std::move(enc)), floor_(floor)
+	LossFloorEncoder(std::unique_ptr<webrtc::AudioEncoder> enc, float floor,
+			 bool hold)
+		: enc_(std::move(enc)), floor_(floor), hold_(hold)
 	{
 		if (floor_ > 0)
 			enc_->OnReceivedUplinkPacketLossFraction(floor_);
@@ -565,12 +580,17 @@ public:
 	}
 	void OnReceivedUplinkBandwidth(int bps,
 				       std::optional<int64_t> period_ms) override {
-		log_target(bps);
-		enc_->OnReceivedUplinkBandwidth(bps, period_ms);
+		update_.reset();
+		period_ms_ = period_ms;
+		enc_->OnReceivedUplinkBandwidth(hold_target(bps), period_ms);
 	}
 	void OnReceivedUplinkAllocation(
 		webrtc::BitrateAllocationUpdate update) override {
-		log_target((int)update.target_bitrate.bps());
+		int bps = (int)update.target_bitrate.bps();
+
+		update_ = update;
+		update.target_bitrate =
+			webrtc::DataRate::BitsPerSec(hold_target(bps));
 		enc_->OnReceivedUplinkAllocation(update);
 	}
 	void OnReceivedRtt(int rtt_ms) override { enc_->OnReceivedRtt(rtt_ms); }
@@ -600,7 +620,11 @@ protected:
 	EncodedInfo EncodeImpl(uint32_t rtp_timestamp,
 			       std::span<const int16_t> audio,
 			       webrtc::Buffer *encoded) override {
-		EncodedInfo ei = enc_->Encode(rtp_timestamp, audio, encoded);
+		EncodedInfo ei;
+
+		/* Same task queue as the bandwidth updates */
+		release_held();
+		ei = enc_->Encode(rtp_timestamp, audio, encoded);
 
 		/* Opus takes up a new frame length after a packet */
 		if (ei.encoded_bytes > 0) {
@@ -619,21 +643,101 @@ protected:
 	}
 
 private:
-	void log_target(int bps)
+	/* Returns the target to pass to opus for the estimate's target bps */
+	int hold_target(int bps)
 	{
-		target_bps_ = bps;
-		if (logged_bps_ >= 0 && std::abs(bps - logged_bps_) < 1000)
+		uint64_t now = tmr_jiffies();
+
+		last_bps_ = bps;
+		if (!hold_ || target_bps_ <= 0 || bps <= target_bps_) {
+			target_bps_ = bps;
+			rise_ts_ = 0;
+		}
+		else if (!rise_ts_) {
+			rise_ts_ = now;
+			rise_min_bps_ = bps;
+		}
+		else {
+			rise_min_bps_ = std::min(rise_min_bps_, bps);
+			if (now - rise_ts_ >= TARGET_RISE_HOLD_MS)
+				raise_target(now);
+		}
+
+		log_target(bps);
+
+		return target_bps_;
+	}
+
+	/* Takes up the lowest target of the hold time, and holds again
+	 * if the estimate is still above that */
+	void raise_target(uint64_t now)
+	{
+		target_bps_ = rise_min_bps_;
+		rise_ts_ = 0;
+		if (last_bps_ > target_bps_) {
+			rise_ts_ = now;
+			rise_min_bps_ = last_bps_;
+		}
+	}
+
+	/* Passes on a rise whose hold time is up without a new estimate */
+	void release_held()
+	{
+		uint64_t now;
+
+		if (!rise_ts_)
+			return;
+		now = tmr_jiffies();
+		if (now - rise_ts_ < TARGET_RISE_HOLD_MS)
 			return;
 
-		info("pf: opus: target %.1f kbps (frame %zu ms)\n",
-		     bps / 1000.0, frame_ms_);
+		raise_target(now);
+		log_target(last_bps_);
+		if (update_) {
+			webrtc::BitrateAllocationUpdate update = *update_;
+
+			update.target_bitrate =
+				webrtc::DataRate::BitsPerSec(target_bps_);
+			enc_->OnReceivedUplinkAllocation(update);
+		}
+		else {
+			enc_->OnReceivedUplinkBandwidth(target_bps_,
+							period_ms_);
+		}
+	}
+
+	void log_target(int bps)
+	{
+		if (logged_bps_ >= 0
+		    && std::abs(bps - logged_bps_) < 1000
+		    && std::abs(target_bps_ - logged_held_bps_) < 1000)
+			return;
+
+		if (target_bps_ != bps) {
+			info("pf: opus: target %.1f kbps, held at %.1f "
+			     "(frame %zu ms)\n",
+			     bps / 1000.0, target_bps_ / 1000.0, frame_ms_);
+		}
+		else {
+			info("pf: opus: target %.1f kbps (frame %zu ms)\n",
+			     bps / 1000.0, frame_ms_);
+		}
 		logged_bps_ = bps;
+		logged_held_bps_ = target_bps_;
 	}
 
 	std::unique_ptr<webrtc::AudioEncoder> enc_;
 	float floor_;
-	int target_bps_ = 0;
+	bool hold_;
+	int target_bps_ = 0;       /* passed to opus */
+	uint64_t rise_ts_ = 0;     /* since when the target is above it */
+	int rise_min_bps_ = 0;     /* lowest target since rise_ts_ */
+	int last_bps_ = 0;         /* last target from the estimate */
+	/* Last update from the estimate, to pass on a held rise */
+	std::optional<webrtc::BitrateAllocationUpdate> update_;
+	std::optional<int64_t> period_ms_;
 	int logged_bps_ = -1;
+	int logged_held_bps_ = -1;
 	size_t frame_ms_ = 0;
 	size_t overhead_ = 0;
 };
@@ -664,6 +768,7 @@ public:
 		Options options) override {
 		std::unique_ptr<webrtc::AudioEncoder> enc;
 		struct sdp_loss_params lp;
+		bool hold;
 
 		enc = base_->Create(env, format, options);
 		if (!enc || !strcaseeq(format.name.c_str(), "opus"))
@@ -674,8 +779,13 @@ public:
 			info("pf: opus encoder with FEC, loss floor %d%%\n",
 			     lp.fec_loss_pct);
 		}
+		/* Without any audio or loss params opus doesn't adapt
+		 * (see sdp_audio_plain), so there is nothing to hold */
+		hold = !sdp_audio_plain();
+		info("pf: opus target rise hold: %s\n",
+		     hold ? "on" : "off (plain audio)");
 		return std::make_unique<LossFloorEncoder>(std::move(enc),
-			(float)MAX(lp.fec_loss_pct, 0) / 100.0f);
+			(float)MAX(lp.fec_loss_pct, 0) / 100.0f, hold);
 	}
 
 private:
