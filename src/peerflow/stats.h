@@ -104,6 +104,18 @@ public:
 		return rtt;
 	}
 
+	/* The audio RTT from the remote's RTCP reports (ms, -1 none yet) */
+	int remoteRttMs()
+	{
+		int rtt;
+
+		lock_write_get(lock_);
+		rtt = remote_rtt_ms_;
+		lock_rel(lock_);
+
+		return rtt;
+	}
+
 	void OnStatsDelivered(
 		const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
 	{
@@ -114,6 +126,7 @@ public:
 		if (active_) {
 			stats_update(stats_, report_json);
 			updatePairRtt(report);
+			updateRemoteRtt(report);
 			logPeriodic(report);
 		}
 		lock_rel(lock_);
@@ -168,6 +181,21 @@ private:
 
 			pair_rtt_ms_ = (int)(*cp->current_round_trip_time
 					     * 1000.0);
+			break;
+		}
+	}
+
+	/* Keeps the last audio RTT from the RTCP reports */
+	void updateRemoteRtt(
+		const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
+	{
+		for (const auto *ri : report->GetStatsOfType<
+			     webrtc::RTCRemoteInboundRtpStreamStats>()) {
+			if (ri->kind.value_or("") != "audio"
+			    || !ri->round_trip_time)
+				continue;
+
+			remote_rtt_ms_ = (int)(*ri->round_trip_time * 1000.0);
 			break;
 		}
 	}
@@ -336,6 +364,7 @@ private:
 	struct lock *lock_;
 	int send_red_ = -1;
 	int pair_rtt_ms_ = -1;
+	int remote_rtt_ms_ = -1;
 	Counters prev_;
 };
 

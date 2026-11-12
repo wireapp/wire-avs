@@ -163,7 +163,7 @@ struct peerflow {
 	int bwe_cap;       /* wcall_set_loss_params max_bitrate at creation */
 	bool bwe_capped;   /* the cap is applied (no video) */
 	bool plain;        /* sdp_audio_plain at creation: as release-10.5 */
-	bool ice_slow;     /* weak ICE checks slowed down: pair RTT high */
+	bool ice_slow;     /* weak ICE checks slowed down: RTT high */
 	uint32_t red_id;   /* adaptive RED state (RedState), in the opus fmtp */
 
 	webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConn;
@@ -1307,20 +1307,27 @@ static void pf_set_bwe_capped(struct peerflow *pf, bool capped)
  * 14 kbit/s, pair RTT 5 s), a stall makes the responses late, the pair
  * weak, and the pings then keep the queue full (RTT 13-20 s, most pings
  * dropped), so the pair stays weak: 45 s without audio. On a slow link
- * (the pair RTT, as adaptive RED: from ICE_SLOW_RTT_ON_MS until below
- * ICE_SLOW_RTT_OFF_MS) ping a weak pair every ICE_SLOW_WEAK_PING_MS, as
+ * (from an RTT of ICE_SLOW_RTT_ON_MS until below ICE_SLOW_RTT_OFF_MS)
+ * ping a weak pair every ICE_SLOW_WEAK_PING_MS, as
  * often as a strong one: WebRTC rejects a weak interval longer than the
  * strong one (480 ms by default, IceConfig::IsValid). Elsewhere WebRTC's
  * fast pings stay, for call setup and network changes.
+ * The RTT is the higher of the pair's and the audio's RTCP one: when the
+ * link turns slow at once, the pair's RTT moves only with the first late
+ * ping response, after the new RTT, while the pair goes weak after 5 s
+ * without one; the RTCP reports show it within a few seconds (gsm_14:
+ * 1.7 s RTCP 3 s after the switch, pair still 75 ms, weak 3 s later).
  */
 #define ICE_SLOW_RTT_ON_MS     2000
 #define ICE_SLOW_RTT_OFF_MS    1000
 #define ICE_SLOW_WEAK_PING_MS   480
 
-static void pf_update_ice_slow(struct peerflow *pf, int rtt)
+static void pf_update_ice_slow(struct peerflow *pf, int pair_rtt,
+			       int rtcp_rtt)
 {
 	webrtc::PeerConnectionInterface::RTCConfiguration config;
 	webrtc::RTCError rerr;
+	int rtt = MAX(pair_rtt, rtcp_rtt);
 	bool slow;
 
 	if (!pf->peerConn || pf->plain || rtt < 0)
@@ -1349,13 +1356,13 @@ static void pf_update_ice_slow(struct peerflow *pf, int rtt)
 		return;
 	}
 	if (slow)
-		info("pf(%p): slow link: pair RTT %d ms (from %d ms), weak "
-		     "ICE checks every %d ms\n", pf, rtt, ICE_SLOW_RTT_ON_MS,
-		     ICE_SLOW_WEAK_PING_MS);
+		info("pf(%p): slow link: RTT %d ms (pair %d, RTCP %d; from %d "
+		     "ms), weak ICE checks every %d ms\n", pf, rtt, pair_rtt,
+		     rtcp_rtt, ICE_SLOW_RTT_ON_MS, ICE_SLOW_WEAK_PING_MS);
 	else
-		info("pf(%p): slow link over: pair RTT %d ms (below %d ms), "
-		     "weak ICE checks as default\n", pf, rtt,
-		     ICE_SLOW_RTT_OFF_MS);
+		info("pf(%p): slow link over: RTT %d ms (pair %d, RTCP %d; "
+		     "below %d ms), weak ICE checks as default\n", pf, rtt,
+		     pair_rtt, rtcp_rtt, ICE_SLOW_RTT_OFF_MS);
 }
 
 static void create_pc_deps(struct peerflow *pf,
@@ -2952,7 +2959,7 @@ static void timer_stats(void *arg)
 					   : audio_send_red(trxs));
 		if (rs)
 			rs->pair_rtt_ms = rtt;
-		pf_update_ice_slow(pf, rtt);
+		pf_update_ice_slow(pf, rtt, pf->netStatsCb->remoteRttMs());
 	}
 	pf->peerConn->GetStats(pf->netStatsCb);
 
