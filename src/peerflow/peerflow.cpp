@@ -163,6 +163,7 @@ struct peerflow {
 	int bwe_cap;       /* wcall_set_loss_params max_bitrate at creation */
 	bool bwe_capped;   /* the cap is applied (no video) */
 	bool plain;        /* sdp_audio_plain at creation: as release-10.5 */
+	bool ice_slow;     /* weak ICE checks slowed down: pair RTT high */
 	uint32_t red_id;   /* adaptive RED state (RedState), in the opus fmtp */
 
 	webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConn;
@@ -1298,6 +1299,63 @@ static void pf_set_bwe_capped(struct peerflow *pf, bool capped)
 	pf->bwe_capped = capped;
 	info("pf(%p): bandwidth cap %s (%d bps)\n",
 	     pf, capped ? "applied" : "lifted", pf->bwe_cap);
+}
+
+/* While the selected pair is weak (no ping response for 5 s, or nothing
+ * received for 2.5 s), WebRTC pings every 48 ms whatever the RTT: ~20 kbit/s
+ * on the wire through TURN. On a link the audio already fills (gsm_14:
+ * 14 kbit/s, pair RTT 5 s), a stall makes the responses late, the pair
+ * weak, and the pings then keep the queue full (RTT 13-20 s, most pings
+ * dropped), so the pair stays weak: 45 s without audio. On a slow link
+ * (the pair RTT, as adaptive RED: from ICE_SLOW_RTT_ON_MS until below
+ * ICE_SLOW_RTT_OFF_MS) ping a weak pair every ICE_SLOW_WEAK_PING_MS, as
+ * often as a strong one: WebRTC rejects a weak interval longer than the
+ * strong one (480 ms by default, IceConfig::IsValid). Elsewhere WebRTC's
+ * fast pings stay, for call setup and network changes.
+ */
+#define ICE_SLOW_RTT_ON_MS     2000
+#define ICE_SLOW_RTT_OFF_MS    1000
+#define ICE_SLOW_WEAK_PING_MS   480
+
+static void pf_update_ice_slow(struct peerflow *pf, int rtt)
+{
+	webrtc::PeerConnectionInterface::RTCConfiguration config;
+	webrtc::RTCError rerr;
+	bool slow;
+
+	if (!pf->peerConn || pf->plain || rtt < 0)
+		return;
+
+	if (!pf->ice_slow && rtt >= ICE_SLOW_RTT_ON_MS)
+		slow = true;
+	else if (pf->ice_slow && rtt < ICE_SLOW_RTT_OFF_MS)
+		slow = false;
+	else
+		return;
+
+	config = pf->peerConn->GetConfiguration();
+	if (slow)
+		config.ice_check_interval_weak_connectivity =
+			ICE_SLOW_WEAK_PING_MS;
+	else
+		config.ice_check_interval_weak_connectivity = std::nullopt;
+
+	/* Not retried on failure: the stats come every second */
+	pf->ice_slow = slow;
+	rerr = pf->peerConn->SetConfiguration(config);
+	if (!rerr.ok()) {
+		warning("pf(%p): SetConfiguration failed: %s\n",
+			pf, rerr.message());
+		return;
+	}
+	if (slow)
+		info("pf(%p): slow link: pair RTT %d ms (from %d ms), weak "
+		     "ICE checks every %d ms\n", pf, rtt, ICE_SLOW_RTT_ON_MS,
+		     ICE_SLOW_WEAK_PING_MS);
+	else
+		info("pf(%p): slow link over: pair RTT %d ms (below %d ms), "
+		     "weak ICE checks as default\n", pf, rtt,
+		     ICE_SLOW_RTT_OFF_MS);
 }
 
 static void create_pc_deps(struct peerflow *pf,
@@ -2888,11 +2946,13 @@ static void timer_stats(void *arg)
 	{
 		std::shared_ptr<RedState> rs = red_state_find(pf->red_id);
 		int red = rs ? rs->on.load() : -1;
+		int rtt = pf->netStatsCb->pairRttMs();
 
 		pf->netStatsCb->setSendRed(red >= 0 ? red
 					   : audio_send_red(trxs));
 		if (rs)
-			rs->pair_rtt_ms = pf->netStatsCb->pairRttMs();
+			rs->pair_rtt_ms = rtt;
+		pf_update_ice_slow(pf, rtt);
 	}
 	pf->peerConn->GetStats(pf->netStatsCb);
 
