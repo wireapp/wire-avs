@@ -140,7 +140,12 @@ private:
 		uint64_t in_samples = 0;
 		uint64_t in_concealed = 0;
 		double in_jb_delay = 0;
+		double in_jb_target = 0;
 		uint64_t in_jb_emitted = 0;
+		uint64_t in_pkts = 0;
+		uint64_t in_discarded = 0;
+		uint64_t in_fec_used = 0;
+		uint64_t in_cevents = 0;
 	};
 
 	static const int64_t LOG_INTERVAL_US = 5000000;
@@ -269,8 +274,22 @@ private:
 			cur.in_samples = in->total_samples_received.value_or(0);
 			cur.in_concealed = in->concealed_samples.value_or(0);
 			cur.in_jb_delay = in->jitter_buffer_delay.value_or(0);
+			cur.in_jb_target =
+				in->jitter_buffer_target_delay.value_or(0);
 			cur.in_jb_emitted =
 				in->jitter_buffer_emitted_count.value_or(0);
+			cur.in_pkts = in->packets_received.value_or(0);
+			/* Discarded: packets that came after their playout,
+			 * and RED copies of a frame already there or played.
+			 * With one copy per packet, the frames that were
+			 * neither played from a packet nor its copy are
+			 * lost + discarded - received.
+			 */
+			cur.in_discarded = in->packets_discarded.value_or(0);
+			/* Opus in-band FEC used for a lost frame */
+			cur.in_fec_used = in->fec_packets_received.value_or(0)
+				- in->fec_packets_discarded.value_or(0);
+			cur.in_cevents = in->concealment_events.value_or(0);
 
 			APPEND(" | in: jitter=%.0f ms",
 			       in->jitter.value_or(0) * 1000.0);
@@ -280,15 +299,26 @@ private:
 				uint64_t emitted =
 					cur.in_jb_emitted - prev_.in_jb_emitted;
 
-				APPEND(" rtp=%.1f kbps lost=+%lld"
-				       " concealed=%.1f%% jb=%.0f ms",
+				APPEND(" rtp=%.1f kbps pkts=+%lld lost=+%lld"
+				       " discarded=+%lld fec=+%lld"
+				       " concealed=%.1f%% (%lld)"
+				       " jb=%.0f ms (target %.0f)",
 				       (cur.in_bytes - prev_.in_bytes)
 				       * 8 / dt / 1000.0,
+				       (long long)(cur.in_pkts - prev_.in_pkts),
 				       (long long)(cur.in_lost - prev_.in_lost),
+				       (long long)(cur.in_discarded
+					- prev_.in_discarded),
+				       (long long)(cur.in_fec_used
+					- prev_.in_fec_used),
 				       samples ? 100.0 * (cur.in_concealed
 					- prev_.in_concealed) / samples : 0.0,
+				       (long long)(cur.in_cevents
+					- prev_.in_cevents),
 				       emitted ? 1000.0 * (cur.in_jb_delay
-					- prev_.in_jb_delay) / emitted : 0.0);
+					- prev_.in_jb_delay) / emitted : 0.0,
+				       emitted ? 1000.0 * (cur.in_jb_target
+					- prev_.in_jb_target) / emitted : 0.0);
 			}
 			break;
 		}
