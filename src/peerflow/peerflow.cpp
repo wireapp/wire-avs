@@ -2891,6 +2891,8 @@ static void timer_stats(void *arg)
 
 		pf->netStatsCb->setSendRed(red >= 0 ? red
 					   : audio_send_red(trxs));
+		if (rs)
+			rs->pair_rtt_ms = pf->netStatsCb->pairRttMs();
 	}
 	pf->peerConn->GetStats(pf->netStatsCb);
 

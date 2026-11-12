@@ -123,11 +123,13 @@ protected:
 
 
 /* Whether a call's adaptive RED is on (1/0, -1 not known yet), for the
- * stats log. The encoder finds it by the id in the opus fmtp
+ * stats log, and the selected pair's RTT from the stats (ms, -1 none yet)
+ * for the encoder. The encoder finds it by the id in the opus fmtp
  * (SDP_OWN_RED_ID); peerflow registers it at creation.
  */
 struct RedState {
 	std::atomic<int> on{-1};
+	std::atomic<int> pair_rtt_ms{-1};
 };
 
 static std::mutex red_states_mutex;
@@ -182,6 +184,12 @@ static void red_state_unregister(uint32_t id)
  *   is a lost frame (5 times the concealment at the 6 kbps floor). With a
  *   short budget opus then stays at its minimum and the copy goes on top,
  *   as WebRTC's RED does.
+ * - And on a slow link: from a pair RTT of RED_RTT_ON_MS until it is below
+ *   RED_RTT_OFF_MS. There the link is so full that a queue builds up
+ *   (gsm_14: 3-17 s, against 0.3 s on 40-80 kbit/s links), and the loss
+ *   reports mislead: while the queue holds the packets, the receiver
+ *   reports ~0 % loss, which ended the lossy link. The pair RTT comes from
+ *   the ICE checks (the stats, every second), not from the reports.
  * - And while we don't know the loss: before the first loss report, and
  *   when no report came for RED_REPORT_STALE_MS (reports lost, or the link
  *   down for a while). Normal gaps between reports are up to ~15 s.
@@ -213,6 +221,8 @@ static void red_state_unregister(uint32_t id)
 #define RED_LOSS_REPORTS  2
 #define RED_LOSS_HOLD_MS  10000
 #define RED_REPORT_STALE_MS 20000
+#define RED_RTT_ON_MS     2000
+#define RED_RTT_OFF_MS    1000
 
 class AdaptiveRedEncoder : public ForwardingEncoder {
 public:
@@ -423,12 +433,14 @@ private:
 			return;
 
 		updateBlind(now);
+		updateSlow();
 
+		const bool keep = lossy_ || blind_ || slow_;
 		const bool low = bps < RED_OFF_BPS;
 
 		if (low && !low_) {
 			report_since_low_ = false;
-			if (red_on_ && !lossy_ && !blind_) {
+			if (red_on_ && !keep) {
 				info("pf: adaptive RED: share %.1f kbps below %d, "
 				     "off with a loss report below %d%%\n",
 				     bps / 1000.0, RED_OFF_BPS / 1000,
@@ -438,11 +450,11 @@ private:
 		low_ = low;
 
 		if (red_on_) {
-			if (low && !lossy_ && !blind_ && report_since_low_
+			if (low && !keep && report_since_low_
 			    && loss_ < RED_LOSS_ON)
 				setRed(false, bps, fl);
 		}
-		else if (lossy_ || blind_) {
+		else if (keep) {
 			setRed(true, bps, fl);
 		}
 		else if (bps < RED_ON_BPS) {
@@ -482,6 +494,25 @@ private:
 		had_reports_ = true;
 	}
 
+	/* Pair RTT from the stats: is the link slow (see the top) */
+	void updateSlow() {
+		const int rtt = state_ ? state_->pair_rtt_ms.load() : -1;
+
+		if (rtt < 0)
+			return;
+
+		if (!slow_ && rtt >= RED_RTT_ON_MS) {
+			slow_ = true;
+			info("pf: adaptive RED: slow link: pair RTT %d ms (on "
+			     "from %d ms)\n", rtt, RED_RTT_ON_MS);
+		}
+		else if (slow_ && rtt < RED_RTT_OFF_MS) {
+			slow_ = false;
+			info("pf: adaptive RED: slow link over: pair RTT %d ms "
+			     "(below %d ms)\n", rtt, RED_RTT_OFF_MS);
+		}
+	}
+
 	void setRed(bool on, int bps, int frame_ms) {
 		red_on_ = on;
 		on_ts_ = 0;
@@ -492,6 +523,7 @@ private:
 		     on ? "on" : "off", target_bps_ / 1000.0, bps / 1000.0,
 		     frame_ms, RED_ON_BPS / 1000, RED_OFF_BPS / 1000,
 		     lossy_ ? "; lossy link"
+		     : slow_ ? "; slow link"
 		     : blind_ ? "; no loss reports" : "");
 		sendLoss();
 	}
@@ -556,6 +588,7 @@ private:
 	bool lossy_ = false;          /* RED on whatever the budget */
 	int lossy_reports_ = 0;       /* reports in a row >= RED_LOSS_ON */
 	uint64_t lossy_ts_ = 0;       /* last report >= RED_LOSS_OFF */
+	bool slow_ = false;           /* RED on: pair RTT high */
 	bool blind_ = true;           /* RED on: loss unknown */
 	bool had_reports_ = false;    /* blind_ was false once */
 	uint64_t report_ts_ = 0;      /* last loss report */

@@ -91,6 +91,19 @@ public:
 		lock_rel(lock_);
 	}
 
+	/* The selected pair's RTT from the last stats (ms, -1 none yet),
+	 * for adaptive RED */
+	int pairRttMs()
+	{
+		int rtt;
+
+		lock_write_get(lock_);
+		rtt = pair_rtt_ms_;
+		lock_rel(lock_);
+
+		return rtt;
+	}
+
 	void OnStatsDelivered(
 		const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
 	{
@@ -100,6 +113,7 @@ public:
 		lock_write_get(lock_);		
 		if (active_) {
 			stats_update(stats_, report_json);
+			updatePairRtt(report);
 			logPeriodic(report);
 		}
 		lock_rel(lock_);
@@ -130,6 +144,28 @@ private:
 	};
 
 	static const int64_t LOG_INTERVAL_US = 5000000;
+
+	/* Keeps the last RTT the selected pair had; none while there is
+	 * no pair (ICE down) */
+	void updatePairRtt(
+		const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
+	{
+		for (const auto *tr : report->GetStatsOfType<
+			     webrtc::RTCTransportStats>()) {
+			const webrtc::RTCIceCandidatePairStats *cp;
+
+			if (!tr->selected_candidate_pair_id)
+				continue;
+			cp = report->GetAs<webrtc::RTCIceCandidatePairStats>(
+				*tr->selected_candidate_pair_id);
+			if (!cp || !cp->current_round_trip_time)
+				continue;
+
+			pair_rtt_ms_ = (int)(*cp->current_round_trip_time
+					     * 1000.0);
+			break;
+		}
+	}
 
 	/* Every LOG_INTERVAL_US log one line with what shows whether
 	 * audio adapts to the network: the opus target bitrate and the
@@ -269,6 +305,7 @@ private:
 	bool active_;
 	struct lock *lock_;
 	int send_red_ = -1;
+	int pair_rtt_ms_ = -1;
 	Counters prev_;
 };
 
