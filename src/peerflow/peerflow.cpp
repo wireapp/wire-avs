@@ -71,6 +71,7 @@ extern "C" {
 #include "frame_decryptor_wrapper.h"
 #include "video_renderer.h"
 #include "stats.h"
+#include "audio_encoders.h"
 
 #include "src/audio_io/pstn/pstn_audiodevice.h"
 #include "src/audio_io/record/record_audiodevice.h"
@@ -162,6 +163,7 @@ struct peerflow {
 	int bwe_cap;       /* wcall_set_loss_params max_bitrate at creation */
 	bool bwe_capped;   /* the cap is applied (no video) */
 	bool plain;        /* sdp_audio_plain at creation: as release-10.5 */
+	uint32_t red_id;   /* adaptive RED state (RedState), in the opus fmtp */
 
 	webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConn;
 
@@ -428,12 +430,6 @@ public:
 		trials_["WebRTC-DependencyDescriptorAdvertised"] = "Enabled";
 		trials_["WebRTC-DependencyDescriptor"] = "Enabled";
 
-		// Let the bandwidth estimate bring opus down to its 6 kbps
-		// floor. Without this the audio stream's allowed range is
-		// min = max = maxaveragebitrate, so opus never adapts. Only
-		// the min is set; the max stays maxaveragebitrate.
-		trials_["WebRTC-Audio-Allocation"] = "min:6kbps";
-
 		// Adaptive ptime: opus's audio network adaptor lengthens
 		// the frames (up to the SDP maxptime) when the bandwidth
 		// estimate leaves less than 16 kbps of payload after the
@@ -484,6 +480,34 @@ public:
 			info("pf: field trial %s off (plain audio)\n",
 			     key.c_str());
 			return "";
+		}
+
+		// Read when the audio send stream is made. The min lets
+		// the bandwidth estimate bring opus down to its 6 kbps
+		// floor: without it the allowed range is min = max =
+		// maxaveragebitrate, so opus never adapts. With adaptive RED
+		// the max leaves room for the copies and their RED headers
+		// (at 20 ms; WebRTC adds the IP/UDP/SRTP headers), as the
+		// encoder gives opus only its share while RED is on and keeps
+		// opus at its own max. Without, it stays maxaveragebitrate.
+		if (key == "WebRTC-Audio-Allocation") {
+			struct sdp_loss_params lp;
+			std::string val = "min:6kbps";
+			int max_bitrate;
+
+			sdp_get_loss_params(&lp);
+			sdp_get_audio_params(NULL, &max_bitrate);
+			if (lp.red > 0 && sdp_get_adaptive_red()) {
+				if (max_bitrate <= 0)
+					max_bitrate = 32000; /* opus default */
+				val += ",max:" + std::to_string(
+					(lp.red + 1) * max_bitrate
+					+ (1 + 4 * lp.red) * 8 * 1000 / 20)
+					+ "bps";
+			}
+			info("pf: field trial %s -> %s\n", key.c_str(),
+			     val.c_str());
+			return val;
 		}
 
 		auto it = trials_.find(key);
@@ -744,7 +768,10 @@ private:
 
 /* The builtin encoders, with opus wrapped in LossFloorEncoder (read per
  * encoder, so it also works with the shared factory). The loss floor is
- * wcall_set_loss_params's FEC loss, 0 for none.
+ * wcall_set_loss_params's FEC loss, 0 for none. When the opus fmtp says we
+ * do the RED (SDP_OWN_RED_PT, see sdp_munge_audio), AdaptiveRedEncoder sits
+ * between the two and takes the loss floor over: LossFloorEncoder's hold
+ * then works on the whole audio target, RED included.
  */
 class WireAudioEncoderFactory : public webrtc::AudioEncoderFactory {
 public:
@@ -768,6 +795,7 @@ public:
 		Options options) override {
 		std::unique_ptr<webrtc::AudioEncoder> enc;
 		struct sdp_loss_params lp;
+		float floor;
 		bool hold;
 
 		enc = base_->Create(env, format, options);
@@ -775,17 +803,35 @@ public:
 			return enc;
 
 		sdp_get_loss_params(&lp);
+		floor = (float)MAX(lp.fec_loss_pct, 0) / 100.0f;
 		if (lp.fec_loss_pct > 0) {
 			info("pf: opus encoder with FEC, loss floor %d%%\n",
 			     lp.fec_loss_pct);
 		}
+
+		auto pt = format.parameters.find(SDP_OWN_RED_PT);
+		if (pt != format.parameters.end()) {
+			auto id = format.parameters.find(SDP_OWN_RED_ID);
+			int red_pt = atoi(pt->second.c_str());
+			std::shared_ptr<RedState> state;
+
+			if (id != format.parameters.end())
+				state = red_state_find((uint32_t)strtoul(
+					id->second.c_str(), NULL, 10));
+			info("pf: opus encoder with adaptive RED, pt %d, "
+			     "%d copies\n", red_pt, red_pt > 0 ? lp.red : 0);
+			enc = std::make_unique<AdaptiveRedEncoder>(
+				std::move(enc), red_pt, lp.red, floor, state);
+			floor = 0;
+		}
+
 		/* Without any audio or loss params opus doesn't adapt
 		 * (see sdp_audio_plain), so there is nothing to hold */
 		hold = !sdp_audio_plain();
 		info("pf: opus target rise hold: %s\n",
 		     hold ? "on" : "off (plain audio)");
 		return std::make_unique<LossFloorEncoder>(std::move(enc),
-			(float)MAX(lp.fec_loss_pct, 0) / 100.0f, hold);
+			floor, hold);
 	}
 
 private:
@@ -2729,6 +2775,9 @@ static void pf_destructor(void *arg)
 	delete pf->netStatsCb;
 	pf->netStatsCb = NULL;
 
+	if (pf->red_id)
+		red_state_unregister(pf->red_id);
+
 	tmr_cancel(&pf->tmr_cbr);
 	tmr_cancel(&pf->tmr_restart);
 	tmr_cancel(&pf->tmr_nocand);
@@ -2775,7 +2824,8 @@ static void pf_destructor(void *arg)
 
 /* Whether the audio sender sends RED, by WebRTC's rule: a RED codec with
  * its fmtp negotiated before the send codec (opus). The stats can't tell,
- * as they give the send codec's payload type with RED on too.
+ * as they give the send codec's payload type with RED on too. With adaptive
+ * RED (ours, after opus) the encoder's RedState says instead.
  * 1 = RED, 0 = no RED, -1 = no audio sender (yet).
  */
 static int audio_send_red(
@@ -2835,7 +2885,13 @@ static void timer_stats(void *arg)
 		lock_rel(pf->cml.lock);
 	}
 
-	pf->netStatsCb->setSendRed(audio_send_red(trxs));
+	{
+		std::shared_ptr<RedState> rs = red_state_find(pf->red_id);
+		int red = rs ? rs->on.load() : -1;
+
+		pf->netStatsCb->setSendRed(red >= 0 ? red
+					   : audio_send_red(trxs));
+	}
 	pf->peerConn->GetStats(pf->netStatsCb);
 
  out:
@@ -3035,6 +3091,10 @@ int peerflow_alloc(struct iflow		**flowp,
 	pf->plain = sdp_audio_plain();
 	if (pf->plain)
 		info("pf(%p): plain audio (as release-10.5)\n", pf);
+
+	/* No id: the remote SDP keeps red first, so WebRTC does the RED */
+	pf->red_id = !pf->plain && sdp_get_adaptive_red() ?
+		red_state_register() : 0;
 
 	pf->config = new webrtc::PeerConnectionInterface::RTCConfiguration();
 	pf->observer = new AvsPeerConnectionObserver(pf);
@@ -3326,7 +3386,8 @@ int peerflow_handle_offer(struct iflow *iflow,
 		else
 			err = sdp_munge_audio(&sdp_str, sdp_in, pf->conv_type,
 					      true, false,
-					      pf->sdp_needs_munging);
+					      pf->sdp_needs_munging,
+					      pf->red_id);
 		if (err) {
 			warning("peerflow_handle_offer: failed to munge SDP: "
 				"%m\n", err);
@@ -3390,7 +3451,7 @@ int peerflow_handle_answer(struct iflow *iflow,
 	}
 	else {
 		err = sdp_munge_audio(&sdp_str, sdp_in, pf->conv_type, false,
-				      false, false);
+				      false, false, pf->red_id);
 		if (err) {
 			warning("peerflow_handle_answer: failed to munge SDP: "
 				"%m\n", err);
