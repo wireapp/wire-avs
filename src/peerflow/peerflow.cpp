@@ -46,6 +46,7 @@ extern "C" {
 #include "api/create_modular_peer_connection_factory.h"
 #include "api/media_stream_interface.h"
 #include "api/data_channel_interface.h"
+#include "api/dtls_transport_interface.h"
 #include "api/task_queue/default_task_queue_factory.h"
 #include "api/field_trials_view.h"
 #include "modules/audio_processing/include/audio_processing.h"
@@ -410,6 +411,8 @@ public:
 		trials_["WebRTC-GenericDescriptor"] = "Enabled";
 		trials_["WebRTC-DependencyDescriptorAdvertised"] = "Enabled";
 		trials_["WebRTC-DependencyDescriptor"] = "Enabled";
+		// Offer hybrid X25519MLKEM768 key exchange in DTLS
+		trials_["WebRTC-EnableDtlsPqc"] = "Enabled";
 	}
 
 	std::string Lookup(absl::string_view key_view) const override {
@@ -1245,6 +1248,23 @@ public:
 		push_mq(md);
 	}
 
+	void LogDtlsInfo() {
+		for (auto &trx : pf_->peerConn->GetTransceivers()) {
+			auto dtls = trx->sender()->dtls_transport();
+			if (!dtls)
+				continue;
+
+			webrtc::DtlsTransportInformation di = dtls->Information();
+			info("pf(%p): DTLS version=0x%04x group=0x%04x "
+			     "cipher=0x%04x srtp=0x%04x\n", pf_,
+			     di.tls_version().value_or(0),
+			     di.ssl_group_id().value_or(0),
+			     di.ssl_cipher_suite().value_or(0),
+			     di.srtp_cipher_suite().value_or(0));
+			break;
+		}
+	}
+
 	// Called any time the IceConnectionState changes.
 	//
 	// Note that our ICE states lag behind the standard slightly. The most
@@ -1272,6 +1292,7 @@ public:
 
 		switch (state) {
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:
+			LogDtlsInfo();
 			SendMQMessage(MQ_PC_ESTAB);
 			break;
 
