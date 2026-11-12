@@ -507,14 +507,19 @@ private:
 
 /* Opus encoder whose assumed packet loss does not go below a floor, so its
  * in-band FEC is on from the start rather than after the (with a long RTT,
- * late) loss reports.
+ * late) loss reports. With a floor of 0 the loss passes through unchanged.
+ *
+ * It also logs what drives adaptive ptime: the target bitrate from the
+ * bandwidth estimate (when it moves by 1 kbps or more), the per-packet
+ * overhead, and each change of the frame length.
  */
 class LossFloorEncoder : public webrtc::AudioEncoder {
 public:
 	LossFloorEncoder(std::unique_ptr<webrtc::AudioEncoder> enc, float floor)
 		: enc_(std::move(enc)), floor_(floor)
 	{
-		enc_->OnReceivedUplinkPacketLossFraction(floor_);
+		if (floor_ > 0)
+			enc_->OnReceivedUplinkPacketLossFraction(floor_);
 	}
 
 	int SampleRateHz() const override { return enc_->SampleRateHz(); }
@@ -560,14 +565,20 @@ public:
 	}
 	void OnReceivedUplinkBandwidth(int bps,
 				       std::optional<int64_t> period_ms) override {
+		log_target(bps);
 		enc_->OnReceivedUplinkBandwidth(bps, period_ms);
 	}
 	void OnReceivedUplinkAllocation(
 		webrtc::BitrateAllocationUpdate update) override {
+		log_target((int)update.target_bitrate.bps());
 		enc_->OnReceivedUplinkAllocation(update);
 	}
 	void OnReceivedRtt(int rtt_ms) override { enc_->OnReceivedRtt(rtt_ms); }
 	void OnReceivedOverhead(size_t bytes) override {
+		if (bytes != overhead_) {
+			info("pf: opus: overhead %zu bytes/packet\n", bytes);
+			overhead_ = bytes;
+		}
 		enc_->OnReceivedOverhead(bytes);
 	}
 	void SetReceiverFrameLengthRange(int min_ms, int max_ms) override {
@@ -589,17 +600,47 @@ protected:
 	EncodedInfo EncodeImpl(uint32_t rtp_timestamp,
 			       std::span<const int16_t> audio,
 			       webrtc::Buffer *encoded) override {
-		return enc_->Encode(rtp_timestamp, audio, encoded);
+		EncodedInfo ei = enc_->Encode(rtp_timestamp, audio, encoded);
+
+		/* Opus takes up a new frame length after a packet */
+		if (ei.encoded_bytes > 0) {
+			size_t ms = 10 * enc_->Num10MsFramesInNextPacket();
+
+			if (ms != frame_ms_) {
+				info("pf: opus: frame %zu -> %zu ms at target "
+				     "%.1f kbps (last packet %zu bytes)\n",
+				     frame_ms_, ms, target_bps_ / 1000.0,
+				     ei.encoded_bytes);
+				frame_ms_ = ms;
+			}
+		}
+
+		return ei;
 	}
 
 private:
+	void log_target(int bps)
+	{
+		target_bps_ = bps;
+		if (logged_bps_ >= 0 && std::abs(bps - logged_bps_) < 1000)
+			return;
+
+		info("pf: opus: target %.1f kbps (frame %zu ms)\n",
+		     bps / 1000.0, frame_ms_);
+		logged_bps_ = bps;
+	}
+
 	std::unique_ptr<webrtc::AudioEncoder> enc_;
 	float floor_;
+	int target_bps_ = 0;
+	int logged_bps_ = -1;
+	size_t frame_ms_ = 0;
+	size_t overhead_ = 0;
 };
 
-/* The builtin encoders, with opus wrapped in LossFloorEncoder while
- * wcall_set_loss_params has a FEC loss floor (read per encoder, so it also
- * works with the shared factory).
+/* The builtin encoders, with opus wrapped in LossFloorEncoder (read per
+ * encoder, so it also works with the shared factory). The loss floor is
+ * wcall_set_loss_params's FEC loss, 0 for none.
  */
 class WireAudioEncoderFactory : public webrtc::AudioEncoderFactory {
 public:
@@ -625,15 +666,16 @@ public:
 		struct sdp_loss_params lp;
 
 		enc = base_->Create(env, format, options);
-		sdp_get_loss_params(&lp);
-		if (!enc || lp.fec_loss_pct <= 0
-		    || !strcaseeq(format.name.c_str(), "opus"))
+		if (!enc || !strcaseeq(format.name.c_str(), "opus"))
 			return enc;
 
-		info("pf: opus encoder with FEC, loss floor %d%%\n",
-		     lp.fec_loss_pct);
+		sdp_get_loss_params(&lp);
+		if (lp.fec_loss_pct > 0) {
+			info("pf: opus encoder with FEC, loss floor %d%%\n",
+			     lp.fec_loss_pct);
+		}
 		return std::make_unique<LossFloorEncoder>(std::move(enc),
-			(float)lp.fec_loss_pct / 100.0f);
+			(float)MAX(lp.fec_loss_pct, 0) / 100.0f);
 	}
 
 private:
