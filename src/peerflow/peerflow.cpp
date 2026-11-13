@@ -1216,7 +1216,7 @@ void peerflow_start_log(void)
 	}
 }
 
-static bool stats_log = false;
+static bool stats_log = true;
 
 void peerflow_set_stats_log(bool enable)
 {

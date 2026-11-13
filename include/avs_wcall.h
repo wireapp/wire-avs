@@ -566,7 +566,7 @@ void wcall_set_adaptive_red(int enable);
 /**
  * Whether each call logs a line of audio stats (pf: stats5s:) every 5 s:
  * bitrates, bandwidth estimate, RTT, loss, concealment and jitter buffer.
- * Off by default. For all calls; takes effect at the next stats report.
+ * On by default. For all calls; takes effect at the next stats report.
  */
 void wcall_set_stats_log(int enable);
 
