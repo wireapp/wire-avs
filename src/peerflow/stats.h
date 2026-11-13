@@ -91,6 +91,44 @@ public:
 		lock_rel(lock_);
 	}
 
+	/* The selected pair's RTT from the last stats (ms, -1 none yet),
+	 * for adaptive RED */
+	int pairRttMs()
+	{
+		int rtt;
+
+		lock_write_get(lock_);
+		rtt = pair_rtt_ms_;
+		lock_rel(lock_);
+
+		return rtt;
+	}
+
+	/* The selected pair's bandwidth estimate from the last stats
+	 * (kbit/s, -1 none yet) */
+	int pairBweKbps()
+	{
+		int bwe;
+
+		lock_write_get(lock_);
+		bwe = pair_bwe_kbps_;
+		lock_rel(lock_);
+
+		return bwe;
+	}
+
+	/* The audio RTT from the remote's RTCP reports (ms, -1 none yet) */
+	int remoteRttMs()
+	{
+		int rtt;
+
+		lock_write_get(lock_);
+		rtt = remote_rtt_ms_;
+		lock_rel(lock_);
+
+		return rtt;
+	}
+
 	void OnStatsDelivered(
 		const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
 	{
@@ -100,6 +138,8 @@ public:
 		lock_write_get(lock_);		
 		if (active_) {
 			stats_update(stats_, report_json);
+			updatePairRtt(report);
+			updateRemoteRtt(report);
 			logPeriodic(report);
 		}
 		lock_rel(lock_);
@@ -126,10 +166,56 @@ private:
 		uint64_t in_samples = 0;
 		uint64_t in_concealed = 0;
 		double in_jb_delay = 0;
+		double in_jb_target = 0;
 		uint64_t in_jb_emitted = 0;
+		uint64_t in_pkts = 0;
+		uint64_t in_discarded = 0;
+		uint64_t in_fec_used = 0;
+		uint64_t in_cevents = 0;
 	};
 
 	static const int64_t LOG_INTERVAL_US = 5000000;
+
+	/* Keeps the last RTT and bandwidth estimate the selected pair
+	 * had; none while there is no pair (ICE down) */
+	void updatePairRtt(
+		const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
+	{
+		for (const auto *tr : report->GetStatsOfType<
+			     webrtc::RTCTransportStats>()) {
+			const webrtc::RTCIceCandidatePairStats *cp;
+
+			if (!tr->selected_candidate_pair_id)
+				continue;
+			cp = report->GetAs<webrtc::RTCIceCandidatePairStats>(
+				*tr->selected_candidate_pair_id);
+			if (!cp || !cp->current_round_trip_time)
+				continue;
+
+			pair_rtt_ms_ = (int)(*cp->current_round_trip_time
+					     * 1000.0);
+			if (cp->available_outgoing_bitrate)
+				pair_bwe_kbps_ = (int)
+					(*cp->available_outgoing_bitrate
+					 / 1000.0);
+			break;
+		}
+	}
+
+	/* Keeps the last audio RTT from the RTCP reports */
+	void updateRemoteRtt(
+		const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
+	{
+		for (const auto *ri : report->GetStatsOfType<
+			     webrtc::RTCRemoteInboundRtpStreamStats>()) {
+			if (ri->kind.value_or("") != "audio"
+			    || !ri->round_trip_time)
+				continue;
+
+			remote_rtt_ms_ = (int)(*ri->round_trip_time * 1000.0);
+			break;
+		}
+	}
 
 	/* Every LOG_INTERVAL_US log one line with what shows whether
 	 * audio adapts to the network: the opus target bitrate and the
@@ -233,8 +319,22 @@ private:
 			cur.in_samples = in->total_samples_received.value_or(0);
 			cur.in_concealed = in->concealed_samples.value_or(0);
 			cur.in_jb_delay = in->jitter_buffer_delay.value_or(0);
+			cur.in_jb_target =
+				in->jitter_buffer_target_delay.value_or(0);
 			cur.in_jb_emitted =
 				in->jitter_buffer_emitted_count.value_or(0);
+			cur.in_pkts = in->packets_received.value_or(0);
+			/* Discarded: packets that came after their playout,
+			 * and RED copies of a frame already there or played.
+			 * With one copy per packet, the frames that were
+			 * neither played from a packet nor its copy are
+			 * lost + discarded - received.
+			 */
+			cur.in_discarded = in->packets_discarded.value_or(0);
+			/* Opus in-band FEC used for a lost frame */
+			cur.in_fec_used = in->fec_packets_received.value_or(0)
+				- in->fec_packets_discarded.value_or(0);
+			cur.in_cevents = in->concealment_events.value_or(0);
 
 			APPEND(" | in: jitter=%.0f ms",
 			       in->jitter.value_or(0) * 1000.0);
@@ -244,15 +344,26 @@ private:
 				uint64_t emitted =
 					cur.in_jb_emitted - prev_.in_jb_emitted;
 
-				APPEND(" rtp=%.1f kbps lost=+%lld"
-				       " concealed=%.1f%% jb=%.0f ms",
+				APPEND(" rtp=%.1f kbps pkts=+%lld lost=+%lld"
+				       " discarded=+%lld fec=+%lld"
+				       " concealed=%.1f%% (%lld)"
+				       " jb=%.0f ms (target %.0f)",
 				       (cur.in_bytes - prev_.in_bytes)
 				       * 8 / dt / 1000.0,
+				       (long long)(cur.in_pkts - prev_.in_pkts),
 				       (long long)(cur.in_lost - prev_.in_lost),
+				       (long long)(cur.in_discarded
+					- prev_.in_discarded),
+				       (long long)(cur.in_fec_used
+					- prev_.in_fec_used),
 				       samples ? 100.0 * (cur.in_concealed
 					- prev_.in_concealed) / samples : 0.0,
+				       (long long)(cur.in_cevents
+					- prev_.in_cevents),
 				       emitted ? 1000.0 * (cur.in_jb_delay
-					- prev_.in_jb_delay) / emitted : 0.0);
+					- prev_.in_jb_delay) / emitted : 0.0,
+				       emitted ? 1000.0 * (cur.in_jb_target
+					- prev_.in_jb_target) / emitted : 0.0);
 			}
 			break;
 		}
@@ -269,6 +380,9 @@ private:
 	bool active_;
 	struct lock *lock_;
 	int send_red_ = -1;
+	int pair_rtt_ms_ = -1;
+	int pair_bwe_kbps_ = -1;
+	int remote_rtt_ms_ = -1;
 	Counters prev_;
 };
 

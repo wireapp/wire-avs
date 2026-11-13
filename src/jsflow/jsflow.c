@@ -900,7 +900,7 @@ int jsflow_handle_offer(struct iflow *flow,
 	/* Remote SDP drives our encoder's ptime and bitrate */
 	jsflow->remote_sdp = mem_deref(jsflow->remote_sdp);
 	err = sdp_munge_audio(&jsflow->remote_sdp, sdp_str,
-			      jsflow->conv_type, true, false, false);
+			      jsflow->conv_type, true, false, false, 0);
 	if (err) {
 		warning("jsflow(%p): handle_offer: failed to munge SDP: %m\n",
 			jsflow, err);
@@ -936,7 +936,7 @@ int jsflow_handle_answer(struct iflow *flow,
 	/* Remote SDP drives our encoder's ptime and bitrate */
 	jsflow->remote_sdp = mem_deref(jsflow->remote_sdp);
 	err = sdp_munge_audio(&jsflow->remote_sdp, sdp_str,
-			      jsflow->conv_type, false, !has_video, false);
+			      jsflow->conv_type, false, !has_video, false, 0);
 	if (err) {
 		warning("jsflow(%p): handle_answer: failed to munge SDP: %m\n",
 			jsflow, err);

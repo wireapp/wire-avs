@@ -30,6 +30,7 @@ const char *sdp_sess2str(struct sdp_session *sess);
  * opus minptime, with a maxptime of 120 for adaptive ptime.
  */
 void sdp_set_audio_params(int ptime, int max_bitrate);
+void sdp_get_audio_params(int *ptime, int *max_bitrate);
 
 /* Protection against packet loss for the calls set up from now on; 0 turns
  * one off (all 0 is the plain WebRTC behaviour):
@@ -60,6 +61,10 @@ void sdp_get_loss_params(struct sdp_loss_params *lp);
  */
 bool sdp_audio_plain(void);
 
+/* See wcall_set_adaptive_red */
+void sdp_set_adaptive_red(bool enable);
+bool sdp_get_adaptive_red(void);
+
 const char *sdp_modify_offer(struct sdp_session *sess,
 			     enum icall_conv_type conv_type,
 			     bool screenshare,
@@ -88,9 +93,18 @@ void sdp_safe_media_set_lattr(struct sdp_media *sdpm, bool replace,
 
 int sdp_munge(char **sdp_out, const char *sdp,
 	      enum icall_conv_type conv_type, bool offer);
+/* Munge a remote SDP before it is applied (see sdp_set_audio_params).
+ * With a red_id (non-zero) our own encoder does the RED (adaptive RED in
+ * peerflow), so WebRTC must not: red goes after opus, and the opus fmtp gets
+ * SDP_OWN_RED_PT (the RED payload type, 0 without RED) and SDP_OWN_RED_ID
+ * (red_id), which the encoder factory reads.
+ */
+#define SDP_OWN_RED_PT "x-wire-red"
+#define SDP_OWN_RED_ID "x-wire-red-id"
+
 int sdp_munge_audio(char **sdp_out, const char *sdp,
 		    enum icall_conv_type conv_type, bool offer,
-		    bool strip_video, bool munge);
+		    bool strip_video, bool munge, uint32_t red_id);
 
 /* bundle */
 

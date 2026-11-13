@@ -539,7 +539,9 @@ void wcall_set_audio_params(int ptime, int max_bitrate);
  * now on; 0 turns one off (all 0 is the plain WebRTC behaviour):
  *  red          opus RED (RFC 2198) with this many earlier frames in each
  *               packet (1..9, default 1), negotiated only when set (both
- *               sides need it)
+ *               sides need it). The native clients switch it on while the
+ *               bandwidth leaves opus and each copy 16 kbps (off below 14),
+ *               and give opus only its share of the bandwidth while it is on
  *  fec_loss_pct lowest packet loss (%) the opus encoder assumes, so that its
  *               in-band FEC is on from the start instead of after the loss
  *               reports (1..100, default 15)
@@ -554,9 +556,17 @@ void wcall_set_loss_params(int red, int fec_loss_pct, int max_bitrate,
 			   int jb_min_ms);
 
 /**
+ * Whether the native clients switch RED by the network (1, the default) or
+ * leave it to WebRTC, which sends it for the whole call on top of the
+ * bitrate (0). For all instances and the calls set up from now on; for
+ * comparing the two.
+ */
+void wcall_set_adaptive_red(int enable);
+
+/**
  * Whether each call logs a line of audio stats (pf: stats5s:) every 5 s:
  * bitrates, bandwidth estimate, RTT, loss, concealment and jitter buffer.
- * Off by default. For all calls; takes effect at the next stats report.
+ * On by default. For all calls; takes effect at the next stats report.
  */
 void wcall_set_stats_log(int enable);
 

@@ -465,6 +465,14 @@ void sdp_set_audio_params(int ptime, int max_bitrate)
 	     audio_params.ptime, audio_params.max_bitrate);
 }
 
+void sdp_get_audio_params(int *ptime, int *max_bitrate)
+{
+	if (ptime)
+		*ptime = audio_params.ptime;
+	if (max_bitrate)
+		*max_bitrate = audio_params.max_bitrate;
+}
+
 void sdp_set_loss_params(const struct sdp_loss_params *lp)
 {
 	if (!lp)
@@ -492,6 +500,19 @@ bool sdp_audio_plain(void)
 	return audio_params.ptime == 0 && audio_params.max_bitrate == 0
 		&& loss_params.red == 0 && loss_params.fec_loss_pct == 0
 		&& loss_params.max_bitrate == 0 && loss_params.jb_min_ms == 0;
+}
+
+static bool adaptive_red = true;
+
+void sdp_set_adaptive_red(bool enable)
+{
+	adaptive_red = enable;
+	info("sdp: adaptive RED: %s\n", enable ? "on" : "off (WebRTC's RED)");
+}
+
+bool sdp_get_adaptive_red(void)
+{
+	return adaptive_red;
 }
 
 /* Set name=val in a format's fmtp parameters, replacing the value there. */
@@ -574,6 +595,53 @@ static void set_audio_params(struct sdp_media *sdpm)
 			sdp_format_set_params(fmt, "maxaveragebitrate=%d",
 					      audio_params.max_bitrate);
 		}
+	}
+}
+
+/* Our encoder does the RED (see sdp_munge_audio): red goes after the codecs,
+ * as WebRTC only sends RED listed before the codec it carries, and the opus
+ * fmtp tells the encoder factory the RED payload type and the call.
+ */
+static void set_own_red(struct sdp_media *sdpm, uint32_t red_id)
+{
+	const struct list *fmtl;
+	struct sdp_format *red = NULL;
+	struct le *fle;
+	int red_pt = 0;
+
+	fmtl = sdp_media_format_lst(sdpm, true);
+	LIST_FOREACH(fmtl, fle) {
+		struct sdp_format *fmt = (struct sdp_format *)fle->data;
+
+		if (strcaseeq(fmt->name, "red"))
+			red = fmt;
+	}
+
+	if (red) {
+		char *id = NULL, *name = NULL, *params = NULL;
+		uint32_t srate = red->srate;
+		uint8_t ch = red->ch;
+
+		red_pt = atoi(red->id);
+		str_dup(&id, red->id);
+		str_dup(&name, red->name);
+		str_dup(&params, red->params);
+		mem_deref(red);
+		sdp_format_add(NULL, sdpm, false, id, name, srate, ch,
+			       NULL, NULL, NULL, false,
+			       "%s", params ? params : "");
+		mem_deref(id);
+		mem_deref(name);
+		mem_deref(params);
+	}
+
+	LIST_FOREACH(fmtl, fle) {
+		struct sdp_format *fmt = (struct sdp_format *)fle->data;
+
+		if (!strcaseeq(fmt->name, "opus"))
+			continue;
+		set_fmt_param(fmt, SDP_OWN_RED_PT, red_pt);
+		set_fmt_param(fmt, SDP_OWN_RED_ID, (int)red_id);
 	}
 }
 
@@ -831,7 +899,7 @@ int sdp_munge(char **sdp_out, const char *sdp,
 
 int sdp_munge_audio(char **sdp_out, const char *sdp,
 		    enum icall_conv_type conv_type, bool offer,
-		    bool strip_video, bool munge)
+		    bool strip_video, bool munge, uint32_t red_id)
 {
 	struct sdp_session *sess = NULL;
 	int err = 0;
@@ -842,6 +910,19 @@ int sdp_munge_audio(char **sdp_out, const char *sdp,
 	err = sdp_dup_int(&sess, conv_type, sdp, offer, strip_video, munge);
 	if (!err) {
 		sdp_sess_set_audio_params(sess);
+		if (red_id) {
+			const struct list *medial;
+			struct le *le;
+
+			medial = sdp_session_medial(sess, false);
+			LIST_FOREACH(medial, le) {
+				struct sdp_media *sdpm =
+					(struct sdp_media *)le->data;
+
+				if (streq(sdp_media_name(sdpm), "audio"))
+					set_own_red(sdpm, red_id);
+			}
+		}
 		*sdp_out = (char *)sdp_sess2str(sess);
 		if (!*sdp_out)
 			err = ENOMEM;

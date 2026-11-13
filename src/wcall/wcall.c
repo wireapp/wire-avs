@@ -4910,6 +4910,12 @@ void wcall_set_loss_params(int red, int fec_loss_pct, int max_bitrate,
 }
 
 AVS_EXPORT
+void wcall_set_adaptive_red(int enable)
+{
+	sdp_set_adaptive_red(enable != 0);
+}
+
+AVS_EXPORT
 void wcall_set_stats_log(int enable)
 {
 #if ENABLE_PEERFLOW
