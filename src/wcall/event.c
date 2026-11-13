@@ -174,7 +174,7 @@ static struct call_event *queue_find(struct call_event_instance *inst,
 	struct le *le;
 
 	if (!inst)
-		return false;
+		return NULL;
 
 	for (le = inst->eventl.head; le != NULL && !found; le = le->next) {
 		ev = le->data;
@@ -183,8 +183,6 @@ static struct call_event *queue_find(struct call_event_instance *inst,
 			found = found && streq(ev->userid, userid);
 		if (clientid)
 			found = found && streq(ev->clientid, clientid);
-		if (!found)
-			le = le->next;
 	}
 
 	return found ? ev : NULL;
@@ -214,6 +212,8 @@ static const char *event_caller_id(const struct econn_message *msg)
 static void inst_destructor(void *arg)
 {
 	struct call_event_instance *inst = arg;
+
+	list_unlink(&inst->le);
 
 	mem_deref(inst->userid);
 	mem_deref(inst->clientid);
@@ -275,10 +275,25 @@ WUSER_HANDLE wcall_event_create(const char *userid,
 }
 
 AVS_EXPORT
-void wcall_event_start(WUSER_HANDLE wuser)
+void wcall_event_destroy(WUSER_HANDLE wuser)
 {
 	struct call_event_instance *inst;
 
+	inst = wuser2evinst(wuser);
+
+	if (inst) {
+		mem_deref(inst);
+	}
+	else {
+		warning("event: user=%p not found\n", wuser);
+	}
+}
+
+
+AVS_EXPORT
+void wcall_event_start(WUSER_HANDLE wuser)
+{
+	struct call_event_instance *inst;
 
 	inst = wuser2evinst(wuser);
 	info("event(%p): start for wuser=%p\n", inst, wuser);
@@ -347,7 +362,8 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 	case ECONN_CONF_START:
 		if (msg->age > EVENT_AGE_VALID) {
 			warning("event(%p): message is too old. age=%d\n", inst, msg->age);
-			return ETIMEDOUT;
+			err = ETIMEDOUT;
+			goto out;
 		}
 		
 		if (econn_message_isrequest(msg)) {
@@ -418,7 +434,10 @@ int  wcall_event_process(WUSER_HANDLE wuser,
 		
 	}
 
-	return 0;
+ out:
+	mem_deref(msg);
+
+	return err;
 }
 
 AVS_EXPORT

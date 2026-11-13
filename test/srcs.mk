@@ -12,6 +12,7 @@ TEST_SRCS	+= test_version.cpp
 # Testcases in alphabetical order
 TEST_SRCS	+= test_audio_io_control.cpp
 TEST_SRCS	+= test_cert.cpp
+TEST_SRCS	+= test_ccall.cpp
 TEST_SRCS	+= test_chunk.cpp
 TEST_SRCS	+= test_confpos.cpp
 TEST_SRCS	+= test_dict.cpp
@@ -33,6 +34,9 @@ TEST_SRCS	+= test_string.cpp
 TEST_SRCS	+= test_uuid.cpp
 TEST_SRCS	+= test_userlist.cpp
 #TEST_SRCS	+= test_wcall.cpp
+TEST_SRCS	+= test_wcall_connection_test.cpp
+TEST_SRCS	+= test_wcall_event.cpp
+TEST_SRCS	+= test_wcall_config.cpp
 TEST_SRCS	+= test_zapi.cpp
 TEST_SRCS	+= test_ztime.cpp
 TEST_SRCS	+= test_stats.cpp

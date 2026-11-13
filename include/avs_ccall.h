@@ -47,6 +47,8 @@ int ccall_set_config(struct ccall *ccall, struct config *cfg);
 
 int ccall_set_caller_id(struct ccall *ccall, const char *caller_id);
 const char *ccall_get_caller_id(const struct ccall *ccall);
+/* Preserve locally supplied test epochs across connection setup/retries. */
+void ccall_set_test_mode(struct ccall *ccall, bool is_test);
 
 int  ccall_add_turnserver(struct icall *icall, struct zapi_ice_server *srv);
 
