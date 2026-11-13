@@ -38,6 +38,13 @@
 #define DISCONNECT_TIMEOUT 10000
 #define TMR_STATS_INTERVAL  1000
 #define TMR_CBR_INTERVAL    2500
+/* As peerflow's: after the connection failed, wait this long for it to
+ * come back before restarting, and leaving failed holds the restart off
+ * until it fails again, but not past TMR_RESTART_MAX after the first
+ * failure. Chromium and Safari run libwebrtc, where failed is not terminal.
+ */
+#define TMR_RESTART_INTERVAL 15000
+#define TMR_RESTART_MAX      60000
 
 #define PC_INVALID_HANDLE 0
 
@@ -230,8 +237,10 @@ struct jsflow {
 	char *bundle_sync;
 	struct tmr tmr_gather;
 	struct tmr tmr_disconnect;
+	struct tmr tmr_restart;
+	uint64_t restart_deadline; /* restart by then (jiffies), 0: none */
 	struct tmr tmr_stats;
-	char *remote_sdp;	
+	char *remote_sdp;
 	bool selective_audio;
 	bool selective_video;
 
@@ -276,6 +285,49 @@ static void disconnect_timeout_handler(void *arg)
 		false, flow->iflow.arg);
 }
 #endif
+
+static void restart_timeout_handler(void *arg)
+{
+	struct jsflow *flow = arg;
+
+	info("jsflow(%p): calling restarth due to network drop\n", flow);
+
+	flow->restart_deadline = 0;
+	IFLOW_CALL_CB(flow->iflow, restarth,
+		false, flow->iflow.arg);
+}
+
+/* failed: restart TMR_RESTART_INTERVAL from now; out of failed again
+ * (hold): only at the deadline.
+ */
+static void restart_later(struct jsflow *flow, bool hold)
+{
+	const uint64_t now = tmr_jiffies();
+	uint64_t ms;
+
+	if (!flow->restart_deadline) {
+		if (hold)
+			return; /* no restart pending */
+		flow->restart_deadline = now + TMR_RESTART_MAX;
+	}
+	ms = flow->restart_deadline > now ? flow->restart_deadline - now : 1;
+	if (!hold && ms > TMR_RESTART_INTERVAL)
+		ms = TMR_RESTART_INTERVAL;
+
+	info("jsflow(%p): %s: restart in %llu ms\n", flow,
+	     hold ? "out of failed, held" : "failed",
+	     (unsigned long long)ms);
+	tmr_start(&flow->tmr_restart, ms, restart_timeout_handler, flow);
+}
+
+static void restart_cancel(struct jsflow *flow)
+{
+	if (tmr_isrunning(&flow->tmr_restart))
+		info("jsflow(%p): restart cancelled, connection is back\n",
+		     flow);
+	tmr_cancel(&flow->tmr_restart);
+	flow->restart_deadline = 0;
+}
 
 static void stats_timeout_handler(void *arg)
 {
@@ -420,6 +472,7 @@ static void destructor(void *arg)
 	keystore_remove_listener(flow->frame.keystore, flow);
 	tmr_cancel(&flow->tmr_gather);
 	tmr_cancel(&flow->tmr_disconnect);
+	tmr_cancel(&flow->tmr_restart);
 	tmr_cancel(&flow->tmr_stats);
 	tmr_cancel(&flow->tmr_cbr);
 
@@ -650,6 +703,7 @@ int jsflow_alloc(struct iflow		**flowp,
 
 	tmr_init(&flow->tmr_gather);
 	tmr_init(&flow->tmr_disconnect);
+	tmr_init(&flow->tmr_restart);
 	tmr_init(&flow->tmr_stats);
 	tmr_init(&flow->tmr_cbr);
 
@@ -672,9 +726,10 @@ void jsflow_close(struct iflow *flow)
 
 	jsflow->closed = true;
 	tmr_cancel(&jsflow->tmr_disconnect);
+	tmr_cancel(&jsflow->tmr_restart);
 	tmr_cancel(&jsflow->tmr_stats);
 	tmr_cancel(&jsflow->tmr_cbr);
-	tmr_cancel(&jsflow->tmr_gather);	
+	tmr_cancel(&jsflow->tmr_gather);
 
 	if (jsflow->dc.handle != PC_INVALID_HANDLE)
 		pc_DataChannelClose(jsflow->dc.handle);
@@ -1521,6 +1576,39 @@ int pc_audio_jb_min_ms(void)
 	return lp.jb_min_ms;
 }
 
+int pc_audio_adapt_max_bps(void);
+
+/* Opus's bitrate from the SDP (maxaveragebitrate, else opus's default) for
+ * the browser's audio bitrate loop (avs_pc.ts adaptAudioBitrate), or 0 when
+ * it is off: with plain audio, and with adaptive RED off
+ * (wcall_set_adaptive_red), which leaves it all to the browser.
+ */
+EMSCRIPTEN_KEEPALIVE
+int pc_audio_adapt_max_bps(void)
+{
+	int max_bitrate;
+
+	if (sdp_audio_plain() || !sdp_get_adaptive_red())
+		return 0;
+
+	sdp_get_audio_params(NULL, &max_bitrate);
+
+	return max_bitrate > 0 ? max_bitrate : 32000;
+}
+
+int pc_audio_ptime(void);
+
+/* The opus ptime from the SDP (the shortest frame length), 0 when unset */
+EMSCRIPTEN_KEEPALIVE
+int pc_audio_ptime(void)
+{
+	int ptime;
+
+	sdp_get_audio_params(&ptime, NULL);
+
+	return ptime;
+}
+
 void pc_start_gather_handler(int self);
 
 EMSCRIPTEN_KEEPALIVE
@@ -1628,6 +1716,7 @@ void pc_connection_handler(int self, const char *state)
 	info("flow(%p): connection_handler: state=%s\n", flow, state);
 
 	if (streq(state, "connected")) {
+		restart_cancel(flow);
 		if (tmr_isrunning(&flow->tmr_disconnect))
 			tmr_cancel(&flow->tmr_disconnect);
 		else {
@@ -1637,11 +1726,24 @@ void pc_connection_handler(int self, const char *state)
 				true, true, flow->iflow.arg);
 		}
 	}
+	/* Failed is terminal in Firefox, as in the standard, so it restarts
+	 * at once there, and with plain audio, as release-10.5 did.
+	 */
 	else if (streq(state, "failed")) {
 		if (tmr_isrunning(&flow->tmr_disconnect))
 			tmr_cancel(&flow->tmr_disconnect);
-		IFLOW_CALL_CB(flow->iflow, restarth,
-			false, flow->iflow.arg);
+		if (g_jf.env == ENV_FIREFOX || sdp_audio_plain()) {
+			IFLOW_CALL_CB(flow->iflow, restarth,
+				false, flow->iflow.arg);
+		}
+		else {
+			restart_later(flow, false);
+		}
+	}
+	/* After failed: a pair works again, so the link is alive */
+	else if (streq(state, "disconnected")
+		 || streq(state, "connecting")) {
+		restart_later(flow, true);
 	}
 	else if (streq(state, "closed")) {
 		send_close(flow, EINTR);
