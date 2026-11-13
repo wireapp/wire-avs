@@ -79,7 +79,7 @@ static int send_handler(void *ctx, const char *convid,
 }
 
 static void close_handler(int reason, const char *, uint32_t,
-			  const char *, const char *, void *arg)
+			  const char *, const char *, const char *, void *arg)
 {
 	auto *client = static_cast<Client *>(arg);
 	if (client != &client->test->callee)

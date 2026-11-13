@@ -31,7 +31,7 @@ struct Events {
 Events events;
 
 void incoming(const char *conv, uint32_t, const char *, const char *,
-	      int, int, int, void *arg)
+	      const char *, int, int, int, void *arg)
 {
 	static_cast<Events *>(arg)->incoming.push_back(conv);
 }
@@ -39,7 +39,8 @@ void missed(const char *conv, uint32_t, const char *, const char *, int, void *a
 {
 	static_cast<Events *>(arg)->missed.push_back(conv);
 }
-void closed(int, const char *conv, uint32_t, const char *, const char *, void *arg)
+void closed(int, const char *conv, uint32_t, const char *, const char *,
+	    const char *, void *arg)
 {
 	static_cast<Events *>(arg)->closed.push_back(conv);
 }

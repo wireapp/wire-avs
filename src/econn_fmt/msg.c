@@ -702,6 +702,9 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		if (msg->u.confstart.sft_tuple) {
 			jzon_add_str(jobj, "sft_tuple", "%s", msg->u.confstart.sft_tuple);
 		}
+        if (msg->u.confstart.caller_id) {
+            jzon_add_str(jobj, "caller_id", "%s", msg->u.confstart.caller_id);
+        }
 		jzon_add_base64(jobj, "secret",
 				msg->u.confstart.secret, msg->u.confstart.secretlen);
 		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confstart.timestamp);
@@ -720,6 +723,9 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		if (msg->u.confcheck.sft_tuple) {
 			jzon_add_str(jobj, "sft_tuple", "%s", msg->u.confcheck.sft_tuple);
 		}
+        if (msg->u.confcheck.caller_id) {
+            jzon_add_str(jobj, "caller_id", "%s", msg->u.confcheck.caller_id);
+        }
 		jzon_add_base64(jobj, "secret",
 				msg->u.confcheck.secret, msg->u.confcheck.secretlen);
 		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confcheck.timestamp);
@@ -728,6 +734,9 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		break;
 
 	case ECONN_CONF_END:
+        if (msg->u.confend.caller_id) {
+            jzon_add_str(jobj, "caller_id", "%s", msg->u.confend.caller_id);
+        }
 		break;
 
 	case ECONN_CONF_PART:
@@ -1021,6 +1030,10 @@ int econn_message_decode(struct econn_message **msgp,
 		/* sft_tuple is optional for backwards compat */
 		if (tuple)
 			str_dup(&msg->u.confstart.sft_tuple, tuple);
+        err = jzon_strdup_opt(&msg->u.confstart.caller_id,
+                              jobj, "caller_id", NULL);
+        if (err)
+            goto out;
 		pl_set_str(&pl, jzon_str(jobj, "timestamp"));
 		msg->u.confstart.timestamp = pl_u64(&pl);
 		pl_set_str(&pl, jzon_str(jobj, "seqno"));
@@ -1071,6 +1084,10 @@ int econn_message_decode(struct econn_message **msgp,
 		/* sft_tuple is optional for backwards compat */
 		if (tuple)
 			str_dup(&msg->u.confcheck.sft_tuple, tuple);
+        err = jzon_strdup_opt(&msg->u.confcheck.caller_id,
+                              jobj, "caller_id", NULL);
+        if (err)
+            goto out;
 		pl_set_str(&pl, jzon_str(jobj, "timestamp"));
 		msg->u.confcheck.timestamp = pl_u64(&pl);
 		pl_set_str(&pl, jzon_str(jobj, "seqno"));
@@ -1201,6 +1218,10 @@ int econn_message_decode(struct econn_message **msgp,
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_END))) {
 		msg->msg_type = ECONN_CONF_END;
+        err = jzon_strdup_opt(&msg->u.confend.caller_id,
+                              jobj, "caller_id", NULL);
+        if (err)
+            goto out;
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_PART))) {
 		struct pl pl = PL_INIT;

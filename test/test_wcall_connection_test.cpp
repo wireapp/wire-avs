@@ -32,7 +32,7 @@ protected:
 		return static_cast<ConnectionTestStart *>(arg)->config_error;
 	}
 	static void closed(int reason, const char *, uint32_t, const char *,
-			   const char *, void *arg)
+			   const char *, const char *, void *arg)
 	{
 		auto *test = static_cast<ConnectionTestStart *>(arg);
 		++test->closed_calls;
@@ -140,7 +140,7 @@ TEST_F(ConnectionTestStart, neverFallsBackToLegacyGroupWithoutSft)
 	struct wcall *call = nullptr;
 	auto *instance = wuser2inst(user);
 	EXPECT_EQ(ENOTSUP, wcall_add(instance, &call, "test-no-sft",
-		WCALL_CONV_TYPE_CONFERENCE_MLS, false, true));
+		WCALL_CONV_TYPE_CONFERENCE_MLS, false, true, NULL));
 	EXPECT_EQ(nullptr, wcall_lookup(instance, "test-no-sft"));
 	EXPECT_EQ(nullptr, call);
 }
@@ -240,9 +240,9 @@ TEST_F(ConnectionTestStart, endsTwentySecondsAfterFirstConnectionNotification)
 	struct wcall *test_call = nullptr;
 	struct wcall *normal_call = nullptr;
 	ASSERT_EQ(0, wcall_add(instance, &test_call, id.c_str(),
-		WCALL_CONV_TYPE_CONFERENCE_MLS, false, true));
+		WCALL_CONV_TYPE_CONFERENCE_MLS, false, true, NULL));
 	ASSERT_EQ(0, wcall_add(instance, &normal_call, "normal-call",
-		WCALL_CONV_TYPE_CONFERENCE_MLS, false, false));
+		WCALL_CONV_TYPE_CONFERENCE_MLS, false, false, NULL));
 
 	// Simulate established-media notifications without starting a transport.
 	const uint64_t connected_at = tmr_jiffies();

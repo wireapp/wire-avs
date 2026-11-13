@@ -380,13 +380,17 @@ static void answer_timer(void *arg)
 
 
 static void incoming_handler(const char *convid, uint32_t msg_time,
-			     const char *userid, int video_call /*bool*/,
-			     int should_ring /*bool*/,
+			     const char *userid, const char *clientid,
+                 const char *caller_id, int video_call /*bool*/,
+			     int should_ring /*bool*/, int conv_type,
 			     void *arg)
 {
 	struct client *cli = (struct client *)arg;
 	int err;
 	(void)msg_time;
+    (void)clientid;
+    (void)caller_id;
+    (void)conv_type;
 
 	info("[ %s.%s ] {%s} incoming call from %s\n",
 		  cli->userid, cli->clientid,
@@ -457,10 +461,13 @@ static void estab_handler(const char *convid,
 
 
 static void close_handler(int reason, const char *convid, uint32_t msg_time,
-			  const char *userid, void *arg)
+			  const char *userid, const char *clientid,
+              const char *caller_id, void *arg)
 {
 	struct client *cli = (struct client *)arg;
 	int err;
+    (void)clientid;
+    (void)caller_id;
 
 	info("[ %s.%s ] {%s} call closed (%s)\n",
 		cli->userid, cli->clientid,

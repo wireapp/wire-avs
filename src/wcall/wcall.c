@@ -242,6 +242,7 @@ struct incoming_event {
 	uint32_t msg_time;
 	char *userid;
 	char *clientid;
+    char *caller_id;
 	int video_call;
 	int should_ring;
 	int conv_type;
@@ -292,6 +293,11 @@ struct calling_instance *wuser2inst(WUSER_HANDLE wuser)
 
 	return found ? inst : NULL;
 
+}
+
+const char *wcall_self_userid(struct calling_instance *inst)
+{
+    return inst ? inst->userid : NULL;
 }
 
 static WUSER_HANDLE inst2wuser(struct calling_instance *inst)
@@ -559,14 +565,40 @@ static void ie_destructor(void *arg)
 	mem_deref(ie->convid);
 	mem_deref(ie->userid);
 	mem_deref(ie->clientid);
+    mem_deref(ie->caller_id);
 
 	list_unlink(&ie->le);
+}
+
+static bool wcall_is_conference(const struct wcall *wcall)
+{
+    return wcall &&
+        (wcall->conv_type == WCALL_CONV_TYPE_CONFERENCE ||
+         wcall->conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS);
+}
+
+static const char *wcall_get_caller_id(struct wcall *wcall)
+{
+    if (!wcall)
+    {
+        info("wcall(%p): wcall_get_caller_id: invalid wcall\n", wcall);
+        return NULL;
+    }
+
+    if (!wcall_is_conference(wcall) || !wcall->icall)
+    {
+        info("wcall(%p): wcall_get_caller_id: wcall not conference or not icall\n", wcall);
+        return NULL;
+    }
+
+    return ccall_get_caller_id((const struct ccall *)wcall->icall);
 }
 
 void wcall_i_invoke_incoming_handler(const char *convid,
 				     uint32_t msg_time,
 				     const char *userid,
 				     const char *clientid,
+                     const char *caller_id,
 				     int video_call,
 				     int should_ring,
 				     int conv_type,
@@ -593,7 +625,7 @@ void wcall_i_invoke_incoming_handler(const char *convid,
 	}
 
 	if (inst->incomingh) {
-		inst->incomingh(convid, msg_time, userid, clientid,
+		inst->incomingh(convid, msg_time, userid, clientid, caller_id,
 				video_call, should_ring, conv_type, inst->arg);
 		info(APITAG "wcall(%p): inst->incomingh took %llu ms \n",
 		     inst, tmr_jiffies() - now);
@@ -627,6 +659,11 @@ static void icall_start_handler(struct icall *icall,
 			"inst=%p\n", wcall, inst);
 		return;
 	}
+
+    const char *caller_id = wcall_get_caller_id(wcall);
+
+    info("wcall(%p): incomingh: caller_id:%s\n",
+         wcall, caller_id ? caller_id : "N/A");
 
 	set_state(wcall, WCALL_STATE_INCOMING);
 
@@ -691,6 +728,10 @@ static void icall_start_handler(struct icall *icall,
 			prev_ie ? prev_ie->userid : userid_sender);
 		str_dup(&ie->clientid,
 			prev_ie ? prev_ie->clientid : clientid_sender);
+        if (prev_ie ? prev_ie->caller_id : caller_id) {
+            str_dup(&ie->caller_id,
+                    prev_ie ? prev_ie->caller_id : caller_id);
+        }
 		ie->video_call = prev_ie ? prev_ie->video_call : video;
 		ie->should_ring =
 			prev_ie ? prev_ie->should_ring : should_ring;
@@ -714,6 +755,7 @@ static void icall_start_handler(struct icall *icall,
 						  wcall->convid, msg_time,
 						  userid_sender,
 						  clientid_sender,
+                          caller_id,
 						  video ? 1 : 0,
 						  should_ring ? 1 : 0,
 						  ct,
@@ -723,6 +765,7 @@ static void icall_start_handler(struct icall *icall,
 			wcall_i_invoke_incoming_handler(wcall->convid, msg_time,
 						userid_sender,
 						clientid_sender,
+                        caller_id,
 						video ? 1 : 0,
 						should_ring ? 1 : 0,
 						ct,
@@ -1251,6 +1294,7 @@ static void icall_close_handler(struct icall *icall, int err,
 				struct icall_metrics *metrics,
 				uint32_t msg_time,
 				const char *userid, const char *clientid,
+				const char *caller_id,
 				void *arg)
 {
 	struct wcall *wcall = arg;
@@ -1300,7 +1344,8 @@ static void icall_close_handler(struct icall *icall, int err,
 	if (!ignore_close && inst->closeh) {
 		uint64_t now = tmr_jiffies();
 		inst->closeh(reason, wcall->convid,
-			     msg_time, userid, clientid, inst->arg);
+			     msg_time, userid, clientid,
+			     caller_id, inst->arg);
 		info(APITAG "wcall(%p): closeh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
 	}
@@ -1425,7 +1470,8 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 		     wcall_reason_name(reason));
 
 		inst->closeh(wreason, wcall->convid, msg_time,
-			     inst->userid, inst->clientid, inst->arg);
+			     inst->userid, inst->clientid,
+			     wcall_get_caller_id(wcall), inst->arg);
 		info(APITAG "wcall(%p): icall_leave_handler: "
 		     "closeh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
@@ -2060,7 +2106,8 @@ int wcall_add(struct calling_instance *inst,
 	      const char *convid,
 	      int conv_type,
 	      bool meeting,
-	      bool is_test)
+	      bool is_test,
+	      const char *caller_id)
 {	
 	struct wcall *wcall;
 	struct zapi_ice_server *turnv = NULL;
@@ -2093,11 +2140,11 @@ int wcall_add(struct calling_instance *inst,
 	wcall->is_test = is_test;
 	tmr_init(&wcall->test_tmr);
 
+    lock_write_get(inst->lock);
+
 	info(APITAG "wcall(%p): added for convid=%s inst=%p\n", wcall,
 	     anon_id(convid_anon, convid), inst);
 	str_dup(&wcall->convid, convid);
-
-	lock_write_get(inst->lock);
 
 	turnv = config_get_iceservers(inst->cfg, &turnc);
 	if (turnc == 0) {
@@ -2118,6 +2165,7 @@ int wcall_add(struct calling_instance *inst,
 			conv_type = WCALL_CONV_TYPE_GROUP;
 		}
 	}
+    wcall->conv_type = conv_type;
 
 	switch (conv_type) {
 	case WCALL_CONV_TYPE_ONEONONE: {
@@ -2244,6 +2292,12 @@ int wcall_add(struct calling_instance *inst,
 				    wcall);
 
 		ccall_set_config(ccall, inst->cfg);
+        err = ccall_set_caller_id(ccall, caller_id);
+        if (err) {
+            warning("wcall(%p): add: could not set caller_id: %m\n",
+                    wcall, err);
+            goto out;
+        }
 
 		}
 		break;
@@ -2369,6 +2423,7 @@ static void handle_pending_events(struct list *eventl)
 						  ie->msg_time,
 						  ie->userid,
 						  ie->clientid,
+                          ie->caller_id,
 						  ie->video_call,
 						  ie->should_ring,
 						  ie->conv_type,
@@ -2379,6 +2434,7 @@ static void handle_pending_events(struct list *eventl)
 							ie->msg_time,
 							ie->userid,
 							ie->clientid,
+                            ie->caller_id,
 							ie->video_call,
 							ie->should_ring,
 							ie->conv_type,
@@ -2669,6 +2725,26 @@ static int config_req_handler(void *arg)
 	return err;
 }
 
+static const char *conf_caller_id(const struct econn_message *msg)
+{
+    if (!msg)
+        return NULL;
+
+    switch (msg->msg_type) {
+    case ECONN_CONF_START:
+        return msg->u.confstart.caller_id;
+
+    case ECONN_CONF_CHECK:
+        return msg->u.confcheck.caller_id;
+
+    case ECONN_CONF_END:
+        return msg->u.confend.caller_id;
+
+    default:
+        return NULL;
+    }
+}
+
 
 static int add_wcall(struct wcall **wcall,
 		     struct calling_instance *inst,
@@ -2684,32 +2760,39 @@ static int add_wcall(struct wcall **wcall,
 	    && econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				WCALL_CONV_TYPE_GROUP,
-				meeting, false);
+				meeting, false, NULL);
 	}
 	else if (msg->msg_type == ECONN_GROUP_CHECK
 		 && !econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				WCALL_CONV_TYPE_GROUP,
-				meeting, false);
+				meeting, false, NULL);
 	}
 	else if (msg->msg_type == ECONN_CONF_START
 		 && econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
 				WCALL_CONV_TYPE_CONFERENCE,
-				meeting, false);
+				meeting, false, conf_caller_id(msg));
 	}
 	else if (msg->msg_type == ECONN_CONF_CHECK
 		 && !econn_message_isrequest(msg)) {
 		err = wcall_add(inst, wcall, convid,
 				conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
 				WCALL_CONV_TYPE_CONFERENCE,
-				meeting, false);
+				meeting, false, conf_caller_id(msg));
 	}
+    else if (msg->msg_type == ECONN_CONF_END
+         && econn_message_isrequest(msg)) {
+        err = wcall_add(inst, wcall, convid,
+                conv_type == WCALL_CONV_TYPE_CONFERENCE_MLS ? conv_type :
+                WCALL_CONV_TYPE_CONFERENCE,
+                meeting, false, conf_caller_id(msg));
+    }
 	else if (econn_is_creator(inst->userid, userid, msg)) {
 		err = wcall_add(inst, wcall, convid,
 				WCALL_CONV_TYPE_ONEONONE,
-				meeting, false);
+				meeting, false, NULL);
 		if (err) {
 			warning("wcall(%p): wcall_add failed: %m\n", inst, err);
 		}
@@ -3774,7 +3857,8 @@ int wcall_i_reject(struct wcall *wcall)
 
 			inst->closeh(reason, wcall->convid,
 				ECONN_MESSAGE_TIME_UNKNOWN, inst->userid,
-				inst->clientid, inst->arg);
+				inst->clientid, wcall_get_caller_id(wcall),
+				inst->arg);
 			info(APITAG "wcall(%p): wcall_reject: closeh took %llu ms\n",
 			     wcall, tmr_jiffies() - now);
 		}

@@ -85,6 +85,7 @@ typedef int (wcall_sft_req_h)(void *ctx, const char *url,
 /* Incoming call */
 typedef void (wcall_incoming_h)(const char *convid, uint32_t msg_time,
 				const char *userid, const char *clientid,
+                const char *caller_id,
 				int video_call /*bool*/,
 				int should_ring /*bool*/,
 				int conv_type, /*WCALL_CONV_TYPE...*/
@@ -193,6 +194,7 @@ typedef void (wcall_close_h)(int reason,
 			     uint32_t msg_time,
 			     const char *userid,
 			     const char *clientid,
+			     const char *caller_id,
 			     void *arg);
 /* Call metrics */
 typedef void (wcall_metrics_h)(const char *convid,
