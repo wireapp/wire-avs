@@ -52,6 +52,7 @@ struct msystem {
 	struct list mutel;
 	struct lock *mute_lock;
 	struct list activatel;
+	struct lock *activate_lock;
 
 	struct msystem_proxy *proxy;
 
@@ -146,6 +147,7 @@ static void msystem_destructor(void *data)
 	list_flush(&msys->mutel);
 	msys->mute_lock = mem_deref(msys->mute_lock);
 	list_flush(&msys->activatel);
+	msys->activate_lock = mem_deref(msys->activate_lock);
 	
 	iflow_destroy();
 
@@ -187,6 +189,12 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 	err = lock_alloc(&msys->mute_lock);
 	if (err) {
 		warning("msystem: failed to create mute lock (%m)\n", err);
+		goto out;
+	}
+
+	err = lock_alloc(&msys->activate_lock);
+	if (err) {
+		warning("msystem: failed to create activate lock (%m)\n", err);
 		goto out;
 	}
 
@@ -311,16 +319,16 @@ void msystem_unregister_listener(void *arg)
 
 static void ae_destructor(void *arg)
 {
-	struct activate_elem *ae;
+	struct activate_elem *ae = arg;
 
-	(void)ae;
+	list_unlink(&ae->le);
 }
 
 void *msystem_add_activate_handler(msystem_activate_h *activateh, void *arg)
 {
 	struct activate_elem *ae;
 
-	if (!activateh)
+	if (!activateh || !g_msys)
 		return NULL;
 
 	ae = mem_zalloc(sizeof(*ae), ae_destructor);
@@ -329,25 +337,64 @@ void *msystem_add_activate_handler(msystem_activate_h *activateh, void *arg)
 
 	ae->activateh = activateh;
 	ae->arg = arg;
+
+	lock_write_get(g_msys->activate_lock);
 	list_append(&g_msys->activatel, &ae->le, ae);
+	lock_rel(g_msys->activate_lock);
 
 	return (void *)ae;
 }
 
-void msystem_activate(bool active)
+void msystem_unregister_activate_handler(void *arg)
 {
 	struct le *le;
 
+	if (!g_msys)
+		return;
+
+	lock_write_get(g_msys->activate_lock);
 	LIST_FOREACH(&g_msys->activatel, le) {
 		struct activate_elem *ae = le->data;
 
-		if (!ae)
-			continue;
-
-		if (ae->activateh) {
-			ae->activateh(active, ae->arg);
+		if (arg == ae->arg) {
+			mem_deref(ae);
+			break;
 		}
 	}
+	lock_rel(g_msys->activate_lock);
+}
+
+void msystem_activate(bool active)
+{
+	struct activate_elem *aev;
+	struct le *le;
+	size_t i, n = 0;
+
+	if (!g_msys)
+		return;
+
+	/* Call the handlers on a copy of the list, outside the lock,
+	 * so a handler may unregister.
+	 */
+	lock_write_get(g_msys->activate_lock);
+	aev = mem_zalloc(list_count(&g_msys->activatel) * sizeof(*aev), NULL);
+	if (aev) {
+		LIST_FOREACH(&g_msys->activatel, le) {
+			struct activate_elem *ae = le->data;
+
+			aev[n].activateh = ae->activateh;
+			aev[n].arg = ae->arg;
+			++n;
+		}
+	}
+	lock_rel(g_msys->activate_lock);
+
+	for (i = 0; i < n; ++i) {
+		if (aev[i].activateh)
+			aev[i].activateh(active, aev[i].arg);
+	}
+
+	mem_deref(aev);
 }
 
 void msystem_set_tid(struct msystem *msys, pthread_t tid)

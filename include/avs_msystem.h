@@ -47,6 +47,7 @@ int msystem_get(struct msystem **msysp, const char *msysname,
 		void *arg);
 void msystem_unregister_listener(void *arg);
 void *msystem_add_activate_handler(msystem_activate_h *activateh, void *arg);
+void msystem_unregister_activate_handler(void *arg);
 bool msystem_is_initialized(struct msystem *msys);
 struct msystem *msystem_instance(void);
 void msystem_set_version(const char *ver);

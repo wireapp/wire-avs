@@ -120,9 +120,6 @@ struct calling_instance {
 	struct list wcalls;
 	struct list ctxl;
 
-	pthread_t tid;
-	bool thread_run;
-
 	wcall_ready_h *readyh;
 	wcall_send_h *sendh;
 	wcall_sft_req_h *sfth;
@@ -2712,18 +2709,16 @@ static void instance_destroy(struct calling_instance *inst)
 {
 	struct le *le;
 
-	if (inst->thread_run) {
-		inst->thread_run = false;
-
-		debug("wcall: joining thread..\n");
-
-		pthread_join(inst->tid, NULL);
-		pthread_detach(inst->tid);
-		inst->tid = 0;
-	}
+	/* Unlink first so the handle stops resolving while
+	 * the instance is being torn down.
+	 */
+	lock_write_get(calling.lock);
+	list_unlink(&inst->le);
+	lock_rel(calling.lock);
 
 	uintptr_t vuser = inst->wuser;
 	msystem_unregister_listener((void*)vuser);
+	msystem_unregister_activate_handler((void*)vuser);
 	tmr_cancel(&inst->tmr_roam);
 
 	/* Dont call list_flush as we expect a valid list
@@ -2741,7 +2736,6 @@ static void instance_destroy(struct calling_instance *inst)
 	list_flush(&inst->ctxl);
 
 	lock_write_get(inst->lock);
-	list_unlink(&inst->le);
 	list_flush(&inst->ecalls);
 
 	inst->userid = mem_deref(inst->userid);
