@@ -429,7 +429,7 @@ else
 DIST_WASM_WITH_SOURCE_MAP :=
 endif
 
-$(DIST_WASM_JS_TARGET):
+$(DIST_WASM_JS_TARGET): mk/dist.mk
 	$(MAKE) AVS_OS=wasm AVS_ARCH=generic avs
 	@mkdir -p $(BUILD_DIST_WASM)/src
 	$(EMCC) $(DIST_WASM_WITH_SOURCE_MAP) -o $(DIST_WASM_JS_TARGET) \
@@ -438,12 +438,13 @@ $(DIST_WASM_JS_TARGET):
 		$(BUILD_BASE)/wasm-generic/lib/libsodium.a \
 		$(BUILD_BASE)/wasm-generic/lib/libssl.a \
 		$(BUILD_BASE)/wasm-generic/lib/libcrypto.a \
-		-s EXPORTED_RUNTIME_METHODS='["ccall", "cwrap", "addFunction", "UTF8ToString", "lengthBytesUTF8", "stringToUTF8"]' \
+		-s EXPORTED_RUNTIME_METHODS='["ccall", "cwrap", "addFunction", "UTF8ToString", "lengthBytesUTF8", "stringToUTF8", "HEAPU8"]' \
 		-s EXPORTED_FUNCTIONS='["_wcall_init", "_malloc", "_free"]' \
                 -s TOTAL_MEMORY=134217728 \
 		-s RESERVED_FUNCTION_POINTERS=128 \
 		-s SINGLE_FILE=1 \
 		-s MODULARIZE=1 \
+		-s ENVIRONMENT='web,worker' \
 		-s EXPORT_NAME='avs_core'
 
 $(DIST_WASM_PC_TARGET):
@@ -454,7 +455,7 @@ $(DIST_WASM_PC_TARGET):
 $(DIST_WASM_PKG_TARGET):
 	(rm -f $@ && jq '.version = "$(DIST_WASM_PKG_VERSION)"' > $@) < $@
 
-$(DIST_WASM_WC_TARGET):
+$(DIST_WASM_WC_TARGET): include/avs_wcall.h wasm/avs_wcall.template wasm/wcall2ts.py
 	@mkdir -p $(BUILD_DIST_WASM)
 	@./wasm/wcall2ts.py include/avs_wcall.h wasm/avs_wcall.template $@
 

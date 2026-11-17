@@ -45,6 +45,9 @@ struct icall *ccall_get_icall(struct ccall* ccall);
 
 int ccall_set_config(struct ccall *ccall, struct config *cfg);
 
+/* Preserve locally supplied test epochs across connection setup/retries. */
+void ccall_set_test_mode(struct ccall *ccall, bool is_test);
+
 int  ccall_add_turnserver(struct icall *icall, struct zapi_ice_server *srv);
 
 int  ccall_add_sft(struct icall *icall, const char *sft_url);
