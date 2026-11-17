@@ -752,8 +752,10 @@ static void wm_destructor(void *arg)
 
 
 /* Called from instance_destructor, which may run on any thread.
- * Hand the marshal to its own queue so that the mqueue is
- * closed on the wcall thread.
+ * From a foreign thread, hand the marshal to its own queue so that
+ * the mqueue is closed on the wcall thread. On the wcall thread free
+ * it right away: the loop may already be stopping (a shutdown
+ * handler calling re_cancel), and a pushed free would never run.
  */
 void wcall_marshal_free(struct wcall_marshal *wm)
 {
@@ -762,7 +764,7 @@ void wcall_marshal_free(struct wcall_marshal *wm)
 	if (!wm)
 		return;
 
-	if (WCALL_MODE_MARSHAL == wcall_get_mode()) {
+	if (!wcall_thread_current()) {
 		err = mqueue_push(wm->mq, WCALL_MEV_FREE_MARSHAL, wm);
 		if (!err)
 			return;
