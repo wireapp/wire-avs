@@ -324,7 +324,7 @@ static void md_destructor(void *arg)
 	md->convid = mem_deref(md->convid);
 
 	/* Last, may free the instance and its marshal */
-	mem_deref(md->inst);
+	wcall_inst_put(md->inst);
 }
 
 
@@ -347,7 +347,7 @@ static struct mq_data *md_new(struct calling_instance *inst,
 		}
 	}
 
-	md->inst = mem_ref(inst);
+	md->inst = wcall_inst_ref(inst);
 	md->event = event;
 
 out:
@@ -841,7 +841,7 @@ int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
 	}		
 
 	md = md_new(inst, convid, WCALL_MEV_RECV_MSG);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md) {
 		mem_deref(msg);
 		return ENOMEM;
@@ -887,7 +887,7 @@ void wcall_config_update(WUSER_HANDLE wuser, int err, const char *json_str)
 	}
 	
 	md = md_new(inst, NULL, WCALL_MEV_CONFIG_UPDATE); 
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md)
 		return;
 
@@ -913,7 +913,7 @@ void wcall_resp(WUSER_HANDLE wuser, int status, const char *reason, void *arg)
 	}
 	
 	md = md_new(inst, NULL, WCALL_MEV_RESP);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md) {
 		warning("wcall: resp: failed to alloc md\n");
 		return;
@@ -960,7 +960,7 @@ void wcall_sft_resp(WUSER_HANDLE wuser,
 	}
 
 	md = md_new(inst, NULL, WCALL_MEV_SFT_RESP);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md) {
 		mem_deref(msg);
 		return;
@@ -1005,7 +1005,7 @@ int wcall_start(WUSER_HANDLE wuser,
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_START);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md) {
 		err = ENOMEM;
 		goto out;
@@ -1046,7 +1046,7 @@ int wcall_answer(WUSER_HANDLE wuser,
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_ANSWER);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md)
 		return ENOMEM;
 
@@ -1087,7 +1087,7 @@ void wcall_end(WUSER_HANDLE wuser, const char *convid)
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_END);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md) {
 		err = ENOMEM;
 		goto out;
@@ -1121,7 +1121,7 @@ int wcall_reject(WUSER_HANDLE wuser, const char *convid)
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_REJECT);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md) {
 		err = ENOMEM;
 		goto out;
@@ -1159,7 +1159,7 @@ void wcall_set_video_send_state(WUSER_HANDLE wuser,
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_VIDEO_SET_STATE);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md)
 		return;
 
@@ -1189,7 +1189,7 @@ void wcall_dce_send(WUSER_HANDLE wuser, const char *convid, struct mbuf *mb)
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_DCE_SEND);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md)
 		return;
 
@@ -1254,7 +1254,7 @@ void wcall_network_changed(void)
 	}
 	
 	md = md_new(inst, NULL, WCALL_MEV_NETWORK_CHANGED);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md)
 		return;
 
@@ -1333,7 +1333,7 @@ int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_SET_CLIENTS);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md)
 		return ENOMEM;
 
@@ -1369,7 +1369,7 @@ void wcall_set_mute(WUSER_HANDLE wuser, int muted)
 	}
 	
 	md = md_new(inst, NULL, WCALL_MEV_SET_MUTE);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md)
 		return;
     
@@ -1412,7 +1412,7 @@ int wcall_request_video_streams(WUSER_HANDLE wuser,
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_REQ_VSTREAMS);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md)
 		return ENOMEM;
 
@@ -1472,7 +1472,7 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_SET_EPOCH_INFO);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md)
 		return ENOMEM;
 
@@ -1539,7 +1539,7 @@ void wcall_set_duration(WUSER_HANDLE wuser, const char *convid, int duration)
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_SET_DURATION);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md)
 		return;
 
@@ -1568,7 +1568,7 @@ int wcall_process_notifications(WUSER_HANDLE wuser, int processing)
 	}
 
 	md = md_new(inst, NULL, WCALL_MEV_PROCESS_NOTIFICATIONS);
-	mem_deref(inst); /* md holds a ref */
+	wcall_inst_put(inst); /* md holds a ref */
 	if (!md)
 		return ENOMEM;
 

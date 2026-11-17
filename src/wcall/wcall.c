@@ -279,6 +279,46 @@ struct calling_instance *wcall_inst_get(WUSER_HANDLE wuser)
 
 }
 
+/* Instance refs are taken and dropped on any thread and re's
+ * refcount is not atomic, so every ref op on an instance goes
+ * through calling.lock: wcall_inst_get, wcall_get_instance and these.
+ */
+struct calling_instance *wcall_inst_ref(struct calling_instance *inst)
+{
+	if (!inst)
+		return NULL;
+
+	lock_write_get(calling.lock);
+	mem_ref(inst);
+	lock_rel(calling.lock);
+
+	return inst;
+}
+
+
+void *wcall_inst_put(struct calling_instance *inst)
+{
+	bool last;
+
+	if (!inst)
+		return NULL;
+
+	lock_write_get(calling.lock);
+	last = mem_nrefs(inst) == 1;
+	if (!last)
+		mem_deref(inst);
+	lock_rel(calling.lock);
+
+	/* The only holder left: the instance is not listed and nobody
+	 * else can take a ref, so run the destructor outside the lock.
+	 */
+	if (last)
+		mem_deref(inst);
+
+	return NULL;
+}
+
+
 bool wcall_inst_closing(struct calling_instance *inst)
 {
 	bool closing;
@@ -2199,7 +2239,7 @@ void wcall_set_media_laddr(WUSER_HANDLE wuser, struct sa *laddr)
 	inst->media_laddr = maddr;
 
  out:
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 static struct incoming_event *find_pending_event(struct list *eventl,
@@ -2738,7 +2778,7 @@ static void ide_handler(void *arg)
 	if (ide->shuth)
 		ide->shuth(ide->inst->wuser, ide->shuth_arg);
 	
-	mem_deref(ide->inst);
+	wcall_inst_put(ide->inst);
 	mem_deref(ide);
 }
 
@@ -2798,7 +2838,7 @@ static void instance_destroy(struct calling_instance *inst)
 		struct inst_dtor_entry *ide;
 		ide = mem_zalloc(sizeof(*ide), ide_destructor);
 		if (!ide) {
-			mem_deref(inst);
+			wcall_inst_put(inst);
 			return;
 		}
 
@@ -2861,7 +2901,7 @@ static void msys_mute_handler(bool muted, void *arg)
 		}
 	}
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 static void msys_activate_handler(bool active, void *arg)
@@ -2886,7 +2926,7 @@ static void msys_activate_handler(bool active, void *arg)
 		}
 	}
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 
@@ -3056,7 +3096,7 @@ void wcall_set_shutdown_handler(WUSER_HANDLE wuser,
 	inst->shuth = shuth;
 	inst->shuth_arg = arg;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 void wcall_i_destroy(struct calling_instance *inst)
@@ -3112,7 +3152,7 @@ void wcall_destroy(WUSER_HANDLE wuser)
 	}
 
  out:
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 AVS_EXPORT
@@ -3615,7 +3655,7 @@ void wcall_set_media_estab_handler(WUSER_HANDLE wuser,
 	
 	inst->mestabh = mestabh;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 
@@ -3634,7 +3674,7 @@ void wcall_set_req_new_epoch_handler(WUSER_HANDLE wuser,
 	
 	inst->req_new_epochh = req_new_epochh;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 
@@ -3654,7 +3694,7 @@ void wcall_set_media_stopped_handler(WUSER_HANDLE wuser,
 
 	inst->mstoph = mstoph;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 
@@ -3674,7 +3714,7 @@ void wcall_set_data_chan_estab_handler(WUSER_HANDLE wuser,
 	
 	inst->dcestabh = dcestabh;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 
@@ -3766,7 +3806,7 @@ void wcall_set_state_handler(WUSER_HANDLE wuser, wcall_state_change_h *stateh)
 
 	inst->stateh = stateh;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 void wcall_i_set_video_send_state(struct wcall *wcall, int state)
@@ -3847,7 +3887,7 @@ int wcall_is_video_call(WUSER_HANDLE wuser, const char *convid)
 		     wcall, "NULL");
 	}
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 
 	return is_video;
 }
@@ -3887,7 +3927,7 @@ int  wcall_debug(struct re_printf *pf, WUSER_HANDLE wuser)
 		}
 	}
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 	
 	return err;
 }
@@ -3916,7 +3956,7 @@ int  wcall_stats(struct re_printf *pf, WUSER_HANDLE wuser)
 		}
 	}
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 	
 	return err;	
 }
@@ -3936,7 +3976,7 @@ void wcall_set_trace(WUSER_HANDLE wuser, int trace)
 	
 	inst->config.trace = trace;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 
@@ -3957,7 +3997,7 @@ int wcall_get_state(WUSER_HANDLE wuser, const char *convid)
 	wcall = wcall_lookup(inst, convid);
 	state = wcall ? wcall->state : WCALL_STATE_UNKNOWN;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 
 	return state;
 }
@@ -3987,7 +4027,7 @@ void wcall_iterate_state(WUSER_HANDLE wuser,
 	}
 	lock_rel(inst->lock);
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 
@@ -4017,7 +4057,7 @@ void wcall_set_group_changed_handler(WUSER_HANDLE wuser,
 	inst->group.chgh = chgh;
 	inst->group.arg = arg;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 AVS_EXPORT
@@ -4046,7 +4086,7 @@ void wcall_set_participant_changed_handler(WUSER_HANDLE wuser,
 	inst->group.json.chgh = chgh;
 	inst->group.json.arg = arg;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 
@@ -4075,7 +4115,7 @@ struct wcall_members *wcall_get_members(WUSER_HANDLE wuser, const char *convid)
 			members = NULL;
 	}
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 
 	return members;
 }
@@ -4106,7 +4146,7 @@ void wcall_enable_privacy(WUSER_HANDLE wuser, int enabled)
 	else
 		warning("wcall: enable_privacy -- no msystem\n");
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 
@@ -4153,7 +4193,7 @@ struct mediamgr *wcall_mediamgr(WUSER_HANDLE wuser)
 	}
 
 	mm = inst->mm;
-	mem_deref(inst);
+	wcall_inst_put(inst);
 	
 	return mm;
 }
@@ -4309,7 +4349,7 @@ int wcall_netprobe(WUSER_HANDLE wuser,
 			     netprobe_handler, inst);
 
  out:
-	mem_deref(inst);
+	wcall_inst_put(inst);
 
 	return err;
 }
@@ -4350,7 +4390,7 @@ int wcall_set_network_quality_handler(WUSER_HANDLE wuser,
 			, inst->quality.interval);
 	}
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 
 	return 0;
 }
@@ -4450,7 +4490,7 @@ void wcall_set_req_clients_handler(WUSER_HANDLE wuser,
 	
 	inst->clients_reqh = reqch;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 
@@ -4472,7 +4512,7 @@ void wcall_set_active_speaker_handler(WUSER_HANDLE wuser,
 	
 	inst->active_speakerh = activeh;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 
@@ -4703,7 +4743,7 @@ void wcall_set_mute_handler(WUSER_HANDLE wuser, wcall_mute_h *muteh, void *arg)
 	inst->mute.h = muteh;
 	inst->mute.arg = arg;
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 }
 
 AVS_EXPORT
@@ -4779,7 +4819,7 @@ int wcall_set_background(WUSER_HANDLE wuser, int background)
 		ICALL_CALL(wcall->icall, set_background, background);
 	}
 
-	mem_deref(inst);
+	wcall_inst_put(inst);
 
 	return 0;
 }

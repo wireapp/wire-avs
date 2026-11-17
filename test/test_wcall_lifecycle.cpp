@@ -302,3 +302,81 @@ TEST_F(WcallLifecycleMarshal, destroy_waits_and_drops_events)
 	pthread_join(tid, NULL);
 	EXPECT_EQ(EINVAL, wcall_get_state(wa, "lifecycle-conv"));
 }
+
+
+/*
+ * Instance refs are taken and dropped on the API threads (handle
+ * lookups, queued events) and on the loop thread (handled events)
+ * at the same time. A lost update on the refcount frees the instance
+ * under a holder or leaks it. The window is small, so this rarely
+ * fails on its own; it is meant to be run under TSan/ASan.
+ */
+namespace {
+
+struct notif_hammer {
+	pthread_t tid;
+	WUSER_HANDLE wuser;
+	std::atomic<bool> *stop;
+	int calls;
+};
+
+
+void *notif_thread(void *arg)
+{
+	struct notif_hammer *h = (struct notif_hammer *)arg;
+
+	while (!*h->stop) {
+		wcall_get_state(h->wuser, "lifecycle-conv");
+		wcall_process_notifications(h->wuser, h->calls & 1);
+		++h->calls;
+	}
+
+	return NULL;
+}
+
+}
+
+
+TEST_F(WcallLifecycleMarshal, concurrent_refs)
+{
+	struct notif_hammer hv[4];
+	std::atomic<bool> stop;
+	WUSER_HANDLE wa, wb;
+	pthread_t tid;
+	size_t i;
+
+	wa = create("lifecycle-user-a");
+	ASSERT_NE(WUSER_INVALID_HANDLE, wa);
+	wb = create("lifecycle-user-b");
+	ASSERT_NE(WUSER_INVALID_HANDLE, wb);
+	wcall_set_shutdown_handler(wa, shutdown_handler, NULL);
+
+	loop_entered = false;
+	ASSERT_EQ(0, pthread_create(&tid, NULL, loop_thread, NULL));
+	while (!loop_entered)
+		sleep_ms(1);
+
+	stop = false;
+	for (i = 0; i < sizeof(hv) / sizeof(hv[0]); ++i) {
+		hv[i].wuser = wb;
+		hv[i].stop = &stop;
+		hv[i].calls = 0;
+		ASSERT_EQ(0, pthread_create(&hv[i].tid, NULL,
+					    notif_thread, &hv[i]));
+	}
+
+	sleep_ms(300);
+
+	/* Destroy while the hammers are still going */
+	wcall_destroy(wb);
+	EXPECT_EQ(EINVAL, wcall_get_state(wb, "lifecycle-conv"));
+
+	stop = true;
+	for (i = 0; i < sizeof(hv) / sizeof(hv[0]); ++i) {
+		pthread_join(hv[i].tid, NULL);
+		EXPECT_GT(hv[i].calls, 0);
+	}
+
+	wcall_destroy(wa);
+	pthread_join(tid, NULL);
+}

@@ -16,6 +16,8 @@ struct duration_entry {
 };
 
 struct calling_instance *wcall_inst_get(WUSER_HANDLE wuser);
+struct calling_instance *wcall_inst_ref(struct calling_instance *inst);
+void *wcall_inst_put(struct calling_instance *inst);
 
 bool wcall_is_ready(struct calling_instance *inst,
 		    int conv_type);
