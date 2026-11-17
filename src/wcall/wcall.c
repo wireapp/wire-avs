@@ -4500,28 +4500,6 @@ const char *wcall_reason_name(int reason)
 }
 
 
-/**
- * Return a borrowed reference to the Media-Manager
- */
-struct mediamgr *wcall_mediamgr(WUSER_HANDLE wuser)
-{
-	struct calling_instance *inst;
-	struct mediamgr *mm;
-
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: mediamgr: invalid wuser=0x%08X\n",
-			wuser);
-		return NULL;
-	}
-
-	mm = inst->mm;
-	wcall_inst_put(inst);
-	
-	return mm;
-}
-
-
 void wcall_handle_frame(struct avs_vidframe *frame)
 {
 	if (!frame)

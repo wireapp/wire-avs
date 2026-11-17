@@ -504,8 +504,6 @@ void wcall_free_members(struct wcall_members *members);
 
 void wcall_enable_privacy(WUSER_HANDLE wuser, int enabled);
 
-struct mediamgr *wcall_mediamgr(WUSER_HANDLE wuser);
-
 void wcall_handle_frame(struct avs_vidframe *frame);
 
 int wcall_set_proxy(const char *host, int port);
