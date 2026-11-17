@@ -18,6 +18,14 @@ export type AudioStreamHandler = (
   streams: readonly MediaStream[] | null
 ) => void;
 
+/** Current sender for a received audio track. Register before starting calls. */
+export type AudioSourceHandler = (
+  convid: string,
+  track_id: string,
+  userid: string,
+  clientid: string
+) => void;
+
 export type VideoStreamHandler = (
   convid: string,
   remote_userid: string,
@@ -87,6 +95,7 @@ let em_module: any;
 let logFn: WcallLogHandler | null = null;
 let userMediaHandler: UserMediaHandler | null = null;
 let audioStreamHandler: AudioStreamHandler | null = null;
+let audioSourceHandler: AudioSourceHandler | null = null;
 let videoStreamHandler: VideoStreamHandler | null = null;
 let insertableLegacy: boolean = false;
 let insertableStreams: boolean = false;
@@ -529,6 +538,21 @@ function decryptFrame(track_id, coder, rtcFrame, controller) {
   )
   .then(function(decdata){
     rtcFrame.data = decdata;
+    // Publish sender identity only after the frame has authenticated successfully.
+    if (!isVideo && track_id) {
+      const identities = coder.audio.sourceIdentities || (coder.audio.sourceIdentities = Object.create(null));
+      const identity = JSON.stringify([uinfo.userid, uinfo.clientid]);
+      if (identities[track_id] !== identity) {
+        identities[track_id] = identity;
+        postMessage({
+          op: "audioSource",
+          self: coder.self,
+          track_id: track_id,
+          userid: uinfo.userid,
+          clientid: uinfo.clientid,
+        });
+      }
+    }
     controller.enqueue(rtcFrame);
     if (isVideo && !uinfo.first_succ_video) {
       doLog("frame_dec: decrypt: first frame decrypted type: video uid: " +
@@ -659,7 +683,7 @@ onmessage = async (event) => {
            return;
        }
 
-       setupReceiver(readableStream, writableStream, coder, null);
+       setupReceiver(readableStream, writableStream, coder, event.data.track_id);
    }
    else if (op === 'setMediaKey') {
        const {index, current, key} = event.data;
@@ -785,6 +809,13 @@ function createWorker() {
     else if (op === 'log') {
       const {level, logString} = event.data;
       pc_log(level, logString);
+    }
+    else if (op === 'audioSource' && audioSourceHandler) {
+      const {track_id, userid, clientid} = event.data;
+      const pcs = connectionsStore.getPeerConnectionBySelf(self);
+      for (const pc of pcs) {
+        audioSourceHandler(pc.convid, track_id, userid, clientid);
+      }
     }
     else if (op === 'setvstream') {
       const {userid, clientid, ssrc, track_id} = event.data;
@@ -1512,6 +1543,10 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
               hnd.toString() + label,
               event.streams);
       }
+      if (event.track.kind == "audio" && audioSourceHandler &&
+          pc.conv_type !== CONV_TYPE_CONFERENCE && pc.remote_userid && pc.remote_clientid) {
+          audioSourceHandler(pc.convid, event.track.id, pc.remote_userid, pc.remote_clientid);
+      }
       if (event.track.kind == "video" && videoStreamHandler) {
           let userid = pc.remote_userid;
           let clientid = pc.remote_clientid;
@@ -1898,6 +1933,7 @@ function setupReceiverTransform(pc: PeerConnection, receiver: any) {
   worker.postMessage({
     op: 'setupReceiver',
     self: pc.self,
+    track_id: receiver.track.id,
     readableStream,
     writableStream,
   }, [readableStream, writableStream]);
@@ -2349,6 +2385,14 @@ function pc_SetRemoteUserClientId(
 
   pc.remote_userid = em_module.UTF8ToString(useridPtr);
   pc.remote_clientid = em_module.UTF8ToString(clientidPtr);
+  if (audioSourceHandler && pc.conv_type !== CONV_TYPE_CONFERENCE &&
+      pc.remote_userid && pc.remote_clientid && pc.rtc) {
+    for (const receiver of pc.rtc.getReceivers()) {
+      if (receiver.track.kind === 'audio' && receiver.track.readyState !== 'ended') {
+        audioSourceHandler(pc.convid, receiver.track.id, pc.remote_userid, pc.remote_clientid);
+      }
+    }
+  }
 }
 
 /* Data Channel related */
@@ -2502,6 +2546,10 @@ function pc_IsConferenceCallingSupported() {
   return insertableStreams || insertableLegacy;
 }
 
+function pc_SetAudioSourceHandler(handler: AudioSourceHandler | null) {
+  audioSourceHandler = handler;
+}
+
 function pc_SetAudioStreamHandler(ash: AudioStreamHandler) {
   audioStreamHandler = ash;
 }
@@ -2637,6 +2685,7 @@ export default {
   init: pc_InitModule,
   setUserMediaHandler: pc_SetUserMediaHandler,
   setAudioStreamHandler: pc_SetAudioStreamHandler,
+  setAudioSourceHandler: pc_SetAudioSourceHandler,
   setVideoStreamHandler: pc_SetVideoStreamHandler,
   isConferenceCallingSupported: pc_IsConferenceCallingSupported,
   replaceTrack: pc_ReplaceTrack,

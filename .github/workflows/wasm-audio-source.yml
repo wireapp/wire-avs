@@ -1,0 +1,37 @@
+name: WASM audio source tests
+
+on:
+  pull_request:
+    paths:
+      - "wasm/**"
+      - "include/avs_wcall.h"
+      - ".github/workflows/wasm-audio-source.yml"
+  push:
+    branches: [main]
+    paths:
+      - "wasm/**"
+      - "include/avs_wcall.h"
+      - ".github/workflows/wasm-audio-source.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audio-source:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wasm
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: wasm/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run test:audio-source
+      - name: Generate and type-check public bindings
+        run: |
+          python3 wcall2ts.py ../include/avs_wcall.h avs_wcall.template src/avs_wcall.ts
+          npx tsc --noEmit

@@ -5,7 +5,7 @@
  */
 
 import avs_core = require('./avs_core');
-import avs_pc, {UserMediaHandler, AudioStreamHandler, VideoStreamHandler} from './avs_pc';
+import avs_pc, {UserMediaHandler, AudioStreamHandler, AudioSourceHandler, VideoStreamHandler} from './avs_pc';
 
 
 %CONSTANTS%
@@ -41,6 +41,11 @@ export class Wcall {
 
   setAudioStreamHandler(audioStreamHandler: AudioStreamHandler): void {
     avs_pc.setAudioStreamHandler(audioStreamHandler);
+  }
+
+  /** Set before starting calls. Pass null to stop receiving source notifications. */
+  setAudioSourceHandler(audioSourceHandler: AudioSourceHandler | null): void {
+    avs_pc.setAudioSourceHandler(audioSourceHandler);
   }
 
   setVideoStreamHandler(videoStreamHandler: VideoStreamHandler): void {
