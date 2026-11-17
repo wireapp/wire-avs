@@ -2267,12 +2267,20 @@ static void timer_aulevel(void *arg)
 	struct peerflow *pf = (struct peerflow *)arg;
 	std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
 	webrtc::Timestamp now = webrtc::Timestamp::Zero();
+	webrtc::RtpSourceType srctype;
 
 	if (!pf || !pf->peerConn)
 		goto out;
 
 	trxs = pf->peerConn->GetTransceivers();
 	now = webrtc::Clock::GetRealTimeClock()->CurrentTime();
+
+	/* The SFT forwards on its own SSRCs and puts the sender's
+	 * SSRC in the CSRC list, P2P packets carry no CSRCs.
+	 */
+	srctype = pf->conv_type == ICALL_CONV_TYPE_ONEONONE
+		? webrtc::RtpSourceType::SSRC
+		: webrtc::RtpSourceType::CSRC;
 
 	for(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
 		webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rx = trx->receiver();
@@ -2289,7 +2297,7 @@ static void timer_aulevel(void *arg)
 			uint8_t level;
 			float flevel;
 
-			if (src.source_type() != webrtc::RtpSourceType::SSRC)
+			if (src.source_type() != srctype)
 				continue;
 			if ((now - src.timestamp()).ms() > AULEVEL_SOURCE_MAX_AGE)
 				continue;

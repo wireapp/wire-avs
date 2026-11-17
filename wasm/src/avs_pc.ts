@@ -2579,29 +2579,23 @@ function pc_GetAudioLevels(hnd: number) {
 	if (!rx || !rx.track || rx.track.kind !== 'audio')
 	    return;
 
-	const ssrcs = rx.getSynchronizationSources();
-	ssrcs.forEach(ssrc => {
-	    let ssrca = "";
-
-	    if (typeof ssrc.audioLevel === 'undefined')
-		return;
-	    if (source_age(ssrc.timestamp) > AULEVEL_SOURCE_MAX_AGE)
-		return;
-
-	    const aulevel = ((ssrc.audioLevel * 512.0) | 0);
-
-	    if (pc.conv_type != CONV_TYPE_ONEONONE) {
-		const uinfo = uinfo_from_ssrca(pc, ssrc.source.toString());
-		if (!uinfo)
+	/* The SFT forwards on its own SSRCs and puts the sender's
+	 * SSRC in the CSRC list, P2P packets carry no CSRCs.
+	 */
+	if (pc.conv_type == CONV_TYPE_ONEONONE) {
+	    const ssrcs = rx.getSynchronizationSources();
+	    ssrcs.forEach(ssrc => {
+		if (typeof ssrc.audioLevel === 'undefined')
 		    return;
-		uinfo.audio_level = aulevel;
-		ssrca = uinfo.ssrca;
-	    }
+		if (source_age(ssrc.timestamp) > AULEVEL_SOURCE_MAX_AGE)
+		    return;
 
-	    em_module.ccall(
-		"pc_set_audio_level", null, ["number", "number", "number"], [pc.self, ssrca, aulevel]
-	    );
-	});
+		em_module.ccall("pc_set_audio_level", null,
+				["number", "number", "number"],
+				[pc.self, 0, (ssrc.audioLevel * 512.0) | 0]);
+	    });
+	    return;
+	}
 
 	const csrcs = rx.getContributingSources();
 	csrcs.forEach(csrc => {
