@@ -62,6 +62,7 @@ enum mq_event {
 	WCALL_MEV_FREE_MARSHAL,
 	WCALL_MEV_MUTE_CHANGED,
 	WCALL_MEV_ACTIVATE,
+	WCALL_MEV_SET,
 };
 
 
@@ -183,6 +184,8 @@ struct mq_data {
 		struct {
 			struct destroy_wait *wait;
 		} destroy;
+
+		struct wcall_set set;
 	} u;
 };
 
@@ -420,6 +423,8 @@ static char *mev_name(int id)
 		return "MUTE_CHANGED";
 	case WCALL_MEV_ACTIVATE:
 		return "ACTIVATE";
+	case WCALL_MEV_SET:
+		return "SET";
 	default:
 		return "???";
 	}
@@ -667,6 +672,10 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 	case WCALL_MEV_ACTIVATE:
 		wcall_i_activate(md->inst, md->u.activate.active);
+		break;
+
+	case WCALL_MEV_SET:
+		wcall_i_set(md->inst, &md->u.set);
 		break;
 
 	default:
@@ -1633,6 +1642,26 @@ int wcall_marshal_activate(struct calling_instance *inst, bool active)
 		return ENOMEM;
 
 	md->u.activate.active = active;
+
+	err = md_enqueue(md);
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
+
+int wcall_marshal_set(struct calling_instance *inst,
+		      const struct wcall_set *set)
+{
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	md = md_new(inst, NULL, WCALL_MEV_SET);
+	if (!md)
+		return ENOMEM;
+
+	md->u.set = *set;
 
 	err = md_enqueue(md);
 	if (err)

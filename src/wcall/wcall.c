@@ -2845,12 +2845,16 @@ static void instance_destroy(struct calling_instance *inst)
 		/* Takes over the calling.instances ref */
 		ide->inst = inst;
 
-		if (!inst->shuth)
+		/* Set directly by wcall_set_shutdown_handler */
+		lock_write_get(inst->lock);
+		ide->shuth = inst->shuth;
+		ide->shuth_arg = inst->shuth_arg;
+		lock_rel(inst->lock);
+
+		if (!ide->shuth)
 			ide_handler(ide);
 		else {
 			tmr_init(&ide->tmr);
-			ide->shuth = inst->shuth;
-			ide->shuth_arg = inst->shuth_arg;
 			tmr_start(&ide->tmr, 0, ide_handler, ide);
 		}
 	}
@@ -2905,6 +2909,133 @@ void wcall_i_activate(struct calling_instance *inst, bool active)
 			ICALL_CALL(wcall->icall, activate, active);
 		}
 	}
+}
+
+
+void wcall_i_set(struct calling_instance *inst, const struct wcall_set *set)
+{
+	struct le *le;
+
+	switch (set->what) {
+	case WCALL_SET_MEDIA_ESTAB_H:
+		inst->mestabh = (wcall_media_estab_h *)set->h;
+		break;
+
+	case WCALL_SET_REQ_NEW_EPOCH_H:
+		inst->req_new_epochh = (wcall_req_new_epoch_h *)set->h;
+		break;
+
+	case WCALL_SET_MEDIA_STOPPED_H:
+		inst->mstoph = (wcall_media_stopped_h *)set->h;
+		break;
+
+	case WCALL_SET_DATA_CHAN_ESTAB_H:
+		inst->dcestabh = (wcall_data_chan_estab_h *)set->h;
+		break;
+
+	case WCALL_SET_STATE_H:
+		inst->stateh = (wcall_state_change_h *)set->h;
+		break;
+
+	case WCALL_SET_GROUP_CHANGED_H:
+		inst->group.chgh = (wcall_group_changed_h *)set->h;
+		inst->group.arg = set->arg;
+		break;
+
+	case WCALL_SET_PARTICIPANT_CHANGED_H:
+		inst->group.json.chgh = (wcall_participant_changed_h *)set->h;
+		inst->group.json.arg = set->arg;
+		break;
+
+	case WCALL_SET_REQ_CLIENTS_H:
+		inst->clients_reqh = (wcall_req_clients_h *)set->h;
+		break;
+
+	case WCALL_SET_ACTIVE_SPEAKER_H:
+		inst->active_speakerh = (wcall_active_speaker_h *)set->h;
+		break;
+
+	case WCALL_SET_MUTE_H:
+		inst->mute.h = (wcall_mute_h *)set->h;
+		inst->mute.arg = set->arg;
+		break;
+
+	case WCALL_SET_NETWORK_QUALITY_H:
+		inst->quality.netqh = (wcall_network_quality_h *)set->h;
+		inst->quality.interval = (uint64_t)set->val * 1000;
+		inst->quality.arg = set->arg;
+
+		LIST_FOREACH(&inst->wcalls, le) {
+			struct wcall *wcall = le->data;
+
+			if (!wcall)
+				continue;
+
+			ICALL_CALLE(wcall->icall, set_quality_interval,
+				    inst->quality.interval);
+		}
+		break;
+
+	case WCALL_SET_TRACE:
+		inst->config.trace = set->val;
+		break;
+
+	case WCALL_SET_BACKGROUND:
+		LIST_FOREACH(&inst->wcalls, le) {
+			struct wcall *wcall = le->data;
+
+			if (!wcall)
+				continue;
+
+			ICALL_CALL(wcall->icall, set_background, set->val);
+		}
+		break;
+
+	case WCALL_SET_PRIVACY:
+		if (inst->msys)
+			msystem_enable_privacy(inst->msys, !!set->val);
+		else
+			warning("wcall: enable_privacy -- no msystem\n");
+		break;
+
+	default:
+		warning("wcall(%p): set: unknown setter: %d\n",
+			inst, set->what);
+		break;
+	}
+}
+
+
+/* Setters run on the wcall thread like everything else that touches
+ * the instance, so they take effect asynchronously when called from
+ * another thread.
+ */
+static int inst_set(WUSER_HANDLE wuser, const char *name,
+		    const struct wcall_set *set)
+{
+	struct calling_instance *inst;
+	int err = 0;
+
+	inst = wcall_inst_get(wuser);
+	if (!inst) {
+		warning("wcall: %s: invalid wuser=0x%08X\n", name, wuser);
+		return EINVAL;
+	}
+
+	if (wcall_thread_current()) {
+		wcall_i_set(inst, set);
+	}
+	else {
+		err = wcall_marshal_set(inst, set);
+		if (err) {
+			warning("wcall(%p): %s: marshal failed (%m)\n",
+				inst, name, err);
+		}
+	}
+
+	wcall_inst_put(inst);
+
+	return err;
 }
 
 
@@ -3129,8 +3260,11 @@ void wcall_set_shutdown_handler(WUSER_HANDLE wuser,
 		return;
 	}
 
+	/* Not marshalled: wcall_destroy needs it right away */
+	lock_write_get(inst->lock);
 	inst->shuth = shuth;
 	inst->shuth_arg = arg;
+	lock_rel(inst->lock);
 
 	wcall_inst_put(inst);
 }
@@ -3152,6 +3286,7 @@ AVS_EXPORT
 void wcall_destroy(WUSER_HANDLE wuser)	
 {
 	struct calling_instance *inst;
+	bool has_shuth;
 	int err = 0;
 
 	inst = wcall_inst_get(wuser);
@@ -3170,7 +3305,11 @@ void wcall_destroy(WUSER_HANDLE wuser)
 	 * caller is told when it is done; without one, wait so that no
 	 * handlers are called after we return.
 	 */
-	if (inst->shuth)
+	lock_write_get(inst->lock);
+	has_shuth = inst->shuth != NULL;
+	lock_rel(inst->lock);
+
+	if (has_shuth)
 		err = wcall_marshal_destroy(inst, 0);
 	else if (wcall_thread_foreign())
 		err = wcall_marshal_destroy(inst, WCALL_DESTROY_WAIT_MS);
@@ -3680,18 +3819,12 @@ AVS_EXPORT
 void wcall_set_media_estab_handler(WUSER_HANDLE wuser,
 				   wcall_media_estab_h *mestabh)
 {
-	struct calling_instance *inst;
+	struct wcall_set set = {
+		.what = WCALL_SET_MEDIA_ESTAB_H,
+		.h = (void (*)(void))mestabh,
+	};
 
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: set_media_estab_h: invalid wuser=0x%08X\n",
-			wuser);
-		return;
-	}
-	
-	inst->mestabh = mestabh;
-
-	wcall_inst_put(inst);
+	inst_set(wuser, "set_media_estab_handler", &set);
 }
 
 
@@ -3699,18 +3832,12 @@ AVS_EXPORT
 void wcall_set_req_new_epoch_handler(WUSER_HANDLE wuser,
 				     wcall_req_new_epoch_h req_new_epochh)
 {
-	struct calling_instance *inst;
+	struct wcall_set set = {
+		.what = WCALL_SET_REQ_NEW_EPOCH_H,
+		.h = (void (*)(void))req_new_epochh,
+	};
 
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: set_req_new_epoch_h: invalid wuser=0x%08X\n",
-			wuser);
-		return;
-	}
-	
-	inst->req_new_epochh = req_new_epochh;
-
-	wcall_inst_put(inst);
+	inst_set(wuser, "set_req_new_epoch_handler", &set);
 }
 
 
@@ -3718,19 +3845,12 @@ AVS_EXPORT
 void wcall_set_media_stopped_handler(WUSER_HANDLE wuser,
 				     wcall_media_stopped_h *mstoph)
 {
-	struct calling_instance *inst;
+	struct wcall_set set = {
+		.what = WCALL_SET_MEDIA_STOPPED_H,
+		.h = (void (*)(void))mstoph,
+	};
 
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: set_media_stopped_handler: "
-			"invalid wuser=0x%08X\n",
-			wuser);
-		return;
-	}	
-
-	inst->mstoph = mstoph;
-
-	wcall_inst_put(inst);
+	inst_set(wuser, "set_media_stopped_handler", &set);
 }
 
 
@@ -3738,19 +3858,12 @@ AVS_EXPORT
 void wcall_set_data_chan_estab_handler(WUSER_HANDLE wuser,
 				       wcall_data_chan_estab_h *dcestabh)
 {
-	struct calling_instance *inst;
+	struct wcall_set set = {
+		.what = WCALL_SET_DATA_CHAN_ESTAB_H,
+		.h = (void (*)(void))dcestabh,
+	};
 
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: set_data_chan_estab_handler: "
-			"invalid wuser=0x%08X\n",
-			wuser);
-		return;
-	}	
-	
-	inst->dcestabh = dcestabh;
-
-	wcall_inst_put(inst);
+	inst_set(wuser, "set_data_chan_estab_handler", &set);
 }
 
 
@@ -3824,25 +3937,14 @@ void wcall_i_network_changed(void)
 AVS_EXPORT
 void wcall_set_state_handler(WUSER_HANDLE wuser, wcall_state_change_h *stateh)
 {
-	struct calling_instance *inst;
+	struct wcall_set set = {
+		.what = WCALL_SET_STATE_H,
+		.h = (void (*)(void))stateh,
+	};
 
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: set_state_handler: invalid wuser=0x%08X\n",
-			wuser);
-		return;
-	}
+	info(APITAG "wcall: set_state_handler %p wuser=0x%08X\n", stateh, wuser);
 
-	info(APITAG "wcall: set_state_handler %p inst=%p\n", stateh, inst);
-
-	if (!inst) {
-		warning("wcall_set_state_handler: no instance\n");
-		return;
-	}
-
-	inst->stateh = stateh;
-
-	wcall_inst_put(inst);
+	inst_set(wuser, "set_state_handler", &set);
 }
 
 void wcall_i_set_video_send_state(struct wcall *wcall, int state)
@@ -4001,18 +4103,12 @@ int  wcall_stats(struct re_printf *pf, WUSER_HANDLE wuser)
 AVS_EXPORT
 void wcall_set_trace(WUSER_HANDLE wuser, int trace)
 {
-	struct calling_instance *inst;
+	struct wcall_set set = {
+		.what = WCALL_SET_TRACE,
+		.val = trace,
+	};
 
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: set_trace: invalid wuser=0x%08X\n",
-			wuser);
-		return;
-	}
-	
-	inst->config.trace = trace;
-
-	wcall_inst_put(inst);
+	inst_set(wuser, "set_trace", &set);
 }
 
 
@@ -4072,28 +4168,16 @@ void wcall_set_group_changed_handler(WUSER_HANDLE wuser,
 				     wcall_group_changed_h *chgh,
 				     void *arg)
 {
-	struct calling_instance *inst;
+	struct wcall_set set = {
+		.what = WCALL_SET_GROUP_CHANGED_H,
+		.h = (void (*)(void))chgh,
+		.arg = arg,
+	};
 
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: set_group_changed_handler: "
-			"invalid wuser=0x%08X\n",
-			wuser);
-		return;
-	}
+	info(APITAG "wcall: set_group_changed_handler %p wuser=0x%08X\n",
+	     chgh, wuser);
 
-	info(APITAG "wcall: set_group_changed_handler %p inst=%p\n",
-	     chgh, inst);
-
-	if (!inst) {
-		warning("wcall_set_group_changed_handler: no instance\n");
-		return;
-	}
-
-	inst->group.chgh = chgh;
-	inst->group.arg = arg;
-
-	wcall_inst_put(inst);
+	inst_set(wuser, "set_group_changed_handler", &set);
 }
 
 AVS_EXPORT
@@ -4101,28 +4185,16 @@ void wcall_set_participant_changed_handler(WUSER_HANDLE wuser,
 					   wcall_participant_changed_h *chgh,
 					   void *arg)
 {
-	struct calling_instance *inst;
+	struct wcall_set set = {
+		.what = WCALL_SET_PARTICIPANT_CHANGED_H,
+		.h = (void (*)(void))chgh,
+		.arg = arg,
+	};
 
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: set_participant_changed_handler: "
-			"invalid wuser=0x%08X\n",
-			wuser);
-		return;
-	}
+	info(APITAG "wcall: set_participant_changed_handler %p wuser=0x%08X\n",
+	     chgh, wuser);
 
-	info(APITAG "wcall: set_participant_changed_handler %p inst=%p\n",
-	     chgh, inst);
-
-	if (!inst) {
-		warning("wcall_set_participant_changed_handler: no instance\n");
-		return;
-	}
-
-	inst->group.json.chgh = chgh;
-	inst->group.json.arg = arg;
-
-	wcall_inst_put(inst);
+	inst_set(wuser, "set_participant_changed_handler", &set);
 }
 
 
@@ -4165,24 +4237,15 @@ void wcall_free_members(struct wcall_members *members)
 AVS_EXPORT
 void wcall_enable_privacy(WUSER_HANDLE wuser, int enabled)
 {
-	struct calling_instance *inst;
+	struct wcall_set set = {
+		.what = WCALL_SET_PRIVACY,
+		.val = enabled,
+	};
 
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: enable_privacy: invalid wuser=0x%08X\n",
-			wuser);
-		return;
-	}
+	info(APITAG "wcall: enable_privacy enabled=%d wuser=0x%08X\n",
+	     enabled, wuser);
 
-	info(APITAG "wcall: enable_privacy enabled=%d inst=%p\n",
-	     enabled, inst);
-
-	if (inst->msys)
-		msystem_enable_privacy(inst->msys, !!enabled);
-	else
-		warning("wcall: enable_privacy -- no msystem\n");
-
-	wcall_inst_put(inst);
+	inst_set(wuser, "enable_privacy", &set);
 }
 
 
@@ -4398,37 +4461,17 @@ int wcall_set_network_quality_handler(WUSER_HANDLE wuser,
 				      int interval,
 				      void *arg)
 {
-	struct calling_instance *inst;
+	struct wcall_set set = {
+		.what = WCALL_SET_NETWORK_QUALITY_H,
+		.h = (void (*)(void))netqh,
+		.arg = arg,
+		.val = interval,
+	};
 
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: set_network_quality_handler: "
-			"invalid wuser=0x%08X\n",
-			wuser);
-		return EINVAL;
-	}	
+	info(APITAG "wcall: set_quality_handler fn=%p int=%d wuser=0x%08X\n",
+	     netqh, interval, wuser);
 
-	info(APITAG "wcall: set_quality_handler fn=%p int=%d inst=%p\n",
-		netqh, interval, inst);
-
-	inst->quality.netqh = netqh;
-	inst->quality.interval = (uint64_t)interval * 1000;
-	inst->quality.arg = arg;
-
-	struct le* le;
-	LIST_FOREACH(&inst->wcalls, le) {
-		struct wcall *wcall = le->data;
-
-		if (!wcall)
-			continue;
-
-		ICALL_CALLE(wcall->icall, set_quality_interval
-			, inst->quality.interval);
-	}
-
-	wcall_inst_put(inst);
-
-	return 0;
+	return inst_set(wuser, "set_network_quality_handler", &set);
 }
 
 AVS_EXPORT
@@ -4528,21 +4571,15 @@ AVS_EXPORT
 void wcall_set_req_clients_handler(WUSER_HANDLE wuser,
 				   wcall_req_clients_h *reqch)
 {
-	struct calling_instance *inst;
+	struct wcall_set set = {
+		.what = WCALL_SET_REQ_CLIENTS_H,
+		.h = (void (*)(void))reqch,
+	};
 
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: set_req_clients_handler: "
-			"invalid wuser=0x%08X\n",
-			wuser);
-		return;
-	}	
-	
-	info(APITAG "wcall: set_req_clients_handler %p inst=%p\n", reqch, inst);
-	
-	inst->clients_reqh = reqch;
+	info(APITAG "wcall: set_req_clients_handler %p wuser=0x%08X\n",
+	     reqch, wuser);
 
-	wcall_inst_put(inst);
+	inst_set(wuser, "set_req_clients_handler", &set);
 }
 
 
@@ -4550,21 +4587,15 @@ AVS_EXPORT
 void wcall_set_active_speaker_handler(WUSER_HANDLE wuser,
 				      wcall_active_speaker_h *activeh)
 {
-	struct calling_instance *inst;
+	struct wcall_set set = {
+		.what = WCALL_SET_ACTIVE_SPEAKER_H,
+		.h = (void (*)(void))activeh,
+	};
 
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: set_req_clients_handler: "
-			"invalid wuser=0x%08X\n",
-			wuser);
-		return;
-	}	
-	
-	info(APITAG "wcall: set_active_speaker_handler %p inst=%p\n", activeh, inst);
-	
-	inst->active_speakerh = activeh;
+	info(APITAG "wcall: set_active_speaker_handler %p wuser=0x%08X\n",
+	     activeh, wuser);
 
-	wcall_inst_put(inst);
+	inst_set(wuser, "set_active_speaker_handler", &set);
 }
 
 
@@ -4784,18 +4815,13 @@ void wcall_i_set_mute(int muted)
 AVS_EXPORT
 void wcall_set_mute_handler(WUSER_HANDLE wuser, wcall_mute_h *muteh, void *arg)
 {
-	struct calling_instance *inst = wcall_inst_get(wuser);
+	struct wcall_set set = {
+		.what = WCALL_SET_MUTE_H,
+		.h = (void (*)(void))muteh,
+		.arg = arg,
+	};
 
-	if (inst == NULL) {
-		warning("wcall: set_mute_handler: invalid wuser=0x%08x\n",
-			wuser);
-		return;
-	}
-
-	inst->mute.h = muteh;
-	inst->mute.arg = arg;
-
-	wcall_inst_put(inst);
+	inst_set(wuser, "set_mute_handler", &set);
 }
 
 AVS_EXPORT
@@ -4854,26 +4880,15 @@ int wcall_run(void)
 AVS_EXPORT
 int wcall_set_background(WUSER_HANDLE wuser, int background)
 {
-	struct calling_instance *inst = wcall_inst_get(wuser);
-	struct le *le;
+	struct wcall_set set = {
+		.what = WCALL_SET_BACKGROUND,
+		.val = background,
+	};
 
-	if (!inst)
-		return EINVAL;
+	info(APITAG "wcall: set_background: %d wuser=0x%08X\n",
+	     background, wuser);
 
-	info(APITAG "wcall(%p): set_background: %d\n", inst, background);
-
-	LIST_FOREACH(&inst->wcalls, le) {
-		struct wcall *wcall = le->data;
-
-		if (!wcall)
-			continue;
-
-		ICALL_CALL(wcall->icall, set_background, background);
-	}
-
-	wcall_inst_put(inst);
-
-	return 0;
+	return inst_set(wuser, "set_background", &set);
 }
 
 static void duration_destructor(void *arg)

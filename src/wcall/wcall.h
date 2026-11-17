@@ -111,6 +111,35 @@ void wcall_i_set_duration(struct wcall *wcall, int duration);
 void wcall_i_mute_changed(struct calling_instance *inst, bool muted);
 void wcall_i_activate(struct calling_instance *inst, bool active);
 
+enum wcall_setter {
+	WCALL_SET_MEDIA_ESTAB_H,
+	WCALL_SET_REQ_NEW_EPOCH_H,
+	WCALL_SET_MEDIA_STOPPED_H,
+	WCALL_SET_DATA_CHAN_ESTAB_H,
+	WCALL_SET_STATE_H,
+	WCALL_SET_GROUP_CHANGED_H,
+	WCALL_SET_PARTICIPANT_CHANGED_H,
+	WCALL_SET_REQ_CLIENTS_H,
+	WCALL_SET_ACTIVE_SPEAKER_H,
+	WCALL_SET_MUTE_H,
+	WCALL_SET_NETWORK_QUALITY_H,
+	WCALL_SET_TRACE,
+	WCALL_SET_BACKGROUND,
+	WCALL_SET_PRIVACY,
+};
+
+/* A public setter call, applied to the instance on the wcall thread */
+struct wcall_set {
+	enum wcall_setter what;
+	void (*h)(void); /* cast back to the handler type */
+	void *arg;
+	int val;
+};
+
+void wcall_i_set(struct calling_instance *inst, const struct wcall_set *set);
+int  wcall_marshal_set(struct calling_instance *inst,
+		       const struct wcall_set *set);
+
 #define WCALL_DESTROY_WAIT_MS 5000
 
 /* Waits up to wait_ms for the DESTROY to be handled, 0 to not wait */

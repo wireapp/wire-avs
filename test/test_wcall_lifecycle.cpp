@@ -472,3 +472,104 @@ TEST_F(WcallLifecycleMarshal, msystem_handlers_on_loop_thread)
 	wcall_destroy(wa);
 	pthread_join(tid, NULL);
 }
+
+
+/*
+ * Setters touch the instance on the loop thread too: from another
+ * thread they are queued in order with the other events, on the
+ * loop thread they apply right away.
+ */
+namespace {
+
+struct set_state {
+	WUSER_HANDLE wuser;
+	std::atomic<int> n_a;
+	std::atomic<int> n_b;
+	std::atomic<int> n_other;
+};
+
+struct set_state sst;
+
+
+void set_mute_handler_a(int muted, void *arg)
+{
+	(void)muted;
+
+	if (arg == &sst.n_a)
+		++sst.n_a;
+	if (!pthread_equal(pthread_self(), mst.loop_tid))
+		++sst.n_other;
+
+	/* On the loop thread: cleared before the next mute change */
+	wcall_set_mute_handler(sst.wuser, NULL, NULL);
+}
+
+
+void set_mute_handler_b(int muted, void *arg)
+{
+	(void)muted;
+
+	if (arg == &sst.n_b)
+		++sst.n_b;
+	if (!pthread_equal(pthread_self(), mst.loop_tid))
+		++sst.n_other;
+}
+
+
+void wait_count(std::atomic<int> *n, int count)
+{
+	int i;
+
+	for (i = 0; i < 200 && *n < count; ++i)
+		sleep_ms(5);
+	sleep_ms(50);
+}
+
+}
+
+
+TEST_F(WcallLifecycleMarshal, setters_on_loop_thread)
+{
+	WUSER_HANDLE wa;
+	pthread_t tid;
+
+	sst.n_a = 0;
+	sst.n_b = 0;
+	sst.n_other = 0;
+
+	wa = create("lifecycle-user-a");
+	ASSERT_NE(WUSER_INVALID_HANDLE, wa);
+	sst.wuser = wa;
+	wcall_set_shutdown_handler(wa, shutdown_handler, NULL);
+
+	loop_entered = false;
+	ASSERT_EQ(0, pthread_create(&tid, NULL, mute_loop_thread, NULL));
+	while (!loop_entered)
+		sleep_ms(1);
+
+	/* Queued from here, applied before the mute change */
+	wcall_set_mute_handler(wa, set_mute_handler_a, &sst.n_a);
+	msystem_set_muted(true);
+	wait_count(&sst.n_a, 1);
+	EXPECT_EQ(1, sst.n_a);
+
+	/* Handler a cleared itself on the loop thread */
+	msystem_set_muted(false);
+	sleep_ms(100);
+	EXPECT_EQ(1, sst.n_a);
+
+	wcall_set_mute_handler(wa, set_mute_handler_b, &sst.n_b);
+	msystem_set_muted(true);
+	wait_count(&sst.n_b, 1);
+	EXPECT_EQ(1, sst.n_b);
+	EXPECT_EQ(0, sst.n_other);
+
+	EXPECT_EQ(0, wcall_set_background(wa, 1));
+	EXPECT_EQ(0, wcall_set_network_quality_handler(wa, NULL, 5, NULL));
+
+	wcall_destroy(wa);
+	pthread_join(tid, NULL);
+
+	EXPECT_EQ(EINVAL, wcall_set_background(wa, 0));
+	msystem_set_muted(false);
+}
