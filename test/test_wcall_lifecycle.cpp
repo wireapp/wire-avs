@@ -19,6 +19,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <atomic>
+#include <string>
 #include <re.h>
 #include <avs.h>
 #include <avs_wcall.h>
@@ -183,6 +184,82 @@ TEST_F(WcallLifecycle, destroy_with_pending_start)
 		  wcall_get_state(wuser2, "lifecycle-conv"));
 
 	wcall_destroy(wuser2);
+}
+
+
+/*
+ * The getters read call state under the instance lock and call the
+ * app without it, so a state handler may call back into wcall.
+ */
+namespace {
+
+const char *sft_config_json =
+	"{\"ice_servers\":[{"
+	"\"urls\":[\"turn:127.0.0.1:3478\"],"
+	"\"username\":\"user\","
+	"\"credential\":\"secret\"}],"
+	"\"sft_servers\":[{"
+	"\"urls\":[\"https://sft.example.invalid\"]}],"
+	"\"ttl\":3600}";
+
+struct iter_state {
+	WUSER_HANDLE wuser;
+	int n;
+	int inner_state;
+};
+
+
+void iter_state_handler(const char *convid, int state, void *arg)
+{
+	struct iter_state *is = (struct iter_state *)arg;
+
+	(void)state;
+
+	++is->n;
+	is->inner_state = wcall_get_state(is->wuser, convid);
+}
+
+
+void recv_confstart(WUSER_HANDLE wuser, const char *convid)
+{
+	std::string msg;
+
+	msg = "{\"version\":\"3.0\",\"type\":\"CONFSTART\","
+		"\"sessid\":\"lifecycle\",\"resp\":false,"
+		"\"sft_url\":\"https://sft.example.invalid\","
+		"\"secret\":\"c2VjcmV0\",\"timestamp\":\"100\","
+		"\"seqno\":\"1\"}";
+	ASSERT_EQ(0, wcall_recv_msg(wuser, (const uint8_t *)msg.data(),
+				    msg.size(), 100, 100, convid,
+				    "remote-user", "remote-client",
+				    WCALL_CONV_TYPE_CONFERENCE, 0));
+}
+
+}
+
+
+TEST_F(WcallLifecycle, iterate_state_reentrant)
+{
+	struct iter_state is;
+	WUSER_HANDLE wuser;
+
+	wuser = create("lifecycle-user");
+	ASSERT_NE(WUSER_INVALID_HANDLE, wuser);
+	wcall_config_update(wuser, 0, sft_config_json);
+
+	recv_confstart(wuser, "lifecycle-conv");
+	ASSERT_EQ(WCALL_STATE_INCOMING,
+		  wcall_get_state(wuser, "lifecycle-conv"));
+	EXPECT_EQ(0, wcall_is_video_call(wuser, "lifecycle-conv"));
+
+	is.wuser = wuser;
+	is.n = 0;
+	is.inner_state = WCALL_STATE_UNKNOWN;
+	wcall_iterate_state(wuser, iter_state_handler, &is);
+	EXPECT_EQ(1, is.n);
+	EXPECT_EQ(WCALL_STATE_INCOMING, is.inner_state);
+
+	wcall_destroy(wuser);
 }
 
 

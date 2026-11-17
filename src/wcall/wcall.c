@@ -516,7 +516,12 @@ static void set_state(struct wcall *wcall, int st)
 	info("wcall(%p): set_state: %s->%s\n",
 	     wcall, wcall_state_name(wcall->state), wcall_state_name(st));
 
+	/* Read under inst->lock by the API getters */
+	if (inst)
+		lock_write_get(inst->lock);
 	wcall->state = st;
+	if (inst)
+		lock_rel(inst->lock);
 
 	if (trigger && inst && inst->stateh) {
 		inst->stateh(wcall->convid, wcall->state, inst->arg);
@@ -524,28 +529,38 @@ static void set_state(struct wcall *wcall, int st)
 }
 
 
+/* Caller holds inst->lock. A wcall unlinks itself under inst->lock
+ * before it is freed, so the result stays valid until it is released.
+ */
+static struct wcall *wcall_lookup_locked(struct calling_instance *inst,
+					 const char *convid)
+{
+	struct wcall *wcall;
+	struct le *le;
+
+	LIST_FOREACH(&inst->wcalls, le) {
+		wcall = le->data;
+
+		if (streq(convid, wcall->convid))
+			return wcall;
+	}
+
+	return NULL;
+}
+
+
 struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid)
 {
 	struct wcall *wcall;
-	bool found = false;
-	struct le *le;
 
 	if (!inst || !convid)
 		return NULL;
 	
 	lock_write_get(inst->lock);
-	for (le = inst->wcalls.head;
-	     le != NULL && !found;
-	     le = le->next) { 
-		wcall = le->data;
-
-		if (streq(convid, wcall->convid)) {
-			found = true;
-		}
-	}
+	wcall = wcall_lookup_locked(inst, convid);
 	lock_rel(inst->lock);
 	
-	return found ? wcall : NULL;
+	return wcall;
 }
 
 static void cuent_destructor(void *arg)
@@ -662,7 +677,9 @@ static void icall_start_handler(struct icall *icall,
 	     should_ring ? "yes" : "no",
 	     wcall_conv_type_name(ct));
 
+	lock_write_get(inst->lock);
 	wcall->video.video_call = video;
+	lock_rel(inst->lock);
 
 	wcall->disable_audio = !should_ring;
 	if (inst->mm && should_ring) {
@@ -3360,7 +3377,9 @@ int wcall_i_start(struct wcall *wcall,
 
 	bool is_video_call = call_type == WCALL_CALL_TYPE_VIDEO;
 	
+	lock_write_get(wcall->inst->lock);
 	wcall->video.video_call = is_video_call;
+	lock_rel(wcall->inst->lock);
 	if (wcall && wcall->icall) {
 
 		if (WCALL_STATE_NONE == wcall->state) {
@@ -4013,17 +4032,16 @@ int wcall_is_video_call(WUSER_HANDLE wuser, const char *convid)
 		return 0;
 	}
 
-	wcall = wcall_lookup(inst, convid);
-	if (wcall) {
-		info(APITAG "wcall(%p): is_video_call convid=%s is_video=%s\n",
-		     wcall, anon_id(convid_anon, wcall->convid),
-		     wcall->video.video_call ? "yes" : "no");	
+	lock_write_get(inst->lock);
+	wcall = convid ? wcall_lookup_locked(inst, convid) : NULL;
+	if (wcall)
 		is_video = wcall->video.video_call;
-	}
-	else {
-		info(APITAG "wcall(%p): is_video_call convid=%s is_video=no\n",
-		     wcall, "NULL");
-	}
+	lock_rel(inst->lock);
+
+	/* wcall may be gone, only log the pointer */
+	info(APITAG "wcall(%p): is_video_call convid=%s is_video=%s\n",
+	     wcall, wcall ? anon_id(convid_anon, convid) : "NULL",
+	     is_video ? "yes" : "no");
 
 	wcall_inst_put(inst);
 
@@ -4117,7 +4135,7 @@ int wcall_get_state(WUSER_HANDLE wuser, const char *convid)
 {
 	struct calling_instance *inst;
 	struct wcall *wcall;
-	int state;
+	int state = WCALL_STATE_UNKNOWN;
 
 	inst = wcall_inst_get(wuser);
 	if (!inst) {
@@ -4125,13 +4143,33 @@ int wcall_get_state(WUSER_HANDLE wuser, const char *convid)
 			wuser);
 		return EINVAL;
 	}
-	
-	wcall = wcall_lookup(inst, convid);
-	state = wcall ? wcall->state : WCALL_STATE_UNKNOWN;
+
+	if (convid) {
+		lock_write_get(inst->lock);
+		wcall = wcall_lookup_locked(inst, convid);
+		if (wcall)
+			state = wcall->state;
+		lock_rel(inst->lock);
+	}
 
 	wcall_inst_put(inst);
 
 	return state;
+}
+
+
+struct state_entry {
+	char *convid;
+	int state;
+	struct le le;
+};
+
+
+static void state_entry_destructor(void *arg)
+{
+	struct state_entry *ste = arg;
+
+	mem_deref(ste->convid);
 }
 
 
@@ -4140,7 +4178,7 @@ void wcall_iterate_state(WUSER_HANDLE wuser,
 			 wcall_state_change_h *stateh, void *arg)	
 {
 	struct calling_instance *inst;
-	struct wcall *wcall;
+	struct list statel = LIST_INIT;
 	struct le *le;
 
 	inst = wcall_inst_get(wuser);
@@ -4150,14 +4188,34 @@ void wcall_iterate_state(WUSER_HANDLE wuser,
 		return;
 	}
 
+	/* Copy, so stateh is called without inst->lock held */
 	lock_write_get(inst->lock);
 	LIST_FOREACH(&inst->wcalls, le) {
-		wcall = le->data;
+		struct wcall *wcall = le->data;
+		struct state_entry *ste;
 
-		if (wcall->state != WCALL_STATE_NONE)
-			stateh(wcall->convid, wcall->state, arg);
+		if (wcall->state == WCALL_STATE_NONE)
+			continue;
+
+		ste = mem_zalloc(sizeof(*ste), state_entry_destructor);
+		if (!ste)
+			continue;
+
+		if (str_dup(&ste->convid, wcall->convid)) {
+			mem_deref(ste);
+			continue;
+		}
+		ste->state = wcall->state;
+		list_append(&statel, &ste->le, ste);
 	}
 	lock_rel(inst->lock);
+
+	LIST_FOREACH(&statel, le) {
+		struct state_entry *ste = le->data;
+
+		stateh(ste->convid, ste->state, arg);
+	}
+	list_flush(&statel);
 
 	wcall_inst_put(inst);
 }
