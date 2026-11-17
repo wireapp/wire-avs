@@ -1335,7 +1335,9 @@ static void enter_normal_state(struct calling_instance *inst)
 }
 
 
-static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_time, void *arg)
+static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_time,
+				const char *userid, const char *clientid,
+				void *arg)
 {
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
@@ -1437,8 +1439,13 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 		     wcall, inst->closeh, wcall_state_name(wcall->state),
 		     wcall_reason_name(reason));
 
+		/* Report the call starter if known, otherwise self */
+		if (!userid) {
+			userid = inst->userid;
+			clientid = inst->clientid;
+		}
 		inst->closeh(wreason, wcall->convid, msg_time,
-			     inst->userid, inst->clientid, inst->arg);
+			     userid, clientid, inst->arg);
 		info(APITAG "wcall(%p): icall_leave_handler: "
 		     "closeh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);

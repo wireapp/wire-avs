@@ -498,7 +498,8 @@ static void egcall_ring_timeout(void *arg)
 	if (egcall->state == EGCALL_STATE_INCOMING) {
 		ICALL_CALL_CB(egcall->icall, leaveh,
 				&egcall->icall, ICALL_REASON_STILL_ONGOING,
-				ECONN_MESSAGE_TIME_UNKNOWN, egcall->icall.arg);
+				ECONN_MESSAGE_TIME_UNKNOWN,
+				NULL, NULL, egcall->icall.arg);
 	}
 }
 
@@ -738,7 +739,7 @@ static void send_leave(struct egcall *egcall, uint32_t msg_time, int err)
 		set_state(egcall, EGCALL_STATE_INCOMING);
 		ICALL_CALL_CB(egcall->icall, leaveh, 
 			&egcall->icall, ICALL_REASON_STILL_ONGOING,
-			msg_time, egcall->icall.arg);
+			msg_time, NULL, NULL, egcall->icall.arg);
 	}
 }
 
@@ -1337,7 +1338,7 @@ static void recv_start(struct egcall *egcall,
 			ICALL_CALL_CB(egcall->icall, leaveh,
 				&egcall->icall, ICALL_REASON_STILL_ONGOING,
 				msg ? msg->time : ECONN_MESSAGE_TIME_UNKNOWN,
-				egcall->icall.arg);
+				NULL, NULL, egcall->icall.arg);
 		}
 		break;
 
@@ -1487,7 +1488,8 @@ static void recv_reject(struct egcall* egcall,
 
 		ICALL_CALL_CB(egcall->icall, leaveh,
 			&egcall->icall, ICALL_REASON_STILL_ONGOING,
-			ECONN_MESSAGE_TIME_UNKNOWN, egcall->icall.arg);
+			ECONN_MESSAGE_TIME_UNKNOWN,
+			NULL, NULL, egcall->icall.arg);
 	}
 }
 

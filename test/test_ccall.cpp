@@ -146,6 +146,10 @@ protected:
 	unsigned closes = 0;
 	std::string close_userid;
 	std::string close_clientid;
+	unsigned leaves = 0;
+	int leave_reason = 0;
+	std::string leave_userid;
+	std::string leave_clientid;
 
 	static void start_handler(struct icall *, uint32_t,
 				  const char *userid, const char *clientid,
@@ -170,6 +174,18 @@ protected:
 		test->close_clientid = clientid ? clientid : "";
 	}
 
+	static void leave_handler(struct icall *, int reason, uint32_t,
+				  const char *userid, const char *clientid,
+				  void *arg)
+	{
+		auto *test = static_cast<CcallStarter *>(arg);
+
+		++test->leaves;
+		test->leave_reason = reason;
+		test->leave_userid = userid ? userid : "";
+		test->leave_clientid = clientid ? clientid : "";
+	}
+
 	void SetUp() override
 	{
 		ASSERT_EQ(0, ccall_alloc(&ccall, &conf, CONVID,
@@ -177,6 +193,7 @@ protected:
 		struct icall *icall = ccall_get_icall(ccall);
 		icall->starth = start_handler;
 		icall->closeh = close_handler;
+		icall->leaveh = leave_handler;
 		icall->arg = this;
 	}
 
@@ -429,4 +446,43 @@ TEST_F(CcallStarter, own_call_forgets_previous_starter)
 	EXPECT_TRUE(ccall->starter_userid == nullptr);
 	EXPECT_TRUE(ccall->starter_clientid == nullptr);
 	EXPECT_FALSE(ccall->starter_confirmed);
+}
+
+TEST_F(CcallStarter, answered_elsewhere_leaves_with_starter)
+{
+	/* Initial CONFSTART rings */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_START, 1000,
+				   STARTER_U, STARTER_C),
+			  STARTER_U, STARTER_C));
+	ASSERT_TRUE(ccall->is_ringing);
+
+	/* Answered on another of our own clients */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_START, 1000,
+				   STARTER_U, STARTER_C, true),
+			  SELF_U, "client-other"));
+
+	EXPECT_EQ(1u, leaves);
+	EXPECT_EQ(ICALL_REASON_ANSWERED_ELSEWHERE, leave_reason);
+	EXPECT_EQ(STARTER_U, leave_userid);
+	EXPECT_EQ(STARTER_C, leave_clientid);
+}
+
+TEST_F(CcallStarter, rejected_elsewhere_leaves_with_starter)
+{
+	struct econn_message *rej;
+
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_START, 1000,
+				   STARTER_U, STARTER_C),
+			  STARTER_U, STARTER_C));
+	ASSERT_TRUE(ccall->is_ringing);
+
+	/* Rejected on another of our own clients */
+	rej = econn_message_alloc();
+	econn_message_init(rej, ECONN_REJECT, ccall->convid_hash);
+	ASSERT_EQ(0, recv(rej, SELF_U, "client-other"));
+
+	EXPECT_EQ(1u, leaves);
+	EXPECT_EQ(ICALL_REASON_STILL_ONGOING, leave_reason);
+	EXPECT_EQ(STARTER_U, leave_userid);
+	EXPECT_EQ(STARTER_C, leave_clientid);
 }
