@@ -299,6 +299,18 @@ CPPFLAGS += -fprofile-instr-generate -fcoverage-mapping
 LFLAGS += -fprofile-instr-generate -fcoverage-mapping
 endif
 
+ifeq ($(ENABLE_ASAN),1)
+CFLAGS += -fsanitize=address -fno-omit-frame-pointer
+CPPFLAGS += -fsanitize=address -fno-omit-frame-pointer
+LFLAGS += -fsanitize=address
+endif
+
+ifeq ($(ENABLE_TSAN),1)
+CFLAGS += -fsanitize=thread -fno-omit-frame-pointer
+CPPFLAGS += -fsanitize=thread -fno-omit-frame-pointer
+LFLAGS += -fsanitize=thread
+endif
+
 ifeq ($(AVS_RELEASE),1)
  ifeq ($(AVS_OS),ios)
   CXXFLAGS += -DNDEBUG
