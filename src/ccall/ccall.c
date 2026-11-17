@@ -184,6 +184,20 @@ static int ccall_set_starter(struct ccall *ccall,
 	return 0;
 }
 
+static void ccall_closeh(struct ccall *ccall, int err, uint32_t msg_time)
+{
+	/* closeh may destroy ccall, keep the starter alive for it */
+	char *userid = mem_ref(ccall->starter_userid);
+	char *clientid = mem_ref(ccall->starter_clientid);
+
+	ICALL_CALL_CB(ccall->icall, closeh,
+		      &ccall->icall, err, &ccall->metrics, msg_time,
+		      userid, clientid, ccall->icall.arg);
+
+	mem_deref(userid);
+	mem_deref(clientid);
+}
+
 static int ccall_set_secret(struct ccall *ccall,
 			    const uint8_t *secret,
 			    size_t secretlen)
@@ -305,9 +319,7 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 	case CCALL_STATE_IDLE:
 		ccall->sft_url = mem_deref(ccall->sft_url);
 		ccall->sft_timestamp = 0;
-		ccall->starter_userid = mem_deref(ccall->starter_userid);
-		ccall->starter_clientid = mem_deref(ccall->starter_clientid);
-		ccall->starter_confirmed = false;
+		/* The starter is kept for closeh, a new call replaces it */
 		userlist_reset_keygenerator(ccall->userl);
 		ccall->received_confpart = false;
 		keystore_reset(ccall->keystore);
@@ -464,9 +476,7 @@ static void ccall_ongoing_call_timeout(void *arg)
 		info("ccall(%p): ongoing_call_timeout\n", ccall);
 
 		set_state(ccall, CCALL_STATE_IDLE);
-		ICALL_CALL_CB(ccall->icall, closeh, 
-			      &ccall->icall, 0, &ccall->metrics, time(NULL),
-			      NULL, NULL, ccall->icall.arg);
+		ccall_closeh(ccall, 0, time(NULL));
 	}
 }
 
@@ -1063,10 +1073,7 @@ static void durterm_timeout_handler(void *arg)
 	info("ccall(%p): deferred close\n", ccall);
 
 	set_state(ccall, CCALL_STATE_IDLE);
-	ICALL_CALL_CB(ccall->icall, closeh,
-		      &ccall->icall, ccall->error, &ccall->metrics,
-              time(NULL),
-		      NULL, NULL, ccall->icall.arg);
+	ccall_closeh(ccall, ccall->error, time(NULL));
 }
 
 static void ecall_close_handler(struct icall *icall,
@@ -1154,9 +1161,7 @@ static void ecall_close_handler(struct icall *icall,
 		if (ccall->error != EDURATION) {
 			// WPB-27209 Notice that closeh will dereference and destruct ccall
 			// Do not make any operations on ccall / ecall after this callback
-			ICALL_CALL_CB(ccall->icall, closeh,
-				&ccall->icall, ccall->error, &ccall->metrics, msg_time,
-				NULL, NULL, ccall->icall.arg);
+			ccall_closeh(ccall, ccall->error, msg_time);
 			return;
 		} 
 	}
@@ -3190,6 +3195,11 @@ int  ccall_start(struct icall *icall,
 		return ccall_answer(icall, call_type, audio_cbr);
 
 	case CCALL_STATE_IDLE:
+		/* A new call, forget the starter of the previous one */
+		ccall->starter_userid = mem_deref(ccall->starter_userid);
+		ccall->starter_clientid = mem_deref(ccall->starter_clientid);
+		ccall->starter_confirmed = false;
+
 		/* A new call gets a new secret. The ccall outlives an
 		 * ended call, and the keystore reset on IDLE cleared the
 		 * salt derived from the old secret: the media keys would
@@ -3763,10 +3773,7 @@ int  ccall_msg_recv(struct icall* icall,
 			if (strncmp(msg->sessid_sender, ccall->convid_hash,
 				    ECONN_ID_LEN) == 0) {
 				set_state(ccall, CCALL_STATE_IDLE);
-				ICALL_CALL_CB(ccall->icall, closeh, 
-					      &ccall->icall, 0, &ccall->metrics,
-                          msg_time,
-					      NULL, NULL, ccall->icall.arg);
+				ccall_closeh(ccall, 0, msg_time);
 			}
 			else {
 				info("ccall(%p): msg_recv ignoring CONFEND "

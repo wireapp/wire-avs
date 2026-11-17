@@ -143,6 +143,9 @@ protected:
 	unsigned starts = 0;
 	std::string start_userid;
 	std::string start_clientid;
+	unsigned closes = 0;
+	std::string close_userid;
+	std::string close_clientid;
 
 	static void start_handler(struct icall *, uint32_t,
 				  const char *userid, const char *clientid,
@@ -155,12 +158,25 @@ protected:
 		test->start_clientid = clientid ? clientid : "";
 	}
 
+	static void close_handler(struct icall *, int,
+				  struct icall_metrics *, uint32_t,
+				  const char *userid, const char *clientid,
+				  void *arg)
+	{
+		auto *test = static_cast<CcallStarter *>(arg);
+
+		++test->closes;
+		test->close_userid = userid ? userid : "";
+		test->close_clientid = clientid ? clientid : "";
+	}
+
 	void SetUp() override
 	{
 		ASSERT_EQ(0, ccall_alloc(&ccall, &conf, CONVID,
 					 SELF_U, SELF_C, false, false));
 		struct icall *icall = ccall_get_icall(ccall);
 		icall->starth = start_handler;
+		icall->closeh = close_handler;
 		icall->arg = this;
 	}
 
@@ -357,7 +373,7 @@ TEST_F(CcallStarter, earlier_call_replaces_starter)
 	EXPECT_EQ(1u, starts);
 }
 
-TEST_F(CcallStarter, cleared_on_confend)
+TEST_F(CcallStarter, confend_closes_with_starter)
 {
 	struct econn_message *end;
 
@@ -366,10 +382,51 @@ TEST_F(CcallStarter, cleared_on_confend)
 			  SENDER_U, SENDER_C));
 	expect_starter(STARTER_U, STARTER_C);
 
+	/* Ended by someone else */
 	end = econn_message_alloc();
 	econn_message_init(end, ECONN_CONF_END, ccall->convid_hash);
 	ASSERT_EQ(0, recv(end, SENDER_U, SENDER_C));
 
+	EXPECT_EQ(1u, closes);
+	EXPECT_EQ(STARTER_U, close_userid);
+	EXPECT_EQ(STARTER_C, close_clientid);
+}
+
+TEST_F(CcallStarter, next_call_replaces_starter)
+{
+	struct econn_message *end;
+
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000,
+				   STARTER_U, STARTER_C),
+			  SENDER_U, SENDER_C));
+	end = econn_message_alloc();
+	econn_message_init(end, ECONN_CONF_END, ccall->convid_hash);
+	ASSERT_EQ(0, recv(end, SENDER_U, SENDER_C));
+
+	/* Next incoming call, at a later time */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 5000, NULL, NULL),
+			  "user-d", "client-d"));
+	EXPECT_EQ(2u, starts);
+	EXPECT_EQ("user-d", start_userid);
+	expect_starter("user-d", "client-d", false);
+}
+
+TEST_F(CcallStarter, own_call_forgets_previous_starter)
+{
+	struct econn_message *end;
+
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000,
+				   STARTER_U, STARTER_C),
+			  SENDER_U, SENDER_C));
+	end = econn_message_alloc();
+	econn_message_init(end, ECONN_CONF_END, ccall->convid_hash);
+	ASSERT_EQ(0, recv(end, SENDER_U, SENDER_C));
+
+	/* No config, so the start fails after the starter is reset */
+	ccall_start(ccall_get_icall(ccall), ICALL_CALL_TYPE_NORMAL,
+		    false, false);
+
 	EXPECT_TRUE(ccall->starter_userid == nullptr);
 	EXPECT_TRUE(ccall->starter_clientid == nullptr);
+	EXPECT_FALSE(ccall->starter_confirmed);
 }
