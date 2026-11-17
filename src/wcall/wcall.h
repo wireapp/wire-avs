@@ -107,7 +107,14 @@ void wcall_i_process_notifications(struct calling_instance *inst,
 
 void wcall_i_set_duration(struct wcall *wcall, int duration);
 
-void wcall_marshal_destroy(struct calling_instance *inst);
+#define WCALL_DESTROY_WAIT_MS 5000
+
+/* Waits up to wait_ms for the DESTROY to be handled, 0 to not wait */
+int  wcall_marshal_destroy(struct calling_instance *inst, int wait_ms);
+bool wcall_inst_closing(struct calling_instance *inst);
+void wcall_thread_enter(void);
+void wcall_thread_leave(void);
+bool wcall_thread_foreign(void);
 int wcall_duration_add(struct calling_instance *inst,
 		       const char *convid,
 		       int duration);

@@ -16,6 +16,9 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <pthread.h>
+#include <stdlib.h>
+#include <time.h>
 #include <re.h>
 
 #include <avs.h>
@@ -166,8 +169,87 @@ struct mq_data {
 	        struct {
 		        int duration;
 	        } set_duration;
+
+		struct {
+			struct destroy_wait *wait;
+		} destroy;
 	} u;
 };
+
+
+/* Lets wcall_destroy wait for the DESTROY event. Shared by the
+ * waiter and the event, freed by whichever lets go last.
+ */
+struct destroy_wait {
+	pthread_mutex_t mutex;
+	pthread_cond_t cond;
+	int refs;
+	bool released; /* the event is gone */
+	bool done;     /* the event was handled */
+};
+
+
+static struct destroy_wait *destroy_wait_alloc(void)
+{
+	struct destroy_wait *dw;
+
+	dw = calloc(1, sizeof(*dw));
+	if (!dw)
+		return NULL;
+
+	pthread_mutex_init(&dw->mutex, NULL);
+	pthread_cond_init(&dw->cond, NULL);
+	dw->refs = 2; /* waiter + event */
+
+	return dw;
+}
+
+
+static void destroy_wait_put(struct destroy_wait *dw, bool event)
+{
+	int refs;
+
+	pthread_mutex_lock(&dw->mutex);
+	if (event) {
+		dw->released = true;
+		pthread_cond_broadcast(&dw->cond);
+	}
+	refs = --dw->refs;
+	pthread_mutex_unlock(&dw->mutex);
+
+	if (refs == 0) {
+		pthread_cond_destroy(&dw->cond);
+		pthread_mutex_destroy(&dw->mutex);
+		free(dw);
+	}
+}
+
+
+static int destroy_wait_wait(struct destroy_wait *dw, int wait_ms)
+{
+	struct timespec ts;
+	bool done;
+	int err = 0;
+
+	clock_gettime(CLOCK_REALTIME, &ts);
+	ts.tv_sec += wait_ms / 1000;
+	ts.tv_nsec += (long)(wait_ms % 1000) * 1000000L;
+	if (ts.tv_nsec >= 1000000000L) {
+		ts.tv_sec++;
+		ts.tv_nsec -= 1000000000L;
+	}
+
+	pthread_mutex_lock(&dw->mutex);
+	while (!dw->released && !err)
+		err = pthread_cond_timedwait(&dw->cond, &dw->mutex, &ts);
+	done = dw->done;
+	pthread_mutex_unlock(&dw->mutex);
+
+	if (!err && !done)
+		err = ECANCELED;
+
+	return err;
+}
 
 static struct list g_ready_pendingl = LIST_INIT;
 
@@ -228,6 +310,11 @@ static void md_destructor(void *arg)
 	case WCALL_MEV_SET_EPOCH_INFO:
 		mem_deref(md->u.set_epoch_info.clients_json);
 		mem_deref(md->u.set_epoch_info.key_data);
+		break;
+
+	case WCALL_MEV_DESTROY:
+		if (md->u.destroy.wait)
+			destroy_wait_put(md->u.destroy.wait, true);
 		break;
 
 	default:
@@ -336,6 +423,13 @@ static void mqueue_handler(int id, void *data, void *arg)
 		/* data is the marshal itself; nothing else is queued */
 		mem_deref(data);
 		return;
+	}
+
+	/* After wcall_destroy only the DESTROY itself is handled */
+	if (id != WCALL_MEV_DESTROY && wcall_inst_closing(md->inst)) {
+		info("wcall(%p): instance closing, dropping event: %s\n",
+		     md->inst, mev_name(id));
+		goto out;
 	}
 
 	if (md->convid)
@@ -506,6 +600,11 @@ static void mqueue_handler(int id, void *data, void *arg)
 
 	case WCALL_MEV_DESTROY:
 		wcall_i_destroy(md->inst);
+		if (md->u.destroy.wait) {
+			pthread_mutex_lock(&md->u.destroy.wait->mutex);
+			md->u.destroy.wait->done = true;
+			pthread_mutex_unlock(&md->u.destroy.wait->mutex);
+		}
 		break;
 
 	case WCALL_MEV_SET_MUTE:
@@ -1483,19 +1582,40 @@ int wcall_process_notifications(WUSER_HANDLE wuser, int processing)
 }
 
 
-void wcall_marshal_destroy(struct calling_instance *inst)
+int wcall_marshal_destroy(struct calling_instance *inst, int wait_ms)
 {
+	struct destroy_wait *dw = NULL;
 	struct mq_data *md = NULL;
 	int err = 0;
 
 	md = md_new(inst, NULL, WCALL_MEV_DESTROY);
 	if (!md)
-		return;
+		return ENOMEM;
+
+	if (wait_ms > 0) {
+		dw = destroy_wait_alloc();
+		if (!dw) {
+			mem_deref(md);
+			return ENOMEM;
+		}
+		md->u.destroy.wait = dw;
+	}
 
 	err = md_enqueue(md);
 	if (err) {
 		warning("wcall(%p): marshal_destroy: enqueue failed (%m)\n",
 			inst, err);
+		/* Releases the event's share of dw, not done */
 		mem_deref(md);
+		if (dw)
+			destroy_wait_put(dw, false);
+		return err;
 	}
+
+	if (dw) {
+		err = destroy_wait_wait(dw, wait_ms);
+		destroy_wait_put(dw, false);
+	}
+
+	return err;
 }

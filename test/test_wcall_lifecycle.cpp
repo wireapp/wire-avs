@@ -32,6 +32,11 @@
 
 namespace {
 
+extern "C" {
+void wcall_thread_enter(void);
+void wcall_thread_leave(void);
+}
+
 const char *config_json =
 	"{\"ice_servers\":[{"
 	"\"urls\":[\"turn:127.0.0.1:3478\"],"
@@ -74,12 +79,14 @@ void *hammer_thread(void *arg)
 }
 
 
-WUSER_HANDLE create(const char *userid)
+WUSER_HANDLE create(const char *userid,
+		    wcall_ready_h *readyh = NULL,
+		    void *arg = NULL)
 {
 	return wcall_create_ex(userid, "lifecycle-client",
 			       0, /* use_mediamgr */
 			       "voe",
-			       NULL, /* ready */
+			       readyh,
 			       NULL, /* send */
 			       NULL, /* sft */
 			       NULL, /* incoming */
@@ -91,7 +98,7 @@ WUSER_HANDLE create(const char *userid)
 			       NULL, /* config_req */
 			       NULL, /* audio_cbr */
 			       NULL, /* video_state */
-			       NULL);
+			       arg);
 }
 
 
@@ -176,4 +183,122 @@ TEST_F(WcallLifecycle, destroy_with_pending_start)
 		  wcall_get_state(wuser2, "lifecycle-conv"));
 
 	wcall_destroy(wuser2);
+}
+
+
+/*
+ * Marshal mode, with the test thread as the API thread and a loop
+ * thread running the marshal queue.
+ */
+namespace {
+
+struct ready {
+	std::atomic<int> called;
+	int delay_ms;
+};
+
+
+void ready_handler(int version, void *arg)
+{
+	struct ready *r = (struct ready *)arg;
+
+	(void)version;
+
+	if (r->delay_ms)
+		sleep_ms(r->delay_ms);
+	++r->called;
+}
+
+
+void shutdown_handler(WUSER_HANDLE wuser, void *arg)
+{
+	(void)wuser;
+	(void)arg;
+
+	re_cancel();
+}
+
+
+std::atomic<bool> loop_entered;
+
+
+void *loop_thread(void *arg)
+{
+	(void)arg;
+
+	wcall_thread_enter();
+	loop_entered = true;
+	re_main(NULL);
+	wcall_thread_leave();
+
+	return NULL;
+}
+
+
+class WcallLifecycleMarshal : public ::testing::Test {
+
+public:
+	virtual void SetUp() override
+	{
+		wcall_set_mode(WCALL_MODE_MARSHAL);
+		ASSERT_EQ(0, wcall_init(0));
+	}
+
+	virtual void TearDown() override
+	{
+		wcall_close();
+	}
+};
+
+}
+
+
+TEST_F(WcallLifecycleMarshal, destroy_waits_and_drops_events)
+{
+	struct ready ra, rb;
+	WUSER_HANDLE wa, wb;
+	pthread_t tid;
+	uint64_t t0, t;
+
+	ra.called = 0;
+	ra.delay_ms = 200;
+	rb.called = 0;
+	rb.delay_ms = 0;
+
+	/* Create before the loop runs, re is not entered here */
+	wa = create("lifecycle-user-a", ready_handler, &ra);
+	ASSERT_NE(WUSER_INVALID_HANDLE, wa);
+	wb = create("lifecycle-user-b", ready_handler, &rb);
+	ASSERT_NE(WUSER_INVALID_HANDLE, wb);
+	wcall_set_shutdown_handler(wa, shutdown_handler, NULL);
+
+	loop_entered = false;
+	ASSERT_EQ(0, pthread_create(&tid, NULL, loop_thread, NULL));
+	while (!loop_entered)
+		sleep_ms(1);
+
+	/* a's ready handler keeps the loop busy while b's
+	 * config update and destroy are queued behind it.
+	 */
+	wcall_config_update(wa, 0, config_json);
+	wcall_config_update(wb, 0, config_json);
+
+	t0 = tmr_jiffies();
+	wcall_destroy(wb);
+	t = tmr_jiffies() - t0;
+
+	/* Returned only after the loop got to the DESTROY... */
+	EXPECT_EQ(1, ra.called);
+	EXPECT_LT(t, (uint64_t)2000);
+	EXPECT_EQ(EINVAL, wcall_get_state(wb, "lifecycle-conv"));
+
+	/* ...and b's config update queued before it was dropped */
+	EXPECT_EQ(0, rb.called);
+
+	/* With a shutdown handler destroy does not wait, the handler
+	 * stops the loop.
+	 */
+	wcall_destroy(wa);
+	pthread_join(tid, NULL);
+	EXPECT_EQ(EINVAL, wcall_get_state(wa, "lifecycle-conv"));
 }

@@ -74,6 +74,10 @@ static struct {
 	int run_init;
 	int run_err;
 	pthread_t tid;
+	struct {
+		pthread_t tid;
+		bool running; /* atomic */
+	} thread; /* the thread running the marshal queue */
 	uint32_t wuser_index;
 	struct {
 		wcall_mute_h *h;
@@ -174,7 +178,7 @@ struct calling_instance {
 	struct sa *media_laddr;
 
 	uint32_t wuser;
-	bool destroyed; /* protected by calling.lock */
+	bool closing; /* protected by calling.lock */
 
 	bool processing_notifications;
 	struct list pending_eventl;
@@ -265,7 +269,7 @@ struct calling_instance *wcall_inst_get(WUSER_HANDLE wuser)
 	for (le = calling.instances.head; le && !found; le = le->next) {
 		inst = le->data;
 		
-		found = inst->wuser == wuser;
+		found = inst->wuser == wuser && !inst->closing;
 	}
 	if (found)
 		mem_ref(inst);
@@ -273,6 +277,38 @@ struct calling_instance *wcall_inst_get(WUSER_HANDLE wuser)
 
 	return found ? inst : NULL;
 
+}
+
+bool wcall_inst_closing(struct calling_instance *inst)
+{
+	bool closing;
+
+	lock_write_get(calling.lock);
+	closing = inst->closing;
+	lock_rel(calling.lock);
+
+	return closing;
+}
+
+
+/* Phase 1 of destroy: the handle stops resolving and queued events
+ * are dropped. The calling.instances ref is handed to the caller,
+ * which must pass it on to instance_destroy. Returns false if the
+ * instance is already closing.
+ */
+static bool instance_close(struct calling_instance *inst)
+{
+	bool closing;
+
+	lock_write_get(calling.lock);
+	closing = inst->closing;
+	if (!closing) {
+		inst->closing = true;
+		list_unlink(&inst->le);
+	}
+	lock_rel(calling.lock);
+
+	return !closing;
 }
 
 static WUSER_HANDLE inst2wuser(struct calling_instance *inst)
@@ -2707,28 +2743,14 @@ static void ide_handler(void *arg)
 }
 
 
-/* Tears down the instance and drops the calling.instances ref.
- * Fields used by other ref holders (lock, marshal, ids) are
- * freed in instance_destructor.
+/* Phase 2 of destroy, after instance_close: tears down the
+ * instance and drops the calling.instances ref. Fields used by
+ * other ref holders (lock, marshal, ids) are freed in
+ * instance_destructor.
  */
 static void instance_destroy(struct calling_instance *inst)
 {
 	struct le *le;
-	bool destroyed;
-
-	/* Unlink first so the handle stops resolving while
-	 * the instance is being torn down.
-	 */
-	lock_write_get(calling.lock);
-	destroyed = inst->destroyed;
-	inst->destroyed = true;
-	list_unlink(&inst->le);
-	lock_rel(calling.lock);
-
-	if (destroyed) {
-		warning("wcall(%p): instance already destroyed\n", inst);
-		return;
-	}
 
 	uintptr_t vuser = inst->wuser;
 	msystem_unregister_listener((void*)vuser);
@@ -3054,6 +3076,7 @@ AVS_EXPORT
 void wcall_destroy(WUSER_HANDLE wuser)	
 {
 	struct calling_instance *inst;
+	int err = 0;
 
 	inst = wcall_inst_get(wuser);
 	if (!inst) {
@@ -3062,11 +3085,33 @@ void wcall_destroy(WUSER_HANDLE wuser)
 		return;
 	}
 
+	if (!instance_close(inst)) {
+		warning("wcall: destroy: inst=%p already closing\n", inst);
+		goto out;
+	}
+
+	/* Tear down on the wcall thread. With a shutdown handler the
+	 * caller is told when it is done; without one, wait so that no
+	 * handlers are called after we return.
+	 */
 	if (inst->shuth)
-		wcall_marshal_destroy(inst);
+		err = wcall_marshal_destroy(inst, 0);
+	else if (wcall_thread_foreign())
+		err = wcall_marshal_destroy(inst, WCALL_DESTROY_WAIT_MS);
 	else
 		wcall_i_destroy(inst);
 
+	if (err == ETIMEDOUT) {
+		warning("wcall: destroy: inst=%p not destroyed after %d ms\n",
+			inst, WCALL_DESTROY_WAIT_MS);
+	}
+	else if (err) {
+		warning("wcall: destroy: inst=%p marshal failed (%m), "
+			"destroying here\n", inst, err);
+		wcall_i_destroy(inst);
+	}
+
+ out:
 	mem_deref(inst);
 }
 
@@ -4327,6 +4372,33 @@ int wcall_i_dce_send(struct wcall *wcall, struct mbuf *mb)
 	return ICALL_CALLE(wcall->icall, dce_send, mb);
 }
 
+/* Mark the calling thread as the one running the marshal queue */
+void wcall_thread_enter(void)
+{
+	calling.thread.tid = pthread_self();
+	__atomic_store_n(&calling.thread.running, true, __ATOMIC_RELEASE);
+}
+
+
+void wcall_thread_leave(void)
+{
+	__atomic_store_n(&calling.thread.running, false, __ATOMIC_RELEASE);
+}
+
+
+/* True if marshalled events run on a known thread other than this one */
+bool wcall_thread_foreign(void)
+{
+	if (WCALL_MODE_MARSHAL != calling.mode)
+		return false;
+
+	if (!__atomic_load_n(&calling.thread.running, __ATOMIC_ACQUIRE))
+		return false;
+
+	return !pthread_equal(calling.thread.tid, pthread_self());
+}
+
+
 AVS_EXPORT
 void wcall_thread_main(int *err, int *initialized)
 {
@@ -4347,7 +4419,9 @@ void wcall_thread_main(int *err, int *initialized)
 	*initialized = e == 0;
 	*err = e;
 
+	wcall_thread_enter();
 	re_main(NULL);
+	wcall_thread_leave();
 
 out:
 	flowmgr_close();
