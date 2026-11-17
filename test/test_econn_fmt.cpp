@@ -525,6 +525,7 @@ TEST(econn_fmt, econn_confstart)
 	ASSERT_EQ(init_props(&smsg->u.confstart.props), 0);
 	ASSERT_EQ(str_dup(&smsg->u.confstart.sft_url, "sft_url"), 0);
 	ASSERT_EQ(str_dup(&smsg->u.confstart.sft_tuple, "sft_tuple"), 0);
+    ASSERT_EQ(str_dup(&smsg->u.confstart.caller_id, "caller_id"), 0);
 	ASSERT_EQ(str_dup((char**)(&smsg->u.confstart.secret), "secret"), 0);
 	smsg->u.confstart.secretlen = 7;
 	smsg->u.confstart.timestamp = 12345;
@@ -536,6 +537,7 @@ TEST(econn_fmt, econn_confstart)
 	check_props(smsg->u.confstart.props, dmsg->u.confstart.props);
 	ASSERT_STREQ(smsg->u.confstart.sft_url, dmsg->u.confstart.sft_url);
 	ASSERT_STREQ(smsg->u.confstart.sft_tuple, dmsg->u.confstart.sft_tuple);
+    ASSERT_STREQ(smsg->u.confstart.caller_id, dmsg->u.confstart.caller_id);
 	ASSERT_EQ(smsg->u.confstart.secretlen, dmsg->u.confstart.secretlen);
 	ASSERT_EQ(memcmp(smsg->u.confstart.secret,
 			 dmsg->u.confstart.secret,
@@ -559,6 +561,7 @@ TEST(econn_fmt, econn_confcheck)
 
 	ASSERT_EQ(str_dup(&smsg->u.confcheck.sft_url, "sft_url"), 0);
 	ASSERT_EQ(str_dup(&smsg->u.confcheck.sft_tuple, "sft_tuple"), 0);
+    ASSERT_EQ(str_dup(&smsg->u.confcheck.caller_id, "caller_id"), 0);
 	ASSERT_EQ(str_dup((char**)(&smsg->u.confcheck.secret), secret), 0);
 	smsg->u.confcheck.secretlen = strlen(secret)+1;
 	smsg->u.confcheck.timestamp = 12345;
@@ -569,6 +572,7 @@ TEST(econn_fmt, econn_confcheck)
 
 	ASSERT_STREQ(smsg->u.confcheck.sft_url, dmsg->u.confcheck.sft_url);
 	ASSERT_STREQ(smsg->u.confcheck.sft_tuple, dmsg->u.confcheck.sft_tuple);
+    ASSERT_STREQ(smsg->u.confcheck.caller_id, dmsg->u.confcheck.caller_id);
 	ASSERT_EQ(smsg->u.confcheck.secretlen, dmsg->u.confcheck.secretlen);
 	ASSERT_EQ(memcmp(smsg->u.confcheck.secret,
 			 dmsg->u.confcheck.secret,
@@ -588,8 +592,10 @@ TEST(econn_fmt, econn_confend)
 
 	smsg = init_message(ECONN_CONF_END);
 	ASSERT_TRUE(smsg != NULL);
+    ASSERT_EQ(str_dup(&smsg->u.confend.caller_id, "caller_id"), 0);
 
 	encode_decode(smsg, &dmsg);
+    ASSERT_STREQ(smsg->u.confend.caller_id, dmsg->u.confend.caller_id);
 
 	mem_deref(smsg);
 	mem_deref(dmsg);

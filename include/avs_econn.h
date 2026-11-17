@@ -183,6 +183,7 @@ struct econn_message {
 			struct econn_props *props;
 			char *sft_url;
 			char *sft_tuple;
+            char *caller_id;
 			uint8_t *secret;
 			uint32_t secretlen;
 			uint64_t timestamp;
@@ -193,12 +194,17 @@ struct econn_message {
 		struct confcheck {
 			char *sft_url;
 			char *sft_tuple;
+            char *caller_id;
 			uint8_t *secret;
 			uint32_t secretlen;
 			uint64_t timestamp;
 			uint32_t seqno;
 			struct list sftl; /* list of struct econn_stringlist_info */
 		} confcheck;
+
+        struct confend {
+            char *caller_id;
+        } confend;
 
 		struct confpart {
 			uint64_t timestamp;

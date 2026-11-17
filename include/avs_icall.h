@@ -206,6 +206,7 @@ typedef void (icall_close_h)(struct icall *icall,
 			     uint32_t msg_time,
 			     const char *userid,
 			     const char *clientid,
+			     const char *caller_id,
 			     void *arg);
 typedef void (icall_metrics_h)(struct icall *icall,
 			       struct icall_metrics *metrics,
@@ -346,4 +347,3 @@ const char *icall_vstate_name(enum icall_vstate state);
 
 char *icall_metrics2json(const struct icall_metrics *metrics,
 			 const char *reason);
-

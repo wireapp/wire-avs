@@ -333,12 +333,14 @@ static void answer_call(struct sft_user *su)
 
 static void incoming_handler(const char *convid, uint32_t msg_time,
 			     const char *userid, const char *clientid,
+                 const char *caller_id,
 			     int video_call /*bool*/,
 			     int should_ring /*bool*/,
 			     int conv_type, /*WCALL_CONV_TYPE...*/
 			     void *arg)
 {
 	struct sft_user *su = arg;
+    (void)caller_id;
 	
 	re_printf("incoming_handler: su=%p convid=%s\n", su, convid);
 
@@ -369,9 +371,11 @@ static void close_handler(int reason,
 			  uint32_t msg_time,
 			  const char *userid,
 			  const char *clientid,
+              const char *caller_id,
 			  void *arg)
 {
 	struct sft_user *su = arg;
+    (void)caller_id;
 
 	re_printf("close_handler(%p) closed reason=%d\n", su, reason);
 

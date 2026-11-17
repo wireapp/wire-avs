@@ -1,0 +1,26 @@
+Changes introduced in AVS 10.5
+==============================
+
+Changed the API for:
+  - wcall_incoming_h
+  - wcall_close_h
+
+These callbacks now include caller_id. For conference calls, this is the user ID
+of the user who started the call. It is NULL for call types where AVS does not
+know the original caller.
+
+typedef void (wcall_incoming_h)(const char *convid, uint32_t msg_time,
+                                const char *userid, const char *clientid,
+                                const char *caller_id, /* <-- new parameter */
+                                int video_call, /* bool */
+                                int should_ring, /* bool */
+                                int conv_type, /* WCALL_CONV_TYPE... */
+                                void *arg);
+
+typedef void (wcall_close_h)(int reason,
+                             const char *convid,
+                             uint32_t msg_time,
+                             const char *userid,
+                             const char *clientid,
+                             const char *caller_id, /* <-- new parameter */
+                             void *arg);

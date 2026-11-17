@@ -16,6 +16,7 @@ struct duration_entry {
 };
 
 struct calling_instance *wuser2inst(WUSER_HANDLE wuser);
+const char *wcall_self_userid(struct calling_instance *inst);
 
 bool wcall_is_ready(struct calling_instance *inst,
 		    int conv_type);
@@ -28,7 +29,8 @@ struct wcall_marshal *wcall_get_marshal(struct calling_instance *inst);
 struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid);
 int  wcall_add(struct calling_instance *inst,
 	       struct wcall **wcallp, const char *convid,
-	       int conv_type, bool meeting, bool is_test);
+	       int conv_type, bool meeting, bool is_test,
+	       const char *caller_id);
 /* Connection-test identity is fixed when the call is allocated. */
 bool wcall_is_test(const struct wcall *wcall);
 int wcall_alloc_test_convid(struct calling_instance *inst, char **convidp);
@@ -50,6 +52,7 @@ void wcall_invoke_incoming_handler(const char *convid,
 				   uint32_t msg_time,
 				   const char *userid,
 				   const char *clientid,
+                   const char *caller_id,
 				   int video_call,
 				   int should_ring,
 				   int conv_type,
@@ -92,6 +95,7 @@ void wcall_i_invoke_incoming_handler(const char *convid,
 				    uint32_t msg_time,
 				    const char *userid,
 				    const char *clientid,
+                    const char *caller_id,
 				    int video_call,
 				    int should_ring,
 				    int conv_type,
