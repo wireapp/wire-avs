@@ -2869,19 +2869,10 @@ static void instance_destructor(void *arg)
 	mem_deref(inst->lock);
 }
 
-static void msys_mute_handler(bool muted, void *arg)
+void wcall_i_mute_changed(struct calling_instance *inst, bool muted)
 {
-	WUSER_HANDLE wuser = (WUSER_HANDLE)(unsigned long)arg;
-	struct calling_instance *inst;
 	struct le *le;
 	uint64_t now = tmr_jiffies();
-
-	inst = wcall_inst_get(wuser);
-	if (!inst) {
-		warning("wcall: msys_mute_handler: invalid wuser=0x%08X\n",
-			wuser);
-		return;
-	}
 
 	info(APITAG "wcall(%p): calling muteh: %p muted=%d\n",
 	     inst, inst->mute.h, muted);
@@ -2900,6 +2891,49 @@ static void msys_mute_handler(bool muted, void *arg)
 			call_group_change_json(inst, wcall);
 		}
 	}
+}
+
+
+void wcall_i_activate(struct calling_instance *inst, bool active)
+{
+	struct le *le;
+
+	LIST_FOREACH(&inst->wcalls, le) {
+		struct wcall *wcall = le->data;
+
+		if (wcall) {
+			ICALL_CALL(wcall->icall, activate, active);
+		}
+	}
+}
+
+
+/* msystem calls these on whatever thread changed the state, the
+ * instance is only touched on the wcall thread.
+ */
+static void msys_mute_handler(bool muted, void *arg)
+{
+	WUSER_HANDLE wuser = (WUSER_HANDLE)(unsigned long)arg;
+	struct calling_instance *inst;
+	int err;
+
+	inst = wcall_inst_get(wuser);
+	if (!inst) {
+		warning("wcall: msys_mute_handler: invalid wuser=0x%08X\n",
+			wuser);
+		return;
+	}
+
+	if (wcall_thread_current()) {
+		wcall_i_mute_changed(inst, muted);
+	}
+	else {
+		err = wcall_marshal_mute_changed(inst, muted);
+		if (err) {
+			warning("wcall(%p): msys_mute_handler: "
+				"marshal failed (%m)\n", inst, err);
+		}
+	}
 
 	wcall_inst_put(inst);
 }
@@ -2908,7 +2942,7 @@ static void msys_activate_handler(bool active, void *arg)
 {
 	WUSER_HANDLE wuser = (WUSER_HANDLE)(unsigned long)arg;
 	struct calling_instance *inst;
-	struct le *le;
+	int err;
 
 	inst = wcall_inst_get(wuser);
 	if (!inst) {
@@ -2916,13 +2950,15 @@ static void msys_activate_handler(bool active, void *arg)
 			wuser);
 		return;
 	}
-	
 
-	LIST_FOREACH(&inst->wcalls, le) {
-		struct wcall *wcall = le->data;
-
-		if (wcall) {
-			ICALL_CALL(wcall->icall, activate, active);
+	if (wcall_thread_current()) {
+		wcall_i_activate(inst, active);
+	}
+	else {
+		err = wcall_marshal_activate(inst, active);
+		if (err) {
+			warning("wcall(%p): msys_activate_handler: "
+				"marshal failed (%m)\n", inst, err);
 		}
 	}
 
@@ -4436,6 +4472,22 @@ bool wcall_thread_foreign(void)
 		return false;
 
 	return !pthread_equal(calling.thread.tid, pthread_self());
+}
+
+
+/* True if marshalled events run on this thread. Unlike
+ * wcall_thread_foreign, an unknown wcall thread counts as another
+ * thread.
+ */
+bool wcall_thread_current(void)
+{
+	if (WCALL_MODE_MARSHAL != calling.mode)
+		return true;
+
+	if (!__atomic_load_n(&calling.thread.running, __ATOMIC_ACQUIRE))
+		return false;
+
+	return pthread_equal(calling.thread.tid, pthread_self());
 }
 
 

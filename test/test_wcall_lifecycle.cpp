@@ -380,3 +380,95 @@ TEST_F(WcallLifecycleMarshal, concurrent_refs)
 	wcall_destroy(wa);
 	pthread_join(tid, NULL);
 }
+
+
+/*
+ * msystem calls the mute/activate handlers on the thread that changed
+ * the state (the app's main thread on iOS). The instance is only
+ * touched on the loop thread, so the handlers post an event to it.
+ */
+namespace {
+
+struct mute_state {
+	pthread_t loop_tid;
+	std::atomic<int> n_mute;
+	std::atomic<int> n_mute_other;
+};
+
+struct mute_state mst;
+
+
+void mute_handler(int muted, void *arg)
+{
+	(void)muted;
+	(void)arg;
+
+	++mst.n_mute;
+	if (!pthread_equal(pthread_self(), mst.loop_tid))
+		++mst.n_mute_other;
+}
+
+
+void *mute_loop_thread(void *arg)
+{
+	mst.loop_tid = pthread_self();
+
+	return loop_thread(arg);
+}
+
+}
+
+
+TEST_F(WcallLifecycleMarshal, msystem_handlers_on_loop_thread)
+{
+	struct ready rb;
+	WUSER_HANDLE wa, wb;
+	pthread_t tid;
+	int i;
+
+	mst.n_mute = 0;
+	mst.n_mute_other = 0;
+	rb.called = 0;
+	rb.delay_ms = 200;
+
+	wa = create("lifecycle-user-a");
+	ASSERT_NE(WUSER_INVALID_HANDLE, wa);
+	wb = create("lifecycle-user-b", ready_handler, &rb);
+	ASSERT_NE(WUSER_INVALID_HANDLE, wb);
+	wcall_set_shutdown_handler(wa, shutdown_handler, NULL);
+	wcall_set_mute_handler(wa, mute_handler, NULL);
+	wcall_set_mute_handler(wb, mute_handler, NULL);
+
+	loop_entered = false;
+	ASSERT_EQ(0, pthread_create(&tid, NULL, mute_loop_thread, NULL));
+	while (!loop_entered)
+		sleep_ms(1);
+
+	/* Changed on this thread, handled on the loop thread */
+	msystem_set_muted(true);
+	msystem_activate(true);
+	for (i = 0; i < 200 && mst.n_mute < 2; ++i)
+		sleep_ms(5);
+	EXPECT_EQ(2, mst.n_mute);
+	EXPECT_EQ(0, mst.n_mute_other);
+
+	/* b's ready handler keeps the loop busy while a mute change is
+	 * queued, then b is destroyed: only a's handler runs.
+	 */
+	mst.n_mute = 0;
+	wcall_config_update(wb, 0, config_json);
+	sleep_ms(50);
+	msystem_set_muted(false);
+	msystem_activate(false);
+	wcall_destroy(wb);
+	EXPECT_EQ(1, rb.called);
+
+	for (i = 0; i < 200 && mst.n_mute < 1; ++i)
+		sleep_ms(5);
+	sleep_ms(50);
+	EXPECT_EQ(1, mst.n_mute);
+	EXPECT_EQ(0, mst.n_mute_other);
+
+	wcall_destroy(wa);
+	pthread_join(tid, NULL);
+}

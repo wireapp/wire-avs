@@ -60,6 +60,8 @@ enum mq_event {
 	WCALL_MEV_PROCESS_NOTIFICATIONS,
 	WCALL_MEV_SET_DURATION,
 	WCALL_MEV_FREE_MARSHAL,
+	WCALL_MEV_MUTE_CHANGED,
+	WCALL_MEV_ACTIVATE,
 };
 
 
@@ -169,6 +171,14 @@ struct mq_data {
 	        struct {
 		        int duration;
 	        } set_duration;
+
+		struct {
+			bool muted;
+		} mute_changed;
+
+		struct {
+			bool active;
+		} activate;
 
 		struct {
 			struct destroy_wait *wait;
@@ -406,6 +416,10 @@ static char *mev_name(int id)
 		return "SET_DURATION";
 	case WCALL_MEV_FREE_MARSHAL:
 		return "FREE_MARSHAL";
+	case WCALL_MEV_MUTE_CHANGED:
+		return "MUTE_CHANGED";
+	case WCALL_MEV_ACTIVATE:
+		return "ACTIVATE";
 	default:
 		return "???";
 	}
@@ -645,6 +659,14 @@ static void mqueue_handler(int id, void *data, void *arg)
 	case WCALL_MEV_PROCESS_NOTIFICATIONS:
 		wcall_i_process_notifications(md->inst,
 					      md->u.process_notifications.processing);
+		break;
+
+	case WCALL_MEV_MUTE_CHANGED:
+		wcall_i_mute_changed(md->inst, md->u.mute_changed.muted);
+		break;
+
+	case WCALL_MEV_ACTIVATE:
+		wcall_i_activate(md->inst, md->u.activate.active);
 		break;
 
 	default:
@@ -1573,6 +1595,44 @@ int wcall_process_notifications(WUSER_HANDLE wuser, int processing)
 		return ENOMEM;
 
 	md->u.process_notifications.processing = (bool)processing;
+
+	err = md_enqueue(md);
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
+
+int wcall_marshal_mute_changed(struct calling_instance *inst, bool muted)
+{
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	md = md_new(inst, NULL, WCALL_MEV_MUTE_CHANGED);
+	if (!md)
+		return ENOMEM;
+
+	md->u.mute_changed.muted = muted;
+
+	err = md_enqueue(md);
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
+
+int wcall_marshal_activate(struct calling_instance *inst, bool active)
+{
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	md = md_new(inst, NULL, WCALL_MEV_ACTIVATE);
+	if (!md)
+		return ENOMEM;
+
+	md->u.activate.active = active;
 
 	err = md_enqueue(md);
 	if (err)
