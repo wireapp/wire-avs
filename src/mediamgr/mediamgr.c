@@ -1551,7 +1551,6 @@ static void call_state_handler(struct mm *mm, enum mediamgr_state new_state)
 		set_state(mm, new_state);
 		stop_all_media(mm);
 		audio_release(mm);
-		msystem_set_muted(false);
 		mm->audio_started = false;
 		switch (mm->sys_state) {
 		case MM_SYS_STATE_NORMAL:
