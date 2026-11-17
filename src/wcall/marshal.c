@@ -56,6 +56,7 @@ enum mq_event {
 	WCALL_MEV_SET_EPOCH_INFO,
 	WCALL_MEV_PROCESS_NOTIFICATIONS,
 	WCALL_MEV_SET_DURATION,
+	WCALL_MEV_FREE_MARSHAL,
 };
 
 
@@ -176,12 +177,11 @@ static void md_destructor(void *arg)
 	struct mq_data *md = arg;
 
 	wm = wcall_get_marshal(md->inst);
-	if (!wm)
-		return;
-
-	lock_write_get(wm->lock);
-	list_unlink(&md->le);
-	lock_rel(wm->lock);
+	if (wm) {
+		lock_write_get(wm->lock);
+		list_unlink(&md->le);
+		lock_rel(wm->lock);
+	}
 	
 	switch (md->event) {
 	case WCALL_MEV_ANSWER:
@@ -235,6 +235,9 @@ static void md_destructor(void *arg)
 	}
 
 	md->convid = mem_deref(md->convid);
+
+	/* Last, may free the instance and its marshal */
+	mem_deref(md->inst);
 }
 
 
@@ -257,7 +260,7 @@ static struct mq_data *md_new(struct calling_instance *inst,
 		}
 	}
 
-	md->inst = inst;
+	md->inst = mem_ref(inst);
 	md->event = event;
 
 out:
@@ -312,6 +315,10 @@ static char *mev_name(int id)
 		return "SET_EPOCH_INFO";
 	case WCALL_MEV_PROCESS_NOTIFICATIONS:
 		return "PROCESS_NOTIFICATIONS";
+	case WCALL_MEV_SET_DURATION:
+		return "SET_DURATION";
+	case WCALL_MEV_FREE_MARSHAL:
+		return "FREE_MARSHAL";
 	default:
 		return "???";
 	}
@@ -324,6 +331,12 @@ static void mqueue_handler(int id, void *data, void *arg)
 	int err = 0;
 
 	(void)arg;
+
+	if (id == WCALL_MEV_FREE_MARSHAL) {
+		/* data is the marshal itself; nothing else is queued */
+		mem_deref(data);
+		return;
+	}
 
 	if (md->convid)
 		wcall = wcall_lookup(md->inst, md->convid);
@@ -573,6 +586,22 @@ void wcall_invoke_ready(struct calling_instance *inst)
 }
 
 
+void wcall_marshal_flush_pending(struct calling_instance *inst)
+{
+	struct le *le = g_ready_pendingl.head;
+
+	while(le) {
+		struct mq_data *md = le->data;
+
+		le = le->next;
+		if (md && md->inst == inst) {
+			list_unlink(&md->ready_le);
+			mem_deref(md);
+		}
+	}
+}
+
+
 static void wm_destructor(void *arg)
 {
 	struct wcall_marshal *wmarsh = arg;
@@ -589,6 +618,30 @@ static void wm_destructor(void *arg)
 	list_flush(&wmarsh->mdl);
 
 	wmarsh->lock = mem_deref(wmarsh->lock);
+}
+
+
+/* Called from instance_destructor, which may run on any thread.
+ * Hand the marshal to its own queue so that the mqueue is
+ * closed on the wcall thread.
+ */
+void wcall_marshal_free(struct wcall_marshal *wm)
+{
+	int err;
+
+	if (!wm)
+		return;
+
+	if (WCALL_MODE_MARSHAL == wcall_get_mode()) {
+		err = mqueue_push(wm->mq, WCALL_MEV_FREE_MARSHAL, wm);
+		if (!err)
+			return;
+
+		warning("wcall: marshal(%p): free push failed (%m)\n",
+			wm, err);
+	}
+
+	mem_deref(wm);
 }
 
 
@@ -681,13 +734,15 @@ int  wcall_recv_msg(WUSER_HANDLE wuser, const uint8_t *buf, size_t len,
 		return err;
 	}
 
-	inst = wuser2inst(wuser);
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: recv_msg: invalid wuser: 0x%08X\n", wuser);
+		mem_deref(msg);
 		return EINVAL;
 	}		
 
 	md = md_new(inst, convid, WCALL_MEV_RECV_MSG);
+	mem_deref(inst); /* md holds a ref */
 	if (!md) {
 		mem_deref(msg);
 		return ENOMEM;
@@ -725,7 +780,7 @@ void wcall_config_update(WUSER_HANDLE wuser, int err, const char *json_str)
 	info("wcall(%p): config_update: err=%d json=%zu bytes\n",
 	     wuser, err, str_len(json_str));
 
-	inst = wuser2inst(wuser);
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: config_update: invalid handle: 0x%08X\n",
 			wuser);
@@ -733,6 +788,7 @@ void wcall_config_update(WUSER_HANDLE wuser, int err, const char *json_str)
 	}
 	
 	md = md_new(inst, NULL, WCALL_MEV_CONFIG_UPDATE); 
+	mem_deref(inst); /* md holds a ref */
 	if (!md)
 		return;
 
@@ -750,7 +806,7 @@ void wcall_resp(WUSER_HANDLE wuser, int status, const char *reason, void *arg)
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	inst = wuser2inst(wuser);
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: resp: invalid handle: 0x%08X\n",
 			wuser);
@@ -758,6 +814,7 @@ void wcall_resp(WUSER_HANDLE wuser, int status, const char *reason, void *arg)
 	}
 	
 	md = md_new(inst, NULL, WCALL_MEV_RESP);
+	mem_deref(inst); /* md holds a ref */
 	if (!md) {
 		warning("wcall: resp: failed to alloc md\n");
 		return;
@@ -784,13 +841,6 @@ void wcall_sft_resp(WUSER_HANDLE wuser,
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	inst = wuser2inst(wuser);
-	if (!inst) {
-		warning("wcall: sft_resp: invalid handle: 0x%08X\n",
-			wuser);
-		return;
-	}
-	
 	if (!ctx)
 		return;
 
@@ -802,9 +852,20 @@ void wcall_sft_resp(WUSER_HANDLE wuser,
 		}
 	}
 
-	md = md_new(inst, NULL, WCALL_MEV_SFT_RESP);
-	if (!md)
+	inst = wcall_inst_get(wuser);
+	if (!inst) {
+		warning("wcall: sft_resp: invalid handle: 0x%08X\n",
+			wuser);
+		mem_deref(msg);
 		return;
+	}
+
+	md = md_new(inst, NULL, WCALL_MEV_SFT_RESP);
+	mem_deref(inst); /* md holds a ref */
+	if (!md) {
+		mem_deref(msg);
+		return;
+	}
 
 	md->u.sft_resp.err = perr;
 	md->u.sft_resp.msg = msg;
@@ -837,7 +898,7 @@ int wcall_start(WUSER_HANDLE wuser,
 	if (!convid)
 		return EINVAL;
 
-	inst = wuser2inst(wuser);
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: start_ex: invalid handle: 0x%08X\n",
 			wuser);
@@ -845,6 +906,7 @@ int wcall_start(WUSER_HANDLE wuser,
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_START);
+	mem_deref(inst); /* md holds a ref */
 	if (!md) {
 		err = ENOMEM;
 		goto out;
@@ -877,7 +939,7 @@ int wcall_answer(WUSER_HANDLE wuser,
 	if (!convid)
 		return EINVAL;
 	
-	inst = wuser2inst(wuser);
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: answer_ex: invalid handle: 0x%08X\n",
 			wuser);
@@ -885,6 +947,10 @@ int wcall_answer(WUSER_HANDLE wuser,
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_ANSWER);
+	mem_deref(inst); /* md holds a ref */
+	if (!md)
+		return ENOMEM;
+
 	md->u.answer.call_type = call_type;
 	md->u.answer.audio_cbr = audio_cbr;
 
@@ -914,7 +980,7 @@ void wcall_end(WUSER_HANDLE wuser, const char *convid)
 		goto out;
 	}
 	
-	inst = wuser2inst(wuser);
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: end: invalid handle: 0x%08X\n",
 			wuser);
@@ -922,6 +988,7 @@ void wcall_end(WUSER_HANDLE wuser, const char *convid)
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_END);
+	mem_deref(inst); /* md holds a ref */
 	if (!md) {
 		err = ENOMEM;
 		goto out;
@@ -947,7 +1014,7 @@ int wcall_reject(WUSER_HANDLE wuser, const char *convid)
 	if (!convid)
 		return EINVAL;
 	
-	inst = wuser2inst(wuser);
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: reject: invalid handle: 0x%08X\n",
 			wuser);
@@ -955,6 +1022,7 @@ int wcall_reject(WUSER_HANDLE wuser, const char *convid)
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_REJECT);
+	mem_deref(inst); /* md holds a ref */
 	if (!md) {
 		err = ENOMEM;
 		goto out;
@@ -983,7 +1051,7 @@ void wcall_set_video_send_state(WUSER_HANDLE wuser,
 	if (!convid)
 		return;
 
-	inst = wuser2inst(wuser);
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: set_video_send_state: "
 			"invalid handle: 0x%08X\n",
@@ -992,6 +1060,7 @@ void wcall_set_video_send_state(WUSER_HANDLE wuser,
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_VIDEO_SET_STATE);
+	mem_deref(inst); /* md holds a ref */
 	if (!md)
 		return;
 
@@ -1013,7 +1082,7 @@ void wcall_dce_send(WUSER_HANDLE wuser, const char *convid, struct mbuf *mb)
 	if (!convid)
 		return;
 
-	inst = wuser2inst(wuser);
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: dce_send invalid handle: 0x%08X\n",
 			wuser);
@@ -1021,6 +1090,7 @@ void wcall_dce_send(WUSER_HANDLE wuser, const char *convid, struct mbuf *mb)
 	}
 
 	md = md_new(inst, convid, WCALL_MEV_DCE_SEND);
+	mem_deref(inst); /* md holds a ref */
 	if (!md)
 		return;
 
@@ -1085,6 +1155,7 @@ void wcall_network_changed(void)
 	}
 	
 	md = md_new(inst, NULL, WCALL_MEV_NETWORK_CHANGED);
+	mem_deref(inst); /* md holds a ref */
 	if (!md)
 		return;
 
@@ -1149,7 +1220,12 @@ int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 	
-	inst = wuser2inst(wuser);
+	if (!json) {
+		warning("wcall_set_clients_for_conv: no clients for conv\n");
+		return EINVAL;
+	}
+
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: set_clients_for_conv: "
 			"invalid handle: 0x%08X\n",
@@ -1157,13 +1233,8 @@ int wcall_set_clients_for_conv(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 
-
-	if (!json) {
-		warning("wcall_set_clients_for_conv: no clients for conv\n");
-		return EINVAL;
-	}
-
 	md = md_new(inst, convid, WCALL_MEV_SET_CLIENTS);
+	mem_deref(inst); /* md holds a ref */
 	if (!md)
 		return ENOMEM;
 
@@ -1190,7 +1261,7 @@ void wcall_set_mute(WUSER_HANDLE wuser, int muted)
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	inst = wuser2inst(wuser);
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: set_mute: "
 			"invalid handle: 0x%08X\n",
@@ -1199,6 +1270,7 @@ void wcall_set_mute(WUSER_HANDLE wuser, int muted)
 	}
 	
 	md = md_new(inst, NULL, WCALL_MEV_SET_MUTE);
+	mem_deref(inst); /* md holds a ref */
 	if (!md)
 		return;
     
@@ -1227,7 +1299,12 @@ int wcall_request_video_streams(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 	
-	inst = wuser2inst(wuser);
+	if (!json) {
+		warning("wcall: request_video_streams: no json\n");
+		return EINVAL;
+	}
+
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: request_video_streams: "
 			"invalid handle: 0x%08X\n",
@@ -1235,12 +1312,8 @@ int wcall_request_video_streams(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 
-	if (!json) {
-		warning("wcall: request_video_streams: no json\n");
-		return EINVAL;
-	}
-
 	md = md_new(inst, convid, WCALL_MEV_REQ_VSTREAMS);
+	mem_deref(inst); /* md holds a ref */
 	if (!md)
 		return ENOMEM;
 
@@ -1280,14 +1353,6 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 	
-	inst = wuser2inst(wuser);
-	if (!inst) {
-		warning("wcall: set_epoch_info: "
-			"invalid handle: 0x%08X\n",
-			wuser);
-		return EINVAL;
-	}
-
 	if (!key_base64) {
 		warning("wcall: set_epoch_info: no key set\n");
 		return EINVAL;
@@ -1299,7 +1364,16 @@ int wcall_set_epoch_info(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 
+	inst = wcall_inst_get(wuser);
+	if (!inst) {
+		warning("wcall: set_epoch_info: "
+			"invalid handle: 0x%08X\n",
+			wuser);
+		return EINVAL;
+	}
+
 	md = md_new(inst, convid, WCALL_MEV_SET_EPOCH_INFO);
+	mem_deref(inst); /* md holds a ref */
 	if (!md)
 		return ENOMEM;
 
@@ -1352,19 +1426,21 @@ void wcall_set_duration(WUSER_HANDLE wuser, const char *convid, int duration)
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	inst = wuser2inst(wuser);
+	if (!convid) {
+		warning("wcall: set_duration: no convid set\n");
+		return;
+	}
+
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: set_duration: "
 			"invalid handle: 0x%08X\n",
 			wuser);
 		return;
 	}
-	if (!convid) {
-		warning("wcall: set_duration: no convid set\n");
-		return;
-	}
 
 	md = md_new(inst, convid, WCALL_MEV_SET_DURATION);
+	mem_deref(inst); /* md holds a ref */
 	if (!md)
 		return;
 
@@ -1386,13 +1462,14 @@ int wcall_process_notifications(WUSER_HANDLE wuser, int processing)
 	struct mq_data *md = NULL;
 	int err = 0;
 
-	inst = wuser2inst(wuser);
+	inst = wcall_inst_get(wuser);
 	if (!inst) {
 		warning("wcall: process_notifications: invalid wuser: 0x%08X\n", wuser);
 		return EINVAL;
 	}
 
 	md = md_new(inst, NULL, WCALL_MEV_PROCESS_NOTIFICATIONS);
+	mem_deref(inst); /* md holds a ref */
 	if (!md)
 		return ENOMEM;
 
@@ -1416,9 +1493,9 @@ void wcall_marshal_destroy(struct calling_instance *inst)
 		return;
 
 	err = md_enqueue(md);
-	if (err)
-		goto out;
-
- out:
-	return;
+	if (err) {
+		warning("wcall(%p): marshal_destroy: enqueue failed (%m)\n",
+			inst, err);
+		mem_deref(md);
+	}
 }

@@ -15,7 +15,7 @@ struct duration_entry {
         struct le le;
 };
 
-struct calling_instance *wuser2inst(WUSER_HANDLE wuser);
+struct calling_instance *wcall_inst_get(WUSER_HANDLE wuser);
 
 bool wcall_is_ready(struct calling_instance *inst,
 		    int conv_type);
@@ -23,6 +23,8 @@ bool wcall_is_ready(struct calling_instance *inst,
 void wcall_invoke_ready(struct calling_instance *inst);
 
 int wcall_marshal_alloc(struct wcall_marshal **wmp); 
+void wcall_marshal_free(struct wcall_marshal *wm);
+void wcall_marshal_flush_pending(struct calling_instance *inst);
 struct wcall_marshal *wcall_get_marshal(struct calling_instance *inst);
 
 struct wcall *wcall_lookup(struct calling_instance *inst, const char *convid);
@@ -112,4 +114,5 @@ int wcall_duration_add(struct calling_instance *inst,
 struct duration_entry *wcall_duration_lookup(struct calling_instance *inst,
 					     const char *convid);
 WUSER_HANDLE wcall_create_wuser(uint32_t *idx);
+/* Returns a referenced instance, caller must mem_deref it */
 struct calling_instance *wcall_get_instance(void);
