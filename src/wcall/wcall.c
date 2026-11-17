@@ -206,9 +206,21 @@ struct wcall {
 
 	int state; /* wcall state */
 	bool disable_audio;
+
+	/* Copies for the API getters, which must not reach into the
+	 * icall: made on the wcall thread, swapped under inst->lock.
+	 */
+	struct {
+		struct wcall_members *members;
+		char *debug;
+		char *stats;
+		struct tmr tmr;
+	} copy;
 	
 	struct le le;
 };
+
+#define WCALL_COPY_INTERVAL_MS 1000
 
 
 struct wcall_ctx {
@@ -251,6 +263,7 @@ static bool wcall_has_calls(void);
 
 static void call_group_change_json(struct calling_instance *inst,
 				   struct wcall *wcall);
+static void copy_all(struct wcall *wcall);
 static struct incoming_event *find_pending_event(struct list *eventl, const char *convid);
 
 
@@ -522,6 +535,9 @@ static void set_state(struct wcall *wcall, int st)
 	wcall->state = st;
 	if (inst)
 		lock_rel(inst->lock);
+
+	if (trigger && inst)
+		copy_all(wcall);
 
 	if (trigger && inst && inst->stateh) {
 		inst->stateh(wcall->convid, wcall->state, inst->arg);
@@ -875,9 +891,10 @@ static void icall_media_stopped_handler(struct icall *icall, void *arg)
 }
 
 
-static int members_json(struct wcall *wcall, char **mjson, char **anon_str)
+static int members_json(struct wcall *wcall,
+			const struct wcall_members *members,
+			char **mjson, char **anon_str)
 {
-	struct wcall_members *members = NULL;
 	struct json_object *tmembs = NULL;
 	struct json_object *jmembs = NULL;
 	struct mbuf *pmb = NULL;
@@ -886,10 +903,6 @@ static int members_json(struct wcall *wcall, char **mjson, char **anon_str)
 	size_t i;
 	int err = 0;
 	
-	err = ICALL_CALLE(wcall->icall, get_members, &members);
-	if (err)
-		return EBADF;
-
 	if (!members) {
 		warning("wcall(%p): members_json: members is NULL\n", wcall);
 		err = ENOSYS;
@@ -946,11 +959,123 @@ static int members_json(struct wcall *wcall, char **mjson, char **anon_str)
 	jzon_encode(mjson, tmembs);
 
  out:
-	mem_deref(members);
 	mem_deref(tmembs);
 
 	return err;
 }
+
+
+static void members_destructor(void *arg)
+{
+	struct wcall_members *members = arg;
+	size_t i;
+
+	for (i = 0; i < members->membc; ++i) {
+		mem_deref(members->membv[i].userid);
+		mem_deref(members->membv[i].clientid);
+	}
+	mem_deref(members->membv);
+}
+
+
+static struct wcall_members *members_copy(const struct wcall_members *src)
+{
+	struct wcall_members *members;
+	size_t i;
+	int err = 0;
+
+	members = mem_zalloc(sizeof(*members), members_destructor);
+	if (!members)
+		return NULL;
+
+	if (src->membc == 0)
+		return members;
+
+	members->membv = mem_zalloc(src->membc * sizeof(*members->membv),
+				    NULL);
+	if (!members->membv) {
+		err = ENOMEM;
+		goto out;
+	}
+	members->membc = src->membc;
+
+	for (i = 0; i < src->membc; ++i) {
+		const struct wcall_member *from = &src->membv[i];
+		struct wcall_member *to = &members->membv[i];
+
+		*to = *from;
+		to->userid = NULL;
+		to->clientid = NULL;
+		err |= str_dup(&to->userid, from->userid);
+		err |= str_dup(&to->clientid, from->clientid);
+	}
+
+ out:
+	if (err)
+		members = mem_deref(members);
+
+	return members;
+}
+
+
+/* Refresh the members copy; returns it, the caller (on the wcall
+ * thread) may use it until the next refresh.
+ */
+static const struct wcall_members *copy_members(struct wcall *wcall)
+{
+	struct wcall_members *members = NULL;
+	struct wcall_members *old;
+	int err;
+
+	err = ICALL_CALLE(wcall->icall, get_members, &members);
+	if (err)
+		members = NULL;
+
+	lock_write_get(wcall->inst->lock);
+	old = wcall->copy.members;
+	wcall->copy.members = members;
+	lock_rel(wcall->inst->lock);
+
+	mem_deref(old);
+
+	return members;
+}
+
+
+static void copy_all(struct wcall *wcall)
+{
+	struct icall *icall = wcall->icall;
+	char *debug = NULL, *old_debug;
+	char *stats = NULL, *old_stats;
+
+	copy_members(wcall);
+
+	if (icall && icall->debug)
+		re_sdprintf(&debug, "%H", icall->debug, icall);
+	if (icall && icall->stats)
+		re_sdprintf(&stats, "%H", icall->stats, icall);
+
+	lock_write_get(wcall->inst->lock);
+	old_debug = wcall->copy.debug;
+	old_stats = wcall->copy.stats;
+	wcall->copy.debug = debug;
+	wcall->copy.stats = stats;
+	lock_rel(wcall->inst->lock);
+
+	mem_deref(old_debug);
+	mem_deref(old_stats);
+}
+
+
+static void copy_timer_handler(void *arg)
+{
+	struct wcall *wcall = arg;
+
+	copy_all(wcall);
+	tmr_start(&wcall->copy.tmr, WCALL_COPY_INTERVAL_MS,
+		  copy_timer_handler, wcall);
+}
+
 
 static void call_group_change_json(struct calling_instance *inst,
 				   struct wcall *wcall)
@@ -959,7 +1084,7 @@ static void call_group_change_json(struct calling_instance *inst,
 	char *anon_json = NULL;
 	int err;
 
-	err = members_json(wcall, &mjson, &anon_json);
+	err = members_json(wcall, copy_members(wcall), &mjson, &anon_json);
 	if (err) {
 		warning("wcall(%p): members_json failed: %m\n",
 			wcall, err);
@@ -1460,8 +1585,11 @@ static void icall_group_changed_handler(struct icall *icall, void *arg)
 		return;
 	}
 
+	/* The app typically calls wcall_get_members from it */
 	if (inst->group.chgh) {
 		uint64_t now = tmr_jiffies();
+
+		copy_members(wcall);
 		info(APITAG "wcall(%p): group_changedh\n", wcall);
 		inst->group.chgh(wcall->convid, inst->group.arg);
 		info(APITAG "wcall(%p): group_changedh took %llu ms\n",
@@ -1735,6 +1863,12 @@ static void destructor(void *arg)
 
 	if (!has_calls)
 		enter_normal_state(inst);
+
+	/* Unlinked, the getters can no longer see the copies */
+	tmr_cancel(&wcall->copy.tmr);
+	mem_deref(wcall->copy.members);
+	mem_deref(wcall->copy.debug);
+	mem_deref(wcall->copy.stats);
 
 	mem_deref(wcall->icall);
 	mem_deref(wcall->convid);
@@ -2215,10 +2349,15 @@ int wcall_add(struct calling_instance *inst,
  out:
 	lock_rel(inst->lock);
 
-	if (err)
+	if (err) {
 		mem_deref(wcall);
-	else
+	}
+	else {
+		copy_all(wcall);
+		tmr_start(&wcall->copy.tmr, WCALL_COPY_INTERVAL_MS,
+			  copy_timer_handler, wcall);
 		*wcallp = wcall;
+	}
 
 	return err;
 }
@@ -4052,6 +4191,7 @@ int wcall_is_video_call(WUSER_HANDLE wuser, const char *convid)
 int  wcall_debug(struct re_printf *pf, WUSER_HANDLE wuser)
 {
 	struct calling_instance *inst;
+	struct mbuf *mb;
 	struct le *le;	
 	char convid_anon[ANON_ID_LEN];
 	char userid_anon[ANON_ID_LEN];
@@ -4066,23 +4206,37 @@ int  wcall_debug(struct re_printf *pf, WUSER_HANDLE wuser)
 		return 0;
 	}
 
-	err = re_hprintf(pf, "self: %s.%s\n",
-			 anon_id(userid_anon, inst->userid),
-			 anon_client(clientid_anon, inst->clientid));
-	err |= re_hprintf(pf, "# calls=%d\n", list_count(&inst->wcalls));
+	mb = mbuf_alloc(1024);
+	if (!mb) {
+		err = ENOMEM;
+		goto out;
+	}
+
+	/* From the copies made on the wcall thread, pf is printed to
+	 * without inst->lock held.
+	 */
+	lock_write_get(inst->lock);
+	err = mbuf_printf(mb, "self: %s.%s\n",
+			  anon_id(userid_anon, inst->userid),
+			  anon_client(clientid_anon, inst->clientid));
+	err |= mbuf_printf(mb, "# calls=%d\n", list_count(&inst->wcalls));
 
 	LIST_FOREACH(&inst->wcalls, le) {
 		struct wcall *wcall = le->data;
 
-		err |= re_hprintf(pf, "WCALL %p in state: %s\n", wcall,
-			wcall_state_name(wcall->state));
-		err |= re_hprintf(pf, "convid: %s\n", anon_id(convid_anon, wcall->convid));
-		if (wcall->icall && wcall->icall->debug) {
-			err |= re_hprintf(pf, "\t%H\n", wcall->icall->debug,
-					  wcall->icall);
-		}
+		err |= mbuf_printf(mb, "WCALL %p in state: %s\n", wcall,
+				   wcall_state_name(wcall->state));
+		err |= mbuf_printf(mb, "convid: %s\n",
+				   anon_id(convid_anon, wcall->convid));
+		if (wcall->copy.debug)
+			err |= mbuf_printf(mb, "\t%s\n", wcall->copy.debug);
 	}
+	lock_rel(inst->lock);
 
+	err |= re_hprintf(pf, "%b", mb->buf, mb->end);
+
+ out:
+	mem_deref(mb);
 	wcall_inst_put(inst);
 	
 	return err;
@@ -4092,6 +4246,7 @@ AVS_EXPORT
 int  wcall_stats(struct re_printf *pf, WUSER_HANDLE wuser)
 {
 	struct calling_instance *inst;
+	struct mbuf *mb;
 	struct le *le;	
 	int err = 0;
 
@@ -4103,15 +4258,26 @@ int  wcall_stats(struct re_printf *pf, WUSER_HANDLE wuser)
 		return 0;
 	}
 
+	mb = mbuf_alloc(512);
+	if (!mb) {
+		err = ENOMEM;
+		goto out;
+	}
+
+	/* From the copies made on the wcall thread */
+	lock_write_get(inst->lock);
 	LIST_FOREACH(&inst->wcalls, le) {
 		struct wcall *wcall = le->data;
 
-		if (wcall->icall && wcall->icall->stats) {
-			err |= re_hprintf(pf, "%H\n", wcall->icall->stats,
-					  wcall->icall);
-		}
+		if (wcall->copy.stats)
+			err |= mbuf_printf(mb, "%s\n", wcall->copy.stats);
 	}
+	lock_rel(inst->lock);
 
+	err |= re_hprintf(pf, "%b", mb->buf, mb->end);
+
+ out:
+	mem_deref(mb);
 	wcall_inst_put(inst);
 	
 	return err;	
@@ -4270,15 +4436,15 @@ struct wcall_members *wcall_get_members(WUSER_HANDLE wuser, const char *convid)
 		return NULL;
 	}
 
-	wcall = wcall_lookup(inst, convid);
-
-	if (wcall && wcall->icall) {
-		int err;
-		
-		err = ICALL_CALLE(wcall->icall, get_members,
-			&members);
-		if (err)
-			members = NULL;
+	/* The copy is refreshed on the wcall thread on group and state
+	 * changes, and periodically.
+	 */
+	if (convid) {
+		lock_write_get(inst->lock);
+		wcall = wcall_lookup_locked(inst, convid);
+		if (wcall && wcall->copy.members)
+			members = members_copy(wcall->copy.members);
+		lock_rel(inst->lock);
 	}
 
 	wcall_inst_put(inst);

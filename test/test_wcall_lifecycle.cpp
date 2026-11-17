@@ -235,6 +235,16 @@ void recv_confstart(WUSER_HANDLE wuser, const char *convid)
 				    WCALL_CONV_TYPE_CONFERENCE, 0));
 }
 
+
+int print_handler(const char *p, size_t size, void *arg)
+{
+	std::string *str = (std::string *)arg;
+
+	str->append(p, size);
+
+	return 0;
+}
+
 }
 
 
@@ -258,6 +268,41 @@ TEST_F(WcallLifecycle, iterate_state_reentrant)
 	wcall_iterate_state(wuser, iter_state_handler, &is);
 	EXPECT_EQ(1, is.n);
 	EXPECT_EQ(WCALL_STATE_INCOMING, is.inner_state);
+
+	wcall_destroy(wuser);
+}
+
+
+TEST_F(WcallLifecycle, getters_read_copies)
+{
+	struct wcall_members *members;
+	struct re_printf pf;
+	std::string debug, stats;
+	WUSER_HANDLE wuser;
+
+	wuser = create("lifecycle-user");
+	ASSERT_NE(WUSER_INVALID_HANDLE, wuser);
+	wcall_config_update(wuser, 0, sft_config_json);
+
+	EXPECT_EQ(NULL, wcall_get_members(wuser, "lifecycle-conv"));
+
+	recv_confstart(wuser, "lifecycle-conv");
+	ASSERT_EQ(WCALL_STATE_INCOMING,
+		  wcall_get_state(wuser, "lifecycle-conv"));
+
+	/* Copied when the call was added and on the state change */
+	members = wcall_get_members(wuser, "lifecycle-conv");
+	ASSERT_TRUE(members != NULL);
+	wcall_free_members(members);
+
+	pf.vph = print_handler;
+	pf.arg = &debug;
+	EXPECT_EQ(0, wcall_debug(&pf, wuser));
+	EXPECT_NE(std::string::npos, debug.find("# calls=1"));
+	EXPECT_NE(std::string::npos, debug.find("CCALL SUMMARY"));
+
+	pf.arg = &stats;
+	EXPECT_EQ(0, wcall_stats(&pf, wuser));
 
 	wcall_destroy(wuser);
 }
