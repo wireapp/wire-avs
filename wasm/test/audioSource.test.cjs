@@ -163,17 +163,26 @@ test("keeps accepting audio when there is no receiver track ID", async () => {
   assert.deepEqual(identities(), []);
 });
 
-test("forwards worker identities to the matching conversation and allows unregistering", () => {
+test("extends the stream callback with metadata only when requested", () => {
   const context = peerContext({
     URL: { createObjectURL: () => "blob:test" },
     Worker: function () {},
   });
   const calls = [];
-  context.connectionsStore = {
-    getPeerConnectionBySelf: (self) =>
-      self === 7 ? [{ convid: "conversation" }] : [],
+  const streams = [{}];
+  const track = { readyState: "live" };
+  const pc = {
+    convid: "conversation",
+    rtc: {},
+    audioStreams: {
+      receiver: { streamId: "original-stream-id", streams, track },
+    },
   };
-  context.exports.default.setAudioSourceHandler((...args) => calls.push(args));
+  context.connectionsStore = {
+    getPeerConnectionBySelf: (self) => (self === 7 ? [pc] : []),
+  };
+  const handler = (...args) => calls.push(args);
+  context.exports.default.setAudioStreamHandler(handler);
   context.createWorker();
   const message = {
     op: "audioSource",
@@ -183,10 +192,20 @@ test("forwards worker identities to the matching conversation and allows unregis
     clientid: "client",
   };
   context.worker.onmessage({ data: message });
-  context.worker.onmessage({ data: { ...message, self: 99 } });
-  context.exports.default.setAudioSourceHandler(null);
+  assert.equal(calls.length, 0);
+  context.exports.default.setAudioStreamHandler(handler, true);
   context.worker.onmessage({ data: message });
-  assert.deepEqual(calls, [["conversation", "receiver", "user", "client"]]);
+  context.worker.onmessage({ data: { ...message, self: 99 } });
+  context.worker.onmessage({ data: { ...message, track_id: "unknown" } });
+  track.readyState = "ended";
+  context.worker.onmessage({ data: message });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][1], "original-stream-id");
+  assert.equal(calls[0][2], streams);
+  assert.deepEqual(
+    { ...calls[0][3] },
+    { trackId: "receiver", userId: "user", clientId: "client" }
+  );
 });
 
 test("preserves receiver track IDs through both encoded transform APIs", async () => {
@@ -215,7 +234,7 @@ test("preserves receiver track IDs through both encoded transform APIs", async (
   assert.equal(configured[0][3], "receiver");
 });
 
-test("reports direct-call tracks without requiring a legacy audio stream handler", () => {
+test("includes a known direct-call identity in the initial stream callback", () => {
   const context = peerContext({ RTCPeerConnection: function () {} });
   const calls = [];
   const pc = {
@@ -226,31 +245,119 @@ test("reports direct-call tracks without requiring a legacy audio stream handler
     turnServers: [],
   };
   context.connectionsStore = { getPeerConnection: () => pc };
-  context.exports.default.setAudioSourceHandler((...args) => calls.push(args));
+  context.exports.default.setAudioStreamHandler(
+    (...args) => calls.push(args),
+    true
+  );
   context.pc_Create(7, 0, 0);
   pc.rtc.ontrack({ track: { id: "receiver", kind: "audio" }, streams: [] });
-  assert.deepEqual(calls, [["conversation", "receiver", "user", "client"]]);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(
+    { ...calls[0][3] },
+    { trackId: "receiver", userId: "user", clientId: "client" }
+  );
 });
 
-test("reports a late direct-call identity for live audio receivers only", () => {
-  const context = peerContext();
+test("updates late direct-call metadata without replacing the original streams or stream ID", () => {
+  const context = peerContext({ RTCPeerConnection: function () {} });
   const calls = [];
   const pc = {
+    self: 7,
     convid: "conversation",
-    conv_type: 0,
-    rtc: {
-      getReceivers: () => [
-        { track: { id: "audio", kind: "audio", readyState: "live" } },
-        { track: { id: "ended", kind: "audio", readyState: "ended" } },
-        { track: { id: "video", kind: "video", readyState: "live" } },
-      ],
-    },
+    remote_userid: "",
+    remote_clientid: "",
+    turnServers: [],
   };
   context.connectionsStore = { getPeerConnection: () => pc };
-  context.exports.default.setAudioSourceHandler((...args) => calls.push(args));
+  context.exports.default.setAudioStreamHandler(
+    (...args) => calls.push(args),
+    true
+  );
+  context.pc_Create(7, 0, 0);
+  const track = {
+    id: "receiver",
+    kind: "audio",
+    readyState: "live",
+    enabled: true,
+  };
+  const streams = [{ getTracks: () => [track] }];
+  pc.rtc.ontrack({ track, streams });
+  assert.equal(calls[0][3], undefined);
   context.pc_SetRemoteUserClientId(7, 1, 2);
-  assert.deepEqual(calls, [["conversation", "audio", "user", "client"]]);
-  pc.conv_type = context.CONV_TYPE_CONFERENCE;
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1][1], calls[0][1]);
+  assert.equal(calls[1][2], streams);
+  assert.deepEqual(
+    { ...calls[1][3] },
+    { trackId: "receiver", userId: "user", clientId: "client" }
+  );
+  track.readyState = "ended";
+  context.pc_SetRemoteUserClientId(7, 1, 2);
+  assert.equal(calls.length, 2);
+});
+
+test("preserves the original callback behavior for clients that do not opt in", () => {
+  const context = peerContext({ RTCPeerConnection: function () {} });
+  const calls = [];
+  const pc = {
+    self: 7,
+    convid: "conversation",
+    remote_userid: "user",
+    remote_clientid: "client",
+    turnServers: [],
+  };
+  context.connectionsStore = { getPeerConnection: () => pc };
+  context.exports.default.setAudioStreamHandler((...args) => calls.push(args));
+  context.pc_Create(7, 0, 0);
+  const streams = [];
+  pc.rtc.ontrack({ track: { id: "receiver", kind: "audio" }, streams });
   context.pc_SetRemoteUserClientId(7, 1, 2);
   assert.equal(calls.length, 1);
+  assert.equal(calls[0].length, 3);
+  assert.equal(calls[0][2], streams);
+  assert.equal(calls[0][3], undefined);
+});
+
+test("does not revive a removed stream when sender metadata arrives later", () => {
+  const context = peerContext({
+    URL: { createObjectURL: () => "blob:test" },
+    Worker: function () {},
+  });
+  const calls = [];
+  const streams = [{}];
+  const pc = {
+    convid: "conversation",
+    rtc: {},
+    users: { receiver: {} },
+    audioStreams: {
+      receiver: {
+        streamId: "7receiver",
+        streams,
+        track: { readyState: "live" },
+      },
+    },
+  };
+  context.connectionsStore = {
+    getPeerConnection: () => pc,
+    getPeerConnectionBySelf: () => [pc],
+  };
+  context.em_module.UTF8ToString = () => "receiver";
+  context.exports.default.setAudioStreamHandler(
+    (...args) => calls.push(args),
+    true
+  );
+  context.createWorker();
+  context.pc_RemoveUserInfo(7, 1);
+  context.worker.onmessage({
+    data: {
+      op: "audioSource",
+      self: 7,
+      track_id: "receiver",
+      userid: "user",
+      clientid: "client",
+    },
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][1], "7receiver");
+  assert.equal(calls[0][2], null);
 });

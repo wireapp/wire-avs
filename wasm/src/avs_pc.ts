@@ -15,15 +15,8 @@ export type UserMediaHandler = (
 export type AudioStreamHandler = (
   convid: string,
   stream_id: string,
-  streams: readonly MediaStream[] | null
-) => void;
-
-/** Current sender for a received audio track. Register before starting calls. */
-export type AudioSourceHandler = (
-  convid: string,
-  track_id: string,
-  userid: string,
-  clientid: string
+  streams: readonly MediaStream[] | null,
+  source?: {trackId: string; userId: string; clientId: string}
 ) => void;
 
 export type VideoStreamHandler = (
@@ -85,6 +78,7 @@ interface PeerConnection {
   ivv: Uint8Array;
   streams: {[ssrc: string]: string};
   gatherTimer: any;
+  audioStreams?: {[trackId: string]: {streamId: string; streams: readonly MediaStream[]; track: MediaStreamTrack}};
 }
 
 const ENV_FIREFOX = 1;
@@ -95,7 +89,7 @@ let em_module: any;
 let logFn: WcallLogHandler | null = null;
 let userMediaHandler: UserMediaHandler | null = null;
 let audioStreamHandler: AudioStreamHandler | null = null;
-let audioSourceHandler: AudioSourceHandler | null = null;
+let includeAudioSource = false;
 let videoStreamHandler: VideoStreamHandler | null = null;
 let insertableLegacy: boolean = false;
 let insertableStreams: boolean = false;
@@ -810,11 +804,11 @@ function createWorker() {
       const {level, logString} = event.data;
       pc_log(level, logString);
     }
-    else if (op === 'audioSource' && audioSourceHandler) {
+    else if (op === 'audioSource' && includeAudioSource) {
       const {track_id, userid, clientid} = event.data;
       const pcs = connectionsStore.getPeerConnectionBySelf(self);
       for (const pc of pcs) {
-        audioSourceHandler(pc.convid, track_id, userid, clientid);
+        updateAudioSource(pc, track_id, userid, clientid);
       }
     }
     else if (op === 'setvstream') {
@@ -1537,15 +1531,19 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
       }
 
       if (event.track.kind == "audio" && audioStreamHandler) {
+          const streamId = hnd.toString() + label;
+          if (includeAudioSource) {
+              const audioStreams = pc.audioStreams || {};
+              audioStreams[event.track.id] = {streamId, streams: event.streams, track: event.track};
+              pc.audioStreams = audioStreams;
+          }
           pc_log(LOG_LEVEL_INFO, `onTrack: calling ash(${pc.convid.substring(0,8)}, ${label}) with ${event.streams.length} streams`);
-          audioStreamHandler(
-              pc.convid,
-              hnd.toString() + label,
-              event.streams);
-      }
-      if (event.track.kind == "audio" && audioSourceHandler &&
-          pc.conv_type !== CONV_TYPE_CONFERENCE && pc.remote_userid && pc.remote_clientid) {
-          audioSourceHandler(pc.convid, event.track.id, pc.remote_userid, pc.remote_clientid);
+          const source = includeAudioSource && pc.conv_type !== CONV_TYPE_CONFERENCE &&
+              pc.remote_userid && pc.remote_clientid
+              ? {trackId: event.track.id, userId: pc.remote_userid, clientId: pc.remote_clientid}
+              : undefined;
+          if (source) audioStreamHandler(pc.convid, streamId, event.streams, source);
+          else audioStreamHandler(pc.convid, streamId, event.streams);
       }
       if (event.track.kind == "video" && videoStreamHandler) {
           let userid = pc.remote_userid;
@@ -2123,6 +2121,12 @@ function pc_RemoveUserInfo(hnd: number, labelPtr: number) {
     return;
   }
   if (pc.users.hasOwnProperty(label)) {
+    const audioStreams = pc.audioStreams || {};
+    for (const trackId of Object.keys(audioStreams)) {
+      if (audioStreams[trackId].streamId === hnd.toString() + label) {
+        delete audioStreams[trackId];
+      }
+    }
     if (audioStreamHandler) {
       pc_log(LOG_LEVEL_INFO, `pcRemoveUserInfo: calling ash(${pc.convid.substring(0,8)}, ${label}) with 0 streams`);
       audioStreamHandler(pc.convid, hnd.toString() + label, null);
@@ -2385,12 +2389,9 @@ function pc_SetRemoteUserClientId(
 
   pc.remote_userid = em_module.UTF8ToString(useridPtr);
   pc.remote_clientid = em_module.UTF8ToString(clientidPtr);
-  if (audioSourceHandler && pc.conv_type !== CONV_TYPE_CONFERENCE &&
-      pc.remote_userid && pc.remote_clientid && pc.rtc) {
-    for (const receiver of pc.rtc.getReceivers()) {
-      if (receiver.track.kind === 'audio' && receiver.track.readyState !== 'ended') {
-        audioSourceHandler(pc.convid, receiver.track.id, pc.remote_userid, pc.remote_clientid);
-      }
+  if (includeAudioSource && pc.conv_type !== CONV_TYPE_CONFERENCE && pc.remote_userid && pc.remote_clientid) {
+    for (const trackId of Object.keys(pc.audioStreams || {})) {
+      updateAudioSource(pc, trackId, pc.remote_userid, pc.remote_clientid);
     }
   }
 }
@@ -2546,12 +2547,16 @@ function pc_IsConferenceCallingSupported() {
   return insertableStreams || insertableLegacy;
 }
 
-function pc_SetAudioSourceHandler(handler: AudioSourceHandler | null) {
-  audioSourceHandler = handler;
+function updateAudioSource(pc: PeerConnection, trackId: string, userId: string, clientId: string) {
+  const audio = pc.audioStreams && pc.audioStreams[trackId];
+  if (includeAudioSource && audioStreamHandler && pc.rtc && audio && audio.track.readyState !== 'ended') {
+    audioStreamHandler(pc.convid, audio.streamId, audio.streams, {trackId, userId, clientId});
+  }
 }
 
-function pc_SetAudioStreamHandler(ash: AudioStreamHandler) {
+function pc_SetAudioStreamHandler(ash: AudioStreamHandler, withSource: boolean = false) {
   audioStreamHandler = ash;
+  includeAudioSource = withSource;
 }
 
 function pc_SetVideoStreamHandler(vsh: VideoStreamHandler) {
@@ -2685,7 +2690,6 @@ export default {
   init: pc_InitModule,
   setUserMediaHandler: pc_SetUserMediaHandler,
   setAudioStreamHandler: pc_SetAudioStreamHandler,
-  setAudioSourceHandler: pc_SetAudioSourceHandler,
   setVideoStreamHandler: pc_SetVideoStreamHandler,
   isConferenceCallingSupported: pc_IsConferenceCallingSupported,
   replaceTrack: pc_ReplaceTrack,
