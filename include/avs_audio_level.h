@@ -23,6 +23,8 @@ struct audio_level;
 
 #define AUDIO_LEVEL_FLOOR   2
 #define AUDIO_LEVEL_CEIL   30
+#define AUDIO_LEVEL_PEAK  255
+#define AUDIO_LEVEL_HOLD_MS 10000
 #define AUDIO_LEVEL_UPDATE_CYCLE 3
 
 int audio_level_alloc(struct audio_level **levelp,
