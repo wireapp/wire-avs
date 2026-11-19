@@ -108,6 +108,7 @@ const workerContent = `
 var coders = {};
 
 const HDR_VERSION = 0;
+const AUDIO_SOURCE_INTERVAL_MS = 1000;
 
 /*
 Header
@@ -536,8 +537,11 @@ function decryptFrame(track_id, coder, rtcFrame, controller) {
     if (!isVideo && track_id) {
       const identities = coder.audio.sourceIdentities || (coder.audio.sourceIdentities = Object.create(null));
       const identity = JSON.stringify([uinfo.userid, uinfo.clientid]);
-      if (identities[track_id] !== identity) {
-        identities[track_id] = identity;
+      const previous = identities[track_id];
+      const now = performance.now();
+      if ((!previous || previous.identity !== identity) &&
+          (!previous || now - previous.postedAt >= AUDIO_SOURCE_INTERVAL_MS)) {
+        identities[track_id] = {identity: identity, postedAt: now};
         postMessage({
           op: "audioSource",
           self: coder.self,

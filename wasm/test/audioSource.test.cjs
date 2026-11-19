@@ -31,8 +31,10 @@ async function workerContext() {
   const pc = peerContext();
   const messages = [];
   let decryption;
+  let now = 0;
   const context = createContext({
     postMessage: (message) => messages.push(message),
+    performance: { now: () => now },
     console: { log() {} },
     Uint8Array,
     ArrayBuffer,
@@ -104,13 +106,22 @@ async function workerContext() {
     messages
       .filter((message) => message.op === "audioSource")
       .map((message) => ({ ...message }));
-  return { context, coder, receive, identities };
+  return {
+    context,
+    coder,
+    receive,
+    identities,
+    advance: (milliseconds) => {
+      now += milliseconds;
+    },
+  };
 }
 
 test("reports authenticated sender switches once per receiver and keeps the audio frames", async () => {
-  const { receive, identities } = await workerContext();
+  const { receive, identities, advance } = await workerContext();
   assert.equal((await receive()).length, 1);
   await receive();
+  advance(1000);
   await receive(99);
   await receive(99, { track: "receiver-2" });
   assert.deepEqual(identities(), [
@@ -139,9 +150,10 @@ test("reports authenticated sender switches once per receiver and keeps the audi
 });
 
 test("includes client identity when the same user changes sender device", async () => {
-  const { coder, receive, identities } = await workerContext();
+  const { coder, receive, identities, advance } = await workerContext();
   coder.audio.users["99"].userid = "first";
   await receive();
+  advance(1000);
   await receive(99);
   assert.deepEqual(
     identities().map((message) => message.clientid),
@@ -360,4 +372,28 @@ test("does not revive a removed stream when sender metadata arrives later", () =
   assert.equal(calls.length, 1);
   assert.equal(calls[0][1], "7receiver");
   assert.equal(calls[0][2], null);
+});
+
+test("limits source notifications per receiver without dropping audio or forgetting suppressed changes", async () => {
+  const { receive, identities, advance } = await workerContext();
+  assert.equal((await receive()).length, 1);
+  advance(999);
+  assert.equal((await receive(99)).length, 1);
+  assert.equal(identities().length, 1);
+  // A separate receiver is not blocked by the first receiver's guard.
+  assert.equal((await receive(99, { track: "receiver-2" })).length, 1);
+  assert.equal(identities().length, 2);
+  advance(1);
+  assert.equal((await receive(99)).length, 1);
+  assert.deepEqual(
+    identities().map((message) => [message.track_id, message.userid]),
+    [
+      ["receiver-1", "first"],
+      ["receiver-2", "second"],
+      ["receiver-1", "second"],
+    ]
+  );
+  advance(1000);
+  await receive(99);
+  assert.equal(identities().length, 3);
 });
