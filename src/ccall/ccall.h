@@ -91,6 +91,7 @@ struct ccall {
 	const struct ecall_conf *conf;
 	enum ccall_state state;
 	bool is_mls_call;
+	bool is_test;
 
 	char *primary_sft_url;
 	char *sft_url;
@@ -159,4 +160,5 @@ struct ccall {
 	} meeting;
 
 	char *rec_path;
+	char *play_path;
 };

@@ -297,8 +297,10 @@ pipeline {
                         sh(
                             script: """
                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew publishMavenJavaPublicationToMavenLocal
-                                mkdir -p ./build/artifacts/maven/com/wire
-                                cp -r ~/.m2/repository/com/wire/avs ./build/artifacts/maven/com/wire/
+                                # Stage only this version; ~/.m2 keeps every version ever built on the agent
+                                rm -rf ./build/artifacts/maven
+                                mkdir -p ./build/artifacts/maven/com/wire/avs
+                                cp -r ~/.m2/repository/com/wire/avs/$version ./build/artifacts/maven/com/wire/avs/
                             """
                         )
                     }
@@ -344,20 +346,36 @@ pipeline {
                                     fi
                                 fi
                                 export PATH="$HOME/.local/bin:$PATH"
-                                # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
-                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "${f%-local.xml}.xml"; done' _ {} +
-                                echo "Uploading Maven artifacts to s3://maven-wire-com..."
-                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \
-                                    --recursive \
-                                    --no-overwrite \
-                                    --region us-east-1 \
-                                    --exclude '*maven-metadata.xml'
-                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \
-                                    --recursive \
-                                    --region us-east-1 \
-                                    --exclude '*' \
-                                    --include '*maven-metadata.xml'
-                                echo "Maven artifacts published to s3://maven-wire-com"
+                                BUCKET=s3://maven-wire-com
+                                STAGE=./build/artifacts/maven
+                                echo "Uploading Maven artifacts to $BUCKET..."
+                                aws s3 cp "$STAGE" "$BUCKET/" --recursive --no-overwrite --region us-east-1
+                                # Add the new version to the bucket's maven-metadata.xml rather than
+                                # replacing it with the agent's local copy
+                                for vdir in "$STAGE"/com/wire/*/*/; do
+                                    [ -d "$vdir" ] || continue
+                                    artifact=$(basename "$(dirname "$vdir")")
+                                    ver=$(basename "$vdir")
+                                    key="com/wire/$artifact/maven-metadata.xml"
+                                    current=$(mktemp)
+                                    set +e
+                                    aws s3 ls "$BUCKET/$key" --region us-east-1 > /dev/null
+                                    rc=$?
+                                    set -e
+                                    if [ $rc -eq 0 ]; then
+                                        aws s3 cp "$BUCKET/$key" "$current" --region us-east-1
+                                    elif [ $rc -eq 1 ]; then
+                                        echo "No metadata for $artifact yet, creating it"
+                                        rm -f "$current"
+                                    else
+                                        echo "Failed to check $BUCKET/$key (rc=$rc)"
+                                        exit 1
+                                    fi
+                                    python3 ./scripts/maven-metadata-merge.py "$current" com.wire "$artifact" "$ver" > "$STAGE/maven-metadata.xml"
+                                    aws s3 cp "$STAGE/maven-metadata.xml" "$BUCKET/$key" --region us-east-1
+                                    rm -f "$current" "$STAGE/maven-metadata.xml"
+                                done
+                                echo "Maven artifacts published to $BUCKET"
                             '''
                         )
                     }
@@ -391,9 +409,14 @@ pipeline {
                         ]) {
                         sh(
                             script: """
-                                mkdir -p ./build/artifacts/maven/com/wire
                                 ORG_GRADLE_PROJECT_VERSION_NAME=$version ./gradlew :avs-kmp:publishToMavenLocal --no-configuration-cache
-                                cp -r ~/.m2/repository/com/wire/avs-kmp ~/.m2/repository/com/wire/avs-kmp-* ./build/artifacts/maven/com/wire/
+                                # Stage only this version; ~/.m2 keeps every version ever built on the agent
+                                rm -rf ./build/artifacts/maven
+                                for dir in ~/.m2/repository/com/wire/avs-kmp ~/.m2/repository/com/wire/avs-kmp-*; do
+                                    artifact=\$(basename "\$dir")
+                                    mkdir -p "./build/artifacts/maven/com/wire/\$artifact"
+                                    cp -r "\$dir/$version" "./build/artifacts/maven/com/wire/\$artifact/"
+                                done
                             """
                         )
                     }
@@ -439,20 +462,36 @@ pipeline {
                                     fi
                                 fi
                                 export PATH="$HOME/.local/bin:$PATH"
-                                # Gradle generates maven-metadata-local.xml, rename to maven-metadata.xml for S3 upload
-                                find ./build/artifacts/maven -name 'maven-metadata-local.xml' -exec sh -c 'for f; do mv "$f" "${f%-local.xml}.xml"; done' _ {} +
-                                echo "Uploading Maven artifacts to s3://maven-wire-com..."
-                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \
-                                    --recursive \
-                                    --no-overwrite \
-                                    --region us-east-1 \
-                                    --exclude '*maven-metadata.xml'
-                                aws s3 cp ./build/artifacts/maven s3://maven-wire-com/ \
-                                    --recursive \
-                                    --region us-east-1 \
-                                    --exclude '*' \
-                                    --include '*maven-metadata.xml'
-                                echo "Maven artifacts published to s3://maven-wire-com"
+                                BUCKET=s3://maven-wire-com
+                                STAGE=./build/artifacts/maven
+                                echo "Uploading Maven artifacts to $BUCKET..."
+                                aws s3 cp "$STAGE" "$BUCKET/" --recursive --no-overwrite --region us-east-1
+                                # Add the new version to the bucket's maven-metadata.xml rather than
+                                # replacing it with the agent's local copy
+                                for vdir in "$STAGE"/com/wire/*/*/; do
+                                    [ -d "$vdir" ] || continue
+                                    artifact=$(basename "$(dirname "$vdir")")
+                                    ver=$(basename "$vdir")
+                                    key="com/wire/$artifact/maven-metadata.xml"
+                                    current=$(mktemp)
+                                    set +e
+                                    aws s3 ls "$BUCKET/$key" --region us-east-1 > /dev/null
+                                    rc=$?
+                                    set -e
+                                    if [ $rc -eq 0 ]; then
+                                        aws s3 cp "$BUCKET/$key" "$current" --region us-east-1
+                                    elif [ $rc -eq 1 ]; then
+                                        echo "No metadata for $artifact yet, creating it"
+                                        rm -f "$current"
+                                    else
+                                        echo "Failed to check $BUCKET/$key (rc=$rc)"
+                                        exit 1
+                                    fi
+                                    python3 ./scripts/maven-metadata-merge.py "$current" com.wire "$artifact" "$ver" > "$STAGE/maven-metadata.xml"
+                                    aws s3 cp "$STAGE/maven-metadata.xml" "$BUCKET/$key" --region us-east-1
+                                    rm -f "$current" "$STAGE/maven-metadata.xml"
+                                done
+                                echo "Maven artifacts published to $BUCKET"
                             '''
                         )
                     }

@@ -56,6 +56,7 @@ bool config_needs_update(struct config *cfg);
 int  config_start(struct config *cfg);
 void config_stop(struct config *cfg);
 int  config_request(struct config *cfg);
+int  config_request_if_idle(struct config *cfg);
 int  config_register_update_handler(struct config_update_elem *upe, struct config *cfg);
 int  config_unregister_update_handler(struct config_update_elem *upe);
 int  config_unregister_all_updates(struct config *cfg, void *arg);

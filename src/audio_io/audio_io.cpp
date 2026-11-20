@@ -71,7 +71,7 @@ void *audio_io_create_adm(void)
 		return (void *)g_aioc;
 
 	if (record_path) {
-	  g_aioc = new webrtc::record_audiodevice(record_path); 
+	  g_aioc = new webrtc::record_audiodevice(record_path, NULL); 
 	}
 	else if (flags & AVS_FLAG_AUDIO_TEST) {
 		info("audio_io: create_adm: creating fake audio device\n");

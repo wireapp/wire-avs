@@ -20,8 +20,6 @@
 #include <avs.h>
 #include <avs_audio_level.h>
 
-#define TIMEOUT_UPDATE   1000
-
 
 static void cm_destructor(void *arg)
 {
@@ -168,30 +166,52 @@ struct conf_member *conf_member_find_by_ssrcv(struct list *membl,
 }
 	
 	
+/* Record a level sample; may be called at any rate.
+ * The peak since the last latch is kept.
+ */
 void conf_member_set_audio_level(struct conf_member *cm, int level)
 {
-	uint64_t now;
-	uint64_t tsdiff;
-	
 	if (!cm)
 		return;
 
-	now = tmr_jiffies();
-	tsdiff = now - cm->last_ts;
-	if (tsdiff < TIMEOUT_UPDATE)
+	if (level <= AUDIO_LEVEL_FLOOR)
 		return;
 
-	cm->last_ts = now;
-	cm->audio_level = level > AUDIO_LEVEL_FLOOR ? level : 0;
-	if (level > AUDIO_LEVEL_FLOOR)
-		cm->audio_level_smooth = AUDIO_LEVEL_CEIL;
-	else if (cm->audio_level_smooth > 0) {
-		/* we want to count down by the number of elapsed seconds */
-		uint64_t n = tsdiff / 1000;
+	if (level > AUDIO_LEVEL_PEAK)
+		level = AUDIO_LEVEL_PEAK;
 
-		if (n > (uint64_t)cm->audio_level_smooth)
-			cm->audio_level_smooth = 0;
-		else
-			cm->audio_level_smooth -= n;
+	if (level > cm->audio_level_peak)
+		cm->audio_level_peak = (uint8_t)level;
+
+	cm->last_active_ts = tmr_jiffies();
+}
+
+
+/* Publish the peak level since the last latch into audio_level,
+ * and derive audio_level_smooth from the time since the member was
+ * last heard: AUDIO_LEVEL_CEIL counting down linearly to 0 over
+ * AUDIO_LEVEL_HOLD_MS.
+ */
+void conf_member_latch_audio_level(struct conf_member *cm)
+{
+	uint64_t elapsed_ms;
+
+	if (!cm)
+		return;
+
+	cm->audio_level = cm->audio_level_peak;
+	cm->audio_level_peak = 0;
+
+	if (!cm->last_active_ts) {
+		cm->audio_level_smooth = 0;
+		return;
 	}
+
+	elapsed_ms = tmr_jiffies() - cm->last_active_ts;
+	if (elapsed_ms >= AUDIO_LEVEL_HOLD_MS)
+		cm->audio_level_smooth = 0;
+	else
+		cm->audio_level_smooth = (uint8_t)
+			((AUDIO_LEVEL_HOLD_MS - elapsed_ms) * AUDIO_LEVEL_CEIL
+			 / AUDIO_LEVEL_HOLD_MS);
 }

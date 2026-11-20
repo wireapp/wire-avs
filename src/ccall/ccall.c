@@ -144,6 +144,7 @@ static void destructor(void *arg)
 
 	mem_deref(ccall->rec_path);
 	mem_deref(ccall->msys_name);
+	mem_deref(ccall->play_path);
 
 	list_flush(&ccall->sftl);
 	list_flush(&ccall->saved_partl);
@@ -198,6 +199,12 @@ int ccall_set_config(struct ccall *ccall, struct config *cfg)
 	ccall->cfg = cfg;
 
 	return 0;
+}
+
+void ccall_set_test_mode(struct ccall *ccall, bool is_test)
+{
+	if (ccall)
+		ccall->is_test = is_test;
 }
 
 const char *ccall_state_name(enum ccall_state state)
@@ -300,7 +307,8 @@ static void set_state(struct ccall* ccall, enum ccall_state state)
 		ccall->sft_url = mem_deref(ccall->sft_url);
 		userlist_reset_keygenerator(ccall->userl);
 		ccall->received_confpart = false;
-		keystore_reset_keys(ccall->keystore);
+		if (!ccall->is_test)
+			keystore_reset_keys(ccall->keystore);
 		tmr_cancel(&ccall->tmr_rotate_key);
 		tmr_cancel(&ccall->tmr_rotate_mls);
 		tmr_cancel(&ccall->tmr_send_check);
@@ -1018,7 +1026,7 @@ static void durterm_timeout_handler(void *arg)
 {
         struct ccall *ccall = arg;
 
-	info("ccall(%p): duration terminate\n", ccall);
+	info("ccall(%p): deferred close\n", ccall);
 
 	set_state(ccall, CCALL_STATE_IDLE);
 	ICALL_CALL_CB(ccall->icall, closeh,
@@ -2480,6 +2488,8 @@ static int create_ecall(struct ccall *ccall)
 
 	if (ccall->rec_path)
 		ecall_audio_record(ecall, ccall->rec_path);
+	if (ccall->play_path)
+		ecall_audio_play(ecall, ccall->play_path);
 
 	ccall->ecall = ecall;
 	tmr_start(&ccall->tmr_vstate,
@@ -2902,6 +2912,7 @@ static void config_update_handler(struct call_config *cfg, void *arg)
 	if (!urlv || !urlc) {
 		warning("ccall(%p): no SFT server configured\n", ccall);
 		ccall_end_with_err(ccall, ENOTSUP);
+		err = ENOTSUP;
 		goto out;
 	}
 
@@ -3119,6 +3130,7 @@ int  ccall_start(struct icall *icall,
 		 bool meeting)
 {
 	struct ccall *ccall = (struct ccall*)icall;
+	uint8_t secret[CCALL_SECRET_LEN];
 	int err;
 
 	ccall->error = 0;
@@ -3131,6 +3143,18 @@ int  ccall_start(struct icall *icall,
 		return ccall_answer(icall, call_type, audio_cbr);
 
 	case CCALL_STATE_IDLE:
+		/* A new call gets a new secret. The ccall outlives an
+		 * ended call, and the keystore reset on IDLE cleared the
+		 * salt derived from the old secret: the media keys would
+		 * not match those of the members joining with it.
+		 */
+		randombytes_buf(&secret, CCALL_SECRET_LEN);
+		info("ccall(%p) set_secret from start\n", ccall);
+		err = ccall_set_secret(ccall, secret, CCALL_SECRET_LEN);
+		sodium_memzero(secret, sizeof(secret));
+		if (err)
+			break;
+
 		ccall->is_caller = true;
 		err = ccall_req_cfg_join(ccall, call_type, audio_cbr, false, true);
 		break;
@@ -3179,8 +3203,15 @@ void ccall_end(struct icall *icall)
 	if (!ccall)
 		return;
 
-	if (ccall->ecall)
+	if (ccall->ecall && ecall_get_econn(ccall->ecall))
 		ecall_end(ccall->ecall);
+	else if (!tmr_isrunning(&ccall->tmr_call)) {
+		/* Cancel configuration updates before closing a call without a flow. */
+		ccall->je = mem_deref(ccall->je);
+		set_state(ccall, CCALL_STATE_IDLE);
+		/* closeh may destroy ccall and wcall; run it after the end call returns. */
+		tmr_start(&ccall->tmr_call, 0, durterm_timeout_handler, ccall);
+	}
 }
 
 void ccall_reject(struct icall *icall)
@@ -4204,4 +4235,21 @@ int ccall_audio_record(struct icall *icall, const char *path)
 		return ENOSYS;
 
 	return ecall_audio_record(ccall->ecall, path);
+}
+
+int ccall_audio_play(struct icall *icall, const char *path)
+{
+	struct ccall *ccall = (struct ccall *)icall;
+
+	if (!icall || !path)
+		return EINVAL;
+
+	if (ccall->play_path)
+		ccall->play_path = mem_deref(ccall->play_path);
+	str_dup(&ccall->play_path, path);
+
+	if (!ccall->ecall)
+		return ENOSYS;
+
+	return ecall_audio_play(ccall->ecall, path);
 }

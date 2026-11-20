@@ -168,7 +168,7 @@ static struct call_event *queue_find(struct call_event_instance *inst,
 	struct le *le;
 
 	if (!inst)
-		return false;
+		return NULL;
 
 	for (le = inst->eventl.head; le != NULL && !found; le = le->next) {
 		ev = le->data;

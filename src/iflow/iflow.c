@@ -222,6 +222,7 @@ int iflow_alloc(struct iflow		**flowp,
 		enum icall_call_type	call_type,
 		enum icall_vstate	vstate,
 		const char              *rec_path,
+		const char              *play_path,
 		void			*extarg)
 {
 	if (!statics.alloc) {
@@ -237,6 +238,7 @@ int iflow_alloc(struct iflow		**flowp,
 			     call_type,
 			     vstate,
 			     rec_path,
+			     play_path,
 			     extarg);
 }
 

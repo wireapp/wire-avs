@@ -55,6 +55,7 @@ extern "C" {
 #include "rtc_base/logging.h"
 #include "rtc_base/physical_socket_server.h"
 #include "media/engine/webrtc_media_engine.h"
+#include "system_wrappers/include/clock.h"
 
 #include "modules/video_capture/video_capture_factory.h"
 
@@ -72,6 +73,8 @@ extern "C" {
 #include "frame_decryptor_wrapper.h"
 #include "video_renderer.h"
 #include "stats.h"
+#include "recv_delay.h"
+#include "audio_encoders.h"
 
 #include "src/audio_io/pstn/pstn_audiodevice.h"
 #include "src/audio_io/record/record_audiodevice.h"
@@ -81,14 +84,23 @@ extern "C" {
 #include "peerflow.h"
 
 #define TMR_STATS_INTERVAL       1000
+#define TMR_AULEVEL_INTERVAL      200
+#define AULEVEL_SOURCE_MAX_AGE    500
 #define TMR_CBR_INTERVAL         2500
-#define TMR_RESTART_INTERVAL    10000
+/* After the connection failed, wait this long for it to come back before
+ * restarting. On a congested link it did come back 11 to 27 s after
+ * failing, while a restart can't finish there: its UPDATE and the answer
+ * go over the same link, and the call ends when it times out. Leaving
+ * failed (a candidate pair works again) holds the restart off until it
+ * fails again, but not past TMR_RESTART_MAX after the first failure.
+ */
+#define TMR_RESTART_INTERVAL    15000
+#define TMR_RESTART_MAX         60000
 #define TMR_GATHER_TIMEOUT       2000
 #define TMR_NOCAND_TIMEOUT       1500
 
 #define DOUBLE_ENCRYPTION 1
 
-#define GROUP_PTIME 40
 
 #define SCALABILITY_MODE "L1T1"
 
@@ -154,6 +166,14 @@ struct peerflow {
 	enum icall_vstate vstate;
 	size_t ncands;
 
+	int bwe_cap;       /* wcall_set_loss_params max_bitrate at creation */
+	bool bwe_capped;   /* the cap is applied (no video) */
+	bool plain;        /* sdp_audio_plain at creation: as release-10.5 */
+	bool ice_slow;     /* weak ICE checks slowed down: RTT high,
+			      bandwidth estimate low or audio played late */
+	uint32_t red_id;   /* adaptive RED state (RedState), in the opus fmtp */
+	wire::RecvDelay *recv_delay;
+
 	webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConn;
 
 	webrtc::PeerConnectionInterface::RTCConfiguration *config;
@@ -177,6 +197,7 @@ struct peerflow {
 	webrtc::scoped_refptr<wire::CbrDetectorRemote> cbr_det_remote;
 	struct tmr tmr_cbr;
 	struct tmr tmr_restart;
+	uint64_t restart_deadline; /* restart by then (jiffies), 0: none */
 	struct tmr tmr_nocand;
 
 	struct {
@@ -216,6 +237,7 @@ struct peerflow {
 	struct le le;
 
 	struct tmr tmr_stats;
+	struct tmr tmr_aulevel;
 	struct tmr tmr_gather;
 	wire::NetStatsCallback *netStatsCb;
 	std::string remoteSdp;
@@ -224,6 +246,7 @@ struct peerflow {
 	bool sdp_needs_munging;
 
 	char *rec_path;
+	char *play_path;
 };
 
 
@@ -242,6 +265,7 @@ enum {
       MQ_PC_RESTART_DELAY  = 0x06,
       MQ_PC_RESTART_CANCEL = 0x07,
       MQ_PC_GATHER_DELAY   = 0x08,
+      MQ_PC_RESTART_HOLD   = 0x09,
 
       MQ_DC_ESTAB          = 0x10,
       MQ_DC_OPEN           = 0x11,
@@ -415,12 +439,91 @@ public:
 		trials_["WebRTC-GenericDescriptor"] = "Enabled";
 		trials_["WebRTC-DependencyDescriptorAdvertised"] = "Enabled";
 		trials_["WebRTC-DependencyDescriptor"] = "Enabled";
+
+		// Adaptive ptime: opus's audio network adaptor lengthens
+		// the frames (up to the SDP maxptime) when the bandwidth
+		// estimate leaves less than 16 kbps of payload after the
+		// headers, so a narrow link spends less on headers. The
+		// shortest frame is the SDP minptime (see sdp.c).
+		// use_slow_adaptation:false makes it follow the target
+		// itself, not the target smoothed over 4 x the BWE period
+		// (8-200 s), which kept short frames for tens of seconds
+		// while the queue built on a collapsing link.
+		trials_["WebRTC-Audio-AdaptivePtime"] =
+			"enabled:true,use_slow_adaptation:false";
+
+		// When the selected pair moves to another network (e.g.
+		// Wi-Fi <-> wired or cellular) the bandwidth estimate is
+		// reset. By default it restarts from the start bitrate,
+		// which on a narrow link sends far more than it carries
+		// until the estimate collapses again. With this it
+		// restarts from no more than the current target.
+		trials_["WebRTC-Bwe-SafeResetOnRouteChange"] = "Enabled";
 	}
 
 	std::string Lookup(absl::string_view key_view) const override {
 		std::string key = std::string(key_view);
+
+		// Read when the RED encoder is made, so the redundancy
+		// follows wcall_set_loss_params also with the shared
+		// factory. Always enabled: whether RED is used at all is
+		// up to the SDP (see sdp_set_loss_params).
+		if (key == "WebRTC-Audio-Red-For-Opus") {
+			struct sdp_loss_params lp;
+			std::string val;
+
+			sdp_get_loss_params(&lp);
+			val = "Enabled-" + std::to_string(MAX(lp.red, 1));
+			info("pf: field trial %s -> %s\n", key.c_str(), val.c_str());
+			return val;
+		}
+
+		// Read when the call's audio send stream (and, for the
+		// BWE, its congestion controller) is made: without any
+		// audio or loss params, opus doesn't adapt and a network
+		// change resets the estimate fully, as in release-10.5
+		// (see sdp_audio_plain).
+		if ((key == "WebRTC-Audio-Allocation"
+		     || key == "WebRTC-Audio-AdaptivePtime"
+		     || key == "WebRTC-Bwe-SafeResetOnRouteChange")
+		    && sdp_audio_plain()) {
+			info("pf: field trial %s off (plain audio)\n",
+			     key.c_str());
+			return "";
+		}
+
+		// Read when the audio send stream is made. The min lets
+		// the bandwidth estimate bring opus down to its 6 kbps
+		// floor: without it the allowed range is min = max =
+		// maxaveragebitrate, so opus never adapts. With adaptive RED
+		// the max leaves room for the copies and their RED headers
+		// (at 20 ms; WebRTC adds the IP/UDP/SRTP headers), as the
+		// encoder gives opus only its share while RED is on and keeps
+		// opus at its own max. Without, it stays maxaveragebitrate.
+		if (key == "WebRTC-Audio-Allocation") {
+			struct sdp_loss_params lp;
+			std::string val = "min:6kbps";
+			int max_bitrate;
+
+			sdp_get_loss_params(&lp);
+			sdp_get_audio_params(NULL, &max_bitrate);
+			if (lp.red > 0 && sdp_get_adaptive_red()) {
+				if (max_bitrate <= 0)
+					max_bitrate = 32000; /* opus default */
+				val += ",max:" + std::to_string(
+					(lp.red + 1) * max_bitrate
+					+ (1 + 4 * lp.red) * 8 * 1000 / 20)
+					+ "bps";
+			}
+			info("pf: field trial %s -> %s\n", key.c_str(),
+			     val.c_str());
+			return val;
+		}
+
 		auto it = trials_.find(key);
 		std::string val = it != trials_.end() ? it->second : "";
+		if (key == "WebRTC-Bwe-SafeResetOnRouteChange")
+			info("pf: field trial %s -> %s\n", key.c_str(), val.c_str());
 		//info("WireFieldTrials::Lookup: %s -> %s\n", key.c_str(), val.c_str());
 
 		return val;
@@ -433,6 +536,316 @@ public:
 	}
 private:
 	std::map<std::string, std::string> trials_;
+};
+
+
+/* Opus encoder whose assumed packet loss does not go below a floor, so its
+ * in-band FEC is on from the start rather than after the (with a long RTT,
+ * late) loss reports. With a floor of 0 the loss passes through unchanged.
+ *
+ * With hold, a drop of the target from the bandwidth estimate reaches opus
+ * at once, but a rise only after the target has stayed above the current
+ * one for TARGET_RISE_HOLD_MS, and then only to the lowest target seen in
+ * that time. Adaptive ptime picks the shortest frame length that leaves
+ * 16 kbps of payload from every target it gets; on a link that holds the
+ * estimate near one of those steps the frames flipped every 2 s, and each
+ * shorter frame (more headers, and RED on top) overfilled the link. Opus's
+ * bitrate follows the held target too. The hold is checked on every
+ * encoded frame as well, so a rise is let through once its time is up even
+ * when the estimate stops changing (as it does at the allocation cap).
+ *
+ * It also logs what drives adaptive ptime: the target bitrate from the
+ * bandwidth estimate and the one passed to opus (when either moves by
+ * 1 kbps or more), the per-packet overhead, and each change of the frame
+ * length.
+ */
+#define TARGET_RISE_HOLD_MS 3000
+
+class LossFloorEncoder : public webrtc::AudioEncoder {
+public:
+	LossFloorEncoder(std::unique_ptr<webrtc::AudioEncoder> enc, float floor,
+			 bool hold)
+		: enc_(std::move(enc)), floor_(floor), hold_(hold)
+	{
+		if (floor_ > 0)
+			enc_->OnReceivedUplinkPacketLossFraction(floor_);
+	}
+
+	int SampleRateHz() const override { return enc_->SampleRateHz(); }
+	size_t NumChannels() const override { return enc_->NumChannels(); }
+	int RtpTimestampRateHz() const override {
+		return enc_->RtpTimestampRateHz();
+	}
+	size_t Num10MsFramesInNextPacket() const override {
+		return enc_->Num10MsFramesInNextPacket();
+	}
+	size_t Max10MsFramesInAPacket() const override {
+		return enc_->Max10MsFramesInAPacket();
+	}
+	int GetTargetBitrate() const override {
+		return enc_->GetTargetBitrate();
+	}
+	void Reset() override { enc_->Reset(); }
+	bool SetFec(bool enable) override { return enc_->SetFec(enable); }
+	bool SetDtx(bool enable) override { return enc_->SetDtx(enable); }
+	bool GetDtx() const override { return enc_->GetDtx(); }
+	bool SetApplication(Application app) override {
+		return enc_->SetApplication(app);
+	}
+	void SetMaxPlaybackRate(int hz) override {
+		enc_->SetMaxPlaybackRate(hz);
+	}
+	std::span<std::unique_ptr<webrtc::AudioEncoder>>
+	ReclaimContainedEncoders() override {
+		return std::span<std::unique_ptr<webrtc::AudioEncoder>>(&enc_, 1);
+	}
+	bool EnableAudioNetworkAdaptor(absl::string_view config) override {
+		return enc_->EnableAudioNetworkAdaptor(config);
+	}
+	void DisableAudioNetworkAdaptor() override {
+		enc_->DisableAudioNetworkAdaptor();
+	}
+	void OnReceivedUplinkPacketLossFraction(float fraction) override {
+		enc_->OnReceivedUplinkPacketLossFraction(
+			std::max(fraction, floor_));
+	}
+	void OnReceivedTargetAudioBitrate(int bps) override {
+		enc_->OnReceivedTargetAudioBitrate(bps);
+	}
+	void OnReceivedUplinkBandwidth(int bps,
+				       std::optional<int64_t> period_ms) override {
+		update_.reset();
+		period_ms_ = period_ms;
+		enc_->OnReceivedUplinkBandwidth(hold_target(bps), period_ms);
+	}
+	void OnReceivedUplinkAllocation(
+		webrtc::BitrateAllocationUpdate update) override {
+		int bps = (int)update.target_bitrate.bps();
+
+		update_ = update;
+		update.target_bitrate =
+			webrtc::DataRate::BitsPerSec(hold_target(bps));
+		enc_->OnReceivedUplinkAllocation(update);
+	}
+	void OnReceivedRtt(int rtt_ms) override { enc_->OnReceivedRtt(rtt_ms); }
+	void OnReceivedOverhead(size_t bytes) override {
+		if (bytes != overhead_) {
+			info("pf: opus: overhead %zu bytes/packet\n", bytes);
+			overhead_ = bytes;
+		}
+		enc_->OnReceivedOverhead(bytes);
+	}
+	void SetReceiverFrameLengthRange(int min_ms, int max_ms) override {
+		enc_->SetReceiverFrameLengthRange(min_ms, max_ms);
+	}
+	webrtc::ANAStats GetANAStats() const override {
+		return enc_->GetANAStats();
+	}
+	std::optional<std::pair<webrtc::TimeDelta, webrtc::TimeDelta>>
+	GetFrameLengthRange() const override {
+		return enc_->GetFrameLengthRange();
+	}
+	std::optional<std::pair<webrtc::DataRate, webrtc::DataRate>>
+	GetBitrateRange() const override {
+		return enc_->GetBitrateRange();
+	}
+
+protected:
+	EncodedInfo EncodeImpl(uint32_t rtp_timestamp,
+			       std::span<const int16_t> audio,
+			       webrtc::Buffer *encoded) override {
+		EncodedInfo ei;
+
+		/* Same task queue as the bandwidth updates */
+		release_held();
+		ei = enc_->Encode(rtp_timestamp, audio, encoded);
+
+		/* Opus takes up a new frame length after a packet */
+		if (ei.encoded_bytes > 0) {
+			size_t ms = 10 * enc_->Num10MsFramesInNextPacket();
+
+			if (ms != frame_ms_) {
+				info("pf: opus: frame %zu -> %zu ms at target "
+				     "%.1f kbps (last packet %zu bytes)\n",
+				     frame_ms_, ms, target_bps_ / 1000.0,
+				     ei.encoded_bytes);
+				frame_ms_ = ms;
+			}
+		}
+
+		return ei;
+	}
+
+private:
+	/* Returns the target to pass to opus for the estimate's target bps */
+	int hold_target(int bps)
+	{
+		uint64_t now = tmr_jiffies();
+
+		last_bps_ = bps;
+		if (!hold_ || target_bps_ <= 0 || bps <= target_bps_) {
+			target_bps_ = bps;
+			rise_ts_ = 0;
+		}
+		else if (!rise_ts_) {
+			rise_ts_ = now;
+			rise_min_bps_ = bps;
+		}
+		else {
+			rise_min_bps_ = std::min(rise_min_bps_, bps);
+			if (now - rise_ts_ >= TARGET_RISE_HOLD_MS)
+				raise_target(now);
+		}
+
+		log_target(bps);
+
+		return target_bps_;
+	}
+
+	/* Takes up the lowest target of the hold time, and holds again
+	 * if the estimate is still above that */
+	void raise_target(uint64_t now)
+	{
+		target_bps_ = rise_min_bps_;
+		rise_ts_ = 0;
+		if (last_bps_ > target_bps_) {
+			rise_ts_ = now;
+			rise_min_bps_ = last_bps_;
+		}
+	}
+
+	/* Passes on a rise whose hold time is up without a new estimate */
+	void release_held()
+	{
+		uint64_t now;
+
+		if (!rise_ts_)
+			return;
+		now = tmr_jiffies();
+		if (now - rise_ts_ < TARGET_RISE_HOLD_MS)
+			return;
+
+		raise_target(now);
+		log_target(last_bps_);
+		if (update_) {
+			webrtc::BitrateAllocationUpdate update = *update_;
+
+			update.target_bitrate =
+				webrtc::DataRate::BitsPerSec(target_bps_);
+			enc_->OnReceivedUplinkAllocation(update);
+		}
+		else {
+			enc_->OnReceivedUplinkBandwidth(target_bps_,
+							period_ms_);
+		}
+	}
+
+	void log_target(int bps)
+	{
+		if (logged_bps_ >= 0
+		    && std::abs(bps - logged_bps_) < 1000
+		    && std::abs(target_bps_ - logged_held_bps_) < 1000)
+			return;
+
+		if (target_bps_ != bps) {
+			info("pf: opus: target %.1f kbps, held at %.1f "
+			     "(frame %zu ms)\n",
+			     bps / 1000.0, target_bps_ / 1000.0, frame_ms_);
+		}
+		else {
+			info("pf: opus: target %.1f kbps (frame %zu ms)\n",
+			     bps / 1000.0, frame_ms_);
+		}
+		logged_bps_ = bps;
+		logged_held_bps_ = target_bps_;
+	}
+
+	std::unique_ptr<webrtc::AudioEncoder> enc_;
+	float floor_;
+	bool hold_;
+	int target_bps_ = 0;       /* passed to opus */
+	uint64_t rise_ts_ = 0;     /* since when the target is above it */
+	int rise_min_bps_ = 0;     /* lowest target since rise_ts_ */
+	int last_bps_ = 0;         /* last target from the estimate */
+	/* Last update from the estimate, to pass on a held rise */
+	std::optional<webrtc::BitrateAllocationUpdate> update_;
+	std::optional<int64_t> period_ms_;
+	int logged_bps_ = -1;
+	int logged_held_bps_ = -1;
+	size_t frame_ms_ = 0;
+	size_t overhead_ = 0;
+};
+
+/* The builtin encoders, with opus wrapped in LossFloorEncoder (read per
+ * encoder, so it also works with the shared factory). The loss floor is
+ * wcall_set_loss_params's FEC loss, 0 for none. When the opus fmtp says we
+ * do the RED (SDP_OWN_RED_PT, see sdp_munge_audio), AdaptiveRedEncoder sits
+ * between the two and takes the loss floor over: LossFloorEncoder's hold
+ * then works on the whole audio target, RED included.
+ */
+class WireAudioEncoderFactory : public webrtc::AudioEncoderFactory {
+public:
+	WireAudioEncoderFactory()
+		: base_(webrtc::CreateBuiltinAudioEncoderFactory())
+	{
+	}
+
+	std::vector<webrtc::AudioCodecSpec> GetSupportedEncoders() override {
+		return base_->GetSupportedEncoders();
+	}
+
+	std::optional<webrtc::AudioCodecInfo> QueryAudioEncoder(
+		const webrtc::SdpAudioFormat& format) override {
+		return base_->QueryAudioEncoder(format);
+	}
+
+	std::unique_ptr<webrtc::AudioEncoder> Create(
+		const webrtc::Environment& env,
+		const webrtc::SdpAudioFormat& format,
+		Options options) override {
+		std::unique_ptr<webrtc::AudioEncoder> enc;
+		struct sdp_loss_params lp;
+		float floor;
+		bool hold;
+
+		enc = base_->Create(env, format, options);
+		if (!enc || !strcaseeq(format.name.c_str(), "opus"))
+			return enc;
+
+		sdp_get_loss_params(&lp);
+		floor = (float)MAX(lp.fec_loss_pct, 0) / 100.0f;
+		if (lp.fec_loss_pct > 0) {
+			info("pf: opus encoder with FEC, loss floor %d%%\n",
+			     lp.fec_loss_pct);
+		}
+
+		auto pt = format.parameters.find(SDP_OWN_RED_PT);
+		if (pt != format.parameters.end()) {
+			auto id = format.parameters.find(SDP_OWN_RED_ID);
+			int red_pt = atoi(pt->second.c_str());
+			std::shared_ptr<RedState> state;
+
+			if (id != format.parameters.end())
+				state = red_state_find((uint32_t)strtoul(
+					id->second.c_str(), NULL, 10));
+			info("pf: opus encoder with adaptive RED, pt %d, "
+			     "%d copies\n", red_pt, red_pt > 0 ? lp.red : 0);
+			enc = std::make_unique<AdaptiveRedEncoder>(
+				std::move(enc), red_pt, lp.red, floor, state);
+			floor = 0;
+		}
+
+		/* Without any audio or loss params opus doesn't adapt
+		 * (see sdp_audio_plain), so there is nothing to hold */
+		hold = !sdp_audio_plain();
+		info("pf: opus target rise hold: %s\n",
+		     hold ? "on" : "off (plain audio)");
+		return std::make_unique<LossFloorEncoder>(std::move(enc),
+			floor, hold);
+	}
+
+private:
+	webrtc::scoped_refptr<webrtc::AudioEncoderFactory> base_;
 };
 
 class PeerConnectionThread : public webrtc::Thread {
@@ -526,6 +939,7 @@ void timer_restart(void *arg)
 	struct peerflow *pf = (struct peerflow*)arg;
 	info("pf(%p): calling restarth due to network drop\n", pf);
 
+	pf->restart_deadline = 0;
 	IFLOW_CALL_CB(pf->iflow, restarth,
 		false, pf->iflow.arg);
 }
@@ -573,13 +987,36 @@ static void handle_mq(struct peerflow *pf, struct mq_data *md, int id)
 			break;
 
 		case MQ_PC_RESTART_DELAY:
-		  tmr_cancel(&pf->tmr_restart);
-		  info("pf(%p): restart delay: %dms at: %llu\n", pf, TMR_RESTART_INTERVAL, tmr_jiffies());
-			tmr_start(&pf->tmr_restart, TMR_RESTART_INTERVAL, timer_restart, pf);
+		case MQ_PC_RESTART_HOLD: {
+			const uint64_t now = tmr_jiffies();
+			uint64_t ms;
+
+			/* Failed: TMR_RESTART_INTERVAL from now. Out of
+			 * failed again: only at the deadline.
+			 */
+			if (!pf->restart_deadline) {
+				if (id == MQ_PC_RESTART_HOLD)
+					break; /* no restart pending */
+				pf->restart_deadline = now + TMR_RESTART_MAX;
+			}
+			ms = pf->restart_deadline > now ?
+				pf->restart_deadline - now : 1;
+			if (id == MQ_PC_RESTART_DELAY)
+				ms = std::min(ms, (uint64_t)TMR_RESTART_INTERVAL);
+
+			info("pf(%p): %s: restart in %llu ms\n", pf,
+			     id == MQ_PC_RESTART_DELAY ? "failed"
+			     : "out of failed, held", (unsigned long long)ms);
+			tmr_start(&pf->tmr_restart, ms, timer_restart, pf);
 			break;
+		}
 
 		case MQ_PC_RESTART_CANCEL:
+			if (tmr_isrunning(&pf->tmr_restart))
+				info("pf(%p): restart cancelled, "
+				     "connection is back\n", pf);
 			tmr_cancel(&pf->tmr_restart);
+			pf->restart_deadline = 0;
 			break;
 
 		case MQ_DC_OPEN:
@@ -785,6 +1222,19 @@ void peerflow_start_log(void)
 	}
 }
 
+static bool stats_log = true;
+
+void peerflow_set_stats_log(bool enable)
+{
+	stats_log = enable;
+	info("pf: stats log: %s\n", enable ? "on" : "off");
+}
+
+bool peerflow_get_stats_log(void)
+{
+	return stats_log;
+}
+
 
 static void peerflow_set_mute(bool muted)
 {
@@ -835,6 +1285,123 @@ void peerflow_set_adm(void *adm)
 	(void)adm;
 }
 
+/* Apply (no video) or lift the bandwidth estimate cap of the call; it bounds
+ * what the bandwidth probing pads up to.
+ */
+static void pf_set_bwe_capped(struct peerflow *pf, bool capped)
+{
+	webrtc::BitrateSettings bs;
+	webrtc::RTCError rerr;
+
+	if (!pf->peerConn || pf->bwe_cap <= 0 || pf->bwe_capped == capped)
+		return;
+
+	if (capped) {
+		bs.start_bitrate_bps = pf->bwe_cap;
+		bs.max_bitrate_bps = pf->bwe_cap;
+	}
+	rerr = pf->peerConn->SetBitrate(bs);
+	if (!rerr.ok()) {
+		warning("pf(%p): SetBitrate failed: %s\n", pf, rerr.message());
+		return;
+	}
+	pf->bwe_capped = capped;
+	info("pf(%p): bandwidth cap %s (%d bps)\n",
+	     pf, capped ? "applied" : "lifted", pf->bwe_cap);
+}
+
+/* While the selected pair is weak (no ping response for 5 s, or nothing
+ * received for 2.5 s), WebRTC pings every 48 ms whatever the RTT: ~20 kbit/s
+ * on the wire through TURN. On a link the audio already fills (gsm_14:
+ * 14 kbit/s, pair RTT 5 s), a stall makes the responses late, the pair
+ * weak, and the pings then keep the queue full (RTT 13-20 s, most pings
+ * dropped), so the pair stays weak: 45 s without audio. On a slow link
+ * (from an RTT of ICE_SLOW_RTT_ON_MS until below ICE_SLOW_RTT_OFF_MS)
+ * ping a weak pair every ICE_SLOW_WEAK_PING_MS, as
+ * often as a strong one: WebRTC rejects a weak interval longer than the
+ * strong one (480 ms by default, IceConfig::IsValid). Elsewhere WebRTC's
+ * fast pings stay, for call setup and network changes.
+ * The RTT is the higher of the pair's and the audio's RTCP one: when the
+ * link turns slow at once, the pair's RTT moves only with the first late
+ * ping response, after the new RTT, while the pair goes weak after 5 s
+ * without one; the RTCP reports show it within a few seconds (gsm_14:
+ * 1.7 s RTCP 3 s after the switch, pair still 75 ms, weak 3 s later).
+ * The bandwidth estimate falling to ICE_SLOW_BWE_ON_KBPS also makes the
+ * link slow: it falls within 2 s of the switch, before the pair goes weak,
+ * on both sides (the receiving side's RTCP RTT comes back through the same
+ * queue, gsm_14: set 25 s after the switch). On a slow link it stays at
+ * its ~10 kbit/s floor while the RTT swings between 0.3 and 6 s.
+ * The receiving side's estimate is about the other direction and has no
+ * update while ICE is down, so it armed only after reconnecting, after
+ * its own weak pings (13 per second for 5 s, gsm_14). What it sees first
+ * is its incoming audio played later and later (RecvDelay: by 0.7 s every
+ * second from the switch, ICE disconnected 6 s after it): an excess delay
+ * of ICE_SLOW_DELAY_ON_MS makes the link slow too (1.4 s after the
+ * switch; none in calls without a slow link).
+ * The link is slow until the RTT is below ICE_SLOW_RTT_OFF_MS, the
+ * estimate is back to ICE_SLOW_BWE_OFF_KBPS (the audio alone keeps it at
+ * 20-25 kbit/s on 40 kbit/s) and the excess delay below
+ * ICE_SLOW_DELAY_OFF_MS.
+ */
+#define ICE_SLOW_RTT_ON_MS     2000
+#define ICE_SLOW_RTT_OFF_MS    1000
+#define ICE_SLOW_BWE_ON_KBPS     15
+#define ICE_SLOW_BWE_OFF_KBPS    20
+#define ICE_SLOW_DELAY_ON_MS   1000
+#define ICE_SLOW_DELAY_OFF_MS   500
+#define ICE_SLOW_WEAK_PING_MS   480
+
+static void pf_update_ice_slow(struct peerflow *pf, int pair_rtt,
+			       int rtcp_rtt, int bwe, int delay)
+{
+	webrtc::PeerConnectionInterface::RTCConfiguration config;
+	webrtc::RTCError rerr;
+	int rtt = MAX(pair_rtt, rtcp_rtt);
+	bool slow;
+
+	if (!pf->peerConn || pf->plain || (rtt < 0 && bwe < 0 && delay < 0))
+		return;
+
+	if (!pf->ice_slow && (rtt >= ICE_SLOW_RTT_ON_MS
+			      || (bwe >= 0 && bwe <= ICE_SLOW_BWE_ON_KBPS)
+			      || delay >= ICE_SLOW_DELAY_ON_MS))
+		slow = true;
+	else if (pf->ice_slow && rtt < ICE_SLOW_RTT_OFF_MS
+		 && bwe >= ICE_SLOW_BWE_OFF_KBPS
+		 && delay < ICE_SLOW_DELAY_OFF_MS)
+		slow = false;
+	else
+		return;
+
+	config = pf->peerConn->GetConfiguration();
+	if (slow)
+		config.ice_check_interval_weak_connectivity =
+			ICE_SLOW_WEAK_PING_MS;
+	else
+		config.ice_check_interval_weak_connectivity = std::nullopt;
+
+	/* Not retried on failure: the stats come every second */
+	pf->ice_slow = slow;
+	rerr = pf->peerConn->SetConfiguration(config);
+	if (!rerr.ok()) {
+		warning("pf(%p): SetConfiguration failed: %s\n",
+			pf, rerr.message());
+		return;
+	}
+	if (slow)
+		info("pf(%p): slow link: RTT %d ms (pair %d, RTCP %d; from %d "
+		     "ms), bwe %d kbps (from %d), recv delay +%d ms (from "
+		     "%d), weak ICE checks every %d ms\n", pf, rtt, pair_rtt,
+		     rtcp_rtt, ICE_SLOW_RTT_ON_MS, bwe, ICE_SLOW_BWE_ON_KBPS,
+		     delay, ICE_SLOW_DELAY_ON_MS, ICE_SLOW_WEAK_PING_MS);
+	else
+		info("pf(%p): slow link over: RTT %d ms (pair %d, RTCP %d; "
+		     "below %d ms), bwe %d kbps (from %d), recv delay +%d ms "
+		     "(below %d), weak ICE checks as default\n", pf, rtt,
+		     pair_rtt, rtcp_rtt, ICE_SLOW_RTT_OFF_MS, bwe,
+		     ICE_SLOW_BWE_OFF_KBPS, delay, ICE_SLOW_DELAY_OFF_MS);
+}
+
 static void create_pc_deps(struct peerflow *pf,
 			   webrtc::PeerConnectionFactoryDependencies &pc_deps)
 {
@@ -845,7 +1412,8 @@ static void create_pc_deps(struct peerflow *pf,
 	pc_deps.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
 
 	/* Audio */
-	pc_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
+	pc_deps.audio_encoder_factory =
+		webrtc::make_ref_counted<WireAudioEncoderFactory>();
 	pc_deps.audio_decoder_factory =	webrtc::CreateBuiltinAudioDecoderFactory();
 
 	/* Video */
@@ -859,8 +1427,9 @@ static void create_pc_deps(struct peerflow *pf,
 				 *pc_deps.env,
 				 webrtc::AudioDeviceModule::AudioLayer::kAndroidOpenSLESAudio);
 #else
-	if (pf && pf->rec_path) {
-		pc_deps.adm = new webrtc::record_audiodevice(pf->rec_path);
+	if (pf && (pf->rec_path || pf->play_path)) {
+		pc_deps.adm = new webrtc::record_audiodevice(pf->rec_path,
+							     pf->play_path);
 	}
 	else if (pf && streq(pf->msys_name, "pstn")) {
 		auto adm = new webrtc::pstn_audiodevice(true);
@@ -878,7 +1447,6 @@ static void create_pc_deps(struct peerflow *pf,
 
 int peerflow_init(void)
 {
-	webrtc::AudioDeviceModule *adm;
 	webrtc::PeerConnectionFactoryDependencies pc_deps;
 	int err;
 
@@ -942,8 +1510,10 @@ void peerflow_destroy(void)
 {
 	info("peerflow_destroy: initialized=%d\n", g_pf.initialized);
 
-	//wire::CaptureSource::ReleaseInstance();
-	g_pf.video.src = nullptr;
+	/* CaptureSource doesn't reference count itself (no-op AddRef/Release),
+	 * so dropping the scoped_refptr never frees it; delete it explicitly.
+	 */
+	delete g_pf.video.src.release();
 
 	if (!g_pf.initialized)
 		return;
@@ -1291,14 +1861,39 @@ public:
 
 		switch (state) {
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:
+			if (!pf_->plain)
+				SendMQMessage(MQ_PC_RESTART_CANCEL);
 			SendMQMessage(MQ_PC_ESTAB);
 			break;
 
+		/* Not terminal in libwebrtc, unlike the standard: failed
+		 * means no candidate pair got a ping response for 15 s
+		 * (ice_inactive_timeout), but the pairs live on until 30 s
+		 * without receiving anything, and any packet or response
+		 * makes them work again (P2PTransportChannel::
+		 * ComputeIceTransportState, Connection::dead). On a
+		 * congested link the responses are only late, so wait.
+		 * Plain audio restarts at once, as release-10.5 did.
+		 */
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
-		        warning("pf(%p): connection failed, restarting...\n", pf_);
-			SendMQMessage(MQ_PC_RESTART_NOW);
+			if (pf_->plain) {
+				warning("pf(%p): connection failed, "
+					"restarting...\n", pf_);
+				SendMQMessage(MQ_PC_RESTART_NOW);
+				break;
+			}
+		        warning("pf(%p): connection failed, restarting unless "
+				"it comes back\n", pf_);
+			SendMQMessage(MQ_PC_RESTART_DELAY);
 			break;
-			
+
+		/* After failed: a pair works again, so the link is alive */
+		case webrtc::PeerConnectionInterface::PeerConnectionState::kDisconnected:
+		case webrtc::PeerConnectionInterface::PeerConnectionState::kConnecting:
+			if (!pf_->plain)
+				SendMQMessage(MQ_PC_RESTART_HOLD);
+			break;
+
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
 		{
 			wire::CallStatsCallback *cb = new wire::CallStatsCallback(pf_);
@@ -1429,6 +2024,35 @@ public:
 	virtual void OnIceConnectionReceivingChange(bool receiving) {
 	}
 
+	// Called when the selected candidate pair changes. A switch to
+	// another network (network id) resets the bandwidth estimate.
+	virtual void OnIceSelectedCandidatePairChanged(
+		const webrtc::CandidatePairChangeEvent& event) {
+		const webrtc::Candidate& lc =
+			event.selected_candidate_pair.local_candidate();
+		const webrtc::Candidate& rc =
+			event.selected_candidate_pair.remote_candidate();
+
+		info("pf(%p): selected pair: reason=\"%s\" "
+		     "local=%s %s %s%s%s net=%s/%u/%s cost=%u "
+		     "remote=%s %s %s net=%u cost=%u "
+		     "disconnected=%lld ms\n",
+		     pf_, event.reason.c_str(),
+		     std::string(lc.type_name()).c_str(),
+		     lc.protocol().c_str(),
+		     lc.address().ToString().c_str(),
+		     lc.relay_protocol().empty() ? "" : " relay=",
+		     lc.relay_protocol().c_str(),
+		     lc.network_name().c_str(), lc.network_id(),
+		     webrtc::AdapterTypeToString(lc.network_type()).c_str(),
+		     lc.network_cost(),
+		     std::string(rc.type_name()).c_str(),
+		     rc.protocol().c_str(),
+		     rc.address().ToString().c_str(),
+		     rc.network_id(), rc.network_cost(),
+		     (long long)event.estimated_disconnected_time_ms);
+	}
+
 	// This is called when a receiver and its track are created.
 	// Note: This is called with both Plan B and Unified Plan semantics.
 	// Unified Plan users should prefer OnTrack,
@@ -1456,6 +2080,18 @@ public:
 		info("pf(%p): OnAddTrack %s track added id=%s\n", pf_, kind, label);
 
 		track->set_enabled(true);
+
+		if (streq(kind, webrtc::MediaStreamTrackInterface::kAudioKind)) {
+			struct sdp_loss_params lp;
+
+			sdp_get_loss_params(&lp);
+			if (lp.jb_min_ms > 0) {
+				info("pf(%p): audio jitter buffer minimum %d ms\n",
+				     pf_, lp.jb_min_ms);
+				rx->SetJitterBufferMinimumDelay(
+					lp.jb_min_ms / 1000.0);
+			}
+		}
 
 		struct conf_member *cm;
 
@@ -2036,7 +2672,7 @@ static int create_pf(struct peerflow *pf)
 	int err = 0;
 
 	recv_video = pf->call_type != ICALL_CALL_TYPE_FORCED_AUDIO;
-	
+
 	pf->offerOptions =
 		new webrtc::PeerConnectionInterface::RTCOfferAnswerOptions(
 				recv_video, 1, false, true, true);
@@ -2074,6 +2710,13 @@ static int create_pf(struct peerflow *pf)
 	else 
 		pf->config->type = webrtc::PeerConnectionInterface::kAll; 
 
+	// Keep only the first TURN port that gets ready on each network.
+	// The others never pair, so they have no permissions to refresh
+	// (all at once, 4 minutes into the call) and their relay
+	// candidates are not offered (see turn_use in ecall.c). This
+	// applies also without any audio or loss params (plain).
+	pf->config->turn_port_prune_policy = webrtc::KEEP_FIRST_READY;
+
 	std::unique_ptr<webrtc::PortAllocator> port_allocator = nullptr;
 	
 	struct msystem_proxy *proxy = msystem_get_proxy();
@@ -2105,8 +2748,8 @@ static int create_pf(struct peerflow *pf)
 	webrtc::PeerConnectionFactoryDependencies pc_deps;
 	webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
 
-	if (pf->rec_path || streq(pf->msys_name, "pstn")) {
-		// we will create a new PeerConnectionFactory for each call in case of audio recording or PSTN forwarding
+	if (pf->rec_path || pf->play_path || streq(pf->msys_name, "pstn")) {
+		// we will create a new PeerConnectionFactory for each call in case of audio recording, playback or PSTN forwarding
 		create_pc_deps(pf, pc_deps);
 		factory = webrtc::CreateModularPeerConnectionFactory(std::move(pc_deps));
 	} else {
@@ -2129,6 +2772,15 @@ static int create_pf(struct peerflow *pf)
 
 	pf->peerConn = pcorerr.value();
 	info("pf(%p): created PC=%p\n", pf, pf->peerConn.get());
+
+	{
+		struct sdp_loss_params lp;
+
+		sdp_get_loss_params(&lp);
+		pf->bwe_cap = lp.max_bitrate;
+		pf_set_bwe_capped(pf, pf->call_type != ICALL_CALL_TYPE_VIDEO &&
+				  pf->vstate == ICALL_VIDEO_STATE_STOPPED);
+	}
 
 	auopts.echo_cancellation = true;
 	auopts.auto_gain_control = true;
@@ -2226,10 +2878,16 @@ static void pf_destructor(void *arg)
 
 	pf->netStatsCb->setActive(false);
 	tmr_cancel(&pf->tmr_stats);
+	tmr_cancel(&pf->tmr_aulevel);
 	tmr_cancel(&pf->tmr_gather);
 
 	delete pf->netStatsCb;
 	pf->netStatsCb = NULL;
+	delete pf->recv_delay;
+	pf->recv_delay = NULL;
+
+	if (pf->red_id)
+		red_state_unregister(pf->red_id);
 
 	tmr_cancel(&pf->tmr_cbr);
 	tmr_cancel(&pf->tmr_restart);
@@ -2265,6 +2923,7 @@ static void pf_destructor(void *arg)
 	mem_deref(pf->clientid_self);
 	mem_deref(pf->clientid_remote);
 	mem_deref(pf->rec_path);
+	mem_deref(pf->play_path);
 	mem_deref(pf->cm);
 	mem_deref(pf->stats);
 	mem_deref(pf->msys_name);
@@ -2275,10 +2934,40 @@ static void pf_destructor(void *arg)
 	list_flush(&pf->video.renderl);
 }
 
+/* Whether the audio sender sends RED, by WebRTC's rule: a RED codec with
+ * its fmtp negotiated before the send codec (opus). The stats can't tell,
+ * as they give the send codec's payload type with RED on too. With adaptive
+ * RED (ours, after opus) the encoder's RedState says instead.
+ * 1 = RED, 0 = no RED, -1 = no audio sender (yet).
+ */
+static int audio_send_red(
+	const std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>>& trxs)
+{
+	for (const auto& trx: trxs) {
+		webrtc::scoped_refptr<webrtc::RtpSenderInterface> tx = trx->sender();
+
+		if (!tx || tx->media_type() != webrtc::MediaType::AUDIO)
+			continue;
+
+		bool red = false;
+		for (const auto& codec: tx->GetParameters().codecs) {
+			if (codec.name == "opus")
+				return red ? 1 : 0;
+
+			auto it = codec.parameters.find("");
+			if (strcaseeq(codec.name.c_str(), "red")
+			    && it != codec.parameters.end()
+			    && !it->second.empty())
+				red = true;
+		}
+	}
+
+	return -1;
+}
+
 static void timer_stats(void *arg)
 {
 	struct peerflow *pf = (struct peerflow *)arg;
-
 	std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
 
 	if (!pf || !pf->peerConn)
@@ -2293,66 +2982,126 @@ static void timer_stats(void *arg)
 		if (rx) {
 			sources = rx->GetSources();
 		}
-
-		lock_write_get(pf->cml.lock);
-		for(webrtc::RtpSource src: sources) {
-			uint32_t ssrc = src.source_id();
-			struct conf_member *cm = conf_member_find_by_ssrca(&pf->cml.list, ssrc);
-			uint8_t level = src.audio_level() ? *src.audio_level() : 127;
-			if (cm) {
-				float flevel = powf(10.0f, -level / 30.0f) * 255.0f;
-				conf_member_set_audio_level(cm, (uint8_t)flevel);
-			}
-		}
-		lock_rel(pf->cml.lock);
+		if (trx->media_type() == webrtc::MediaType::AUDIO)
+			pf->recv_delay->add(tmr_jiffies(), sources);
 	}
 
+	{
+		std::shared_ptr<RedState> rs = red_state_find(pf->red_id);
+		int red = rs ? rs->on.load() : -1;
+		int rtt = pf->netStatsCb->pairRttMs();
+
+		pf->netStatsCb->setSendRed(red >= 0 ? red
+					   : audio_send_red(trxs));
+		if (rs)
+			rs->pair_rtt_ms = rtt;
+		pf_update_ice_slow(pf, rtt, pf->netStatsCb->remoteRttMs(),
+				   pf->netStatsCb->pairBweKbps(),
+				   pf->recv_delay->excessMs(tmr_jiffies()));
+	}
 	pf->peerConn->GetStats(pf->netStatsCb);
 
  out:
 	tmr_start(&pf->tmr_stats, TMR_STATS_INTERVAL, timer_stats, pf);
 }
 
-static int get_oneonone_aulevel(struct peerflow *pf,
-				struct list *levell)
+/* Sample the RFC 6464 levels of the received audio sources.
+ * GetSources() only reports the level of the last packet of each
+ * source, so sample often and let conf_member keep the peak.
+ * Sources stay in the list for a while after their last packet
+ * (e.g. when the SFT stops forwarding them), skip those.
+ */
+static void timer_aulevel(void *arg)
 {
+	struct peerflow *pf = (struct peerflow *)arg;
 	std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
-	int err = 0;
+	webrtc::Timestamp now = webrtc::Timestamp::Zero();
+	webrtc::RtpSourceType srctype;
 
 	if (!pf || !pf->peerConn)
-		return ENOENT;
+		goto out;
 
 	trxs = pf->peerConn->GetTransceivers();
+	now = webrtc::Clock::GetRealTimeClock()->CurrentTime();
+
+	/* The SFT forwards on its own SSRCs and puts the sender's
+	 * SSRC in the CSRC list, P2P packets carry no CSRCs.
+	 */
+	srctype = pf->conv_type == ICALL_CONV_TYPE_ONEONONE
+		? webrtc::RtpSourceType::SSRC
+		: webrtc::RtpSourceType::CSRC;
+
 	for(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
 		webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rx = trx->receiver();
 		std::vector<webrtc::RtpSource> sources;
 
-		if (rx) {
-			sources = rx->GetSources();
-		}
-		if (sources.empty())
+		if (!rx || rx->media_type() != webrtc::MediaType::AUDIO)
 			continue;
-		
-		webrtc::RtpSource src = sources[0]; 
-		uint8_t level = src.audio_level() ? *src.audio_level() : 127;
-		float flevel = powf(10.0f, -level / 30.0f) * 255.0f;
 
-		if (!pf->cm)
-			return ENOENT;
+		sources = rx->GetSources();
 
-		conf_member_set_audio_level(pf->cm, (uint8_t)flevel);
-		if (pf->cm->audio_level > AUDIO_LEVEL_FLOOR
-		     || pf->cm->audio_level_smooth > 0) {
-			struct audio_level *aulevel;
+		lock_write_get(pf->cml.lock);
+		for(webrtc::RtpSource src: sources) {
+			struct conf_member *cm;
+			uint8_t level;
+			float flevel;
 
-			err = audio_level_alloc(&aulevel, levell, false,
-						pf->cm->userid,
-						pf->cm->clientid,
-						pf->cm->audio_level,
-						pf->cm->audio_level_smooth);
+			if (src.source_type() != srctype)
+				continue;
+			if ((now - src.timestamp()).ms() > AULEVEL_SOURCE_MAX_AGE)
+				continue;
+			if (!src.audio_level())
+				continue;
+
+			if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE)
+				cm = pf->cm;
+			else
+				cm = conf_member_find_by_ssrca(&pf->cml.list,
+							       src.source_id());
+			if (!cm)
+				continue;
+
+			level = *src.audio_level();
+			flevel = powf(10.0f, -level / 30.0f) * 255.0f;
+			conf_member_set_audio_level(cm, (int)flevel);
 		}
+		lock_rel(pf->cml.lock);
 	}
-	
+
+ out:
+	tmr_start(&pf->tmr_aulevel, TMR_AULEVEL_INTERVAL, timer_aulevel, pf);
+}
+
+static int get_oneonone_aulevel(struct peerflow *pf,
+				struct list *levell)
+{
+	struct conf_member *cm;
+	struct audio_level *aulevel;
+	int err = 0;
+
+	if (!pf)
+		return ENOENT;
+
+	lock_write_get(pf->cml.lock);
+	cm = pf->cm;
+	if (!cm) {
+		err = ENOENT;
+		goto out;
+	}
+
+	conf_member_latch_audio_level(cm);
+	if (cm->audio_level > AUDIO_LEVEL_FLOOR
+	    || cm->audio_level_smooth > 0) {
+		err = audio_level_alloc(&aulevel, levell, false,
+					cm->userid,
+					cm->clientid,
+					cm->audio_level,
+					cm->audio_level_smooth);
+	}
+
+ out:
+	lock_rel(pf->cml.lock);
+
 	return err;
 }
 
@@ -2391,6 +3140,7 @@ static int peerflow_get_aulevel(struct iflow *iflow,
 			if (!cm || !cm->active)
 				continue;
 
+			conf_member_latch_audio_level(cm);
 			if (cm->userid && cm->clientid &&
 			    (cm->audio_level > AUDIO_LEVEL_FLOOR
 			     || cm->audio_level_smooth > 0)) {
@@ -2399,11 +3149,6 @@ static int peerflow_get_aulevel(struct iflow *iflow,
 							cm->clientid,
 							cm->audio_level,
 							cm->audio_level_smooth);
-				/* Make sure to count down the level if
-				 * the source is no longer in the list due to
-				 * selective audio.
-				 */
-				conf_member_set_audio_level(cm, 0);
 				if (err) {
 					lock_rel(pf->cml.lock);
 					goto out;
@@ -2447,6 +3192,7 @@ int peerflow_alloc(struct iflow		**flowp,
 		   enum icall_call_type	call_type,
 		   enum icall_vstate	vstate,
 		   const char           *rec_path,
+		   const char           *play_path,
 		   void			*extarg)
 {
 	struct peerflow *pf;
@@ -2500,10 +3246,18 @@ int peerflow_alloc(struct iflow		**flowp,
 	str_dup(&pf->userid_self, userid_self);
 	str_dup(&pf->clientid_self, clientid_self);
 	str_dup(&pf->rec_path, rec_path);
+	str_dup(&pf->play_path, play_path);
 	pf->conv_type = conv_type;
 	pf->call_type = call_type;
 	pf->vstate = vstate;
-	
+	pf->plain = sdp_audio_plain();
+	if (pf->plain)
+		info("pf(%p): plain audio (as release-10.5)\n", pf);
+
+	/* No id: the remote SDP keeps red first, so WebRTC does the RED */
+	pf->red_id = !pf->plain && sdp_get_adaptive_red() ?
+		red_state_register() : 0;
+
 	pf->config = new webrtc::PeerConnectionInterface::RTCConfiguration();
 	pf->observer = new AvsPeerConnectionObserver(pf);
 
@@ -2534,8 +3288,10 @@ int peerflow_alloc(struct iflow		**flowp,
 	lock_rel(g_pf.lock);
 
 	pf->netStatsCb = new wire::NetStatsCallback(pf, pf->stats);
+	pf->recv_delay = new wire::RecvDelay();
 
 	tmr_start(&pf->tmr_stats, TMR_STATS_INTERVAL, timer_stats, pf);
+	tmr_start(&pf->tmr_aulevel, TMR_AULEVEL_INTERVAL, timer_aulevel, pf);
  out:
 	if (err)
 		mem_deref(pf);
@@ -2593,28 +3349,6 @@ bool peerflow_is_gathered(const struct iflow *iflow)
 	return pf->gathered;	
 }
 
-#if 0
-static void set_group_audio_params(struct peerflow *pf)
-{
-	std::vector<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>> trxs;
-
-	trxs = pf->peerConn->GetTransceivers();
-
-	for(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> trx: trxs) {
-		webrtc::scoped_refptr<webrtc::RtpSenderInterface> tx = trx->sender();
-		if (tx->media_type() != webrtc::MediaType::AUDIO)
-			continue;
-		
-		webrtc::RtpParameters params = tx->GetParameters();
-		std::vector<webrtc::RtpEncodingParameters> encs = params.encodings;
-		for(webrtc::RtpEncodingParameters enc: encs)  {
-			enc.dtx = webrtc::DtxStatus::ENABLED;
-			enc.ptime = GROUP_PTIME;
-		}
-		tx->SetParameters(params);
-	}
-}
-#endif
 
 
 int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
@@ -2652,12 +3386,6 @@ int peerflow_gather_all_turn(struct iflow *iflow, bool offer)
 			warning("pf(%p): no data channel\n", pf);
 		}
 
-#if 0 /* Don't set audio parameters until they are supported by webrtc */
-		if (pc->group_mode != MEDIAFLOW_MODE_ONEONONE) {
-			set_group_audio_params(pc);
-		}
-#endif
-		
 		pf->peerConn->CreateOffer(pf->sdpObserver, *pf->offerOptions);
 	}
 	else if (state == webrtc::PeerConnectionInterface::kHaveRemoteOffer)
@@ -2810,13 +3538,23 @@ int peerflow_handle_offer(struct iflow *iflow,
 	sdp_check(sdp_in, false, true, pf_acbr_handler,
 		  pf_norelay_handler, pf_tool_handler, pf);
 
-	if (!pf->sdp_needs_munging) {
-		sdp_str = (char *)sdp_in;
+	/* Remote SDP drives our encoder's ptime and bitrate. Plain audio
+	 * takes it as it came, as release-10.5 did.
+	 */
+	if (pf->plain && !pf->sdp_needs_munging) {
+		str_dup(&sdp_str, sdp_in);
 	}
 	else {
-		err = sdp_munge(&sdp_str, sdp_in, pf->conv_type, true);
+		if (pf->plain)
+			err = sdp_munge(&sdp_str, sdp_in, pf->conv_type, true);
+		else
+			err = sdp_munge_audio(&sdp_str, sdp_in, pf->conv_type,
+					      true, false,
+					      pf->sdp_needs_munging,
+					      pf->red_id);
 		if (err) {
-			warning("peerflow_handle_offer: failed to munge SDP: %m\n", err);
+			warning("peerflow_handle_offer: failed to munge SDP: "
+				"%m\n", err);
 			return err;
 		}
 		info("peerflow(%p): handle SDP-offer-munged:\n"
@@ -2824,14 +3562,11 @@ int peerflow_handle_offer(struct iflow *iflow,
 		     pf, sdp_str);
 	}
 
-
 	webrtc::SdpParseError parse_err;
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
 		webrtc::CreateSessionDescription(webrtc::SdpType::kOffer,
 						 sdp_str, &parse_err);
-	if (pf->sdp_needs_munging) {
-		mem_deref(sdp_str);
-	}
+	mem_deref(sdp_str);
 
 	if (sdp == nullptr) {
 		warning("peerflow_handle_offer: failed to parse SDP: "
@@ -2856,26 +3591,46 @@ out:
 }
 
 int peerflow_handle_answer(struct iflow *iflow,
-			   const char *sdp_str)
+			   const char *sdp_in)
 {
 	struct peerflow *pf = (struct peerflow*)iflow;
-	char *tool = NULL;
+	char *sdp_str = NULL;
 	int err = 0;
 	
-	if (!pf || !sdp_str)
+	if (!pf || !sdp_in)
 		return EINVAL;
 
 	info("peerflow(%p): handle SDP-answer:\n"
 	     "%s\n",
-	     pf, sdp_str);
+	     pf, sdp_in);
 	
-	sdp_check(sdp_str, false, false, pf_acbr_handler,
+	sdp_check(sdp_in, false, false, pf_acbr_handler,
 		  pf_norelay_handler, pf_tool_handler, pf);
+
+	/* Remote SDP drives our encoder's ptime and bitrate. Plain audio
+	 * takes it as it came, as release-10.5 did.
+	 */
+	if (pf->plain) {
+		str_dup(&sdp_str, sdp_in);
+	}
+	else {
+		err = sdp_munge_audio(&sdp_str, sdp_in, pf->conv_type, false,
+				      false, false, pf->red_id);
+		if (err) {
+			warning("peerflow_handle_answer: failed to munge SDP: "
+				"%m\n", err);
+			return err;
+		}
+		info("peerflow(%p): handle SDP-answer-munged:\n"
+		     "%s\n",
+		     pf, sdp_str);
+	}
 
 	webrtc::SdpParseError parse_err;
 	std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
 		webrtc::CreateSessionDescription(webrtc::SdpType::kAnswer,
 						 sdp_str, &parse_err);
+	mem_deref(sdp_str);
 
 	if (sdp == nullptr) {
 		warning("peerflow_handle_answer: failed to parse SDP: "
@@ -3195,6 +3950,8 @@ int peerflow_set_video_state(struct iflow *iflow, enum icall_vstate vstate)
 	if (pf && pf->video.track)
 		pf->video.track->set_enabled(active);
 
+	pf_set_bwe_capped(pf, !active);
+
 
 	return 0;
 }
@@ -3222,6 +3979,7 @@ void peerflow_close(struct iflow *iflow)
 		return;
 
 	tmr_cancel(&pf->tmr_stats);
+	tmr_cancel(&pf->tmr_aulevel);
 	pf->netStatsCb->setActive(false);
 	if (pf->peerConn) {
 		pf->peerConn->Close();

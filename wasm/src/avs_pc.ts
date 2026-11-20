@@ -1,5 +1,6 @@
 /*eslint-disable sort-keys, no-console */
 import {WcallLogHandler} from "./avs_wcall";
+import {failTestPeer, observeTestCandidate, observeTestMicrophone, observeTestPeer} from "./avs_connection_test";
 
 declare var RTCRtpSender: any;
 declare var RTCRtpScriptTransform: any;
@@ -77,6 +78,18 @@ interface PeerConnection {
   ivv: Uint8Array;
   streams: {[ssrc: string]: string};
   gatherTimer: any;
+  audioRate: AudioRate;
+}
+
+/* State of adaptAudioBitrate for a connection */
+interface AudioRate {
+  ts: number;          /* stats time of the last outbound sample (ms) */
+  pkts: number;        /* packetsSent then */
+  hdrBytes: number;    /* headerBytesSent then */
+  maxBitrate: number;  /* maxBitrate we set (bps), 0: none */
+  riseSince: number;   /* a rise waits since then (ms), 0: none */
+  riseTo: number;      /* lowest value wanted since (bps), 0: none */
+  busy: boolean;       /* setParameters pending */
 }
 
 const ENV_FIREFOX = 1;
@@ -1051,6 +1064,11 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
             }
         }
     });
+    for (const sender of rtc.getSenders()) {
+        if (sender.track && sender.track.kind === 'audio')
+            setAudioAdaptivePtime(pc, sender);
+    }
+
     // Either the codecs did not need to be adjusted because we are in a 1:1 call, or we are not sending a video track.
     // In that case, there is no need to wait for the asynchronous process
     if (videoSenderUpdates.length === 0) {
@@ -1060,6 +1078,30 @@ function update_tracks(pc: PeerConnection, stream: MediaStream): Promise<void> {
     return Promise.all(videoSenderUpdates).catch(e => {
         pc_log(LOG_LEVEL_ERROR, `update_tracks: error=${e}`)
     }).then();
+}
+
+/* Adaptive ptime, as in the native clients: the browser's opus lengthens the
+ * frames (up to the SDP maxptime) when the bandwidth is short, and the audio
+ * bitrate can go down to 16 kbps. Only Chromium has adaptivePtime; other
+ * browsers ignore it, which the read back shows in the log. Set before
+ * negotiation, it is applied once the sender has its SSRC.
+ */
+function setAudioAdaptivePtime(pc: PeerConnection, sender: RTCRtpSender) {
+    const params = sender.getParameters();
+    const enc = params.encodings && params.encodings[0] as any;
+
+    if (!enc || enc.adaptivePtime)
+        return;
+
+    enc.adaptivePtime = true;
+    sender.setParameters(params)
+        .then(() => {
+            const rb = sender.getParameters().encodings;
+            const on = !!(rb && rb[0] && (rb[0] as any).adaptivePtime);
+
+            pc_log(LOG_LEVEL_INFO, `setAudioAdaptivePtime: self=${pc.self} ${on ? 'on' : 'not supported'}`);
+        })
+        .catch((e) => pc_log(LOG_LEVEL_WARN, `setAudioAdaptivePtime: self=${pc.self} failed: ${e}`));
 }
 
 function getEncodingParameter(sender: RTCRtpSender, isScreenShare: boolean) {
@@ -1152,6 +1194,203 @@ function ccallStartGatherHandler(
   );
 }
 
+
+function ccallAudioJbMinMs(): number {
+  return em_module.ccall("pc_audio_jb_min_ms", "number", [], []);
+}
+
+/* Give the received audio the same jitter buffer minimum as the native
+ * clients (wcall_set_loss_params jb_min_ms), so the packet carrying the RED /
+ * FEC copy of a lost one arrives in time.
+ */
+function setAudioJitterBufferMin(pc: PeerConnection, receiver: RTCRtpReceiver) {
+  const ms = ccallAudioJbMinMs();
+  if (ms <= 0)
+    return;
+
+  const r = receiver as any;
+  try {
+    if ('jitterBufferTarget' in r) {
+      r.jitterBufferTarget = ms;
+    }
+    else if ('playoutDelayHint' in r) {
+      r.playoutDelayHint = ms / 1000;
+    }
+    else {
+      pc_log(LOG_LEVEL_INFO, `setAudioJitterBufferMin: self=${pc.self} not supported`);
+      return;
+    }
+    pc_log(LOG_LEVEL_INFO, `setAudioJitterBufferMin: self=${pc.self} ${ms} ms`);
+  } catch(err) {
+    pc_log(LOG_LEVEL_WARN, "setAudioJitterBufferMin failed: " + err, err);
+  }
+}
+
+function ccallAudioAdaptMaxBps(): number {
+  return em_module.ccall("pc_audio_adapt_max_bps", "number", [], []);
+}
+
+function ccallAudioPtime(): number {
+  return em_module.ccall("pc_audio_ptime", "number", [], []);
+}
+
+const AUDIO_RISE_HOLD_MS = 3000;
+const AUDIO_OPUS_MIN_BPS = 6000;
+const AUDIO_RED_HDR_BYTES = 5; /* RED headers of a packet with one copy */
+const AUDIO_SRTP_UDP_BYTES = 18; /* SRTP auth tag 10 + UDP 8 */
+
+function perPacketBps(bytes: number, frameMs: number): number {
+  return bytes * 8 * 1000 / frameMs;
+}
+
+/* The native clients fit RED into the bandwidth estimate by giving opus its
+ * share of it, and hold rises of the opus target for 3 s (peerflow
+ * AdaptiveRedEncoder, LossFloorEncoder). The browser can do neither: RED,
+ * when negotiated, is on for the whole call with its copy on top of the
+ * bitrate allocated to the audio, and with adaptivePtime (Chromium) that
+ * allocation doesn't go below 16 kbps, so on a slow link it sends twice the
+ * estimate or more.
+ *
+ * The lever left is encodings[0].maxBitrate, which in libwebrtc sets both
+ * ends of the audio allocation: the minimum to it when below 16 kbps, the
+ * maximum to it plus the headers at the shortest frame length. So on each
+ * stats tick (1 s) this sets maxBitrate so that opus gets no more than its
+ * share at the current frame length: the estimate less the headers, halved
+ * with RED. At long frames that would need less than opus's 6 kbps, so the
+ * share then holds only where the estimate leaves room for it; below, what
+ * it gains is the lower minimum (6 kbps instead of 16). A drop goes through
+ * at once, a rise after it has been wanted for 3 s, to the lowest value of
+ * that time. Needs the estimate (availableOutgoingBitrate, not in Firefox);
+ * off while sending video (which shares the estimate), with plain audio and
+ * with adaptive RED off (pc_audio_adapt_max_bps).
+ */
+function adaptAudioBitrate(pc: PeerConnection, stats: any) {
+  const rtc = pc.rtc;
+  const ar = pc.audioRate;
+
+  if (!rtc || ar.busy)
+    return;
+
+  const sender = rtc.getSenders().find(s => !!s.track && s.track.kind === 'audio');
+  if (!sender)
+    return;
+
+  const maxBps = ccallAudioAdaptMaxBps();
+  if (!maxBps || pc.sending_video) {
+    if (ar.maxBitrate)
+      setAudioMaxBitrate(pc, sender, 0, pc.sending_video ? 'video' : 'off');
+    ar.riseSince = 0;
+    return;
+  }
+
+  let out: any = null;
+  let pair: any = null;
+  stats.forEach((s: any) => {
+    if (s.type === 'outbound-rtp' && s.kind === 'audio')
+      out = s;
+    else if (s.type === 'transport' && s.selectedCandidatePairId)
+      pair = stats.get(s.selectedCandidatePairId);
+  });
+  if (!out || !pair || !pair.availableOutgoingBitrate)
+    return;
+
+  const dt = out.timestamp - ar.ts;
+  const pkts = out.packetsSent - ar.pkts;
+  const hdrBytes = (out.headerBytesSent || 0) - ar.hdrBytes;
+  const first = ar.ts === 0;
+
+  ar.ts = out.timestamp;
+  ar.pkts = out.packetsSent;
+  ar.hdrBytes = out.headerBytesSent || 0;
+  if (first || dt <= 0 || pkts <= 0)
+    return;
+
+  /* Headers per packet as libwebrtc counts them for the allocation: RTP
+   * with its extensions, SRTP, UDP, IP, and TURN's on a relay.
+   */
+  const local: any = stats.get(pair.localCandidateId);
+  const ipv6 = !!(local && local.address && local.address.indexOf(':') >= 0);
+  let relay = 0;
+  if (local && local.candidateType === 'relay')
+    relay = local.relayProtocol === 'udp' ? 4 : 16;
+  const rtpHdr = hdrBytes > 0 ? hdrBytes / pkts : 24;
+  const hdr = rtpHdr + AUDIO_SRTP_UDP_BYTES + (ipv6 ? 40 : 20) + relay;
+
+  const codec: any = out.codecId ? stats.get(out.codecId) : null;
+  const red = !!(codec && /\/red$/i.test(codec.mimeType));
+  const enc: any = sender.getParameters().encodings[0];
+  const adaptive = !!(enc && enc.adaptivePtime);
+
+  const frameMs = Math.min(120, Math.max(10, Math.round(dt / pkts / 10) * 10));
+  const minFrameMs = adaptive ? Math.max(ccallAudioPtime(), 20) : frameMs;
+  const bwe = pair.availableOutgoingBitrate;
+
+  let share = bwe - perPacketBps(hdr + (red ? AUDIO_RED_HDR_BYTES : 0), frameMs);
+  if (red)
+    share /= 2;
+
+  /* The allocation's maximum has the headers at the shortest frame */
+  let want = share - (perPacketBps(hdr, minFrameMs) - perPacketBps(hdr, frameMs));
+  want = Math.max(Math.floor(want / 1000) * 1000, AUDIO_OPUS_MIN_BPS);
+  if (want >= maxBps)
+    want = 0;
+
+  const cur = ar.maxBitrate || Infinity;
+  const w = want || Infinity;
+  const why = `bwe ${(bwe / 1000).toFixed(1)} kbps, ${frameMs} ms frames, `
+	+ `${Math.round(hdr)} B headers, red ${red ? 'on' : 'off'}`;
+
+  if (w < cur) {
+    ar.riseSince = 0;
+    setAudioMaxBitrate(pc, sender, want, why);
+  }
+  else if (w > cur) {
+    if (!ar.riseSince) {
+      ar.riseSince = out.timestamp;
+      ar.riseTo = w;
+    }
+    else {
+      ar.riseTo = Math.min(ar.riseTo, w);
+    }
+    if (out.timestamp - ar.riseSince >= AUDIO_RISE_HOLD_MS) {
+      ar.riseSince = 0;
+      setAudioMaxBitrate(pc, sender,
+			 ar.riseTo === Infinity ? 0 : ar.riseTo, why);
+    }
+  }
+  else {
+    ar.riseSince = 0;
+  }
+}
+
+function setAudioMaxBitrate(pc: PeerConnection, sender: RTCRtpSender,
+			    bps: number, why: string) {
+  const ar = pc.audioRate;
+  const params = sender.getParameters();
+  const enc = params.encodings && params.encodings[0];
+  const kbps = (b: number) => b ? `${b / 1000} kbps` : 'none';
+
+  if (!enc)
+    return;
+
+  if (bps)
+    enc.maxBitrate = bps;
+  else
+    delete enc.maxBitrate;
+
+  ar.busy = true;
+  sender.setParameters(params)
+    .then(() => {
+      pc_log(LOG_LEVEL_INFO, `adaptAudioBitrate: self=${pc.self} maxBitrate `
+	     + `${kbps(bps)} (was ${kbps(ar.maxBitrate)}); ${why}`);
+      ar.maxBitrate = bps;
+      ar.busy = false;
+    }, (e) => {
+      /* Keep busy: don't try again on this connection */
+      pc_log(LOG_LEVEL_WARN, `adaptAudioBitrate: self=${pc.self} maxBitrate `
+	     + `${kbps(bps)} failed: ${e}`);
+    });
+}
 
 function ccallSignallingHandler(pc: PeerConnection, state: number) {
   em_module.ccall(
@@ -1322,6 +1561,7 @@ function candidateHandler(pc: PeerConnection, cand: RTCIceCandidate | null) {
 
         return;
     }
+    observeTestCandidate(pc.convid, pc.rtc, cand);
 
     /* As soon as we get the first relay, we start a gathering timer
      * this was we ensure that gathering never takes more than the
@@ -1431,7 +1671,16 @@ function pc_New(self: number, convidPtr: number,
       rtt: 0
     },
     streams: {},
-    gatherTimer: null
+    gatherTimer: null,
+    audioRate: {
+      ts: 0,
+      pkts: 0,
+      hdrBytes: 0,
+      maxBitrate: 0,
+      riseSince: 0,
+      riseTo: 0,
+      busy: false
+    }
   };
 
   worker.postMessage({op: 'create', self: pc.self, iva: iva8, ivv: ivv8});
@@ -1471,6 +1720,7 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
   const rtc = new RTCPeerConnection(config);
 
   pc.rtc = rtc;
+  observeTestPeer(pc.convid, rtc);
   rtc.onicegatheringstatechange = () => gatheringHandler(pc);
   rtc.onconnectionstatechange = () => connectionHandler(pc);
   rtc.onicecandidate = (event) => candidateHandler(pc, event.candidate);
@@ -1504,6 +1754,9 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
               }
           }
       }
+
+      if (event.track.kind == "audio")
+          setAudioJitterBufferMin(pc, event.receiver);
 
       if (event.track.kind == "audio" && audioStreamHandler) {
           pc_log(LOG_LEVEL_INFO, `onTrack: calling ash(${pc.convid.substring(0,8)}, ${label}) with ${event.streams.length} streams`);
@@ -1722,7 +1975,9 @@ function sdpCbrMap(sdp: string): string {
 
       outline = sdpLine;
 
-      if(sdpLine.endsWith('sprop-stereo=0;useinbandfec=1')) {
+      // match the opus fmtp regardless of param order or appended params
+      // (e.g. maxaveragebitrate)
+      if (/^a=fmtp:\d+ .*useinbandfec=1/.test(sdpLine) && !sdpLine.includes('cbr=1')) {
         outline = sdpLine + ";cbr=1";
       }
       else if (sdpLine.startsWith('a=ssrc-group:')) {
@@ -1929,6 +2184,7 @@ function createSdp(
     if (userMediaHandler) {
 	userMediaHandler(pc.convid, true, use_video, use_ss)
         .then((stream: MediaStream) => {
+            observeTestMicrophone(pc.convid, rtc, stream);
             return update_tracks(pc, stream).then(() => stream);
         }).then((stream: MediaStream) => {
 
@@ -1953,13 +2209,17 @@ function createSdp(
 		    })
 		    .catch((err: any) => {
 		        pc_log(LOG_LEVEL_WARN, 'createSdp: doSdp failed: ' + err, err);
+			failTestPeer(pc.convid, rtc, 'Could not create SDP');
 			ccallLocalSdpHandler(pc, 1, "sdp-error", err.toString());
 		    })
 	    })
 	    .catch((err: any) => {
 	        pc_log(LOG_LEVEL_WARN, 'createSdp: userMedia failed: ' + err, err);
+		failTestPeer(pc.convid, rtc, 'Could not open the microphone');
 		ccallLocalSdpHandler(pc, 1, "media-error", err.toString());
 	    });
+    } else {
+	failTestPeer(pc.convid, rtc, 'No microphone handler configured');
     }
 }
 
@@ -2144,6 +2404,7 @@ function pc_SetRemoteDescription(hnd: number, typePtr: number, sdpPtr: number) {
     .then(() => {})
     .catch((err: any) => {
       pc_log(LOG_LEVEL_WARN, "setRemoteDescription failed: " + err, err);
+      failTestPeer(pc.convid, rtc, 'Could not apply remote SDP');
     });
 
   if (pc_env != ENV_FIREFOX)
@@ -2185,6 +2446,7 @@ function pc_SetLocalDescription(hnd: number, typePtr: number, sdpPtr: number) {
     })
     .catch((err: any) => {
       pc_log(LOG_LEVEL_INFO, "setLocalDescription failed: " + err, err);
+      failTestPeer(pc.convid, rtc, 'Could not apply local SDP');
     });
 }
 
@@ -2484,6 +2746,7 @@ function pc_InitModule(module: any, logh: WcallLogHandler) {
     [pc_DataChannelClose, "vi"],
     [pc_SetMediaKey, "viiiii"],
     [pc_UpdateSsrc, "viii"],
+    [pc_GetAudioLevels, "vi"],
   ].map(([callback, signature]) => em_module.addFunction(callback, signature));
 
   em_module.ccall(
@@ -2536,9 +2799,22 @@ function pc_GetStats(convid: string) : Promise<Array<{userid: string, stats: RTC
   return Promise.all(statsPromises) as Promise<Array<{userid: string, stats: RTCStatsReport}>>;
 }
 
-function pc_GetLocalStats(hnd: number) {
-    pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: hnd=${hnd}`);
+/* Sources linger in getSynchronizationSources() for up to 10 s after
+ * their last packet (e.g. no longer forwarded by the SFT), ignore those.
+ */
+const AULEVEL_SOURCE_MAX_AGE = 500;
 
+/* Browsers differ in the time base of RTCRtpContributingSource.timestamp:
+ * some use the performance timeline, others the wall clock.
+ */
+function source_age(timestamp: number) : number {
+  if (timestamp > 1e12)
+    return Date.now() - timestamp;
+  else
+    return performance.now() - timestamp;
+}
+
+function pc_GetAudioLevels(hnd: number) {
     const pc = connectionsStore.getPeerConnection(hnd);
     if (pc == null) {
 	return;
@@ -2552,46 +2828,67 @@ function pc_GetLocalStats(hnd: number) {
     const txrxs = rtc.getTransceivers();
     txrxs.forEach(txrx => {
 	const rx = txrx.receiver;
-	if (rx) {
+	if (!rx || !rx.track || rx.track.kind !== 'audio')
+	    return;
+
+	/* The SFT forwards on its own SSRCs and puts the sender's
+	 * SSRC in the CSRC list, P2P packets carry no CSRCs.
+	 */
+	if (pc.conv_type == CONV_TYPE_ONEONONE) {
 	    const ssrcs = rx.getSynchronizationSources();
 	    ssrcs.forEach(ssrc => {
-		let ssrca = "";
-		let aulevel = 0;
+		if (typeof ssrc.audioLevel === 'undefined')
+		    return;
+		if (source_age(ssrc.timestamp) > AULEVEL_SOURCE_MAX_AGE)
+		    return;
 
-		if (typeof ssrc.audioLevel !== 'undefined')
-		    aulevel = ((ssrc.audioLevel * 512.0) | 0);
-
-		if (pc.conv_type != CONV_TYPE_ONEONONE) {
-		    const uinfo = uinfo_from_ssrca(pc, ssrc.source.toString());
-		    if (uinfo) {
-			uinfo.audio_level = aulevel;
-			ssrca = uinfo.ssrca;
-		    }
-		}
-
-		em_module.ccall(
-		    "pc_set_audio_level", null, ["number", "number", "number"], [pc.self, ssrca, aulevel]
-		);
+		em_module.ccall("pc_set_audio_level", null,
+				["number", "number", "number"],
+				[pc.self, 0, (ssrc.audioLevel * 512.0) | 0]);
 	    });
-
-	    const csrcs = rx.getContributingSources();
-	    csrcs.forEach(csrc => {
-		const uinfo = uinfo_from_ssrca(pc, csrc.source.toString());
-		if (uinfo) {
-		    uinfo.audio_level = 0;
-		    if (typeof csrc.audioLevel !== 'undefined')
-			uinfo.audio_level = ((csrc.audioLevel * 512.0) | 0);
-
-		    em_module.ccall("pc_set_audio_level", null,
-				    ["number", "number", "number"],
-				    [pc.self, uinfo.ssrca, uinfo.audio_level]);
-		}
-	    });
+	    return;
 	}
+
+	const csrcs = rx.getContributingSources();
+	csrcs.forEach(csrc => {
+	    if (typeof csrc.audioLevel === 'undefined')
+		return;
+	    if (source_age(csrc.timestamp) > AULEVEL_SOURCE_MAX_AGE)
+		return;
+
+	    const uinfo = uinfo_from_ssrca(pc, csrc.source.toString());
+	    if (!uinfo)
+		return;
+
+	    uinfo.audio_level = ((csrc.audioLevel * 512.0) | 0);
+	    em_module.ccall("pc_set_audio_level", null,
+			    ["number", "number", "number"],
+			    [pc.self, uinfo.ssrca, uinfo.audio_level]);
+	});
     });
+}
+
+function pc_GetLocalStats(hnd: number) {
+    pc_log(LOG_LEVEL_INFO, `pc_GetLocalStats: hnd=${hnd}`);
+
+    const pc = connectionsStore.getPeerConnection(hnd);
+    if (pc == null) {
+	return;
+    }
+
+    const rtc = pc.rtc;
+    if (!rtc) {
+	return;
+    }
 
     rtc.getStats()
       .then((stats) => {
+        try {
+          adaptAudioBitrate(pc, stats);
+        } catch (err) {
+          pc_log(LOG_LEVEL_WARN, `adaptAudioBitrate: self=${pc.self} failed: ${err}`, err);
+        }
+
         // !This does not work --> let report_json = JSON.stringify(stats);
         // We need to create json from individual items
         let report = '[';

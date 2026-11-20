@@ -65,6 +65,7 @@ enum mq_event {
 	WCALL_MEV_SIP_DESTROY,
 	WCALL_MEV_SIP_ANSWER,
 	WCALL_MEV_SIP_HANGUP,
+	WCALL_MEV_SET_AUDIO_FILES,
 };
 
 
@@ -81,6 +82,7 @@ struct mq_data {
 			int conv_type;
 			bool audio_cbr;
 		        bool meeting;
+			bool is_test;
 		} start;
 
 		struct {
@@ -207,6 +209,11 @@ struct mq_data {
 			int code;
 			char *status;
 		} sip_hangup;
+
+		struct {
+			char *play_path;
+			char *record_path;
+		} audio_files;
 	} u;
 };
 
@@ -294,6 +301,11 @@ static void md_destructor(void *arg)
 
 	case WCALL_MEV_SIP_HANGUP:
 		mem_deref(md->u.sip_hangup.status);
+		break;
+
+	case WCALL_MEV_SET_AUDIO_FILES:
+		mem_deref(md->u.audio_files.play_path);
+		mem_deref(md->u.audio_files.record_path);
 		break;
 
 	default:
@@ -392,6 +404,8 @@ static char *mev_name(int id)
 		return "SIP_ANSWER";
 	case WCALL_MEV_SIP_HANGUP:
 		return "SIP_HANGUP";
+	case WCALL_MEV_SET_AUDIO_FILES:
+		return "SET_AUDIO_FILES";
 	default:
 		return "???";
 	}
@@ -443,6 +457,11 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 	case WCALL_MEV_START:
+		/* Never restart or repurpose an existing call for a test. */
+		if (wcall && (md->u.start.is_test || wcall_is_test(wcall))) {
+			err = EALREADY;
+			goto out;
+		}
 	        if (!wcall_is_ready(md->inst, md->u.start.conv_type)) {
 		        warning("wcall(%p): AVS not ready queueing start\n",
 				md->inst);
@@ -461,11 +480,19 @@ static void mqueue_handler(int id, void *data, void *arg)
 					&wcall,
 					md->convid,
 					md->u.start.conv_type,
-					md->u.start.meeting);
+					md->u.start.meeting,
+					md->u.start.is_test);
 			if (err || !wcall)
 				goto out;
 		}
-		{
+		if (md->u.start.is_test) {
+			err = wcall_i_prepare_test(wcall);
+			if (err) {
+				wcall_i_end(wcall);
+				goto out;
+			}
+		}
+		if (!md->u.start.is_test) {
 		       struct duration_entry *dent;
 		       dent = wcall_duration_lookup(md->inst, md->convid);
 		       if (dent) {
@@ -663,6 +690,13 @@ static void mqueue_handler(int id, void *data, void *arg)
 		break;
 
 #endif
+
+	case WCALL_MEV_SET_AUDIO_FILES:
+		wcall_i_set_audio_files(md->inst,
+					md->u.audio_files.play_path,
+					md->u.audio_files.record_path);
+		break;
+
 	default:
 		warning("wcall: marshal: unknown event: %d\n", id);
 		break;
@@ -672,6 +706,12 @@ out:
 	if (err) {
 		char convid_anon[ANON_ID_LEN];
 
+#ifdef __EMSCRIPTEN__
+		if (id == WCALL_MEV_START && md->u.start.is_test && md->convid)
+			wcall_web_test_event(md->inst, md->convid,
+					     WCALL_WEB_TEST_CLOSE,
+					     WCALL_REASON_ERROR);
+#endif
 		warning("wcall: mqueue_handler error (%m) handling event: %s convid=%s\n",
 			err, mev_name(id),
 			md->convid ? anon_id(convid_anon, md->convid) : "???");
@@ -761,6 +801,20 @@ static int md_enqueue(struct mq_data *md)
 	}
 
 	lock_write_get(wm->lock);
+	if (md->event == WCALL_MEV_START && md->u.start.is_test) {
+		struct le *le;
+
+		/* Include queued starts and starts waiting for AVS readiness. */
+		LIST_FOREACH(&wm->mdl, le) {
+			struct mq_data *pending = le->data;
+
+			if (pending->event == WCALL_MEV_START &&
+			    streq(pending->convid, md->convid)) {
+				lock_rel(wm->lock);
+				return EALREADY;
+			}
+		}
+	}
 	list_append(&wm->mdl, &md->le, md);
 	lock_rel(wm->lock);
 
@@ -948,13 +1002,13 @@ void wcall_sft_resp(WUSER_HANDLE wuser,
 }
 
 
-AVS_EXPORT
-int wcall_start(WUSER_HANDLE wuser,
+static int enqueue_start(WUSER_HANDLE wuser,
 		const char *convid,
 		int call_type,
 		int conv_type,
 		int audio_cbr /*bool */,
-		int meeting /*bool */)
+		int meeting /*bool */,
+		bool is_test)
 {
 	struct calling_instance *inst;
 	struct mq_data *md = NULL;
@@ -970,6 +1024,9 @@ int wcall_start(WUSER_HANDLE wuser,
 		return EINVAL;
 	}
 
+	if (is_test && wcall_lookup(inst, convid))
+		return EALREADY;
+
 	md = md_new(inst, convid, WCALL_MEV_START);
 	if (!md) {
 		err = ENOMEM;
@@ -980,6 +1037,7 @@ int wcall_start(WUSER_HANDLE wuser,
 	md->u.start.conv_type = conv_type;
 	md->u.start.audio_cbr = (bool)audio_cbr;
 	md->u.start.meeting = meeting == 1;
+	md->u.start.is_test = is_test;
 
 	err = md_enqueue(md);
 	if (err)
@@ -990,7 +1048,64 @@ int wcall_start(WUSER_HANDLE wuser,
 }
 
 
-AVS_EXPORT 
+AVS_EXPORT
+int wcall_start(WUSER_HANDLE wuser,
+		const char *convid,
+		int call_type,
+		int conv_type,
+		int audio_cbr,
+		int meeting)
+{
+	return enqueue_start(wuser, convid, call_type, conv_type,
+			     audio_cbr, meeting, false);
+}
+
+
+static int start_test(WUSER_HANDLE wuser, int video, bool web)
+{
+	struct calling_instance *inst;
+	char *convid = NULL;
+	int err;
+
+	if (video != 0 && video != 1)
+		return EINVAL;
+
+	inst = wuser2inst(wuser);
+	if (!inst)
+		return EINVAL;
+	err = wcall_alloc_test_convid(inst, &convid);
+	if (err)
+		return err;
+
+#ifdef __EMSCRIPTEN__
+	if (web && !wcall_web_test_event(inst, convid, WCALL_WEB_TEST_START, 0)) {
+		mem_deref(convid);
+		return EALREADY;
+	}
+#endif
+	err = enqueue_start(wuser, convid,
+			    video ? WCALL_CALL_TYPE_VIDEO : WCALL_CALL_TYPE_NORMAL,
+			    WCALL_CONV_TYPE_CONFERENCE_MLS, 0, 0, true);
+	mem_deref(convid);
+	return err;
+}
+
+AVS_EXPORT
+int wcall_start_test(WUSER_HANDLE wuser, int video)
+{
+	return start_test(wuser, video, false);
+}
+
+#ifdef __EMSCRIPTEN__
+AVS_EXPORT
+int wcall_web_test_start(WUSER_HANDLE wuser, int video)
+{
+	return start_test(wuser, video, true);
+}
+#endif
+
+
+AVS_EXPORT
 int wcall_answer(WUSER_HANDLE wuser,
 		 const char *convid,
 		 int call_type,
@@ -1553,6 +1668,41 @@ int wcall_audio_record(WUSER_HANDLE wuser,
 	str_dup(&md->u.audio_record.path, path);
 
 	info("wcall_audio_record: inst=%p convid=%s path=%sn", inst, convid, path);
+
+	err = md_enqueue(md);
+	if (err)
+		mem_deref(md);
+
+	return err;
+}
+
+AVS_EXPORT
+int wcall_set_audio_files(WUSER_HANDLE wuser,
+			  const char *play_path,
+			  const char *record_path)
+{
+	struct calling_instance *inst;
+	struct mq_data *md = NULL;
+	int err = 0;
+
+	inst = wuser2inst(wuser);
+	if (!inst) {
+		warning("wcall: set_audio_files: invalid wuser: 0x%08X\n",
+			wuser);
+		return EINVAL;
+	}
+
+	md = md_new(inst, NULL, WCALL_MEV_SET_AUDIO_FILES);
+	if (!md)
+		return ENOMEM;
+
+	if (play_path)
+		str_dup(&md->u.audio_files.play_path, play_path);
+	if (record_path)
+		str_dup(&md->u.audio_files.record_path, record_path);
+
+	info("wcall_set_audio_files: inst=%p play=%s record=%s\n",
+	     inst, play_path, record_path);
 
 	err = md_enqueue(md);
 	if (err)

@@ -23,6 +23,48 @@ int sdp_dup(struct sdp_session **sessp,
 
 const char *sdp_sess2str(struct sdp_session *sess);	
 
+/* Opus ptime (ms) and maxaveragebitrate (bps) for the SDPs negotiated from
+ * now on (default 20 and 32000): put in the local offers and answers (what
+ * the remote side should send) and in the remote ones before they are
+ * applied (what our encoder sends); 0 leaves one out. The ptime is also the
+ * opus minptime, with a maxptime of 120 for adaptive ptime.
+ */
+void sdp_set_audio_params(int ptime, int max_bitrate);
+void sdp_get_audio_params(int *ptime, int *max_bitrate);
+
+/* Protection against packet loss for the calls set up from now on; 0 turns
+ * one off (all 0 is the plain WebRTC behaviour):
+ *  red          opus RED (RFC 2198) with this many earlier frames in each
+ *               packet (1..9, default 1); RED is negotiated (kept in the
+ *               SDPs) only when set
+ *  fec_loss_pct lowest packet loss (%) the opus encoder assumes, so that its
+ *               in-band FEC is on from the start (1..100, default 15)
+ *  max_bitrate  bandwidth estimate cap (bps) while there is no video; limits
+ *               the probing padding (default 100000)
+ *  jb_min_ms    jitter buffer minimum delay (ms) of the received audio
+ *               (default 60)
+ */
+struct sdp_loss_params {
+	int red;
+	int fec_loss_pct;
+	int max_bitrate;
+	int jb_min_ms;
+};
+
+void sdp_set_loss_params(const struct sdp_loss_params *lp);
+void sdp_get_loss_params(struct sdp_loss_params *lp);
+
+/* All audio and loss params are 0: the calls set up from now on behave as
+ * in release-10.5 (opus at WebRTC's defaults with no bitrate or frame length
+ * adaptation, the remote SDP as it came, a restart as soon as the
+ * connection fails).
+ */
+bool sdp_audio_plain(void);
+
+/* See wcall_set_adaptive_red */
+void sdp_set_adaptive_red(bool enable);
+bool sdp_get_adaptive_red(void);
+
 const char *sdp_modify_offer(struct sdp_session *sess,
 			     enum icall_conv_type conv_type,
 			     bool screenshare,
@@ -51,6 +93,18 @@ void sdp_safe_media_set_lattr(struct sdp_media *sdpm, bool replace,
 
 int sdp_munge(char **sdp_out, const char *sdp,
 	      enum icall_conv_type conv_type, bool offer);
+/* Munge a remote SDP before it is applied (see sdp_set_audio_params).
+ * With a red_id (non-zero) our own encoder does the RED (adaptive RED in
+ * peerflow), so WebRTC must not: red goes after opus, and the opus fmtp gets
+ * SDP_OWN_RED_PT (the RED payload type, 0 without RED) and SDP_OWN_RED_ID
+ * (red_id), which the encoder factory reads.
+ */
+#define SDP_OWN_RED_PT "x-wire-red"
+#define SDP_OWN_RED_ID "x-wire-red-id"
+
+int sdp_munge_audio(char **sdp_out, const char *sdp,
+		    enum icall_conv_type conv_type, bool offer,
+		    bool strip_video, bool munge, uint32_t red_id);
 
 /* bundle */
 

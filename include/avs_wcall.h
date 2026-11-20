@@ -350,6 +350,19 @@ int wcall_start(WUSER_HANDLE wuser, const char *convid,
 		int audio_cbr /*bool*/,
                 int meeting /*bool*/);
 
+/* Start an SFT connection test with a local epoch and this client as sole member.
+ * video: 0 for audio only, 1 for audio and video.
+ * Returns 0 on submission, EINVAL for invalid input, or EALREADY for a duplicate.
+ * Uses existing call callbacks and ends 20 seconds after media is established,
+ * unless stopped earlier.
+ */
+int wcall_start_test(WUSER_HANDLE wuser, int video);
+
+/* Start an async local ICE scan once the calling instance has its ICE config.
+ * Returns EALREADY if a scan is pending or running, or ENOSYS without a driver.
+ */
+int wcall_start_scan(WUSER_HANDLE wuser);
+
 /* Returns 0 if successfull
  * Set call_type from defines above.
  * Set audio_cbr to 0 for false, non-zero for true.
@@ -511,6 +524,53 @@ void wcall_handle_frame(struct avs_vidframe *frame);
 int wcall_set_proxy(const char *host, int port);
 
 /**
+ * Opus ptime (ms) and maxaveragebitrate (bps) for all instances and the calls
+ * negotiated from now on (a=ptime and the opus fmtp): the local SDP asks the
+ * remote side to send with them, and the remote SDP is changed to them before
+ * it is applied, so our encoder uses them too (a remote maxaveragebitrate is
+ * kept). The ptime is where the frames start and the shortest they get
+ * (opus minptime); with a short bandwidth they grow up to a=maxptime 120.
+ * Defaults: 20 and 32000; 0 leaves one out.
+ */
+void wcall_set_audio_params(int ptime, int max_bitrate);
+
+/**
+ * Protection against packet loss for all instances and the calls set up from
+ * now on; 0 turns one off (all 0 is the plain WebRTC behaviour):
+ *  red          opus RED (RFC 2198) with this many earlier frames in each
+ *               packet (1..9, default 1), negotiated only when set (both
+ *               sides need it). The native clients switch it on while the
+ *               bandwidth leaves opus and each copy 16 kbps (off below 14),
+ *               and give opus only its share of the bandwidth while it is on
+ *  fec_loss_pct lowest packet loss (%) the opus encoder assumes, so that its
+ *               in-band FEC is on from the start instead of after the loss
+ *               reports (1..100, default 15)
+ *  max_bitrate  bandwidth estimate cap (bps) while the call has no video,
+ *               which limits the padding of the bandwidth probing (default
+ *               100000)
+ *  jb_min_ms    jitter buffer minimum delay (ms) of the received audio, so
+ *               the next packet (carrying the FEC / RED copy) is there in time
+ *               (default 60)
+ */
+void wcall_set_loss_params(int red, int fec_loss_pct, int max_bitrate,
+			   int jb_min_ms);
+
+/**
+ * Whether the native clients switch RED by the network (1, the default) or
+ * leave it to WebRTC, which sends it for the whole call on top of the
+ * bitrate (0). For all instances and the calls set up from now on; for
+ * comparing the two.
+ */
+void wcall_set_adaptive_red(int enable);
+
+/**
+ * Whether each call logs a line of audio stats (pf: stats5s:) every 5 s:
+ * bitrates, bandwidth estimate, RTT, loss, concealment and jitter buffer.
+ * On by default. For all calls; takes effect at the next stats report.
+ */
+void wcall_set_stats_log(int enable);
+
+/**
  * Client list management (conference calls).
  */
 typedef void (wcall_req_clients_h)(WUSER_HANDLE wuser,
@@ -556,6 +616,18 @@ int wcall_process_notifications(WUSER_HANDLE wuser, int processing);
  * Record audio API
  */
 int wcall_audio_record(WUSER_HANDLE wuser, const char *convid, const char *path);
+
+/**
+ * Audio files for the calls created after this (1:1 and conference, incoming and
+ * outgoing), replacing the audio device: play_path is sent instead of the microphone
+ * (raw 16-bit native-endian mono PCM at 16 kHz, looped), the call's audio is written to
+ * record_path in the same format instead of the speaker. Either one gives the call the
+ * file device, so nothing is captured from the microphone or played out. NULL clears
+ * a path; both NULL restores the audio device. Calls in progress are not affected.
+ */
+int wcall_set_audio_files(WUSER_HANDLE wuser,
+			  const char *play_path,
+			  const char *record_path);
 
  
 

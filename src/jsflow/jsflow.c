@@ -37,7 +37,15 @@
 #define GATHER_TIMEOUT     10000
 #define DISCONNECT_TIMEOUT 10000
 #define TMR_STATS_INTERVAL  1000
+#define TMR_AULEVEL_INTERVAL 200
 #define TMR_CBR_INTERVAL    2500
+/* As peerflow's: after the connection failed, wait this long for it to
+ * come back before restarting, and leaving failed holds the restart off
+ * until it fails again, but not past TMR_RESTART_MAX after the first
+ * failure. Chromium and Safari run libwebrtc, where failed is not terminal.
+ */
+#define TMR_RESTART_INTERVAL 15000
+#define TMR_RESTART_MAX      60000
 
 #define PC_INVALID_HANDLE 0
 
@@ -105,6 +113,7 @@ typedef char *(pc_LocalDescription_t)(int handle, const char *type);
 typedef void (pc_SetMute_t)(int handle, int muted);
 typedef int  (pc_GetMute_t)(int handle);
 typedef void (pc_GetLocalStats_t)(int handle);
+typedef void (pc_GetAudioLevels_t)(int handle);
 typedef void (pc_SetRemoteUserClientId_t)(int handle,
 					  const char *userid,
 					  const char *clientid);
@@ -130,7 +139,7 @@ static pc_HeapFree_t *pc_HeapFree = NULL;
 static pc_AddTurnServer_t *pc_AddTurnServer = NULL;
 static pc_IceGatheringState_t *pc_IceGatheringState = NULL;
 static pc_SignallingState_t *pc_SignallingState = NULL;
-static pc_ConnectionState_t *pc_ConnectionState = NULL;
+static pc_ConnectionState_t *pc_ConnectionState __attribute__((unused)) = NULL;
 static pc_CreateDataChannel_t *pc_CreateDataChannel = NULL;
 static pc_CreateOffer_t *pc_CreateOffer = NULL;
 static pc_CreateAnswer_t *pc_CreateAnswer = NULL;
@@ -141,15 +150,16 @@ static pc_SetRemoteDescription_t *pc_SetRemoteDescription = NULL;
 static pc_SetLocalDescription_t *pc_SetLocalDescription = NULL;
 static pc_LocalDescription_t *pc_LocalDescription = NULL;
 static pc_SetMute_t *pc_SetMute = NULL;
-static pc_GetMute_t *pc_GetMute = NULL;
+static pc_GetMute_t *pc_GetMute __attribute__((unused)) = NULL;
 static pc_GetLocalStats_t *pc_GetLocalStats = NULL;
+static pc_GetAudioLevels_t *pc_GetAudioLevels = NULL;
 static pc_SetRemoteUserClientId_t *pc_SetRemoteUserClientId = NULL;
 static pc_HasVideo_t *pc_HasVideo = NULL;
 static pc_SetVideoState_t *pc_SetVideoState = NULL;
 
 /* DataChannel */
-static pc_DataChannelId_t *pc_DataChannelId = NULL;
-static pc_DataChannelState_t *pc_DataChannelState = NULL;
+static pc_DataChannelId_t *pc_DataChannelId __attribute__((unused)) = NULL;
+static pc_DataChannelState_t *pc_DataChannelState __attribute__((unused)) = NULL;
 static pc_DataChannelSend_t *pc_DataChannelSend = NULL;
 static pc_DataChannelClose_t *pc_DataChannelClose = NULL;
 
@@ -230,8 +240,11 @@ struct jsflow {
 	char *bundle_sync;
 	struct tmr tmr_gather;
 	struct tmr tmr_disconnect;
+	struct tmr tmr_restart;
+	uint64_t restart_deadline; /* restart by then (jiffies), 0: none */
 	struct tmr tmr_stats;
-	char *remote_sdp;	
+	struct tmr tmr_aulevel;
+	char *remote_sdp;
 	bool selective_audio;
 	bool selective_video;
 
@@ -277,6 +290,49 @@ static void disconnect_timeout_handler(void *arg)
 }
 #endif
 
+static void restart_timeout_handler(void *arg)
+{
+	struct jsflow *flow = arg;
+
+	info("jsflow(%p): calling restarth due to network drop\n", flow);
+
+	flow->restart_deadline = 0;
+	IFLOW_CALL_CB(flow->iflow, restarth,
+		false, flow->iflow.arg);
+}
+
+/* failed: restart TMR_RESTART_INTERVAL from now; out of failed again
+ * (hold): only at the deadline.
+ */
+static void restart_later(struct jsflow *flow, bool hold)
+{
+	const uint64_t now = tmr_jiffies();
+	uint64_t ms;
+
+	if (!flow->restart_deadline) {
+		if (hold)
+			return; /* no restart pending */
+		flow->restart_deadline = now + TMR_RESTART_MAX;
+	}
+	ms = flow->restart_deadline > now ? flow->restart_deadline - now : 1;
+	if (!hold && ms > TMR_RESTART_INTERVAL)
+		ms = TMR_RESTART_INTERVAL;
+
+	info("jsflow(%p): %s: restart in %llu ms\n", flow,
+	     hold ? "out of failed, held" : "failed",
+	     (unsigned long long)ms);
+	tmr_start(&flow->tmr_restart, ms, restart_timeout_handler, flow);
+}
+
+static void restart_cancel(struct jsflow *flow)
+{
+	if (tmr_isrunning(&flow->tmr_restart))
+		info("jsflow(%p): restart cancelled, connection is back\n",
+		     flow);
+	tmr_cancel(&flow->tmr_restart);
+	flow->restart_deadline = 0;
+}
+
 static void stats_timeout_handler(void *arg)
 {
 	struct jsflow *flow = arg;
@@ -284,6 +340,17 @@ static void stats_timeout_handler(void *arg)
 	pc_GetLocalStats(flow->handle);
 
 	tmr_start(&flow->tmr_stats, TMR_STATS_INTERVAL, stats_timeout_handler, flow);
+}
+
+static void aulevel_timeout_handler(void *arg)
+{
+	struct jsflow *flow = arg;
+
+	if (pc_GetAudioLevels)
+		pc_GetAudioLevels(flow->handle);
+
+	tmr_start(&flow->tmr_aulevel, TMR_AULEVEL_INTERVAL,
+		  aulevel_timeout_handler, flow);
 }
 
 
@@ -420,7 +487,9 @@ static void destructor(void *arg)
 	keystore_remove_listener(flow->frame.keystore, flow);
 	tmr_cancel(&flow->tmr_gather);
 	tmr_cancel(&flow->tmr_disconnect);
+	tmr_cancel(&flow->tmr_restart);
 	tmr_cancel(&flow->tmr_stats);
+	tmr_cancel(&flow->tmr_aulevel);
 	tmr_cancel(&flow->tmr_cbr);
 
 	list_unlink(&flow->le);
@@ -528,6 +597,8 @@ static int create_pc(struct jsflow *flow)
 
 	tmr_start(&flow->tmr_stats, TMR_STATS_INTERVAL,
 		  stats_timeout_handler, flow);
+	tmr_start(&flow->tmr_aulevel, TMR_AULEVEL_INTERVAL,
+		  aulevel_timeout_handler, flow);
 
 	if (flow->conv_type == ICALL_CONV_TYPE_ONEONONE)
 		tmr_start(&flow->tmr_cbr, TMR_CBR_INTERVAL, timer_cbr, flow);
@@ -581,6 +652,7 @@ int jsflow_alloc(struct iflow		**flowp,
 		 enum icall_call_type	call_type,
 		 enum icall_vstate	vstate,
 		 const char             *rec_path,
+		 const char             *play_path,
 		 void			*extarg)
 {
 	struct jsflow *flow;
@@ -588,6 +660,7 @@ int jsflow_alloc(struct iflow		**flowp,
 
 	(void)msys_name;
 	(void)rec_path;
+	(void)play_path;
 	
 	info("jsflow_alloc: initialized=%d call_type=%d vstate=%s\n",
 	     g_jf.initialized, call_type, icall_vstate_name(vstate));
@@ -650,7 +723,9 @@ int jsflow_alloc(struct iflow		**flowp,
 
 	tmr_init(&flow->tmr_gather);
 	tmr_init(&flow->tmr_disconnect);
+	tmr_init(&flow->tmr_restart);
 	tmr_init(&flow->tmr_stats);
+	tmr_init(&flow->tmr_aulevel);
 	tmr_init(&flow->tmr_cbr);
 
  out:
@@ -672,9 +747,11 @@ void jsflow_close(struct iflow *flow)
 
 	jsflow->closed = true;
 	tmr_cancel(&jsflow->tmr_disconnect);
+	tmr_cancel(&jsflow->tmr_restart);
 	tmr_cancel(&jsflow->tmr_stats);
+	tmr_cancel(&jsflow->tmr_aulevel);
 	tmr_cancel(&jsflow->tmr_cbr);
-	tmr_cancel(&jsflow->tmr_gather);	
+	tmr_cancel(&jsflow->tmr_gather);
 
 	if (jsflow->dc.handle != PC_INVALID_HANDLE)
 		pc_DataChannelClose(jsflow->dc.handle);
@@ -877,6 +954,7 @@ int jsflow_handle_offer(struct iflow *flow,
 			const char *sdp_str)
 {
 	struct jsflow *jsflow = (struct jsflow*)flow;
+	int err;
 
 	if (!jsflow)
 		return EINVAL;
@@ -896,9 +974,21 @@ int jsflow_handle_offer(struct iflow *flow,
 		  remote_acbr_handler, jf_norelay_handler,
 		  jsflow_tool_handler, jsflow);
 
+	/* Remote SDP drives our encoder's ptime and bitrate */
 	jsflow->remote_sdp = mem_deref(jsflow->remote_sdp);
-	str_dup(&jsflow->remote_sdp, sdp_str);
-	pc_SetRemoteDescription(jsflow->handle, SDP_TYPE_OFFER, sdp_str);
+	err = sdp_munge_audio(&jsflow->remote_sdp, sdp_str,
+			      jsflow->conv_type, true, false, false, 0);
+	if (err) {
+		warning("jsflow(%p): handle_offer: failed to munge SDP: %m\n",
+			jsflow, err);
+		return err;
+	}
+
+	info("jsflow(%p): handle_offer: SDP-offer-munged %s\n",
+	     jsflow, jsflow->remote_sdp);
+
+	pc_SetRemoteDescription(jsflow->handle, SDP_TYPE_OFFER,
+				jsflow->remote_sdp);
 
 	return 0;
 }
@@ -909,6 +999,7 @@ int jsflow_handle_answer(struct iflow *flow,
 {
 	struct jsflow *jsflow = (struct jsflow*)flow;
 	bool has_video;
+	int err;
 	
 	if (!flow)
 		return EINVAL;
@@ -919,11 +1010,15 @@ int jsflow_handle_answer(struct iflow *flow,
 	
 	has_video = pc_HasVideo(jsflow->handle);
 
+	/* Remote SDP drives our encoder's ptime and bitrate */
 	jsflow->remote_sdp = mem_deref(jsflow->remote_sdp);
-	if (has_video)
-		str_dup(&jsflow->remote_sdp, sdp_str);
-	else
-		sdp_strip_video(&jsflow->remote_sdp, jsflow->conv_type, sdp_str);
+	err = sdp_munge_audio(&jsflow->remote_sdp, sdp_str,
+			      jsflow->conv_type, false, !has_video, false, 0);
+	if (err) {
+		warning("jsflow(%p): handle_answer: failed to munge SDP: %m\n",
+			jsflow, err);
+		return err;
+	}
 
 	info("jsflow(%p): handle_answer: has_video=%d SDP-answer %s\n",
 	     jsflow, has_video, jsflow->remote_sdp);
@@ -1339,7 +1434,8 @@ static int set_aulevel(struct conf_member *cm, struct list *levell)
 	
 	if (!cm || !cm->active)
 		return EINVAL;
-		
+
+	conf_member_latch_audio_level(cm);
 	if (cm->audio_level_smooth > 0
 	    || cm->audio_level > AUDIO_LEVEL_FLOOR) {
 
@@ -1347,11 +1443,6 @@ static int set_aulevel(struct conf_member *cm, struct list *levell)
 					cm->userid, cm->clientid,
 					cm->audio_level,
 					cm->audio_level_smooth);
-		/* Make sure to count down the level if
-		 * the source is no longer in the list due to
-		 * selective audio.
-		 */
-		conf_member_set_audio_level(cm, 0);
 	}
 
 	return err;
@@ -1488,6 +1579,54 @@ void pc_local_sdp_handler(int self, int err,
 	mem_deref((void *)modsdp);
 }
 
+int pc_audio_jb_min_ms(void);
+
+/* Jitter buffer minimum (ms) for the received audio, see
+ * sdp_set_loss_params; 0 when off.
+ */
+EMSCRIPTEN_KEEPALIVE
+int pc_audio_jb_min_ms(void)
+{
+	struct sdp_loss_params lp;
+
+	sdp_get_loss_params(&lp);
+
+	return lp.jb_min_ms;
+}
+
+int pc_audio_adapt_max_bps(void);
+
+/* Opus's bitrate from the SDP (maxaveragebitrate, else opus's default) for
+ * the browser's audio bitrate loop (avs_pc.ts adaptAudioBitrate), or 0 when
+ * it is off: with plain audio, and with adaptive RED off
+ * (wcall_set_adaptive_red), which leaves it all to the browser.
+ */
+EMSCRIPTEN_KEEPALIVE
+int pc_audio_adapt_max_bps(void)
+{
+	int max_bitrate;
+
+	if (sdp_audio_plain() || !sdp_get_adaptive_red())
+		return 0;
+
+	sdp_get_audio_params(NULL, &max_bitrate);
+
+	return max_bitrate > 0 ? max_bitrate : 32000;
+}
+
+int pc_audio_ptime(void);
+
+/* The opus ptime from the SDP (the shortest frame length), 0 when unset */
+EMSCRIPTEN_KEEPALIVE
+int pc_audio_ptime(void)
+{
+	int ptime;
+
+	sdp_get_audio_params(&ptime, NULL);
+
+	return ptime;
+}
+
 void pc_start_gather_handler(int self);
 
 EMSCRIPTEN_KEEPALIVE
@@ -1595,6 +1734,7 @@ void pc_connection_handler(int self, const char *state)
 	info("flow(%p): connection_handler: state=%s\n", flow, state);
 
 	if (streq(state, "connected")) {
+		restart_cancel(flow);
 		if (tmr_isrunning(&flow->tmr_disconnect))
 			tmr_cancel(&flow->tmr_disconnect);
 		else {
@@ -1604,11 +1744,24 @@ void pc_connection_handler(int self, const char *state)
 				true, true, flow->iflow.arg);
 		}
 	}
+	/* Failed is terminal in Firefox, as in the standard, so it restarts
+	 * at once there, and with plain audio, as release-10.5 did.
+	 */
 	else if (streq(state, "failed")) {
 		if (tmr_isrunning(&flow->tmr_disconnect))
 			tmr_cancel(&flow->tmr_disconnect);
-		IFLOW_CALL_CB(flow->iflow, restarth,
-			false, flow->iflow.arg);
+		if (g_jf.env == ENV_FIREFOX || sdp_audio_plain()) {
+			IFLOW_CALL_CB(flow->iflow, restarth,
+				false, flow->iflow.arg);
+		}
+		else {
+			restart_later(flow, false);
+		}
+	}
+	/* After failed: a pair works again, so the link is alive */
+	else if (streq(state, "disconnected")
+		 || streq(state, "connecting")) {
+		restart_later(flow, true);
 	}
 	else if (streq(state, "closed")) {
 		send_close(flow, EINTR);
@@ -1920,7 +2073,9 @@ void pc_set_callbacks(
 
 	pc_SetMediaKey_t *setMediaKey,
 
-	pc_UpdateSsrc_t *updateSsrc);
+	pc_UpdateSsrc_t *updateSsrc,
+
+	pc_GetAudioLevels_t *getAudioLevels);
 
 EMSCRIPTEN_KEEPALIVE
 void pc_set_callbacks(
@@ -1956,7 +2111,9 @@ void pc_set_callbacks(
 
 	pc_SetMediaKey_t *setMediaKey,
 
-	pc_UpdateSsrc_t *updateSsrc)
+	pc_UpdateSsrc_t *updateSsrc,
+
+	pc_GetAudioLevels_t *getAudioLevels)
 {
 	pc_SetEnv = setEnv;
 	pc_New = new;
@@ -1990,6 +2147,7 @@ void pc_set_callbacks(
 
 	pc_SetMediaKey = setMediaKey;
 	pc_UpdateSsrc = updateSsrc;
+	pc_GetAudioLevels = getAudioLevels;
 
 	jsflow_init();
 }

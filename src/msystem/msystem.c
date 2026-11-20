@@ -50,6 +50,7 @@ struct msystem {
 	char project[256];
 
 	struct list mutel;
+	struct lock *mute_lock;
 	struct list activatel;
 
 	struct msystem_proxy *proxy;
@@ -143,6 +144,7 @@ static void msystem_destructor(void *data)
 	msys->proxy = mem_deref(msys->proxy);
 
 	list_flush(&msys->mutel);
+	msys->mute_lock = mem_deref(msys->mute_lock);
 	list_flush(&msys->activatel);
 	
 	iflow_destroy();
@@ -179,6 +181,12 @@ static int msystem_init(struct msystem **msysp, const char *msysname,
 	err = mqueue_alloc(&msys->mq, wakeup_handler, NULL);
 	if (err) {
 		warning("flowmgr: failed to create mqueue (%m)\n", err);
+		goto out;
+	}
+
+	err = lock_alloc(&msys->mute_lock);
+	if (err) {
+		warning("msystem: failed to create mute lock (%m)\n", err);
 		goto out;
 	}
 
@@ -266,9 +274,17 @@ int msystem_get(struct msystem **msysp, const char *msysname,
 		struct mute_elem *me;
 		
 		me = mem_zalloc(sizeof(*me), me_destructor);
+		if (!me) {
+			*msysp = mem_deref(*msysp);
+			return ENOMEM;
+		}
+
 		me->muteh = muteh;
 		me->arg = arg;
+
+		lock_write_get(g_msys->mute_lock);
 		list_append(&g_msys->mutel, &me->le, me);
+		lock_rel(g_msys->mute_lock);
 	}
 	
 	return err;
@@ -278,6 +294,10 @@ void msystem_unregister_listener(void *arg)
 {
 	struct le *le;
 
+	if (!g_msys)
+		return;
+
+	lock_write_get(g_msys->mute_lock);
 	LIST_FOREACH(&g_msys->mutel, le) {
 		struct mute_elem *me = le->data;
 
@@ -286,6 +306,7 @@ void msystem_unregister_listener(void *arg)
 			break;
 		}
 	}
+	lock_rel(g_msys->mute_lock);
 }
 
 static void ae_destructor(void *arg)
@@ -570,14 +591,32 @@ bool msystem_get_muted(void)
 
 static void call_muteh(bool muted)
 {
+	struct mute_elem *mev;
 	struct le *le;
+	size_t i, n = 0;
 
-	LIST_FOREACH(&g_msys->mutel, le) {
-		struct mute_elem *me = le->data;
+	/* Call the handlers on a copy of the list, outside the lock,
+	 * so a handler may set the mute state or unregister.
+	 */
+	lock_write_get(g_msys->mute_lock);
+	mev = mem_zalloc(list_count(&g_msys->mutel) * sizeof(*mev), NULL);
+	if (mev) {
+		LIST_FOREACH(&g_msys->mutel, le) {
+			struct mute_elem *me = le->data;
 
-		if (me->muteh)
-			me->muteh(muted, me->arg);
+			mev[n].muteh = me->muteh;
+			mev[n].arg = me->arg;
+			++n;
+		}
 	}
+	lock_rel(g_msys->mute_lock);
+
+	for (i = 0; i < n; ++i) {
+		if (mev[i].muteh)
+			mev[i].muteh(muted, mev[i].arg);
+	}
+
+	mem_deref(mev);
 }
 
 void msystem_set_muted(bool muted)

@@ -7,7 +7,7 @@
 # 
 # The results of this snippet are:
 #
-#    o  a shared library build/$(AVS_PAIR)/lib/libavsobjc.dylib with the
+#    o  a framework binary build/$(AVS_PAIR)/lib/avs.framework/avs with the
 #       release code,
 #
 #    o  a shared library build/$(AVS_PAIR)/lib/libavsobjcstub.dylib with
@@ -15,10 +15,6 @@
 #
 #    o  a static library build/$(AVS_PAIR)/lib/libavsiox.a with the
 #       release code from the iosx directory only,
-#
-#    o  a static library build/$(AVS_PAIR)/lib/libavsobjc.a combining all
-#       the static libraries necessary to build an application using the
-#       release code from the iosx directory,
 #
 #    o  a static library build/$(AVS_PAIR)/lib/libavsobjcstub.a with the
 #       stub code from the iosx directory allowing to build an application
@@ -64,19 +60,16 @@ endif
 
 
 IOSX_LIB_NAME := avsiosx
-IOSX_FULL_NAME := avsobjc
 IOSX_STUB_NAME := avsobjcstub
 
-IOSX_FULL_SHARED := $(BUILD_LIB)/lib$(IOSX_FULL_NAME)$(LIB_SUFFIX)
+IOSX_FULL_SHARED := $(BUILD_LIB)/avs.framework/avs
 IOSX_STUB_SHARED := $(BUILD_LIB)/lib$(IOSX_STUB_NAME)$(LIB_SUFFIX)
 IOSX_LIB_STATIC := $(BUILD_LIB)/lib$(IOSX_LIB_NAME).a
-IOSX_FULL_STATIC := $(BUILD_LIB)/lib$(IOSX_FULL_NAME).a
-IOSX_FULL_STATIC_STRIPPED := $(BUILD_LIB)/lib$(IOSX_FULL_NAME).stripped.a
 IOSX_STUB_STATIC := $(BUILD_LIB)/lib$(IOSX_STUB_NAME).a
 IOSX_LIB_LIBS := $(IOSX_SHARED) $(IOSX_STATIC)
 IOSX_STUB_LIBS := $(IOSX_STUB_SHARED) $(IOSX_STUB_STATIC)
 IOSX_SHARED := $(IOSX_FULL_SHARED) $(IOSX_STUB_SHARED)
-IOSX_STATIC := $(IOSX_LIB_STATIC) $(IOSX_STUB_STATIC) $(IOSX_FULL_STATIC) $(IOSX_FULL_STATIC_STRIPPED)
+IOSX_STATIC := $(IOSX_LIB_STATIC) $(IOSX_STUB_STATIC)
 IOSX_MASTER := $(IOSX_STATIC) $(IOSX_SHARED)
 
 IOSX_OBJ_PATH := $(BUILD_OBJ)/iosx
@@ -123,7 +116,7 @@ endif
 
 #--- Target Dependencies ---
 
-$(IOSX_OBJS): $(TOOLCHAIN_MASTER) $(AVS_DEPS)
+$(IOSX_OBJS): $(TOOLCHAIN_MASTER) | $(AVS_DEPS)
 $(IOSX_LIB_OBJS):
 
 ifeq ($(SKIP_MK_DEPS),)
@@ -174,18 +167,9 @@ ifneq ($(RANLIB),)
 	@$(RANLIB) $@
 endif
 
-$(IOSX_FULL_STATIC): $(IOSX_LIB_STATIC) $(AVS_STATIC) $(MENG_STATIC) \
-		     $(AVS_LIB_FILES) $(MENG_LIB_FILES)
-	libtool -static -v -o $@ $^
-
-$(IOSX_FULL_STATIC_STRIPPED): $(IOSX_FULL_STATIC)
-	strip -S -o $@ $^
-	ranlib $@
-
 $(IOSX_FULL_SHARED): $(IOSX_LIB_OBJS) $(AVS_STATIC) $(MENG_STATIC)
 	@echo "  LD      $@"
 	@mkdir -p $(dir $@)
-	@mkdir -p $(BUILD_LIB)/avs.framework
 	$(LD)	-install_name @rpath/avs.framework/avs \
 		-Xlinker -rpath -Xlinker @executable_path/Frameworks \
 		-Xlinker -rpath -Xlinker @loader_path/Frameworks \
@@ -194,7 +178,7 @@ $(IOSX_FULL_SHARED): $(IOSX_LIB_OBJS) $(AVS_STATIC) $(MENG_STATIC)
 		-arch $(AVS_ARCH) \
 		$(SH_LFLAGS) $(LFLAGS) $(IOSX_LFLAGS) \
 		$^ $(SH_LIBS) $(LIBS) $(AVS_LIBS) $(MENG_LIBS) $(IOSX_LIBS) \
-		-o $(BUILD_LIB)/avs.framework/avs
+		-o $@
 
 $(IOSX_STUB_SHARED): $(IOSX_STUB_OBJS) $(AVS_STATIC) $(MENG_STATIC)
 	@echo "  LD      $@"
