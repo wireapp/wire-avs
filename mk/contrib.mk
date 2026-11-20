@@ -286,6 +286,12 @@ endif
 
 CONTRIB_LIBRE_FAMILY_OPTIONS_arm := RELEASE=1
 CONTRIB_LIBRE_FAMILY_OPTIONS_arm64 := RELEASE=1
+
+# Keep MEM_DEBUG on osx so the tests can detect memory leaks
+#
+ifeq ($(AVS_OS),osx)
+CONTRIB_LIBRE_FAMILY_OPTIONS_$(AVS_FAMILY) :=
+endif
 CONTRIB_LIBRE_OS_OPTIONS_android := \
 	HAVE_INTTYPES_H=1 \
 	HAVE_LIBRESOLV= \
