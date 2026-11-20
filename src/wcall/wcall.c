@@ -3022,6 +3022,7 @@ static void instance_destroy(struct calling_instance *inst)
 	inst->clientid = mem_deref(inst->clientid);
 	inst->mm = mem_deref(inst->mm);
 	inst->msys = mem_deref(inst->msys);
+	inst->msys_name = mem_deref(inst->msys_name);
 	inst->cfg = mem_deref(inst->cfg);
 	inst->media_laddr = mem_deref(inst->media_laddr);
 	inst->audio_files.play_path = mem_deref(inst->audio_files.play_path);
