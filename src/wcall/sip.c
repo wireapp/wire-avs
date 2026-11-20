@@ -46,6 +46,7 @@ struct wsip_ua {
 	struct sip_instance *sip_inst;
 	struct ua *ua;
 	char *aor;
+	char *mod_aor;
 	bool first_reg;
 	bool ready;
 
@@ -62,6 +63,17 @@ struct wsip_ua {
 	char *userid;
 	char *clientid;
 	char *convid;
+
+	/* Wildcard unregister (Contact: *) sent before the UA is
+	 * allocated, enabled with regpurge=yes in the AOR
+	 */
+	struct {
+		struct account *acc;
+		struct sip_dialog *dlg;
+		struct sip_auth *auth;
+		struct sip_request *req;
+		struct sip_loopstate ls;
+	} purge;
 
 	struct le le;
 };
@@ -809,6 +821,12 @@ static void wua_destructor(void *arg)
 	struct wsip_ua *wua = arg;
 
 	mem_deref(wua->aor);
+	mem_deref(wua->mod_aor);
+
+	mem_deref(wua->purge.req);
+	mem_deref(wua->purge.auth);
+	mem_deref(wua->purge.dlg);
+	mem_deref(wua->purge.acc);
 
 	list_unlink(&wua->le);
 
@@ -824,6 +842,170 @@ static void wua_destructor(void *arg)
 	mem_deref(wua->convid);
 }
 
+
+static int start_ua(struct wsip_ua *wua)
+{
+	int err;
+
+	info("sip(%p): create: allocating UA with aor=%s\n",
+	     wua->sip_inst, wua->mod_aor);
+	err = ua_alloc(&wua->ua, wua->mod_aor);
+	if (err) {
+		warning("sip(%p): create: could not allocate ua\n",
+			wua->sip_inst);
+	}
+
+	return err;
+}
+
+
+static void purge_done(struct wsip_ua *wua)
+{
+	int err;
+
+	wua->purge.req = mem_deref(wua->purge.req);
+	wua->purge.auth = mem_deref(wua->purge.auth);
+	wua->purge.dlg = mem_deref(wua->purge.dlg);
+	wua->purge.acc = mem_deref(wua->purge.acc);
+
+	err = start_ua(wua);
+	if (err && wua->errh)
+		wua->errh(wua, "could not allocate ua", wua->arg);
+}
+
+
+static int purge_auth_handler(char **username, char **password,
+			      const char *realm, void *arg)
+{
+	struct wsip_ua *wua = arg;
+
+	return account_auth(wua->purge.acc, username, password, realm);
+}
+
+
+static void purge_resp_handler(int err, const struct sip_msg *msg, void *arg);
+
+static int purge_request(struct wsip_ua *wua)
+{
+	return sip_drequestf(&wua->purge.req, uag_sip(), true, "REGISTER",
+			     wua->purge.dlg, 0, wua->purge.auth,
+			     NULL, purge_resp_handler, wua,
+			     "Contact: *\r\n"
+			     "Expires: 0\r\n"
+			     "Content-Length: 0\r\n"
+			     "\r\n");
+}
+
+
+static void purge_resp_handler(int err, const struct sip_msg *msg, void *arg)
+{
+	struct wsip_ua *wua = arg;
+
+	if (err) {
+		warning("sip(%p): purge: request failed: %m\n",
+			wua->sip_inst, err);
+		goto out;
+	}
+
+	if (msg->scode < 200)
+		return;
+
+	if (sip_request_loops(&wua->purge.ls, msg->scode)) {
+		warning("sip(%p): purge: request loops: %u %r\n",
+			wua->sip_inst, msg->scode, &msg->reason);
+		goto out;
+	}
+
+	if (msg->scode < 300) {
+		info("sip(%p): purge: removed all bindings: %u %r\n",
+		     wua->sip_inst, msg->scode, &msg->reason);
+		goto out;
+	}
+
+	if (msg->scode == 401 || msg->scode == 407) {
+		err = sip_auth_authenticate(wua->purge.auth, msg);
+		if (!err)
+			err = purge_request(wua);
+		if (!err)
+			return;
+
+		warning("sip(%p): purge: authentication failed: %m\n",
+			wua->sip_inst, err);
+		goto out;
+	}
+
+	warning("sip(%p): purge: failed: %u %r\n",
+		wua->sip_inst, msg->scode, &msg->reason);
+
+ out:
+	/* Register normally whatever the outcome of the purge */
+	purge_done(wua);
+}
+
+
+/* Remove all bindings of the AOR from the registrar with a wildcard
+ * unregister (RFC 3261 10.2.2), so that stale contacts left behind by
+ * earlier instances do not get INVITEs forked to them.
+ * Returns ENOENT if regpurge is not enabled for this AOR.
+ */
+static int purge_bindings(struct wsip_ua *wua)
+{
+	struct sip_addr *laddr;
+	struct uri uri;
+	struct pl pl;
+	const char *routev[1];
+	char *reg_uri = NULL;
+	int err;
+
+	err = account_alloc(&wua->purge.acc, wua->mod_aor);
+	if (err)
+		return err;
+
+	laddr = account_laddr(wua->purge.acc);
+	if (msg_param_decode(&laddr->params, "regpurge", &pl)
+	    || pl_strcasecmp(&pl, "yes")) {
+		err = ENOENT;
+		goto out;
+	}
+
+	/* Same Request-URI and route as the UA's own REGISTER */
+	uri = laddr->uri;
+	uri.user = uri.password = pl_null;
+	err = re_sdprintf(&reg_uri, "%H", uri_encode, &uri);
+	if (err)
+		goto out;
+
+	routev[0] = account_outbound(wua->purge.acc, 0);
+
+	err = sip_dialog_alloc(&wua->purge.dlg, reg_uri,
+			       account_aor(wua->purge.acc), NULL,
+			       account_aor(wua->purge.acc),
+			       routev[0] ? routev : NULL,
+			       routev[0] ? 1 : 0);
+	if (err)
+		goto out;
+
+	err = sip_auth_alloc(&wua->purge.auth, purge_auth_handler,
+			     wua, false);
+	if (err)
+		goto out;
+
+	info("sip(%p): purge: removing all bindings for %s\n",
+	     wua->sip_inst, account_aor(wua->purge.acc));
+
+	err = purge_request(wua);
+
+ out:
+	mem_deref(reg_uri);
+	if (err) {
+		wua->purge.auth = mem_deref(wua->purge.auth);
+		wua->purge.dlg = mem_deref(wua->purge.dlg);
+		wua->purge.acc = mem_deref(wua->purge.acc);
+	}
+
+	return err;
+}
+
 int wcall_i_sip_create(struct calling_instance *inst,
 		       const char *aor,
 		       wcall_sip_ready_h *readyh,
@@ -835,7 +1017,6 @@ int wcall_i_sip_create(struct calling_instance *inst,
 {
 	struct sip_instance *sip_inst;
 	struct wsip_ua *wua;
-	char mod_aor[1024];
 	int err;
 
 	info("sip: create: aor=%s\n", aor);
@@ -872,13 +1053,18 @@ int wcall_i_sip_create(struct calling_instance *inst,
 	str_dup(&wua->clientid, wcall_get_clientid(inst));
 
 	//re_snprintf(mod_aor, sizeof(mod_aor), "%s;natpinhole=yes;", aor);
-	re_snprintf(mod_aor, sizeof(mod_aor), "%s;", aor);
-	info("sip(%p): create: allocating UA with aor=%s\n",
-	     sip_inst, mod_aor);
-	err = ua_alloc(&wua->ua, mod_aor);
-	if (err) {
-		warning("sip(%p): create: could not allocate ua\n", sip_inst);
+	err = re_sdprintf(&wua->mod_aor, "%s;", aor);
+	if (err)
 		goto out;
+
+	/* With regpurge=yes the UA is allocated once the purge is done */
+	err = purge_bindings(wua);
+	if (err == ENOENT)
+		err = start_ua(wua);
+	else if (err) {
+		warning("sip(%p): create: purge failed: %m\n",
+			sip_inst, err);
+		err = start_ua(wua);
 	}
 
  out:
@@ -914,8 +1100,10 @@ int wcall_i_sip_destroy(struct calling_instance *inst,
 
 	info("sip(%p): destroy: aor=%s wua=%p ua=%[\n", sip_inst, aor, wua, wua->ua);
 
-	ua_unregister(wua->ua);
-	
+	/* No UA yet while the purge is pending */
+	if (wua->ua)
+		ua_unregister(wua->ua);
+
 	mem_deref(wua);
 
 	return 0;

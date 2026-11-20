@@ -689,6 +689,23 @@ typedef void (wcall_sip_parts_h)(const char *convid,
 
 int wcall_sip_init(WUSER_HANDLE wuser, const char *conf_path);
 int wcall_sip_close(WUSER_HANDLE wuser);
+
+/* Create a SIP UA and register it with the registrar.
+ *
+ * aor is a baresip account address, e.g.
+ *   sip:user@domain:5060;auth_pass=secret;regint=60
+ *
+ * In addition to the baresip account parameters, the following
+ * AVS parameter is supported:
+ *
+ *   regpurge=yes  Before registering, remove all existing bindings
+ *                 of the AOR with a wildcard unregister
+ *                 (Contact: *, Expires: 0, RFC 3261 10.2.2). This
+ *                 clears stale contacts left by earlier instances,
+ *                 but also any bindings of other active instances
+ *                 using the same AOR. If the purge fails the UA
+ *                 registers normally.
+ */
 int wcall_sip_create(WUSER_HANDLE wuser,
 		     const char *aor,
 		     wcall_sip_ready_h *readyh,
