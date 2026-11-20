@@ -44,7 +44,7 @@ public:
 	virtual void SetUp() override
 	{
 		ASSERT_EQ(0, config_alloc(&cfg, cfg_req_handler, NULL, NULL));
-		ASSERT_EQ(0, ccall_alloc(&ccall, NULL, "test",
+		ASSERT_EQ(0, ccall_alloc(&ccall, NULL, "audummy",
 					 "conv@domain", "user@domain", "client",
 					 true, false));
 		ASSERT_EQ(0, ccall_set_config(ccall, cfg));

@@ -211,7 +211,7 @@ TEST_F(ConnectionTestStart, testEpochSurvivesStartWhileNormalMlsStillResetsKeys)
 		struct config *cfg = nullptr;
 		struct ecall_conf conf = {};
 		ASSERT_EQ(0, config_alloc(&cfg, nullptr, nullptr, nullptr));
-		ASSERT_EQ(0, ccall_alloc(&call, &conf, "test", "key-test", "test-user",
+		ASSERT_EQ(0, ccall_alloc(&call, &conf, "voe", "key-test", "test-user",
 			"test-client", true, false));
 		ccall_set_test_mode(call, is_test);
 		ASSERT_EQ(0, ccall_set_config(call, cfg));
