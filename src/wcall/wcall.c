@@ -230,6 +230,10 @@ struct wcall {
 
 	int state; /* wcall state */
 	bool disable_audio;
+
+	/* Conference call starter, as last reported by the icall */
+	char *starter_userid;
+	char *starter_clientid;
 	
 	struct le le;
 };
@@ -613,6 +617,18 @@ static void icall_vstate_handler(struct icall *icall, const char *userid, const 
 static void icall_audiocbr_handler(struct icall *icall, const char *userid,
 	const char *clientid, int enabled, void *arg); 
 
+static void wcall_set_starter(struct wcall *wcall,
+			      const char *userid, const char *clientid)
+{
+	wcall->starter_userid = mem_deref(wcall->starter_userid);
+	wcall->starter_clientid = mem_deref(wcall->starter_clientid);
+
+	if (userid)
+		str_dup(&wcall->starter_userid, userid);
+	if (clientid)
+		str_dup(&wcall->starter_clientid, clientid);
+}
+
 static void icall_start_handler(struct icall *icall,
 				uint32_t msg_time,
 				const char *userid_sender,
@@ -626,12 +642,16 @@ static void icall_start_handler(struct icall *icall,
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
 	int ct = WCALL_CONV_TYPE_ONEONONE;
 
-	(void)clientid_sender;
-
 	if (!WCALL_VALID(wcall)) {
 		warning("wcall(%p): icall_start_handler: invalid wcall "
 			"inst=%p\n", wcall, inst);
 		return;
+	}
+
+	/* Conference calls report the starter, kept for reject */
+	if (conv_type == ICALL_CONV_TYPE_CONFERENCE ||
+	    conv_type == ICALL_CONV_TYPE_CONFERENCE_MLS) {
+		wcall_set_starter(wcall, userid_sender, clientid_sender);
 	}
 
 	set_state(wcall, WCALL_STATE_INCOMING);
@@ -952,14 +972,14 @@ static void call_group_change_json(struct calling_instance *inst,
 
 		info(APITAG "wcall(%p): group_chg_jsonh: %s\n",
 		     wcall, anon_json);
-		mem_deref(anon_json);
-		
+
 		inst->group.json.chgh(wcall->convid,
 				      mjson,
 				      inst->group.json.arg);
 		info(APITAG "wcall(%p): group_chg_jsonh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
 	}
+	mem_deref(anon_json);
 	mem_deref(mjson);
 }
 
@@ -1341,7 +1361,9 @@ static void enter_normal_state(struct calling_instance *inst)
 }
 
 
-static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_time, void *arg)
+static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_time,
+				const char *userid, const char *clientid,
+				void *arg)
 {
 	struct wcall *wcall = arg;
 	struct calling_instance *inst = wcall ? wcall->inst : NULL;
@@ -1353,6 +1375,10 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 			"inst=%p\n", wcall, inst);
 		return;
 	}
+
+	/* Keep the starter for a later reject */
+	if (userid)
+		wcall_set_starter(wcall, userid, clientid);
 
 	if (wcall_is_test(wcall))
 		tmr_cancel(&wcall->test_tmr);
@@ -1443,8 +1469,13 @@ static void icall_leave_handler(struct icall* icall, int reason, uint32_t msg_ti
 		     wcall, inst->closeh, wcall_state_name(wcall->state),
 		     wcall_reason_name(reason));
 
+		/* Report the call starter if known, otherwise self */
+		if (!userid) {
+			userid = inst->userid;
+			clientid = inst->clientid;
+		}
 		inst->closeh(wreason, wcall->convid, msg_time,
-			     inst->userid, inst->clientid, inst->arg);
+			     userid, clientid, inst->arg);
 		info(APITAG "wcall(%p): icall_leave_handler: "
 		     "closeh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
@@ -1764,6 +1795,8 @@ static void destructor(void *arg)
 
 	mem_deref(wcall->icall);
 	mem_deref(wcall->convid);
+	mem_deref(wcall->starter_userid);
+	mem_deref(wcall->starter_clientid);
 
 	info("wcall(%p): dtor -- done\n", wcall);
 }
@@ -3789,9 +3822,14 @@ int wcall_i_reject(struct wcall *wcall)
 			     wcall, inst->closeh, wcall_state_name(wcall->state),
 			     wcall_reason_name(reason));
 
+			/* Report the call starter if known, otherwise self */
 			inst->closeh(reason, wcall->convid,
-				ECONN_MESSAGE_TIME_UNKNOWN, inst->userid,
-				inst->clientid, inst->arg);
+				ECONN_MESSAGE_TIME_UNKNOWN,
+				wcall->starter_userid ?
+					wcall->starter_userid : inst->userid,
+				wcall->starter_userid ?
+					wcall->starter_clientid : inst->clientid,
+				inst->arg);
 			info(APITAG "wcall(%p): wcall_reject: closeh took %llu ms\n",
 			     wcall, tmr_jiffies() - now);
 		}

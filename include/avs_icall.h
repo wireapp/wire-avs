@@ -197,6 +197,8 @@ typedef void (icall_media_stopped_h)(struct icall *icall, void *arg);
 typedef void (icall_leave_h)(struct icall *icall,
 			     int reason,
 			     uint32_t msg_time,
+			     const char *userid,
+			     const char *clientid,
 			     void *arg);
 typedef void (icall_group_changed_h)(struct icall *icall,
 				     void *arg);

@@ -2512,7 +2512,7 @@ int ecall_msg_recv(struct ecall *ecall,
 				info("ecall: other client rejected -- stop ringtone\n");
 				ICALL_CALL_CB(ecall->icall, leaveh,
 					&ecall->icall, ICALL_REASON_REJECTED, 0,
-					ecall->icall.arg);
+					NULL, NULL, ecall->icall.arg);
 			}
 			else {
 				info("ecall(%p): ignore message %s from"

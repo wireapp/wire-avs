@@ -37,6 +37,7 @@ TEST_SRCS	+= test_userlist.cpp
 TEST_SRCS	+= test_wcall_connection_test.cpp
 TEST_SRCS	+= test_wcall_event.cpp
 TEST_SRCS	+= test_wcall_mute.cpp
+TEST_SRCS	+= test_wcall_starter.cpp
 TEST_SRCS	+= test_wcall_config.cpp
 TEST_SRCS	+= test_zapi.cpp
 TEST_SRCS	+= test_ztime.cpp

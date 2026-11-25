@@ -18,6 +18,11 @@
 #include <re.h>
 #include <avs.h>
 #include <gtest/gtest.h>
+#include <string>
+
+extern "C" {
+#include "../src/ccall/ccall.h"
+}
 
 #define KEYSZ (32)
 
@@ -119,4 +124,365 @@ TEST_F(CcallTest, restart_after_ended_call_salts_media_keys)
 		<< "media keys derived without salt";
 	ASSERT_NE(0, memcmp(second, first, KEYSZ))
 		<< "the second call reused the first call's secret";
+}
+
+
+/* Call starter tracking from CONFSTART/CONFCHECK. No SFT or media is used. */
+#define CONVID   "starter-conv"
+#define SELF_U   "user-c"
+#define SELF_C   "client-c"
+#define STARTER_U "user-a"
+#define STARTER_C "client-a"
+#define SENDER_U "user-b"
+#define SENDER_C "client-b"
+
+class CcallStarter : public testing::Test {
+protected:
+	struct ccall *ccall = nullptr;
+	struct ecall_conf conf = {};
+	unsigned starts = 0;
+	std::string start_userid;
+	std::string start_clientid;
+	unsigned closes = 0;
+	std::string close_userid;
+	std::string close_clientid;
+	unsigned leaves = 0;
+	int leave_reason = 0;
+	std::string leave_userid;
+	std::string leave_clientid;
+
+	static void start_handler(struct icall *, uint32_t,
+				  const char *userid, const char *clientid,
+				  bool, bool, enum icall_conv_type, void *arg)
+	{
+		auto *test = static_cast<CcallStarter *>(arg);
+
+		++test->starts;
+		test->start_userid = userid ? userid : "";
+		test->start_clientid = clientid ? clientid : "";
+	}
+
+	static void close_handler(struct icall *, int,
+				  struct icall_metrics *, uint32_t,
+				  const char *userid, const char *clientid,
+				  void *arg)
+	{
+		auto *test = static_cast<CcallStarter *>(arg);
+
+		++test->closes;
+		test->close_userid = userid ? userid : "";
+		test->close_clientid = clientid ? clientid : "";
+	}
+
+	static void leave_handler(struct icall *, int reason, uint32_t,
+				  const char *userid, const char *clientid,
+				  void *arg)
+	{
+		auto *test = static_cast<CcallStarter *>(arg);
+
+		++test->leaves;
+		test->leave_reason = reason;
+		test->leave_userid = userid ? userid : "";
+		test->leave_clientid = clientid ? clientid : "";
+	}
+
+	void SetUp() override
+	{
+		ASSERT_EQ(0, ccall_alloc(&ccall, &conf, CONVID,
+					 SELF_U, SELF_C, false, false));
+		struct icall *icall = ccall_get_icall(ccall);
+		icall->starth = start_handler;
+		icall->closeh = close_handler;
+		icall->leaveh = leave_handler;
+		icall->arg = this;
+	}
+
+	void TearDown() override
+	{
+		mem_deref(ccall);
+	}
+
+	static struct econn_message *conf_msg(enum econn_msg type,
+					      uint64_t ts,
+					      const char *starter_userid,
+					      const char *starter_clientid,
+					      bool resp = false)
+	{
+		struct econn_message *msg = econn_message_alloc();
+		uint8_t *secret;
+		char **pstarter_u, **pstarter_c;
+
+		econn_message_init(msg, type, CONVID);
+		msg->resp = resp || (type == ECONN_CONF_CHECK);
+		msg->age = 1;
+
+		secret = (uint8_t *)mem_zalloc(16, NULL);
+		memset(secret, 0x42, 16);
+		if (type == ECONN_CONF_START) {
+			str_dup(&msg->u.confstart.sft_url, "https://sft.invalid");
+			msg->u.confstart.secret = secret;
+			msg->u.confstart.secretlen = 16;
+			msg->u.confstart.timestamp = ts;
+			msg->u.confstart.seqno = 1;
+			pstarter_u = &msg->u.confstart.starter_userid;
+			pstarter_c = &msg->u.confstart.starter_clientid;
+		}
+		else {
+			str_dup(&msg->u.confcheck.sft_url, "https://sft.invalid");
+			msg->u.confcheck.secret = secret;
+			msg->u.confcheck.secretlen = 16;
+			msg->u.confcheck.timestamp = ts;
+			msg->u.confcheck.seqno = 1;
+			pstarter_u = &msg->u.confcheck.starter_userid;
+			pstarter_c = &msg->u.confcheck.starter_clientid;
+		}
+		if (starter_userid)
+			str_dup(pstarter_u, starter_userid);
+		if (starter_clientid)
+			str_dup(pstarter_c, starter_clientid);
+
+		return msg;
+	}
+
+	int recv(struct econn_message *msg,
+		 const char *userid, const char *clientid)
+	{
+		int err = ccall_msg_recv(ccall_get_icall(ccall), 0, 0,
+					 userid, clientid, msg);
+		mem_deref(msg);
+		return err;
+	}
+
+	void expect_starter(const char *userid, const char *clientid,
+			    bool confirmed = true)
+	{
+		EXPECT_STREQ(userid, ccall->starter_userid);
+		EXPECT_STREQ(clientid, ccall->starter_clientid);
+		EXPECT_EQ(confirmed, ccall->starter_confirmed);
+	}
+};
+
+
+TEST_F(CcallStarter, unknown_when_idle)
+{
+	EXPECT_TRUE(ccall->starter_userid == nullptr);
+	EXPECT_TRUE(ccall->starter_clientid == nullptr);
+	EXPECT_FALSE(ccall->starter_confirmed);
+}
+
+TEST_F(CcallStarter, confcheck_from_keygenerator_reports_starter)
+{
+	/* B is keygenerator, but A started the call */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000,
+				   STARTER_U, STARTER_C),
+			  SENDER_U, SENDER_C));
+
+	EXPECT_EQ(1u, starts);
+	EXPECT_EQ(STARTER_U, start_userid);
+	EXPECT_EQ(STARTER_C, start_clientid);
+	expect_starter(STARTER_U, STARTER_C);
+}
+
+TEST_F(CcallStarter, confstart_resend_reports_starter)
+{
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_START, 1000,
+				   STARTER_U, STARTER_C),
+			  SENDER_U, SENDER_C));
+
+	EXPECT_EQ(1u, starts);
+	EXPECT_EQ(STARTER_U, start_userid);
+	EXPECT_EQ(STARTER_C, start_clientid);
+	expect_starter(STARTER_U, STARTER_C);
+}
+
+TEST_F(CcallStarter, old_client_falls_back_to_sender)
+{
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000, NULL, NULL),
+			  SENDER_U, SENDER_C));
+
+	EXPECT_EQ(1u, starts);
+	EXPECT_EQ(SENDER_U, start_userid);
+	EXPECT_EQ(SENDER_C, start_clientid);
+	expect_starter(SENDER_U, SENDER_C, false);
+}
+
+TEST_F(CcallStarter, old_client_confstart_request_is_confirmed)
+{
+	/* Only the initial CONFSTART is a request */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_START, 1000, NULL, NULL),
+			  STARTER_U, STARTER_C));
+
+	EXPECT_EQ(1u, starts);
+	EXPECT_EQ(STARTER_U, start_userid);
+	expect_starter(STARTER_U, STARTER_C, true);
+}
+
+TEST_F(CcallStarter, old_client_confstart_response_is_guess)
+{
+	/* Resent CONFSTART (e.g. by the keygenerator) is a response */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_START, 1000, NULL, NULL, true),
+			  SENDER_U, SENDER_C));
+
+	expect_starter(SENDER_U, SENDER_C, false);
+}
+
+TEST_F(CcallStarter, guess_upgraded_by_same_call)
+{
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000, NULL, NULL),
+			  SENDER_U, SENDER_C));
+	expect_starter(SENDER_U, SENDER_C, false);
+
+	/* Another old client's CONFCHECK is still a guess, keep the first */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000, NULL, NULL),
+			  "user-d", "client-d"));
+	expect_starter(SENDER_U, SENDER_C, false);
+
+	/* Newer client knows the starter */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000,
+				   STARTER_U, STARTER_C),
+			  "user-d", "client-d"));
+	expect_starter(STARTER_U, STARTER_C, true);
+	EXPECT_EQ(1u, starts);
+}
+
+TEST_F(CcallStarter, guess_upgraded_by_late_confstart)
+{
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000, NULL, NULL),
+			  SENDER_U, SENDER_C));
+	expect_starter(SENDER_U, SENDER_C, false);
+
+	/* Initial CONFSTART from an old client arrives late */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_START, 1000, NULL, NULL),
+			  STARTER_U, STARTER_C));
+	expect_starter(STARTER_U, STARTER_C, true);
+}
+
+TEST_F(CcallStarter, confirmed_not_replaced_by_guess)
+{
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000,
+				   STARTER_U, STARTER_C),
+			  SENDER_U, SENDER_C));
+	expect_starter(STARTER_U, STARTER_C, true);
+
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000, NULL, NULL),
+			  "user-d", "client-d"));
+	expect_starter(STARTER_U, STARTER_C, true);
+}
+
+TEST_F(CcallStarter, earlier_call_replaces_starter)
+{
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 2000,
+				   SENDER_U, SENDER_C),
+			  SENDER_U, SENDER_C));
+	expect_starter(SENDER_U, SENDER_C);
+
+	/* Same call again from someone else, starter is kept */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 2000,
+				   "user-d", "client-d"),
+			  "user-d", "client-d"));
+	expect_starter(SENDER_U, SENDER_C);
+
+	/* Earlier call wins, along with its starter */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000,
+				   STARTER_U, STARTER_C),
+			  SENDER_U, SENDER_C));
+	expect_starter(STARTER_U, STARTER_C);
+	EXPECT_EQ(1u, starts);
+}
+
+TEST_F(CcallStarter, confend_closes_with_starter)
+{
+	struct econn_message *end;
+
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000,
+				   STARTER_U, STARTER_C),
+			  SENDER_U, SENDER_C));
+	expect_starter(STARTER_U, STARTER_C);
+
+	/* Ended by someone else */
+	end = econn_message_alloc();
+	econn_message_init(end, ECONN_CONF_END, ccall->convid_hash);
+	ASSERT_EQ(0, recv(end, SENDER_U, SENDER_C));
+
+	EXPECT_EQ(1u, closes);
+	EXPECT_EQ(STARTER_U, close_userid);
+	EXPECT_EQ(STARTER_C, close_clientid);
+}
+
+TEST_F(CcallStarter, next_call_replaces_starter)
+{
+	struct econn_message *end;
+
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000,
+				   STARTER_U, STARTER_C),
+			  SENDER_U, SENDER_C));
+	end = econn_message_alloc();
+	econn_message_init(end, ECONN_CONF_END, ccall->convid_hash);
+	ASSERT_EQ(0, recv(end, SENDER_U, SENDER_C));
+
+	/* Next incoming call, at a later time */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 5000, NULL, NULL),
+			  "user-d", "client-d"));
+	EXPECT_EQ(2u, starts);
+	EXPECT_EQ("user-d", start_userid);
+	expect_starter("user-d", "client-d", false);
+}
+
+TEST_F(CcallStarter, own_call_forgets_previous_starter)
+{
+	struct econn_message *end;
+
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_CHECK, 1000,
+				   STARTER_U, STARTER_C),
+			  SENDER_U, SENDER_C));
+	end = econn_message_alloc();
+	econn_message_init(end, ECONN_CONF_END, ccall->convid_hash);
+	ASSERT_EQ(0, recv(end, SENDER_U, SENDER_C));
+
+	/* No config, so the start fails after the starter is reset */
+	ccall_start(ccall_get_icall(ccall), ICALL_CALL_TYPE_NORMAL,
+		    false, false);
+
+	EXPECT_TRUE(ccall->starter_userid == nullptr);
+	EXPECT_TRUE(ccall->starter_clientid == nullptr);
+	EXPECT_FALSE(ccall->starter_confirmed);
+}
+
+TEST_F(CcallStarter, answered_elsewhere_leaves_with_starter)
+{
+	/* Initial CONFSTART rings */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_START, 1000,
+				   STARTER_U, STARTER_C),
+			  STARTER_U, STARTER_C));
+	ASSERT_TRUE(ccall->is_ringing);
+
+	/* Answered on another of our own clients */
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_START, 1000,
+				   STARTER_U, STARTER_C, true),
+			  SELF_U, "client-other"));
+
+	EXPECT_EQ(1u, leaves);
+	EXPECT_EQ(ICALL_REASON_ANSWERED_ELSEWHERE, leave_reason);
+	EXPECT_EQ(STARTER_U, leave_userid);
+	EXPECT_EQ(STARTER_C, leave_clientid);
+}
+
+TEST_F(CcallStarter, rejected_elsewhere_leaves_with_starter)
+{
+	struct econn_message *rej;
+
+	ASSERT_EQ(0, recv(conf_msg(ECONN_CONF_START, 1000,
+				   STARTER_U, STARTER_C),
+			  STARTER_U, STARTER_C));
+	ASSERT_TRUE(ccall->is_ringing);
+
+	/* Rejected on another of our own clients */
+	rej = econn_message_alloc();
+	econn_message_init(rej, ECONN_REJECT, ccall->convid_hash);
+	ASSERT_EQ(0, recv(rej, SELF_U, "client-other"));
+
+	EXPECT_EQ(1u, leaves);
+	EXPECT_EQ(ICALL_REASON_STILL_ONGOING, leave_reason);
+	EXPECT_EQ(STARTER_U, leave_userid);
+	EXPECT_EQ(STARTER_C, leave_clientid);
 }
