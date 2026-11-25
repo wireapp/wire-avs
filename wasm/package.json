@@ -25,7 +25,8 @@
   },
   "scripts": {
     "prepack": "prettier -w src/avs_wcall.ts && tsc && cp src/*.js src/*.d.ts dist/",
-    "test": "karma start"
+    "test": "karma start",
+    "test:audio-source": "node --test test/audioSource.test.cjs"
   },
   "version": "0.0.0"
 }

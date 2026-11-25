@@ -57,8 +57,11 @@ export class Wcall {
     avs_pc.setUserMediaHandler(userMediaHandler);
   }
 
-  setAudioStreamHandler(audioStreamHandler: AudioStreamHandler): void {
-    avs_pc.setAudioStreamHandler(audioStreamHandler);
+  /** Enable source metadata before starting calls. Sender changes repeat the stream callback.
+   * Notifications are asynchronous and do not mark sample-accurate PCM boundaries.
+   */
+  setAudioStreamHandler(audioStreamHandler: AudioStreamHandler, withSource: boolean = false): void {
+    avs_pc.setAudioStreamHandler(audioStreamHandler, withSource);
   }
 
   setVideoStreamHandler(videoStreamHandler: VideoStreamHandler): void {
