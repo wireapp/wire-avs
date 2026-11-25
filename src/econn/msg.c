@@ -115,6 +115,8 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.confstart.sft_tuple = mem_deref(msg->u.confstart.sft_tuple);
 		msg->u.confstart.secret = mem_deref(msg->u.confstart.secret);
 		list_flush(&msg->u.confstart.sftl);
+		msg->u.confstart.starter_userid = mem_deref(msg->u.confstart.starter_userid);
+		msg->u.confstart.starter_clientid = mem_deref(msg->u.confstart.starter_clientid);
 		break;
 
 	case ECONN_CONF_CHECK:
@@ -122,6 +124,8 @@ void econn_message_reset(struct econn_message *msg)
 		msg->u.confcheck.sft_tuple = mem_deref(msg->u.confcheck.sft_tuple);
 		msg->u.confcheck.secret = mem_deref(msg->u.confcheck.secret);
 		list_flush(&msg->u.confcheck.sftl);
+		msg->u.confcheck.starter_userid = mem_deref(msg->u.confcheck.starter_userid);
+		msg->u.confcheck.starter_clientid = mem_deref(msg->u.confcheck.starter_clientid);
 		break;
 
 	case ECONN_CONF_PART:

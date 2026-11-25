@@ -188,6 +188,8 @@ struct econn_message {
 			uint64_t timestamp;
 			uint32_t seqno;
 			struct list sftl; /* list of struct econn_stringlist_info */
+			char *starter_userid;   /* optional */
+			char *starter_clientid; /* optional */
 		} confstart;
 
 		struct confcheck {
@@ -198,6 +200,8 @@ struct econn_message {
 			uint64_t timestamp;
 			uint32_t seqno;
 			struct list sftl; /* list of struct econn_stringlist_info */
+			char *starter_userid;   /* optional */
+			char *starter_clientid; /* optional */
 		} confcheck;
 
 		struct confpart {

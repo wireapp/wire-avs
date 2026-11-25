@@ -707,6 +707,15 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confstart.timestamp);
 		jzon_add_str(jobj, "seqno", "%u", msg->u.confstart.seqno);
 		econn_stringlist_encode(jobj, &msg->u.confstart.sftl, "sfts");
+		/* starter is optional for backwards compat */
+		if (msg->u.confstart.starter_userid) {
+			jzon_add_str(jobj, "starter_userid",
+				     "%s", msg->u.confstart.starter_userid);
+		}
+		if (msg->u.confstart.starter_clientid) {
+			jzon_add_str(jobj, "starter_clientid",
+				     "%s", msg->u.confstart.starter_clientid);
+		}
 		/* props is optional for CONFSTART */
 		if (msg->u.confstart.props) {
 			err = econn_props_encode(jobj, msg->u.confstart.props);
@@ -725,6 +734,15 @@ int econn_message_encode(char **strp, const struct econn_message *msg)
 		jzon_add_str(jobj, "timestamp", "%llu", msg->u.confcheck.timestamp);
 		jzon_add_str(jobj, "seqno", "%u", msg->u.confcheck.seqno);
 		econn_stringlist_encode(jobj, &msg->u.confcheck.sftl, "sfts");
+		/* starter is optional for backwards compat */
+		if (msg->u.confcheck.starter_userid) {
+			jzon_add_str(jobj, "starter_userid",
+				     "%s", msg->u.confcheck.starter_userid);
+		}
+		if (msg->u.confcheck.starter_clientid) {
+			jzon_add_str(jobj, "starter_clientid",
+				     "%s", msg->u.confcheck.starter_clientid);
+		}
 		break;
 
 	case ECONN_CONF_END:
@@ -1009,6 +1027,7 @@ int econn_message_decode(struct econn_message **msgp,
 		uint8_t *sdata;
 		size_t slen;
 		const char *tuple;
+		const char *starter;
 
 		msg->msg_type = ECONN_CONF_START;
 
@@ -1049,6 +1068,13 @@ int econn_message_decode(struct econn_message **msgp,
 		msg->u.confstart.secretlen = slen;
 
 		econn_stringlist_decode(&msg->u.confstart.sftl, jobj, "sfts");
+		/* starter is optional for backwards compat */
+		starter = jzon_str(jobj, "starter_userid");
+		if (starter)
+			str_dup(&msg->u.confstart.starter_userid, starter);
+		starter = jzon_str(jobj, "starter_clientid");
+		if (starter)
+			str_dup(&msg->u.confstart.starter_clientid, starter);
 		/* Props are optional, dont fail to decode message if they are missing */
 		if (econn_props_decode(&msg->u.confstart.props, jobj))
 			info("econn: decode CONFSTART: no props\n");
@@ -1059,6 +1085,7 @@ int econn_message_decode(struct econn_message **msgp,
 		uint8_t *sdata;
 		size_t slen;
 		const char *tuple;
+		const char *starter;
 
 		msg->msg_type = ECONN_CONF_CHECK;
 
@@ -1099,6 +1126,13 @@ int econn_message_decode(struct econn_message **msgp,
 		msg->u.confcheck.secretlen = slen;
 
 		econn_stringlist_decode(&msg->u.confcheck.sftl, jobj, "sfts");
+		/* starter is optional for backwards compat */
+		starter = jzon_str(jobj, "starter_userid");
+		if (starter)
+			str_dup(&msg->u.confcheck.starter_userid, starter);
+		starter = jzon_str(jobj, "starter_clientid");
+		if (starter)
+			str_dup(&msg->u.confcheck.starter_clientid, starter);
 	}
 	else if (0 == str_casecmp(type, econn_msg_name(ECONN_CONF_CONN))) {
 		struct json_object *jturns;
