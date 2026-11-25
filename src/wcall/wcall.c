@@ -966,14 +966,14 @@ static void call_group_change_json(struct calling_instance *inst,
 
 		info(APITAG "wcall(%p): group_chg_jsonh: %s\n",
 		     wcall, anon_json);
-		mem_deref(anon_json);
-		
+
 		inst->group.json.chgh(wcall->convid,
 				      mjson,
 				      inst->group.json.arg);
 		info(APITAG "wcall(%p): group_chg_jsonh took %llu ms\n",
 		     wcall, tmr_jiffies() - now);
 	}
+	mem_deref(anon_json);
 	mem_deref(mjson);
 }
 
