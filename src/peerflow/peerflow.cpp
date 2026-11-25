@@ -2981,14 +2981,18 @@ static void timer_stats(void *arg)
 		std::shared_ptr<RedState> rs = red_state_find(pf->red_id);
 		int red = rs ? rs->on.load() : -1;
 		int rtt = pf->netStatsCb->pairRttMs();
+		int rtcp_rtt = pf->netStatsCb->remoteRttMs();
+		int delay = pf->recv_delay->excessMs(tmr_jiffies());
 
 		pf->netStatsCb->setSendRed(red >= 0 ? red
 					   : audio_send_red(trxs));
-		if (rs)
+		if (rs) {
 			rs->pair_rtt_ms = rtt;
-		pf_update_ice_slow(pf, rtt, pf->netStatsCb->remoteRttMs(),
-				   pf->netStatsCb->pairBweKbps(),
-				   pf->recv_delay->excessMs(tmr_jiffies()));
+			rs->rtcp_rtt_ms = rtcp_rtt;
+			rs->recv_delay_ms = delay;
+		}
+		pf_update_ice_slow(pf, rtt, rtcp_rtt,
+				   pf->netStatsCb->pairBweKbps(), delay);
 	}
 	pf->peerConn->GetStats(pf->netStatsCb);
 
@@ -3277,7 +3281,9 @@ int peerflow_alloc(struct iflow		**flowp,
 	lock_rel(g_pf.lock);
 
 	pf->netStatsCb = new wire::NetStatsCallback(pf, pf->stats);
-	pf->recv_delay = new wire::RecvDelay();
+	pf->recv_delay = new wire::RecvDelay(
+		conv_type != ICALL_CONV_TYPE_CONFERENCE
+		&& conv_type != ICALL_CONV_TYPE_CONFERENCE_MLS);
 
 	tmr_start(&pf->tmr_stats, TMR_STATS_INTERVAL, timer_stats, pf);
 	tmr_start(&pf->tmr_aulevel, TMR_AULEVEL_INTERVAL, timer_aulevel, pf);

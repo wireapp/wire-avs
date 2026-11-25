@@ -123,13 +123,16 @@ protected:
 
 
 /* Whether a call's adaptive RED is on (1/0, -1 not known yet), for the
- * stats log, and the selected pair's RTT from the stats (ms, -1 none yet)
- * for the encoder. The encoder finds it by the id in the opus fmtp
+ * stats log, and from the stats for the encoder: the selected pair's RTT,
+ * the audio's RTCP RTT and the excess delay of the incoming audio (ms, -1
+ * none yet). The encoder finds it by the id in the opus fmtp
  * (SDP_OWN_RED_ID); peerflow registers it at creation.
  */
 struct RedState {
 	std::atomic<int> on{-1};
 	std::atomic<int> pair_rtt_ms{-1};
+	std::atomic<int> rtcp_rtt_ms{-1};
+	std::atomic<int> recv_delay_ms{-1};
 };
 
 static std::mutex red_states_mutex;
@@ -184,12 +187,20 @@ static void red_state_unregister(uint32_t id)
  *   is a lost frame (5 times the concealment at the 6 kbps floor). With a
  *   short budget opus then stays at its minimum and the copy goes on top,
  *   as WebRTC's RED does.
- * - And on a slow link: from a pair RTT of RED_RTT_ON_MS until it is below
- *   RED_RTT_OFF_MS. There the link is so full that a queue builds up
- *   (gsm_14: 3-17 s, against 0.3 s on 40-80 kbit/s links), and the loss
- *   reports mislead: while the queue holds the packets, the receiver
- *   reports ~0 % loss, which ended the lossy link. The pair RTT comes from
- *   the ICE checks (the stats, every second), not from the reports.
+ * - And on a slow link: from an RTT of RED_RTT_ON_MS or an excess delay of
+ *   the incoming audio of RED_DELAY_ON_MS, until the RTT is below
+ *   RED_RTT_OFF_MS and the delay below RED_DELAY_OFF_MS. There the link is
+ *   so full that a queue builds up (gsm_14: 3-17 s, against 0.3 s on
+ *   40-80 kbit/s links), and the loss reports mislead: while the queue
+ *   holds the packets, or the link is down, the receiver reports ~0 %
+ *   loss, which ended the lossy link. The RTT is the higher of the pair's
+ *   (the ICE checks) and the audio's RTCP one, and the delay shows the
+ *   queue in the other direction first, as for the ICE checks (see
+ *   pf_update_ice_slow): a bad Wi-Fi call had a pair RTT of 0.2-1.9 s and
+ *   RTCP of 1.1 s but audio 1.4 s late, and a report of ~0 % right after
+ *   ICE reconnected turned RED off, before one of 42 %. The low bandwidth
+ *   estimate that also makes the ICE checks slow does not keep RED on:
+ *   with no loss, there the budget decides.
  * - And while we don't know the loss: before the first loss report, and
  *   when no report came for RED_REPORT_STALE_MS (reports lost, or the link
  *   down for a while). Normal gaps between reports are up to ~15 s.
@@ -223,6 +234,8 @@ static void red_state_unregister(uint32_t id)
 #define RED_REPORT_STALE_MS 20000
 #define RED_RTT_ON_MS     2000
 #define RED_RTT_OFF_MS    1000
+#define RED_DELAY_ON_MS   1000
+#define RED_DELAY_OFF_MS  500
 
 class AdaptiveRedEncoder : public ForwardingEncoder {
 public:
@@ -494,22 +507,34 @@ private:
 		had_reports_ = true;
 	}
 
-	/* Pair RTT from the stats: is the link slow (see the top) */
+	/* RTT and delay from the stats: is the link slow (see the top) */
 	void updateSlow() {
-		const int rtt = state_ ? state_->pair_rtt_ms.load() : -1;
-
-		if (rtt < 0)
+		if (!state_)
 			return;
 
-		if (!slow_ && rtt >= RED_RTT_ON_MS) {
+		const int pair = state_->pair_rtt_ms.load();
+		const int rtcp = state_->rtcp_rtt_ms.load();
+		const int rtt = std::max(pair, rtcp);
+		const int delay = state_->recv_delay_ms.load();
+
+		if (rtt < 0 && delay < 0)
+			return;
+
+		if (!slow_ && (rtt >= RED_RTT_ON_MS
+			       || delay >= RED_DELAY_ON_MS)) {
 			slow_ = true;
-			info("pf: adaptive RED: slow link: pair RTT %d ms (on "
-			     "from %d ms)\n", rtt, RED_RTT_ON_MS);
+			info("pf: adaptive RED: slow link: RTT %d ms (pair %d, "
+			     "RTCP %d; on from %d ms), recv delay +%d ms (on "
+			     "from %d)\n", rtt, pair, rtcp, RED_RTT_ON_MS,
+			     delay, RED_DELAY_ON_MS);
 		}
-		else if (slow_ && rtt < RED_RTT_OFF_MS) {
+		else if (slow_ && rtt < RED_RTT_OFF_MS
+			 && delay < RED_DELAY_OFF_MS) {
 			slow_ = false;
-			info("pf: adaptive RED: slow link over: pair RTT %d ms "
-			     "(below %d ms)\n", rtt, RED_RTT_OFF_MS);
+			info("pf: adaptive RED: slow link over: RTT %d ms (pair "
+			     "%d, RTCP %d; below %d ms), recv delay +%d ms "
+			     "(below %d)\n", rtt, pair, rtcp, RED_RTT_OFF_MS,
+			     delay, RED_DELAY_OFF_MS);
 		}
 	}
 
@@ -588,7 +613,7 @@ private:
 	bool lossy_ = false;          /* RED on whatever the budget */
 	int lossy_reports_ = 0;       /* reports in a row >= RED_LOSS_ON */
 	uint64_t lossy_ts_ = 0;       /* last report >= RED_LOSS_OFF */
-	bool slow_ = false;           /* RED on: pair RTT high */
+	bool slow_ = false;           /* RED on: RTT or delay high */
 	bool blind_ = true;           /* RED on: loss unknown */
 	bool had_reports_ = false;    /* blind_ was false once */
 	uint64_t report_ts_ = 0;      /* last loss report */
