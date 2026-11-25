@@ -3281,7 +3281,9 @@ int peerflow_alloc(struct iflow		**flowp,
 	lock_rel(g_pf.lock);
 
 	pf->netStatsCb = new wire::NetStatsCallback(pf, pf->stats);
-	pf->recv_delay = new wire::RecvDelay();
+	pf->recv_delay = new wire::RecvDelay(
+		conv_type != ICALL_CONV_TYPE_CONFERENCE
+		&& conv_type != ICALL_CONV_TYPE_CONFERENCE_MLS);
 
 	tmr_start(&pf->tmr_stats, TMR_STATS_INTERVAL, timer_stats, pf);
 	tmr_start(&pf->tmr_aulevel, TMR_AULEVEL_INTERVAL, timer_aulevel, pf);

@@ -40,11 +40,23 @@ namespace wire {
  * (gsm_14 over TURN TCP: no frame for 4 s from the switch).
  * A sender's capture pausing without its RTP timestamp moving on shows
  * as a delay too, for at most WINDOW_MS.
+ * Without quiet_is_stall (SFT calls) a source that played nothing since
+ * the last tick does not count: the SFT forwards only who is talking, and
+ * frees a stream after TIMEOUT_STREAM_HOLD (1.5 s) of silence, so a quiet
+ * stream is a pause, not a queue. When the stream is used again, the SFT
+ * moves its timestamp on by the wall clock, so its delay is right again.
+ * Through the SFT a stream's delay also has its sender's uplink in it:
+ * one talker with a slow uplink makes the link slow for all who hear
+ * them. That is accepted: it keeps RED on (as it always was before
+ * adaptive RED), and the ICE checks slower, on a link that has the room.
  * Fed from RtpReceiverInterface::GetSources() once per stats tick.
  */
 class RecvDelay
 {
 public:
+	/* quiet_is_stall: frames come all the time, also in silence (not SFT) */
+	explicit RecvDelay(bool quiet_is_stall) : quiet_is_stall_(quiet_is_stall) {}
+
 	/* Adds the audio sources of one tick (now in ms) */
 	void add(uint64_t now, const std::vector<webrtc::RtpSource> &srcs)
 	{
@@ -103,7 +115,7 @@ public:
 				s.fresh_at = now;
 				excess = std::max(excess, (int)s.excess);
 			}
-			else if (s.play_ms >= 0) {
+			else if (quiet_is_stall_ && s.play_ms >= 0) {
 				excess = std::max(excess, (int)(s.excess
 					+ (int64_t)(now - s.fresh_at)));
 			}
@@ -129,6 +141,7 @@ private:
 		std::deque<std::pair<uint64_t, int64_t>> window;  /* delays */
 	};
 
+	const bool quiet_is_stall_;
 	std::map<uint32_t, Source> sources_;
 };
 
