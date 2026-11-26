@@ -36,22 +36,35 @@ loopback, even with `sip_listen 0.0.0.0:5060`.
 
 ## PSTN audio and echo test
 
-`pstn_audio_test.py` runs an automated local test of the audio path
-between a SIP caller and a wire client. It checks for the caller hearing
-its own audio back.
+`pstn_audio_test.py` runs an automated local test of the audio between
+SIP callers and a wire client in one conversation, including callers
+hearing their own audio back.
 
-- A baresip CLI plays the PSTN caller. It dials siptest, sends 1 kHz
-  tone bursts from a WAV file and records what it hears.
-- The siptest wire user sends 600 Hz tone bursts (`-p`) and records what
-  it hears (`-r`).
+- One or more baresip CLIs (`--callers`, default 2) play PSTN callers.
+  Each dials siptest a few seconds after the previous one, sends tone
+  bursts from a WAV file and records what it hears.
+- The siptest wire user sends tone bursts (`-p`) and records what it
+  hears (`-r`).
 
-Each recording is measured per 20 ms frame for both tones. The test fails
-if:
+Each party has its own tone:
 
-- the wire user doesn't hear the 1 kHz tone (pstn -> wire),
-- the PSTN caller doesn't hear the 600 Hz tone (wire -> pstn), or
-- the PSTN caller hears its own 1 kHz tone back less than 40 dB below the
-  original (echo). The wireaudio mix-minus should keep it out entirely.
+| party | tone | burst |
+|---|---|---|
+| wire | 2400 Hz | 0.3 s every 1.0 s |
+| pstn1 | 1000 Hz | 0.4 s every 1.3 s |
+| pstn2 | 1800 Hz | 0.4 s every 1.7 s |
+| pstn3 | 700 Hz | 0.4 s every 1.9 s |
+| pstn4 | 2900 Hz | 0.4 s every 2.3 s |
+
+The tones cover the telephone band (300-3400 Hz) in both directions. All
+tones are sent at -12 dBFS, and each recording is measured per 20 ms
+frame for every tone. The test fails if a party:
+
+- hears another party more than 6 dB below the original
+  (`--max-loss-db`), or
+- hears itself back less than 40 dB below the original
+  (`--max-echo-db`). The wireaudio mix-minus should keep it out
+  entirely.
 
 No audio devices are used, so there is no acoustic echo, and any echo
 found comes from the software.
@@ -77,28 +90,38 @@ make siptest
 tools/siptest/pstn_audio_test.py --baresip ~/projects/baresip/build/baresip
 ```
 
-A run takes about 25 seconds. The exit status is 0 on PASS and 1 on
-FAIL. Example output:
+A run takes about 30 seconds. The exit status is 0 on PASS and 1 on
+FAIL. Example output with 4 callers:
 
 ```
-pstn_out: 18.0s at 8000 Hz, wire_rec: 23.8s at 16000 Hz
-                              peak dB   active
-pstn sent (1 kHz)               -12.0
-wire heard pstn (1 kHz)         -13.8      29%
-pstn heard wire (600 Hz)        -10.5      28%
-pstn heard itself (1 kHz)       -94.4       0%
+Tone peak in dBFS (sent at -12, max loss 6 dB), * own tone, measured only while the others are silent
+heard by          wire 2400 Hz pstn1 1000 Hz pstn2 1800 Hz  pstn3 700 Hz pstn4 2900 Hz
+wire                   -100.2*         -13.7         -54.7         -10.6         -62.6
+pstn1                    -59.8        -66.3*         -11.9         -12.0         -11.9
+pstn2                    -59.8         -11.9        -94.1*         -11.9         -11.9
+pstn3                    -60.0         -11.9         -11.9        -67.2*         -12.0
+pstn4                    -60.0         -11.9         -11.9         -12.0        -95.3*
 
-echo: 82.4 dB below the original (limit 40 dB)
-PASS
+FAIL: wire hears pstn2 (1800 Hz) 42.7 dB below the original
+FAIL: wire hears pstn4 (2900 Hz) 50.6 dB below the original
+FAIL: pstn1 hears wire (2400 Hz) 47.8 dB below the original
+...
+FAIL
 ```
 
-`peak dB` is the tone's level in dBFS (99th percentile of the frames),
-and `active` is the share of frames where the tone is present. Both
-tones are on in about 30% of the frames. On echo the test also prints the
-delay:
+Each row is what one party hears, and each column is one party's tone,
+as its peak in dBFS (99th percentile of the frames). `*` marks a party's
+own tone, which should be silent. In this example:
+
+- the mix-minus works: no party hears itself.
+- the callers hear each other at the original level.
+- the wire side loses everything above about 1.2 kHz in both
+  directions: the tones from pstn2, pstn4 and the wire user.
+
+An echo failure also prints the delay:
 
 ```
-FAIL: echo: PSTN caller hears itself 30.0 dB below the original, delay ~200 ms
+FAIL: pstn1 hears itself 30.0 dB below the original, delay ~200 ms
 ```
 
 ### Options
@@ -111,10 +134,13 @@ FAIL: echo: PSTN caller hears itself 30.0 dB below the original, delay ~200 ms
 | `--sipconf` | `./sipconf` | siptest's baresip config dir |
 | `--sip-port` | 5060 | siptest's SIP port (`sip_listen` in `--sipconf`) |
 | `--addr` | address of the default route | address siptest's SIP UA binds to |
-| `--baresip-port` | 5062 | baresip CLI's SIP port |
-| `--duration` | 15 | PSTN call length in seconds |
+| `--callers` | 2 | number of PSTN callers, 1-4 |
+| `--stagger` | 2 | seconds between the callers dialing |
+| `--baresip-port` | 5062 | first caller's SIP port; later callers use +2, +4, ... |
+| `--duration` | 15 | length of each PSTN call in seconds |
 | `--setup-delay` | 5 | seconds between starting siptest and dialing |
-| `--max-echo-db` | 40 | fail if the echo is less than this many dB below the original |
+| `--max-loss-db` | 6 | fail if a party hears another more than this many dB below the original |
+| `--max-echo-db` | 40 | fail if a party hears itself less than this many dB below the original |
 | `--workdir` | a new temp dir | where files are written and kept |
 | `--analyze-only` | | only analyze the files in `--workdir` |
 
@@ -124,12 +150,13 @@ The work dir is printed at the end of each run. It contains:
 
 | file | |
 |---|---|
-| `pstn_in.wav` | what the PSTN caller sends (8 kHz WAV) |
-| `pstn_out.wav` | what the PSTN caller hears (8 kHz WAV) |
 | `wire_play.pcm` | what the wire user sends (raw, 16 kHz) |
 | `wire_rec.pcm` | what the wire user hears (raw, 16 kHz) |
-| `siptest.log`, `baresip.log` | logs of both sides |
-| `baresip/` | the generated baresip CLI config |
+| `siptest.log` | siptest log |
+| `pstnN/pstn_in.wav` | what caller N sends (8 kHz WAV) |
+| `pstnN/pstn_out.wav` | what caller N hears (8 kHz WAV) |
+| `pstnN/baresip.log` | caller N's baresip log |
+| `pstnN/config`, `pstnN/accounts` | caller N's generated baresip config |
 
 To listen to the raw files, convert them with ffmpeg:
 
@@ -137,7 +164,8 @@ To listen to the raw files, convert them with ffmpeg:
 ffmpeg -f s16le -ar 16000 -ac 1 -i wire_rec.pcm wire_rec.wav
 ```
 
-To re-check recordings, for example after changing the analysis, run:
+To re-check recordings, for example after changing the analysis, run
+the command below. It finds the callers from the `pstnN` directories:
 
 ```
 tools/siptest/pstn_audio_test.py --analyze-only --workdir <dir>
@@ -145,15 +173,13 @@ tools/siptest/pstn_audio_test.py --analyze-only --workdir <dir>
 
 ### Notes
 
-- The tone bursts fade in and out, and echo is only measured while the
-  wire tone is silent. Hard burst edges, and the G.711 quantization noise
-  of the 600 Hz tone, reach 1 kHz at about -30 to -40 dB and would read
-  as echo.
+- The tone bursts fade in and out, and a party's own tone is only
+  measured while all the other tones are silent. Hard burst edges, and
+  the G.711 quantization noise of the other tones, reach the own tone's
+  frequency at about -30 to -40 dB and would read as echo.
 - If baresip logs `no laddr`, `--addr` doesn't match the address
   siptest's SIP UA binds to. Check with
   `lsof -nP -a -c siptest -i :5060`.
-- baresip truncates long audio device names, so the script runs baresip
-  in the work dir and uses only the file names.
-- Only one SIP caller is tested. Echo between two PSTN callers in the
-  same conversation, and line echo from a real phone network, are not
-  covered.
+- baresip truncates long audio device names, so the script runs each
+  baresip in its caller's dir and uses only the file names.
+- Line echo from a real phone network is not simulated.
