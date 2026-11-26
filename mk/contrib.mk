@@ -476,6 +476,8 @@ contrib_librem: $(CONTRIB_LIBREM_TARGET)
 CONTRIB_BARESIP_PATH := contrib/baresip
 CONTRIB_BARESIP_TARGET := $(BUILD_TARGET)/lib/libbaresip.a
 CONTRIB_BARESIP_FILES := $(shell git ls-files $(CONTRIB_BARESIP_PATH))
+# The wireaudio module is built into libbaresip from src/wireaudio
+CONTRIB_BARESIP_WIREAUDIO_FILES := $(wildcard src/wireaudio/*)
 
 CONTRIB_BARESIP_LIBS := -lrem $(CONTRIB_LIBRE_LIBS) -lbaresip
 CONTRIB_BARESIP_LIB_FILES := \
@@ -485,7 +487,8 @@ CONTRIB_BARESIP_AVS_PATH := $(PWD)
 
 $(CONTRIB_BARESIP_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 	                   $(CONTRIB_LIBREM_TARGET) \
-			   $(CONTRIB_BARESIP_FILES)
+			   $(CONTRIB_BARESIP_FILES) \
+			   $(CONTRIB_BARESIP_WIREAUDIO_FILES)
 	@rm -rf $(CONTRIB_BARESIP_PATH)/modules/wireaudio && \
 		ln -s $(CONTRIB_BARESIP_AVS_PATH)/src/wireaudio \
 		$(CONTRIB_BARESIP_PATH)/modules/wireaudio || true
