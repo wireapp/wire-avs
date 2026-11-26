@@ -3,6 +3,7 @@
 #include <re.h>
 #include <rem.h>
 #include <baresip.h>
+#include "resamp.h"
 
 
 /* Fixed formats: the wire side (pstn_audiodevice) runs at 16kHz,
@@ -76,8 +77,8 @@ struct wdev {
 		int16_t src_sampv[AUDIO_SAMPLES];
 		size_t  src_sampc;
 
-		struct auresamp play_resamp;
-		struct auresamp src_resamp;
+		struct wa_resamp play_resamp;
+		struct wa_resamp src_resamp;
 
 		ausrc_read_h *rh;
 		auplay_write_h *wh;
@@ -216,41 +217,28 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 
 	lock_write_get(wdev->lock);
 
-	/* PSTN mix (8kHz) -> wire side (16kHz). The out count is the
-	 * buffer capacity on input, so reset it for every frame.
-	 */
+	/* PSTN mix (8kHz) -> wire side (16kHz) */
 	if (wdev->wa.rh) {
-		int err;
+		size_t n = min(sampc, ARRAY_SIZE(wdev->wa.src_sampv) / 2);
 
-		wdev->wa.src_sampc = ARRAY_SIZE(wdev->wa.src_sampv);
-		err = auresamp(&wdev->wa.src_resamp,
-			       wdev->wa.src_sampv, &wdev->wa.src_sampc,
-			       sampv, sampc);
-		if (!err) {
-			wdev->wa.rh((const void *)wdev->wa.src_sampv,
-				    wdev->wa.src_sampc,
-				    wdev->wa.arg);
-		}
+		wdev->wa.src_sampc = wa_resamp_up(&wdev->wa.src_resamp,
+						  wdev->wa.src_sampv, sampv, n);
+		wdev->wa.rh((const void *)wdev->wa.src_sampv,
+			    wdev->wa.src_sampc,
+			    wdev->wa.arg);
 	}
 
 	/* Wire side (16kHz) -> PSTN mix (8kHz) */
 	if (wdev->wa.wh) {
-		int err;
-
 		wdev->wa.wh(wdev->wa.sampv, wdev->wa.sampc, wdev->wa.arg);
 
-		/* Capacity, not the 8kHz frame size: downsampling
-		 * filters the whole input into the out buffer first
-		 */
-		wdev->wa.play_sampc = ARRAY_SIZE(wdev->wa.play_sampv);
-		err = auresamp(&wdev->wa.play_resamp,
-			       wdev->wa.play_sampv, &wdev->wa.play_sampc,
-			       wdev->wa.sampv, wdev->wa.sampc);
-		if (!err) {
-			aumix_source_put(wdev->wa.aumix_src,
-					 wdev->wa.play_sampv,
-					 wdev->wa.play_sampc);
-		}
+		wdev->wa.play_sampc = wa_resamp_down(&wdev->wa.play_resamp,
+						     wdev->wa.play_sampv,
+						     wdev->wa.sampv,
+						     wdev->wa.sampc);
+		aumix_source_put(wdev->wa.aumix_src,
+				 wdev->wa.play_sampv,
+				 wdev->wa.play_sampc);
 	}
 
 	lock_rel(wdev->lock);
@@ -283,20 +271,6 @@ static int alloc_device(struct wdev **wdevp, const char *convid)
 	}
 
 	aumix_source_enable(wdev->wa.aumix_src, true);
-
-	auresamp_init(&wdev->wa.play_resamp);
-	err = auresamp_setup(&wdev->wa.play_resamp,
-			     AUDIO_SRATE, AUDIO_CHAN,
-			     PSTN_SRATE, PSTN_CHAN);
-	if (err)
-		goto out;
-
-	auresamp_init(&wdev->wa.src_resamp);
-	err = auresamp_setup(&wdev->wa.src_resamp,
-			     PSTN_SRATE, PSTN_CHAN,
-			     AUDIO_SRATE, AUDIO_CHAN);
-	if (err)
-		goto out;
 
 	err = str_dup(&wdev->convid, convid);
 	if (err)

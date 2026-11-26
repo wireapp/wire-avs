@@ -96,33 +96,29 @@ FAIL. Example output with 4 callers:
 ```
 Tone peak in dBFS (sent at -12, max loss 6 dB), * own tone, measured only while the others are silent
 heard by          wire 2400 Hz pstn1 1000 Hz pstn2 1800 Hz  pstn3 700 Hz pstn4 2900 Hz
-wire                   -100.2*         -13.7         -54.7         -10.6         -62.6
-pstn1                    -59.8        -66.3*         -11.9         -12.0         -11.9
-pstn2                    -59.8         -11.9        -94.1*         -11.9         -11.9
-pstn3                    -60.0         -11.9         -11.9        -67.2*         -12.0
-pstn4                    -60.0         -11.9         -11.9         -12.0        -95.3*
+wire                    -96.5*         -11.8         -11.8         -11.8         -11.9
+pstn1                    -11.9        -98.0*         -11.9         -11.9         -11.9
+pstn2                    -11.9         -11.9       -100.1*         -11.9         -11.9
+pstn3                    -11.9         -11.9         -11.9        -96.3*         -11.9
+pstn4                    -11.9         -11.9         -11.9         -11.9        -93.8*
 
-FAIL: wire hears pstn2 (1800 Hz) 42.7 dB below the original
-FAIL: wire hears pstn4 (2900 Hz) 50.6 dB below the original
-FAIL: pstn1 hears wire (2400 Hz) 47.8 dB below the original
-...
-FAIL
+PASS
 ```
 
 Each row is what one party hears, and each column is one party's tone,
 as its peak in dBFS (99th percentile of the frames). `*` marks a party's
-own tone, which should be silent. In this example:
+own tone, which should be silent.
 
-- the mix-minus works: no party hears itself.
-- the callers hear each other at the original level.
-- the wire side loses everything above about 1.2 kHz in both
-  directions: the tones from pstn2, pstn4 and the wire user.
-
-An echo failure also prints the delay:
+Failures name the parties, the tone and the loss. For an echo they also
+give the delay:
 
 ```
+FAIL: wire hears pstn2 (1800 Hz) 42.7 dB below the original
 FAIL: pstn1 hears itself 30.0 dB below the original, delay ~200 ms
 ```
+
+The first line is from wireaudio resampling with rem's auresamp, which
+cut the wire side above about 1.2 kHz in both directions.
 
 ### Options
 

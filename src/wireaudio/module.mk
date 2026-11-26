@@ -6,5 +6,6 @@
 
 MOD		:= wireaudio
 $(MOD)_SRCS	+= wireaudio.c
+$(MOD)_SRCS	+= resamp.c
 
 include mk/mod.mk
