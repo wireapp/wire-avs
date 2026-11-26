@@ -100,6 +100,12 @@ struct wsip_call {
 struct conv_entry {
 	char *convid;
 
+	/* Short key for the conversation in wireaudio, as a (federated)
+	 * convid may not fit baresip's 64 byte audio device name.
+	 * The entry's address, unique while the conversation exists.
+	 */
+	char key[24];
+
 	struct userlist *userl;
 
 	uint32_t leg_id;  /* last PSTN leg id handed out */
@@ -260,59 +266,69 @@ static void ce_destructor(void *arg)
 	mem_deref(ce->userl);
 }
 
+/* Every call holds a reference to its conversation's entry,
+ * allocated by the first call answered in the conversation.
+ */
+static int attach_conv_entry(struct wsip_call *wsip)
+{
+	struct wsip_ua *wua = wsip->wua;
+	struct conv_entry *ce;
+	int err;
+
+	if (wsip->ce)
+		return 0;
+
+	ce = get_conv_entry(wua, wsip->convid);
+	if (ce) {
+		wsip->ce = mem_ref(ce);
+		return 0;
+	}
+
+	ce = mem_zalloc(sizeof(*ce), ce_destructor);
+	if (!ce)
+		return ENOMEM;
+
+	re_snprintf(ce->key, sizeof(ce->key), "%p", ce);
+
+	err = str_dup(&ce->convid, wsip->convid);
+	if (!err) {
+		err = userlist_alloc(&ce->userl,
+				     wua->userid,
+				     wua->clientid,
+				     NULL,
+				     NULL,
+				     NULL,
+				     NULL,
+				     NULL,
+				     ce);
+	}
+	if (err) {
+		warning("sip(%p): could not allocate conv entry: %m\n",
+			wua->sip_inst, err);
+		mem_deref(ce);
+		return err;
+	}
+
+	info("sip(%p): conv entry key=%s for convid=%s\n",
+	     wua->sip_inst, ce->key, ce->convid);
+
+	/* Owned by wsip, released in its destructor */
+	wsip->ce = ce;
+	list_append(&wua->convl, &ce->le, ce);
+
+	return 0;
+}
+
 static int answer_call(struct wsip_call *wsip)
 {
 	struct wsip_ua *wua;
 	struct audio *au;
 	int err;
 
-	if (!(wsip && wsip->wua))
+	if (!(wsip && wsip->wua && wsip->ce))
 		return EINVAL;
 
 	wua = wsip->wua;
-
-	/* Every call holds a reference to its conversation's entry,
-	 * allocated by the first call answered in the conversation.
-	 */
-	if (!wsip->ce) {
-		struct conv_entry *ce;
-
-		ce = get_conv_entry(wua, wsip->convid);
-		if (ce) {
-			wsip->ce = mem_ref(ce);
-		}
-		else {
-			ce = mem_zalloc(sizeof(*ce), ce_destructor);
-			if (!ce) {
-				err = ENOMEM;
-				goto out;
-			}
-
-			err = str_dup(&ce->convid, wsip->convid);
-			if (!err) {
-				err = userlist_alloc(&ce->userl,
-						     wua->userid,
-						     wua->clientid,
-						     NULL,
-						     NULL,
-						     NULL,
-						     NULL,
-						     NULL,
-						     ce);
-			}
-			if (err) {
-				warning("sip(%p): answer_call: could not "
-					"allocate conv entry: %m\n",
-					wua->sip_inst, err);
-				mem_deref(ce);
-				goto out;
-			}
-
-			/* Owned by wsip, released in its destructor */
-			wsip->ce = ce;
-			list_append(&wua->convl, &ce->le, ce);
-		}
-	}
 
 	au = call_audio(wsip->call);
 	if (au) {
@@ -320,15 +336,14 @@ static int answer_call(struct wsip_call *wsip)
 
 		++wsip->ce->leg_id;
 
-		/* "<convid>/<leg>": wireaudio uses the convid to find the
-		 * conversation's mixer, and the full name to pair this
+		/* "<conv key>/<leg>": wireaudio uses the conv key to find
+		 * the conversation's mixer, and the full name to pair this
 		 * call's audio source and player into one mix-minus leg.
-		 * Must fit baresip's 64 byte device name.
+		 * Must fit baresip's 64 byte device name, which the
+		 * convid itself may not.
 		 */
 		if (re_snprintf(devname, sizeof(devname), "%s/%x",
-				wsip->convid, wsip->ce->leg_id) < 0) {
-			warning("sip(%p): answer_call: device name too long "
-				"for convid=%s\n", wua->sip_inst, wsip->convid);
+				wsip->ce->key, wsip->ce->leg_id) < 0) {
 			err = EOVERFLOW;
 			goto out;
 		}
@@ -524,7 +539,7 @@ static void update_parts(struct wsip_ua *wua, struct wsip_call *wsip,
 	else {
 		struct userinfo *uinfo;
 
-		/* Set in answer_call, which every established call
+		/* Set in attach_conv_entry, which every established call
 		 * went through
 		 */
 		if (!wsip->ce) {
@@ -728,24 +743,25 @@ static void adm_handler(void *adm, bool added, void *arg)
 	struct wsip_ua *wua;
 	struct wsip_call *wsip = arg;
 
-	if (!wsip || !wsip->wua || !wsip->convid)
+	/* wireaudio knows the conversation by its conv entry key */
+	if (!wsip || !wsip->wua || !wsip->ce)
 		return;
 
 	wua = wsip->wua;
-	info("sip(%p): adm_handler: convid=%s adm=%p %s on wsip=%p\n",
-	     wua->sip_inst, wsip->convid, adm,
+	info("sip(%p): adm_handler: convid=%s key=%s adm=%p %s on wsip=%p\n",
+	     wua->sip_inst, wsip->convid, wsip->ce->key, adm,
 	     added ? "ADDED" : "REMOVED", wsip);
 
 	if (added) {
 		if (!wsip->adm_registered) {
-			wireaudio_set_handlers(wsip->convid,
+			wireaudio_set_handlers(wsip->ce->key,
 					       adm_play_handler, adm_rec_handler,
 					       adm);
 			wsip->adm_registered = true;
 		}
 	}
 	else if (wsip->adm_registered) {
-		wireaudio_set_handlers(wsip->convid, NULL, NULL, NULL);
+		wireaudio_set_handlers(wsip->ce->key, NULL, NULL, NULL);
 		wsip->adm_registered = false;
 	}
 }
@@ -1174,6 +1190,11 @@ int wcall_i_sip_answer(struct calling_instance *inst,
 
 	/* Assign convid to this call */
 	str_dup(&wsip->convid, convid);
+
+	/* Before the adm handler, which needs the conv entry key */
+	err = attach_conv_entry(wsip);
+	if (err)
+		goto out;
 
 	err = pstn_adm_handler_register(wsip->convid, adm_handler, wsip);
 	if (err) {

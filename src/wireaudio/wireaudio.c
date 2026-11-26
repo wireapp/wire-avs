@@ -30,6 +30,9 @@ struct {
 };
 
 struct wdev {
+	/* Opaque conversation key given by the SIP side, not
+	 * necessarily the convid (which may not fit a device name)
+	 */
 	char *convid;
 
 	size_t handler_cnt;
@@ -66,7 +69,7 @@ struct wdev {
 
 /*
  * One PSTN leg (SIP call) in the conversation. The device name is
- * "<convid>/<leg>": the convid selects the conversation's wdev (and
+ * "<conv>/<leg>": the conversation key selects the wdev (and
  * its mixer), the full name pairs the leg's ausrc and auplay.
  *
  * A leg has a single mixer source, so that the aumix mix-minus
@@ -313,9 +316,9 @@ static void leg_destructor(void *arg)
 }
 
 
-/* Get a reference to the leg for device "<convid>/<leg>", allocating
+/* Get a reference to the leg for device "<conv>/<leg>", allocating
  * it (and its wdev) if needed. A device without '/' is a single leg
- * with the whole name as convid.
+ * with the whole name as conversation key.
  */
 static int leg_get(struct wleg **legp, const char *device,
 		   uint32_t srate, uint32_t ptime, uint8_t ch)
