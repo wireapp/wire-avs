@@ -78,6 +78,7 @@ enum stats_type {
 	STATS_TYPE_MEDIA_SOURCE,
 	STATS_TYPE_CANDIDATE_PAIR,
 	STATS_TYPE_LOCAL_CANDIDATE,
+	STATS_TYPE_REMOTE_CANDIDATE,
 	STATS_TYPE_TRANSPORT,
 };
 
@@ -104,6 +105,9 @@ static enum stats_type stats_parse_type(const char *type)
 	}
 	else if (streq(type, "local-candidate")) {
 		return STATS_TYPE_LOCAL_CANDIDATE;
+	}
+	else if (streq(type, "remote-candidate")) {
+		return STATS_TYPE_REMOTE_CANDIDATE;
 	}
 	else if (streq(type, "transport")) {
 		return STATS_TYPE_TRANSPORT;
@@ -194,6 +198,7 @@ struct stats_candidate_pair {
 	double current_rtt;
 	char *id;
 	char *local_candidate_id;
+	char *remote_candidate_id;
 	struct le le;
 };
 
@@ -202,12 +207,14 @@ static void candidate_pair_destructor(void *arg)
 	struct stats_candidate_pair *item = arg;
 	mem_deref(item->id);
 	mem_deref(item->local_candidate_id);
+	mem_deref(item->remote_candidate_id);
 }
 
 struct stats_local_candidate {
 	char *id;
 	enum stats_proto proto;
 	enum stats_cand cand;
+	bool relay_tls;
 	struct le le;
 };
 
@@ -235,6 +242,7 @@ struct stats_obj {
 	struct list remote_inbound_rtp;
 	struct list candidate_pair;
 	struct list local_candidate;
+	struct list remote_candidate;
 	struct list transport;
 };
 
@@ -476,60 +484,68 @@ static void read_rtt_rx(struct avs_stats *stats, const struct stats_obj *stats_o
 static int read_rtt_and_connection(struct avs_stats *stats, const struct stats_obj *stats_obj)
 {
 	struct le *le = NULL;
-	const char *connected_local_candidate_id = NULL;
 	const char *selected_pair_id = NULL;
+	const struct stats_candidate_pair *selected = NULL;
+	const struct stats_local_candidate *local = NULL, *remote = NULL;
 
 	if (!stats || !stats_obj) {
 		return EINVAL;
 	}
 
 	// First check if there is a "transport" report that should have selected pair
-	le = list_head(&stats_obj->transport);
-	if (le) {
-		const struct stats_transport *head = (struct stats_transport*)le->data;
-		selected_pair_id = head->selected_pair_id;
+	LIST_FOREACH(&stats_obj->transport, le) {
+		const struct stats_transport *tr = le->data;
+		if (!tr->selected_pair_id)
+			continue;
+		/* A single connection report cannot represent distinct transports. */
+		if (selected_pair_id && !streq(selected_pair_id, tr->selected_pair_id))
+			goto out;
+		selected_pair_id = tr->selected_pair_id;
 	}
 
-	// When we have a "transport" report search selected pair, else
-	// search a connected pair (which is succeeded and nominated)
+	/* Nomination alone does not prove that the pair is selected. */
 	LIST_FOREACH(&stats_obj->candidate_pair, le) {
 		const struct stats_candidate_pair *data = (struct stats_candidate_pair *)le->data;
 
-		if (selected_pair_id) {
-			if (data->id && streq(selected_pair_id, data->id)) {
-				stats->report.rtt.candidate_pair = max(stats->report.rtt.candidate_pair, (1000 * data->current_rtt));
-				connected_local_candidate_id = data->local_candidate_id;
-				break;
-			}
-		}
-		else {
-			// we will try to find connected pair without "transport" info
-			if (data->nominated && (data->state == STATS_STATE_SUCCEEDED)) {
-				stats->report.rtt.candidate_pair = max(stats->report.rtt.candidate_pair, (1000 * data->current_rtt));
-				if (data->local_candidate_id) {
-					connected_local_candidate_id = data->local_candidate_id;
-				}
-			}
+		if (selected_pair_id && data->id &&
+		    streq(selected_pair_id, data->id) && data->nominated &&
+		    data->state == STATS_STATE_SUCCEEDED) {
+			selected = data;
+			break;
 		}
 	}
 
-	// read rtt perceived from peer side
-	read_rtt_rx(stats, stats_obj);
-
-	if (!connected_local_candidate_id) {
-		// maybe ok that we dont have connection atm
-		return 0;
-	}
+	if (!selected || !selected->local_candidate_id || !selected->remote_candidate_id)
+		goto out;
 	// use last connected local candidate id to get connection details
 	LIST_FOREACH(&stats_obj->local_candidate, le) {
 		const struct stats_local_candidate *data = (struct stats_local_candidate *)le->data;
 
-		if (data->id && streq(data->id, connected_local_candidate_id)) {
-			stats->report.proto = data->proto;
-			stats->report.cand = data->cand;
+		if (data->id && streq(data->id, selected->local_candidate_id)) {
+			local = data;
 			break;
 		}
 	}
+	LIST_FOREACH(&stats_obj->remote_candidate, le) {
+		const struct stats_local_candidate *data = le->data;
+		if (data->id && streq(data->id, selected->remote_candidate_id)) {
+			remote = data;
+			break;
+		}
+	}
+	if (local && remote) {
+		stats->report.ice_pair_selected = true;
+		stats->report.legacy_local_proto = local->proto;
+		stats->report.local_proto = local->cand == STATS_CAND_RELAY && local->relay_tls
+			? STATS_PROTO_TLS : local->proto;
+		stats->report.local_cand = local->cand;
+		stats->report.remote_proto = remote->proto;
+		stats->report.remote_cand = remote->cand;
+		stats->report.rtt.candidate_pair = 1000 * selected->current_rtt;
+	}
+
+ out:
+	read_rtt_rx(stats, stats_obj);
 
 	return 0;
 }
@@ -685,6 +701,9 @@ static struct stats_candidate_pair *parse_candidate_pair(struct json_object *jit
 	if (local_candidate_id_str) {
 		str_dup(&data->local_candidate_id, local_candidate_id_str);
 	}
+	const char *remote_id = jzon_str(jitem, "remoteCandidateId");
+	if (remote_id)
+		str_dup(&data->remote_candidate_id, remote_id);
 
 	return data;
 }
@@ -697,6 +716,10 @@ static struct stats_local_candidate *parse_local_candidate(struct json_object *j
 
 	struct stats_local_candidate *data;
 	data = mem_zalloc(sizeof(*data),local_candidate_destructor);
+	if (!data)
+		return NULL;
+	const char *relay = jzon_str(jitem, "relayProtocol");
+	data->relay_tls = relay && streq(relay, "tls");
 
 	proto_str = jzon_str(jitem, "protocol");
 	data->proto = stats_parse_poto(proto_str);
@@ -816,11 +839,14 @@ static int parse_json(const char *report, struct stats_obj *stats_obj) {
 			}
 				break;
 
-			case STATS_TYPE_LOCAL_CANDIDATE: {
+			case STATS_TYPE_LOCAL_CANDIDATE:
+			case STATS_TYPE_REMOTE_CANDIDATE: {
 				struct stats_local_candidate *lc = NULL;
 				lc = parse_local_candidate(jitem);
 				if (lc) {
-					list_append(&stats_obj->local_candidate, &lc->le, lc);
+					list_append(type == STATS_TYPE_LOCAL_CANDIDATE ?
+						    &stats_obj->local_candidate : &stats_obj->remote_candidate,
+						    &lc->le, lc);
 				}
 			}
 				break;
@@ -934,6 +960,7 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 							.remote_inbound_rtp = LIST_INIT,
 							.candidate_pair = LIST_INIT,
 							.local_candidate = LIST_INIT,
+							.remote_candidate = LIST_INIT,
 							.transport = LIST_INIT,
 						};
 
@@ -973,6 +1000,7 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 	list_flush(&stats_obj.remote_inbound_rtp);
 	list_flush(&stats_obj.candidate_pair);
 	list_flush(&stats_obj.local_candidate);
+	list_flush(&stats_obj.remote_candidate);
 	list_flush(&stats_obj.transport);
 
 	if (err) {
@@ -1012,6 +1040,9 @@ char *stats_proto_name(enum stats_proto proto)
 
 	case STATS_PROTO_TCP:
 		return "TCP";
+
+	case STATS_PROTO_TLS:
+		return "TLS";
 
 	default:
 		return "???";

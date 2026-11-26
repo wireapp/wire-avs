@@ -56,8 +56,8 @@ bool operator==(const stats_rtt& lhs, const stats_rtt& rhs) {
 }
 
 bool operator==(const stats_report& lhs, const stats_report& rhs) {
-	return lhs.proto == rhs.proto &&
-			lhs.cand == rhs.cand &&
+	return lhs.local_proto == rhs.local_proto &&
+			lhs.local_cand == rhs.local_cand &&
 			lhs.audio_level == rhs.audio_level &&
 			lhs.audio_level_smooth == rhs.audio_level_smooth &&
 			lhs.rtt == rhs.rtt &&
@@ -67,6 +67,38 @@ bool operator==(const stats_report& lhs, const stats_report& rhs) {
 }
 
 const auto zero_report = stats_report {};
+
+TEST(IceSelection, ResolvesBothEndpointsAndClearsAnUnselectedPair) {
+	avs_stats *stats = nullptr;
+	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr));
+	const char *report = R"([
+	 {"type":"transport"},
+	 {"type":"transport","selectedCandidatePairId":"pair"},
+	 {"type":"candidate-pair","id":"pair","state":"succeeded",
+	  "nominated":true,"localCandidateId":"local","remoteCandidateId":"remote",
+	  "currentRoundTripTime":0.024},
+	 {"type":"local-candidate","id":"local","protocol":"udp","candidateType":"relay","relayProtocol":"tls"},
+	 {"type":"remote-candidate","id":"remote","protocol":"udp","candidateType":"host"}
+	])";
+	EXPECT_EQ(0, stats_update(stats, report));
+	stats_report result = {};
+	stats_get_report(stats, &result);
+	EXPECT_TRUE(result.ice_pair_selected);
+	EXPECT_EQ(STATS_CAND_RELAY, result.local_cand);
+	EXPECT_EQ(STATS_CAND_HOST, result.remote_cand);
+	EXPECT_EQ(STATS_PROTO_UDP, result.remote_proto);
+	EXPECT_EQ(STATS_PROTO_TLS, result.local_proto);
+	EXPECT_EQ(STATS_PROTO_UDP, result.legacy_local_proto);
+	EXPECT_EQ(24u, result.rtt.candidate_pair);
+	EXPECT_EQ(0, stats_update(stats, R"([
+	 {"type":"candidate-pair","id":"pair","state":"succeeded","nominated":true}
+	])"));
+	stats_get_report(stats, &result);
+	EXPECT_FALSE(result.ice_pair_selected);
+	EXPECT_EQ(STATS_CAND_UNKNOWN, result.local_cand);
+	EXPECT_EQ(STATS_CAND_UNKNOWN, result.remote_cand);
+	mem_deref(stats);
+}
 
 //------------------------ SANITY TESTS  -----------------------------------
 
@@ -429,8 +461,8 @@ TEST_P(Connection, ptotocol_type) {
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	EXPECT_EQ(sr.proto, std::get<2>(GetParam()));
-	EXPECT_EQ(sr.cand, std::get<3>(GetParam()));
+	EXPECT_EQ(sr.local_proto, std::get<2>(GetParam()));
+	EXPECT_EQ(sr.local_cand, std::get<3>(GetParam()));
 }
 
 

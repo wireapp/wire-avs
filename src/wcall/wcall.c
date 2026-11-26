@@ -1879,11 +1879,20 @@ static void icall_quality_handler(struct icall *icall,
 	json_object_object_add(jobj, "jitter", jitter_jobj);
 
 	struct json_object *connection_jobj = json_object_new_object();
+	/* Preserve the original candidate protocol for existing clients. */
 	json_object_object_add(connection_jobj, "protocol",
-				json_object_new_string(stats_proto_name(stats.proto)));
+				json_object_new_string(stats_proto_name(stats.legacy_local_proto)));
 	json_object_object_add(connection_jobj, "candidate",
-				json_object_new_string(stats_cand_name(stats.cand)));
+				json_object_new_string(stats_cand_name(stats.local_cand)));
 	json_object_object_add(jobj, "connection", connection_jobj);
+	json_object_object_add(connection_jobj, "local_proto",
+		json_object_new_string(stats_proto_name(stats.local_proto)));
+	json_object_object_add(connection_jobj, "local_cand",
+		json_object_new_string(stats_cand_name(stats.local_cand)));
+	json_object_object_add(connection_jobj, "remote_proto",
+		json_object_new_string(stats_proto_name(stats.remote_proto)));
+	json_object_object_add(connection_jobj, "remote_cand",
+		json_object_new_string(stats_cand_name(stats.remote_cand)));
 
 	json_object_object_add(jobj, "peer",
 				json_object_new_string(peer_to_str(peer)));

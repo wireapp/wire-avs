@@ -28,6 +28,7 @@ enum stats_proto {
 	STATS_PROTO_UNKNOWN   = 0,
 	STATS_PROTO_UDP       = 1,
 	STATS_PROTO_TCP       = 2,
+	STATS_PROTO_TLS       = 3,
 };
 
 enum stats_cand {
@@ -80,8 +81,14 @@ struct stats_loss_percentages {
 };
 
 struct stats_report {
-	enum stats_proto proto;
-	enum stats_cand cand;
+	/* Resolved endpoints of the selected, nominated, succeeded ICE pair. */
+	bool ice_pair_selected;
+	enum stats_proto local_proto;
+	/* Original candidate protocol for the legacy connection.protocol key. */
+	enum stats_proto legacy_local_proto;
+	enum stats_cand local_cand;
+	enum stats_proto remote_proto;
+	enum stats_cand remote_cand;
 	enum stats_quality_limitation quality_limitation;
 	struct stats_jitter jitter;
 	struct stats_channel jitter_buffer_delay;
