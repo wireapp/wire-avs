@@ -56,19 +56,11 @@ pstn_audiodevice::~pstn_audiodevice()
 
 int32_t pstn_audiodevice::RegisterAudioCallback(AudioTransport* audioCallback)
 {
-	bool is_playing = is_playing_;
-	bool is_recording = is_recording_;
-
 	info("audio_io_pstn: Register\n");
- 
-	StopPlayout();
-	StopRecording(); // Stop the threads that uses audioCallback
 
+	/* Waits for a running play_read/rec_write */
+	std::lock_guard<std::mutex> lock(cb_lock_);
 	audioCallback_ = audioCallback;
-	if(is_playing)
-		StartPlayout();
-	if(is_recording)
-		StartRecording();
 
 	return 0;
 }
@@ -84,7 +76,7 @@ int32_t pstn_audiodevice::InitPlayout()
 bool pstn_audiodevice::PlayoutIsInitialized() const
 {
 	info("audio_io_pstn: PlayoutIsInitialized: %d\n",
-	     play_is_initialized_);
+	     play_is_initialized_.load());
 
 	return play_is_initialized_;
 }
@@ -100,7 +92,7 @@ int32_t pstn_audiodevice::InitRecording()
 bool pstn_audiodevice::RecordingIsInitialized() const
 {
 	info("audio_io_pstn: RecordingIsIntialized: %d\n",
-	     rec_is_initialized_);
+	     rec_is_initialized_.load());
 
 	return rec_is_initialized_;
 }
@@ -115,7 +107,7 @@ int32_t pstn_audiodevice::StartPlayout()
 
 bool pstn_audiodevice::Playing() const
 {
-	info("audio_io_pstn: Playing: %d\n", is_playing_);
+	info("audio_io_pstn: Playing: %d\n", is_playing_.load());
 
 	return is_playing_;
 }
@@ -133,7 +125,7 @@ int32_t pstn_audiodevice::StartRecording()
 
 bool pstn_audiodevice::Recording() const
 {
-	info("audio_io_pstn: Recording: %d\n", is_recording_);
+	info("audio_io_pstn: Recording: %d\n", is_recording_.load());
 
 	return is_recording_;
 }
@@ -142,6 +134,8 @@ int32_t pstn_audiodevice::StopRecording()
 {
 	info("audio_io_pstn: StopRecording\n");
 
+	/* Waits for a running rec_write */
+	std::lock_guard<std::mutex> lock(cb_lock_);
 	is_recording_ = false;
 	rec_is_initialized_ = false;
 
@@ -151,7 +145,9 @@ int32_t pstn_audiodevice::StopRecording()
 int32_t pstn_audiodevice::StopPlayout()
 {
 	info("audio_io_pstn: StopPlayout\n");
-	
+
+	/* Waits for a running play_read */
+	std::lock_guard<std::mutex> lock(cb_lock_);
 	is_playing_ = false;
 	play_is_initialized_ = false;
 
@@ -194,10 +190,12 @@ void pstn_audiodevice::play_read(int16_t *sampv, size_t sampc)
 
 #if 0
 	info("pstn(%p): play_read of size=%zu playing=%d ac=%p\n",
-	     this, sampc, is_playing_, audioCallback_);
+	     this, sampc, is_playing_.load(), audioCallback_);
 #endif
 
-	if(is_playing_ && audioCallback_) {
+	std::lock_guard<std::mutex> lock(cb_lock_);
+
+	if (is_playing_ && audioCallback_) {
 		audioCallback_->NeedMorePlayData(
 			sampc/2, 2, 1, FS_KHZ*1000,
 			(void*)sampv, nSamplesOut,
@@ -217,8 +215,10 @@ void pstn_audiodevice::rec_write(const int16_t *sampv, size_t sampc)
 
 #if 0
 	info("pstn(%p): rec_write of size=%zu rec=%d ac=%p sampv=%w\n",
-	     this, sampc, is_recording_, audioCallback_, sampv, 6);
+	     this, sampc, is_recording_.load(), audioCallback_, sampv, 6);
 #endif
+	std::lock_guard<std::mutex> lock(cb_lock_);
+
 	if (is_recording_ && audioCallback_) {
 		audioCallback_->RecordedDataIsAvailable(
 			(void*)sampv,
@@ -236,6 +236,10 @@ void pstn_audiodevice::rec_write(const int16_t *sampv, size_t sampc)
 } // namespace webrtc
 
 
+/* The adm registry is only used on the re main thread (peerflow
+ * alloc/destructor, SIP answer and call destructors), so it has no
+ * lock. The adm handlers are called on that thread too.
+ */
 struct {
 	struct list adml;
 	struct list handlerl;

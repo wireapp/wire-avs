@@ -19,6 +19,8 @@
 #include "../audio_io_class.h"
 #include <pthread.h>
 #include <string.h>
+#include <atomic>
+#include <mutex>
 
 
 #define FRAME_LEN_MS 10
@@ -179,10 +181,16 @@ namespace webrtc {
 	    int32_t EnableNoise() { return 0; }
 	    
     private:
+	    /* play_read/rec_write run on the wireaudio mixer thread,
+	     * the control methods on a WebRTC thread. cb_lock_ is held
+	     * while calling the AudioTransport, so that once
+	     * RegisterAudioCallback or Stop* return it is no longer used.
+	     */
+	    std::mutex cb_lock_;
 	    AudioTransport* audioCallback_;
-	    volatile bool is_recording_;
-	    volatile bool is_playing_;
-	    volatile bool rec_is_initialized_;
-	    volatile bool play_is_initialized_;
+	    std::atomic<bool> is_recording_;
+	    std::atomic<bool> is_playing_;
+	    std::atomic<bool> rec_is_initialized_;
+	    std::atomic<bool> play_is_initialized_;
     };
 }

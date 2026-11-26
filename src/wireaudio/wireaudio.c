@@ -19,6 +19,29 @@
 #define PSTN_PTIME 20
 #define PSTN_SAMPLES ((PSTN_SRATE*PSTN_CHAN*PSTN_PTIME)/1000)
 
+/*
+ * Threading
+ *
+ * Everything except the mixer frame handlers runs on the re main
+ * thread: baresip allocating ausrc/auplay, wireaudio_set_handlers
+ * (from the pstn adm handlers) and all destructors. gwa.wdevs and
+ * wdev->legl are only used there and have no lock.
+ *
+ * The frame handlers (wdev_mix_frame_handler, leg_mix_frame_handler)
+ * run on the aumix thread, with the aumix mutex held, and call into
+ * baresip (encode/send RTP in poll mode, read the jitter buffer) and
+ * into WebRTC via the pstn adm (APM/encode, decode/mix). wdev->lock
+ * and leg->lock protect what they share with the main thread.
+ * Lock order: aumix mutex -> wdev->lock / leg->lock -> pstn adm lock.
+ *
+ * So the frame handlers must never:
+ * - drop the last reference to a wleg or wdev, or enable, allocate
+ *   or free an aumix source: those take the aumix mutex (deadlock).
+ *   aumix_source_put only uses the source's aubuf and is fine.
+ * - take a lock the main thread may hold while calling into aumix
+ *   or while waiting for wdev->lock / leg->lock
+ */
+
 struct {
 	struct hash *wdevs;
 	struct ausrc *ausrc;
