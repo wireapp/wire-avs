@@ -80,7 +80,19 @@ struct stats_loss_percentages {
 	struct stats_channel channel;
 };
 
+/* Negative values mean unavailable; dimensions use zero. */
+struct stats_tx_media {
+	double bitrate;
+	double jitter;
+	double loss;
+	int width;
+	int height;
+	double fps;
+};
+
 struct stats_report {
+	struct stats_tx_media tx_audio;
+	struct stats_tx_media tx_video;
 	/* Resolved endpoints of the selected, nominated, succeeded ICE pair. */
 	bool ice_pair_selected;
 	enum stats_proto local_proto;

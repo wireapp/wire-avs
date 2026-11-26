@@ -68,6 +68,36 @@ bool operator==(const stats_report& lhs, const stats_report& rhs) {
 
 const auto zero_report = stats_report {};
 
+TEST(TxStats, MeasuresIntervalsAndMatchesReceiverFeedback) {
+	avs_stats *stats = nullptr;
+	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr));
+	stats_report result = {};
+	stats_update(stats, R"([
+	 {"type":"outbound-rtp","kind":"video","id":"v","timestamp":1000,"bytesSent":1000}
+	])");
+	stats_get_report(stats, &result);
+	EXPECT_LT(result.tx_video.bitrate, 0);
+	stats_update(stats, R"([
+	 {"type":"outbound-rtp","kind":"video","id":"v","timestamp":2000,"bytesSent":126000,
+	  "frameWidth":1280,"frameHeight":720,"framesPerSecond":30},
+	 {"type":"remote-inbound-rtp","kind":"video","localId":"v","jitter":0.008,"fractionLost":0.005},
+	 {"type":"remote-inbound-rtp","kind":"video","localId":"other","jitter":0.5,"fractionLost":0.9}
+	])");
+	stats_get_report(stats, &result);
+	EXPECT_DOUBLE_EQ(1000000, result.tx_video.bitrate);
+	EXPECT_DOUBLE_EQ(8, result.tx_video.jitter);
+	EXPECT_DOUBLE_EQ(0.5, result.tx_video.loss);
+	EXPECT_EQ(1280, result.tx_video.width);
+	EXPECT_EQ(720, result.tx_video.height);
+	EXPECT_DOUBLE_EQ(30, result.tx_video.fps);
+	stats_update(stats, "[]");
+	stats_get_report(stats, &result);
+	EXPECT_LT(result.tx_video.bitrate, 0);
+	EXPECT_LT(result.tx_video.jitter, 0);
+	EXPECT_EQ(0, result.tx_video.width);
+	mem_deref(stats);
+}
+
 TEST(IceSelection, ResolvesBothEndpointsAndClearsAnUnselectedPair) {
 	avs_stats *stats = nullptr;
 	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr));

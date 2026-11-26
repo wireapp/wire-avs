@@ -1897,20 +1897,20 @@ static void icall_quality_handler(struct icall *icall,
 	json_object_object_add(jobj, "peer",
 				json_object_new_string(peer_to_str(peer)));
 
-	/* Stable shape until per-track measurements are connected. */
+	/* Keep TX objects present even before measurements are available. */
 	struct json_object *tx = json_object_new_object();
 	struct json_object *rx = json_object_new_object();
 	struct json_object *tx_audio = json_object_new_object();
 	struct json_object *tx_video = json_object_new_object();
-	json_object_object_add(tx_audio, "bitrate", NULL);
-	json_object_object_add(tx_audio, "jitter", NULL);
-	json_object_object_add(tx_audio, "loss", NULL);
-	json_object_object_add(tx_video, "bitrate", NULL);
-	json_object_object_add(tx_video, "jitter", NULL);
-	json_object_object_add(tx_video, "loss", NULL);
-	json_object_object_add(tx_video, "width", json_object_new_int(0));
-	json_object_object_add(tx_video, "height", json_object_new_int(0));
-	json_object_object_add(tx_video, "fps", NULL);
+	json_object_object_add(tx_audio, "bitrate", json_object_new_double(stats.tx_audio.bitrate));
+	json_object_object_add(tx_audio, "jitter", json_object_new_double(stats.tx_audio.jitter));
+	json_object_object_add(tx_audio, "loss", json_object_new_double(stats.tx_audio.loss));
+	json_object_object_add(tx_video, "bitrate", json_object_new_double(stats.tx_video.bitrate));
+	json_object_object_add(tx_video, "jitter", json_object_new_double(stats.tx_video.jitter));
+	json_object_object_add(tx_video, "loss", json_object_new_double(stats.tx_video.loss));
+	json_object_object_add(tx_video, "width", json_object_new_int(stats.tx_video.width));
+	json_object_object_add(tx_video, "height", json_object_new_int(stats.tx_video.height));
+	json_object_object_add(tx_video, "fps", json_object_new_double(stats.tx_video.fps));
 	json_object_object_add(tx, "audio", tx_audio);
 	json_object_object_add(tx, "video", tx_video);
 	json_object_object_add(rx, "audio", json_object_new_array());
