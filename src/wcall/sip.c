@@ -435,6 +435,7 @@ static void incoming_call(struct wsip_ua *wua, struct call *call)
 	wsip = mem_zalloc(sizeof(*wsip), wsip_destructor);
 	if (!wsip) {
 		warning("sip: could not allocate wsip\n");
+		mem_deref(pin_code);
 		return;
 	}
 
@@ -777,6 +778,12 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 	struct sip_instance *sip_inst;
 	int err = 0;
 
+	if (wcall_get_sip_instance(inst)) {
+		warning("sip: init: inst=%p already has a SIP instance\n",
+			inst);
+		return EALREADY;
+	}
+
 	if (g_sip.initialized)
 		goto newinst;
 
@@ -834,8 +841,10 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 
 	err = wcall_register_sip_instance(inst, sip_inst);
 	if (err) {
-		warning("sip(%p): init: registering SIP instance failed: %m",
+		warning("sip(%p): init: registering SIP instance failed: %m\n",
 			sip_inst, err);
+		mem_deref(sip_inst);
+		return err;
 	}
 	
 	info("sip(%p): init: added to inst=%p\n", sip_inst, inst);
@@ -846,9 +855,7 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 
 int wcall_i_sip_close(struct calling_instance *inst)
 {
-	struct le *le;
 	struct sip_instance *sip_inst;
-	bool found = false;
 	size_t n;
 
 	info("sip: close: inst=%p\n", inst);
@@ -858,15 +865,15 @@ int wcall_i_sip_close(struct calling_instance *inst)
 		return ENOSYS;
 	}
 
-	for(le = g_sip.instl.head; le && !found; le = le->next) {
-		sip_inst = le->data;
-		if (!sip_inst)
-			continue;
-
-		found = sip_inst == wcall_get_sip_instance(inst);
-	}
-	if (found) {
+	sip_inst = wcall_get_sip_instance(inst);
+	if (sip_inst) {
+		wcall_unregister_sip_instance(inst, sip_inst);
 		list_unlink(&sip_inst->le);
+
+		/* Destroys its UAs and their calls, which must happen
+		 * before baresip is closed
+		 */
+		mem_deref(sip_inst);
 	}
 
 	n = list_count(&g_sip.instl);

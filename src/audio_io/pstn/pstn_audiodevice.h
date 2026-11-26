@@ -31,10 +31,9 @@ namespace webrtc {
     public:
 	    pstn_audiodevice(bool realtime = false);
 	    ~pstn_audiodevice();
-	    void AddRef() const {};
-	    RefCountReleaseStatus Release() const {
-		return RefCountReleaseStatus::kDroppedLastRef;
-	    }
+	    /* Reference counted: create with
+	     * webrtc::make_ref_counted<pstn_audiodevice>()
+	     */
 
 	    struct aubuf *get_aubuf_play(void);
 	    struct aubuf *get_aubuf_rec(void);

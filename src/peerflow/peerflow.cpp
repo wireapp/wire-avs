@@ -247,7 +247,10 @@ struct peerflow {
 
 	char *rec_path;
 	char *play_path;
-	void *pstn_adm;    /* registered PSTN adm, to unregister it */
+	/* Registered PSTN adm: the reference keeps it alive until it
+	 * is unregistered, as wireaudio may call into it until then
+	 */
+	webrtc::scoped_refptr<webrtc::pstn_audiodevice> pstn_adm;
 };
 
 
@@ -1433,10 +1436,10 @@ static void create_pc_deps(struct peerflow *pf,
 							     pf->play_path);
 	}
 	else if (pf && streq(pf->msys_name, "pstn")) {
-		auto adm = new webrtc::pstn_audiodevice(true);
+		auto adm = webrtc::make_ref_counted<webrtc::pstn_audiodevice>(true);
 		pc_deps.adm = adm;
-		if (0 == pstn_adm_register(pf->convid, (void *)adm))
-			pf->pstn_adm = (void *)adm;
+		if (0 == pstn_adm_register(pf->convid, (void *)adm.get()))
+			pf->pstn_adm = adm;
 	}
 	else {
 		pc_deps.adm = (webrtc::AudioDeviceModule *)audio_io_create_adm();
@@ -2875,7 +2878,7 @@ static void pf_destructor(void *arg)
 	debug("pf(%p): destructor\n", pf);
 
 	if (pf->pstn_adm) {
-		pstn_adm_unregister(pf->convid, pf->pstn_adm);
+		pstn_adm_unregister(pf->convid, (void *)pf->pstn_adm.get());
 		pf->pstn_adm = NULL;
 	}
 
