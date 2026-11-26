@@ -1897,9 +1897,32 @@ static void icall_quality_handler(struct icall *icall,
 	json_object_object_add(jobj, "peer",
 				json_object_new_string(peer_to_str(peer)));
 
+	/* Stable shape until per-track measurements are connected. */
+	struct json_object *tx = json_object_new_object();
+	struct json_object *rx = json_object_new_object();
+	struct json_object *tx_audio = json_object_new_object();
+	struct json_object *tx_video = json_object_new_object();
+	json_object_object_add(tx_audio, "bitrate", NULL);
+	json_object_object_add(tx_audio, "jitter", NULL);
+	json_object_object_add(tx_audio, "loss", NULL);
+	json_object_object_add(tx_video, "bitrate", NULL);
+	json_object_object_add(tx_video, "jitter", NULL);
+	json_object_object_add(tx_video, "loss", NULL);
+	json_object_object_add(tx_video, "width", json_object_new_int(0));
+	json_object_object_add(tx_video, "height", json_object_new_int(0));
+	json_object_object_add(tx_video, "fps", NULL);
+	json_object_object_add(tx, "audio", tx_audio);
+	json_object_object_add(tx, "video", tx_video);
+	json_object_object_add(rx, "audio", json_object_new_array());
+	json_object_object_add(rx, "video", json_object_new_array());
+	json_object_object_add(jobj, "tx", tx);
+	json_object_object_add(jobj, "rx", rx);
+
 	if (jzon_encode(&quality_info, jobj)) {
 		warning("wcall(%p): can not generate quality information\n", wcall);
-		quality_info = "{}";
+		mem_deref(jobj);
+		mem_deref(quality_info);
+		return;
 	}
 
 	info(APITAG "wcall(%p): calling netqh:%p %s.%s quality: %s\n",
