@@ -310,26 +310,31 @@ static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 {
 	struct ausrc_st *st;
 	struct wdev *wdev;
-	bool allocated = false;
 	int err = 0;
 
 	info("wa_src_alloc: convid=%s srate=%d ch=%d ptime=%d fmt=%d\n",
 	     device, prm->srate, prm->ch, prm->ptime, prm->fmt);
 
-	wdev = find_device(device);
+	/* Take our own reference on the wdev: either a new one from
+	 * alloc_device, or an extra one on an existing device
+	 */
+	wdev = mem_ref(find_device(device));
 	if (!wdev) {
 		err = alloc_device(&wdev, device,
 				   prm->srate, prm->ptime, prm->ch);
 		if (err) {
 			return err;
 		}
-		allocated = true;
 	}
 
 	st = mem_zalloc(sizeof(*st), ausrc_destructor);
 	if (!st) {
+		mem_deref(wdev);
 		return ENOMEM;
 	}
+
+	/* From here on the wdev reference is owned by st */
+	st->wdev = wdev;
 
 	err = aumix_source_alloc(&st->mix_src, wdev->ausrc_mix,
 				 ausrc_mix_frame_handler, st);
@@ -338,7 +343,6 @@ static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 	}
 
 	st->as = as;
-	st->wdev = allocated ? wdev : mem_ref(wdev);
 	st->rh = rh;
 	st->errh = errh;
 	st->arg = arg;
@@ -383,7 +387,10 @@ static int wa_play_alloc(struct auplay_st **stp, const struct auplay *ap,
 	info("wa_play_alloc: convid=%s srate=%d ch=%d ptime=%d fmt=%d\n",
 	     device, prm->srate, prm->ch, prm->ptime, prm->fmt);
 
-	wdev = find_device(device);
+	/* Take our own reference on the wdev: either a new one from
+	 * alloc_device, or an extra one on an existing device
+	 */
+	wdev = mem_ref(find_device(device));
 	if (!wdev) {
 		err = alloc_device(&wdev, device,
 				   prm->srate, prm->ptime, prm->ch);
@@ -394,8 +401,12 @@ static int wa_play_alloc(struct auplay_st **stp, const struct auplay *ap,
 
 	st = mem_zalloc(sizeof(*st), auplay_destructor);
 	if (!st) {
+		mem_deref(wdev);
 		return ENOMEM;
 	}
+
+	/* From here on the wdev reference is owned by st */
+	st->wdev = wdev;
 
 	err = aumix_source_alloc(&st->mix_src, wdev->ausrc_mix,
 				 auplay_mix_frame_handler, st);
@@ -404,7 +415,6 @@ static int wa_play_alloc(struct auplay_st **stp, const struct auplay *ap,
 	}
 
 	st->ap = ap;
-	st->wdev = mem_ref(wdev);
 	st->sampc = PSTN_SAMPLES;
 	st->wh = wh;
 	st->arg = arg;
@@ -445,6 +455,16 @@ static int wireaudio_init(void)
 static int wireaudio_close(void)
 {
 	info("wireaudio: module_close\n");
+
+	gwa.ausrc = mem_deref(gwa.ausrc);
+	gwa.auplay = mem_deref(gwa.auplay);
+
+	/* Any remaining wdevs are owned elsewhere; only unlink them
+	 * so that their destructors don't touch the freed hash.
+	 */
+	hash_clear(gwa.wdevs);
+	gwa.wdevs = mem_deref(gwa.wdevs);
+
 	return 0;
 }
 
@@ -460,6 +480,7 @@ int wireaudio_set_handlers(const char *convid,
 			   void *arg)
 {
 	struct wdev *wdev;
+	bool release = false;
 	int err = 0;
 	
 	if (!convid)
@@ -470,6 +491,10 @@ int wireaudio_set_handlers(const char *convid,
 	info("wireaudio: set_handlers: convid=%s rh=%p wh=%p arg=%p wdev=%p\n",
 	     convid, rh, wh, arg, wdev);
 
+	/* While handler_cnt > 0 the handlers hold one reference
+	 * on the wdev, so the device outlives any ausrc/auplay
+	 * and is released when the last handler is removed.
+	 */
 	if (wdev) {
 		lock_write_get(wdev->lock);
 		if (rh || wh) {
@@ -481,6 +506,7 @@ int wireaudio_set_handlers(const char *convid,
 				wdev->wa.rh = rh;
 				wdev->wa.wh = wh;
 				wdev->wa.arg = arg;
+				mem_ref(wdev);
 			}
 			wdev->handler_cnt++;
 		}
@@ -490,9 +516,16 @@ int wireaudio_set_handlers(const char *convid,
 				wdev->wa.rh = NULL;
 				wdev->wa.wh = NULL;
 				wdev->wa.arg = NULL;
+				release = true;
 			}
 		}
 		lock_rel(wdev->lock);
+
+		/* Drop the handler reference outside the lock,
+		 * as it may destroy the wdev (and its lock)
+		 */
+		if (release)
+			mem_deref(wdev);
 
 		return 0;
 	}
@@ -500,6 +533,9 @@ int wireaudio_set_handlers(const char *convid,
 		if (rh == NULL || wh == NULL)
 			return 0;
 		
+		/* The reference from alloc_device is the handler
+		 * reference, released when handler_cnt drops to 0
+		 */
 		err = alloc_device(&wdev, convid,
 				   PSTN_SRATE, PSTN_PTIME, PSTN_CHAN);
 		if (err)
