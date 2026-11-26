@@ -10,6 +10,17 @@ import {installScanDriver, ScanReport} from './avs_scan';
 export type {ScanCandidate, ScanReport, ScanRun} from './avs_scan';
 import {installConnectionTest, ConnectionTestProgress, ConnectionTestResult} from './avs_connection_test';
 export type {ConnectionTestProgress, ConnectionTestResult} from './avs_connection_test';
+export type {
+  NetworkQualityStats,
+  CandidateProtocol,
+  CandidateType,
+  Directions,
+  AudioMetrics,
+  VideoMetrics,
+  TrackSource,
+  ReceivedAudioMetrics,
+  ReceivedVideoMetrics,
+} from './avs_network_quality_stats';
 
 
 %CONSTANTS%
