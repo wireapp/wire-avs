@@ -579,12 +579,18 @@ static void update_parts(struct wsip_ua *wua, struct wsip_call *wsip,
 				pjson,
 				wua->sip_inst->parts.arg);
 		}
+		mem_deref(pjson);
 	}
 }
 
 static void estab_call(struct wsip_ua *wua, struct call *call)
 {
 	struct wsip_call *wsip = lookup_call(wua, call);
+
+	if (!wsip) {
+		warning("sip: estab_call: no wsip for call=%p\n", call);
+		return;
+	}
 
 	if (wsip->estab)
 		return;
@@ -1188,8 +1194,20 @@ int wcall_i_sip_answer(struct calling_instance *inst,
 	info("sip(%p): answer: on wua=%p wsip=%p convid=%s\n",
 	     inst, wua, wsip, convid);
 
+	/* A call is answered once: a second answer would register
+	 * a second pstn handler, which the destructor doesn't remove,
+	 * and leak the convid.
+	 */
+	if (wsip->convid) {
+		warning("sip(%p): answer: wsip=%p already answered "
+			"in convid=%s\n", inst, wsip, wsip->convid);
+		return EALREADY;
+	}
+
 	/* Assign convid to this call */
-	str_dup(&wsip->convid, convid);
+	err = str_dup(&wsip->convid, convid);
+	if (err)
+		goto out;
 
 	/* Before the adm handler, which needs the conv entry key */
 	err = attach_conv_entry(wsip);

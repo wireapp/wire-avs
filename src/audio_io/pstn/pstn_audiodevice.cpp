@@ -267,22 +267,51 @@ static void ae_destructor(void *arg)
 	mem_deref(ae->convid);
 }
 
+/* A conversation may briefly have more than one adm, e.g. when a new
+ * peerflow is created before the old one is gone. The last one
+ * registered is the active one, the one the handlers are attached to.
+ */
 static struct adm_entry *adm_find(const char *convid)
 {
+	struct adm_entry *active = NULL;
 	struct le *le;
-	bool found = false;
-	struct adm_entry *ae;
-	
-	for(le = pstn.adml.head; le && !found; le = le->next) {
-		ae = (struct adm_entry *)le->data;
-		if (!ae)
-			continue;
 
-		found = streq(ae->convid, convid);
+	LIST_FOREACH(&pstn.adml, le) {
+		struct adm_entry *ae = (struct adm_entry *)le->data;
+
+		if (ae && streq(ae->convid, convid))
+			active = ae;
 	}
 
-	return found ? ae : NULL;
-	
+	return active;
+}
+
+static struct adm_entry *adm_find_entry(const char *convid, void *adm)
+{
+	struct le *le;
+
+	LIST_FOREACH(&pstn.adml, le) {
+		struct adm_entry *ae = (struct adm_entry *)le->data;
+
+		if (ae && ae->adm == adm && streq(ae->convid, convid))
+			return ae;
+	}
+
+	return NULL;
+}
+
+static void adm_notify(const char *convid, void *adm, bool added)
+{
+	struct le *le;
+
+	LIST_FOREACH(&pstn.handlerl, le) {
+		struct adm_handler *ah = (struct adm_handler *)le->data;
+
+		if (!ah || !ah->admh || !streq(ah->convid, convid))
+			continue;
+
+		ah->admh(adm, added, ah->arg);
+	}
 }
 
 static void ah_destructor(void *arg)
@@ -349,60 +378,75 @@ void pstn_adm_handler_unregister(pstn_adm_h *admh, void *arg)
 
 int pstn_adm_register(const char *convid, void *adm)
 {
-	struct adm_entry *ae = adm_find(convid);
-	struct le *le;
+	struct adm_entry *prev;
+	struct adm_entry *ae;
+	int err;
 
 	info("pstn_adm_register: convid=%s adm=%p\n", convid, adm);
 
-	if (ae) {
-		warning("pstn_adm_register: adm for convid=%s already exists\n", convid);
+	if (!convid || !adm)
+		return EINVAL;
+
+	if (adm_find_entry(convid, adm)) {
+		warning("pstn_adm_register: adm=%p for convid=%s "
+			"already registered\n", adm, convid);
 		return EALREADY;
 	}
+
+	prev = adm_find(convid);
 
 	ae = (struct adm_entry *)mem_zalloc(sizeof(*ae), ae_destructor);
 	if (!ae)
 		return ENOMEM;
 
 	ae->adm = adm;
-	str_dup(&ae->convid, convid);
+	err = str_dup(&ae->convid, convid);
+	if (err) {
+		mem_deref(ae);
+		return err;
+	}
 
 	list_append(&pstn.adml, &ae->le, ae);
 
-	LIST_FOREACH(&pstn.handlerl, le) {
-		struct adm_handler *ah = (struct adm_handler *)le->data;
-
-		if (!ah || !streq(ah->convid, ae->convid))
-			continue;
-
-		if (ah->admh) {
-			ah->admh(ae->adm, true, ah->arg);
-		}
+	/* The new adm takes over: handlers detach from the previous
+	 * one first, as they only attach when not attached already
+	 */
+	if (prev) {
+		info("pstn_adm_register: convid=%s adm=%p replaces "
+		     "adm=%p\n", convid, adm, prev->adm);
+		adm_notify(convid, prev->adm, false);
 	}
+	adm_notify(convid, ae->adm, true);
 
 	return 0;
 }
 
-int pstn_adm_unregister(const char *convid)
+int pstn_adm_unregister(const char *convid, void *adm)
 {
-	struct adm_entry *ae = adm_find(convid);
-	struct le *le;
+	struct adm_entry *ae;
+	struct adm_entry *next;
+	bool active;
 
+	info("pstn_adm_unregister: convid=%s adm=%p\n", convid, adm);
+
+	ae = adm_find_entry(convid, adm);
 	if (!ae)
 		return ENOENT;
 
+	active = ae == adm_find(convid);
+
 	/* Let handlers detach from the adm before it goes away */
-	LIST_FOREACH(&pstn.handlerl, le) {
-		struct adm_handler *ah = (struct adm_handler *)le->data;
-
-		if (!ah || !streq(ah->convid, ae->convid))
-			continue;
-
-		if (ah->admh) {
-			ah->admh(ae->adm, false, ah->arg);
-		}
-	}
+	if (active)
+		adm_notify(convid, ae->adm, false);
 
 	mem_deref((void *)ae);
+
+	/* Fall back to the previous adm of the conversation, if any */
+	if (active) {
+		next = adm_find(convid);
+		if (next)
+			adm_notify(convid, next->adm, true);
+	}
 
 	return 0;
 }
