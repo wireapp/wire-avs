@@ -94,10 +94,15 @@ struct wsip_call {
 	struct le le;
 };
 
+/* One per conversation, referenced by each wsip_call in it.
+ * wua->convl only indexes them, it does not own them.
+ */
 struct conv_entry {
 	char *convid;
 
 	struct userlist *userl;
+
+	uint32_t leg_id;  /* last PSTN leg id handed out */
 
 	struct le le;
 };
@@ -266,10 +271,54 @@ static int answer_call(struct wsip_call *wsip)
 
 	wua = wsip->wua;
 
+	/* Every call holds a reference to its conversation's entry,
+	 * allocated by the first call answered in the conversation.
+	 */
+	if (!wsip->ce) {
+		struct conv_entry *ce;
+
+		ce = get_conv_entry(wua, wsip->convid);
+		if (ce) {
+			wsip->ce = mem_ref(ce);
+		}
+		else {
+			ce = mem_zalloc(sizeof(*ce), ce_destructor);
+			if (!ce) {
+				err = ENOMEM;
+				goto out;
+			}
+
+			err = str_dup(&ce->convid, wsip->convid);
+			if (!err) {
+				err = userlist_alloc(&ce->userl,
+						     wua->userid,
+						     wua->clientid,
+						     NULL,
+						     NULL,
+						     NULL,
+						     NULL,
+						     NULL,
+						     ce);
+			}
+			if (err) {
+				warning("sip(%p): answer_call: could not "
+					"allocate conv entry: %m\n",
+					wua->sip_inst, err);
+				mem_deref(ce);
+				goto out;
+			}
+
+			/* Owned by wsip, released in its destructor */
+			wsip->ce = ce;
+			list_append(&wua->convl, &ce->le, ce);
+		}
+	}
+
 	au = call_audio(wsip->call);
 	if (au) {
-		static uint32_t leg_id = 0;
 		char devname[64];
+
+		++wsip->ce->leg_id;
 
 		/* "<convid>/<leg>": wireaudio uses the convid to find the
 		 * conversation's mixer, and the full name to pair this
@@ -277,7 +326,7 @@ static int answer_call(struct wsip_call *wsip)
 		 * Must fit baresip's 64 byte device name.
 		 */
 		if (re_snprintf(devname, sizeof(devname), "%s/%x",
-				wsip->convid, ++leg_id) < 0) {
+				wsip->convid, wsip->ce->leg_id) < 0) {
 			warning("sip(%p): answer_call: device name too long "
 				"for convid=%s\n", wua->sip_inst, wsip->convid);
 			err = EOVERFLOW;
@@ -322,12 +371,8 @@ static void wsip_destructor(void *arg)
 	}
 	mem_deref(wsip->convid);
 
-	/* Do we have any more users in this conversation?
-	 * If not, remove the conversation
-	 */
-	if (wsip->ce && userlist_get_count(wsip->ce->userl) == 0) {
-		mem_deref(wsip->ce);
-	}
+	/* The conversation goes away with its last call */
+	mem_deref(wsip->ce);
 }
 
 static struct wsip_call *lookup_call(struct wsip_ua *wua, struct call *call)
@@ -467,7 +512,6 @@ static void update_parts(struct wsip_ua *wua, struct wsip_call *wsip,
 	struct conv_entry *ce;
 	int err = 0;
 
-	ce = get_conv_entry(wua, wsip->convid);
 	if (remove) {
 		/* Has this call been added to the userlist,
 		 * if it has it will be we need to remove it.
@@ -480,33 +524,15 @@ static void update_parts(struct wsip_ua *wua, struct wsip_call *wsip,
 	else {
 		struct userinfo *uinfo;
 
-		if (!ce) {
-			ce = mem_zalloc(sizeof(*ce), ce_destructor);
-			if (!ce) {
-				warning("sip: could nou allocate conv entry\n");
-				return;
-			}
-			str_dup(&ce->convid, wsip->convid);
-			err = userlist_alloc(&ce->userl,
-					     wua->userid,
-					     wua->clientid,
-					     NULL,
-					     NULL,
-					     NULL,
-					     NULL,
-					     NULL,
-					     ce);
-			if (err) {
-				warning("wua(%p): could not allocate "
-					"userlist: %m\n",
-					wua, err);
-				return;
-			}
-		
-			list_append(&wua->convl, &ce->le, ce);
+		/* Set in answer_call, which every established call
+		 * went through
+		 */
+		if (!wsip->ce) {
+			warning("sip: update_parts: wsip=%p has no "
+				"conv entry\n", wsip);
+			return;
 		}
-		wsip->ce = ce;
-	
+
 		uinfo = mem_zalloc(sizeof(*uinfo), uinfo_destructor);
 		if (!uinfo) {
 			warning("sip: establ_call: could not "
@@ -524,6 +550,8 @@ static void update_parts(struct wsip_ua *wua, struct wsip_call *wsip,
 
 		list_append(&wsip->ce->userl->users, &uinfo->le, uinfo);
 	}
+
+	ce = wsip->ce;
 
 	send_confpart_response(wsip);
 
@@ -850,8 +878,11 @@ static void wua_destructor(void *arg)
 
 	mem_deref(wua->ua);
 
-	list_flush(&wua->convl);
+	/* The wsips own the conv entries; convl is only an index.
+	 * Clear it so entries outliving the wua don't unlink from it.
+	 */
 	list_flush(&wua->wsipl);
+	list_clear(&wua->convl);
 
 	/* Freed last, wsip destructors use it to detach audio */
 	mem_deref(wua->convid);
