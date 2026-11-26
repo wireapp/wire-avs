@@ -34,11 +34,6 @@ struct {
 struct sip_instance {
 	struct list wual;
 
-	struct {
-		wcall_sip_parts_h *h;
-		void *arg;
-	} parts;
-
 	struct le le;
 };
 
@@ -56,6 +51,7 @@ struct wsip_ua {
 	wcall_sip_ready_h *readyh;
 	wcall_sip_incoming_h *incomingh;
 	wcall_sip_close_h *closeh;
+	wcall_sip_parts_h *partsh;
 	wcall_sip_err_h *errh;
 	void *arg;
 
@@ -182,7 +178,6 @@ static int send_confpart_response(struct wsip_call *wsip)
 {
 	struct wsip_ua *wua;
 	struct econn_message *msg = NULL;
-	char *str = NULL;
 	int err = 0;
 
 	if (!wsip || !wsip->ce)
@@ -207,9 +202,8 @@ static int send_confpart_response(struct wsip_call *wsip)
 	}
 
 	wcall_send_msg(wua->inst, wsip->convid, msg, wua);
-		       
+
  out:
-	mem_deref(str);
 	mem_deref(msg);
 
 	return err;
@@ -589,15 +583,22 @@ static void update_parts(struct wsip_ua *wua, struct wsip_call *wsip,
 
 		uinfo = mem_zalloc(sizeof(*uinfo), uinfo_destructor);
 		if (!uinfo) {
-			warning("sip: establ_call: could not "
+			warning("sip: update_parts: could not "
 				"allocate userinfo\n");
 			return;
 		}
 
-		str_dup(&uinfo->userid_real, wsip->from);
-		str_dup(&uinfo->userid_hash, wsip->from);
-		str_dup(&uinfo->clientid_real, "_");
-		str_dup(&uinfo->clientid_hash, "_");
+		/* Not listed without a caller id (from not parsed) */
+		err  = str_dup(&uinfo->userid_real, wsip->from);
+		err |= str_dup(&uinfo->userid_hash, wsip->from);
+		err |= str_dup(&uinfo->clientid_real, "_");
+		err |= str_dup(&uinfo->clientid_hash, "_");
+		if (err) {
+			warning("sip: update_parts: wsip=%p: no userinfo "
+				"for from=%s\n", wsip, wsip->from);
+			mem_deref(uinfo);
+			return;
+		}
 		uinfo->pstn = true;
 
 		wsip->uinfo = uinfo;
@@ -609,15 +610,12 @@ static void update_parts(struct wsip_ua *wua, struct wsip_call *wsip,
 
 	send_confpart_response(wsip);
 
-	if (ce && wua->sip_inst->parts.h) {
+	if (ce && wua->partsh) {
 		char *pjson = NULL;
 
 		err = parts_json(&pjson, wsip->convid, &ce->userl->users);
-		if (!err) {
-			wua->sip_inst->parts.h(wsip->convid,
-				pjson,
-				wua->sip_inst->parts.arg);
-		}
+		if (!err)
+			wua->partsh(wsip->convid, pjson, wua->arg);
 		mem_deref(pjson);
 	}
 }
@@ -850,7 +848,7 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 		return err;
 	}
 
-	info("sip: baresip initialized\n", conf_path);
+	info("sip: baresip initialized\n");
 
 	err = conf_modules();
 	if (err) {
@@ -1157,9 +1155,6 @@ int wcall_i_sip_create(struct calling_instance *inst,
 		return ENOSYS;
 	}
 
-	sip_inst->parts.h = partsh;
-	sip_inst->parts.arg = arg;
-	
 	wua = mem_zalloc(sizeof(*wua), wua_destructor);
 	if (!wua)
 		return ENOMEM;
@@ -1170,6 +1165,7 @@ int wcall_i_sip_create(struct calling_instance *inst,
 	wua->readyh = readyh;
 	wua->incomingh = incomingh;
 	wua->closeh = closeh;
+	wua->partsh = partsh;
 	wua->errh = errh;
 	wua->arg = arg;
 
@@ -1179,8 +1175,13 @@ int wcall_i_sip_create(struct calling_instance *inst,
 		goto out;
 	}
 
-	str_dup(&wua->userid, wcall_get_userid(inst));
-	str_dup(&wua->clientid, wcall_get_clientid(inst));
+	err  = str_dup(&wua->userid, wcall_get_userid(inst));
+	err |= str_dup(&wua->clientid, wcall_get_clientid(inst));
+	if (err) {
+		warning("sip: create: could not copy user/client id\n");
+		err = ENOMEM;
+		goto out;
+	}
 
 	//re_snprintf(mod_aor, sizeof(mod_aor), "%s;natpinhole=yes;", aor);
 	err = re_sdprintf(&wua->mod_aor, "%s;", aor);
@@ -1228,7 +1229,8 @@ int wcall_i_sip_destroy(struct calling_instance *inst,
 		return EINVAL;
 	}
 
-	info("sip(%p): destroy: aor=%s wua=%p ua=%[\n", sip_inst, aor, wua, wua->ua);
+	info("sip(%p): destroy: aor=%s wua=%p ua=%p\n",
+	     sip_inst, aor, wua, wua->ua);
 
 	/* No UA yet while the purge is pending */
 	if (wua->ua)
