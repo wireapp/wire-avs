@@ -268,7 +268,22 @@ static int answer_call(struct wsip_call *wsip)
 
 	au = call_audio(wsip->call);
 	if (au) {
-		audio_set_devicename(au, wsip->convid, wsip->convid);
+		static uint32_t leg_id = 0;
+		char devname[64];
+
+		/* "<convid>/<leg>": wireaudio uses the convid to find the
+		 * conversation's mixer, and the full name to pair this
+		 * call's audio source and player into one mix-minus leg.
+		 * Must fit baresip's 64 byte device name.
+		 */
+		if (re_snprintf(devname, sizeof(devname), "%s/%x",
+				wsip->convid, ++leg_id) < 0) {
+			warning("sip(%p): answer_call: device name too long "
+				"for convid=%s\n", wua->sip_inst, wsip->convid);
+			err = EOVERFLOW;
+			goto out;
+		}
+		audio_set_devicename(au, devname, devname);
 	}
 	
 	err = ua_answer(wua->ua, wsip->call);
