@@ -290,6 +290,52 @@ contrib_webrtc_clean:
 	@rm -rf $(CONTRIB_WEBRTC_ROOT)
 endif
 
+#--- contrib rebuild tracking ---
+#
+# A contrib library is rebuilt when one of its source or build files
+# changes (CONTRIB_SRC_FILES, which for a submodule also catches a
+# different checkout) or when its build options do: each library
+# depends on a stamp holding a hash of its options, rewritten only
+# when the hash changes. So e.g. HAVE_FS or RELEASE=1 differing
+# between branches can't leave a stale library in the build tree.
+# AVS_VERSION is left out, the contribs don't use it and it changes
+# with every release build.
+
+CONTRIB_STAMP_DIR := $(BUILD_TARGET)/contrib/stamps
+
+CONTRIB_SRC_FILES = $(shell find $(1) \
+	\( -name "*.[hc]" -o -name "*.mk" -o -name Makefile \) \
+	-not -path "*/build-*")
+
+contrib_sq = $(subst ','\'',$(1))
+contrib_hash = $(shell printf '%s' '$(call contrib_sq,$(1))' | cksum)
+
+CONTRIB_OPTIONS_COMMON = \
+	$(CC) $(AR) $(RANLIB) \
+	$(filter-out -DAVS_VERSION=%,$(CPPFLAGS)) $(CFLAGS) \
+	$(LFLAGS) $(LIBS) $(SYSROOT) $(AVS_OS) $(AVS_ARCH) \
+	$(CONTRIB_LIBRE_FAMILY_OPTIONS_$(AVS_FAMILY)) \
+	$(CONTRIB_LIBRE_OS_OPTIONS_$(AVS_OS))
+
+# Expanded when the stamp recipe runs, once all options are set
+CONTRIB_STAMP_HASH_libre = $(call contrib_hash, \
+	$(CONTRIB_OPTIONS_COMMON) $(LIBRE_CFLAGS))
+CONTRIB_STAMP_HASH_librem = $(call contrib_hash, \
+	$(CONTRIB_OPTIONS_COMMON) $(CONTRIB_LIBREM_OS_OPTIONS_$(AVS_OS)))
+CONTRIB_STAMP_HASH_baresip = $(call contrib_hash, \
+	$(CONTRIB_OPTIONS_COMMON) $(CONTRIB_LIBREM_OS_OPTIONS_$(AVS_OS)) \
+	$(CONTRIB_LIBBARESIP_OS_OPTIONS_$(AVS_OS)))
+
+.PHONY: contrib_stamp_force
+contrib_stamp_force:
+
+# Always checked, but only rewritten (made newer) when the hash differs
+$(CONTRIB_STAMP_DIR)/%: contrib_stamp_force
+	@mkdir -p $(@D)
+	@echo $(CONTRIB_STAMP_HASH_$*) | cmp -s - $@ 2>/dev/null || \
+		echo $(CONTRIB_STAMP_HASH_$*) > $@
+
+
 #--- libre ---
 
 CONTRIB_LIBRE_FAMILY_OPTIONS_arm := RELEASE=1
@@ -367,7 +413,7 @@ CONTRIB_LIBRE_OS_OPTIONS_wasm := \
 
 CONTRIB_LIBRE_PATH := contrib/re
 CONTRIB_LIBRE_TARGET := $(BUILD_TARGET)/lib/libre.a
-CONTRIB_LIBRE_FILES := $(shell find $(CONTRIB_LIBRE_PATH) -name "*.[hc]" )
+CONTRIB_LIBRE_FILES := $(call CONTRIB_SRC_FILES,$(CONTRIB_LIBRE_PATH))
 
 CONTRIB_LIBRE_LIBS := -lre
 ifeq ($(AVS_OS),android)
@@ -386,6 +432,7 @@ endif
 
 $(CONTRIB_LIBRE_TARGET): $(TOOLCHAIN_MASTER) \
 			 $(CONTRIB_LIBRE_FILES) \
+			 $(CONTRIB_STAMP_DIR)/libre \
 			 $(CONTRIB_OPENSSL_TARGET) \
 			 | $(CONTRIB_WEBRTC_TARGET)
 	@cd $(CONTRIB_LIBRE_PATH) && \
@@ -433,7 +480,8 @@ CONTRIB_LIBREM_OS_OPTIONS_android := \
 
 CONTRIB_LIBREM_PATH := contrib/rem
 CONTRIB_LIBREM_TARGET := $(BUILD_TARGET)/lib/librem.a
-CONTRIB_LIBREM_FILES := $(shell git ls-files $(CONTRIB_LIBREM_PATH))
+CONTRIB_LIBREM_FILES := $(call CONTRIB_SRC_FILES,$(CONTRIB_LIBREM_PATH)) \
+	patches/rem_aumix.patch
 
 CONTRIB_LIBREM_LIBS := -lrem $(CONTRIB_LIBRE_LIBS)
 CONTRIB_LIBREM_LIB_FILES := \
@@ -442,7 +490,8 @@ CONTRIB_LIBREM_LIB_FILES := \
 
 
 $(CONTRIB_LIBREM_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
-			  $(CONTRIB_LIBREM_FILES)
+			  $(CONTRIB_LIBREM_FILES) \
+			  $(CONTRIB_STAMP_DIR)/librem
 	@cd $(CONTRIB_LIBREM_PATH) && \
 		( git apply ../../patches/rem_aumix.patch || true ) && \
 		rm -f librem.a && \
@@ -475,7 +524,8 @@ contrib_librem: $(CONTRIB_LIBREM_TARGET)
 
 CONTRIB_BARESIP_PATH := contrib/baresip
 CONTRIB_BARESIP_TARGET := $(BUILD_TARGET)/lib/libbaresip.a
-CONTRIB_BARESIP_FILES := $(shell git ls-files $(CONTRIB_BARESIP_PATH))
+CONTRIB_BARESIP_FILES := $(call CONTRIB_SRC_FILES,$(CONTRIB_BARESIP_PATH)) \
+	patches/baresip_sipmsg.patch
 # The wireaudio module is built into libbaresip from src/wireaudio
 CONTRIB_BARESIP_WIREAUDIO_FILES := $(wildcard src/wireaudio/*)
 
@@ -488,7 +538,8 @@ CONTRIB_BARESIP_AVS_PATH := $(PWD)
 $(CONTRIB_BARESIP_TARGET): $(TOOLCHAIN_MASTER) $(CONTRIB_LIBRE_TARGET) \
 	                   $(CONTRIB_LIBREM_TARGET) \
 			   $(CONTRIB_BARESIP_FILES) \
-			   $(CONTRIB_BARESIP_WIREAUDIO_FILES)
+			   $(CONTRIB_BARESIP_WIREAUDIO_FILES) \
+			   $(CONTRIB_STAMP_DIR)/baresip
 	@rm -rf $(CONTRIB_BARESIP_PATH)/modules/wireaudio && \
 		ln -s $(CONTRIB_BARESIP_AVS_PATH)/src/wireaudio \
 		$(CONTRIB_BARESIP_PATH)/modules/wireaudio || true
