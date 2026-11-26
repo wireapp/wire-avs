@@ -160,6 +160,11 @@ static enum stats_state stats_parse_state(const char *state)
 }
 
 struct stats_inbound_rtp {
+	char *id, *track_id, *user_id, *client_id;
+	uint64_t bytes_received;
+	bool has_bytes, has_packets, has_lost, has_jitter;
+	int width, height;
+	double fps;
 	enum stats_kind kind;
 	int packets_received;
 	int packets_lost;
@@ -260,16 +265,23 @@ struct stats_last_bytes {
 	char *id;
 	uint64_t bytes_sent;
 	double timestamp;
+	char *user_id, *client_id;
+	int packets_received, packets_lost;
+	bool has_bytes, has_lost;
 };
 
 static void last_bytes_destructor(void *arg)
 {
 	struct stats_last_bytes *item = arg;
 	mem_deref(item->id);
+	mem_deref(item->user_id);
+	mem_deref(item->client_id);
 }
 
 struct avs_stats {
 	struct list last_bytes;
+	struct list last_rx;
+	struct list rx_tracks;
 	enum icall_conv_type conv_type;
 	struct stats_report report;
 	struct stats_packet_counts last_packets;
@@ -602,6 +614,8 @@ static void destructor(void *arg)
 {
 	struct avs_stats *stats = (void *)arg;
 	list_flush(&stats->last_bytes);
+	list_flush(&stats->last_rx);
+	list_flush(&stats->rx_tracks);
 	mem_deref(stats->ema);
 
 	(void)stats;
@@ -638,20 +652,39 @@ int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void 
 }
 
 
+static void inbound_destructor(void *arg)
+{
+	struct stats_inbound_rtp *data = arg;
+	mem_deref(data->id);
+	mem_deref(data->track_id);
+	mem_deref(data->user_id);
+	mem_deref(data->client_id);
+}
+
 static struct stats_inbound_rtp *parse_inbound_rtp(struct json_object *jitem)
 {
 	const char *kind_str = NULL;
 
 	struct stats_inbound_rtp *data;
-	data = mem_zalloc(sizeof(*data), NULL);
-	memset(data, 0, sizeof(*data));
+	data = mem_zalloc(sizeof(*data), inbound_destructor);
+	if (!data)
+		return NULL;
+	jzon_strdup(&data->id, jitem, "id");
+	jzon_strdup(&data->track_id, jitem, "trackIdentifier");
+	jzon_strdup(&data->user_id, jitem, "avsUserId");
+	jzon_strdup(&data->client_id, jitem, "avsClientId");
+	data->has_bytes = !jzon_u64(&data->bytes_received, jitem, "bytesReceived");
+	data->fps = -1;
+	jzon_double(&data->fps, jitem, "framesPerSecond");
+	jzon_int(&data->width, jitem, "frameWidth");
+	jzon_int(&data->height, jitem, "frameHeight");
 
 	kind_str = jzon_str(jitem, "kind");
 	data->kind = stats_parse_kind(kind_str);
 
-	jzon_int(&data->packets_received, jitem, "packetsReceived");
-	jzon_int(&data->packets_lost, jitem, "packetsLost");
-	jzon_double(&data->jitter, jitem, "jitter");
+	data->has_packets = !jzon_int(&data->packets_received, jitem, "packetsReceived");
+	data->has_lost = !jzon_int(&data->packets_lost, jitem, "packetsLost");
+	data->has_jitter = !jzon_double(&data->jitter, jitem, "jitter");
 	jzon_double(&data->jitter_buffer_delay, jitem, "jitterBufferDelay");
 	jzon_int(&data->jitter_buffer_emitted_count, jitem, "jitterBufferEmittedCount");
 	jzon_double(&data->timestamp, jitem, "timestamp");
@@ -684,13 +717,7 @@ static struct stats_outbound_rtp *parse_outbound_rtp(struct json_object *jitem)
 	if (id && str_dup(&data->id, id))
 		return mem_deref(data);
 	data->fps = -1;
-	struct json_object *bytes;
-	if (json_object_object_get_ex(jitem, "bytesSent", &bytes) &&
-	    json_object_get_type(bytes) == json_type_int &&
-	    json_object_get_int(bytes) >= 0) {
-		data->bytes_sent = (uint64_t)json_object_get_int(bytes);
-		data->has_bytes_sent = true;
-	}
+	data->has_bytes_sent = !jzon_u64(&data->bytes_sent, jitem, "bytesSent");
 	jzon_double(&data->fps, jitem, "framesPerSecond");
 	jzon_int(&data->width, jitem, "frameWidth");
 	jzon_int(&data->height, jitem, "frameHeight");
@@ -1011,6 +1038,103 @@ static float normalize_quality(const struct avs_stats *stats) {
 	return JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss + RTT_WEIGHT * rtt;
 }
 
+static void rx_track_destructor(void *arg)
+{
+	struct stats_rx_track *track = arg;
+	mem_deref(track->id);
+	mem_deref(track->track_id);
+	mem_deref(track->user_id);
+	mem_deref(track->client_id);
+}
+
+static bool same_source(const char *a, const char *b)
+{
+	return (!a && !b) || (a && b && streq(a, b));
+}
+
+static int read_rx_media(struct avs_stats *stats, struct stats_obj *obj)
+{
+	struct list next = LIST_INIT;
+	struct le *le, *prev_le;
+	int err = 0;
+	list_flush(&stats->rx_tracks);
+	LIST_FOREACH(&obj->inbound_rtp, le) {
+		const struct stats_inbound_rtp *current = le->data;
+		const struct stats_last_bytes *previous = NULL;
+		struct stats_rx_track *track;
+		struct stats_last_bytes *last;
+		if (!current->id || (current->kind != STATS_KIND_AUDIO && current->kind != STATS_KIND_VIDEO))
+			continue;
+		track = mem_zalloc(sizeof(*track), rx_track_destructor);
+		last = mem_zalloc(sizeof(*last), last_bytes_destructor);
+		if (!track || !last) {
+			mem_deref(track);
+			mem_deref(last);
+			err = ENOMEM;
+			goto out;
+		}
+		list_append(&stats->rx_tracks, &track->le, track);
+		list_append(&next, &last->le, last);
+		err = str_dup(&track->id, current->id);
+		err |= str_dup(&last->id, current->id);
+		if (current->track_id)
+			err |= str_dup(&track->track_id, current->track_id);
+		if (current->user_id) {
+			err |= str_dup(&track->user_id, current->user_id);
+			err |= str_dup(&last->user_id, current->user_id);
+		}
+		if (current->client_id) {
+			err |= str_dup(&track->client_id, current->client_id);
+			err |= str_dup(&last->client_id, current->client_id);
+		}
+		if (err)
+			goto out;
+		track->video = current->kind == STATS_KIND_VIDEO;
+		track->media.bitrate = track->media.loss = -1;
+		track->media.jitter = current->has_jitter ? current->jitter * 1000 : -1;
+		track->media.width = current->width;
+		track->media.height = current->height;
+		track->media.fps = current->fps;
+		LIST_FOREACH(&stats->last_rx, prev_le) {
+			const struct stats_last_bytes *item = prev_le->data;
+			if (streq(item->id, current->id) &&
+			    same_source(item->user_id, current->user_id) &&
+			    same_source(item->client_id, current->client_id)) {
+				previous = item;
+				break;
+			}
+		}
+		if (previous && current->timestamp > previous->timestamp) {
+			uint64_t elapsed = normalize_timestamp_to_ms(current->timestamp) -
+				normalize_timestamp_to_ms(previous->timestamp);
+			if (elapsed && previous->has_bytes && current->has_bytes &&
+			    current->bytes_received >= previous->bytes_sent)
+				track->media.bitrate = (current->bytes_received - previous->bytes_sent) * 8000.0 / elapsed;
+			if (previous->has_lost && current->has_packets && current->has_lost) {
+				double received = (double)current->packets_received - previous->packets_received;
+				double lost = (double)current->packets_lost - previous->packets_lost;
+				if (received >= 0 && lost >= 0 && received + lost > 0)
+					track->media.loss = lost * 100.0 / (received + lost);
+			}
+		}
+		last->bytes_sent = current->bytes_received;
+		last->has_bytes = current->has_bytes;
+		last->has_lost = current->has_packets && current->has_lost;
+		last->packets_received = current->packets_received;
+		last->packets_lost = current->packets_lost;
+		last->timestamp = current->timestamp;
+	}
+ out:
+	list_flush(&stats->last_rx);
+	while (list_head(&next)) {
+		struct le *entry = list_head(&next);
+		list_unlink(entry);
+		list_append(&stats->last_rx, entry, entry->data);
+	}
+	stats->report.rx_tracks = &stats->rx_tracks;
+	return err;
+}
+
 static void read_tx_media(struct avs_stats *stats, struct stats_obj *obj,
 			 enum stats_kind kind, struct stats_tx_media *result)
 {
@@ -1107,6 +1231,9 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 		goto out;
 	}
 	read_tx_media(stats, &stats_obj, STATS_KIND_AUDIO, &stats->report.tx_audio);
+	err = read_rx_media(stats, &stats_obj);
+	if (err)
+		goto out;
 	read_tx_media(stats, &stats_obj, STATS_KIND_VIDEO, &stats->report.tx_video);
 	list_flush(&stats->last_bytes);
 	struct le *le;

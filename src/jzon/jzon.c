@@ -138,6 +138,25 @@ int jzon_u32(uint32_t *dst, struct json_object *obj, const char *key)
 }
 
 
+int jzon_u64(uint64_t *dst, struct json_object *obj, const char *key)
+{
+	struct json_object *value;
+	int64_t number;
+
+	if (!dst || !obj || !key)
+		return EINVAL;
+	if (!json_object_object_get_ex(obj, key, &value))
+		return ENOENT;
+	if (json_object_get_type(value) != json_type_int)
+		return EPROTO;
+	number = json_object_get_int(value);
+	if (number < 0)
+		return ERANGE;
+	*dst = (uint64_t)number;
+	return 0;
+}
+
+
 int jzon_int_opt(int *dst, struct json_object *obj, const char *key, int dflt)
 {
 	int err;

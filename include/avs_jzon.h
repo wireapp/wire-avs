@@ -36,6 +36,7 @@ int jzon_strdup(char **dst, struct json_object *obj, const char *key);
 int jzon_strrepl(char **dst, struct json_object *obj, const char *key);
 int jzon_int(int *dst, struct json_object *obj, const char *key);
 int jzon_u32(uint32_t *dst, struct json_object *obj, const char *key);
+int jzon_u64(uint64_t *dst, struct json_object *obj, const char *key);
 int jzon_double(double *dst, struct json_object *obj, const char *key);
 int jzon_bool(bool *dst, struct json_object *obj, const char *key);
 bool jzon_is_object(struct json_object *jobj);

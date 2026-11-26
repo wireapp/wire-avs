@@ -90,7 +90,19 @@ struct stats_tx_media {
 	double fps;
 };
 
+struct stats_rx_track {
+	struct le le;
+	char *id;
+	char *track_id;
+	char *user_id;
+	char *client_id;
+	bool video;
+	struct stats_tx_media media;
+};
+
 struct stats_report {
+	/* Borrowed, valid until the next stats_update or destruction. */
+	const struct list *rx_tracks;
 	struct stats_tx_media tx_audio;
 	struct stats_tx_media tx_video;
 	/* Resolved endpoints of the selected, nominated, succeeded ICE pair. */

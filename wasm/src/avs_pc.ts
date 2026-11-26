@@ -80,6 +80,7 @@ interface PeerConnection {
   streams: {[ssrc: string]: string};
   gatherTimer: any;
   audioRate: AudioRate;
+  audioSources?: {[trackId: string]: {userId: string; clientId: string}};
   audioStreams?: {[trackId: string]: {streamId: string; streams: readonly MediaStream[]; track: MediaStreamTrack}};
 }
 
@@ -821,7 +822,7 @@ function createWorker() {
       const {level, logString} = event.data;
       pc_log(level, logString);
     }
-    else if (op === 'audioSource' && includeAudioSource) {
+    else if (op === 'audioSource') {
       const {track_id, userid, clientid} = event.data;
       const pcs = connectionsStore.getPeerConnectionBySelf(self);
       for (const pc of pcs) {
@@ -1787,6 +1788,13 @@ function pc_Create(hnd: number, privacy: number, conv_type: number) {
       if (event.track.kind == "audio")
           setAudioJitterBufferMin(pc, event.receiver);
 
+      if (event.track.kind === 'audio') {
+          delete pc.audioSources?.[event.track.id];
+          event.track.addEventListener('ended', () => {
+              delete pc.audioSources?.[event.track.id];
+          }, {once: true});
+      }
+
       if (event.track.kind == "audio" && audioStreamHandler) {
           const streamId = hnd.toString() + label;
           if (includeAudioSource) {
@@ -2389,6 +2397,7 @@ function pc_RemoveUserInfo(hnd: number, labelPtr: number) {
     for (const trackId of Object.keys(audioStreams)) {
       if (audioStreams[trackId].streamId === hnd.toString() + label) {
         delete audioStreams[trackId];
+        delete pc.audioSources?.[trackId];
       }
     }
     if (audioStreamHandler) {
@@ -2815,6 +2824,7 @@ function pc_IsConferenceCallingSupported() {
 }
 
 function updateAudioSource(pc: PeerConnection, trackId: string, userId: string, clientId: string) {
+  (pc.audioSources ??= {})[trackId] = {userId, clientId};
   const audio = pc.audioStreams && pc.audioStreams[trackId];
   if (includeAudioSource && audioStreamHandler && pc.rtc && audio && audio.track.readyState !== 'ended') {
     audioStreamHandler(pc.convid, audio.streamId, audio.streams, {trackId, userId, clientId});
@@ -2969,7 +2979,19 @@ function pc_GetLocalStats(hnd: number) {
         }
 
         // Ignore `priority` as browsers may report values exceeding the AVS JSON decoder range.
-        report += JSON.stringify(stat, (key, value) => key === 'priority' ? undefined : value);
+        let enriched = stat;
+        if (stat.type === 'inbound-rtp' && stat.trackIdentifier) {
+          const user = stat.kind === 'video'
+            ? uinfo_from_video_track_id(pc, stat.trackIdentifier) : null;
+          const source = user ? {userId: user.userid, clientId: user.clientid}
+            : stat.kind === 'audio' ? pc.audioSources?.[stat.trackIdentifier] : undefined;
+          const direct = pc.conv_type === CONV_TYPE_ONEONONE && pc.remote_userid &&
+            pc.remote_userid !== 'sft' && pc.remote_clientid
+            ? {userId: pc.remote_userid, clientId: pc.remote_clientid} : undefined;
+          const identity = source ?? direct;
+          enriched = {...stat, avsUserId: identity?.userId, avsClientId: identity?.clientId};
+        }
+        report += JSON.stringify(enriched, (key, value) => key === 'priority' ? undefined : value);
         report += ',';
       })
       // remove tailing ',' if any

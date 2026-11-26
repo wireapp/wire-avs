@@ -694,15 +694,23 @@ JNI_SUFFIX := .jnilib
 
 # Settings
 #
+ifeq ($(AVS_ARCH),arm64)
+# Apple Silicon starts at macOS 11; 10.9 is not a supported arm64 target.
+OSX_DEPLOYMENT_TARGET ?= 11.0
+else
+OSX_DEPLOYMENT_TARGET ?= 10.9
+endif
+
 CPPFLAGS += \
          -arch $(AVS_ARCH) \
          -isysroot $(SDK_PATH) \
          -DWEBRTC_POSIX -DWEBRTC_MAC -DZETA_USING_AU_HAL -DHAVE_GAI_STRERROR=1 \
 	 -Wno-vla-cxx-extension -Wno-strict-prototypes \
 	 -pipe -no-cpp-precomp \
-	 -mmacosx-version-min=10.9
+	 -mmacosx-version-min=$(OSX_DEPLOYMENT_TARGET)
 LFLAGS   += \
          -isysroot $(SDK_PATH) \
+	 -mmacosx-version-min=$(OSX_DEPLOYMENT_TARGET) \
 	 -no-cpp-precomp
 SH_LFLAGS += -dynamiclib
 

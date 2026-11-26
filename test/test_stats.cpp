@@ -68,6 +68,45 @@ bool operator==(const stats_report& lhs, const stats_report& rhs) {
 
 const auto zero_report = stats_report {};
 
+TEST(RxStats, MeasuresIntervalsAndResetsWhenSourceChanges) {
+	avs_stats *stats = nullptr;
+	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr));
+	stats_report result = {};
+	stats_update(stats, R"([
+	 {"type":"inbound-rtp","kind":"video","id":"v","trackIdentifier":"track",
+	  "avsUserId":"alice","avsClientId":"a","timestamp":1000,
+	  "bytesReceived":1000,"packetsReceived":100,"packetsLost":0}
+	])");
+	stats_update(stats, R"([
+	 {"type":"inbound-rtp","kind":"video","id":"v","trackIdentifier":"track",
+	  "avsUserId":"alice","avsClientId":"a","timestamp":2000,
+	  "bytesReceived":5000,"packetsReceived":198,"packetsLost":2,"jitter":0.005,
+	  "frameWidth":1280,"frameHeight":720,"framesPerSecond":30}
+	])");
+	stats_get_report(stats, &result);
+	ASSERT_NE(nullptr, result.rx_tracks);
+	ASSERT_EQ(1u, list_count(result.rx_tracks));
+	const auto *track = static_cast<const stats_rx_track *>(result.rx_tracks->head->data);
+	EXPECT_STREQ("alice", track->user_id);
+	EXPECT_DOUBLE_EQ(32000, track->media.bitrate);
+	EXPECT_DOUBLE_EQ(2, track->media.loss);
+	EXPECT_DOUBLE_EQ(5, track->media.jitter);
+	stats_update(stats, R"([
+	 {"type":"inbound-rtp","kind":"video","id":"v","trackIdentifier":"track",
+	  "avsUserId":"bob","avsClientId":"b","timestamp":3000,
+	  "bytesReceived":9000,"packetsReceived":296,"packetsLost":4}
+	])");
+	stats_get_report(stats, &result);
+	track = static_cast<const stats_rx_track *>(result.rx_tracks->head->data);
+	EXPECT_STREQ("bob", track->user_id);
+	EXPECT_DOUBLE_EQ(-1, track->media.bitrate);
+	EXPECT_DOUBLE_EQ(-1, track->media.loss);
+	stats_update(stats, "[]");
+	stats_get_report(stats, &result);
+	EXPECT_EQ(0u, list_count(result.rx_tracks));
+	mem_deref(stats);
+}
+
 TEST(TxStats, MeasuresIntervalsAndMatchesReceiverFeedback) {
 	avs_stats *stats = nullptr;
 	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr));
@@ -482,9 +521,17 @@ TEST_P(Connection, ptotocol_type) {
 
 	auto candidate_pair = new RTCIceCandidatePairStats("someCandidatePairId", Timestamp::Zero());
 	candidate_pair->local_candidate_id = local_candidate->id();
+	auto remote_candidate = new RTCRemoteIceCandidateStats("remoteCandidateId", Timestamp::Zero());
+	remote_candidate->protocol = std::get<0>(GetParam());
+	remote_candidate->candidate_type = "host";
+	candidate_pair->remote_candidate_id = remote_candidate->id();
+	auto transport = new RTCTransportStats("transportId", Timestamp::Zero());
+	transport->selected_candidate_pair_id = candidate_pair->id();
 	candidate_pair->state = "succeeded";
-	candidate_pair->nominated = "true";
+	candidate_pair->nominated = true;
 
+	report->AddStats(std::unique_ptr<RTCStats>(transport));
+	report->AddStats(std::unique_ptr<RTCStats>(remote_candidate));
 	report->AddStats(std::unique_ptr<RTCStats>(local_candidate));
 	report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
 
@@ -685,7 +732,11 @@ TEST_F(StatsRttBase, without_candidates)
 TEST_F(StatsRttBase, unsucceeded_candidates)
 {
 	candidate_pair->state = "unsucceeded";
-	std::unique_ptr<RTCIceCandidatePairStats> candidate_pair;
+	candidate_pair->nominated = true;
+	auto transport = new RTCTransportStats("transport", Timestamp::Zero());
+	transport->selected_candidate_pair_id = candidate_pair->id();
+	report->AddStats(std::unique_ptr<RTCStats>(transport));
+	report->AddStats(std::move(candidate_pair));
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
@@ -697,7 +748,10 @@ TEST_F(StatsRttBase, unnominated_candidates)
 {
 	candidate_pair->state = "succeeded";
 	candidate_pair->nominated = false;
-	std::unique_ptr<RTCIceCandidatePairStats> candidate_pair;
+	auto transport = new RTCTransportStats("transport", Timestamp::Zero());
+	transport->selected_candidate_pair_id = candidate_pair->id();
+	report->AddStats(std::unique_ptr<RTCStats>(transport));
+	report->AddStats(std::move(candidate_pair));
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
@@ -720,6 +774,16 @@ public:
 		candidate_pair->current_round_trip_time = 0.01;
 		candidate_pair->state = "succeeded";
 		candidate_pair->nominated = true;
+		auto local = new RTCLocalIceCandidateStats("local", Timestamp::Zero());
+		auto remote = new RTCRemoteIceCandidateStats("remote", Timestamp::Zero());
+		local->protocol = "udp";
+		local->candidate_type = "host";
+		remote->protocol = "udp";
+		remote->candidate_type = "host";
+		candidate_pair->local_candidate_id = local->id();
+		candidate_pair->remote_candidate_id = remote->id();
+		report->AddStats(std::unique_ptr<RTCStats>(local));
+		report->AddStats(std::unique_ptr<RTCStats>(remote));
 		report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
 
 		const auto remote_audio_rtp = new RTCRemoteInboundRtpStreamStats("someRemoteAudioRtpId", Timestamp::Zero());
@@ -752,7 +816,10 @@ TEST_F(StatsRtt, some_rtt_values)
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
+	/* Nomination without transport selection must not select a pair. */
+	expected_rtt.candidate_pair = 0;
 	EXPECT_EQ(sr.rtt, expected_rtt);
+	EXPECT_FALSE(sr.ice_pair_selected);
 }
 
 TEST_F(StatsRtt, some_rtt_values_with_transport)
