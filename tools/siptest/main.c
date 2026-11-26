@@ -37,6 +37,10 @@ static struct {
 
 	char *aor;
 	char *convid;
+
+	/* Audio files for the wire client, instead of the audio device */
+	char *play_path;
+	char *rec_path;
 	
 	struct {
 		struct client pstn;
@@ -50,6 +54,8 @@ static struct {
 	.duration_timeout = 0,
 	.convid = CONVID,
 	.aor = NULL,
+	.play_path = NULL,
+	.rec_path = NULL,
 	.clients = {
 		.pstn = {
 			.wuser = WUSER_INVALID_HANDLE,
@@ -297,7 +303,7 @@ int main(int argc, char **argv)
 	signal(SIGINT, sig_handler);
 	
 	for (;;) {
-		const int c = getopt(argc, argv, "a:d:f:s:Tt:");
+		const int c = getopt(argc, argv, "a:d:f:p:r:s:Tt:");
 		if (c < 0)
 			break;
 
@@ -312,6 +318,14 @@ int main(int argc, char **argv)
 
 		case 'f':
 			str_dup(&g_st.config_path, optarg);
+			break;
+
+		case 'p':
+			str_dup(&g_st.play_path, optarg);
+			break;
+
+		case 'r':
+			str_dup(&g_st.rec_path, optarg);
 			break;
 
 		case 's':
@@ -394,6 +408,13 @@ int main(int argc, char **argv)
 				&g_st.clients.wire);
 	
 	g_st.clients.wire.wuser = wuser;
+
+	/* Raw 16-bit mono PCM at 16kHz: the wire client sends play_path
+	 * and writes what it hears to rec_path, so the test needs no
+	 * audio device and has no acoustic echo path
+	 */
+	if (g_st.play_path || g_st.rec_path)
+		wcall_set_audio_files(wuser, g_st.play_path, g_st.rec_path);
 	
 	while(g_st.running) {
 		usleep(100 * 1000);
