@@ -78,6 +78,7 @@ enum stats_type {
 	STATS_TYPE_MEDIA_SOURCE,
 	STATS_TYPE_CANDIDATE_PAIR,
 	STATS_TYPE_LOCAL_CANDIDATE,
+	STATS_TYPE_REMOTE_CANDIDATE,
 	STATS_TYPE_TRANSPORT,
 };
 
@@ -104,6 +105,9 @@ static enum stats_type stats_parse_type(const char *type)
 	}
 	else if (streq(type, "local-candidate")) {
 		return STATS_TYPE_LOCAL_CANDIDATE;
+	}
+	else if (streq(type, "remote-candidate")) {
+		return STATS_TYPE_REMOTE_CANDIDATE;
 	}
 	else if (streq(type, "transport")) {
 		return STATS_TYPE_TRANSPORT;
@@ -156,6 +160,11 @@ static enum stats_state stats_parse_state(const char *state)
 }
 
 struct stats_inbound_rtp {
+	char *id, *track_id, *user_id, *client_id;
+	uint64_t bytes_received;
+	bool has_bytes, has_packets, has_lost, has_jitter;
+	int width, height;
+	double fps;
 	enum stats_kind kind;
 	int packets_received;
 	int packets_lost;
@@ -167,6 +176,12 @@ struct stats_inbound_rtp {
 };
 
 struct stats_outbound_rtp {
+	char *id;
+	uint64_t bytes_sent;
+	bool has_bytes_sent;
+	int width;
+	int height;
+	double fps;
 	enum stats_kind kind;
 	int packets_sent;
 	double timestamp;
@@ -175,6 +190,9 @@ struct stats_outbound_rtp {
 };
 
 struct stats_remote_inbound_rtp {
+	char *local_id;
+	double fraction_lost;
+	bool has_jitter;
 	enum stats_kind kind;
 	int packets_lost;
 	double jitter;
@@ -191,9 +209,12 @@ struct stats_audio_source {
 struct stats_candidate_pair {
 	enum stats_state state;
 	bool nominated;
+	bool selected;
+	bool has_rtt;
 	double current_rtt;
 	char *id;
 	char *local_candidate_id;
+	char *remote_candidate_id;
 	struct le le;
 };
 
@@ -202,12 +223,14 @@ static void candidate_pair_destructor(void *arg)
 	struct stats_candidate_pair *item = arg;
 	mem_deref(item->id);
 	mem_deref(item->local_candidate_id);
+	mem_deref(item->remote_candidate_id);
 }
 
 struct stats_local_candidate {
 	char *id;
 	enum stats_proto proto;
 	enum stats_cand cand;
+	bool relay_tls;
 	struct le le;
 };
 
@@ -235,10 +258,33 @@ struct stats_obj {
 	struct list remote_inbound_rtp;
 	struct list candidate_pair;
 	struct list local_candidate;
+	struct list remote_candidate;
 	struct list transport;
 };
 
+struct stats_last_bytes {
+	struct le le;
+	char *id;
+	uint64_t bytes_sent;
+	double timestamp;
+	char *user_id, *client_id;
+	int packets_received, packets_lost;
+	bool has_bytes, has_lost;
+};
+
+static void last_bytes_destructor(void *arg)
+{
+	struct stats_last_bytes *item = arg;
+	mem_deref(item->id);
+	mem_deref(item->user_id);
+	mem_deref(item->client_id);
+}
+
 struct avs_stats {
+	struct lock *lock;
+	struct list last_bytes;
+	struct list last_rx;
+	struct list rx_tracks;
 	enum icall_conv_type conv_type;
 	struct stats_report report;
 	struct stats_packet_counts last_packets;
@@ -247,6 +293,14 @@ struct avs_stats {
 
 	void *arg;
 };
+
+static void reset_tx(struct stats_report *report)
+{
+	report->tx_audio.bitrate = report->tx_audio.jitter =
+		report->tx_audio.loss = report->tx_audio.fps = -1;
+	report->tx_video.bitrate = report->tx_video.jitter =
+		report->tx_video.loss = report->tx_video.fps = -1;
+}
 
 static uint32_t calculate_loss_percentage(uint32_t lost_packets, uint32_t total_packets) {
 	if (total_packets)
@@ -476,60 +530,78 @@ static void read_rtt_rx(struct avs_stats *stats, const struct stats_obj *stats_o
 static int read_rtt_and_connection(struct avs_stats *stats, const struct stats_obj *stats_obj)
 {
 	struct le *le = NULL;
-	const char *connected_local_candidate_id = NULL;
 	const char *selected_pair_id = NULL;
+	const struct stats_candidate_pair *selected = NULL;
+	const struct stats_local_candidate *local = NULL, *remote = NULL;
 
 	if (!stats || !stats_obj) {
 		return EINVAL;
 	}
 
 	// First check if there is a "transport" report that should have selected pair
-	le = list_head(&stats_obj->transport);
-	if (le) {
-		const struct stats_transport *head = (struct stats_transport*)le->data;
-		selected_pair_id = head->selected_pair_id;
+	LIST_FOREACH(&stats_obj->transport, le) {
+		const struct stats_transport *tr = le->data;
+		if (!tr->selected_pair_id)
+			continue;
+		/* A single connection report cannot represent distinct transports. */
+		if (selected_pair_id && !streq(selected_pair_id, tr->selected_pair_id))
+			goto out;
+		selected_pair_id = tr->selected_pair_id;
 	}
 
-	// When we have a "transport" report search selected pair, else
-	// search a connected pair (which is succeeded and nominated)
+	/* Prefer the transport reference; Firefox also marks the pair itself. */
 	LIST_FOREACH(&stats_obj->candidate_pair, le) {
 		const struct stats_candidate_pair *data = (struct stats_candidate_pair *)le->data;
 
-		if (selected_pair_id) {
-			if (data->id && streq(selected_pair_id, data->id)) {
-				stats->report.rtt.candidate_pair = max(stats->report.rtt.candidate_pair, (1000 * data->current_rtt));
-				connected_local_candidate_id = data->local_candidate_id;
-				break;
-			}
+		if (selected_pair_id && data->id &&
+		    streq(selected_pair_id, data->id)) {
+			selected = data;
+			break;
 		}
-		else {
-			// we will try to find connected pair without "transport" info
-			if (data->nominated && (data->state == STATS_STATE_SUCCEEDED)) {
-				stats->report.rtt.candidate_pair = max(stats->report.rtt.candidate_pair, (1000 * data->current_rtt));
-				if (data->local_candidate_id) {
-					connected_local_candidate_id = data->local_candidate_id;
-				}
-			}
+		if (!selected_pair_id && data->selected) {
+			if (selected)
+				goto out;
+			selected = data;
 		}
 	}
 
-	// read rtt perceived from peer side
-	read_rtt_rx(stats, stats_obj);
-
-	if (!connected_local_candidate_id) {
-		// maybe ok that we dont have connection atm
-		return 0;
+	if (!selected)
+		goto out;
+	stats->report.ice_pair_selected = true;
+	if (selected->has_rtt && isfinite(selected->current_rtt) &&
+	    selected->current_rtt >= 0 && selected->current_rtt <= UINT32_MAX / 1000.0) {
+		stats->report.rtt.candidate_pair = 1000 * selected->current_rtt;
+		stats->report.rtt.candidate_pair_valid = true;
 	}
 	// use last connected local candidate id to get connection details
 	LIST_FOREACH(&stats_obj->local_candidate, le) {
 		const struct stats_local_candidate *data = (struct stats_local_candidate *)le->data;
 
-		if (data->id && streq(data->id, connected_local_candidate_id)) {
-			stats->report.proto = data->proto;
-			stats->report.cand = data->cand;
+		if (data->id && selected->local_candidate_id && streq(data->id, selected->local_candidate_id)) {
+			local = data;
 			break;
 		}
 	}
+	LIST_FOREACH(&stats_obj->remote_candidate, le) {
+		const struct stats_local_candidate *data = le->data;
+		if (data->id && selected->remote_candidate_id && streq(data->id, selected->remote_candidate_id)) {
+			remote = data;
+			break;
+		}
+	}
+	if (local) {
+		stats->report.legacy_local_proto = local->proto;
+		stats->report.local_proto = local->cand == STATS_CAND_RELAY && local->relay_tls
+			? STATS_PROTO_TLS : local->proto;
+		stats->report.local_cand = local->cand;
+	}
+	if (remote) {
+		stats->report.remote_proto = remote->proto;
+		stats->report.remote_cand = remote->cand;
+	}
+
+ out:
+	read_rtt_rx(stats, stats_obj);
 
 	return 0;
 }
@@ -554,7 +626,11 @@ static int read_audio_level(struct avs_stats *stats, const struct stats_obj *sta
 static void destructor(void *arg)
 {
 	struct avs_stats *stats = (void *)arg;
+	list_flush(&stats->last_bytes);
+	list_flush(&stats->last_rx);
+	list_flush(&stats->rx_tracks);
 	mem_deref(stats->ema);
+	mem_deref(stats->lock);
 
 	(void)stats;
 }
@@ -572,6 +648,11 @@ int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void 
 		return ENOMEM;
 
 	stats->arg = arg;
+	err = lock_alloc(&stats->lock);
+	if (err) {
+		mem_deref(stats);
+		return err;
+	}
 	stats->conv_type = conv_type;
 	err = ema_alloc(&(stats->ema), NULL);
 	if (err != 0) {
@@ -580,6 +661,7 @@ int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void 
 	} 
 
 	memset(&stats->report, 0, sizeof(stats->report));
+	reset_tx(&stats->report);
 	memset(&stats->last_packets, 0, sizeof(stats->last_packets));
 	stats->last_timestamp_in_ms = 0;
 
@@ -589,25 +671,56 @@ int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void 
 }
 
 
+static void inbound_destructor(void *arg)
+{
+	struct stats_inbound_rtp *data = arg;
+	mem_deref(data->id);
+	mem_deref(data->track_id);
+	mem_deref(data->user_id);
+	mem_deref(data->client_id);
+}
+
 static struct stats_inbound_rtp *parse_inbound_rtp(struct json_object *jitem)
 {
 	const char *kind_str = NULL;
 
 	struct stats_inbound_rtp *data;
-	data = mem_zalloc(sizeof(*data), NULL);
-	memset(data, 0, sizeof(*data));
+	data = mem_zalloc(sizeof(*data), inbound_destructor);
+	if (!data)
+		return NULL;
+	jzon_strdup(&data->id, jitem, "id");
+	jzon_strdup(&data->track_id, jitem, "trackIdentifier");
+	jzon_strdup(&data->user_id, jitem, "avsUserId");
+	jzon_strdup(&data->client_id, jitem, "avsClientId");
+	data->has_bytes = !jzon_u64(&data->bytes_received, jitem, "bytesReceived");
+	data->fps = -1;
+	jzon_double(&data->fps, jitem, "framesPerSecond");
+	jzon_int(&data->width, jitem, "frameWidth");
+	jzon_int(&data->height, jitem, "frameHeight");
 
 	kind_str = jzon_str(jitem, "kind");
 	data->kind = stats_parse_kind(kind_str);
 
-	jzon_int(&data->packets_received, jitem, "packetsReceived");
-	jzon_int(&data->packets_lost, jitem, "packetsLost");
-	jzon_double(&data->jitter, jitem, "jitter");
+	data->has_packets = !jzon_int(&data->packets_received, jitem, "packetsReceived");
+	data->has_lost = !jzon_int(&data->packets_lost, jitem, "packetsLost");
+	data->has_jitter = !jzon_double(&data->jitter, jitem, "jitter");
 	jzon_double(&data->jitter_buffer_delay, jitem, "jitterBufferDelay");
 	jzon_int(&data->jitter_buffer_emitted_count, jitem, "jitterBufferEmittedCount");
 	jzon_double(&data->timestamp, jitem, "timestamp");
 
 	return data;
+}
+
+static void outbound_destructor(void *arg)
+{
+	struct stats_outbound_rtp *data = arg;
+	mem_deref(data->id);
+}
+
+static void remote_inbound_destructor(void *arg)
+{
+	struct stats_remote_inbound_rtp *data = arg;
+	mem_deref(data->local_id);
 }
 
 static struct stats_outbound_rtp *parse_outbound_rtp(struct json_object *jitem)
@@ -616,8 +729,17 @@ static struct stats_outbound_rtp *parse_outbound_rtp(struct json_object *jitem)
 	const char *quality_limitation_str = NULL;
 
 	struct stats_outbound_rtp* data;
-	data = mem_zalloc(sizeof(*data), NULL);
-	memset(data, 0, sizeof(*data));
+	data = mem_zalloc(sizeof(*data), outbound_destructor);
+	if (!data)
+		return NULL;
+	const char *id = jzon_str(jitem, "id");
+	if (id && str_dup(&data->id, id))
+		return mem_deref(data);
+	data->fps = -1;
+	data->has_bytes_sent = !jzon_u64(&data->bytes_sent, jitem, "bytesSent");
+	jzon_double(&data->fps, jitem, "framesPerSecond");
+	jzon_int(&data->width, jitem, "frameWidth");
+	jzon_int(&data->height, jitem, "frameHeight");
 
 	kind_str = jzon_str(jitem, "kind");
 	data->kind = stats_parse_kind(kind_str);
@@ -636,14 +758,20 @@ static struct stats_remote_inbound_rtp *parse_remote_inbound_rtp(struct json_obj
 	const char *kind_str = NULL;
 
 	struct stats_remote_inbound_rtp *data;
-	data = mem_zalloc(sizeof(*data), NULL);
-	memset(data, 0, sizeof(*data));
+	data = mem_zalloc(sizeof(*data), remote_inbound_destructor);
+	if (!data)
+		return NULL;
+	const char *local_id = jzon_str(jitem, "localId");
+	if (local_id && str_dup(&data->local_id, local_id))
+		return mem_deref(data);
+	data->fraction_lost = -1;
+	jzon_double(&data->fraction_lost, jitem, "fractionLost");
 
 	kind_str = jzon_str(jitem, "kind");
 	data->kind = stats_parse_kind(kind_str);
 
 	jzon_int(&data->packets_lost, jitem, "packetsLost");
-	jzon_double(&data->jitter, jitem, "jitter");
+	data->has_jitter = !jzon_double(&data->jitter, jitem, "jitter");
 	jzon_double(&data->timestamp, jitem, "timestamp");
 	jzon_double(&data->rtt, jitem, "roundTripTime");
 
@@ -674,7 +802,8 @@ static struct stats_candidate_pair *parse_candidate_pair(struct json_object *jit
 	state_str = jzon_str(jitem, "state");
 	data->state = stats_parse_state(state_str);
 	jzon_bool(&data->nominated, jitem, "nominated");
-	jzon_double(&data->current_rtt, jitem, "currentRoundTripTime");
+	jzon_bool(&data->selected, jitem, "selected");
+	data->has_rtt = !jzon_double(&data->current_rtt, jitem, "currentRoundTripTime");
 
 	id_str = jzon_str(jitem, "id");
 	if (id_str) {
@@ -685,6 +814,9 @@ static struct stats_candidate_pair *parse_candidate_pair(struct json_object *jit
 	if (local_candidate_id_str) {
 		str_dup(&data->local_candidate_id, local_candidate_id_str);
 	}
+	const char *remote_id = jzon_str(jitem, "remoteCandidateId");
+	if (remote_id)
+		str_dup(&data->remote_candidate_id, remote_id);
 
 	return data;
 }
@@ -697,6 +829,10 @@ static struct stats_local_candidate *parse_local_candidate(struct json_object *j
 
 	struct stats_local_candidate *data;
 	data = mem_zalloc(sizeof(*data),local_candidate_destructor);
+	if (!data)
+		return NULL;
+	const char *relay = jzon_str(jitem, "relayProtocol");
+	data->relay_tls = relay && streq(relay, "tls");
 
 	proto_str = jzon_str(jitem, "protocol");
 	data->proto = stats_parse_poto(proto_str);
@@ -816,11 +952,14 @@ static int parse_json(const char *report, struct stats_obj *stats_obj) {
 			}
 				break;
 
-			case STATS_TYPE_LOCAL_CANDIDATE: {
+			case STATS_TYPE_LOCAL_CANDIDATE:
+			case STATS_TYPE_REMOTE_CANDIDATE: {
 				struct stats_local_candidate *lc = NULL;
 				lc = parse_local_candidate(jitem);
 				if (lc) {
-					list_append(&stats_obj->local_candidate, &lc->le, lc);
+					list_append(type == STATS_TYPE_LOCAL_CANDIDATE ?
+						    &stats_obj->local_candidate : &stats_obj->remote_candidate,
+						    &lc->le, lc);
 				}
 			}
 				break;
@@ -901,10 +1040,19 @@ static float normalize_quality(const struct avs_stats *stats) {
 	float rtt = 0;
 	float jitter = 0;
 	float packet_loss = 0;
+	bool has_rtt = stats->report.rtt.candidate_pair_valid;
 
 	if ( stats->conv_type == ICALL_CONV_TYPE_CONFERENCE || stats->conv_type == ICALL_CONV_TYPE_CONFERENCE_MLS) {
 		// provide slightly higher importance to upstream stats fon conference
-		rtt = UPSTREAM_WEIGHT * rtt_remote_inbound + DOWNSTREM_WEIGHT * rtt_candidate_pair;
+		bool has_remote_rtt = stats->report.rtt.remote_inbound.audio > 0 ||
+			stats->report.rtt.remote_inbound.video > 0;
+		if (has_rtt && has_remote_rtt)
+			rtt = UPSTREAM_WEIGHT * rtt_remote_inbound + DOWNSTREM_WEIGHT * rtt_candidate_pair;
+		else if (has_remote_rtt)
+			rtt = rtt_remote_inbound;
+		else if (has_rtt)
+			rtt = rtt_candidate_pair;
+		has_rtt = has_rtt || has_remote_rtt;
 		jitter = UPSTREAM_WEIGHT * jitter_tx + DOWNSTREM_WEIGHT * jitter_rx;
 		packet_loss = UPSTREAM_WEIGHT * packet_loss_tx + DOWNSTREM_WEIGHT * packet_loss_rx;
 	}
@@ -916,10 +1064,164 @@ static float normalize_quality(const struct avs_stats *stats) {
 	}
 
 	// provide packet loss and jitter a bit more importance than latency
+	if (!has_rtt)
+		return (JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss) /
+			(JITTER_WEIGHT + PACKET_LOSS_WEIGHT);
 	return JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss + RTT_WEIGHT * rtt;
 }
 
-int stats_update(struct avs_stats *stats, const char *report_json)
+static void rx_track_destructor(void *arg)
+{
+	struct stats_rx_track *track = arg;
+	mem_deref(track->id);
+	mem_deref(track->track_id);
+	mem_deref(track->user_id);
+	mem_deref(track->client_id);
+}
+
+static bool same_source(const char *a, const char *b)
+{
+	return (!a && !b) || (a && b && streq(a, b));
+}
+
+static int read_rx_media(struct avs_stats *stats, struct stats_obj *obj)
+{
+	struct list next = LIST_INIT;
+	struct le *le, *prev_le;
+	int err = 0;
+	list_flush(&stats->rx_tracks);
+	LIST_FOREACH(&obj->inbound_rtp, le) {
+		const struct stats_inbound_rtp *current = le->data;
+		const struct stats_last_bytes *previous = NULL;
+		struct stats_rx_track *track;
+		struct stats_last_bytes *last;
+		if (!current->id || (current->kind != STATS_KIND_AUDIO && current->kind != STATS_KIND_VIDEO))
+			continue;
+		track = mem_zalloc(sizeof(*track), rx_track_destructor);
+		last = mem_zalloc(sizeof(*last), last_bytes_destructor);
+		if (!track || !last) {
+			mem_deref(track);
+			mem_deref(last);
+			err = ENOMEM;
+			goto out;
+		}
+		list_append(&stats->rx_tracks, &track->le, track);
+		list_append(&next, &last->le, last);
+		err = str_dup(&track->id, current->id);
+		err |= str_dup(&last->id, current->id);
+		if (current->track_id)
+			err |= str_dup(&track->track_id, current->track_id);
+		if (current->user_id) {
+			err |= str_dup(&track->user_id, current->user_id);
+			err |= str_dup(&last->user_id, current->user_id);
+		}
+		if (current->client_id) {
+			err |= str_dup(&track->client_id, current->client_id);
+			err |= str_dup(&last->client_id, current->client_id);
+		}
+		if (err)
+			goto out;
+		track->video = current->kind == STATS_KIND_VIDEO;
+		track->media.bitrate = track->media.loss = -1;
+		track->media.jitter = current->has_jitter ? current->jitter * 1000 : -1;
+		track->media.width = current->width;
+		track->media.height = current->height;
+		track->media.fps = current->fps;
+		LIST_FOREACH(&stats->last_rx, prev_le) {
+			const struct stats_last_bytes *item = prev_le->data;
+			if (streq(item->id, current->id) &&
+			    same_source(item->user_id, current->user_id) &&
+			    same_source(item->client_id, current->client_id)) {
+				previous = item;
+				break;
+			}
+		}
+		if (previous && current->timestamp > previous->timestamp) {
+			uint64_t elapsed = normalize_timestamp_to_ms(current->timestamp) -
+				normalize_timestamp_to_ms(previous->timestamp);
+			if (elapsed && previous->has_bytes && current->has_bytes &&
+			    current->bytes_received >= previous->bytes_sent)
+				track->media.bitrate = (current->bytes_received - previous->bytes_sent) * 8000.0 / elapsed;
+			if (previous->has_lost && current->has_packets && current->has_lost) {
+				double received = (double)current->packets_received - previous->packets_received;
+				double lost = (double)current->packets_lost - previous->packets_lost;
+				if (received >= 0 && lost >= 0 && received + lost > 0)
+					track->media.loss = lost * 100.0 / (received + lost);
+			}
+		}
+		last->bytes_sent = current->bytes_received;
+		last->has_bytes = current->has_bytes;
+		last->has_lost = current->has_packets && current->has_lost;
+		last->packets_received = current->packets_received;
+		last->packets_lost = current->packets_lost;
+		last->timestamp = current->timestamp;
+	}
+ out:
+	list_flush(&stats->last_rx);
+	while (list_head(&next)) {
+		struct le *entry = list_head(&next);
+		list_unlink(entry);
+		list_append(&stats->last_rx, entry, entry->data);
+	}
+	stats->report.rx_tracks = &stats->rx_tracks;
+	return err;
+}
+
+static void read_tx_media(struct avs_stats *stats, struct stats_obj *obj,
+			 enum stats_kind kind, struct stats_tx_media *result)
+{
+	struct le *le, *prev_le, *feedback_le;
+	bool found = false, bitrate_valid = true;
+	double bitrate = 0;
+	result->bitrate = result->jitter = result->loss = result->fps = -1;
+	result->width = result->height = 0;
+	LIST_FOREACH(&obj->outbound_rtp, le) {
+		const struct stats_outbound_rtp *current = le->data;
+		const struct stats_last_bytes *previous = NULL;
+		if (current->kind != kind)
+			continue;
+		found = true;
+		LIST_FOREACH(&stats->last_bytes, prev_le) {
+			const struct stats_last_bytes *item = prev_le->data;
+			if (item->id && current->id && streq(item->id, current->id)) {
+				previous = item;
+				break;
+			}
+		}
+		if (previous && current->has_bytes_sent &&
+		    current->bytes_sent >= previous->bytes_sent &&
+		    normalize_timestamp_to_ms(current->timestamp) >
+		    normalize_timestamp_to_ms(previous->timestamp)) {
+			bitrate += (current->bytes_sent - previous->bytes_sent) * 8000.0 /
+				(normalize_timestamp_to_ms(current->timestamp) -
+				 normalize_timestamp_to_ms(previous->timestamp));
+		}
+		else
+			bitrate_valid = false;
+
+		/* For simulcast show the largest reported video layer. */
+		if (current->width > result->width ||
+		    (current->width == result->width && current->height > result->height)) {
+			result->width = current->width;
+			result->height = current->height;
+			result->fps = current->fps;
+		}
+		LIST_FOREACH(&obj->remote_inbound_rtp, feedback_le) {
+			const struct stats_remote_inbound_rtp *feedback = feedback_le->data;
+			if (!current->id || !feedback->local_id ||
+			    !streq(current->id, feedback->local_id))
+				continue;
+			if (feedback->has_jitter && feedback->jitter >= 0)
+				result->jitter = max(result->jitter, feedback->jitter * 1000);
+			if (feedback->fraction_lost >= 0 && feedback->fraction_lost <= 1)
+				result->loss = max(result->loss, feedback->fraction_lost * 100);
+		}
+	}
+	if (found && bitrate_valid)
+		result->bitrate = bitrate;
+}
+
+static int update_report(struct avs_stats *stats, const char *report_json)
 {
 	int err = 0;
 	
@@ -927,6 +1229,7 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 		return EINVAL;
 
 	memset(&stats->report, 0, sizeof(stats->report));
+	reset_tx(&stats->report);
 
 	struct stats_obj stats_obj = {.audio_source = LIST_INIT,
 							.inbound_rtp = LIST_INIT,
@@ -934,6 +1237,7 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 							.remote_inbound_rtp = LIST_INIT,
 							.candidate_pair = LIST_INIT,
 							.local_candidate = LIST_INIT,
+							.remote_candidate = LIST_INIT,
 							.transport = LIST_INIT,
 						};
 
@@ -958,6 +1262,32 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 		warning("stats_update: read_audio_level failed: %m\n", err);
 		goto out;
 	}
+	read_tx_media(stats, &stats_obj, STATS_KIND_AUDIO, &stats->report.tx_audio);
+	err = read_rx_media(stats, &stats_obj);
+	if (err)
+		goto out;
+	read_tx_media(stats, &stats_obj, STATS_KIND_VIDEO, &stats->report.tx_video);
+	list_flush(&stats->last_bytes);
+	struct le *le;
+	LIST_FOREACH(&stats_obj.outbound_rtp, le) {
+		const struct stats_outbound_rtp *current = le->data;
+		struct stats_last_bytes *last;
+		if (!current->id || !current->has_bytes_sent)
+			continue;
+		last = mem_zalloc(sizeof(*last), last_bytes_destructor);
+		if (!last) {
+			err = ENOMEM;
+			goto out;
+		}
+		err = str_dup(&last->id, current->id);
+		if (err) {
+			mem_deref(last);
+			goto out;
+		}
+		last->bytes_sent = current->bytes_sent;
+		last->timestamp = current->timestamp;
+		list_append(&stats->last_bytes, &last->le, last);
+	}
 
 	const float quality = normalize_quality(stats);
 	err = ema_update(stats->ema, quality);
@@ -973,6 +1303,7 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 	list_flush(&stats_obj.remote_inbound_rtp);
 	list_flush(&stats_obj.candidate_pair);
 	list_flush(&stats_obj.local_candidate);
+	list_flush(&stats_obj.remote_candidate);
 	list_flush(&stats_obj.transport);
 
 	if (err) {
@@ -983,7 +1314,18 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 	return err;
 }
 
-int stats_get_report(struct avs_stats *stats, struct stats_report *report)
+int stats_update(struct avs_stats *stats, const char *report_json)
+{
+	int err;
+	if (!stats || !report_json)
+		return EINVAL;
+	lock_write_get(stats->lock);
+	err = update_report(stats, report_json);
+	lock_rel(stats->lock);
+	return err;
+}
+
+static int copy_report(struct avs_stats *stats, struct stats_report *report)
 {
 	int err = 0;
 
@@ -992,12 +1334,82 @@ int stats_get_report(struct avs_stats *stats, struct stats_report *report)
 
 	// Process raw stats to generate ema and mos estimate enhancements
 	err = ema_get_val(stats->ema, &stats->report.quality_index);
-	stats->report.mos_estimate = g107_2_estimate(stats->report.rtt.candidate_pair, 
+	stats->report.mos_estimate = stats->report.rtt.candidate_pair_valid ?
+		g107_2_estimate(stats->report.rtt.candidate_pair,
 		stats->report.loss_percentages.channel.audio, 
-		stats->report.jitter_buffer_delay.audio);
+		stats->report.jitter_buffer_delay.audio) : -1;
 
 	*report = stats->report;
+	report->rx_tracks = NULL;
 
+	return err;
+}
+
+static void snapshot_destructor(void *arg)
+{
+	list_flush(arg);
+}
+
+void stats_report_release(struct stats_report *report)
+{
+	if (report) {
+		mem_deref((void *)report->rx_tracks);
+		report->rx_tracks = NULL;
+	}
+}
+
+int stats_get_report(struct avs_stats *stats, struct stats_report *report)
+{
+	int err;
+	if (!stats || !report)
+		return EINVAL;
+	lock_write_get(stats->lock);
+	err = copy_report(stats, report);
+	lock_rel(stats->lock);
+	return err;
+}
+
+int stats_get_report_snapshot(struct avs_stats *stats, struct stats_report *report)
+{
+	struct list *tracks;
+	struct le *le;
+	int err;
+	if (!stats || !report)
+		return EINVAL;
+	memset(report, 0, sizeof(*report));
+	tracks = mem_zalloc(sizeof(*tracks), snapshot_destructor);
+	if (!tracks)
+		return ENOMEM;
+	lock_write_get(stats->lock);
+	err = copy_report(stats, report);
+	if (err)
+		goto out;
+	LIST_FOREACH(&stats->rx_tracks, le) {
+		const struct stats_rx_track *source = le->data;
+		struct stats_rx_track *track = mem_zalloc(sizeof(*track), rx_track_destructor);
+		if (!track) {
+			err = ENOMEM;
+			goto out;
+		}
+		list_append(tracks, &track->le, track);
+		track->video = source->video;
+		track->media = source->media;
+		err = str_dup(&track->id, source->id);
+		if (source->track_id)
+			err |= str_dup(&track->track_id, source->track_id);
+		if (source->user_id)
+			err |= str_dup(&track->user_id, source->user_id);
+		if (source->client_id)
+			err |= str_dup(&track->client_id, source->client_id);
+		if (err)
+			goto out;
+	}
+ out:
+	lock_rel(stats->lock);
+	if (err)
+		mem_deref(tracks);
+	else
+		report->rx_tracks = tracks;
 	return err;
 }
 
@@ -1012,6 +1424,9 @@ char *stats_proto_name(enum stats_proto proto)
 
 	case STATS_PROTO_TCP:
 		return "TCP";
+
+	case STATS_PROTO_TLS:
+		return "TLS";
 
 	default:
 		return "???";

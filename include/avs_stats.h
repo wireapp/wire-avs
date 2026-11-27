@@ -28,6 +28,7 @@ enum stats_proto {
 	STATS_PROTO_UNKNOWN   = 0,
 	STATS_PROTO_UDP       = 1,
 	STATS_PROTO_TCP       = 2,
+	STATS_PROTO_TLS       = 3,
 };
 
 enum stats_cand {
@@ -65,6 +66,7 @@ struct stats_channel {
 struct stats_rtt {
 	struct stats_channel remote_inbound;
 	uint32_t candidate_pair;
+	bool candidate_pair_valid;
 };
 
 struct stats_packet_counts {
@@ -79,9 +81,40 @@ struct stats_loss_percentages {
 	struct stats_channel channel;
 };
 
+/* Negative values mean unavailable; dimensions use zero. */
+struct stats_tx_media {
+	double bitrate;
+	double jitter;
+	double loss;
+	int width;
+	int height;
+	double fps;
+};
+
+struct stats_rx_track {
+	struct le le;
+	char *id;
+	char *track_id;
+	char *user_id;
+	char *client_id;
+	bool video;
+	struct stats_tx_media media;
+};
+
 struct stats_report {
-	enum stats_proto proto;
-	enum stats_cand cand;
+	/* Owned snapshot from stats_get_report_snapshot; release with stats_report_release.
+	 * Callback arguments borrow it only for the duration of the callback. */
+	const struct list *rx_tracks;
+	struct stats_tx_media tx_audio;
+	struct stats_tx_media tx_video;
+	/* Resolved endpoints of the selected, nominated, succeeded ICE pair. */
+	bool ice_pair_selected;
+	enum stats_proto local_proto;
+	/* Original candidate protocol for the legacy connection.protocol key. */
+	enum stats_proto legacy_local_proto;
+	enum stats_cand local_cand;
+	enum stats_proto remote_proto;
+	enum stats_cand remote_cand;
 	enum stats_quality_limitation quality_limitation;
 	struct stats_jitter jitter;
 	struct stats_channel jitter_buffer_delay;
@@ -97,7 +130,11 @@ struct stats_report {
 
 int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void *arg);
 int stats_update(struct avs_stats *stats, const char *report_json);
+/* Scalar report only, rx_tracks is NULL; no release required. */
 int stats_get_report(struct avs_stats *stats, struct stats_report *report);
+/* Includes owned RX tracks. Release before reusing the output report. */
+int stats_get_report_snapshot(struct avs_stats *stats, struct stats_report *report);
+void stats_report_release(struct stats_report *report);
 char *stats_proto_name(enum stats_proto proto);
 char *stats_cand_name(enum stats_cand cand);
 char *stats_quality_limitation_name(enum stats_quality_limitation qality_limitation);

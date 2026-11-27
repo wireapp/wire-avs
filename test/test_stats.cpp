@@ -56,8 +56,8 @@ bool operator==(const stats_rtt& lhs, const stats_rtt& rhs) {
 }
 
 bool operator==(const stats_report& lhs, const stats_report& rhs) {
-	return lhs.proto == rhs.proto &&
-			lhs.cand == rhs.cand &&
+	return lhs.local_proto == rhs.local_proto &&
+			lhs.local_cand == rhs.local_cand &&
 			lhs.audio_level == rhs.audio_level &&
 			lhs.audio_level_smooth == rhs.audio_level_smooth &&
 			lhs.rtt == rhs.rtt &&
@@ -67,6 +67,156 @@ bool operator==(const stats_report& lhs, const stats_report& rhs) {
 }
 
 const auto zero_report = stats_report {};
+
+TEST(StatsRttValidity, MissingMeasurementIsNotZeroRtt) {
+	avs_stats *stats = nullptr;
+	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_ONEONONE, nullptr));
+	stats_report report = {};
+	ASSERT_EQ(0, stats_update(stats, R"([
+	 {"type":"candidate-pair","id":"pair","selected":true}
+	])"));
+	stats_get_report(stats, &report);
+	EXPECT_TRUE(report.ice_pair_selected);
+	EXPECT_FALSE(report.rtt.candidate_pair_valid);
+	EXPECT_DOUBLE_EQ(-1, report.mos_estimate);
+	ASSERT_EQ(0, stats_update(stats, R"([
+	 {"type":"candidate-pair","id":"pair","selected":true,"currentRoundTripTime":0}
+	])"));
+	stats_get_report(stats, &report);
+	EXPECT_TRUE(report.rtt.candidate_pair_valid);
+	EXPECT_EQ(0u, report.rtt.candidate_pair);
+	ASSERT_EQ(0, stats_update(stats, "[]"));
+	stats_get_report(stats, &report);
+	EXPECT_FALSE(report.rtt.candidate_pair_valid);
+	EXPECT_DOUBLE_EQ(-1, report.mos_estimate);
+	mem_deref(stats);
+}
+
+TEST(IceSelection, FirefoxSelectedPairWithoutTransportOrRemoteCandidate) {
+	avs_stats *stats = nullptr;
+	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr));
+	ASSERT_EQ(0, stats_update(stats, R"([
+	 {"type":"candidate-pair","id":"other","nominated":true,"state":"succeeded","currentRoundTripTime":0.9},
+	 {"type":"candidate-pair","id":"active","selected":true,"localCandidateId":"local","currentRoundTripTime":0.024},
+	 {"type":"local-candidate","id":"local","protocol":"udp","candidateType":"host"}
+	])"));
+	stats_report report = {};
+	stats_get_report(stats, &report);
+	EXPECT_TRUE(report.ice_pair_selected);
+	EXPECT_EQ(24u, report.rtt.candidate_pair);
+	EXPECT_EQ(STATS_PROTO_UDP, report.local_proto);
+	EXPECT_EQ(STATS_CAND_UNKNOWN, report.remote_cand);
+	mem_deref(stats);
+}
+
+TEST(RxStats, MeasuresIntervalsAndResetsWhenSourceChanges) {
+	avs_stats *stats = nullptr;
+	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr));
+	stats_report result = {};
+	stats_update(stats, R"([
+	 {"type":"inbound-rtp","kind":"video","id":"v","trackIdentifier":"track",
+	  "avsUserId":"alice","avsClientId":"a","timestamp":1000,
+	  "bytesReceived":1000,"packetsReceived":100,"packetsLost":0}
+	])");
+	stats_update(stats, R"([
+	 {"type":"inbound-rtp","kind":"video","id":"v","trackIdentifier":"track",
+	  "avsUserId":"alice","avsClientId":"a","timestamp":2000,
+	  "bytesReceived":5000,"packetsReceived":198,"packetsLost":2,"jitter":0.005,
+	  "frameWidth":1280,"frameHeight":720,"framesPerSecond":30}
+	])");
+	ASSERT_EQ(0, stats_get_report_snapshot(stats, &result));
+	ASSERT_NE(nullptr, result.rx_tracks);
+	ASSERT_EQ(1u, list_count(result.rx_tracks));
+	const auto *track = static_cast<const stats_rx_track *>(result.rx_tracks->head->data);
+	EXPECT_STREQ("alice", track->user_id);
+	EXPECT_DOUBLE_EQ(32000, track->media.bitrate);
+	EXPECT_DOUBLE_EQ(2, track->media.loss);
+	EXPECT_DOUBLE_EQ(5, track->media.jitter);
+	stats_update(stats, R"([
+	 {"type":"inbound-rtp","kind":"video","id":"v","trackIdentifier":"track",
+	  "avsUserId":"bob","avsClientId":"b","timestamp":3000,
+	  "bytesReceived":9000,"packetsReceived":296,"packetsLost":4}
+	])");
+	/* Updating the producer must not invalidate the reader's snapshot. */
+	EXPECT_STREQ("alice", track->user_id);
+	EXPECT_DOUBLE_EQ(32000, track->media.bitrate);
+	stats_report_release(&result);
+	ASSERT_EQ(0, stats_get_report_snapshot(stats, &result));
+	track = static_cast<const stats_rx_track *>(result.rx_tracks->head->data);
+	EXPECT_STREQ("bob", track->user_id);
+	EXPECT_DOUBLE_EQ(-1, track->media.bitrate);
+	EXPECT_DOUBLE_EQ(-1, track->media.loss);
+	stats_update(stats, "[]");
+	EXPECT_STREQ("bob", track->user_id);
+	stats_report_release(&result);
+	ASSERT_EQ(0, stats_get_report_snapshot(stats, &result));
+	EXPECT_EQ(0u, list_count(result.rx_tracks));
+	mem_deref(stats);
+	/* Snapshot also outlives the collector. */
+	stats_report_release(&result);
+}
+
+TEST(TxStats, MeasuresIntervalsAndMatchesReceiverFeedback) {
+	avs_stats *stats = nullptr;
+	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr));
+	stats_report result = {};
+	stats_update(stats, R"([
+	 {"type":"outbound-rtp","kind":"video","id":"v","timestamp":1000,"bytesSent":1000}
+	])");
+	stats_get_report(stats, &result);
+	EXPECT_LT(result.tx_video.bitrate, 0);
+	stats_update(stats, R"([
+	 {"type":"outbound-rtp","kind":"video","id":"v","timestamp":2000,"bytesSent":126000,
+	  "frameWidth":1280,"frameHeight":720,"framesPerSecond":30},
+	 {"type":"remote-inbound-rtp","kind":"video","localId":"v","jitter":0.008,"fractionLost":0.005},
+	 {"type":"remote-inbound-rtp","kind":"video","localId":"other","jitter":0.5,"fractionLost":0.9}
+	])");
+	stats_get_report(stats, &result);
+	EXPECT_DOUBLE_EQ(1000000, result.tx_video.bitrate);
+	EXPECT_DOUBLE_EQ(8, result.tx_video.jitter);
+	EXPECT_DOUBLE_EQ(0.5, result.tx_video.loss);
+	EXPECT_EQ(1280, result.tx_video.width);
+	EXPECT_EQ(720, result.tx_video.height);
+	EXPECT_DOUBLE_EQ(30, result.tx_video.fps);
+	stats_update(stats, "[]");
+	stats_get_report(stats, &result);
+	EXPECT_LT(result.tx_video.bitrate, 0);
+	EXPECT_LT(result.tx_video.jitter, 0);
+	EXPECT_EQ(0, result.tx_video.width);
+	mem_deref(stats);
+}
+
+TEST(IceSelection, ResolvesBothEndpointsAndClearsAnUnselectedPair) {
+	avs_stats *stats = nullptr;
+	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr));
+	const char *report = R"([
+	 {"type":"transport"},
+	 {"type":"transport","selectedCandidatePairId":"pair"},
+	 {"type":"candidate-pair","id":"pair","state":"succeeded",
+	  "nominated":true,"localCandidateId":"local","remoteCandidateId":"remote",
+	  "currentRoundTripTime":0.024},
+	 {"type":"local-candidate","id":"local","protocol":"udp","candidateType":"relay","relayProtocol":"tls"},
+	 {"type":"remote-candidate","id":"remote","protocol":"udp","candidateType":"host"}
+	])";
+	EXPECT_EQ(0, stats_update(stats, report));
+	stats_report result = {};
+	stats_get_report(stats, &result);
+	EXPECT_TRUE(result.ice_pair_selected);
+	EXPECT_EQ(STATS_CAND_RELAY, result.local_cand);
+	EXPECT_EQ(STATS_CAND_HOST, result.remote_cand);
+	EXPECT_EQ(STATS_PROTO_UDP, result.remote_proto);
+	EXPECT_EQ(STATS_PROTO_TLS, result.local_proto);
+	EXPECT_EQ(STATS_PROTO_UDP, result.legacy_local_proto);
+	EXPECT_EQ(24u, result.rtt.candidate_pair);
+	EXPECT_EQ(0, stats_update(stats, R"([
+	 {"type":"candidate-pair","id":"pair","state":"succeeded","nominated":true}
+	])"));
+	stats_get_report(stats, &result);
+	EXPECT_FALSE(result.ice_pair_selected);
+	EXPECT_EQ(STATS_CAND_UNKNOWN, result.local_cand);
+	EXPECT_EQ(STATS_CAND_UNKNOWN, result.remote_cand);
+	mem_deref(stats);
+}
 
 //------------------------ SANITY TESTS  -----------------------------------
 
@@ -420,17 +570,25 @@ TEST_P(Connection, ptotocol_type) {
 
 	auto candidate_pair = new RTCIceCandidatePairStats("someCandidatePairId", Timestamp::Zero());
 	candidate_pair->local_candidate_id = local_candidate->id();
+	auto remote_candidate = new RTCRemoteIceCandidateStats("remoteCandidateId", Timestamp::Zero());
+	remote_candidate->protocol = std::get<0>(GetParam());
+	remote_candidate->candidate_type = "host";
+	candidate_pair->remote_candidate_id = remote_candidate->id();
+	auto transport = new RTCTransportStats("transportId", Timestamp::Zero());
+	transport->selected_candidate_pair_id = candidate_pair->id();
 	candidate_pair->state = "succeeded";
-	candidate_pair->nominated = "true";
+	candidate_pair->nominated = true;
 
+	report->AddStats(std::unique_ptr<RTCStats>(transport));
+	report->AddStats(std::unique_ptr<RTCStats>(remote_candidate));
 	report->AddStats(std::unique_ptr<RTCStats>(local_candidate));
 	report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	EXPECT_EQ(sr.proto, std::get<2>(GetParam()));
-	EXPECT_EQ(sr.cand, std::get<3>(GetParam()));
+	EXPECT_EQ(sr.local_proto, std::get<2>(GetParam()));
+	EXPECT_EQ(sr.local_cand, std::get<3>(GetParam()));
 }
 
 
@@ -620,27 +778,34 @@ TEST_F(StatsRttBase, without_candidates)
 	EXPECT_EQ(sr.rtt, zero_rtt);
 }
 
-TEST_F(StatsRttBase, unsucceeded_candidates)
+TEST_F(StatsRttBase, transport_selection_does_not_require_succeeded)
 {
 	candidate_pair->state = "unsucceeded";
-	std::unique_ptr<RTCIceCandidatePairStats> candidate_pair;
+	candidate_pair->nominated = true;
+	auto transport = new RTCTransportStats("transport", Timestamp::Zero());
+	transport->selected_candidate_pair_id = candidate_pair->id();
+	report->AddStats(std::unique_ptr<RTCStats>(transport));
+	report->AddStats(std::move(candidate_pair));
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	EXPECT_EQ(sr.rtt, zero_rtt);
+	EXPECT_EQ(10u, sr.rtt.candidate_pair);
 }
 
-TEST_F(StatsRttBase, unnominated_candidates)
+TEST_F(StatsRttBase, transport_selection_does_not_require_nomination)
 {
 	candidate_pair->state = "succeeded";
 	candidate_pair->nominated = false;
-	std::unique_ptr<RTCIceCandidatePairStats> candidate_pair;
+	auto transport = new RTCTransportStats("transport", Timestamp::Zero());
+	transport->selected_candidate_pair_id = candidate_pair->id();
+	report->AddStats(std::unique_ptr<RTCStats>(transport));
+	report->AddStats(std::move(candidate_pair));
 
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	EXPECT_EQ(sr.rtt, zero_rtt);
+	EXPECT_EQ(10u, sr.rtt.candidate_pair);
 }
 
 // ------------------------------------- RTT Tests --------------------------------------
@@ -658,6 +823,16 @@ public:
 		candidate_pair->current_round_trip_time = 0.01;
 		candidate_pair->state = "succeeded";
 		candidate_pair->nominated = true;
+		auto local = new RTCLocalIceCandidateStats("local", Timestamp::Zero());
+		auto remote = new RTCRemoteIceCandidateStats("remote", Timestamp::Zero());
+		local->protocol = "udp";
+		local->candidate_type = "host";
+		remote->protocol = "udp";
+		remote->candidate_type = "host";
+		candidate_pair->local_candidate_id = local->id();
+		candidate_pair->remote_candidate_id = remote->id();
+		report->AddStats(std::unique_ptr<RTCStats>(local));
+		report->AddStats(std::unique_ptr<RTCStats>(remote));
 		report->AddStats(std::unique_ptr<RTCStats>(candidate_pair));
 
 		const auto remote_audio_rtp = new RTCRemoteInboundRtpStreamStats("someRemoteAudioRtpId", Timestamp::Zero());
@@ -690,7 +865,10 @@ TEST_F(StatsRtt, some_rtt_values)
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
+	/* Nomination without transport selection must not select a pair. */
+	expected_rtt.candidate_pair = 0;
 	EXPECT_EQ(sr.rtt, expected_rtt);
+	EXPECT_FALSE(sr.ice_pair_selected);
 }
 
 TEST_F(StatsRtt, some_rtt_values_with_transport)

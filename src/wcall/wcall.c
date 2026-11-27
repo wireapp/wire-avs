@@ -1879,18 +1879,71 @@ static void icall_quality_handler(struct icall *icall,
 	json_object_object_add(jobj, "jitter", jitter_jobj);
 
 	struct json_object *connection_jobj = json_object_new_object();
+	/* Preserve the original candidate protocol for existing clients. */
 	json_object_object_add(connection_jobj, "protocol",
-				json_object_new_string(stats_proto_name(stats.proto)));
+				json_object_new_string(stats_proto_name(stats.legacy_local_proto)));
 	json_object_object_add(connection_jobj, "candidate",
-				json_object_new_string(stats_cand_name(stats.cand)));
+				json_object_new_string(stats_cand_name(stats.local_cand)));
+	json_object_object_add(connection_jobj, "local_proto",
+		json_object_new_string(stats_proto_name(stats.local_proto)));
+	json_object_object_add(connection_jobj, "local_cand",
+		json_object_new_string(stats_cand_name(stats.local_cand)));
+	json_object_object_add(connection_jobj, "remote_proto",
+		json_object_new_string(stats_proto_name(stats.remote_proto)));
+	json_object_object_add(connection_jobj, "remote_cand",
+		json_object_new_string(stats_cand_name(stats.remote_cand)));
 	json_object_object_add(jobj, "connection", connection_jobj);
 
 	json_object_object_add(jobj, "peer",
 				json_object_new_string(peer_to_str(peer)));
 
+	/* Keep TX objects present even before measurements are available. */
+	struct json_object *tx = json_object_new_object();
+	struct json_object *rx = json_object_new_object();
+	struct json_object *tx_audio = json_object_new_object();
+	struct json_object *tx_video = json_object_new_object();
+	json_object_object_add(tx_audio, "bitrate", json_object_new_double(stats.tx_audio.bitrate));
+	json_object_object_add(tx_audio, "jitter", json_object_new_double(stats.tx_audio.jitter));
+	json_object_object_add(tx_audio, "loss", json_object_new_double(stats.tx_audio.loss));
+	json_object_object_add(tx_video, "bitrate", json_object_new_double(stats.tx_video.bitrate));
+	json_object_object_add(tx_video, "jitter", json_object_new_double(stats.tx_video.jitter));
+	json_object_object_add(tx_video, "loss", json_object_new_double(stats.tx_video.loss));
+	json_object_object_add(tx_video, "width", json_object_new_int(stats.tx_video.width));
+	json_object_object_add(tx_video, "height", json_object_new_int(stats.tx_video.height));
+	json_object_object_add(tx_video, "fps", json_object_new_double(stats.tx_video.fps));
+	json_object_object_add(tx, "audio", tx_audio);
+	json_object_object_add(tx, "video", tx_video);
+	struct json_object *rx_audio = json_object_new_array();
+	struct json_object *rx_video = json_object_new_array();
+	if (stats.rx_tracks) {
+		struct le *le;
+		LIST_FOREACH(stats.rx_tracks, le) {
+			const struct stats_rx_track *track = le->data;
+			struct json_object *item = json_object_new_object();
+			json_object_object_add(item, "trackId", json_object_new_string(track->track_id ? track->track_id : track->id));
+			json_object_object_add(item, "userId", track->user_id ? json_object_new_string(track->user_id) : NULL);
+			json_object_object_add(item, "clientId", track->client_id ? json_object_new_string(track->client_id) : NULL);
+			json_object_object_add(item, "bitrate", json_object_new_double(track->media.bitrate));
+			json_object_object_add(item, "jitter", json_object_new_double(track->media.jitter));
+			json_object_object_add(item, "loss", json_object_new_double(track->media.loss));
+			if (track->video) {
+				json_object_object_add(item, "width", json_object_new_int(track->media.width));
+				json_object_object_add(item, "height", json_object_new_int(track->media.height));
+				json_object_object_add(item, "fps", json_object_new_double(track->media.fps));
+			}
+			json_object_array_add(track->video ? rx_video : rx_audio, item);
+		}
+	}
+	json_object_object_add(rx, "audio", rx_audio);
+	json_object_object_add(rx, "video", rx_video);
+	json_object_object_add(jobj, "tx", tx);
+	json_object_object_add(jobj, "rx", rx);
+
 	if (jzon_encode(&quality_info, jobj)) {
 		warning("wcall(%p): can not generate quality information\n", wcall);
-		quality_info = "{}";
+		mem_deref(jobj);
+		mem_deref(quality_info);
+		return;
 	}
 
 	info(APITAG "wcall(%p): calling netqh:%p %s.%s quality: %s\n",

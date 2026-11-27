@@ -3068,19 +3068,21 @@ int ecall_stats_struct(const struct ecall *ecall,
 	if (!ecall || !stats)
 		return EINVAL;
 
-	IFLOW_CALL(ecall->flow, get_stats, stats);
-
-	return 0;
+	return IFLOW_CALLE(ecall->flow, get_stats, stats);
 }
 
 int ecall_stats(struct re_printf *pf, const struct ecall *ecall)
 {
-	struct stats_report stats;
+	struct stats_report stats = {0};
 	struct json_object *jfstats = NULL;
 	int err = 0;
 
 
-	IFLOW_CALL(ecall->flow, get_stats, &stats);
+	err = IFLOW_CALLE(ecall->flow, get_stats, &stats);
+	if (err) {
+		stats_report_release(&stats);
+		return err;
+	}
 
 	
 	jfstats = jzon_alloc_object();
@@ -3094,6 +3096,7 @@ int ecall_stats(struct re_printf *pf, const struct ecall *ecall)
 	jzon_print(pf, jfstats);
 
 	mem_deref(jfstats);
+	stats_report_release(&stats);
 	return err;
 }
 
@@ -3348,7 +3351,7 @@ int ecall_activate(struct ecall *ecall, bool active)
 static void quality_handler(void *arg)
 {
 	struct ecall *ecall = arg;
-	struct stats_report stats;
+	struct stats_report stats = {0};
 	int err = 0;
 
 	tmr_start(&ecall->quality.tmr, ecall->quality.interval,
@@ -3374,9 +3377,12 @@ static void quality_handler(void *arg)
 
 		ecall->metrics.m.packetloss_last = dloss;
 		ecall->metrics.m.packetloss_max = MAX(ecall->metrics.m.packetloss_max, dloss);
-		ecall->metrics.m.rtt_last = rtt;
-		ecall->metrics.m.rtt_max = MAX(ecall->metrics.m.rtt_max, rtt);
+		if (stats.rtt.candidate_pair_valid) {
+			ecall->metrics.m.rtt_last = rtt;
+			ecall->metrics.m.rtt_max = MAX(ecall->metrics.m.rtt_max, rtt);
+		}
 	}
+	stats_report_release(&stats);
 }
 
 int ecall_set_quality_interval(struct ecall *ecall,

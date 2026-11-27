@@ -16,6 +16,7 @@
   ],
   "license": "GPL-3.0",
   "main": "dist/avs_wcall.js",
+  "types": "dist/avs_wcall.d.ts",
   "name": "@wireapp/avs",
   "repository": "https://github.com/wireapp/wire-avs",
   "publishConfig": {
