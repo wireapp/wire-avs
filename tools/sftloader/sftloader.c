@@ -27,6 +27,11 @@ struct sftloader {
 	bool use_video;
 	bool verify_video;
 	bool video_octo;
+	uint32_t max_vstreams; /* video streams requested per receiver */
+	uint32_t rotate_ms;    /* rotate requested streams, 0: off */
+	uint32_t nusers_created;
+	uint32_t video_sync_ms; /* start all video at t0 + this, 0: off */
+	uint64_t t0;
 	struct tmr tmr;
 	struct tmr tmr_vreport;
 	struct list userl;
@@ -34,6 +39,9 @@ struct sftloader {
 
 	FILE *logfp;
 };
+
+#define VP_MAX 32
+#define VP_ID_LEN 128
 
 struct sft_user {
 	WUSER_HANDLE wuser;
@@ -50,6 +58,16 @@ struct sft_user {
 	bool is_federating;
 	int answer_ms;   /* <0: random 2-12s */
 
+	/* Other participants that send video, sorted by user/client id,
+	 * and the rotation offset into it for tile switching (-W/-R).
+	 */
+	struct {
+		char userid[VP_MAX][VP_ID_LEN];
+		char clientid[VP_MAX][VP_ID_LEN];
+		uint32_t n;
+		uint32_t rot;
+	} vpeers;
+
 	struct dnsc *dnsc;
 	struct http_cli *httpc;
 
@@ -57,6 +75,7 @@ struct sft_user {
 		struct tmr t;
 		struct tmr duration;
 		struct tmr video;
+		struct tmr rotate;
 	} tmr;
 
 	int ncalls;
@@ -137,6 +156,7 @@ static void su_destructor(void *arg)
 	tmr_cancel(&su->tmr.t);
 	tmr_cancel(&su->tmr.duration);
 	tmr_cancel(&su->tmr.video);
+	tmr_cancel(&su->tmr.rotate);
 	
 	mem_deref(su->userid);
 	mem_deref(su->clientid);
@@ -441,6 +461,9 @@ static void close_handler(int reason,
 
 	re_printf("close_handler(%p) closed reason=%d\n", su, reason);
 
+	tmr_cancel(&su->tmr.rotate);
+	su->vpeers.n = 0;
+
 	if (!sftloader->running) {
 		if (!has_calls()) {
 			re_cancel();
@@ -704,6 +727,23 @@ static void video_timeout(void *arg)
 #if 1
 	tmo = rand_u32() % 5000;
 	tmo += 2000;
+	if (sftloader->video_sync_ms) {
+		/* Same start for every sender, so their encoders' frame
+		 * ids (which start at 0) stay close to each other.
+		 */
+		uint64_t at = sftloader->t0 + sftloader->video_sync_ms;
+		uint64_t now = tmr_jiffies();
+
+		if (now >= at) {
+			re_printf("video_timeout: user %s.%s joined after "
+				  "the synced video start\n",
+				  su->userid, su->clientid);
+			tmo = 0;
+		}
+		else {
+			tmo = at - now;
+		}
+	}
 	tmr_start(&su->tmr.video, tmo, video_timeout, su);
 #endif
 }
@@ -720,18 +760,81 @@ static void estab_handler(const char *convid,
 	video_timeout(su);
 }
 
+static int vpeer_cmp(const void *a, const void *b)
+{
+	return strcmp((const char *)a, (const char *)b);
+}
+
+/* Request video from at most max_vstreams of the participants that send
+ * video, starting at the rotation offset. With fewer streams than video
+ * senders, changing the offset makes the SFT hand a stream (tile) to a
+ * different source.
+ */
+static void request_vstreams(struct sft_user *su)
+{
+	struct json_object *robj = NULL;
+	struct json_object *rclients;
+	char *json_str = NULL;
+	uint32_t i, n;
+	char sel[512] = "";
+	size_t pos = 0;
+
+	if (su->vpeers.n == 0)
+		return;
+
+	n = min(su->vpeers.n, sftloader->max_vstreams);
+
+	robj = jzon_alloc_object();
+	rclients = json_object_new_array();
+	for (i = 0; i < n; ++i) {
+		uint32_t k = (su->vpeers.rot + i) % su->vpeers.n;
+		struct json_object *rcli = jzon_alloc_object();
+
+		jzon_add_str(rcli, "userid", "%s", su->vpeers.userid[k]);
+		jzon_add_str(rcli, "clientid", "%s", su->vpeers.clientid[k]);
+		json_object_array_add(rclients, rcli);
+
+		if (pos < sizeof(sel))
+			pos += re_snprintf(sel + pos, sizeof(sel) - pos,
+					   "%s%s", i ? "," : "",
+					   su->vpeers.userid[k]);
+	}
+	jzon_add_str(robj, "convid", "%s", su->convid);
+	json_object_object_add(robj, "clients", rclients);
+
+	jzon_encode(&json_str, robj);
+	if (json_str) {
+		if (sftloader->rotate_ms) {
+			re_printf("TILES user=%s.%s streams=[%s]\n",
+				  su->userid, su->clientid, sel);
+		}
+		wcall_request_video_streams(su->wuser, su->convid, 0,
+					    json_str);
+	}
+
+	mem_deref(robj);
+	mem_deref(json_str);
+}
+
+static void rotate_timeout(void *arg)
+{
+	struct sft_user *su = arg;
+
+	su->vpeers.rot++;
+	request_vstreams(su);
+
+	tmr_start(&su->tmr.rotate, sftloader->rotate_ms, rotate_timeout, su);
+}
+
 static void participant_changed_handler(const char *convid,
 					const char *mjson,
 					void *arg)
 {
 	struct sft_user *su = arg;
-	char *json_str = NULL;
 	struct json_object *jobj = NULL;
 	struct json_object *jclients = NULL;
-	size_t i, nclients = 0, vclients = 0;
-	struct json_object *robj = NULL;
-	struct json_object *rcli = NULL;
-	struct json_object *rclients = NULL;
+	size_t i, nclients = 0;
+	uint32_t n = 0;
 	int err = 0;
 
 	size_t jlen = strlen(mjson);
@@ -748,18 +851,14 @@ static void participant_changed_handler(const char *convid,
 
 	nclients = json_object_array_length(jclients);
 
-	robj = jzon_alloc_object();
-	rclients = json_object_new_array();
-
-	for (i = 0; i < nclients; ++i) {
+	for (i = 0; i < nclients && n < VP_MAX; ++i) {
 		const char *uid, *cid;
 		struct json_object *jcli;
 		int32_t vstate;
 
 		jcli = json_object_array_get_idx(jclients, i);
-		if (!jcli) {
+		if (!jcli)
 			goto out;
-		}
 
 		err = jzon_int(&vstate, jcli, "vrecv");
 		if (err)
@@ -767,37 +866,54 @@ static void participant_changed_handler(const char *convid,
 
 		uid = jzon_str(jcli, "userid");
 		cid = jzon_str(jcli, "clientid");
-		if (vstate == WCALL_VIDEO_STATE_STARTED && 
-		    (strcmp(su->userid, uid) != 0 || strcmp(su->clientid, cid) != 0) &&
-		    vclients < 9) {
-			rcli = jzon_alloc_object();
-			
-			jzon_add_str(rcli, "userid", "%s", uid);
-			jzon_add_str(rcli, "clientid", "%s", cid);
-			json_object_array_add(rclients, rcli);
-			vclients++;
+		if (!uid || !cid)
+			continue;
+		if (vstate != WCALL_VIDEO_STATE_STARTED)
+			continue;
+		if (streq(su->userid, uid) && streq(su->clientid, cid))
+			continue;
+
+		re_snprintf(su->vpeers.userid[n], VP_ID_LEN, "%s", uid);
+		re_snprintf(su->vpeers.clientid[n], VP_ID_LEN, "%s", cid);
+		++n;
+	}
+	su->vpeers.n = n;
+
+	if (n == 0)
+		goto out;
+
+	/* Stable order, so rotation walks every sender in turn */
+	if (n > 1) {
+		char keys[VP_MAX][2 * VP_ID_LEN];
+		char uids[VP_MAX][VP_ID_LEN];
+		char cids[VP_MAX][VP_ID_LEN];
+		uint32_t k;
+
+		for (k = 0; k < n; ++k) {
+			re_snprintf(keys[k], sizeof(keys[k]), "%s.%s.%u",
+				    su->vpeers.userid[k],
+				    su->vpeers.clientid[k], k);
+		}
+		qsort(keys, n, sizeof(keys[0]), vpeer_cmp);
+		memcpy(uids, su->vpeers.userid, sizeof(uids));
+		memcpy(cids, su->vpeers.clientid, sizeof(cids));
+		for (k = 0; k < n; ++k) {
+			const char *dot = strrchr(keys[k], '.');
+			uint32_t ix = (uint32_t)atoi(dot + 1);
+
+			str_ncpy(su->vpeers.userid[k], uids[ix], VP_ID_LEN);
+			str_ncpy(su->vpeers.clientid[k], cids[ix], VP_ID_LEN);
 		}
 	}
 
-	if (vclients == 0)
-		goto out;
-	jzon_add_str(robj, "convid", "%s", convid);
-	json_object_object_add(robj, "clients", rclients);
+	request_vstreams(su);
 
-	jzon_encode(&json_str, robj);
-
-	if (json_str) {
-		//re_printf("user %s.%s requesting %zu video streams\n", su->userid, su->clientid, vclients);
-
-		wcall_request_video_streams(su->wuser,
-					    convid,
-					    0,
-					    json_str);
+	if (sftloader->rotate_ms && !tmr_isrunning(&su->tmr.rotate)) {
+		tmr_start(&su->tmr.rotate, sftloader->rotate_ms,
+			  rotate_timeout, su);
 	}
 out:
 	mem_deref(jobj);
-	mem_deref(robj);
-	mem_deref(json_str);
 }
 
 static void quality_handler(const char *convid,
@@ -1032,6 +1148,9 @@ static int create_user(struct sft_user **sup,
 	tmr_init(&su->tmr.t);
 	tmr_init(&su->tmr.duration);
 	tmr_init(&su->tmr.video);
+	tmr_init(&su->tmr.rotate);
+	/* Start every receiver at a different tile */
+	su->vpeers.rot = sftloader->nusers_created++;
 
 	su->wuser = wcall_create(su->userid,
 				 su->clientid,
@@ -1395,20 +1514,28 @@ static void usage(void)
 {
 	re_fprintf(stderr,
 		   "usage: sftloader [options]\n"
-		   "\t-u <n>        number of users\n"
-		   "\t-c <n>        clientid number\n"
+		   "(see tools/sftloader/README.md for examples)\n"
+		   "\t-h            show this help\n"
+		   "\t-u <n>        number of users (usr00000, usr00001, ...)\n"
+		   "\t-c <n>        clientid number (default 0 -> \"0000\")\n"
 		   "\t-s <url>      SFT url (url[|user|cred])\n"
 		   "\t-S <urls>     comma separated list of all SFTs\n"
 		   "\t-f            federating\n"
 		   "\t-C <file>     per-user config JSON, overrides -u\n"
-		   "\t-i <convid>   conversation id\n"
-		   "\t-n <n>        number of calls per user\n"
-		   "\t-d <sec>      call duration\n"
-		   "\t-t <ms>       timeout\n"
+		   "\t-i <convid>   conversation id (default: random uuid)\n"
+		   "\t-n <n>        number of calls per user (default: endless)\n"
+		   "\t-d <sec>      call duration (default: until killed)\n"
+		   "\t-t <ms>       timeout (currently unused)\n"
 		   "\t-v            send video\n"
 		   "\t-V            stamp and verify received video (implies -v),\n"
 		   "\t              exit 1 if any pair got no or wrong video\n"
 		   "\t-P <pattern>  video pattern: head (default) or octo\n"
+		   "\t-W <n>        request at most n video streams (default 9)\n"
+		   "\t-R <ms>       tile switching: rotate the requested video\n"
+		   "\t              streams every ms (use with -W < senders)\n"
+		   "\t-Y <ms>       start every user's video at the same time,\n"
+		   "\t              ms after start (instead of random 2-7s\n"
+		   "\t              after joining)\n"
 		   "\t-l <file>     log file\n");
 }
 
@@ -1422,9 +1549,10 @@ int main(int argc, char **argv)
 	sftloader->ncalls = INFINITE;
 	sftloader->clientno = 0;
 	sftloader->logfp = stdout;
+	sftloader->max_vstreams = 9;
 
 	for (;;) {
-		const int c = getopt(argc, argv, "C:c:d:fhi:l:n:P:s:S:t:u:vV");
+		const int c = getopt(argc, argv, "C:c:d:fhi:l:n:P:R:s:S:t:u:vVW:Y:");
 
 		if (c < 0)
 			break;
@@ -1473,6 +1601,23 @@ int main(int argc, char **argv)
 				re_fprintf(stderr, "sftloader: unknown video "
 					   "pattern: %s\n", optarg);
 				usage();
+				return 2;
+			}
+			break;
+
+		case 'Y':
+			sftloader->video_sync_ms = atoi(optarg);
+			break;
+
+		case 'R':
+			sftloader->rotate_ms = atoi(optarg);
+			break;
+
+		case 'W':
+			sftloader->max_vstreams = atoi(optarg);
+			if (sftloader->max_vstreams < 1) {
+				re_fprintf(stderr, "sftloader: -W must be "
+					   ">= 1\n");
 				return 2;
 			}
 			break;
@@ -1548,6 +1693,7 @@ int main(int argc, char **argv)
 			goto out;
 		}
 	}
+	sftloader->t0 = tmr_jiffies();
 	tmr_start(&sftloader->tmr, 500, start_timeout, NULL);
 	
 	re_main(signal_handler);
