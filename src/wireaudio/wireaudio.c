@@ -16,6 +16,9 @@
 #define PSTN_PTIME 20
 #define PSTN_SAMPLES ((PSTN_SRATE*PSTN_CHAN*PSTN_PTIME)/1000)
 
+/* Largest mixer frame a leg can handle: 48kHz stereo 40ms */
+#define LEG_MAX_SAMPLES ((48000*2*40)/1000)
+
 struct {
 	struct hash *wdevs;
 	struct ausrc *ausrc;
@@ -27,6 +30,9 @@ struct {
 };
 
 struct wdev {
+	/* Opaque conversation key given by the SIP side, not
+	 * necessarily the convid (which may not fit a device name)
+	 */
 	char *convid;
 
 	size_t handler_cnt;
@@ -34,9 +40,8 @@ struct wdev {
 	struct lock *lock;
 
 	struct aumix *ausrc_mix;
-	
-	struct list ausrcl;
-	struct list auplayl;
+
+	struct list legl;  /* struct wleg, not owned */
 
 	struct {
 		int16_t sampv[AUDIO_SAMPLES];
@@ -62,34 +67,48 @@ struct wdev {
 	struct le le;
 };
 
-struct ausrc_st {
-	const struct ausrc *as;  /* pointer to base-class (inheritance) */
-	
-	struct ausrc_prm *prm;
+/*
+ * One PSTN leg (SIP call) in the conversation. The device name is
+ * "<conv>/<leg>": the conversation key selects the wdev (and
+ * its mixer), the full name pairs the leg's ausrc and auplay.
+ *
+ * A leg has a single mixer source, so that the aumix mix-minus
+ * keeps the caller's own audio out of what is sent back to it.
+ */
+struct wleg {
+	char *name;
 	struct wdev *wdev;
 	struct aumix_source *mix_src;
+
+	/* Protects src/play; the frame handler runs on the mixer thread.
+	 * Never call into aumix while holding it.
+	 */
+	struct lock *lock;
+	struct ausrc_st *src;    /* not owned */
+	struct auplay_st *play;  /* not owned */
+
+	int16_t sampv[LEG_MAX_SAMPLES];
+
+	struct le le;
+};
+
+struct ausrc_st {
+	const struct ausrc *as;  /* pointer to base-class (inheritance) */
+
+	struct wleg *leg;
 
 	ausrc_read_h *rh;
 	ausrc_error_h *errh;
 	void *arg;
-	
-	struct le le;
 };
 
 struct auplay_st {
 	const struct auplay *ap;  /* pointer to base-class (inheritance) */
-	
-	struct auplay_prm *prm;
-	struct wdev *wdev;
-	struct aumix_source *mix_src;
+
+	struct wleg *leg;
 
 	auplay_write_h *wh;
 	void *arg;
-
-	int16_t sampv[PSTN_SAMPLES];
-	size_t sampc;
-
-	struct le le;
 };
 
 
@@ -103,9 +122,6 @@ static void wdev_destructor(void *arg)
 
 	hash_unlink(&wdev->le);
 	
-	list_flush(&wdev->ausrcl);
-	list_flush(&wdev->auplayl);
-
 	mem_deref(wdev->ausrc_mix);
 	mem_deref(wdev->convid);
 
@@ -143,40 +159,30 @@ static struct wdev *find_device(const char *convid)
 }
 
 
-static void ausrc_mix_frame_handler(const int16_t *sampv,
-				    size_t sampc,
-				    void *arg)
+/* Called on the mixer thread with the mix of all sources but this leg */
+static void leg_mix_frame_handler(const int16_t *sampv,
+				  size_t sampc,
+				  void *arg)
 {
-	struct ausrc_st *st = arg;
+	struct wleg *leg = arg;
+	size_t n = min(sampc, ARRAY_SIZE(leg->sampv));
 
-#if 0
-	info("ausrc(%p): mix frame with size: %lld buf=%w\n",
-	     st, sampc, sampv, 10);
-#endif
+	lock_write_get(leg->lock);
 
-	if (st->rh) {
-		st->rh(sampv, sampc, st->arg);
-	}
-}
-
-static void auplay_mix_frame_handler(const int16_t *sampv,
-				    size_t sampc,
-				    void *arg)
-{
-	struct auplay_st *ap = arg;
-
-	if (ap->wh) {
-		ap->wh(ap->sampv, ap->sampc, ap->arg);
-	}
-
-#if 0
-	re_printf("auplay_frame: sampc=%d sampv=%w\n", ap->sampc, ap->sampv, 6);
-#endif
-
-	/* This is to be mixed with all others together with the wire
-	 * audio stream, to all participants on this gateway
+	/* Audio from the PSTN caller goes into the mix, to be heard
+	 * by the wire side and all the other legs
 	 */
-	aumix_source_put(ap->mix_src, ap->sampv, ap->sampc);
+	if (leg->play && leg->play->wh) {
+		leg->play->wh(leg->sampv, n, leg->play->arg);
+		aumix_source_put(leg->mix_src, leg->sampv, n);
+	}
+
+	/* The mix minus this leg goes back to the PSTN caller */
+	if (leg->src && leg->src->rh) {
+		leg->src->rh(sampv, sampc, leg->src->arg);
+	}
+
+	lock_rel(leg->lock);
 }
 
 static void wdev_mix_frame_handler(const int16_t *sampv,
@@ -290,17 +296,122 @@ static int alloc_device(struct wdev **wdevp,
 	return err;
 }
 
+static void leg_destructor(void *arg)
+{
+	struct wleg *leg = arg;
+
+	info("wireaudio: leg(%p): %s destructor\n", leg, leg->name);
+
+	/* Removing the source from the mixer waits for a running
+	 * frame handler, after which it is no longer called
+	 */
+	aumix_source_enable(leg->mix_src, false);
+	mem_deref(leg->mix_src);
+
+	list_unlink(&leg->le);
+
+	mem_deref(leg->lock);
+	mem_deref(leg->name);
+	mem_deref(leg->wdev);
+}
+
+
+/* Get a reference to the leg for device "<conv>/<leg>", allocating
+ * it (and its wdev) if needed. A device without '/' is a single leg
+ * with the whole name as conversation key.
+ */
+static int leg_get(struct wleg **legp, const char *device,
+		   uint32_t srate, uint32_t ptime, uint8_t ch)
+{
+	struct wleg *leg = NULL;
+	struct wdev *wdev;
+	const char *slash;
+	char *convid = NULL;
+	struct le *le;
+	int err;
+
+	if (!legp || !device)
+		return EINVAL;
+
+	slash = strrchr(device, '/');
+	if (slash)
+		err = re_sdprintf(&convid, "%b", device,
+				  (size_t)(slash - device));
+	else
+		err = str_dup(&convid, device);
+	if (err)
+		return err;
+
+	wdev = mem_ref(find_device(convid));
+	if (!wdev) {
+		err = alloc_device(&wdev, convid, srate, ptime, ch);
+		if (err)
+			goto out;
+	}
+
+	LIST_FOREACH(&wdev->legl, le) {
+		struct wleg *l = le->data;
+
+		if (0 == str_cmp(l->name, device)) {
+			*legp = mem_ref(l);
+			goto out;
+		}
+	}
+
+	leg = mem_zalloc(sizeof(*leg), leg_destructor);
+	if (!leg) {
+		err = ENOMEM;
+		goto out;
+	}
+
+	/* The leg takes over our wdev reference */
+	leg->wdev = wdev;
+	wdev = NULL;
+
+	err = lock_alloc(&leg->lock);
+	if (err)
+		goto out;
+
+	err = str_dup(&leg->name, device);
+	if (err)
+		goto out;
+
+	err = aumix_source_alloc(&leg->mix_src, leg->wdev->ausrc_mix,
+				 leg_mix_frame_handler, leg);
+	if (err)
+		goto out;
+
+	list_append(&leg->wdev->legl, &leg->le, leg);
+	aumix_source_enable(leg->mix_src, true);
+
+	info("wireaudio: leg(%p): %s allocated\n", leg, leg->name);
+
+	*legp = leg;
+	leg = NULL;
+
+ out:
+	mem_deref(leg);
+	mem_deref(wdev);
+	mem_deref(convid);
+
+	return err;
+}
+
+
 static void ausrc_destructor(void *arg)
 {
 	struct ausrc_st *st = arg;
 
 	info("wireaudio: ausrc=%p destructor\n", st);
 
-	aumix_source_enable(st->mix_src, false);
-	list_unlink(&st->le);
-	
-	mem_deref(st->mix_src);
-	mem_deref(st->wdev);
+	if (st->leg) {
+		lock_write_get(st->leg->lock);
+		if (st->leg->src == st)
+			st->leg->src = NULL;
+		lock_rel(st->leg->lock);
+	}
+
+	mem_deref(st->leg);
 }
 
 static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
@@ -309,42 +420,33 @@ static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 			ausrc_read_h *rh, ausrc_error_h *errh, void *arg)
 {
 	struct ausrc_st *st;
-	struct wdev *wdev;
-	bool allocated = false;
+	struct wleg *leg;
 	int err = 0;
 
-	info("wa_src_alloc: convid=%s srate=%d ch=%d ptime=%d fmt=%d\n",
+	info("wa_src_alloc: device=%s srate=%d ch=%d ptime=%d fmt=%d\n",
 	     device, prm->srate, prm->ch, prm->ptime, prm->fmt);
 
-	wdev = find_device(device);
-	if (!wdev) {
-		err = alloc_device(&wdev, device,
-				   prm->srate, prm->ptime, prm->ch);
-		if (err) {
-			return err;
-		}
-		allocated = true;
-	}
-
 	st = mem_zalloc(sizeof(*st), ausrc_destructor);
-	if (!st) {
+	if (!st)
 		return ENOMEM;
-	}
 
-	err = aumix_source_alloc(&st->mix_src, wdev->ausrc_mix,
-				 ausrc_mix_frame_handler, st);
-	if (err) {
+	err = leg_get(&st->leg, device, prm->srate, prm->ptime, prm->ch);
+	if (err)
 		goto out;
-	}
 
 	st->as = as;
-	st->wdev = allocated ? wdev : mem_ref(wdev);
 	st->rh = rh;
 	st->errh = errh;
 	st->arg = arg;
 
-	list_append(&wdev->ausrcl, &st->le, st);
-	aumix_source_enable(st->mix_src, true);
+	leg = st->leg;
+	lock_write_get(leg->lock);
+	if (leg->src) {
+		warning("wireaudio: leg(%p): replacing ausrc %p with %p\n",
+			leg, leg->src, st);
+	}
+	leg->src = st;
+	lock_rel(leg->lock);
 
  out:
 	if (err) {
@@ -363,13 +465,14 @@ static void auplay_destructor(void *arg)
 
 	info("wireaudio: auplay=%p destructor\n", st);
 
-	aumix_source_enable(st->mix_src, false);
+	if (st->leg) {
+		lock_write_get(st->leg->lock);
+		if (st->leg->play == st)
+			st->leg->play = NULL;
+		lock_rel(st->leg->lock);
+	}
 
-	mem_deref(st->mix_src);
-
-	list_unlink(&st->le);
-
-	mem_deref(st->wdev);
+	mem_deref(st->leg);
 }
 
 static int wa_play_alloc(struct auplay_st **stp, const struct auplay *ap,
@@ -377,41 +480,32 @@ static int wa_play_alloc(struct auplay_st **stp, const struct auplay *ap,
 				auplay_write_h *wh, void *arg)
 {
 	struct auplay_st *st;
-	struct wdev *wdev;
+	struct wleg *leg;
 	int err = 0;
 
-	info("wa_play_alloc: convid=%s srate=%d ch=%d ptime=%d fmt=%d\n",
+	info("wa_play_alloc: device=%s srate=%d ch=%d ptime=%d fmt=%d\n",
 	     device, prm->srate, prm->ch, prm->ptime, prm->fmt);
 
-	wdev = find_device(device);
-	if (!wdev) {
-		err = alloc_device(&wdev, device,
-				   prm->srate, prm->ptime, prm->ch);
-		if (err) {
-			return err;
-		}
-	}
-
 	st = mem_zalloc(sizeof(*st), auplay_destructor);
-	if (!st) {
+	if (!st)
 		return ENOMEM;
-	}
 
-	err = aumix_source_alloc(&st->mix_src, wdev->ausrc_mix,
-				 auplay_mix_frame_handler, st);
-	if (err) {
+	err = leg_get(&st->leg, device, prm->srate, prm->ptime, prm->ch);
+	if (err)
 		goto out;
-	}
 
 	st->ap = ap;
-	st->wdev = mem_ref(wdev);
-	st->sampc = PSTN_SAMPLES;
 	st->wh = wh;
 	st->arg = arg;
 
-	list_append(&wdev->auplayl, &st->le, st);
-
-	aumix_source_enable(st->mix_src, true);
+	leg = st->leg;
+	lock_write_get(leg->lock);
+	if (leg->play) {
+		warning("wireaudio: leg(%p): replacing auplay %p with %p\n",
+			leg, leg->play, st);
+	}
+	leg->play = st;
+	lock_rel(leg->lock);
 
  out:
 	if (err) {
@@ -445,6 +539,16 @@ static int wireaudio_init(void)
 static int wireaudio_close(void)
 {
 	info("wireaudio: module_close\n");
+
+	gwa.ausrc = mem_deref(gwa.ausrc);
+	gwa.auplay = mem_deref(gwa.auplay);
+
+	/* Any remaining wdevs are owned elsewhere; only unlink them
+	 * so that their destructors don't touch the freed hash.
+	 */
+	hash_clear(gwa.wdevs);
+	gwa.wdevs = mem_deref(gwa.wdevs);
+
 	return 0;
 }
 
@@ -460,6 +564,7 @@ int wireaudio_set_handlers(const char *convid,
 			   void *arg)
 {
 	struct wdev *wdev;
+	bool release = false;
 	int err = 0;
 	
 	if (!convid)
@@ -470,6 +575,10 @@ int wireaudio_set_handlers(const char *convid,
 	info("wireaudio: set_handlers: convid=%s rh=%p wh=%p arg=%p wdev=%p\n",
 	     convid, rh, wh, arg, wdev);
 
+	/* While handler_cnt > 0 the handlers hold one reference
+	 * on the wdev, so the device outlives any ausrc/auplay
+	 * and is released when the last handler is removed.
+	 */
 	if (wdev) {
 		lock_write_get(wdev->lock);
 		if (rh || wh) {
@@ -481,6 +590,7 @@ int wireaudio_set_handlers(const char *convid,
 				wdev->wa.rh = rh;
 				wdev->wa.wh = wh;
 				wdev->wa.arg = arg;
+				mem_ref(wdev);
 			}
 			wdev->handler_cnt++;
 		}
@@ -490,9 +600,16 @@ int wireaudio_set_handlers(const char *convid,
 				wdev->wa.rh = NULL;
 				wdev->wa.wh = NULL;
 				wdev->wa.arg = NULL;
+				release = true;
 			}
 		}
 		lock_rel(wdev->lock);
+
+		/* Drop the handler reference outside the lock,
+		 * as it may destroy the wdev (and its lock)
+		 */
+		if (release)
+			mem_deref(wdev);
 
 		return 0;
 	}
@@ -500,6 +617,9 @@ int wireaudio_set_handlers(const char *convid,
 		if (rh == NULL || wh == NULL)
 			return 0;
 		
+		/* The reference from alloc_device is the handler
+		 * reference, released when handler_cnt drops to 0
+		 */
 		err = alloc_device(&wdev, convid,
 				   PSTN_SRATE, PSTN_PTIME, PSTN_CHAN);
 		if (err)
