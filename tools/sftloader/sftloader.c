@@ -61,6 +61,7 @@ struct sft_user {
 
 	int ncalls;
 	int video_state;
+	bool done;       /* no more calls expected for this user */
 	
 	struct le le;
 };
@@ -415,6 +416,20 @@ static bool has_calls(void)
 	return has_calls;
 }
 
+static bool all_users_done(void)
+{
+	struct le *le;
+
+	LIST_FOREACH(&sftloader->userl, le) {
+		struct sft_user *su = le->data;
+
+		if (!su->done)
+			return false;
+	}
+
+	return true;
+}
+
 static void close_handler(int reason,
 			  const char *convid,
 			  uint32_t msg_time,
@@ -440,9 +455,17 @@ static void close_handler(int reason,
 		re_printf("close_handler(%p): answering\n", su);
 		answer_call(su);
 	}
-	else if (reason == WCALL_REASON_NORMAL) {
-		re_printf("close_handler(%p): ending\n", su);
-		re_cancel();
+	else {
+		/* Leaving a conference that others are still in gives
+		 * STILL_ONGOING, not NORMAL, so accept any reason here
+		 * and stop once every user is done.
+		 */
+		su->done = true;
+		if (all_users_done()) {
+			re_printf("close_handler(%p): all users done, "
+				  "ending\n", su);
+			re_cancel();
+		}
 	}
 }
 
@@ -1255,6 +1278,11 @@ static void start_call(struct sft_user *su)
 
         wcall_start(su->wuser, sftloader->convid, call_type,
 		    WCALL_CONV_TYPE_CONFERENCE_MLS, 1, 0);
+
+	/* The caller must leave too, or the process never ends */
+	if (sftloader->duration)
+		tmr_start(&su->tmr.duration, sftloader->duration,
+			  end_timeout, su);
 }
 
 static void start_timeout(void *arg)
