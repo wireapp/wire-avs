@@ -209,6 +209,7 @@ struct stats_audio_source {
 struct stats_candidate_pair {
 	enum stats_state state;
 	bool nominated;
+	bool selected;
 	double current_rtt;
 	char *id;
 	char *local_candidate_id;
@@ -547,45 +548,51 @@ static int read_rtt_and_connection(struct avs_stats *stats, const struct stats_o
 		selected_pair_id = tr->selected_pair_id;
 	}
 
-	/* Nomination alone does not prove that the pair is selected. */
+	/* Prefer the transport reference; Firefox also marks the pair itself. */
 	LIST_FOREACH(&stats_obj->candidate_pair, le) {
 		const struct stats_candidate_pair *data = (struct stats_candidate_pair *)le->data;
 
 		if (selected_pair_id && data->id &&
-		    streq(selected_pair_id, data->id) && data->nominated &&
-		    data->state == STATS_STATE_SUCCEEDED) {
+		    streq(selected_pair_id, data->id)) {
 			selected = data;
 			break;
 		}
+		if (!selected_pair_id && data->selected) {
+			if (selected)
+				goto out;
+			selected = data;
+		}
 	}
 
-	if (!selected || !selected->local_candidate_id || !selected->remote_candidate_id)
+	if (!selected)
 		goto out;
+	stats->report.ice_pair_selected = true;
+	stats->report.rtt.candidate_pair = 1000 * selected->current_rtt;
 	// use last connected local candidate id to get connection details
 	LIST_FOREACH(&stats_obj->local_candidate, le) {
 		const struct stats_local_candidate *data = (struct stats_local_candidate *)le->data;
 
-		if (data->id && streq(data->id, selected->local_candidate_id)) {
+		if (data->id && selected->local_candidate_id && streq(data->id, selected->local_candidate_id)) {
 			local = data;
 			break;
 		}
 	}
 	LIST_FOREACH(&stats_obj->remote_candidate, le) {
 		const struct stats_local_candidate *data = le->data;
-		if (data->id && streq(data->id, selected->remote_candidate_id)) {
+		if (data->id && selected->remote_candidate_id && streq(data->id, selected->remote_candidate_id)) {
 			remote = data;
 			break;
 		}
 	}
-	if (local && remote) {
-		stats->report.ice_pair_selected = true;
+	if (local) {
 		stats->report.legacy_local_proto = local->proto;
 		stats->report.local_proto = local->cand == STATS_CAND_RELAY && local->relay_tls
 			? STATS_PROTO_TLS : local->proto;
 		stats->report.local_cand = local->cand;
+	}
+	if (remote) {
 		stats->report.remote_proto = remote->proto;
 		stats->report.remote_cand = remote->cand;
-		stats->report.rtt.candidate_pair = 1000 * selected->current_rtt;
 	}
 
  out:
@@ -790,6 +797,7 @@ static struct stats_candidate_pair *parse_candidate_pair(struct json_object *jit
 	state_str = jzon_str(jitem, "state");
 	data->state = stats_parse_state(state_str);
 	jzon_bool(&data->nominated, jitem, "nominated");
+	jzon_bool(&data->selected, jitem, "selected");
 	jzon_double(&data->current_rtt, jitem, "currentRoundTripTime");
 
 	id_str = jzon_str(jitem, "id");

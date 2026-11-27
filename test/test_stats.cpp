@@ -68,6 +68,23 @@ bool operator==(const stats_report& lhs, const stats_report& rhs) {
 
 const auto zero_report = stats_report {};
 
+TEST(IceSelection, FirefoxSelectedPairWithoutTransportOrRemoteCandidate) {
+	avs_stats *stats = nullptr;
+	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr));
+	ASSERT_EQ(0, stats_update(stats, R"([
+	 {"type":"candidate-pair","id":"other","nominated":true,"state":"succeeded","currentRoundTripTime":0.9},
+	 {"type":"candidate-pair","id":"active","selected":true,"localCandidateId":"local","currentRoundTripTime":0.024},
+	 {"type":"local-candidate","id":"local","protocol":"udp","candidateType":"host"}
+	])"));
+	stats_report report = {};
+	stats_get_report(stats, &report);
+	EXPECT_TRUE(report.ice_pair_selected);
+	EXPECT_EQ(24u, report.rtt.candidate_pair);
+	EXPECT_EQ(STATS_PROTO_UDP, report.local_proto);
+	EXPECT_EQ(STATS_CAND_UNKNOWN, report.remote_cand);
+	mem_deref(stats);
+}
+
 TEST(RxStats, MeasuresIntervalsAndResetsWhenSourceChanges) {
 	avs_stats *stats = nullptr;
 	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr));
@@ -737,7 +754,7 @@ TEST_F(StatsRttBase, without_candidates)
 	EXPECT_EQ(sr.rtt, zero_rtt);
 }
 
-TEST_F(StatsRttBase, unsucceeded_candidates)
+TEST_F(StatsRttBase, transport_selection_does_not_require_succeeded)
 {
 	candidate_pair->state = "unsucceeded";
 	candidate_pair->nominated = true;
@@ -749,10 +766,10 @@ TEST_F(StatsRttBase, unsucceeded_candidates)
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	EXPECT_EQ(sr.rtt, zero_rtt);
+	EXPECT_EQ(10u, sr.rtt.candidate_pair);
 }
 
-TEST_F(StatsRttBase, unnominated_candidates)
+TEST_F(StatsRttBase, transport_selection_does_not_require_nomination)
 {
 	candidate_pair->state = "succeeded";
 	candidate_pair->nominated = false;
@@ -764,7 +781,7 @@ TEST_F(StatsRttBase, unnominated_candidates)
 	stats_update(stats, report->ToJson().c_str());
 	stats_get_report(stats, &sr);
 
-	EXPECT_EQ(sr.rtt, zero_rtt);
+	EXPECT_EQ(10u, sr.rtt.candidate_pair);
 }
 
 // ------------------------------------- RTT Tests --------------------------------------
