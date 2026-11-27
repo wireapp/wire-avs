@@ -26,7 +26,8 @@
 
 enum captype {
 	CAP_TYPE_STATIC = 0,
-	CAP_TYPE_DYNAMIC
+	CAP_TYPE_DYNAMIC,
+	CAP_TYPE_HEAD
 };
 
 static struct {
@@ -40,6 +41,8 @@ static struct {
 } _capturer;
 
 void draw_octotunnel(uint8_t *buff, uint32_t bw, uint32_t bh);
+void draw_talkinghead(uint8_t *buff, uint32_t w, uint32_t h,
+		      uint32_t fnum, uint32_t fps);
 
 static uint8_t *draw_byte(uint8_t *buff, uint8_t byte, uint32_t scale)
 {
@@ -264,6 +267,12 @@ static void *frame_thread(void *arg)
 			draw_octotunnel(_capturer.buffer, _capturer.width, _capturer.height);
 			draw_fnum(_capturer.buffer, _capturer.width, fnum++);
 		}
+		else if (_capturer.typ == CAP_TYPE_HEAD) {
+			draw_talkinghead(_capturer.buffer,
+					 _capturer.width, _capturer.height,
+					 fnum, _capturer.fps);
+			draw_fnum(_capturer.buffer, _capturer.width, fnum++);
+		}
 
 		current = tmr_jiffies();
 		frame.ts = (uint32_t)(current - first);
@@ -311,7 +320,8 @@ void test_capturer_start_static(const char *fname, uint32_t fps)
 	}
 }
 
-void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps)
+static void start_generated(enum captype typ,
+			    uint32_t w, uint32_t h, uint32_t fps)
 {
 	int err =0;
 
@@ -320,7 +330,7 @@ void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps)
 	}
 
 	memset(&_capturer, 0, sizeof(_capturer));
-	_capturer.typ = CAP_TYPE_DYNAMIC;
+	_capturer.typ = typ;
 	_capturer.width = w;
 	_capturer.height = h;
 	_capturer.fps = fps;
@@ -330,7 +340,16 @@ void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps)
 		_capturer.running = false;
 		return;
 	}
-	
+}
+
+void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps)
+{
+	start_generated(CAP_TYPE_DYNAMIC, w, h, fps);
+}
+
+void test_capturer_start_head(uint32_t w, uint32_t h, uint32_t fps)
+{
+	start_generated(CAP_TYPE_HEAD, w, h, fps);
 }
 
 void test_capturer_stop(void)

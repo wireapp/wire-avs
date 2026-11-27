@@ -22,7 +22,10 @@
 void test_capturer_init(void);
 
 void test_capturer_start_static(const char *fname, uint32_t fps);
+/* octotunnel: worst case content for the encoder (stress mode) */
 void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps);
+/* procedural talking head: webcam-like content */
+void test_capturer_start_head(uint32_t w, uint32_t h, uint32_t fps);
 void test_capturer_stop(void);
 
 int32_t test_capturer_framenum(uint8_t *buf, uint32_t w);

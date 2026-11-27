@@ -26,6 +26,7 @@ struct sftloader {
 	uint32_t duration;
 	bool use_video;
 	bool verify_video;
+	bool video_octo;
 	struct tmr tmr;
 	struct tmr tmr_vreport;
 	struct list userl;
@@ -74,6 +75,7 @@ struct c3_req_ctx {
 
 void test_capturer_init(void);
 void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps);
+void test_capturer_start_head(uint32_t w, uint32_t h, uint32_t fps);
 void test_capturer_stop(void);
 void test_capturer_stamp_id(struct avs_vidframe *frame, uint16_t id);
 int32_t test_capturer_read_id(const struct avs_vidframe *frame);
@@ -1358,6 +1360,7 @@ static void usage(void)
 		   "\t-t <ms>       timeout\n"
 		   "\t-v            send video\n"
 		   "\t-V            stamp and verify received video (implies -v)\n"
+		   "\t-P <pattern>  video pattern: head (default) or octo\n"
 		   "\t-l <file>     log file\n");
 }
 
@@ -1373,7 +1376,7 @@ int main(int argc, char **argv)
 	sftloader->logfp = stdout;
 
 	for (;;) {
-		const int c = getopt(argc, argv, "C:c:d:fhi:l:n:s:S:t:u:vV");
+		const int c = getopt(argc, argv, "C:c:d:fhi:l:n:P:s:S:t:u:vV");
 
 		if (c < 0)
 			break;
@@ -1409,6 +1412,21 @@ int main(int argc, char **argv)
 
 		case 'n':
 			sftloader->ncalls = atoi(optarg);
+			break;
+
+		case 'P':
+			if (streq(optarg, "octo")) {
+				sftloader->video_octo = true;
+			}
+			else if (streq(optarg, "head")) {
+				sftloader->video_octo = false;
+			}
+			else {
+				re_fprintf(stderr, "sftloader: unknown video "
+					   "pattern: %s\n", optarg);
+				usage();
+				return 2;
+			}
 			break;
 
 		case 's':
@@ -1454,7 +1472,10 @@ int main(int argc, char **argv)
 
 	if (sftloader->use_video) {
 		test_capturer_init();
-		test_capturer_start_dynamic(640,480,15);
+		if (sftloader->video_octo)
+			test_capturer_start_dynamic(640,480,15);
+		else
+			test_capturer_start_head(640,480,15);
 	}
 	if (sftloader->users_cfg) {
 		if (load_users_cfg(sftloader->users_cfg)) {
