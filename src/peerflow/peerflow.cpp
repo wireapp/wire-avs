@@ -4128,7 +4128,7 @@ int peerflow_get_stats(struct iflow *flow,
 		return EINVAL;
 	}
 
-	err = stats_get_report(pf->stats, stats);
+	err = stats_get_report_snapshot(pf->stats, stats);
 	
 	return err;
 }

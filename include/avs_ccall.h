@@ -98,6 +98,7 @@ void ccall_set_clients(struct icall* icall,
 int  ccall_set_background(struct icall *icall, bool background);
 
 int  ccall_stats(struct re_printf *pf, const struct icall *icall);
+/* On success the caller releases RX data with stats_report_release(). */
 int  ccall_stats_struct(const struct ccall *ccall,
 		        struct stats_report *stats);
 

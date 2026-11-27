@@ -1420,9 +1420,7 @@ int jsflow_get_stats(struct iflow *flow,
 		return EINVAL;
 	}
 
-	stats_get_report(jsflow->stats, stats);
-
-	return 0;
+	return stats_get_report_snapshot(jsflow->stats, stats);
 }
 
 static int set_aulevel(struct conf_member *cm, struct list *levell)

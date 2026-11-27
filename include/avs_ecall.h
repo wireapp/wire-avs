@@ -69,6 +69,7 @@ struct ecall *ecall_find_userclient(const struct list *ecalls,
 int ecall_debug(struct re_printf *pf, const struct ecall *ecall);
 int ecall_stats(struct re_printf *pf, const struct ecall *ecall);
 int ecall_mfdebug(struct re_printf *pf, const struct ecall *ecall);
+/* On success the caller releases RX data with stats_report_release(). */
 int ecall_stats_struct(const struct ecall *ecall,
 		       struct stats_report *stats);
 int ecall_activate(struct ecall *ecall, bool active);

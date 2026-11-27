@@ -279,6 +279,7 @@ static void last_bytes_destructor(void *arg)
 }
 
 struct avs_stats {
+	struct lock *lock;
 	struct list last_bytes;
 	struct list last_rx;
 	struct list rx_tracks;
@@ -617,6 +618,7 @@ static void destructor(void *arg)
 	list_flush(&stats->last_rx);
 	list_flush(&stats->rx_tracks);
 	mem_deref(stats->ema);
+	mem_deref(stats->lock);
 
 	(void)stats;
 }
@@ -634,6 +636,11 @@ int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void 
 		return ENOMEM;
 
 	stats->arg = arg;
+	err = lock_alloc(&stats->lock);
+	if (err) {
+		mem_deref(stats);
+		return err;
+	}
 	stats->conv_type = conv_type;
 	err = ema_alloc(&(stats->ema), NULL);
 	if (err != 0) {
@@ -1189,7 +1196,7 @@ static void read_tx_media(struct avs_stats *stats, struct stats_obj *obj,
 		result->bitrate = bitrate;
 }
 
-int stats_update(struct avs_stats *stats, const char *report_json)
+static int update_report(struct avs_stats *stats, const char *report_json)
 {
 	int err = 0;
 	
@@ -1282,7 +1289,18 @@ int stats_update(struct avs_stats *stats, const char *report_json)
 	return err;
 }
 
-int stats_get_report(struct avs_stats *stats, struct stats_report *report)
+int stats_update(struct avs_stats *stats, const char *report_json)
+{
+	int err;
+	if (!stats || !report_json)
+		return EINVAL;
+	lock_write_get(stats->lock);
+	err = update_report(stats, report_json);
+	lock_rel(stats->lock);
+	return err;
+}
+
+static int copy_report(struct avs_stats *stats, struct stats_report *report)
 {
 	int err = 0;
 
@@ -1296,7 +1314,76 @@ int stats_get_report(struct avs_stats *stats, struct stats_report *report)
 		stats->report.jitter_buffer_delay.audio);
 
 	*report = stats->report;
+	report->rx_tracks = NULL;
 
+	return err;
+}
+
+static void snapshot_destructor(void *arg)
+{
+	list_flush(arg);
+}
+
+void stats_report_release(struct stats_report *report)
+{
+	if (report) {
+		mem_deref((void *)report->rx_tracks);
+		report->rx_tracks = NULL;
+	}
+}
+
+int stats_get_report(struct avs_stats *stats, struct stats_report *report)
+{
+	int err;
+	if (!stats || !report)
+		return EINVAL;
+	lock_write_get(stats->lock);
+	err = copy_report(stats, report);
+	lock_rel(stats->lock);
+	return err;
+}
+
+int stats_get_report_snapshot(struct avs_stats *stats, struct stats_report *report)
+{
+	struct list *tracks;
+	struct le *le;
+	int err;
+	if (!stats || !report)
+		return EINVAL;
+	memset(report, 0, sizeof(*report));
+	tracks = mem_zalloc(sizeof(*tracks), snapshot_destructor);
+	if (!tracks)
+		return ENOMEM;
+	lock_write_get(stats->lock);
+	err = copy_report(stats, report);
+	if (err)
+		goto out;
+	LIST_FOREACH(&stats->rx_tracks, le) {
+		const struct stats_rx_track *source = le->data;
+		struct stats_rx_track *track = mem_zalloc(sizeof(*track), rx_track_destructor);
+		if (!track) {
+			err = ENOMEM;
+			goto out;
+		}
+		list_append(tracks, &track->le, track);
+		track->video = source->video;
+		track->media = source->media;
+		err = str_dup(&track->id, source->id);
+		if (source->track_id)
+			err |= str_dup(&track->track_id, source->track_id);
+		if (source->user_id)
+			err |= str_dup(&track->user_id, source->user_id);
+		if (source->client_id)
+			err |= str_dup(&track->client_id, source->client_id);
+		if (err)
+			goto out;
+	}
+ out:
+	lock_rel(stats->lock);
+	if (err)
+		mem_deref(tracks);
+	else
+		report->rx_tracks = tracks;
 	return err;
 }
 

@@ -101,7 +101,8 @@ struct stats_rx_track {
 };
 
 struct stats_report {
-	/* Borrowed, valid until the next stats_update or destruction. */
+	/* Owned snapshot from stats_get_report_snapshot; release with stats_report_release.
+	 * Callback arguments borrow it only for the duration of the callback. */
 	const struct list *rx_tracks;
 	struct stats_tx_media tx_audio;
 	struct stats_tx_media tx_video;
@@ -128,7 +129,11 @@ struct stats_report {
 
 int stats_alloc(struct avs_stats **statsp, enum icall_conv_type conv_type, void *arg);
 int stats_update(struct avs_stats *stats, const char *report_json);
+/* Scalar report only, rx_tracks is NULL; no release required. */
 int stats_get_report(struct avs_stats *stats, struct stats_report *report);
+/* Includes owned RX tracks. Release before reusing the output report. */
+int stats_get_report_snapshot(struct avs_stats *stats, struct stats_report *report);
+void stats_report_release(struct stats_report *report);
 char *stats_proto_name(enum stats_proto proto);
 char *stats_cand_name(enum stats_cand cand);
 char *stats_quality_limitation_name(enum stats_quality_limitation qality_limitation);

@@ -83,7 +83,7 @@ TEST(RxStats, MeasuresIntervalsAndResetsWhenSourceChanges) {
 	  "bytesReceived":5000,"packetsReceived":198,"packetsLost":2,"jitter":0.005,
 	  "frameWidth":1280,"frameHeight":720,"framesPerSecond":30}
 	])");
-	stats_get_report(stats, &result);
+	ASSERT_EQ(0, stats_get_report_snapshot(stats, &result));
 	ASSERT_NE(nullptr, result.rx_tracks);
 	ASSERT_EQ(1u, list_count(result.rx_tracks));
 	const auto *track = static_cast<const stats_rx_track *>(result.rx_tracks->head->data);
@@ -96,15 +96,23 @@ TEST(RxStats, MeasuresIntervalsAndResetsWhenSourceChanges) {
 	  "avsUserId":"bob","avsClientId":"b","timestamp":3000,
 	  "bytesReceived":9000,"packetsReceived":296,"packetsLost":4}
 	])");
-	stats_get_report(stats, &result);
+	/* Updating the producer must not invalidate the reader's snapshot. */
+	EXPECT_STREQ("alice", track->user_id);
+	EXPECT_DOUBLE_EQ(32000, track->media.bitrate);
+	stats_report_release(&result);
+	ASSERT_EQ(0, stats_get_report_snapshot(stats, &result));
 	track = static_cast<const stats_rx_track *>(result.rx_tracks->head->data);
 	EXPECT_STREQ("bob", track->user_id);
 	EXPECT_DOUBLE_EQ(-1, track->media.bitrate);
 	EXPECT_DOUBLE_EQ(-1, track->media.loss);
 	stats_update(stats, "[]");
-	stats_get_report(stats, &result);
+	EXPECT_STREQ("bob", track->user_id);
+	stats_report_release(&result);
+	ASSERT_EQ(0, stats_get_report_snapshot(stats, &result));
 	EXPECT_EQ(0u, list_count(result.rx_tracks));
 	mem_deref(stats);
+	/* Snapshot also outlives the collector. */
+	stats_report_release(&result);
 }
 
 TEST(TxStats, MeasuresIntervalsAndMatchesReceiverFeedback) {
