@@ -34,6 +34,7 @@
 
 
 #include "wcall.h"
+#include "sip.h"
 
 #ifdef __APPLE__
 #       include <TargetConditionals.h>
@@ -2995,6 +2996,15 @@ static void instance_destroy(struct calling_instance *inst)
 		pthread_detach(inst->tid);
 		inst->tid = 0;
 	}
+
+#if !TARGET_OS_IPHONE && (!defined ANDROID) && (!defined __EMSCRIPTEN__)
+	/* Close SIP if the app didn't, while the instance is still
+	 * intact: its UAs and calls would otherwise outlive it, and
+	 * send messages through it (wcall_send_msg).
+	 */
+	if (wcall_get_sip_instance(inst))
+		wcall_i_sip_close(inst);
+#endif
 
 	uintptr_t vuser = inst->wuser;
 	msystem_unregister_listener((void*)vuser);

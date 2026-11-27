@@ -19,9 +19,11 @@ struct {
 	struct list instl;
 	struct log log;
 	struct sip *sip;
+	uintptr_t call_id;  /* last call handle handed out */
 } g_sip = {
 	.initialized = false,
 	.instl = LIST_INIT,
+	.call_id = 0,
 	.log = {
 		.le = LE_INIT,
 		.h = wcall_ext_log,
@@ -31,11 +33,6 @@ struct {
 
 struct sip_instance {
 	struct list wual;
-
-	struct {
-		wcall_sip_parts_h *h;
-		void *arg;
-	} parts;
 
 	struct le le;
 };
@@ -54,6 +51,7 @@ struct wsip_ua {
 	wcall_sip_ready_h *readyh;
 	wcall_sip_incoming_h *incomingh;
 	wcall_sip_close_h *closeh;
+	wcall_sip_parts_h *partsh;
 	wcall_sip_err_h *errh;
 	void *arg;
 
@@ -78,7 +76,13 @@ struct wsip_ua {
 	struct le le;
 };
 
+/* The app never gets a wsip_call pointer, only its handle: a unique,
+ * never reused id disguised as a struct wsip_call *. Handles passed
+ * back (answer/hangup) are looked up, so a call that is gone gives
+ * ENOENT instead of a use after free.
+ */
 struct wsip_call {
+	uintptr_t id;
 	struct wsip_ua *wua;
 	struct call *call;
 	char *from;
@@ -174,7 +178,6 @@ static int send_confpart_response(struct wsip_call *wsip)
 {
 	struct wsip_ua *wua;
 	struct econn_message *msg = NULL;
-	char *str = NULL;
 	int err = 0;
 
 	if (!wsip || !wsip->ce)
@@ -199,9 +202,8 @@ static int send_confpart_response(struct wsip_call *wsip)
 	}
 
 	wcall_send_msg(wua->inst, wsip->convid, msg, wua);
-		       
+
  out:
-	mem_deref(str);
 	mem_deref(msg);
 
 	return err;
@@ -361,6 +363,35 @@ static int answer_call(struct wsip_call *wsip)
 	return err;
 }
 
+static struct wsip_call *wsip_handle(const struct wsip_call *wsip)
+{
+	return (struct wsip_call *)wsip->id;
+}
+
+/* Find a call of the instance by the handle the app holds */
+static struct wsip_call *wsip_lookup(struct sip_instance *sip_inst,
+				     const struct wsip_call *handle)
+{
+	struct le *le;
+
+	if (!sip_inst || !handle)
+		return NULL;
+
+	LIST_FOREACH(&sip_inst->wual, le) {
+		struct wsip_ua *wua = le->data;
+		struct le *cle;
+
+		LIST_FOREACH(&wua->wsipl, cle) {
+			struct wsip_call *wsip = cle->data;
+
+			if (wsip_handle(wsip) == handle)
+				return wsip;
+		}
+	}
+
+	return NULL;
+}
+
 static void wsip_destructor(void *arg)
 {
 	struct wsip_call *wsip = arg;
@@ -435,9 +466,11 @@ static void incoming_call(struct wsip_ua *wua, struct call *call)
 	wsip = mem_zalloc(sizeof(*wsip), wsip_destructor);
 	if (!wsip) {
 		warning("sip: could not allocate wsip\n");
+		mem_deref(pin_code);
 		return;
 	}
 
+	wsip->id = ++g_sip.call_id;
 	wsip->wua = wua;
 	wsip->call = call;
 
@@ -454,11 +487,11 @@ static void incoming_call(struct wsip_ua *wua, struct call *call)
 
 	list_append(&wua->wsipl, &wsip->le, wsip);
 
-	info("sip(%p): incoming call on wua=%p call=%p\n",
-	     wua->sip_inst, wua, call);
+	info("sip(%p): incoming call on wua=%p call=%p wsip=%p handle=%p\n",
+	     wua->sip_inst, wua, call, wsip, wsip_handle(wsip));
 
 	if (wua->incomingh) {
-		wua->incomingh(wua, wsip,
+		wua->incomingh(wua, wsip_handle(wsip),
 			       wsip->from,
 			       wsip->pin_code,
 			       wua->arg);
@@ -550,15 +583,22 @@ static void update_parts(struct wsip_ua *wua, struct wsip_call *wsip,
 
 		uinfo = mem_zalloc(sizeof(*uinfo), uinfo_destructor);
 		if (!uinfo) {
-			warning("sip: establ_call: could not "
+			warning("sip: update_parts: could not "
 				"allocate userinfo\n");
 			return;
 		}
 
-		str_dup(&uinfo->userid_real, wsip->from);
-		str_dup(&uinfo->userid_hash, wsip->from);
-		str_dup(&uinfo->clientid_real, "_");
-		str_dup(&uinfo->clientid_hash, "_");
+		/* Not listed without a caller id (from not parsed) */
+		err  = str_dup(&uinfo->userid_real, wsip->from);
+		err |= str_dup(&uinfo->userid_hash, wsip->from);
+		err |= str_dup(&uinfo->clientid_real, "_");
+		err |= str_dup(&uinfo->clientid_hash, "_");
+		if (err) {
+			warning("sip: update_parts: wsip=%p: no userinfo "
+				"for from=%s\n", wsip, wsip->from);
+			mem_deref(uinfo);
+			return;
+		}
 		uinfo->pstn = true;
 
 		wsip->uinfo = uinfo;
@@ -570,21 +610,24 @@ static void update_parts(struct wsip_ua *wua, struct wsip_call *wsip,
 
 	send_confpart_response(wsip);
 
-	if (ce && wua->sip_inst->parts.h) {
+	if (ce && wua->partsh) {
 		char *pjson = NULL;
 
 		err = parts_json(&pjson, wsip->convid, &ce->userl->users);
-		if (!err) {
-			wua->sip_inst->parts.h(wsip->convid,
-				pjson,
-				wua->sip_inst->parts.arg);
-		}
+		if (!err)
+			wua->partsh(wsip->convid, pjson, wua->arg);
+		mem_deref(pjson);
 	}
 }
 
 static void estab_call(struct wsip_ua *wua, struct call *call)
 {
 	struct wsip_call *wsip = lookup_call(wua, call);
+
+	if (!wsip) {
+		warning("sip: estab_call: no wsip for call=%p\n", call);
+		return;
+	}
 
 	if (wsip->estab)
 		return;
@@ -606,8 +649,13 @@ static void close_call(struct wsip_ua *wua, struct call *call)
 
 	update_parts(wua, wsip, true);
 
+	/* Not found by its handle from here on: the close handler may
+	 * call wcall_sip_hangup, which can run inline
+	 */
+	list_unlink(&wsip->le);
+
 	if (wua->closeh) {
-		wua->closeh(wsip, wua->arg);
+		wua->closeh(wsip_handle(wsip), wua->arg);
 	}
 
 	mem_deref(wsip);
@@ -771,6 +819,12 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 	struct sip_instance *sip_inst;
 	int err = 0;
 
+	if (wcall_get_sip_instance(inst)) {
+		warning("sip: init: inst=%p already has a SIP instance\n",
+			inst);
+		return EALREADY;
+	}
+
 	if (g_sip.initialized)
 		goto newinst;
 
@@ -794,7 +848,7 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 		return err;
 	}
 
-	info("sip: baresip initialized\n", conf_path);
+	info("sip: baresip initialized\n");
 
 	err = conf_modules();
 	if (err) {
@@ -828,8 +882,10 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 
 	err = wcall_register_sip_instance(inst, sip_inst);
 	if (err) {
-		warning("sip(%p): init: registering SIP instance failed: %m",
+		warning("sip(%p): init: registering SIP instance failed: %m\n",
 			sip_inst, err);
+		mem_deref(sip_inst);
+		return err;
 	}
 	
 	info("sip(%p): init: added to inst=%p\n", sip_inst, inst);
@@ -840,9 +896,7 @@ int wcall_i_sip_init(struct calling_instance *inst, const char *conf_path)
 
 int wcall_i_sip_close(struct calling_instance *inst)
 {
-	struct le *le;
 	struct sip_instance *sip_inst;
-	bool found = false;
 	size_t n;
 
 	info("sip: close: inst=%p\n", inst);
@@ -852,15 +906,15 @@ int wcall_i_sip_close(struct calling_instance *inst)
 		return ENOSYS;
 	}
 
-	for(le = g_sip.instl.head; le && !found; le = le->next) {
-		sip_inst = le->data;
-		if (!sip_inst)
-			continue;
-
-		found = sip_inst == wcall_get_sip_instance(inst);
-	}
-	if (found) {
+	sip_inst = wcall_get_sip_instance(inst);
+	if (sip_inst) {
+		wcall_unregister_sip_instance(inst, sip_inst);
 		list_unlink(&sip_inst->le);
+
+		/* Destroys its UAs and their calls, which must happen
+		 * before baresip is closed
+		 */
+		mem_deref(sip_inst);
 	}
 
 	n = list_count(&g_sip.instl);
@@ -878,6 +932,20 @@ int wcall_i_sip_close(struct calling_instance *inst)
 static void wua_destructor(void *arg)
 {
 	struct wsip_ua *wua = arg;
+	struct le *le;
+
+	/* First, so that neither the UA (events, destroy by aor) nor
+	 * its calls (handles) are found while it is torn down
+	 */
+	list_unlink(&wua->le);
+
+	/* Tell the app about calls still alive, as when they close */
+	LIST_FOREACH(&wua->wsipl, le) {
+		struct wsip_call *wsip = le->data;
+
+		if (wua->closeh)
+			wua->closeh(wsip_handle(wsip), wua->arg);
+	}
 
 	mem_deref(wua->aor);
 	mem_deref(wua->mod_aor);
@@ -886,8 +954,6 @@ static void wua_destructor(void *arg)
 	mem_deref(wua->purge.auth);
 	mem_deref(wua->purge.dlg);
 	mem_deref(wua->purge.acc);
-
-	list_unlink(&wua->le);
 
 	mem_deref(wua->userid);
 	mem_deref(wua->clientid);
@@ -1089,9 +1155,6 @@ int wcall_i_sip_create(struct calling_instance *inst,
 		return ENOSYS;
 	}
 
-	sip_inst->parts.h = partsh;
-	sip_inst->parts.arg = arg;
-	
 	wua = mem_zalloc(sizeof(*wua), wua_destructor);
 	if (!wua)
 		return ENOMEM;
@@ -1102,6 +1165,7 @@ int wcall_i_sip_create(struct calling_instance *inst,
 	wua->readyh = readyh;
 	wua->incomingh = incomingh;
 	wua->closeh = closeh;
+	wua->partsh = partsh;
 	wua->errh = errh;
 	wua->arg = arg;
 
@@ -1111,8 +1175,13 @@ int wcall_i_sip_create(struct calling_instance *inst,
 		goto out;
 	}
 
-	str_dup(&wua->userid, wcall_get_userid(inst));
-	str_dup(&wua->clientid, wcall_get_clientid(inst));
+	err  = str_dup(&wua->userid, wcall_get_userid(inst));
+	err |= str_dup(&wua->clientid, wcall_get_clientid(inst));
+	if (err) {
+		warning("sip: create: could not copy user/client id\n");
+		err = ENOMEM;
+		goto out;
+	}
 
 	//re_snprintf(mod_aor, sizeof(mod_aor), "%s;natpinhole=yes;", aor);
 	err = re_sdprintf(&wua->mod_aor, "%s;", aor);
@@ -1160,7 +1229,8 @@ int wcall_i_sip_destroy(struct calling_instance *inst,
 		return EINVAL;
 	}
 
-	info("sip(%p): destroy: aor=%s wua=%p ua=%[\n", sip_inst, aor, wua, wua->ua);
+	info("sip(%p): destroy: aor=%s wua=%p ua=%p\n",
+	     sip_inst, aor, wua, wua->ua);
 
 	/* No UA yet while the purge is pending */
 	if (wua->ua)
@@ -1172,24 +1242,44 @@ int wcall_i_sip_destroy(struct calling_instance *inst,
 }
 
 int wcall_i_sip_answer(struct calling_instance *inst,
-		       struct wsip_call *wsip,
+		       struct wsip_call *handle,
 		       const char *convid)
 {
+	struct wsip_call *wsip;
 	struct wsip_ua *wua;
 	int err = 0;
 
-	if (!wsip || !convid) {
-		warning("sip(%p): answer: invalid wsip=%p convid=%p\n",
-			inst, wsip, convid);
+	if (!handle || !convid) {
+		warning("sip(%p): answer: invalid handle=%p convid=%p\n",
+			inst, handle, convid);
 		return EINVAL;
 	}
 
+	wsip = wsip_lookup(wcall_get_sip_instance(inst), handle);
+	if (!wsip) {
+		warning("sip(%p): answer: no call for handle=%p, "
+			"closed already?\n", inst, handle);
+		return ENOENT;
+	}
+
 	wua = wsip->wua;
-	info("sip(%p): answer: on wua=%p wsip=%p convid=%s\n",
-	     inst, wua, wsip, convid);
+	info("sip(%p): answer: on wua=%p wsip=%p handle=%p convid=%s\n",
+	     inst, wua, wsip, handle, convid);
+
+	/* A call is answered once: a second answer would register
+	 * a second pstn handler, which the destructor doesn't remove,
+	 * and leak the convid.
+	 */
+	if (wsip->convid) {
+		warning("sip(%p): answer: wsip=%p already answered "
+			"in convid=%s\n", inst, wsip, wsip->convid);
+		return EALREADY;
+	}
 
 	/* Assign convid to this call */
-	str_dup(&wsip->convid, convid);
+	err = str_dup(&wsip->convid, convid);
+	if (err)
+		goto out;
 
 	/* Before the adm handler, which needs the conv entry key */
 	err = attach_conv_entry(wsip);
@@ -1213,14 +1303,20 @@ int wcall_i_sip_answer(struct calling_instance *inst,
 }
 
 void wcall_i_sip_hangup(struct calling_instance *inst,
-			struct wsip_call *wsip, int code, const char *status)
+			struct wsip_call *handle, int code, const char *status)
 {
-	(void)inst;
+	struct wsip_call *wsip;
 
-	info("wcall(%p): sip_hangup: wsip=%p code=%d status=%s\n", inst, wsip, code, status);
+	info("wcall(%p): sip_hangup: handle=%p code=%d status=%s\n",
+	     inst, handle, code, status);
 
-	if (!(wsip && wsip->wua))
+	wsip = wsip_lookup(wcall_get_sip_instance(inst), handle);
+	if (!wsip) {
+		warning("wcall(%p): sip_hangup: no call for handle=%p, "
+			"closed already?\n", inst, handle);
 		return;
+	}
 
+	/* May close (and free) the call right away */
 	ua_hangup(wsip->wua->ua, wsip->call, code, status);
 }

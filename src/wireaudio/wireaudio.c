@@ -5,7 +5,10 @@
 #include <baresip.h>
 
 
-/* Configurable items */
+/* Fixed formats: the wire side (pstn_audiodevice) runs at 16kHz,
+ * PSTN legs are G.711 at 8kHz. The conversation mixer always runs in
+ * the PSTN format; the wire side is resampled in and out of it.
+ */
 #define AUDIO_SRATE 16000
 #define AUDIO_CHAN  1
 #define AUDIO_PTIME 20
@@ -16,8 +19,28 @@
 #define PSTN_PTIME 20
 #define PSTN_SAMPLES ((PSTN_SRATE*PSTN_CHAN*PSTN_PTIME)/1000)
 
-/* Largest mixer frame a leg can handle: 48kHz stereo 40ms */
-#define LEG_MAX_SAMPLES ((48000*2*40)/1000)
+/*
+ * Threading
+ *
+ * Everything except the mixer frame handlers runs on the re main
+ * thread: baresip allocating ausrc/auplay, wireaudio_set_handlers
+ * (from the pstn adm handlers) and all destructors. gwa.wdevs and
+ * wdev->legl are only used there and have no lock.
+ *
+ * The frame handlers (wdev_mix_frame_handler, leg_mix_frame_handler)
+ * run on the aumix thread, with the aumix mutex held, and call into
+ * baresip (encode/send RTP in poll mode, read the jitter buffer) and
+ * into WebRTC via the pstn adm (APM/encode, decode/mix). wdev->lock
+ * and leg->lock protect what they share with the main thread.
+ * Lock order: aumix mutex -> wdev->lock / leg->lock -> pstn adm lock.
+ *
+ * So the frame handlers must never:
+ * - drop the last reference to a wleg or wdev, or enable, allocate
+ *   or free an aumix source: those take the aumix mutex (deadlock).
+ *   aumix_source_put only uses the source's aubuf and is fine.
+ * - take a lock the main thread may hold while calling into aumix
+ *   or while waiting for wdev->lock / leg->lock
+ */
 
 struct {
 	struct hash *wdevs;
@@ -87,7 +110,7 @@ struct wleg {
 	struct ausrc_st *src;    /* not owned */
 	struct auplay_st *play;  /* not owned */
 
-	int16_t sampv[LEG_MAX_SAMPLES];
+	int16_t sampv[PSTN_SAMPLES];
 
 	struct le le;
 };
@@ -192,56 +215,54 @@ static void wdev_mix_frame_handler(const int16_t *sampv,
 	struct wdev *wdev = arg;
 
 	lock_write_get(wdev->lock);
+
+	/* PSTN mix (8kHz) -> wire side (16kHz). The out count is the
+	 * buffer capacity on input, so reset it for every frame.
+	 */
 	if (wdev->wa.rh) {
-		int err = auresamp(&wdev->wa.src_resamp,
-				   wdev->wa.src_sampv, &wdev->wa.src_sampc,
-				   sampv, sampc);
-#if 0
-		re_printf("wdev-rh: err=%d insampc=%d out_sampc=%d sin=%w sout=%w\n",
-			  err,
-			  sampc, wdev->wa.src_sampc,
-			  sampv, 6,
-			  wdev->wa.src_sampv, 6);
-#else
-		(void)err;
-#endif
-		wdev->wa.rh((const void *)wdev->wa.src_sampv,
-			    wdev->wa.src_sampc,
-			    wdev->wa.arg);
+		int err;
+
+		wdev->wa.src_sampc = ARRAY_SIZE(wdev->wa.src_sampv);
+		err = auresamp(&wdev->wa.src_resamp,
+			       wdev->wa.src_sampv, &wdev->wa.src_sampc,
+			       sampv, sampc);
+		if (!err) {
+			wdev->wa.rh((const void *)wdev->wa.src_sampv,
+				    wdev->wa.src_sampc,
+				    wdev->wa.arg);
+		}
 	}
+
+	/* Wire side (16kHz) -> PSTN mix (8kHz) */
 	if (wdev->wa.wh) {
+		int err;
+
 		wdev->wa.wh(wdev->wa.sampv, wdev->wa.sampc, wdev->wa.arg);
 
-		wdev->wa.play_sampc = AUDIO_SAMPLES;
-		int err = auresamp(&wdev->wa.play_resamp,
-				   wdev->wa.play_sampv, &wdev->wa.play_sampc,
-				   wdev->wa.sampv, wdev->wa.sampc);
-
-#if 0
-		re_printf("wdev-wh: err=%d insampc=%d out_sampc=%d wframe=%w\n",
-			  err,
-			  wdev->wa.sampc, wdev->wa.play_sampc,
-			  wdev->wa.play_sampv, 10);
-#else
-		(void)err;
-#endif
-
-		aumix_source_put(wdev->wa.aumix_src,
-				 wdev->wa.play_sampv, wdev->wa.play_sampc);
+		/* Capacity, not the 8kHz frame size: downsampling
+		 * filters the whole input into the out buffer first
+		 */
+		wdev->wa.play_sampc = ARRAY_SIZE(wdev->wa.play_sampv);
+		err = auresamp(&wdev->wa.play_resamp,
+			       wdev->wa.play_sampv, &wdev->wa.play_sampc,
+			       wdev->wa.sampv, wdev->wa.sampc);
+		if (!err) {
+			aumix_source_put(wdev->wa.aumix_src,
+					 wdev->wa.play_sampv,
+					 wdev->wa.play_sampc);
+		}
 	}
+
 	lock_rel(wdev->lock);
 }
 
 
-static int alloc_device(struct wdev **wdevp,
-			const char *convid,
-			uint32_t srate, uint32_t ptime, uint8_t ch)
+static int alloc_device(struct wdev **wdevp, const char *convid)
 {
 	struct wdev *wdev;
 	int err;
 
-	info("wireaudio: alloc_device: convid=%s srate=%d ch=%d ptime=%d\n",
-	     convid, srate, ch, ptime);
+	info("wireaudio: alloc_device: convid=%s\n", convid);
 
 	wdev = mem_zalloc(sizeof(*wdev), wdev_destructor);
 	if (!wdev)
@@ -251,7 +272,7 @@ static int alloc_device(struct wdev **wdevp,
 	if (err)
 		goto out;
 
-	err = aumix_alloc(&wdev->ausrc_mix, srate, ch, ptime);
+	err = aumix_alloc(&wdev->ausrc_mix, PSTN_SRATE, PSTN_CHAN, PSTN_PTIME);
 	if (err)
 		goto out;
 
@@ -264,16 +285,23 @@ static int alloc_device(struct wdev **wdevp,
 	aumix_source_enable(wdev->wa.aumix_src, true);
 
 	auresamp_init(&wdev->wa.play_resamp);
-	auresamp_setup(&wdev->wa.play_resamp,
-		       AUDIO_SRATE, AUDIO_CHAN,
-		       PSTN_SRATE, PSTN_CHAN);
-	
-	auresamp_init(&wdev->wa.src_resamp);
-	auresamp_setup(&wdev->wa.src_resamp,
-		       PSTN_SRATE, PSTN_CHAN,
-		       AUDIO_SRATE, AUDIO_CHAN);
+	err = auresamp_setup(&wdev->wa.play_resamp,
+			     AUDIO_SRATE, AUDIO_CHAN,
+			     PSTN_SRATE, PSTN_CHAN);
+	if (err)
+		goto out;
 
-	str_dup(&wdev->convid, convid);
+	auresamp_init(&wdev->wa.src_resamp);
+	err = auresamp_setup(&wdev->wa.src_resamp,
+			     PSTN_SRATE, PSTN_CHAN,
+			     AUDIO_SRATE, AUDIO_CHAN);
+	if (err)
+		goto out;
+
+	err = str_dup(&wdev->convid, convid);
+	if (err)
+		goto out;
+
 	wdev->wa.sampc = AUDIO_SAMPLES;
 	wdev->wa.play_sampc = AUDIO_SAMPLES;
 	wdev->wa.src_sampc = AUDIO_SAMPLES;
@@ -320,8 +348,7 @@ static void leg_destructor(void *arg)
  * it (and its wdev) if needed. A device without '/' is a single leg
  * with the whole name as conversation key.
  */
-static int leg_get(struct wleg **legp, const char *device,
-		   uint32_t srate, uint32_t ptime, uint8_t ch)
+static int leg_get(struct wleg **legp, const char *device)
 {
 	struct wleg *leg = NULL;
 	struct wdev *wdev;
@@ -344,7 +371,7 @@ static int leg_get(struct wleg **legp, const char *device,
 
 	wdev = mem_ref(find_device(convid));
 	if (!wdev) {
-		err = alloc_device(&wdev, convid, srate, ptime, ch);
+		err = alloc_device(&wdev, convid);
 		if (err)
 			goto out;
 	}
@@ -398,6 +425,23 @@ static int leg_get(struct wleg **legp, const char *device,
 }
 
 
+/* Legs are mixed in the PSTN format (G.711), refuse anything else
+ * rather than mixing it at the wrong rate. The packet time doesn't
+ * matter, baresip buffers between it and the mixer's frames.
+ */
+static int check_format(const char *what, const char *device,
+			uint32_t srate, uint8_t ch, int fmt)
+{
+	if (srate == PSTN_SRATE && ch == PSTN_CHAN && fmt == AUFMT_S16LE)
+		return 0;
+
+	warning("wireaudio: %s: device=%s: unsupported format srate=%u "
+		"ch=%u fmt=%d, only %uHz ch=%u S16LE (G.711)\n",
+		what, device, srate, ch, fmt, PSTN_SRATE, PSTN_CHAN);
+
+	return ENOTSUP;
+}
+
 static void ausrc_destructor(void *arg)
 {
 	struct ausrc_st *st = arg;
@@ -426,11 +470,15 @@ static int wa_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 	info("wa_src_alloc: device=%s srate=%d ch=%d ptime=%d fmt=%d\n",
 	     device, prm->srate, prm->ch, prm->ptime, prm->fmt);
 
+	err = check_format("ausrc", device, prm->srate, prm->ch, prm->fmt);
+	if (err)
+		return err;
+
 	st = mem_zalloc(sizeof(*st), ausrc_destructor);
 	if (!st)
 		return ENOMEM;
 
-	err = leg_get(&st->leg, device, prm->srate, prm->ptime, prm->ch);
+	err = leg_get(&st->leg, device);
 	if (err)
 		goto out;
 
@@ -486,11 +534,15 @@ static int wa_play_alloc(struct auplay_st **stp, const struct auplay *ap,
 	info("wa_play_alloc: device=%s srate=%d ch=%d ptime=%d fmt=%d\n",
 	     device, prm->srate, prm->ch, prm->ptime, prm->fmt);
 
+	err = check_format("auplay", device, prm->srate, prm->ch, prm->fmt);
+	if (err)
+		return err;
+
 	st = mem_zalloc(sizeof(*st), auplay_destructor);
 	if (!st)
 		return ENOMEM;
 
-	err = leg_get(&st->leg, device, prm->srate, prm->ptime, prm->ch);
+	err = leg_get(&st->leg, device);
 	if (err)
 		goto out;
 
@@ -620,8 +672,7 @@ int wireaudio_set_handlers(const char *convid,
 		/* The reference from alloc_device is the handler
 		 * reference, released when handler_cnt drops to 0
 		 */
-		err = alloc_device(&wdev, convid,
-				   PSTN_SRATE, PSTN_PTIME, PSTN_CHAN);
+		err = alloc_device(&wdev, convid);
 		if (err)
 			goto out;
 

@@ -11,6 +11,6 @@ int wcall_i_sip_create(struct calling_instance *inst,
 int  wcall_i_sip_destroy(struct calling_instance *inst,
 			 const char *aor);
 int  wcall_i_sip_answer(struct calling_instance *inst,
-			struct wsip_call *wsip, const char *convid);
+			struct wsip_call *handle, const char *convid);
 void wcall_i_sip_hangup(struct calling_instance *inst,
-			struct wsip_call *wsip, int code, const char *status);
+			struct wsip_call *handle, int code, const char *status);

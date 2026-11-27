@@ -674,6 +674,14 @@ void wcall_event_end(WUSER_HANDLE wuser);
 /* SIP */
 
 struct wsip_ua;
+
+/* A SIP call is identified by an opaque handle, not a pointer: never
+ * dereference it. It is valid from the incoming handler until the
+ * close handler, which is also called for calls still alive when
+ * their UA is destroyed (wcall_sip_destroy, wcall_sip_close,
+ * wcall_destroy). Handles are never reused; answer/hangup with a
+ * handle whose call is gone fail or do nothing.
+ */
 struct wsip_call;
 
 typedef void (wcall_sip_ready_h)(struct wsip_ua *wua, void *arg);
