@@ -2514,6 +2514,9 @@ static int create_ecall(struct ccall *ccall)
 		goto out;
 	}
 
+	peerflow_test_register_self(self->userid_hash, self->clientid_hash,
+				    self->userid_real, self->clientid_real);
+
 	icall_set_callbacks(ecall_get_icall(ecall),
 			    ecall_transp_send_handler,
 			    NULL, // sft_handler,

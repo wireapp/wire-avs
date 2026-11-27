@@ -6,12 +6,8 @@
 #include <sys/time.h>
 
 #include <re.h>
-#include <avs_base.h>
+#include <avs.h>
 #include <avs_wcall.h>
-#include <avs_econn.h>
-#include <avs_uuid.h>
-#include <avs_jzon.h>
-#include <avs_log.h>
 
 #define INFINITE (-1)
 
@@ -29,7 +25,9 @@ struct sftloader {
 	uint32_t tmo;
 	uint32_t duration;
 	bool use_video;
+	bool verify_video;
 	struct tmr tmr;
+	struct tmr tmr_vreport;
 	struct list userl;
 	struct dnsc *dnsc;
 
@@ -77,6 +75,41 @@ struct c3_req_ctx {
 void test_capturer_init(void);
 void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps);
 void test_capturer_stop(void);
+void test_capturer_stamp_id(struct avs_vidframe *frame, uint16_t id);
+int32_t test_capturer_read_id(const struct avs_vidframe *frame);
+
+/*
+ * Video verification (-V): every user stamps its index into the video it
+ * sends; for every decoded frame the receiver checks that the stamp
+ * matches the user/client AVS attributes the stream to.
+ *
+ * The tables are filled before the call starts and only read from the
+ * media threads, so they are fixed size and not freed until the
+ * capturer has stopped.
+ */
+#define VID_ID_LEN 128
+#define VID_REPORT_MS 5000
+
+struct vid_peer {
+	char userid[VID_ID_LEN];
+	char clientid[VID_ID_LEN];
+};
+
+struct vid_rx {
+	uint32_t frames;     /* decoded frames */
+	uint32_t ok;         /* stamp matches attributed sender */
+	uint32_t wrong;      /* stamp is another user's */
+	uint32_t unreadable; /* no valid stamp */
+	int32_t  wrong_id;   /* last wrong stamp seen */
+};
+
+static struct {
+	pthread_mutex_t lock;
+	uint32_t n;
+	struct vid_peer *peers;  /* [n] */
+	struct vid_rx *rx;       /* [n * n], rx[recv * n + send] */
+	uint32_t *unknown;       /* [n], frames from unknown senders */
+} g_vid = {PTHREAD_MUTEX_INITIALIZER, 0, NULL, NULL, NULL};
 
 static struct sftloader *sftloader = NULL;
 #if 0
@@ -158,7 +191,7 @@ static int send_handler(void *ctx, const char *convid,
 	return 0;
 }
 
-static int dns_init(struct dnsc **dnscp)
+static int sl_dns_init(struct dnsc **dnscp)
 {
 	struct sa nsv[16];
 	uint32_t nsn, i;
@@ -757,6 +790,180 @@ static void quality_handler(const char *convid,
 }
 
 
+static int vid_peer_index(const char *userid, const char *clientid)
+{
+	uint32_t i;
+
+	if (!userid || !clientid)
+		return -1;
+
+	for (i = 0; i < g_vid.n; ++i) {
+		if (0 == str_casecmp(g_vid.peers[i].userid, userid) &&
+		    streq(g_vid.peers[i].clientid, clientid))
+			return (int)i;
+	}
+
+	return -1;
+}
+
+/* Called from the capture thread, once per sending user */
+static void vid_stamp_handler(struct avs_vidframe *frame,
+			      const char *userid_self,
+			      const char *clientid_self,
+			      void *arg)
+{
+	int idx = vid_peer_index(userid_self, clientid_self);
+
+	(void)arg;
+
+	if (idx >= 0)
+		test_capturer_stamp_id(frame, (uint16_t)(idx + 1));
+}
+
+/* Called from the render thread for every decoded frame */
+static void vid_render_tap(const struct avs_vidframe *frame,
+			   const char *userid_self,
+			   const char *clientid_self,
+			   const char *userid_remote,
+			   const char *clientid_remote,
+			   void *arg)
+{
+	int ridx = vid_peer_index(userid_self, clientid_self);
+	int sidx = vid_peer_index(userid_remote, clientid_remote);
+	int32_t id;
+	struct vid_rx *rx;
+
+	(void)arg;
+
+	if (ridx < 0)
+		return;
+
+	id = test_capturer_read_id(frame);
+
+	pthread_mutex_lock(&g_vid.lock);
+	if (sidx < 0) {
+		g_vid.unknown[ridx]++;
+	}
+	else {
+		rx = &g_vid.rx[ridx * g_vid.n + sidx];
+		rx->frames++;
+		if (id == sidx + 1) {
+			rx->ok++;
+		}
+		else if (id > 0) {
+			rx->wrong++;
+			rx->wrong_id = id;
+		}
+		else {
+			rx->unreadable++;
+		}
+	}
+	pthread_mutex_unlock(&g_vid.lock);
+}
+
+static void vid_report(const char *tag)
+{
+	uint32_t r, s;
+
+	if (!g_vid.n)
+		return;
+
+	pthread_mutex_lock(&g_vid.lock);
+	for (r = 0; r < g_vid.n; ++r) {
+		for (s = 0; s < g_vid.n; ++s) {
+			struct vid_rx *rx = &g_vid.rx[r * g_vid.n + s];
+			const char *wrong_from = "-";
+
+			if (r == s)
+				continue;
+
+			if (rx->wrong_id > 0 &&
+			    (uint32_t)rx->wrong_id <= g_vid.n)
+				wrong_from = g_vid.peers[rx->wrong_id - 1].userid;
+
+			re_printf("VIDEO_RX[%s] recv=%s.%s from=%s.%s "
+				  "frames=%u ok=%u wrong=%u unreadable=%u "
+				  "wrong_from=%s\n",
+				  tag,
+				  g_vid.peers[r].userid, g_vid.peers[r].clientid,
+				  g_vid.peers[s].userid, g_vid.peers[s].clientid,
+				  rx->frames, rx->ok, rx->wrong,
+				  rx->unreadable, wrong_from);
+		}
+		if (g_vid.unknown[r]) {
+			re_printf("VIDEO_RX[%s] recv=%s.%s from=unknown "
+				  "frames=%u\n",
+				  tag,
+				  g_vid.peers[r].userid, g_vid.peers[r].clientid,
+				  g_vid.unknown[r]);
+		}
+	}
+	pthread_mutex_unlock(&g_vid.lock);
+}
+
+static void vid_report_timeout(void *arg)
+{
+	(void)arg;
+
+	vid_report("progress");
+	tmr_start(&sftloader->tmr_vreport, VID_REPORT_MS,
+		  vid_report_timeout, NULL);
+}
+
+static int vid_verify_init(void)
+{
+	struct le *le;
+	uint32_t i = 0;
+
+	g_vid.n = list_count(&sftloader->userl);
+	if (g_vid.n == 0 || g_vid.n > 0xFFFE)
+		return EINVAL;
+
+	g_vid.peers = calloc(g_vid.n, sizeof(*g_vid.peers));
+	g_vid.rx = calloc((size_t)g_vid.n * g_vid.n, sizeof(*g_vid.rx));
+	g_vid.unknown = calloc(g_vid.n, sizeof(*g_vid.unknown));
+	if (!g_vid.peers || !g_vid.rx || !g_vid.unknown)
+		return ENOMEM;
+
+	LIST_FOREACH(&sftloader->userl, le) {
+		struct sft_user *su = le->data;
+
+		str_ncpy(g_vid.peers[i].userid, su->userid, VID_ID_LEN);
+		str_ncpy(g_vid.peers[i].clientid, su->clientid, VID_ID_LEN);
+		re_printf("vid_verify: user %s.%s stamps id %u\n",
+			  su->userid, su->clientid, i + 1);
+		++i;
+	}
+
+	capture_source_set_stamp_handler(vid_stamp_handler, NULL);
+	peerflow_set_render_tap(vid_render_tap, NULL);
+
+	tmr_start(&sftloader->tmr_vreport, VID_REPORT_MS,
+		  vid_report_timeout, NULL);
+
+	return 0;
+}
+
+static void vid_verify_stop(void)
+{
+	capture_source_set_stamp_handler(NULL, NULL);
+	peerflow_set_render_tap(NULL, NULL);
+
+	vid_report("final");
+}
+
+/* Only call once the media threads are gone (after wcall_close) */
+static void vid_verify_free(void)
+{
+	g_vid.n = 0;
+	free(g_vid.peers);
+	free(g_vid.rx);
+	free(g_vid.unknown);
+	g_vid.peers = NULL;
+	g_vid.rx = NULL;
+	g_vid.unknown = NULL;
+}
+
 static int create_user(struct sft_user **sup,
 		       const char *userid, const char *clientid)
 {
@@ -1150,6 +1357,7 @@ static void usage(void)
 		   "\t-d <sec>      call duration\n"
 		   "\t-t <ms>       timeout\n"
 		   "\t-v            send video\n"
+		   "\t-V            stamp and verify received video (implies -v)\n"
 		   "\t-l <file>     log file\n");
 }
 
@@ -1165,7 +1373,7 @@ int main(int argc, char **argv)
 	sftloader->logfp = stdout;
 
 	for (;;) {
-		const int c = getopt(argc, argv, "C:c:d:fhi:l:n:s:S:t:u:v");
+		const int c = getopt(argc, argv, "C:c:d:fhi:l:n:s:S:t:u:vV");
 
 		if (c < 0)
 			break;
@@ -1223,6 +1431,11 @@ int main(int argc, char **argv)
 			sftloader->use_video = true;
 			break;
 
+		case 'V':
+			sftloader->use_video = true;
+			sftloader->verify_video = true;
+			break;
+
 		default:
 			break;
 		}
@@ -1235,7 +1448,7 @@ int main(int argc, char **argv)
 	wcall_init(0);
 	wcall_set_mode(WCALL_MODE_DIRECT);
 	wcall_setup_ex(AVS_FLAG_AUDIO_TEST);
-	dns_init(&sftloader->dnsc);
+	sl_dns_init(&sftloader->dnsc);
 	if (!sftloader->convid)
 		uuid_v4(&sftloader->convid);
 
@@ -1256,12 +1469,23 @@ int main(int argc, char **argv)
 		}
 	}
 	tmr_init(&sftloader->tmr);
+	tmr_init(&sftloader->tmr_vreport);
+	if (sftloader->verify_video) {
+		if (vid_verify_init()) {
+			re_fprintf(stderr, "sftloader: video verify init "
+				   "failed\n");
+			list_flush(&sftloader->userl);
+			ret = 2;
+			goto out;
+		}
+	}
 	tmr_start(&sftloader->tmr, 500, start_timeout, NULL);
 	
 	re_main(signal_handler);
 
  out:
 	tmr_cancel(&sftloader->tmr);
+	tmr_cancel(&sftloader->tmr_vreport);
 
 	if (sftloader->logfp != stdout)
 		fclose(sftloader->logfp);
@@ -1269,8 +1493,13 @@ int main(int argc, char **argv)
 	if (sftloader->use_video) {
 		test_capturer_stop();
 	}
+
+	if (sftloader->verify_video)
+		vid_verify_stop();
 	
 	wcall_close();
+
+	vid_verify_free();
 
 	mem_deref(sftloader);
 	

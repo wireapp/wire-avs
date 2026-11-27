@@ -40,6 +40,8 @@ struct enc_stream {
 	struct le le;
 	webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink;
 	webrtc::VideoSinkWants wants;
+	char *userid;   /* local user, only set for tagged sinks */
+	char *clientid;
 };
 
 static void stream_destructor(void *arg)
@@ -47,7 +49,15 @@ static void stream_destructor(void *arg)
 	struct enc_stream *es = (struct enc_stream*)arg;
 
 	list_unlink(&es->le);
+	mem_deref(es->userid);
+	mem_deref(es->clientid);
 }
+
+/* Test hook for stamping outgoing frames per local user */
+static struct {
+	capture_stamp_h *stamph;
+	void *arg;
+} g_stamp = {NULL, NULL};
 
 namespace wire {
 
@@ -101,6 +111,14 @@ webrtc::RefCountReleaseStatus CaptureSource::Release() const
 void CaptureSource::AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
 				    const webrtc::VideoSinkWants& wants)
 {
+	AddOrUpdateSink(sink, wants, NULL, NULL);
+}
+
+void CaptureSource::AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
+				    const webrtc::VideoSinkWants& wants,
+				    const char *userid,
+				    const char *clientid)
+{
 	struct enc_stream *stream = NULL;
 	struct le *found = NULL;
 	struct le *le = NULL;
@@ -130,6 +148,10 @@ void CaptureSource::AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFram
 		if (stream) {
 			stream->sink = sink;
 			stream->wants = wants;
+			if (userid)
+				str_dup(&stream->userid, userid);
+			if (clientid)
+				str_dup(&stream->clientid, clientid);
 			info("CaptureSource::AddOrUpdateSink: attaching sink: %p clen=%d\n",
 			      sink, list_count(&_streaml));
 
@@ -341,7 +363,47 @@ void CaptureSource::HandleFrame(struct avs_vidframe *frame)
 	LIST_FOREACH(&_streaml, le) {
 		struct enc_stream *stream = (struct enc_stream*)le->data;
 		webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink = stream->sink;
-		sink->OnFrame(rtc_frame);
+
+		if (g_stamp.stamph) {
+			/* Test mode: each sink gets its own stamped copy */
+			webrtc::scoped_refptr<webrtc::I420Buffer> sbuf;
+			struct avs_vidframe sframe;
+			webrtc::VideoFrame::Builder sbuilder;
+
+			sbuf = webrtc::I420Buffer::Copy(*frmbuf);
+
+			memset(&sframe, 0, sizeof(sframe));
+			sframe.type = AVS_VIDFRAME_I420;
+			sframe.y = sbuf->MutableDataY();
+			sframe.u = sbuf->MutableDataU();
+			sframe.v = sbuf->MutableDataV();
+			sframe.ys = sbuf->StrideY();
+			sframe.us = sbuf->StrideU();
+			sframe.vs = sbuf->StrideV();
+			sframe.w = sbuf->width();
+			sframe.h = sbuf->height();
+			sframe.ts = (uint32_t)(ts_us / 1000);
+
+			char uid[128];
+			char cid[128];
+
+			peerflow_test_resolve_self(stream->userid,
+						   stream->clientid,
+						   uid, sizeof(uid),
+						   cid, sizeof(cid));
+			g_stamp.stamph(&sframe,
+				       stream->userid ? uid : NULL,
+				       stream->clientid ? cid : NULL,
+				       g_stamp.arg);
+
+			webrtc::VideoFrame sfrm(sbuilder.set_video_frame_buffer(sbuf).
+				set_timestamp_us(ts_us).
+				set_rotation(rtc_rotation).build());
+			sink->OnFrame(sfrm);
+		}
+		else {
+			sink->OnFrame(rtc_frame);
+		}
 	}
 	lock_rel(_lock);
 
@@ -356,7 +418,52 @@ webrtc::MediaSourceInterface::SourceState CaptureSource::state() const
 
 };
 
+namespace wire {
+
+TaggedCaptureSource::TaggedCaptureSource(CaptureSource *src,
+					 const char *userid,
+					 const char *clientid) :
+	_src(src),
+	_userid(NULL),
+	_clientid(NULL)
+{
+	str_dup(&_userid, userid);
+	str_dup(&_clientid, clientid);
+}
+
+TaggedCaptureSource::~TaggedCaptureSource()
+{
+	mem_deref(_userid);
+	mem_deref(_clientid);
+}
+
+void TaggedCaptureSource::AddOrUpdateSink(
+	webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
+	const webrtc::VideoSinkWants& wants)
+{
+	_src->AddOrUpdateSink(sink, wants, _userid, _clientid);
+}
+
+void TaggedCaptureSource::RemoveSink(
+	webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink)
+{
+	_src->RemoveSink(sink);
+}
+
+};
+
 extern "C" {
+
+void capture_source_set_stamp_handler(capture_stamp_h *stamph, void *arg)
+{
+	g_stamp.arg = arg;
+	g_stamp.stamph = stamph;
+}
+
+bool capture_source_stamp_enabled(void)
+{
+	return g_stamp.stamph != NULL;
+}
 
 void capture_source_handle_frame(struct avs_vidframe *frame)
 {

@@ -33,6 +33,15 @@ public:
 	void AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
 			     const webrtc::VideoSinkWants& wants);
 
+	/* Same as above, but associates the sink with a local
+	 * user/client, which is passed to the test stamp handler
+	 * (see capture_source_set_stamp_handler).
+	 */
+	void AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
+			     const webrtc::VideoSinkWants& wants,
+			     const char *userid,
+			     const char *clientid);
+
 	void RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink);
 
 	void HandleFrame(struct avs_vidframe *frame);
@@ -72,6 +81,51 @@ private:
 	uint32_t     _skipped;
 	uint32_t     _max_pixel_count;
 	bool         _black_frames;
+};
+
+/* Per-peerflow proxy for the shared CaptureSource which tags the sinks
+ * with the local user/client. Only used when a test stamp handler is set.
+ */
+class TaggedCaptureSource : public webrtc::VideoTrackSourceInterface
+{
+public:
+	TaggedCaptureSource(CaptureSource *src,
+			    const char *userid,
+			    const char *clientid);
+	~TaggedCaptureSource();
+
+	void AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
+			     const webrtc::VideoSinkWants& wants) override;
+
+	void RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink) override;
+
+	webrtc::MediaSourceInterface::SourceState state() const override
+	{ return _src->state(); }
+
+	bool remote() const override { return false; }
+
+	bool is_screencast() const override { return false; }
+
+	std::optional<bool> needs_denoising() const override
+	{ return std::nullopt; }
+
+	bool GetStats(Stats* stats) override { return false; }
+
+	bool SupportsEncodedOutput() const override { return false; }
+
+	void GenerateKeyFrame() override {}
+
+	void AddEncodedSink(webrtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>* sink) override {}
+
+	void RemoveEncodedSink(webrtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>* sink) override {}
+
+	void RegisterObserver(webrtc::ObserverInterface* observer) override {}
+	void UnregisterObserver(webrtc::ObserverInterface* observer) override {}
+
+private:
+	CaptureSource *_src;
+	char *_userid;
+	char *_clientid;
 };
 
 };
