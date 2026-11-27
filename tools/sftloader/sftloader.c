@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -20,6 +21,7 @@ struct sftloader {
 	char *convid;
 	char *sft_url;
 	char *sfts_all;
+	char *users_cfg;
 	bool is_federating;
 	uint32_t ncalls;
 	uint32_t nusers;
@@ -39,6 +41,15 @@ struct sft_user {
 	char *userid;
 	char *clientid;
 	char *convid;
+
+	/* Per-user SFT config, sent in CONFIG updates.
+	 * Defaults to the global -s/-S/-f values, can be
+	 * overridden per user with -C <users.json>.
+	 */
+	char *sft_url;   /* "url[|username|credential]" */
+	char *sfts_all;  /* comma separated list of urls */
+	bool is_federating;
+	int answer_ms;   /* <0: random 2-12s */
 
 	struct dnsc *dnsc;
 	struct http_cli *httpc;
@@ -94,7 +105,9 @@ static void su_destructor(void *arg)
 	mem_deref(su->userid);
 	mem_deref(su->clientid);
 	mem_deref(su->convid);
-	
+	mem_deref(su->sft_url);
+	mem_deref(su->sfts_all);
+
 	wcall_destroy(su->wuser);
 
 	mem_deref(su->dnsc);
@@ -326,7 +339,10 @@ static void answer_call(struct sft_user *su)
 {	
 	int tmo;
 
-	tmo = (rand_u32() % 10000) + 2000;
+	if (su->answer_ms >= 0)
+		tmo = su->answer_ms;
+	else
+		tmo = (rand_u32() % 10000) + 2000;
 
 	tmr_start(&su->tmr.t, tmo, answer_timeout, su);
 }
@@ -395,126 +411,134 @@ static void close_handler(int reason,
 	}
 }
 
+/* Append one SFT entry to jarr. spec is "url[|username|credential]" */
+static int add_sft_entry(struct json_object *jarr, const char *spec)
+{
+	struct json_object *jsft;
+	struct json_object *jurls;
+	char *url = NULL;
+	char *user = NULL;
+	char *cred = NULL;
+	int err;
+
+	err = str_dup(&url, spec);
+	if (err)
+		return err;
+
+	user = strchr(url, '|');
+	if (user) {
+		*user++ = 0;
+		cred = strchr(user, '|');
+		if (cred)
+			*cred++ = 0;
+	}
+
+	jsft = jzon_alloc_object();
+	jurls = json_object_new_array();
+	if (!jsft || !jurls) {
+		mem_deref(jsft);
+		mem_deref(jurls);
+		err = ENOMEM;
+		goto out;
+	}
+
+	json_object_array_add(jurls, json_object_new_string(url));
+	json_object_object_add(jsft, "urls", jurls);
+	if (user && *user)
+		json_object_object_add(jsft, "username",
+				       json_object_new_string(user));
+	if (cred && *cred)
+		json_object_object_add(jsft, "credential",
+				       json_object_new_string(cred));
+
+	json_object_array_add(jarr, jsft);
+
+ out:
+	mem_deref(url);
+	return err;
+}
+
 static void cfg_timeout(void *arg)
 {
 	struct sft_user *su = arg;
-
-	char *json_str = NULL;
-
-	struct json_object *jobj;
+	struct json_object *jobj = NULL;
 	struct json_object *jsfts;
 	struct json_object *jsfts_all;
-	struct json_object *jurls;
-	struct json_object *jsft;
-	struct json_object *jurl;
-	struct json_object *juser;
-	struct json_object *jcred;
-
-	char *url;
-	char *user = NULL;
-	char *cred = NULL;
-
+	char *json_str = NULL;
+	char *sfts_all = NULL;
+	char *surl;
+	char *at;
 	int err = 0;
 
-	re_printf("cfg_handler: su: %p URL=%s\n", su, sftloader->sft_url);
+	re_printf("cfg_handler: su: %p(%s) URL=%s ALL=%s federating=%d\n",
+		  su, su->userid, su->sft_url, su->sfts_all,
+		  su->is_federating);
 
-	jobj = json_object_new_object();
-	
+	/* NOTE: jzon copies a child object when it is added to its
+	 * container (and releases the original), so the arrays must
+	 * be complete before they are added to jobj.
+	 */
+	jobj = jzon_alloc_object();
 	jsfts = json_object_new_array();
-	if (!jsfts) {
-		err = ENOMEM;
-		goto out;
-	}
-
 	jsfts_all = json_object_new_array();
-	if (!jsfts_all) {
+	if (!jobj || !jsfts || !jsfts_all) {
 		err = ENOMEM;
 		goto out;
 	}
 
-	str_dup(&url, sftloader->sft_url);
-	jurls = json_object_new_array();
-	jsft = jzon_alloc_object();
-	user = strchr(url, '|');
-	if (user) {
-		*user = 0;
-		user++;
-		cred = strchr(user, '|');
-		if (cred) {
-			*cred = 0;
-			cred++;
-		}
-	}
-				
-	jurl = json_object_new_string(url);
-	if (!jurls || !jsft || !jurl) {
-		err = ENOMEM;
-		goto out;
-	}
-
-	json_object_array_add(jurls, jurl);
-	json_object_object_add(jsft, "urls", jurls);
-	if (user) {
-		juser = json_object_new_string(user);
-		json_object_object_add(jsft, "username", juser);
-	}
-	if (cred) {
-		jcred = json_object_new_string(cred);
-		json_object_object_add(jsft, "credential", jcred);
-	}
-	json_object_array_add(jsfts, jsft);
-
-	{
-	  char *sfts_all;
-	  char *at;
-	  char *surl;
-
-	  if (sftloader->sfts_all) {	  
-	    str_dup(&sfts_all, sftloader->sfts_all);
-	  }
-	  else {
-	    sfts_all = url;
-	  }
-
-	  surl = strtok_r(sfts_all, ",", &at);
-	  while(surl) {
-	    jurls = json_object_new_array();
-	    jsft = jzon_alloc_object();
-	    jurl = json_object_new_string(surl);
-	    if (!jurls || !jsft || !jurl) {
-	      mem_deref(sfts_all);
-	      err = ENOMEM;
-	      goto out;
-	    }
-	    json_object_array_add(jurls, jurl);
-	    json_object_object_add(jsft, "urls", jurls);	  
-	    json_object_array_add(jsfts_all, jsft);
-
-	    surl = strtok_r(NULL, ",", &at);
-	  }
-	  if (sfts_all != url)
-	    mem_deref(sfts_all);
-	}
-	
-	mem_deref(url);
-
-	json_object_object_add(jobj, "sft_servers", jsfts);
-	json_object_object_add(jobj, "sft_servers_all", jsfts_all);
-	json_object_object_add(jobj, "is_federating", json_object_new_boolean(sftloader->is_federating));
-
-	if (!err && jobj) {
-		err = jzon_encode(&json_str, jobj);
+	if (su->sft_url) {
+		err = add_sft_entry(jsfts, su->sft_url);
 		if (err)
 			goto out;
 	}
 
- out:
-	re_printf("config_update json_str=%s\n", json_str);
-	wcall_config_update(su->wuser, 0, json_str);
+	/* If no explicit list of all SFTs, use the SFT url */
+	if (su->sfts_all) {
+		err = str_dup(&sfts_all, su->sfts_all);
+	}
+	else if (su->sft_url) {
+		err = str_dup(&sfts_all, su->sft_url);
+		if (!err) {
+			char *p = strchr(sfts_all, '|');
+			if (p)
+				*p = 0;
+		}
+	}
+	if (err)
+		goto out;
 
+	if (sfts_all) {
+		surl = strtok_r(sfts_all, ",", &at);
+		while (surl) {
+			err = add_sft_entry(jsfts_all, surl);
+			if (err)
+				goto out;
+			surl = strtok_r(NULL, ",", &at);
+		}
+	}
+
+	json_object_object_add(jobj, "sft_servers", jsfts);
+	json_object_object_add(jobj, "sft_servers_all", jsfts_all);
+	jsfts = jsfts_all = NULL;
+	json_object_object_add(jobj, "is_federating",
+			       json_object_new_boolean(su->is_federating));
+
+	err = jzon_encode(&json_str, jobj);
+
+ out:
+	if (err)
+		warning("cfg_timeout: su=%p failed to build config: %m\n",
+			su, err);
+
+	mem_deref(jsfts);
+	mem_deref(jsfts_all);
+
+	re_printf("config_update json_str=%s\n", json_str);
+	wcall_config_update(su->wuser, err, json_str);
+
+	mem_deref(sfts_all);
 	mem_deref(jobj);
 	mem_deref(json_str);
-
 }
 
 static int cfg_handler(WUSER_HANDLE wuser, void *arg)
@@ -733,7 +757,8 @@ static void quality_handler(const char *convid,
 }
 
 
-static int create_user(uint32_t uidno, uint32_t cidno)
+static int create_user(struct sft_user **sup,
+		       const char *userid, const char *clientid)
 {
 	struct sft_user *su;
 	
@@ -741,11 +766,15 @@ static int create_user(uint32_t uidno, uint32_t cidno)
 	if (!su)
 		return ENOMEM;
 
-	su->userid = mem_zalloc(ECONN_ID_LEN, NULL);
-	snprintf(su->userid, ECONN_ID_LEN, "usr%05u", uidno);
-	su->clientid = mem_zalloc(ECONN_ID_LEN, NULL);
-	snprintf(su->clientid, ECONN_ID_LEN, "%04u", cidno);
+	str_dup(&su->userid, userid);
+	str_dup(&su->clientid, clientid);
 	str_dup(&su->convid, sftloader->convid);
+	if (sftloader->sft_url)
+		str_dup(&su->sft_url, sftloader->sft_url);
+	if (sftloader->sfts_all)
+		str_dup(&su->sfts_all, sftloader->sfts_all);
+	su->is_federating = sftloader->is_federating;
+	su->answer_ms = -1;
 	su->ncalls = sftloader->ncalls;
 	su->video_state = WCALL_VIDEO_STATE_STOPPED;
 
@@ -775,9 +804,177 @@ static int create_user(uint32_t uidno, uint32_t cidno)
 	wcall_set_participant_changed_handler(su->wuser, participant_changed_handler, su);
 	wcall_set_network_quality_handler(su->wuser, quality_handler, 10, su);
 
-	re_printf("create_user: su: %p wuser=0x%08x\n", su, su->wuser);
+	re_printf("create_user: su: %p wuser=0x%08x %s.%s\n",
+		  su, su->wuser, su->userid, su->clientid);
+
+	if (sup)
+		*sup = su;
 
 	return 0;
+}
+
+static int create_numbered_user(uint32_t uidno, uint32_t cidno)
+{
+	char userid[ECONN_ID_LEN];
+	char clientid[ECONN_ID_LEN];
+
+	snprintf(userid, sizeof(userid), "usr%05u", uidno);
+	snprintf(clientid, sizeof(clientid), "%04u", cidno);
+
+	return create_user(NULL, userid, clientid);
+}
+
+/* Join an optional "sfts_all" value (array of strings, or a comma
+ * separated string) into a comma separated string.
+ */
+static int sfts_all_from_json(char **dstp, struct json_object *jusr)
+{
+	struct json_object *jall;
+	struct mbuf *mb = NULL;
+	int i, n;
+	int err = 0;
+
+	if (!json_object_object_get_ex(jusr, "sfts_all", &jall) || !jall)
+		return 0;
+
+	if (!jzon_is_array(jall))
+		return str_dup(dstp, json_object_get_string(jall));
+
+	n = json_object_array_length(jall);
+	if (n == 0)
+		return 0;
+
+	mb = mbuf_alloc(256);
+	if (!mb)
+		return ENOMEM;
+
+	for (i = 0; i < n; ++i) {
+		struct json_object *jurl = json_object_array_get_idx(jall, i);
+		const char *url = jurl ? json_object_get_string(jurl) : NULL;
+
+		if (!url)
+			continue;
+		err = mbuf_printf(mb, "%s%s", mb->end ? "," : "", url);
+		if (err)
+			goto out;
+	}
+
+	mb->pos = 0;
+	err = mbuf_strdup(mb, dstp, mb->end);
+
+ out:
+	mem_deref(mb);
+	return err;
+}
+
+/* Load per-user config from a JSON file:
+ * [
+ *   {"userid": "usrA", "clientid": "0000",
+ *    "sft_url": "https://sft1[|user|cred]",
+ *    "sfts_all": ["https://sft1", ...] | "https://sft1,https://sft2",
+ *    "is_federating": true,
+ *    "answer_ms": 1000},
+ *   ...
+ * ]
+ * Only "userid" is mandatory, other fields default to the global
+ * -c/-s/-S/-f values. The first entry starts the call.
+ */
+static int load_users_cfg(const char *path)
+{
+	struct json_object *jarr = NULL;
+	struct mbuf *mb = NULL;
+	FILE *fp;
+	char buf[4096];
+	size_t n;
+	int i, nusers;
+	int err = 0;
+
+	fp = fopen(path, "r");
+	if (!fp) {
+		err = errno;
+		re_fprintf(stderr, "sftloader: cannot open %s: %m\n",
+			   path, err);
+		return err;
+	}
+
+	mb = mbuf_alloc(sizeof(buf));
+	if (!mb) {
+		err = ENOMEM;
+		goto out;
+	}
+	while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+		err = mbuf_write_mem(mb, (uint8_t *)buf, n);
+		if (err)
+			goto out;
+	}
+
+	err = jzon_decode(&jarr, (char *)mb->buf, mb->end);
+	if (err || !jzon_is_array(jarr)) {
+		re_fprintf(stderr, "sftloader: %s: expected a JSON array\n",
+			   path);
+		err = err ? err : EINVAL;
+		goto out;
+	}
+
+	nusers = json_object_array_length(jarr);
+	for (i = 0; i < nusers; ++i) {
+		struct json_object *jusr = json_object_array_get_idx(jarr, i);
+		struct sft_user *su = NULL;
+		const char *userid;
+		char clientid[ECONN_ID_LEN];
+		char *str = NULL;
+		int answer_ms;
+
+		userid = jusr ? jzon_str(jusr, "userid") : NULL;
+		if (!userid) {
+			re_fprintf(stderr, "sftloader: %s: entry %d has "
+				   "no userid\n", path, i);
+			err = EINVAL;
+			goto out;
+		}
+		if (jzon_str(jusr, "clientid"))
+			str_ncpy(clientid, jzon_str(jusr, "clientid"),
+				 sizeof(clientid));
+		else
+			snprintf(clientid, sizeof(clientid), "%04u",
+				 sftloader->clientno);
+
+		err = create_user(&su, userid, clientid);
+		if (err)
+			goto out;
+
+		if (0 == jzon_strdup(&str, jusr, "sft_url")) {
+			mem_deref(su->sft_url);
+			su->sft_url = str;
+			str = NULL;
+		}
+
+		err = sfts_all_from_json(&str, jusr);
+		if (err)
+			goto out;
+		if (str) {
+			mem_deref(su->sfts_all);
+			su->sfts_all = str;
+		}
+
+		su->is_federating = jzon_bool_opt(jusr, "is_federating",
+						  su->is_federating);
+		if (0 == jzon_int(&answer_ms, jusr, "answer_ms"))
+			su->answer_ms = answer_ms;
+
+		re_printf("user[%d]: %s.%s sft=%s all=%s fed=%d answer=%d\n",
+			  i, su->userid, su->clientid,
+			  su->sft_url, su->sfts_all,
+			  su->is_federating, su->answer_ms);
+	}
+	sftloader->nusers = nusers;
+
+ out:
+	fclose(fp);
+	mem_deref(mb);
+	mem_deref(jarr);
+
+	return err;
 }
 
 //static void call_timeout(void *arg);
@@ -933,13 +1130,33 @@ static void sl_destructor(void *arg)
 	mem_deref(sl->convid);
 	mem_deref(sl->sft_url);
 	mem_deref(sl->sfts_all);
+	mem_deref(sl->users_cfg);
 	mem_deref(sl->dnsc);
 	
+}
+
+static void usage(void)
+{
+	re_fprintf(stderr,
+		   "usage: sftloader [options]\n"
+		   "\t-u <n>        number of users\n"
+		   "\t-c <n>        clientid number\n"
+		   "\t-s <url>      SFT url (url[|user|cred])\n"
+		   "\t-S <urls>     comma separated list of all SFTs\n"
+		   "\t-f            federating\n"
+		   "\t-C <file>     per-user config JSON, overrides -u\n"
+		   "\t-i <convid>   conversation id\n"
+		   "\t-n <n>        number of calls per user\n"
+		   "\t-d <sec>      call duration\n"
+		   "\t-t <ms>       timeout\n"
+		   "\t-v            send video\n"
+		   "\t-l <file>     log file\n");
 }
 
 int main(int argc, char **argv)
 {
 	uint32_t i;
+	int ret = 0;
 
 	sftloader = mem_zalloc(sizeof(*sftloader), sl_destructor);
 	
@@ -948,12 +1165,20 @@ int main(int argc, char **argv)
 	sftloader->logfp = stdout;
 
 	for (;;) {
-		const int c = getopt(argc, argv, "c:d:fi:l:n:s:S:t:u:v");
+		const int c = getopt(argc, argv, "C:c:d:fhi:l:n:s:S:t:u:v");
 
 		if (c < 0)
 			break;
 
 		switch (c) {
+		case 'C':
+			str_dup(&sftloader->users_cfg, optarg);
+			break;
+
+		case 'h':
+			usage();
+			return 0;
+
 		case 'c':
 			sftloader->clientno = atoi(optarg);
 			break;
@@ -1018,14 +1243,24 @@ int main(int argc, char **argv)
 		test_capturer_init();
 		test_capturer_start_dynamic(640,480,15);
 	}
-	for (i = 0; i < sftloader->nusers; ++i) {
-		create_user(i, sftloader->clientno);
+	if (sftloader->users_cfg) {
+		if (load_users_cfg(sftloader->users_cfg)) {
+			list_flush(&sftloader->userl);
+			ret = 2;
+			goto out;
+		}
+	}
+	else {
+		for (i = 0; i < sftloader->nusers; ++i) {
+			create_numbered_user(i, sftloader->clientno);
+		}
 	}
 	tmr_init(&sftloader->tmr);
 	tmr_start(&sftloader->tmr, 500, start_timeout, NULL);
 	
 	re_main(signal_handler);
 
+ out:
 	tmr_cancel(&sftloader->tmr);
 
 	if (sftloader->logfp != stdout)
@@ -1043,5 +1278,5 @@ int main(int argc, char **argv)
 	//tmr_debug();
 	//mem_debug();
 	
-	return 0;
+	return ret;
 }
