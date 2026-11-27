@@ -23,8 +23,8 @@ xcshareddata
 zcontrib
 ztest
 ztest-slow
-sectest
-sftloader
+/sectest
+/sftloader
 devtools
 BUILDCONTROL.local
 artifacts
