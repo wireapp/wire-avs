@@ -863,12 +863,17 @@ static void vid_render_tap(const struct avs_vidframe *frame,
 	pthread_mutex_unlock(&g_vid.lock);
 }
 
-static void vid_report(const char *tag)
+/* Prints per-pair results, returns the number of failed pairs.
+ * A pair fails if no correctly stamped frame was received,
+ * or if any frame carried another sender's stamp.
+ */
+static uint32_t vid_report(const char *tag)
 {
 	uint32_t r, s;
+	uint32_t nfailed = 0;
 
 	if (!g_vid.n)
-		return;
+		return 0;
 
 	pthread_mutex_lock(&g_vid.lock);
 	for (r = 0; r < g_vid.n; ++r) {
@@ -882,6 +887,9 @@ static void vid_report(const char *tag)
 			if (rx->wrong_id > 0 &&
 			    (uint32_t)rx->wrong_id <= g_vid.n)
 				wrong_from = g_vid.peers[rx->wrong_id - 1].userid;
+
+			if (rx->ok == 0 || rx->wrong > 0)
+				++nfailed;
 
 			re_printf("VIDEO_RX[%s] recv=%s.%s from=%s.%s "
 				  "frames=%u ok=%u wrong=%u unreadable=%u "
@@ -901,6 +909,8 @@ static void vid_report(const char *tag)
 		}
 	}
 	pthread_mutex_unlock(&g_vid.lock);
+
+	return nfailed;
 }
 
 static void vid_report_timeout(void *arg)
@@ -946,12 +956,21 @@ static int vid_verify_init(void)
 	return 0;
 }
 
-static void vid_verify_stop(void)
+/* Returns true if every pair received correctly stamped video */
+static bool vid_verify_stop(void)
 {
+	uint32_t npairs = g_vid.n ? g_vid.n * (g_vid.n - 1) : 0;
+	uint32_t nfailed;
+
 	capture_source_set_stamp_handler(NULL, NULL);
 	peerflow_set_render_tap(NULL, NULL);
 
-	vid_report("final");
+	nfailed = vid_report("final");
+
+	re_printf("VIDEO_VERIFY: %s pairs=%u failed=%u\n",
+		  nfailed ? "FAIL" : "PASS", npairs, nfailed);
+
+	return nfailed == 0;
 }
 
 /* Only call once the media threads are gone (after wcall_close) */
@@ -1359,7 +1378,8 @@ static void usage(void)
 		   "\t-d <sec>      call duration\n"
 		   "\t-t <ms>       timeout\n"
 		   "\t-v            send video\n"
-		   "\t-V            stamp and verify received video (implies -v)\n"
+		   "\t-V            stamp and verify received video (implies -v),\n"
+		   "\t              exit 1 if any pair got no or wrong video\n"
 		   "\t-P <pattern>  video pattern: head (default) or octo\n"
 		   "\t-l <file>     log file\n");
 }
@@ -1515,8 +1535,11 @@ int main(int argc, char **argv)
 		test_capturer_stop();
 	}
 
-	if (sftloader->verify_video)
-		vid_verify_stop();
+	if (sftloader->verify_video) {
+		/* Keep an earlier setup error (2) if there was one */
+		if (!vid_verify_stop() && ret == 0)
+			ret = 1;
+	}
 	
 	wcall_close();
 
