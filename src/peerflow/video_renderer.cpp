@@ -158,6 +158,7 @@ void VideoRendererSink::OnFrame(const webrtc::VideoFrame& frame)
 	avsframe.us = i420->StrideU();
 	avsframe.vs = i420->StrideV();
 
+	peerflow_render_tap(pf_, &avsframe, userid_remote_, clientid_remote_);
 	iflow_render_frameh(&avsframe, userid_remote_, clientid_remote_);
 		
 }

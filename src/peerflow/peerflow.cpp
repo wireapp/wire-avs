@@ -2829,9 +2829,23 @@ static int create_pf(struct peerflow *pf)
 	if (pf->call_type == ICALL_CALL_TYPE_VIDEO ||
 	    pf->vstate != ICALL_VIDEO_STATE_STOPPED) {
 
-		pf->video.track = factory->CreateVideoTrack(
-			 g_pf.video.src,
-			 "vtrack");
+		if (capture_source_stamp_enabled()) {
+			/* Test mode: tag sinks with the local user */
+			webrtc::scoped_refptr<wire::TaggedCaptureSource> tsrc =
+				webrtc::make_ref_counted<wire::TaggedCaptureSource>(
+					g_pf.video.src.get(),
+					pf->userid_self,
+					pf->clientid_self);
+
+			pf->video.track = factory->CreateVideoTrack(
+				 tsrc,
+				 "vtrack");
+		}
+		else {
+			pf->video.track = factory->CreateVideoTrack(
+				 g_pf.video.src,
+				 "vtrack");
+		}
 
 		pf->video.track->set_enabled(true);
 		if (pf->conv_type == ICALL_CONV_TYPE_ONEONONE) {
@@ -4039,6 +4053,111 @@ void peerflow_stop_media(struct iflow *iflow)
 	IFLOW_CALL_CB(pf->iflow, stoppedh, pf->iflow.arg);
 }
 
+
+/* Test hook, see peerflow_set_render_tap */
+static struct {
+	peerflow_render_tap_h *taph;
+	void *arg;
+} g_render_tap = {NULL, NULL};
+
+void peerflow_set_render_tap(peerflow_render_tap_h *taph, void *arg)
+{
+	g_render_tap.arg = arg;
+	g_render_tap.taph = taph;
+}
+
+void peerflow_render_tap(struct peerflow *pf,
+			 const struct avs_vidframe *frame,
+			 const char *userid_remote,
+			 const char *clientid_remote)
+{
+	char uid[128];
+	char cid[128];
+
+	if (!g_render_tap.taph || !pf)
+		return;
+
+	peerflow_test_resolve_self(pf->userid_self, pf->clientid_self,
+				   uid, sizeof(uid), cid, sizeof(cid));
+
+	g_render_tap.taph(frame,
+			  uid, cid,
+			  userid_remote, clientid_remote,
+			  g_render_tap.arg);
+}
+
+/* hashed -> real self ids, see peerflow_test_register_self. Entries are
+ * kept for the lifetime of the process (test only, a few per call).
+ */
+struct self_alias {
+	struct self_alias *next;
+	char *userid_hash;
+	char *clientid_hash;
+	char *userid_real;
+	char *clientid_real;
+};
+
+static struct {
+	pthread_mutex_t lock;
+	struct self_alias *head;
+} g_self_alias = {PTHREAD_MUTEX_INITIALIZER, NULL};
+
+void peerflow_test_register_self(const char *userid_hash,
+				 const char *clientid_hash,
+				 const char *userid_real,
+				 const char *clientid_real)
+{
+	struct self_alias *sa;
+
+	if (!g_render_tap.taph && !capture_source_stamp_enabled())
+		return;
+
+	if (!userid_hash || !clientid_hash || !userid_real || !clientid_real)
+		return;
+
+	pthread_mutex_lock(&g_self_alias.lock);
+	for (sa = g_self_alias.head; sa; sa = sa->next) {
+		if (streq(sa->userid_hash, userid_hash) &&
+		    streq(sa->clientid_hash, clientid_hash))
+			break;
+	}
+	if (!sa) {
+		sa = (struct self_alias *)calloc(1, sizeof(*sa));
+		if (sa) {
+			sa->userid_hash = strdup(userid_hash);
+			sa->clientid_hash = strdup(clientid_hash);
+			sa->userid_real = strdup(userid_real);
+			sa->clientid_real = strdup(clientid_real);
+			sa->next = g_self_alias.head;
+			g_self_alias.head = sa;
+		}
+	}
+	pthread_mutex_unlock(&g_self_alias.lock);
+}
+
+void peerflow_test_resolve_self(const char *userid, const char *clientid,
+				char *userid_out, size_t userid_sz,
+				char *clientid_out, size_t clientid_sz)
+{
+	struct self_alias *sa;
+
+	str_ncpy(userid_out, userid ? userid : "", userid_sz);
+	str_ncpy(clientid_out, clientid ? clientid : "", clientid_sz);
+
+	if (!userid || !clientid)
+		return;
+
+	pthread_mutex_lock(&g_self_alias.lock);
+	for (sa = g_self_alias.head; sa; sa = sa->next) {
+		if (streq(sa->userid_hash, userid) &&
+		    streq(sa->clientid_hash, clientid)) {
+			str_ncpy(userid_out, sa->userid_real, userid_sz);
+			str_ncpy(clientid_out, sa->clientid_real, clientid_sz);
+			break;
+		}
+	}
+	pthread_mutex_unlock(&g_self_alias.lock);
+}
 
 int peerflow_get_userid_for_ssrc(struct peerflow* pf,
 				 uint32_t csrc,

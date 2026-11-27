@@ -26,7 +26,8 @@
 
 enum captype {
 	CAP_TYPE_STATIC = 0,
-	CAP_TYPE_DYNAMIC
+	CAP_TYPE_DYNAMIC,
+	CAP_TYPE_HEAD
 };
 
 static struct {
@@ -40,6 +41,8 @@ static struct {
 } _capturer;
 
 void draw_octotunnel(uint8_t *buff, uint32_t bw, uint32_t bh);
+void draw_talkinghead(uint8_t *buff, uint32_t w, uint32_t h,
+		      uint32_t fnum, uint32_t fps);
 
 static uint8_t *draw_byte(uint8_t *buff, uint8_t byte, uint32_t scale)
 {
@@ -124,6 +127,100 @@ int32_t test_capturer_framenum(uint8_t *buf, uint32_t w)
 	return fnum;
 }
 
+/* Sender id stamp: 32 cells in one row, each cell w/40 pixels wide and
+ * high, starting at y = w/40 (below the frame number). Bits, MSB first:
+ * sync (8) | id (16) | check (8)
+ */
+#define STAMP_CELLS    32
+#define STAMP_SYNC     0xA5
+#define STAMP_CHECK(id) ((((id) >> 8) ^ ((id) & 0xFF) ^ 0x5A) & 0xFF)
+
+static uint32_t stamp_bits(uint16_t id)
+{
+	return ((uint32_t)STAMP_SYNC << 24) | ((uint32_t)id << 8) |
+		STAMP_CHECK(id);
+}
+
+static void stamp_geometry(int w, int h, uint32_t cell,
+			   int *x0, int *x1, int *y0, int *y1)
+{
+	*x0 = (int)((uint64_t)cell * w / 40);
+	*x1 = (int)((uint64_t)(cell + 1) * w / 40);
+	*y0 = w / 40;
+	*y1 = 2 * (w / 40);
+	if (*y1 > h)
+		*y1 = h;
+}
+
+void test_capturer_stamp_id(struct avs_vidframe *frame, uint16_t id)
+{
+	uint32_t bits = stamp_bits(id);
+	uint32_t c;
+	int y;
+
+	if (!frame || frame->type != AVS_VIDFRAME_I420 ||
+	    frame->w < 80 || frame->h < 8)
+		return;
+
+	for (c = 0; c < STAMP_CELLS; c++) {
+		uint8_t color = (bits & (1u << (31 - c))) ? 255 : 0;
+		int x0, x1, y0, y1;
+
+		stamp_geometry(frame->w, frame->h, c, &x0, &x1, &y0, &y1);
+		for (y = y0; y < y1; y++) {
+			memset(frame->y + y * frame->ys + x0, color, x1 - x0);
+		}
+		/* neutral chroma */
+		for (y = y0 / 2; y < (y1 + 1) / 2; y++) {
+			memset(frame->u + y * frame->us + x0 / 2, 128,
+			       (x1 - x0 + 1) / 2);
+			memset(frame->v + y * frame->vs + x0 / 2, 128,
+			       (x1 - x0 + 1) / 2);
+		}
+	}
+}
+
+int32_t test_capturer_read_id(const struct avs_vidframe *frame)
+{
+	uint32_t bits = 0;
+	uint32_t c;
+	uint16_t id;
+
+	if (!frame || frame->type != AVS_VIDFRAME_I420 ||
+	    frame->w < 80 || frame->h < 8)
+		return -1;
+
+	for (c = 0; c < STAMP_CELLS; c++) {
+		int x0, x1, y0, y1, x, y;
+		uint32_t sum = 0, n = 0;
+		int mx, my;
+
+		stamp_geometry(frame->w, frame->h, c, &x0, &x1, &y0, &y1);
+
+		/* average the inner half of the cell */
+		mx = (x1 - x0) / 4;
+		my = (y1 - y0) / 4;
+		for (y = y0 + my; y < y1 - my; y++) {
+			for (x = x0 + mx; x < x1 - mx; x++) {
+				sum += frame->y[y * frame->ys + x];
+				n++;
+			}
+		}
+		bits <<= 1;
+		if (n && sum / n > 128)
+			bits |= 1;
+	}
+
+	if ((bits >> 24) != STAMP_SYNC)
+		return -1;
+
+	id = (bits >> 8) & 0xFFFF;
+	if ((bits & 0xFF) != STAMP_CHECK(id))
+		return -1;
+
+	return id;
+}
+
 static void *frame_thread(void *arg)
 {
 	uint32_t ysz = _capturer.width * _capturer.height;
@@ -168,6 +265,12 @@ static void *frame_thread(void *arg)
 
 		if (_capturer.typ == CAP_TYPE_DYNAMIC) {
 			draw_octotunnel(_capturer.buffer, _capturer.width, _capturer.height);
+			draw_fnum(_capturer.buffer, _capturer.width, fnum++);
+		}
+		else if (_capturer.typ == CAP_TYPE_HEAD) {
+			draw_talkinghead(_capturer.buffer,
+					 _capturer.width, _capturer.height,
+					 fnum, _capturer.fps);
 			draw_fnum(_capturer.buffer, _capturer.width, fnum++);
 		}
 
@@ -217,7 +320,8 @@ void test_capturer_start_static(const char *fname, uint32_t fps)
 	}
 }
 
-void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps)
+static void start_generated(enum captype typ,
+			    uint32_t w, uint32_t h, uint32_t fps)
 {
 	int err =0;
 
@@ -226,7 +330,7 @@ void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps)
 	}
 
 	memset(&_capturer, 0, sizeof(_capturer));
-	_capturer.typ = CAP_TYPE_DYNAMIC;
+	_capturer.typ = typ;
 	_capturer.width = w;
 	_capturer.height = h;
 	_capturer.fps = fps;
@@ -236,7 +340,16 @@ void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps)
 		_capturer.running = false;
 		return;
 	}
-	
+}
+
+void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps)
+{
+	start_generated(CAP_TYPE_DYNAMIC, w, h, fps);
+}
+
+void test_capturer_start_head(uint32_t w, uint32_t h, uint32_t fps)
+{
+	start_generated(CAP_TYPE_HEAD, w, h, fps);
 }
 
 void test_capturer_stop(void)

@@ -22,10 +22,23 @@
 void test_capturer_init(void);
 
 void test_capturer_start_static(const char *fname, uint32_t fps);
+/* octotunnel: worst case content for the encoder (stress mode) */
 void test_capturer_start_dynamic(uint32_t w, uint32_t h, uint32_t fps);
+/* procedural talking head: webcam-like content */
+void test_capturer_start_head(uint32_t w, uint32_t h, uint32_t fps);
 void test_capturer_stop(void);
 
 int32_t test_capturer_framenum(uint8_t *buf, uint32_t w);
+
+struct avs_vidframe;
+
+/* Stamp/read a 16 bit sender id into/from an I420 frame. The stamp is a
+ * band of large black/white cells (relative to the frame width) below the
+ * frame number, with a sync and a check byte, so it survives encoding and
+ * downscaling. test_capturer_read_id returns -1 if no valid stamp found.
+ */
+void test_capturer_stamp_id(struct avs_vidframe *frame, uint16_t id);
+int32_t test_capturer_read_id(const struct avs_vidframe *frame);
 
 #endif
 
