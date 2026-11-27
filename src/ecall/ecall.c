@@ -3377,8 +3377,10 @@ static void quality_handler(void *arg)
 
 		ecall->metrics.m.packetloss_last = dloss;
 		ecall->metrics.m.packetloss_max = MAX(ecall->metrics.m.packetloss_max, dloss);
-		ecall->metrics.m.rtt_last = rtt;
-		ecall->metrics.m.rtt_max = MAX(ecall->metrics.m.rtt_max, rtt);
+		if (stats.rtt.candidate_pair_valid) {
+			ecall->metrics.m.rtt_last = rtt;
+			ecall->metrics.m.rtt_max = MAX(ecall->metrics.m.rtt_max, rtt);
+		}
 	}
 	stats_report_release(&stats);
 }

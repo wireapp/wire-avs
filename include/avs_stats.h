@@ -66,6 +66,7 @@ struct stats_channel {
 struct stats_rtt {
 	struct stats_channel remote_inbound;
 	uint32_t candidate_pair;
+	bool candidate_pair_valid;
 };
 
 struct stats_packet_counts {

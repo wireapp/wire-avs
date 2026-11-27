@@ -68,6 +68,30 @@ bool operator==(const stats_report& lhs, const stats_report& rhs) {
 
 const auto zero_report = stats_report {};
 
+TEST(StatsRttValidity, MissingMeasurementIsNotZeroRtt) {
+	avs_stats *stats = nullptr;
+	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_ONEONONE, nullptr));
+	stats_report report = {};
+	ASSERT_EQ(0, stats_update(stats, R"([
+	 {"type":"candidate-pair","id":"pair","selected":true}
+	])"));
+	stats_get_report(stats, &report);
+	EXPECT_TRUE(report.ice_pair_selected);
+	EXPECT_FALSE(report.rtt.candidate_pair_valid);
+	EXPECT_DOUBLE_EQ(-1, report.mos_estimate);
+	ASSERT_EQ(0, stats_update(stats, R"([
+	 {"type":"candidate-pair","id":"pair","selected":true,"currentRoundTripTime":0}
+	])"));
+	stats_get_report(stats, &report);
+	EXPECT_TRUE(report.rtt.candidate_pair_valid);
+	EXPECT_EQ(0u, report.rtt.candidate_pair);
+	ASSERT_EQ(0, stats_update(stats, "[]"));
+	stats_get_report(stats, &report);
+	EXPECT_FALSE(report.rtt.candidate_pair_valid);
+	EXPECT_DOUBLE_EQ(-1, report.mos_estimate);
+	mem_deref(stats);
+}
+
 TEST(IceSelection, FirefoxSelectedPairWithoutTransportOrRemoteCandidate) {
 	avs_stats *stats = nullptr;
 	ASSERT_EQ(0, stats_alloc(&stats, ICALL_CONV_TYPE_CONFERENCE_MLS, nullptr));

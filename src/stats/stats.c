@@ -210,6 +210,7 @@ struct stats_candidate_pair {
 	enum stats_state state;
 	bool nominated;
 	bool selected;
+	bool has_rtt;
 	double current_rtt;
 	char *id;
 	char *local_candidate_id;
@@ -567,7 +568,11 @@ static int read_rtt_and_connection(struct avs_stats *stats, const struct stats_o
 	if (!selected)
 		goto out;
 	stats->report.ice_pair_selected = true;
-	stats->report.rtt.candidate_pair = 1000 * selected->current_rtt;
+	if (selected->has_rtt && isfinite(selected->current_rtt) &&
+	    selected->current_rtt >= 0 && selected->current_rtt <= UINT32_MAX / 1000.0) {
+		stats->report.rtt.candidate_pair = 1000 * selected->current_rtt;
+		stats->report.rtt.candidate_pair_valid = true;
+	}
 	// use last connected local candidate id to get connection details
 	LIST_FOREACH(&stats_obj->local_candidate, le) {
 		const struct stats_local_candidate *data = (struct stats_local_candidate *)le->data;
@@ -798,7 +803,7 @@ static struct stats_candidate_pair *parse_candidate_pair(struct json_object *jit
 	data->state = stats_parse_state(state_str);
 	jzon_bool(&data->nominated, jitem, "nominated");
 	jzon_bool(&data->selected, jitem, "selected");
-	jzon_double(&data->current_rtt, jitem, "currentRoundTripTime");
+	data->has_rtt = !jzon_double(&data->current_rtt, jitem, "currentRoundTripTime");
 
 	id_str = jzon_str(jitem, "id");
 	if (id_str) {
@@ -1035,10 +1040,19 @@ static float normalize_quality(const struct avs_stats *stats) {
 	float rtt = 0;
 	float jitter = 0;
 	float packet_loss = 0;
+	bool has_rtt = stats->report.rtt.candidate_pair_valid;
 
 	if ( stats->conv_type == ICALL_CONV_TYPE_CONFERENCE || stats->conv_type == ICALL_CONV_TYPE_CONFERENCE_MLS) {
 		// provide slightly higher importance to upstream stats fon conference
-		rtt = UPSTREAM_WEIGHT * rtt_remote_inbound + DOWNSTREM_WEIGHT * rtt_candidate_pair;
+		bool has_remote_rtt = stats->report.rtt.remote_inbound.audio > 0 ||
+			stats->report.rtt.remote_inbound.video > 0;
+		if (has_rtt && has_remote_rtt)
+			rtt = UPSTREAM_WEIGHT * rtt_remote_inbound + DOWNSTREM_WEIGHT * rtt_candidate_pair;
+		else if (has_remote_rtt)
+			rtt = rtt_remote_inbound;
+		else if (has_rtt)
+			rtt = rtt_candidate_pair;
+		has_rtt = has_rtt || has_remote_rtt;
 		jitter = UPSTREAM_WEIGHT * jitter_tx + DOWNSTREM_WEIGHT * jitter_rx;
 		packet_loss = UPSTREAM_WEIGHT * packet_loss_tx + DOWNSTREM_WEIGHT * packet_loss_rx;
 	}
@@ -1050,6 +1064,9 @@ static float normalize_quality(const struct avs_stats *stats) {
 	}
 
 	// provide packet loss and jitter a bit more importance than latency
+	if (!has_rtt)
+		return (JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss) /
+			(JITTER_WEIGHT + PACKET_LOSS_WEIGHT);
 	return JITTER_WEIGHT * jitter + PACKET_LOSS_WEIGHT * packet_loss + RTT_WEIGHT * rtt;
 }
 
@@ -1317,9 +1334,10 @@ static int copy_report(struct avs_stats *stats, struct stats_report *report)
 
 	// Process raw stats to generate ema and mos estimate enhancements
 	err = ema_get_val(stats->ema, &stats->report.quality_index);
-	stats->report.mos_estimate = g107_2_estimate(stats->report.rtt.candidate_pair, 
+	stats->report.mos_estimate = stats->report.rtt.candidate_pair_valid ?
+		g107_2_estimate(stats->report.rtt.candidate_pair,
 		stats->report.loss_percentages.channel.audio, 
-		stats->report.jitter_buffer_delay.audio);
+		stats->report.jitter_buffer_delay.audio) : -1;
 
 	*report = stats->report;
 	report->rx_tracks = NULL;
