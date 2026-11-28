@@ -214,7 +214,7 @@ struct peerflow {
 
 	struct tmr tmr_stats;
 	struct tmr tmr_gather;
-	wire::NetStatsCallback *netStatsCb;
+	webrtc::scoped_refptr<wire::NetStatsCallback> netStatsCb;
 	std::string remoteSdp;
 	bool selective_audio;
 	bool selective_video;
@@ -1282,8 +1282,8 @@ public:
 			
 		case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
 		{
-			wire::CallStatsCallback *cb = new wire::CallStatsCallback(pf_);
-                        pf_->peerConn->GetStats(cb);
+			pf_->peerConn->GetStats(
+				webrtc::make_ref_counted<wire::CallStatsCallback>(pf_).get());
 				
 			send_close(pf_, 0);
 		}
@@ -2193,7 +2193,7 @@ static void pf_destructor(void *arg)
 	tmr_cancel(&pf->tmr_stats);
 	tmr_cancel(&pf->tmr_gather);
 
-	delete pf->netStatsCb;
+	/* Pending GetStats requests keep their own reference */
 	pf->netStatsCb = NULL;
 
 	tmr_cancel(&pf->tmr_cbr);
@@ -2270,7 +2270,7 @@ static void timer_stats(void *arg)
 		lock_rel(pf->cml.lock);
 	}
 
-	pf->peerConn->GetStats(pf->netStatsCb);
+	pf->peerConn->GetStats(pf->netStatsCb.get());
 
  out:
 	tmr_start(&pf->tmr_stats, TMR_STATS_INTERVAL, timer_stats, pf);
@@ -2492,7 +2492,7 @@ int peerflow_alloc(struct iflow		**flowp,
 	list_append(&g_pf.pfl, &pf->le, pf);
 	lock_rel(g_pf.lock);
 
-	pf->netStatsCb = new wire::NetStatsCallback(pf, pf->stats);
+	pf->netStatsCb = webrtc::make_ref_counted<wire::NetStatsCallback>(pf, pf->stats);
 
 	tmr_start(&pf->tmr_stats, TMR_STATS_INTERVAL, timer_stats, pf);
  out:

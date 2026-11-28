@@ -46,13 +46,6 @@ public:
 		info("peerflow(%p): stats: %s\n", pf_, report->ToJson().c_str());
 	}
 
-	void AddRef() const {
-	}
-
-	virtual webrtc::RefCountReleaseStatus Release() const {
-		return webrtc::RefCountReleaseStatus::kDroppedLastRef;
-	}
-
 private:
 	struct peerflow *pf_;
 };
@@ -94,13 +87,6 @@ public:
 		lock_rel(lock_);
 	}
 
-	void AddRef() const {
-	}
-
-	virtual webrtc::RefCountReleaseStatus Release() const {
-		return webrtc::RefCountReleaseStatus::kDroppedLastRef;
-	}
-	
 
 private:
 	struct peerflow* pf_;
